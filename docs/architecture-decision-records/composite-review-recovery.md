@@ -18,6 +18,11 @@ lineage, ordinary publication integrity, and exact target-content digest
 equality before recomputing the effective review under the root's published
 policy.
 
+Every newly published rerun binds its exact source attempt in immutable
+lineage. The additive v1 field preserves legacy readability; a legacy rerun
+without that binding remains queryable but is not eligible as a composite
+recovery source because its exact origin cannot be proved.
+
 Composite artifacts use dedicated v1 manifest and final-review schemas. Their
 `review_composition` provenance is distinct from captured target identity and
 child-run lineage. Publication copies the verified role reports and target

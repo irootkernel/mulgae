@@ -72,6 +72,7 @@ type preparedLineage struct {
 	parentRunID      *domain.RunID
 	sourceRunID      *domain.RunID
 	sourceReviewID   *domain.ReviewID
+	sourceAttemptID  *domain.AttemptID
 	sourceFindingRef *string
 	replayMode       *ReplayMode
 }
@@ -148,6 +149,7 @@ func NewChildPublicationContext(
 	parentRunID domain.RunID,
 	sourceRunID domain.RunID,
 	sourceReviewID domain.ReviewID,
+	sourceAttemptID *domain.AttemptID,
 	sourceFindingRef *string,
 	replayMode *ReplayMode,
 ) (RunPublicationContext, error) {
@@ -157,6 +159,10 @@ func NewChildPublicationContext(
 	context := RunPublicationContext{lineage: preparedLineage{
 		runType: runType, parentRunID: &parent, sourceRunID: &source, sourceReviewID: &review,
 	}}
+	if sourceAttemptID != nil {
+		value := *sourceAttemptID
+		context.lineage.sourceAttemptID = &value
+	}
 	if sourceFindingRef != nil {
 		value := *sourceFindingRef
 		context.lineage.sourceFindingRef = &value
@@ -179,7 +185,7 @@ func (context RunPublicationContext) validate() error {
 	lineage := context.lineage
 	if lineage.runType == "" {
 		if lineage.parentRunID != nil || lineage.sourceRunID != nil || lineage.sourceReviewID != nil ||
-			lineage.sourceFindingRef != nil || lineage.replayMode != nil {
+			lineage.sourceAttemptID != nil || lineage.sourceFindingRef != nil || lineage.replayMode != nil {
 			return fmt.Errorf("root lineage cannot contain child fields")
 		}
 		return nil
@@ -189,7 +195,7 @@ func (context RunPublicationContext) validate() error {
 	}
 	if lineage.runType == domain.RunTypeReview {
 		if lineage.parentRunID != nil || lineage.sourceRunID != nil || lineage.sourceReviewID != nil ||
-			lineage.sourceFindingRef != nil || lineage.replayMode != nil {
+			lineage.sourceAttemptID != nil || lineage.sourceFindingRef != nil || lineage.replayMode != nil {
 			return fmt.Errorf("review lineage must be root")
 		}
 		if context.production != nil {
@@ -214,6 +220,11 @@ func (context RunPublicationContext) validate() error {
 	if _, err := domain.ParseReviewID(lineage.sourceReviewID.String()); err != nil {
 		return fmt.Errorf("source review ID: %w", err)
 	}
+	if lineage.sourceAttemptID != nil {
+		if _, err := domain.ParseAttemptID(lineage.sourceAttemptID.String()); err != nil {
+			return fmt.Errorf("source attempt ID: %w", err)
+		}
+	}
 	if lineage.sourceFindingRef != nil && !validFindingID(*lineage.sourceFindingRef) {
 		return fmt.Errorf("source finding reference is invalid")
 	}
@@ -222,15 +233,15 @@ func (context RunPublicationContext) validate() error {
 	}
 	switch lineage.runType {
 	case domain.RunTypeFollowup:
-		if lineage.sourceFindingRef == nil || lineage.replayMode != nil {
+		if lineage.sourceAttemptID != nil || lineage.sourceFindingRef == nil || lineage.replayMode != nil {
 			return fmt.Errorf("followup lineage requires a source finding and forbids replay mode")
 		}
 	case domain.RunTypeDelta:
-		if lineage.sourceFindingRef != nil || lineage.replayMode != nil {
+		if lineage.sourceAttemptID != nil || lineage.sourceFindingRef != nil || lineage.replayMode != nil {
 			return fmt.Errorf("delta lineage forbids source finding and replay mode")
 		}
 	case domain.RunTypeRerun:
-		if lineage.sourceFindingRef != nil || lineage.replayMode == nil {
+		if lineage.sourceAttemptID == nil || lineage.sourceFindingRef != nil || lineage.replayMode == nil {
 			return fmt.Errorf("rerun lineage requires replay mode and forbids source finding")
 		}
 	}
@@ -252,6 +263,10 @@ func (context RunPublicationContext) immutableLineage() preparedLineage {
 	if lineage.sourceReviewID != nil {
 		value := *lineage.sourceReviewID
 		lineage.sourceReviewID = &value
+	}
+	if lineage.sourceAttemptID != nil {
+		value := *lineage.sourceAttemptID
+		lineage.sourceAttemptID = &value
 	}
 	if lineage.sourceFindingRef != nil {
 		value := *lineage.sourceFindingRef
@@ -2737,6 +2752,7 @@ func validatePublicationLineage(
 		!reflect.DeepEqual(edge.ParentRunID, lineage.ParentRunID) ||
 		!reflect.DeepEqual(edge.SourceRunID, lineage.SourceRunID) ||
 		!reflect.DeepEqual(edge.SourceReviewID, lineage.SourceReviewID) ||
+		!reflect.DeepEqual(edge.SourceAttemptID, lineage.SourceAttemptID) ||
 		!reflect.DeepEqual(edge.SourceFindingRef, lineage.SourceFindingRef) ||
 		!reflect.DeepEqual(edge.ReplayMode, lineage.ReplayMode) {
 		return fmt.Errorf("lineage edge does not match final lineage")
@@ -2762,6 +2778,13 @@ func validatePublicationLineage(
 			return fmt.Errorf("source review ID: %w", err)
 		}
 		context.lineage.sourceReviewID = &value
+	}
+	if lineage.SourceAttemptID != nil {
+		value, err := domain.ParseAttemptID(*lineage.SourceAttemptID)
+		if err != nil {
+			return fmt.Errorf("source attempt ID: %w", err)
+		}
+		context.lineage.sourceAttemptID = &value
 	}
 	context.lineage.sourceFindingRef = cloneOptionalString(lineage.SourceFindingRef)
 	if lineage.ReplayMode != nil {

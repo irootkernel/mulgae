@@ -331,6 +331,11 @@ stdout routes preserve their complete stored stdin bytes.
 Followup, delta, recomposed rerun, and rerun record `transport` identically,
 read from the terminal observation of the selected attempt.
 
+New rerun publications also persist the exact `source_attempt_id` in their
+immutable lineage. The field is optional in the v1 schema so existing v1
+artifacts remain readable, but composite recovery admits only reruns that carry
+this binding. Followup and delta lineage must not carry it.
+
 On a `staged_file` route the provider writes exactly one untrusted file,
 `role-report.md`, into a fresh per-invocation staging directory Mulgae creates
 under the provider's disposable namespace scratch area, outside the sealed

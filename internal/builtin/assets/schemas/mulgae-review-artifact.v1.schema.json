@@ -287,6 +287,16 @@
             }
           ]
         },
+        "source_attempt_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/attempt_id"
+            }
+          ]
+        },
         "source_finding_ref": {
           "type": [
             "string",

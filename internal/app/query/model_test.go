@@ -65,3 +65,57 @@ func TestCommittedReviewAndFindingViewsDefendCallerMutations(t *testing.T) {
 		t.Fatal("defensive evidence copy retained caller mutation")
 	}
 }
+
+func TestCommittedReviewExposesVerifiedCompositionPolicy(t *testing.T) {
+	t.Parallel()
+	review := CommittedReview{runType: domain.RunTypeRerun, severityThreshold: domain.SeverityCritical}
+	if review.RunType() != domain.RunTypeRerun || review.RequestChangesThreshold() != domain.SeverityCritical {
+		t.Fatalf("composition policy projection = (%q, %q)", review.RunType(), review.RequestChangesThreshold())
+	}
+}
+
+func TestCommittedLineageDefensivelyExposesSourceAttempt(t *testing.T) {
+	t.Parallel()
+	attempt, err := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage := CommittedLineage{sourceAttemptID: &attempt}
+	want := attempt
+	got, ok := lineage.SourceAttemptID()
+	if !ok || got != attempt {
+		t.Fatalf("source attempt = %q, %t", got, ok)
+	}
+	cloned := lineage.clone()
+	*lineage.sourceAttemptID = domain.AttemptID{}
+	if got, ok := cloned.SourceAttemptID(); !ok || got != want {
+		t.Fatalf("cloned source attempt leaked mutation: %q, %t", got, ok)
+	}
+}
+
+func TestCompositionStatusRequiresExactP2AndCompleteRoleReports(t *testing.T) {
+	t.Parallel()
+	session, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := CommittedReview{sessionID: session, runID: run, roleReports: []RoleReport{{role: "logic"}}}
+	valid := RunStatus{sessionID: session, runID: run, publication: domain.PublicationCommitted, authority: domain.PublicationAuthorityP2, roleReportURIs: []RoleReportURI{{Role: "logic"}}}
+	if err := validateCompositionStatus(review, valid); err != nil {
+		t.Fatalf("valid composition status rejected: %v", err)
+	}
+	invalid := valid
+	invalid.authority = domain.PublicationAuthorityP1
+	if err := validateCompositionStatus(review, invalid); err == nil {
+		t.Fatal("P1 composition support status was accepted")
+	}
+	invalid = valid
+	invalid.roleReportURIs = nil
+	if err := validateCompositionStatus(review, invalid); err == nil {
+		t.Fatal("incomplete role-report support status was accepted")
+	}
+}

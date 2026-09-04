@@ -109,7 +109,7 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 		t.Fatalf("structured_extraction_status = %q", final.StructuredExtractionStatus)
 	}
 	if final.PublicationStatus != "committed" || final.ImmutableLineage.ParentRunID != nil || final.ImmutableLineage.SourceRunID != nil ||
-		final.ImmutableLineage.SourceReviewID != nil || final.ImmutableLineage.SourceFindingRef != nil || final.ImmutableLineage.ReplayMode != nil {
+		final.ImmutableLineage.SourceReviewID != nil || final.ImmutableLineage.SourceAttemptID != nil || final.ImmutableLineage.SourceFindingRef != nil || final.ImmutableLineage.ReplayMode != nil {
 		t.Fatal("final root publication lineage is not exact")
 	}
 	if final.ImmutableLineage.LineageEdgePath != first.LineageEdge().Path().String() || final.ImmutableLineage.LineageEdgeSHA256 != first.LineageEdge().SHA256() {

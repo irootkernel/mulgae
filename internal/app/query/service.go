@@ -147,6 +147,45 @@ func (service *Service) ReadCommitted(ctx context.Context, run ports.Publication
 	return service.readCommittedSnapshot(ctx, run, observation, readCommittedStage)
 }
 
+// ReadCommittedForComposition verifies the exact P2 review together with its
+// target and role-report support, then confirms the same immutable snapshot.
+func (service *Service) ReadCommittedForComposition(ctx context.Context, run ports.PublicationRun) (CommittedReview, error) {
+	review, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	if _, err := service.ReadRuntimeTarget(ctx, run); err != nil {
+		return CommittedReview{}, err
+	}
+	status, err := service.ReadRunStatus(ctx, run)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	if err := validateCompositionStatus(review, status); err != nil {
+		return CommittedReview{}, typedFailure(readCommittedStage, domain.FailureArtifact, err.Error(), nil)
+	}
+	confirmed, err := service.ReadCommitted(ctx, run)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	if confirmed.ReviewID() != review.ReviewID() || confirmed.FinalSHA256() != review.FinalSHA256() ||
+		confirmed.ManifestSHA256() != review.ManifestSHA256() || confirmed.Epoch() != review.Epoch() {
+		return CommittedReview{}, typedFailure(readCommittedStage, domain.FailureArtifact, "composition source changed during support verification", nil)
+	}
+	return review, nil
+}
+
+func validateCompositionStatus(review CommittedReview, status RunStatus) error {
+	if status.SessionID() != review.SessionID() || status.RunID() != review.RunID() ||
+		status.PublicationStatus() != domain.PublicationCommitted || status.Authority() != domain.PublicationAuthorityP2 {
+		return fmt.Errorf("composition support was not verified under exact P2 authority")
+	}
+	if len(status.RoleReportURIs()) != len(review.RoleReports()) {
+		return fmt.Errorf("composition role-report support is incomplete")
+	}
+	return nil
+}
+
 // ReadRuntimeTarget reconstructs target authority only from artifacts bound by a
 // freshly verified P2 final. It never reads a working tree or mutable target.
 func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.PublicationRun) (RuntimeTarget, error) {
@@ -1289,6 +1328,16 @@ func buildCommittedReview(
 	if err := validateManifestRoleAttemptBindings(manifest.Attempts, roles); err != nil {
 		return CommittedReview{}, err
 	}
+	attempts := make([]AttemptSummary, len(manifest.Attempts))
+	for index, item := range manifest.Attempts {
+		attemptID, parseErr := domain.ParseAttemptID(item.AttemptID)
+		role := domain.Role(item.Role)
+		state := domain.AttemptState(item.State)
+		if parseErr != nil || !role.Valid() || !state.Valid() {
+			return CommittedReview{}, fmt.Errorf("manifest attempt projection is invalid")
+		}
+		attempts[index] = AttemptSummary{attemptID: attemptID, role: role, providerInstance: item.ProviderInstance, state: state}
+	}
 	roleReports, err := validateManifestRoleReports(manifest, roles)
 	if err != nil {
 		return CommittedReview{}, err
@@ -1307,15 +1356,16 @@ func buildCommittedReview(
 		return CommittedReview{}, err
 	}
 	return CommittedReview{
-		sessionID: sessionID, runID: runID, reviewID: reviewID, runState: domain.RunState(manifest.State),
+		sessionID: sessionID, runID: runID, reviewID: reviewID, runType: domain.RunType(final.RunType), runState: domain.RunState(manifest.State),
 		finalPath: finalIdentity.Path(), finalSHA256: finalIdentity.SHA256(),
 		manifestPath: manifestArtifact.Path(), manifestSHA256: manifestArtifact.SHA256(),
 		lineageEdgePath: lineageArtifact.Path(), lineageEdgeSHA: lineageArtifact.SHA256(),
 		epoch: epoch.Value(), epochPath: epoch.Record().Path(), targetSHA256: final.Target.ContentSHA256,
-		content: content, coverage: coverage, extraction: extraction, publication: publication, ci: ci,
+		severityThreshold: domain.Severity(final.SeverityThreshold.RequestChangesAtOrAbove),
+		content:           content, coverage: coverage, extraction: extraction, publication: publication, ci: ci,
 		followupOutcome: followupOutcome,
 		lineage:         lineage,
-		roles:           cloneRoles(roles), roleReports: append([]RoleReport(nil), roleReports...),
+		roles:           cloneRoles(roles), roleReports: append([]RoleReport(nil), roleReports...), attempts: attempts,
 		findings:   cloneFindings(findings),
 		finalBytes: finalArtifact.Bytes(), manifestBytes: manifestArtifact.Bytes(),
 	}, nil
@@ -1418,7 +1468,7 @@ func validReceiptID(value string) bool {
 }
 func buildCommittedLineage(runType domain.RunType, runID domain.RunID, value lineageDTO) (CommittedLineage, error) {
 	if runType == domain.RunTypeReview {
-		if value.ParentRunID != nil || value.SourceRunID != nil || value.SourceReviewID != nil ||
+		if value.ParentRunID != nil || value.SourceRunID != nil || value.SourceReviewID != nil || value.SourceAttemptID != nil ||
 			value.SourceFindingRef != nil || value.ReplayMode != nil {
 			return CommittedLineage{}, fmt.Errorf("root review lineage is not empty")
 		}
@@ -1442,6 +1492,13 @@ func buildCommittedLineage(runType domain.RunType, runID domain.RunID, value lin
 	result := CommittedLineage{
 		parentRunID: &parentRunID, sourceRunID: &sourceRunID, sourceReviewID: &sourceReviewID,
 	}
+	if value.SourceAttemptID != nil {
+		sourceAttemptID, err := domain.ParseAttemptID(*value.SourceAttemptID)
+		if err != nil {
+			return CommittedLineage{}, fmt.Errorf("source attempt lineage identity is invalid")
+		}
+		result.sourceAttemptID = &sourceAttemptID
+	}
 	if value.SourceFindingRef != nil {
 		if !validFindingID(*value.SourceFindingRef) {
 			return CommittedLineage{}, fmt.Errorf("source finding lineage reference is invalid")
@@ -1458,11 +1515,11 @@ func buildCommittedLineage(runType domain.RunType, runID domain.RunID, value lin
 	}
 	switch runType {
 	case domain.RunTypeFollowup:
-		if result.sourceFindingRef == nil || result.replayMode != nil {
+		if result.sourceAttemptID != nil || result.sourceFindingRef == nil || result.replayMode != nil {
 			return CommittedLineage{}, fmt.Errorf("followup lineage optional fields are invalid")
 		}
 	case domain.RunTypeDelta:
-		if result.sourceFindingRef != nil || result.replayMode != nil {
+		if result.sourceAttemptID != nil || result.sourceFindingRef != nil || result.replayMode != nil {
 			return CommittedLineage{}, fmt.Errorf("delta lineage optional fields are invalid")
 		}
 	case domain.RunTypeRerun:
@@ -2194,6 +2251,7 @@ func sameLineage(first, second lineageDTO) bool {
 	return sameOptionalString(first.ParentRunID, second.ParentRunID) &&
 		sameOptionalString(first.SourceRunID, second.SourceRunID) &&
 		sameOptionalString(first.SourceReviewID, second.SourceReviewID) &&
+		sameOptionalString(first.SourceAttemptID, second.SourceAttemptID) &&
 		sameOptionalString(first.SourceFindingRef, second.SourceFindingRef) &&
 		sameOptionalString(first.ReplayMode, second.ReplayMode) &&
 		first.LineageEdgePath == second.LineageEdgePath && first.LineageEdgeSHA == second.LineageEdgeSHA

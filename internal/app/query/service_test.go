@@ -2177,6 +2177,22 @@ func TestCommittedFindingAndRuntimeSourcesBindEveryAuxiliaryDigest(t *testing.T)
 	}
 }
 
+func TestReadCommittedForCompositionRejectsSnapshotChangeAfterSupportVerification(t *testing.T) {
+	t.Parallel()
+	run, snapshot, observation, artifacts, _, _ := queryRuntimeFixture(t)
+	_, replacement, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	store := &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}
+	store.afterSnapshot = func() {
+		if store.snapshotReads == 3 {
+			store.snapshot = replacement
+		}
+	}
+	service := mustQueryService(t, store, &queryValidator{}, nil)
+	if _, err := service.ReadCommittedForComposition(context.Background(), run); err == nil {
+		t.Fatal("composition source accepted a changed final snapshot")
+	}
+}
+
 func TestCommittedFindingAndRuntimeSourcesRejectMissingTamperedOrReboundArtifacts(t *testing.T) {
 	t.Parallel()
 
@@ -2423,6 +2439,8 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 	promptPath := prefix + "/prompts/" + attempt.String() + "/001-initial.manifest.json"
 	completeStdinSHA256 := prompt.CompleteStdinSHA256(stdin.Bytes())
 	prompt := mustQueryArtifact(t, mustQueryPath(t, promptPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-prompt-manifest.v1","target":{"path":%q,"sha256":%q},"stdin":{"path":%q,"sha256":%q},"complete_stdin_sha256":%q,"template_id":"review","template_version":"v1","template_sha256":"sha256:%s","source_invocation_id":"source","execution_invocation_id":"execution","scope":"repository","role":"logic","adapter_profile":"default","adapter_parameters":{"model":"trusted"}}`, targetPath, target.SHA256(), stdinPath, stdin.SHA256(), completeStdinSHA256, strings.Repeat("c", 64))))
+	roleReportPath := prefix + "/role-reports/logic.md"
+	roleReport := mustQueryArtifact(t, mustQueryPath(t, roleReportPath), []byte("verified role report\n"))
 	targetManifestPath := prefix + "/target/target-manifest.json"
 	targetManifest := mustQueryArtifact(t, mustQueryPath(t, targetManifestPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-target-manifest.v1","target":{"path":%q,"sha256":%q},"captured_archive":{"path":%q,"sha256":%q},"target_kind":"patch","repository_id":"","base_object_id":"","head_object_id":"","head_tree_object_id":"","index_tree_object_id":"","prompts":[{"path":%q,"sha256":%q}],"selected_replay_prompts":[{"attempt_id":%q,"sequence":1,"purpose":"initial","artifact":{"path":%q,"sha256":%q}}]}`, targetPath, target.SHA256(), capturedPath, capturedManifest.SHA256(), promptPath, prompt.SHA256(), attempt.String(), promptPath, prompt.SHA256())))
 	normalizedPath := prefix + "/excerpts/F001.json"
@@ -2435,6 +2453,7 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 		{Path: targetPath, SHA256: target.SHA256()}, {Path: stdinPath, SHA256: stdin.SHA256()},
 		{Path: promptPath, SHA256: prompt.SHA256()}, {Path: targetManifestPath, SHA256: targetManifest.SHA256()},
 		{Path: capturedPath, SHA256: capturedManifest.SHA256()},
+		{Path: roleReportPath, SHA256: roleReport.SHA256()},
 	}
 	for path, artifact := range capturedArtifacts {
 		supportIdentities = append(supportIdentities, artifactIdentityDTO{Path: path, SHA256: artifact.SHA256()})
@@ -2490,6 +2509,8 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 		t.Fatal(err)
 	}
 	manifestRecord.Target.ContentSHA256 = target.SHA256()
+	manifestRecord.RoleReports[0].SHA256 = roleReport.SHA256()
+	manifestRecord.RoleReports[0].ByteLength = len(roleReport.Bytes())
 	manifestRecord.CompositeIdentity.SupportIndex = &artifactIdentityDTO{Path: supportPath, SHA256: support.SHA256()}
 	manifestRecord.FinalReview.SHA256 = finalIdentity.SHA256()
 	manifestRecord.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
@@ -2516,7 +2537,7 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 		t.Fatalf("runtime fixture semantics: %v", semanticErr)
 	}
 	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
-	artifacts := map[string]ports.ImmutablePublicationArtifact{supportPath: support, normalizedPath: normalized, excerptPath: excerpt, targetPath: target, stdinPath: stdin, promptPath: prompt, targetManifestPath: targetManifest, capturedPath: capturedManifest}
+	artifacts := map[string]ports.ImmutablePublicationArtifact{supportPath: support, normalizedPath: normalized, excerptPath: excerpt, targetPath: target, stdinPath: stdin, promptPath: prompt, targetManifestPath: targetManifest, capturedPath: capturedManifest, roleReportPath: roleReport}
 	for path, artifact := range capturedArtifacts {
 		artifacts[path] = artifact
 	}

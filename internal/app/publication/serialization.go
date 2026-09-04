@@ -60,6 +60,7 @@ func (candidate PreparedCandidate) Build(
 		ParentRunID:      lineageRunID(lineage.parentRunID),
 		SourceRunID:      lineageRunID(lineage.sourceRunID),
 		SourceReviewID:   lineageReviewID(lineage.sourceReviewID),
+		SourceAttemptID:  lineageAttemptID(lineage.sourceAttemptID),
 		SourceFindingRef: cloneOptionalString(lineage.sourceFindingRef),
 		ReplayMode:       lineageReplayMode(lineage.replayMode),
 	})
@@ -1048,6 +1049,13 @@ func lineageReviewID(value *domain.ReviewID) *string {
 	return optionalString(value.String())
 }
 
+func lineageAttemptID(value *domain.AttemptID) *string {
+	if value == nil {
+		return nil
+	}
+	return optionalString(value.String())
+}
+
 func lineageReplayMode(value *ReplayMode) *string {
 	if value == nil {
 		return nil
@@ -1068,6 +1076,7 @@ func (candidate PreparedCandidate) immutableLineageWire(edge ports.ImmutablePubl
 		ParentRunID:       lineageRunID(candidate.publicationLineage().parentRunID),
 		SourceRunID:       lineageRunID(candidate.publicationLineage().sourceRunID),
 		SourceReviewID:    lineageReviewID(candidate.publicationLineage().sourceReviewID),
+		SourceAttemptID:   lineageAttemptID(candidate.publicationLineage().sourceAttemptID),
 		SourceFindingRef:  cloneOptionalString(candidate.publicationLineage().sourceFindingRef),
 		ReplayMode:        lineageReplayMode(candidate.publicationLineage().replayMode),
 		LineageEdgePath:   edge.Path().String(),
@@ -1117,6 +1126,7 @@ type immutableLineageWire struct {
 	ParentRunID       *string `json:"parent_run_id"`
 	SourceRunID       *string `json:"source_run_id"`
 	SourceReviewID    *string `json:"source_review_id"`
+	SourceAttemptID   *string `json:"source_attempt_id,omitempty"`
 	SourceFindingRef  *string `json:"source_finding_ref"`
 	ReplayMode        *string `json:"replay_mode"`
 	LineageEdgePath   string  `json:"lineage_edge_path"`
@@ -1385,6 +1395,7 @@ type lineageEdgeWire struct {
 	ParentRunID      *string          `json:"parent_run_id"`
 	SourceRunID      *string          `json:"source_run_id"`
 	SourceReviewID   *string          `json:"source_review_id"`
+	SourceAttemptID  *string          `json:"source_attempt_id,omitempty"`
 	SourceFindingRef *string          `json:"source_finding_ref"`
 	ReplayMode       *string          `json:"replay_mode"`
 }

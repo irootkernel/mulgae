@@ -24,31 +24,34 @@ type SchemaValidator interface {
 // CommittedReview is a defensive read view of a semantically verified P2 final
 // review. Exact final and manifest bytes remain available only as copies.
 type CommittedReview struct {
-	sessionID       domain.SessionID
-	runID           domain.RunID
-	reviewID        domain.ReviewID
-	runState        domain.RunState
-	finalPath       ports.SafeRelativePath
-	finalSHA256     string
-	manifestPath    ports.SafeRelativePath
-	manifestSHA256  string
-	lineageEdgePath ports.SafeRelativePath
-	lineageEdgeSHA  string
-	epoch           uint64
-	epochPath       ports.SafeRelativePath
-	targetSHA256    string
-	content         domain.ContentVerdict
-	coverage        domain.CoverageStatus
-	extraction      domain.StructuredExtractionStatus
-	publication     domain.PublicationStatus
-	ci              domain.CIDecision
-	followupOutcome *FollowupOutcome
-	roles           []Role
-	roleReports     []RoleReport
-	findings        []Finding
-	finalBytes      []byte
-	manifestBytes   []byte
-	lineage         CommittedLineage
+	sessionID         domain.SessionID
+	runID             domain.RunID
+	reviewID          domain.ReviewID
+	runType           domain.RunType
+	runState          domain.RunState
+	finalPath         ports.SafeRelativePath
+	finalSHA256       string
+	manifestPath      ports.SafeRelativePath
+	manifestSHA256    string
+	lineageEdgePath   ports.SafeRelativePath
+	lineageEdgeSHA    string
+	epoch             uint64
+	epochPath         ports.SafeRelativePath
+	targetSHA256      string
+	severityThreshold domain.Severity
+	content           domain.ContentVerdict
+	coverage          domain.CoverageStatus
+	extraction        domain.StructuredExtractionStatus
+	publication       domain.PublicationStatus
+	ci                domain.CIDecision
+	followupOutcome   *FollowupOutcome
+	roles             []Role
+	roleReports       []RoleReport
+	attempts          []AttemptSummary
+	findings          []Finding
+	finalBytes        []byte
+	manifestBytes     []byte
+	lineage           CommittedLineage
 }
 
 // RoleReport is one verified committed free-form role-report inventory entry.
@@ -99,6 +102,9 @@ func (review CommittedReview) RunID() domain.RunID { return review.runID }
 // ReviewID returns the publisher-issued review identity.
 func (review CommittedReview) ReviewID() domain.ReviewID { return review.reviewID }
 
+// RunType returns the verified immutable run type.
+func (review CommittedReview) RunType() domain.RunType { return review.runType }
+
 // RunState returns the terminal run state recorded in the committed manifest.
 func (review CommittedReview) RunState() domain.RunState { return review.runState }
 
@@ -128,6 +134,11 @@ func (review CommittedReview) EpochPath() ports.SafeRelativePath { return review
 
 // TargetSHA256 returns the canonical current target digest bound by the final.
 func (review CommittedReview) TargetSHA256() string { return review.targetSHA256 }
+
+// RequestChangesThreshold returns the verified threshold persisted by the review.
+func (review CommittedReview) RequestChangesThreshold() domain.Severity {
+	return review.severityThreshold
+}
 
 // ContentVerdict returns the independent committed content axis.
 func (review CommittedReview) ContentVerdict() domain.ContentVerdict { return review.content }
@@ -163,6 +174,24 @@ func (review CommittedReview) RoleReports() []RoleReport {
 	return append([]RoleReport(nil), review.roleReports...)
 }
 
+// Attempts returns the verified manifest attempt inventory in committed order.
+func (review CommittedReview) Attempts() []AttemptSummary {
+	return append([]AttemptSummary(nil), review.attempts...)
+}
+
+// AttemptSummary is one schema- and semantics-verified manifest attempt.
+type AttemptSummary struct {
+	attemptID        domain.AttemptID
+	role             domain.Role
+	providerInstance string
+	state            domain.AttemptState
+}
+
+func (attempt AttemptSummary) AttemptID() domain.AttemptID { return attempt.attemptID }
+func (attempt AttemptSummary) Role() domain.Role           { return attempt.role }
+func (attempt AttemptSummary) ProviderInstance() string    { return attempt.providerInstance }
+func (attempt AttemptSummary) State() domain.AttemptState  { return attempt.state }
+
 // Findings returns caller-owned finding views in final artifact order.
 func (review CommittedReview) Findings() []Finding { return cloneFindings(review.findings) }
 
@@ -180,6 +209,7 @@ type CommittedLineage struct {
 	parentRunID      *domain.RunID
 	sourceRunID      *domain.RunID
 	sourceReviewID   *domain.ReviewID
+	sourceAttemptID  *domain.AttemptID
 	sourceFindingRef *string
 	replayMode       *ReplayMode
 }
@@ -216,6 +246,15 @@ func (lineage CommittedLineage) SourceReviewID() (domain.ReviewID, bool) {
 	return *lineage.sourceReviewID, true
 }
 
+// SourceAttemptID returns the exact rerun source attempt when recorded by the
+// publication. Legacy reruns may not carry this optional compatibility field.
+func (lineage CommittedLineage) SourceAttemptID() (domain.AttemptID, bool) {
+	if lineage.sourceAttemptID == nil {
+		return domain.AttemptID{}, false
+	}
+	return *lineage.sourceAttemptID, true
+}
+
 // SourceFindingRef returns the source finding reference for a followup review.
 func (lineage CommittedLineage) SourceFindingRef() (string, bool) {
 	if lineage.sourceFindingRef == nil {
@@ -245,6 +284,10 @@ func (lineage CommittedLineage) clone() CommittedLineage {
 	if lineage.sourceReviewID != nil {
 		value := *lineage.sourceReviewID
 		result.sourceReviewID = &value
+	}
+	if lineage.sourceAttemptID != nil {
+		value := *lineage.sourceAttemptID
+		result.sourceAttemptID = &value
 	}
 	if lineage.sourceFindingRef != nil {
 		value := *lineage.sourceFindingRef
@@ -714,6 +757,7 @@ type lineageDTO struct {
 	ParentRunID      *string `json:"parent_run_id"`
 	SourceRunID      *string `json:"source_run_id"`
 	SourceReviewID   *string `json:"source_review_id"`
+	SourceAttemptID  *string `json:"source_attempt_id,omitempty"`
 	SourceFindingRef *string `json:"source_finding_ref"`
 	ReplayMode       *string `json:"replay_mode"`
 	LineageEdgePath  string  `json:"lineage_edge_path"`

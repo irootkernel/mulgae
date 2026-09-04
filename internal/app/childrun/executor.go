@@ -163,7 +163,7 @@ func (executor *Executor) ExecuteDelta(ctx context.Context, request delta.ChildR
 	if failure := reviewrun.CoordinatorExecutionFailure(result); failure != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta run did not reach publication authority: %w", failure)
 	}
-	publicationContext, err := publication.NewChildPublicationContext(domain.RunTypeDelta, parent, source, request.SourceReviewID, nil, nil)
+	publicationContext, err := publication.NewChildPublicationContext(domain.RunTypeDelta, parent, source, request.SourceReviewID, nil, nil, nil)
 	if err != nil {
 		return delta.ExecutionResult{}, fmt.Errorf("child executor: delta publication lineage: %w", err)
 	}
@@ -284,7 +284,7 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	}
 	mode := publication.ReplayMode(child.Mode)
 	publicationContext, err := publication.NewChildPublicationContext(
-		domain.RunTypeRerun, parent, source, child.SourceReviewID, nil, &mode,
+		domain.RunTypeRerun, parent, source, child.SourceReviewID, &child.SourceAttemptID, nil, &mode,
 	)
 	if err != nil {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun publication lineage: %w", err)

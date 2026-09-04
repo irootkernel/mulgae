@@ -290,7 +290,15 @@ func TestChildPublicationLineageSerialization(t *testing.T) {
 		{runType: domain.RunTypeRerun, replay: &exact},
 	}
 	for _, test := range cases {
-		childContext, err := NewChildPublicationContext(test.runType, parent, source, sourceReview, test.finding, test.replay)
+		var sourceAttempt *domain.AttemptID
+		if test.runType == domain.RunTypeRerun {
+			value, parseErr := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			sourceAttempt = &value
+		}
+		childContext, err := NewChildPublicationContext(test.runType, parent, source, sourceReview, sourceAttempt, test.finding, test.replay)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -343,6 +351,7 @@ func TestChildPublicationLineageSerialization(t *testing.T) {
 			edge.ParentRunID == nil || *edge.ParentRunID != parent.String() ||
 			edge.SourceRunID == nil || *edge.SourceRunID != source.String() ||
 			edge.SourceReviewID == nil || *edge.SourceReviewID != sourceReview.String() ||
+			!publicationOptionalAttemptEqual(edge.SourceAttemptID, sourceAttempt) ||
 			!publicationOptionalStringEqual(edge.SourceFindingRef, test.finding) ||
 			!publicationReplayModeEqual(edge.ReplayMode, test.replay) {
 			t.Fatalf("child lineage serialization mismatch: %#v", final.ImmutableLineage)
@@ -383,14 +392,25 @@ func TestChildPublicationContextRejectsInvalidTruthTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	finding := "F001"
-	if _, err := NewChildPublicationContext(domain.RunTypeFollowup, runID, runID, reviewID, nil, nil); err == nil {
+	if _, err := NewChildPublicationContext(domain.RunTypeFollowup, runID, runID, reviewID, nil, nil, nil); err == nil {
 		t.Fatal("followup without finding was accepted")
 	}
-	if _, err := NewChildPublicationContext(domain.RunTypeDelta, runID, runID, reviewID, &finding, nil); err == nil {
+	if _, err := NewChildPublicationContext(domain.RunTypeDelta, runID, runID, reviewID, nil, &finding, nil); err == nil {
 		t.Fatal("delta with finding was accepted")
 	}
-	if _, err := NewChildPublicationContext(domain.RunTypeRerun, runID, runID, reviewID, nil, nil); err == nil {
+	if _, err := NewChildPublicationContext(domain.RunTypeRerun, runID, runID, reviewID, nil, nil, nil); err == nil {
 		t.Fatal("rerun without replay mode was accepted")
+	}
+	replay := ReplayModeExact
+	if _, err := NewChildPublicationContext(domain.RunTypeRerun, runID, runID, reviewID, nil, nil, &replay); err == nil {
+		t.Fatal("rerun without exact source attempt was accepted")
+	}
+	attempt, err := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewChildPublicationContext(domain.RunTypeDelta, runID, runID, reviewID, &attempt, nil, nil); err == nil {
+		t.Fatal("delta with a rerun source attempt was accepted")
 	}
 }
 func publicationLineageWireEqual(left, right immutableLineageWire) bool {
@@ -399,8 +419,16 @@ func publicationLineageWireEqual(left, right immutableLineageWire) bool {
 		publicationOptionalStringEqual(left.ParentRunID, right.ParentRunID) &&
 		publicationOptionalStringEqual(left.SourceRunID, right.SourceRunID) &&
 		publicationOptionalStringEqual(left.SourceReviewID, right.SourceReviewID) &&
+		publicationOptionalStringEqual(left.SourceAttemptID, right.SourceAttemptID) &&
 		publicationOptionalStringEqual(left.SourceFindingRef, right.SourceFindingRef) &&
 		publicationOptionalStringEqual(left.ReplayMode, right.ReplayMode)
+}
+
+func publicationOptionalAttemptEqual(value *string, attempt *domain.AttemptID) bool {
+	if value == nil || attempt == nil {
+		return value == nil && attempt == nil
+	}
+	return *value == attempt.String()
 }
 
 func publicationOptionalStringEqual(left, right *string) bool {

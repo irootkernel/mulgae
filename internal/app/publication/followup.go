@@ -72,7 +72,7 @@ func PrepareFollowupCandidate(input FollowupCandidateInput) (PreparedCandidate, 
 	if invocation.AttemptID() != input.AttemptID || invocation.Role() != input.Output.Role() || invocation.ProviderInstance() != input.Provider {
 		return PreparedCandidate{}, fmt.Errorf("followup publication: observation identity differs from followup output")
 	}
-	context, err := NewChildPublicationContext(domain.RunTypeFollowup, parent, source, input.SourceReviewID, &input.SourceFindingID, nil)
+	context, err := NewChildPublicationContext(domain.RunTypeFollowup, parent, source, input.SourceReviewID, nil, &input.SourceFindingID, nil)
 	if err != nil {
 		return PreparedCandidate{}, err
 	}
