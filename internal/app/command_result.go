@@ -21,6 +21,7 @@ const (
 	CommandFollowup  CommandName = "followup"
 	CommandDelta     CommandName = "delta"
 	CommandRerun     CommandName = "rerun"
+	CommandCompose   CommandName = "compose"
 	CommandStatus    CommandName = "status"
 	CommandReport    CommandName = "report"
 	CommandFindings  CommandName = "findings"
@@ -48,7 +49,7 @@ func ParseCommandName(value string) (CommandName, error) {
 func (command CommandName) Valid() bool {
 	switch command {
 	case CommandInit, CommandDoctor, CommandReview, CommandFollowup, CommandDelta,
-		CommandRerun, CommandStatus, CommandReport, CommandFindings, CommandExcerpt,
+		CommandRerun, CommandCompose, CommandStatus, CommandReport, CommandFindings, CommandExcerpt,
 		CommandProviders, CommandHeartbeat, CommandRoles, CommandConfig, CommandSchema, CommandClean,
 		CommandExport, CommandHelp:
 		return true

@@ -18,10 +18,40 @@ const (
 	testSchemaID            = "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json"
 	testCommitID            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testRunID               = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
+	testRecoveryRunID       = "r_019f596a-cf81-7c67-b265-f37053d51ccf"
 	testCurrentTargetSHA256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testAttemptID           = "a_019f596a-cf80-7c67-b265-f37053d51ccf"
 	testSessionID           = "s_019f596a-cf80-7c67-b265-f37053d51ccf"
 )
+
+func TestParseComposeRequiresExactBoundedUniqueRuns(t *testing.T) {
+	invocation := mustParse(t, []string{"compose", "--root-run", testRunID, "--recovery-run", testRecoveryRunID, "--output", "json"})
+	request, ok := invocation.Compose()
+	if !ok || request.RootRunID() != testRunID || !reflect.DeepEqual(request.RecoveryRunIDs(), []string{testRecoveryRunID}) {
+		t.Fatalf("compose request = %#v, %t", request, ok)
+	}
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"compose","root_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","recovery_run_ids":["r_019f596a-cf81-7c67-b265-f37053d51ccf"],"output_format":"json"}`)
+
+	invalid := [][]string{
+		{"compose", "--root-run", "latest", "--recovery-run", testRecoveryRunID},
+		{"compose", "--root-run", testRunID},
+		{"compose", "--root-run", testRunID, "--recovery-run", testRunID},
+		{"compose", "--root-run", testRunID, "--recovery-run", testRecoveryRunID, "--recovery-run", testRecoveryRunID},
+		{"compose", "--root-run", "", "--root-run", testRunID, "--recovery-run", testRecoveryRunID},
+		{"compose", "--root-run", testRunID, "--recovery-run", testRecoveryRunID, "--output", ""},
+		{"compose", "--root-run", testRunID, "--recovery-run", testRecoveryRunID, "--output", "", "--output", "json"},
+	}
+	tooManyRecoveries := []string{"compose", "--root-run", testRunID}
+	for index := 0; index < len(domain.FixedRoleOrder())+1; index++ {
+		tooManyRecoveries = append(tooManyRecoveries, "--recovery-run", fmt.Sprintf("r_019f596a-cf%02x-7c67-b265-f37053d51ccf", index+1))
+	}
+	invalid = append(invalid, tooManyRecoveries)
+	for _, arguments := range invalid {
+		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Fatalf("Parse(%v) error = %v, want usage", arguments, err)
+		}
+	}
+}
 
 func TestParseHelpForms(t *testing.T) {
 	for _, arguments := range [][]string{nil, {"--help"}, {"help"}} {

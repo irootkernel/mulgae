@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
@@ -24,11 +25,11 @@ func NewPublisher(root ports.AnchoredRoot, service *publication.Service) (*Publi
 
 func (publisher *Publisher) Publish(ctx context.Context, result Result) (publication.PublicationResult, error) {
 	if publisher == nil || publisher.publication == nil || !publisher.root.Valid() {
-		return publication.PublicationResult{}, fail("composite_publication_incomplete", "publisher is unavailable", nil)
+		return publication.PublicationResult{}, fail(domain.CompositeValidationFailed, "publisher is unavailable", nil)
 	}
 	runID, err := result.Fingerprint.RunID()
 	if err != nil {
-		return publication.PublicationResult{}, fail("composite_publication_incomplete", "composition identity is invalid", err)
+		return publication.PublicationResult{}, fail(domain.CompositeValidationFailed, "composition identity is invalid", err)
 	}
 	input := publication.CompositeCandidateInput{SessionID: result.SessionID, RunID: runID, Fingerprint: result.Fingerprint, RootRunID: result.RootRunID, RootReviewID: result.RootReviewID, Target: result.TargetIdentity, TargetBytes: result.TargetBytes, CapturedArchive: result.CapturedArchive, Threshold: result.Threshold, ContentVerdict: result.ContentVerdict, CoverageStatus: result.CoverageStatus, ExtractionStatus: result.ExtractionStatus, CIDecision: result.CIDecision, CIReasonCodes: result.CIReasonCodes}
 	for _, source := range result.Sources {
@@ -43,11 +44,11 @@ func (publisher *Publisher) Publish(ctx context.Context, result Result) (publica
 	}
 	candidate, err := publication.PrepareCompositeCandidate(input)
 	if err != nil {
-		return publication.PublicationResult{}, fail("composite_publication_incomplete", "composite publication candidate is invalid", err)
+		return publication.PublicationResult{}, fail(domain.CompositeValidationFailed, "composite publication candidate is invalid", err)
 	}
 	published, err := publisher.publication.PublishCompositeNext(ctx, publisher.root, candidate)
 	if err != nil {
-		return publication.PublicationResult{}, fail("composite_publication_incomplete", "composite publication did not reach P2", err)
+		return publication.PublicationResult{}, fail(domain.CompositePublicationIncomplete, "composite publication did not reach P2", err)
 	}
 	return published, nil
 }

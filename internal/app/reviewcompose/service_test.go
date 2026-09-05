@@ -53,6 +53,46 @@ func TestComposeRecoversMultipleRolesDeterministicallyAndKeepsCollidingSourceIDs
 	}
 }
 
+func TestIdentifiedPublicationFailurePreservesDeterministicReconciliationIdentity(t *testing.T) {
+	sessionID := sessionID(t)
+	runID := runID(t, "01")
+	err := failWithIdentity(domain.CompositePublicationIncomplete, "reconcile", errors.New("private"), sessionID, runID)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.ReasonCode() != domain.CompositePublicationIncomplete {
+		t.Fatalf("identified failure = %v", err)
+	}
+	gotSession, gotRun, ok := failure.CompositeIdentity()
+	if !ok || gotSession != sessionID || gotRun != runID {
+		t.Fatalf("reconciliation identity = %s/%s, %t", gotSession, gotRun, ok)
+	}
+}
+
+func TestCompositeReasonCodeContract(t *testing.T) {
+	want := []string{
+		"composite_target_mismatch",
+		"composite_target_digest_invalid",
+		"composite_lineage_mismatch",
+		"composite_role_not_required",
+		"composite_role_already_satisfied",
+		"composite_recovery_incomplete",
+		"composite_recovery_unavailable",
+		"composite_selection_ambiguous",
+		"composite_validation_failed",
+		"composite_publication_incomplete",
+	}
+	if got := domain.CompositeReasonCodes(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("composite reason codes = %#v, want %#v", got, want)
+	}
+	for _, code := range want {
+		if !domain.ValidCompositeReasonCode(code) {
+			t.Fatalf("documented composite reason code %q is invalid", code)
+		}
+	}
+	if domain.ValidCompositeReasonCode("") || domain.ValidCompositeReasonCode("composite_unknown") {
+		t.Fatal("undocumented composite reason code was accepted")
+	}
+}
+
 func TestComposeAcceptsTransitiveSameRoleRerunLineage(t *testing.T) {
 	root, security, _ := compositionFixtures(t)
 	intermediate := security

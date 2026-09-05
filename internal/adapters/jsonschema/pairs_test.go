@@ -12,9 +12,9 @@ import (
 
 func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 	validator := newBuiltinValidator(t)
-	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json")
+	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v6.schema.json")
 	envelope := map[string]any{
-		"schema_version": "mulgae-command-result.v5",
+		"schema_version": "mulgae-command-result.v6",
 		"command":        "init",
 		"request": map[string]any{
 			"request_id": "i_019f596a-cf80-7c67-b265-f37053d51ccf", "command": "init", "project_root": ".", "project_name": "project", "context": nil,
@@ -80,6 +80,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json", "example:composite-review-artifact.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json", "example:composite-run-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json", "example:command-result.v5.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-command-result.v6.schema.json", "example:command-result.v6.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "example:doctor-result.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "example:file-catalog.v1.valid.json"},

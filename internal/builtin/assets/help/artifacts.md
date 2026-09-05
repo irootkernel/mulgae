@@ -1,7 +1,7 @@
 # Artifacts
 
 Mulgae stores configuration and durable review state beneath `.mulgae/`.
-A published run has the form:
+An ordinary provider-executed published run has the form:
 
 ```text
 .mulgae/
@@ -27,11 +27,47 @@ A published run has the form:
       review_<uuidv7>.json
 ```
 
-`manifest.json` records lineage, target identity, attempts, outcome axes,
-role-report inventory, and artifact hashes. Successful selected roles also
-publish Mulgae-owned free-form role reports under `role-reports/`. A completed
-run has at most one top-level final review. Invalid, repaired, and extracted
-candidates remain under `attempts/`. A structured extraction trailer records
+A composite recovery run is provider-free and uses a smaller self-contained
+layout:
+
+```text
+.mulgae/
+  s_<uuidv7>/
+    r_<composite-uuidv7>/
+      manifest.json
+      status.json
+      publication/
+        journal.json
+      role-reports/
+        <role>.md
+      support/
+        index.json
+      target/
+        target.bytes
+        target-manifest.json
+        captured-review.json
+        blobs/
+          sha256-<hex>
+      review_<uuidv7>.json
+  store/
+    epochs/
+      epoch_<number>.json
+    lineage-edges/
+      e_<uuidv7>.json
+```
+
+The composite copies every selected role report and the verified target support
+needed to remain readable after its source runs are cleaned. It has no provider
+runtime stream, attempts, or validation directories because composition does
+not execute providers or revalidate provider output. `captured-review.json` and
+its blobs are present when the source review retained a captured archive.
+
+For an ordinary run, `manifest.json` records lineage, target identity, attempts,
+outcome axes, role-report inventory, and artifact hashes. Successful selected
+roles also publish Mulgae-owned free-form role reports under `role-reports/`.
+A completed run has at most one top-level final review. Invalid, repaired, and
+extracted candidates remain under `attempts/`. A structured extraction trailer
+records
 `attempts/<a_...>/candidate.extracted.NNN.json`,
 `attempts/<a_...>/invocations/002-extract/`, and
 `prompts/<a_...>/002-extract.{stdin,manifest.json}`. It never replaces the role

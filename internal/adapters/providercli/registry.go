@@ -1839,6 +1839,14 @@ func nativeProviderOutcome(
 		}
 		return false
 	}
+	errorContainsStatus := func(values ...string) bool {
+		for _, value := range values {
+			if containsStandaloneASCIIValue(errorOutput, value) {
+				return true
+			}
+		}
+		return false
+	}
 	loginRequired := providerLoginRequired(output)
 	switch family {
 	case FamilyKimi:
@@ -1847,6 +1855,12 @@ func nativeProviderOutcome(
 		loginRequired = loginRequired || containsAny("zcode.login_required", "zcode login required")
 	case FamilyAgy:
 		loginRequired = loginRequired || containsAny("agy.login_required", "agy login required")
+	case FamilyCodex:
+		// Codex emits the shared signals below without a family prefix. Its
+		// stdout is JSONL that can contain model-authored text, so only stderr
+		// has authority to classify a native failure.
+		output = errorOutput
+		loginRequired = providerLoginRequired(errorOutput)
 	default:
 		return "", "", "", false
 	}
@@ -1864,16 +1878,40 @@ func nativeProviderOutcome(
 		"insufficient_credits", "insufficient credits", "usage limit", "usage_limit_reached"):
 		return ports.ProviderExecutionStatusQuota, "provider_quota", domain.DiagnosticCauseQuotaExceeded, true
 	case containsAny("rate_limit", "rate limit", "too many requests", "rate-limited", "ratelimit") ||
-		errorContainsAny("429", "http 429", "slow down", "try again later", "please try again", "retry after", "retry-after"):
+		errorContainsAny("http 429", "slow down", "try again later", "please try again", "retry after", "retry-after") ||
+		errorContainsStatus("429"):
 		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit", domain.DiagnosticCauseRateLimited, true
 	case containsAny("service unavailable", "bad gateway", "gateway timeout", "internal server error") ||
-		errorContainsAny("503", "502", "504", "overloaded", "over capacity", "at capacity", "server is busy", "temporarily unavailable"):
+		errorContainsAny("overloaded", "over capacity", "at capacity", "server is busy", "temporarily unavailable") ||
+		errorContainsStatus("502", "503", "504"):
 		return ports.ProviderExecutionStatusUnavailable, "provider_overloaded", domain.DiagnosticCauseProviderExecutionFailed, true
 	case containsAny("authentication_failed", "invalid api key", "invalid_api_key"):
 		return ports.ProviderExecutionStatusAuthentication, "provider_auth", domain.DiagnosticCauseAuthenticationFailed, true
 	default:
 		return "", "", "", false
 	}
+}
+
+func containsStandaloneASCIIValue(output []byte, value string) bool {
+	for offset := 0; offset+len(value) <= len(output); offset++ {
+		if string(output[offset:offset+len(value)]) != value {
+			continue
+		}
+		if offset > 0 && isASCIIStatusTokenContinuation(output[offset-1]) {
+			continue
+		}
+		end := offset + len(value)
+		if end < len(output) && isASCIIStatusTokenContinuation(output[end]) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isASCIIStatusTokenContinuation(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' ||
+		value == '.' || value == ':' || value == '/' || value == '-' || value == '_'
 }
 
 func agyPermissionDenied(stderr []byte) bool {

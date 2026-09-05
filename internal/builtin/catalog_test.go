@@ -242,8 +242,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 74 {
-		t.Fatalf("manifest asset count = %d, want 74", len(manifest.Assets))
+	if len(manifest.Assets) != 76 {
+		t.Fatalf("manifest asset count = %d, want 76", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -322,8 +322,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 63 {
-		t.Fatalf("authoritative runtime source count = %d, want 63", len(authoritativeSources))
+	if len(authoritativeSources) != 65 {
+		t.Fatalf("authoritative runtime source count = %d, want 65", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -493,6 +493,30 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 	}
 }
 
+func TestCatalogArtifactsHelpDocumentsCompositeLayout(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+	_, help, err := catalog.Read(context.Background(), mustAssetID(t, "help:artifacts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	example, err := os.ReadFile(filepath.Join(testSOTRoot, "examples", "artifact-tree.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for source, content := range map[string]string{"help": string(help), "example": string(example)} {
+		for _, required := range []string{"status.json", "publication/", "role-reports/", "support/", "target/"} {
+			if !strings.Contains(content, required) {
+				t.Errorf("%s composite artifact layout is missing %q", source, required)
+			}
+		}
+	}
+	if !strings.Contains(string(help), "attempts, or validation directories") {
+		t.Error("artifact help does not distinguish provider-free composite runs")
+	}
+}
+
 func TestCatalogHasNoRuntimeConfigurationDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -518,6 +542,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json", "schemas/mulgae-composite-review-artifact.v1.schema.json", "examples/composite-review-artifact.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json", "schemas/mulgae-composite-run-manifest.v1.schema.json", "examples/composite-run-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json", "schemas/mulgae-command-result.v5.schema.json", "examples/command-result.v5.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v6.schema.json", "schemas/mulgae-command-result.v6.schema.json", "examples/command-result.v6.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "schemas/mulgae-doctor-result.v2.schema.json", "examples/doctor-result.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "schemas/mulgae-file-catalog.v1.schema.json", "examples/file-catalog.v1.valid.json"},
@@ -536,8 +561,8 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.v1.valid.json"},
 	}
-	if len(expected) != 21 {
-		t.Fatalf("test pair inventory contains %d pairs, want 21", len(expected))
+	if len(expected) != 22 {
+		t.Fatalf("test pair inventory contains %d pairs, want 22", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

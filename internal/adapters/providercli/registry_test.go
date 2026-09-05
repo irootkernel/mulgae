@@ -1138,6 +1138,25 @@ func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T
 	if ok || status == ports.ProviderExecutionStatusTimedOut || diagnostic == "provider_timeout" {
 		t.Fatalf("argv echo classified as native timeout: status = %q, diagnostic = %q, ok = %t", status, diagnostic, ok)
 	}
+	codexProse := []byte(`{"type":"item.completed","item":{"text":"The usage limit handling is correct."}}`)
+	if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, codexProse, nil); ok {
+		t.Fatalf("Codex review prose classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
+	}
+	for _, stderr := range [][]byte{
+		[]byte("request completed in 1502ms"),
+		[]byte("trace a429b503c504d"),
+		[]byte("panic at src/session.rs:429:12"),
+		[]byte("codex 0.502.0"),
+		[]byte("trace req-429-7"),
+	} {
+		if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, stderr); ok {
+			t.Fatalf("Codex unrelated numeric stderr classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
+		}
+	}
+	status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, []byte("request failed with status 429"))
+	if !ok || status != ports.ProviderExecutionStatusRateLimit || diagnostic != "provider_rate_limit" || cause != domain.DiagnosticCauseRateLimited {
+		t.Fatalf("Codex standalone HTTP status was not classified: status = %q, diagnostic = %q, cause = %q, ok = %t", status, diagnostic, cause, ok)
+	}
 }
 
 type observationRunner struct {

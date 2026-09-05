@@ -53,11 +53,22 @@ also read-only.
 
 `init`, `review`, `followup`, `delta`, `rerun`, `report`/`export` writes (each
 requires `--run` and `--output-path`), and clean apply mutate durable or
-external state and have no caller-supplied idempotency key. Re-observe their documented postcondition before any retry. A second
-review-like command is a new run, not a retry of the same mutation.
+external state and have no caller-supplied idempotency key. Re-observe their
+documented postcondition before any retry. A second review-like command is a new
+run, not a retry of the same mutation. `compose` is different: its exact root
+and recovery mapping is its idempotency key, but `status_required` still requires
+an exact status read before that mapping may be repeated.
 
 ## Recover the smallest supported unit
 
+- For `composite_publication_incomplete` or `status_required`, preserve the
+  deterministic run ID and inspect it with exact `status` or MCP `get_run`.
+  Repeat the same exact root and recovery mapping only after the read reports
+  that nothing committed; never treat reason-level `retryable` as the
+mutation-level retry decision.
+- Composition admission failures use artifact exit `7` with their stable
+  composite reason code because the exact caller mapping is validated against
+  committed run artifacts; they are not generic CLI syntax failures.
 - For `diagnostic_only: true`, no publication authority exists, artifact and
   report URIs are absent, and findings cannot be queried. Follow
   `recovery_action: rerun_review` only after the user
@@ -74,7 +85,7 @@ review-like command is a new run, not a retry of the same mutation.
   For `attempt_selector_unavailable`, prefer the exact attempt ID or re-read the
   run to obtain the persisted provider instance. Neither failure establishes a
   configuration problem.
-- For `selector_resolution_failed`, preserve the v5 envelope request ID and
+- For `selector_resolution_failed`, preserve the v6 envelope request ID and
   bounded reason, stop mutations, and report the failure. Do not treat the
   generic internal exit as evidence that doctor will find a problem.
 - For selector resolution that returns `request_cancelled`, retain exit `9`

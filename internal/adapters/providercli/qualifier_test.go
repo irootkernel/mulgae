@@ -51,6 +51,26 @@ func TestClassifyProbeFailureUsesTypedProcessCauseWithoutStderr(t *testing.T) {
 	}
 }
 
+func TestClassifyCodexProbeFailurePreservesQuotaSignalFromStderr(t *testing.T) {
+	observation := testProcessObservation(
+		t,
+		nil,
+		[]byte("ERROR: You've hit your usage limit. Try again later."),
+		ports.ProcessTerminationExited,
+		1,
+	)
+	err := classifyProbeFailure(
+		context.Background(),
+		FamilyCodex,
+		qualificationProcessFailure(FamilyCodex, observation, errors.New("capability probe failed")),
+		observation.Stderr(),
+	)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureQuota {
+		t.Fatalf("Codex quota probe failure = %#v, want %q", failure, domain.FailureQuota)
+	}
+}
+
 func TestQualificationFamilyOutputCauseIsExact(t *testing.T) {
 	for _, test := range []struct {
 		name   string

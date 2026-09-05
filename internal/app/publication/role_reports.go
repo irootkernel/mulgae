@@ -1,6 +1,7 @@
 package publication
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -71,6 +72,15 @@ func ProjectRoleReportURIs(result PublicationResult) ([]RoleReportURI, error) {
 	if !ok || !snapshot.Valid() {
 		return nil, fmt.Errorf("publication role report URIs: committed snapshot is required")
 	}
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(snapshot.Manifest().Bytes(), &envelope); err != nil {
+		return nil, fmt.Errorf("publication role report URIs: committed manifest is invalid: %w", err)
+	}
+	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+		return projectCompositeRoleReportURIs(result, snapshot)
+	}
 	reports, err := ProjectCommittedRoleReports(snapshot)
 	if err != nil {
 		return nil, err
@@ -130,6 +140,75 @@ func ProjectRoleReportURIs(result PublicationResult) ([]RoleReportURI, error) {
 	}
 	if len(supportByPath) != 0 {
 		return nil, fmt.Errorf("publication role report URIs: support inventory has unbound role reports")
+	}
+	return uris, nil
+}
+
+func projectCompositeRoleReportURIs(result PublicationResult, snapshot ports.CommittedPublicationSnapshot) ([]RoleReportURI, error) {
+	var manifest compositeManifestReadWire
+	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &manifest, "committed composite manifest"); err != nil {
+		return nil, fmt.Errorf("publication role report URIs: %w", err)
+	}
+	var sessionText, runText string
+	if err := json.Unmarshal(manifest.SessionID, &sessionText); err != nil {
+		return nil, fmt.Errorf("publication role report URIs: invalid composite session identity")
+	}
+	if err := json.Unmarshal(manifest.RunID, &runText); err != nil {
+		return nil, fmt.Errorf("publication role report URIs: invalid composite run identity")
+	}
+	sessionID, err := domain.ParseSessionID(sessionText)
+	if err != nil {
+		return nil, fmt.Errorf("publication role report URIs: invalid composite session identity")
+	}
+	runID, err := domain.ParseRunID(runText)
+	if err != nil {
+		return nil, fmt.Errorf("publication role report URIs: invalid composite run identity")
+	}
+	supportByPath := make(map[string]RunSupportArtifactIdentity, len(result.PersistedRunSupportArtifacts()))
+	for _, identity := range result.PersistedRunSupportArtifacts() {
+		if !identity.valid() {
+			return nil, fmt.Errorf("publication role report URIs: invalid composite support identity")
+		}
+		path := identity.Path()
+		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(sessionID, runID, path)
+		if classifyErr != nil {
+			return nil, fmt.Errorf("publication role report URIs: composite support path is not canonical: %w", classifyErr)
+		}
+		if kind != ports.RunSupportArtifactRoleReport {
+			continue
+		}
+		if _, duplicate := supportByPath[path.String()]; duplicate {
+			return nil, fmt.Errorf("publication role report URIs: duplicate composite support identity")
+		}
+		supportByPath[path.String()] = identity
+	}
+	uris := make([]RoleReportURI, 0, len(manifest.RoleReports))
+	seen := make(map[domain.Role]struct{}, len(manifest.RoleReports))
+	for _, report := range manifest.RoleReports {
+		role := domain.Role(report.Role)
+		if !role.Valid() || report.Path != "role-reports/"+string(role)+".md" || !validSHA256(report.SHA256) || report.ByteLength <= 0 {
+			return nil, fmt.Errorf("publication role report URIs: invalid composite report metadata for %q", report.Role)
+		}
+		if _, parseErr := domain.ParseAttemptID(report.AttemptID); parseErr != nil {
+			return nil, fmt.Errorf("publication role report URIs: invalid composite report attempt identity")
+		}
+		if _, parseErr := domain.ParseRunID(report.SourceRunID); parseErr != nil {
+			return nil, fmt.Errorf("publication role report URIs: invalid composite report source identity")
+		}
+		if _, duplicate := seen[role]; duplicate {
+			return nil, fmt.Errorf("publication role report URIs: duplicate composite role %q", role)
+		}
+		seen[role] = struct{}{}
+		fullPath := sessionID.String() + "/" + runID.String() + "/" + report.Path
+		identity, ok := supportByPath[fullPath]
+		if !ok || identity.SHA256() != report.SHA256 {
+			return nil, fmt.Errorf("publication role report URIs: composite support identity mismatch for %q", role)
+		}
+		delete(supportByPath, fullPath)
+		uris = append(uris, RoleReportURI{Role: string(role), URI: ".mulgae/" + fullPath, SHA256: report.SHA256, ByteLength: report.ByteLength})
+	}
+	if len(supportByPath) != 0 {
+		return nil, fmt.Errorf("publication role report URIs: composite support inventory has unbound role reports")
 	}
 	return uris, nil
 }

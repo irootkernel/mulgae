@@ -111,7 +111,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		if err := json.Unmarshal(got.stdout, &envelope); err != nil {
 			t.Fatal(err)
 		}
-		if envelope.SchemaVersion != "mulgae-command-result.v5" || envelope.Command != "delta" ||
+		if envelope.SchemaVersion != "mulgae-command-result.v6" || envelope.Command != "delta" ||
 			envelope.Request.RequestState != "unresolved" || envelope.Request.OutputFormat != "json" ||
 			envelope.Exit.Code != 2 || envelope.Exit.Kind != "usage" || len(envelope.Reasons) != 1 ||
 			envelope.Reasons[0].Code != "project_root_mismatch" ||
@@ -421,6 +421,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 	t.Run("command census", func(t *testing.T) {
 		const runID = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
 		const attemptID = "a_019f596a-cf80-7c67-b265-f37053d51ccf"
+		const recoveryRunID = "r_019f596a-cf81-7c67-b265-f37053d51ccf"
 		cases := []struct {
 			command string
 			argv    []string
@@ -432,6 +433,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			{"followup", []string{"followup", "--run", runID, "--finding", "F001", "--dirty"}, 2},
 			{"delta", []string{"delta", "--since-run", runID, "--dirty", "--roles", "logic"}, 2},
 			{"rerun", []string{"rerun", "--run", runID, "--attempt", attemptID}, 2},
+			{"compose", []string{"compose", "--root-run", runID, "--recovery-run", recoveryRunID}, 7},
 			{"status", []string{"status", "--run", runID}, 7},
 			{"report", []string{"report", "--run", runID, "--output-path", "report.md"}, 7},
 			{"findings", []string{"findings", "--run", runID, "--severity", "low"}, 7},
@@ -445,7 +447,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			{"export", []string{"export", "--run", runID, "--output-path", "review.zip"}, 7},
 			{"help", []string{"help"}, 0},
 		}
-		if got, want := len(cases), 18; got != want {
+		if got, want := len(cases), 19; got != want {
 			t.Fatalf("documented command census = %d, want %d", got, want)
 		}
 		specs := cli.CommandSpecs()
@@ -516,6 +518,29 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 						envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
 						envelope.Exit.Code != 2 || envelope.Exit.Kind != "usage" {
 						t.Fatalf("review authority-absent envelope = %#v", envelope)
+					}
+				},
+			},
+			{
+				name: "compose",
+				argv: []string{
+					"compose",
+					"--root-run", "r_019f596a-cf80-7c67-b265-f37053d51ccf",
+					"--recovery-run", "r_019f596a-cf81-7c67-b265-f37053d51ccf",
+					"--output", "json",
+				},
+				exit:       7,
+				nullFields: []string{"session_id", "run_id", "review_id", "run_manifest_uri", "review_artifact_uri"},
+				check: func(t *testing.T, envelope commandEnvelope) {
+					if envelope.SchemaVersion != "mulgae-command-result.v6" || envelope.Command != "compose" ||
+						envelope.Request.OutputFormat != "json" ||
+						envelope.Result.Kind != "composite_failed" || envelope.Result.RootRunID == nil ||
+						*envelope.Result.RootRunID != "r_019f596a-cf80-7c67-b265-f37053d51ccf" ||
+						!reflect.DeepEqual(envelope.Result.RecoveryRunIDs, []string{"r_019f596a-cf81-7c67-b265-f37053d51ccf"}) ||
+						envelope.Result.ReconciliationState != "not_committed" || !envelope.Result.RetrySafe ||
+						envelope.Exit.Code != 7 || envelope.Exit.Kind != "artifact" || len(envelope.Reasons) != 1 ||
+						envelope.Reasons[0].Code != "composite_validation_failed" || envelope.Reasons[0].Retryable {
+						t.Fatalf("compose authority-absent envelope = %#v", envelope)
 					}
 				},
 			},
@@ -1358,6 +1383,94 @@ func TestIntegrationStagedFileMissingIsAnOperationalRoleFailure(t *testing.T) {
 	}
 }
 
+func TestIntegrationReleaseBinaryComposesExactRecoveredReview(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+
+	installedUser, err := user.Current()
+	if err != nil || installedUser == nil {
+		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
+	}
+	providerDirectory := canonicalTestTempDir(t)
+	logDirectory := canonicalTestTempDir(t)
+	zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
+	zcodeNode := filepath.Join(providerDirectory, "node")
+	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "fail_first_review")
+	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
+	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic", zcodeNode, zcodeLauncher, "")
+
+	incomplete := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"review", "--dirty", "--roles", "logic", "--output", "json")
+	var rootEnvelope commandEnvelope
+	if err := json.Unmarshal(incomplete.stdout, &rootEnvelope); err != nil {
+		t.Fatalf("decode incomplete root: %v: %q", err, incomplete.stdout)
+	}
+	if incomplete.exitCode != int(domain.ExitIncompleteCoverage) || rootEnvelope.Result.RunID == nil ||
+		!commandEnvelopeHasReason(rootEnvelope, "required_role_incomplete") {
+		t.Fatalf("incomplete root = exit %d envelope %#v stderr %q", incomplete.exitCode, rootEnvelope, incomplete.stderr)
+	}
+
+	recovered := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"rerun", "--run", *rootEnvelope.Result.RunID, "--role", "logic", "--provider", "zcode-logic", "--output", "json")
+	var recoveryEnvelope commandEnvelope
+	if err := json.Unmarshal(recovered.stdout, &recoveryEnvelope); err != nil {
+		t.Fatalf("decode exact recovery: %v: %q", err, recovered.stdout)
+	}
+	if recovered.exitCode != 0 || recoveryEnvelope.Result.RunID == nil {
+		dumpRuntimeDiagnostics(t, project, recoveryEnvelope)
+		t.Fatalf("exact recovery = exit %d envelope %#v stderr %q", recovered.exitCode, recoveryEnvelope, recovered.stderr)
+	}
+
+	composed := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"compose", "--root-run", *rootEnvelope.Result.RunID, "--recovery-run", *recoveryEnvelope.Result.RunID, "--output", "json")
+	var compositeEnvelope commandEnvelope
+	if err := json.Unmarshal(composed.stdout, &compositeEnvelope); err != nil {
+		t.Fatalf("decode composite: %v: %q", err, composed.stdout)
+	}
+	if composed.exitCode != 0 || compositeEnvelope.Result.Kind != "composite_published" || compositeEnvelope.Result.RunID == nil ||
+		compositeEnvelope.Result.RootRunID == nil || *compositeEnvelope.Result.RootRunID != *rootEnvelope.Result.RunID ||
+		!reflect.DeepEqual(compositeEnvelope.Result.RecoveryRunIDs, []string{*recoveryEnvelope.Result.RunID}) ||
+		compositeEnvelope.Result.ReconciliationState != "created" ||
+		compositeEnvelope.Result.PublicationStatus != string(domain.PublicationCommitted) ||
+		compositeEnvelope.Result.CoverageStatus != string(domain.CoverageComplete) ||
+		compositeEnvelope.Result.CIDecision != string(domain.CIPass) || !compositeEnvelope.Result.RetrySafe {
+		t.Fatalf("composite = exit %d envelope %#v stderr %q", composed.exitCode, compositeEnvelope, composed.stderr)
+	}
+	reconciled := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"compose", "--root-run", *rootEnvelope.Result.RunID, "--recovery-run", *recoveryEnvelope.Result.RunID, "--output", "json")
+	var reconciledEnvelope commandEnvelope
+	if err := json.Unmarshal(reconciled.stdout, &reconciledEnvelope); err != nil {
+		t.Fatalf("decode reconciled composite: %v: %q", err, reconciled.stdout)
+	}
+	if reconciled.exitCode != 0 || reconciledEnvelope.Result.RunID == nil || reconciledEnvelope.Result.ReviewID == nil ||
+		*reconciledEnvelope.Result.RunID != *compositeEnvelope.Result.RunID ||
+		*reconciledEnvelope.Result.ReviewID != *compositeEnvelope.Result.ReviewID ||
+		reconciledEnvelope.Result.ReconciliationState != "reconciled" || !reconciledEnvelope.Result.RetrySafe {
+		t.Fatalf("reconciled composite = exit %d envelope %#v stderr %q", reconciled.exitCode, reconciledEnvelope, reconciled.stderr)
+	}
+
+	status := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"status", "--run", *compositeEnvelope.Result.RunID, "--output", "json")
+	var statusEnvelope commandEnvelope
+	if err := json.Unmarshal(status.stdout, &statusEnvelope); err != nil {
+		t.Fatalf("decode composite status: %v: %q", err, status.stdout)
+	}
+	if status.exitCode != 0 || statusEnvelope.Result.RunID == nil || *statusEnvelope.Result.RunID != *compositeEnvelope.Result.RunID ||
+		statusEnvelope.Result.PublicationStatus != compositeEnvelope.Result.PublicationStatus ||
+		statusEnvelope.Result.CoverageStatus != compositeEnvelope.Result.CoverageStatus ||
+		statusEnvelope.Result.CIDecision != compositeEnvelope.Result.CIDecision {
+		t.Fatalf("composite status = exit %d envelope %#v stderr %q", status.exitCode, statusEnvelope, status.stderr)
+	}
+	findings := runMulgaeBinaryWithEnv(t, binary, project, environment,
+		"findings", "--run", *compositeEnvelope.Result.RunID, "--severity", "low", "--output", "json")
+	if findings.exitCode != 0 || len(findings.stderr) != 0 {
+		t.Fatalf("composite findings = exit %d stdout %q stderr %q", findings.exitCode, findings.stdout, findings.stderr)
+	}
+}
+
 // Staging Mulgae did not authorize is a boundary breach: the role publishes
 // nothing and the run fails closed as a security condition.
 func TestIntegrationStagedSymlinkFailsClosedAsSecurityViolation(t *testing.T) {
@@ -2089,8 +2202,12 @@ func TestIntegrationMulgaeOfflineDiagnosticFailureWorkflows(t *testing.T) {
 }
 
 func initializeOfflineProviders(t *testing.T, binary, project string, environment []string, providers, zcodeNode, zcodeLauncher, agy string) {
+	initializeOfflineProvidersForRoles(t, binary, project, environment, providers, "security", zcodeNode, zcodeLauncher, agy)
+}
+
+func initializeOfflineProvidersForRoles(t *testing.T, binary, project string, environment []string, providers, roles, zcodeNode, zcodeLauncher, agy string) {
 	t.Helper()
-	arguments := []string{"init", "--providers", providers, "--roles", "security", "--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher}
+	arguments := []string{"init", "--providers", providers, "--roles", roles, "--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher}
 	if agy != "" {
 		arguments = append(arguments, "--agy-executable", agy)
 	}
@@ -2157,13 +2274,21 @@ type commandEnvelope struct {
 		Kind string `json:"kind"`
 	} `json:"exit"`
 	Result struct {
-		Kind              string                 `json:"kind"`
-		SessionID         *string                `json:"session_id"`
-		RunID             *string                `json:"run_id"`
-		RunManifestURI    *string                `json:"run_manifest_uri"`
-		ReviewArtifactURI *string                `json:"review_artifact_uri"`
-		PromptManifestURI *string                `json:"prompt_manifest_uri"`
-		RoleReportURIs    []commandRoleReportURI `json:"role_report_uris"`
+		Kind                string                 `json:"kind"`
+		SessionID           *string                `json:"session_id"`
+		RunID               *string                `json:"run_id"`
+		ReviewID            *string                `json:"review_id"`
+		RootRunID           *string                `json:"root_run_id"`
+		RecoveryRunIDs      []string               `json:"recovery_run_ids"`
+		ReconciliationState string                 `json:"reconciliation_state"`
+		RetrySafe           bool                   `json:"retry_safe"`
+		PublicationStatus   string                 `json:"publication_status"`
+		CoverageStatus      string                 `json:"coverage_status"`
+		CIDecision          string                 `json:"ci_decision"`
+		RunManifestURI      *string                `json:"run_manifest_uri"`
+		ReviewArtifactURI   *string                `json:"review_artifact_uri"`
+		PromptManifestURI   *string                `json:"prompt_manifest_uri"`
+		RoleReportURIs      []commandRoleReportURI `json:"role_report_uris"`
 	} `json:"result"`
 	Reasons []struct {
 		Category    string  `json:"category"`
@@ -2591,6 +2716,21 @@ func main() {
 		}
 		fmt.Printf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], link[1], role[1])
 		return
+	}
+	if "__FAKE_ZCODE_MODE__" == "fail_first_review" {
+		for attempt := 1; attempt <= 2; attempt++ {
+			marker, err := os.OpenFile(fmt.Sprintf("__FAKE_ZCODE_LOG__.failed.%d", attempt), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+			if err == nil {
+				if err := marker.Close(); err != nil {
+					panic(err)
+				}
+				fmt.Fprintln(os.Stderr, "provider execution failed")
+				os.Exit(1)
+			}
+			if !os.IsExist(err) {
+				panic(err)
+			}
+		}
 	}
 	// A provider that fails before it produces output never honours staging, so
 	// the simulated failures below exit ahead of the destination requirement.

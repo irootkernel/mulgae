@@ -38,6 +38,7 @@ root.
 | `internal/app/review` | Assignments, coordination, aggregation, results |
 | `internal/app/validation` | Wire parsing, trusted-field injection, checks, repair |
 | `internal/app/publication` | Manifests, attempts, final artifacts, recovery, integrity |
+| `internal/app/reviewcompose` | Exact composite admission, lineage and target verification, recomputation |
 | `internal/app/{followup,delta,rerun}` | Child-run lineage and specialized reviews |
 | `internal/app/childrun` | Child-run execution and publication engine |
 | `internal/app/{query,report,clean,export}` | Inspection and artifact lifecycle |
@@ -128,18 +129,21 @@ exit 10, and invalid command grammar uses exit 2.
 
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,
-`start_review`, `await_review`, `cancel_review`, `list_runs`, `get_run`, and
-`list_findings`, plus bounded verified report and
+`start_review`, `await_review`, `cancel_review`, `compose_review`, `list_runs`,
+`get_run`, and `list_findings`, plus bounded verified report and
 finding-evidence resource templates. The MCP package owns strict tool and URI
 grammar, chunk limits, and the common result envelope; composition binds those
 surfaces to the same preflight, review, report, and verified publication-query
-services used by the CLI. `get_run` first resolves publication and falls back to
-the bounded runtime-diagnostic query only for the typed publication-not-found
-case. Publication corruption, security failures, and other query failures never
-enter the fallback. It does not duplicate capture, execution, query, or
-publication policy. `run_review` remains a request-owned foreground compatibility
-path. The process-local invocation registry separately gives each `start_review`
-identity one server-owned execution and an event-driven completion channel.
+services used by the CLI. `compose_review` and CLI `compose` call the same
+provider-free application mutation, so exact admission, deterministic identity,
+atomic publication, and retry reconciliation cannot drift between transports.
+`get_run` first resolves publication and falls back to the bounded
+runtime-diagnostic query only for the typed publication-not-found case.
+Publication corruption, security failures, and other query failures never enter
+the fallback. It does not duplicate capture, execution, query, or publication
+policy. `run_review` remains a request-owned foreground compatibility path. The
+process-local invocation registry separately gives each `start_review` identity
+one server-owned execution and an event-driven completion channel.
 `await_review` observes that channel under its request context without owning the
 execution context; repeated waits clone the same cached terminal result.
 `cancel_review` is the only client tool that cancels a registry-owned execution.

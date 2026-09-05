@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	"github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/domain"
 	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
 	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
@@ -157,6 +158,55 @@ func (backend *mcpBackend) RunReview(
 		"role_report_uris": reports, "report_resource_uri": reportURI,
 		"terminal_exit_code": int(decision.Code()), "reasons": reasons,
 	}}, nil
+}
+
+func (backend *mcpBackend) ComposeReview(
+	ctx context.Context,
+	requestID string,
+	input mcpentry.ComposeReviewInput,
+) (mcpentry.BackendResult, error) {
+	if err := backend.preflight(ctx); err != nil {
+		return mcpentry.BackendResult{}, err
+	}
+	arguments := []string{"compose", "--root-run", input.RootRunID}
+	for _, runID := range input.RecoveryRuns {
+		arguments = append(arguments, "--recovery-run", runID)
+	}
+	invocation, err := mulgaeentry.Parse(arguments, backend.projectRoot.String(), requestID)
+	if err != nil {
+		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", domain.FailureConfiguration, "MCP composition request is invalid", err)
+	}
+	request, available := invocation.Compose()
+	if !available {
+		return mcpentry.BackendResult{}, newMCPFailure("mcp.compose", domain.FailureInternal, "MCP composition request is unavailable", nil)
+	}
+	result, err := backend.application.ComposeReview(ctx, request)
+	if err != nil {
+		return mcpentry.BackendResult{}, err
+	}
+	return projectMCPCompositeResult(result)
+}
+
+func projectMCPCompositeResult(result reviewcompose.PublishedResult) (mcpentry.BackendResult, error) {
+	data, err := mulgaeentry.ProjectCompositeResult(result)
+	if err != nil {
+		return mcpentry.BackendResult{}, mcpCompositeProjectionFailure(result, "MCP composition result is invalid", err)
+	}
+	reportURI, err := mcpentry.NewReportResourceURI(result.RunID().String())
+	if err != nil {
+		return mcpentry.BackendResult{}, mcpCompositeProjectionFailure(result, "MCP composition report URI is invalid", err)
+	}
+	data["report_resource_uri"] = reportURI
+	outcome := "success"
+	if result.CIDecision() == domain.CIFail {
+		outcome = "request_changes"
+	}
+	return mcpentry.BackendResult{Outcome: outcome, Data: data}, nil
+}
+
+func mcpCompositeProjectionFailure(result reviewcompose.PublishedResult, detail string, cause error) error {
+	failure := newMCPFailure("mcp.compose", domain.FailureInternal, detail, cause)
+	return reviewcompose.NewReconciliationFailure(result, detail, failure)
 }
 
 func mcpReviewArguments(input mcpentry.RunReviewInput) ([]string, error) {
@@ -331,7 +381,7 @@ func (backend *mcpBackend) ListFindings(ctx context.Context, input mcpentry.List
 	}
 	for _, finding := range view.Findings {
 		projection.Findings = append(projection.Findings, mcpentry.FindingProjection{
-			ID: finding.ID, Severity: finding.Severity, Title: finding.Title,
+			ID: finding.ID, Severity: finding.Severity, Title: finding.Title, HasEvidence: finding.HasEvidence,
 		})
 	}
 	return mcpentry.ProjectFindings(projection)

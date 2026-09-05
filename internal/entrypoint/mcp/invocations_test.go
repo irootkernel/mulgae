@@ -191,6 +191,10 @@ func (fake *invocationBackendFake) RunReview(ctx context.Context, id string, inp
 	return fake.run(ctx, id, input)
 }
 
+func (*invocationBackendFake) ComposeReview(context.Context, string, ComposeReviewInput) (BackendResult, error) {
+	return BackendResult{}, nil
+}
+
 func (fake *invocationBackendFake) Calls() int {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()

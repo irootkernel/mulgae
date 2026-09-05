@@ -251,6 +251,7 @@ func TestMakefileContract(t *testing.T) {
 		"GOBIN=", "$(GO) install", "-trimpath", "main.buildVersion=$(RELEASE_VERSION)",
 		"main.buildRevision=", "-tags=releasecheck", "MULGAE_RELEASE_BINARY",
 		"MULGAE_RELEASE_GOBIN", "MULGAE_RELEASE_VERSION", "MULGAE_RELEASE_REVISION",
+		"TestIntegrationReleaseBinaryComposesExactRecoveredReview",
 	} {
 		if !strings.Contains(releaseTarget, required) {
 			t.Errorf("test-release missing installation-contract token %q", required)
@@ -271,8 +272,11 @@ func TestMakefileContract(t *testing.T) {
 	for _, required := range []string{
 		"zcode_node=", `test -n "$$zcode_node"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`, "codex_bin=", `test -n "$$codex_bin"`,
-		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN", "MULGAE_LIVE_CODEX_BIN",
-		"-tags=liveprovider", "-run '^TestLive(ZCode|Agy|Codex)Capability$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"codex_home=", "MULGAE_E2E_CODEX_HOME", `test -n "$$codex_home"`,
+		"codex_fallback_home=", "MULGAE_E2E_CODEX_FALLBACK_HOME", `test -d "$${HOME}/.codex-hsy"`, `test -d "$$codex_fallback_home"`,
+		"codex_home_label=", "codex_fallback_home_label=", "~/.codex", "~/.codex-hsy", "<unset>", "<custom>", "[test-e2e] Codex credential homes:",
+		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN", "MULGAE_LIVE_CODEX_BIN", "MULGAE_LIVE_CODEX_HOME", "MULGAE_LIVE_CODEX_FALLBACK_HOME",
+		"-tags=liveprovider", "-run '^TestLive(ZCode|Agy|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
 		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {

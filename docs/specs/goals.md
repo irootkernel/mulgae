@@ -43,6 +43,11 @@ result, evidence status, lineage, and a durable publication record.
    provides stable versioned envelopes and typed exits, while an attached
    stdio MCP process provides request/response automation and a bounded,
    session-local event-driven review wait without CLI polling or durable jobs.
+9. **Exact composite recovery.** An operator may recover missing required-role
+   coverage by selecting completed reruns of the same immutable target. Mulgae
+   verifies their exact lineage and source integrity, preserves every accepted
+   root result, and publishes one self-contained immutable composite review
+   without invoking a provider again.
 
 ## Non-goals
 
@@ -51,6 +56,8 @@ Mulgae does not:
 - approve a merge, release, policy waiver, or security exception;
 - claim that several provider opinions are consensus;
 - silently substitute an unconfigured provider;
+- merge arbitrary reviews, replace a successful root role, select recovery runs
+  automatically, or compose runs whose target or lineage does not match;
 - execute commands supplied by project configuration;
 - give a provider live access to the reviewed project tree;
 - upload artifacts to a hosted Mulgae service;

@@ -40,6 +40,23 @@ make test-mcp-clients
 `make test`. Do not call a change release-ready when the mandatory
 ZCode/AGY/Codex live gate was skipped.
 
+The mandatory Codex capability check first uses `MULGAE_E2E_CODEX_HOME`, which
+defaults to `~/.codex`. If and only if that account returns a typed quota
+failure, the check retries once with `MULGAE_E2E_CODEX_FALLBACK_HOME`. When that
+variable is unset and `~/.codex-hsy` exists, the target uses that directory as
+the fallback; otherwise no fallback is configured. Each selected directory
+must be absolute and contain the authenticated `auth.json`; the check projects
+only that file into its disposable provider namespace. Primary quota exhaustion
+without an available fallback remains an inconclusive gate failure.
+Authentication, rate-limit, timeout, invalid output, and other failures do not
+authorize credential fallback.
+
+Before provider execution, the target logs credential-home labels such as
+`primary=~/.codex quota_fallback=<unset>`. After certification it also logs the
+selected `primary` or `quota_fallback` profile. The conventional fallback is
+reported as `~/.codex-hsy`; an arbitrary absolute override is reported as
+`<custom>` so test logs do not disclose a native path.
+
 `make test-e2e-opt-in` is called after `make test-e2e`, but performs no provider
 discovery or execution unless `MULGAE_E2E_OPT_IN=1`. When enabled it runs one
 three-role exact-binary review: Kimi owns `logic`, Codex profile `primary` owns

@@ -152,9 +152,15 @@ type Finding struct {
 
 // Failure carries the stable public reason code for a rejected composition.
 type Failure struct {
-	reason string
-	detail string
-	cause  error
+	reason    string
+	detail    string
+	cause     error
+	sessionID domain.SessionID
+	runID     domain.RunID
+}
+
+func failWithIdentity(reason, detail string, cause error, sessionID domain.SessionID, runID domain.RunID) error {
+	return &Failure{reason: reason, detail: detail, cause: cause, sessionID: sessionID, runID: runID}
 }
 
 func fail(reason, detail string, cause error) error {
@@ -184,4 +190,19 @@ func (failure *Failure) ReasonCode() string {
 		return ""
 	}
 	return failure.reason
+}
+
+// CompositeIdentity returns the deterministic destination when composition
+// completed far enough for exact reconciliation.
+func (failure *Failure) CompositeIdentity() (domain.SessionID, domain.RunID, bool) {
+	if failure == nil {
+		return domain.SessionID{}, domain.RunID{}, false
+	}
+	if _, err := domain.ParseSessionID(failure.sessionID.String()); err != nil {
+		return domain.SessionID{}, domain.RunID{}, false
+	}
+	if _, err := domain.ParseRunID(failure.runID.String()); err != nil {
+		return domain.SessionID{}, domain.RunID{}, false
+	}
+	return failure.sessionID, failure.runID, true
 }

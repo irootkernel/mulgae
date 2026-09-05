@@ -133,13 +133,30 @@
         diagnostics/
           publication-corrupt.json
       review_019f596a-d174-7321-b920-c2d312c82cc2.json
+    r_019f596a-cfe5-7c9c-b82e-7149158243ba/
+      manifest.json
+      status.json
+      publication/
+        journal.json
+      role-reports/
+        logic.md
+        security.md
+      support/
+        index.json
+      target/
+        target.bytes
+        target-manifest.json
+        captured-review.json
+        blobs/
+          sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      review_019f596a-d175-7321-b920-c2d312c82cc2.json
   store/
     manifests/
       m_019f596a-d174-7321-b920-c2d312c82cc2.json
     lineage-edges/
       e_019f596a-d174-7321-b920-c2d312c82cc2.json
     epochs/
-      epoch_00000042.json
+      epoch_00000000000000000042.json
     locks/
       store.lock
     clean/

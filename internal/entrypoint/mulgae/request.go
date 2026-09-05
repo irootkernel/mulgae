@@ -82,6 +82,7 @@ type Invocation struct {
 	review         *ReviewRequest
 	delta          *DeltaRequest
 	rerun          *RerunRequest
+	compose        *ComposeRequest
 	clean          *CleanRequest
 	export         *ExportRequest
 }
@@ -237,6 +238,17 @@ func (invocation Invocation) Rerun() (RerunRequest, bool) {
 		return RerunRequest{}, false
 	}
 	return *invocation.rerun, true
+}
+
+// Compose returns the parsed exact composition selection.
+func (invocation Invocation) Compose() (ComposeRequest, bool) {
+	if invocation.compose == nil {
+		return ComposeRequest{}, false
+	}
+	return ComposeRequest{
+		rootRunID:    invocation.compose.rootRunID,
+		recoveryRuns: cloneStrings(invocation.compose.recoveryRuns),
+	}, true
 }
 
 // Clean returns the parsed clean fields when this is a clean invocation.
@@ -602,6 +614,18 @@ func (request RerunRequest) SourceAttemptID() string { return request.sourceAtte
 
 // ReplayMode returns the selected replay construction mode.
 func (request RerunRequest) ReplayMode() ReplayMode { return request.replayMode }
+
+// ComposeRequest contains one exact incomplete root and every explicitly
+// selected recovery run.
+type ComposeRequest struct {
+	rootRunID    string
+	recoveryRuns []string
+}
+
+func (request ComposeRequest) RootRunID() string { return request.rootRunID }
+func (request ComposeRequest) RecoveryRunIDs() []string {
+	return cloneStrings(request.recoveryRuns)
+}
 
 // CleanRequest contains one immutable cleanup selection.
 type CleanRequest struct {

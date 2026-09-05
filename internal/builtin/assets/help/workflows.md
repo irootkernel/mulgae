@@ -77,6 +77,26 @@ authorized. Use `--output json` for machine-readable command envelopes,
 including rejected syntax, unresolved selectors, cancellation, and typed
 artifact or security failures.
 
+After exact role reruns have committed, compose an incomplete root without
+invoking providers again:
+
+```bash
+mulgae compose --root-run r_... --recovery-run r_... --output json
+```
+
+Provide one unique exact recovery run for every missing required role; `latest`
+is never accepted. Preserve the returned deterministic composite `run_id`. If
+the result says `status_required`, inspect that ID with `status` instead of
+blindly retrying the mutation.
+
+Composite findings remain available through `findings`, but they do not support
+CLI `excerpt` reads or MCP current-target evidence resources. Composite
+`status`, `report`, and `export` reads remain supported.
+
+For MCP, an uncertain `compose_review` publication returns
+`composite_publication_incomplete`, non-null `session_id` and `run_id` values,
+and `retryable: false`. Inspect that exact run before repeating the mapping.
+
 An MCP client may start one attached stdio process rooted at the current
 canonical project directory or an explicit absolute path:
 
@@ -91,7 +111,7 @@ stdout, writes bounded diagnostics to stderr, and stops when the client closes
 stdin. Every nonempty input record must end with LF; a partial final record is
 rejected without dispatch. The project root is fixed at startup. It provides
 `preflight_review`, `run_review`, `start_review`, `await_review`,
-`cancel_review`, `list_runs`, `get_run`, and `list_findings`.
+`cancel_review`, `compose_review`, `list_runs`, `get_run`, and `list_findings`.
 Preflight is execution-free and returns a bounded plan summary. `run_review`
 completes in the foreground and accepts workspace, stage, dirty, diff, or patch
 targets; stdin is reserved for JSON-RPC and cannot carry review content.

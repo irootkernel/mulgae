@@ -315,7 +315,7 @@ The server speaks newline-delimited JSON-RPC on stdout. It prefers MCP protocol
 `2026-07-28` and accepts `2025-11-25` and `2025-06-18` for current stdio client
 compatibility; older versions fail with a structured unsupported-version error.
 Diagnostics use stderr. The process fixes the canonical project root at startup
-and exits when its client closes stdin. It exposes eight bounded tools:
+and exits when its client closes stdin. It exposes nine bounded tools:
 
 - `preflight_review` captures and summarizes the execution-free target,
   transmission plan, and budget without invoking providers or publishing a run.
@@ -329,6 +329,9 @@ and exits when its client closes stdin. It exposes eight bounded tools:
 - `cancel_review` records the first explicit cancellation request for an active
   invocation; its acknowledgement is not terminal, so the client must still
   call `await_review`.
+- `compose_review` atomically publishes one self-contained composite from an
+  exact incomplete root run and one to seven exact recovery run IDs. It never
+  selects `latest` or invokes a provider.
 - `list_runs` returns a newest-first page of safely admitted runs, with a limit
   from 1 through 100 and an opaque continuation cursor.
 - `get_run` returns verified publication state and public artifact identities,
@@ -577,6 +580,24 @@ mulgae findings --run r_... --severity high
 mulgae report --run r_... --output-path reports/review.md
 mulgae export --run r_...
 ```
+
+Recover every missing required role from explicitly selected committed reruns:
+
+```bash
+mulgae compose --root-run r_... --recovery-run r_... --output json
+```
+
+The same exact mapping is idempotent. If publication returns
+`reconciliation_state: status_required`, inspect the returned composite
+`run_id`; do not blindly retry an uncertain mutation. Composite findings remain
+available through `findings`, but they do not support CLI `excerpt` reads or MCP
+current-target evidence resources. Composite `status`, `report`, and `export`
+reads remain supported.
+
+The MCP `compose_review` equivalent reports an uncertain publication as
+`composite_publication_incomplete` with deterministic non-null `session_id`
+and `run_id` values and `retryable: false`; inspect that exact run before
+repeating the mapping.
 
 Exports default to `.mulgae/exports/<run-id>.zip` with a neighboring
 `.manifest.json` sidecar. Use `--output-path <relative-path>` only when you

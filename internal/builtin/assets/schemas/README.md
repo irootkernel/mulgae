@@ -1,6 +1,7 @@
 # JSON Schema Contracts
 
-Mulgae exposes one version of each JSON contract. Every schema uses JSON Schema
+Mulgae emits one current version of each JSON contract and may retain an
+explicitly documented predecessor for backward reads. Every schema uses JSON Schema
 Draft 2020-12 and a canonical
 `https://mulgae.local/schemas/<filename>.schema.json` identifier.
 
@@ -12,6 +13,7 @@ Draft 2020-12 and a canonical
 | `mulgae-composite-review-artifact.v1` | `../examples/composite-review-artifact.v1.valid.json` |
 | `mulgae-composite-run-manifest.v1` | `../examples/composite-run-manifest.v1.valid.json` |
 | `mulgae-command-result.v5` | `../examples/command-result.v5.valid.json` |
+| `mulgae-command-result.v6` | `../examples/command-result.v6.valid.json` |
 | `mulgae-doctor-result.v2` | `../examples/doctor-result.v2.valid.json` |
 | `mulgae-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` |
 | `mulgae-file-catalog.v1` | `../examples/file-catalog.v1.valid.json` |

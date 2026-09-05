@@ -30,6 +30,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/providers"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
+	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	approles "github.com/irootkernel/mulgae/internal/app/roles"
 	appschema "github.com/irootkernel/mulgae/internal/app/schema"
@@ -102,6 +103,9 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 		app.CommandRerun: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
 			return application.handleRerun(ctx, invocation)
 		},
+		app.CommandCompose: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
+			return application.handleCompose(ctx, invocation)
+		},
 		app.CommandClean: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
 			return application.handleClean(ctx, invocation)
 		},
@@ -109,6 +113,102 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 			return application.handleExport(ctx, invocation, root)
 		},
 	}
+}
+
+func (application *Application) handleCompose(ctx context.Context, invocation Invocation) execution {
+	request, available := invocation.Compose()
+	if !available {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
+	}
+	result, err := application.ComposeReview(ctx, request)
+	if err != nil {
+		return execution{
+			failureData: compositeFailureResultJSONFor(err, request),
+			failure:     executionFailureFor(invocation.Command(), err, domain.FailureArtifact),
+		}
+	}
+	projected, err := ProjectCompositeResult(result)
+	if err != nil {
+		return compositePublishedFailureExecution(invocation.Command(), result, request, "composite result projection failed", err)
+	}
+	data, err := json.Marshal(projected)
+	if err != nil {
+		return compositePublishedFailureExecution(invocation.Command(), result, request, "composite result encoding failed", err)
+	}
+	exit, reasons, err := committedTerminalOutcome(result.TerminalExit())
+	if err != nil {
+		return compositePublishedFailureExecution(invocation.Command(), result, request, "composite terminal outcome projection failed", err)
+	}
+	return execution{
+		human:            []byte("composite committed: " + result.RunID().String() + " (" + string(result.ReconciliationState()) + ")"),
+		data:             data,
+		failureData:      compositeFailureResultJSONForPublished(result, request),
+		exit:             exit,
+		committedReasons: reasons,
+		postCommitFailure: func(cause error) error {
+			return appreviewcompose.NewReconciliationFailure(result, "composite result rendering failed", cause)
+		},
+	}
+}
+
+func compositePublishedFailureExecution(command app.CommandName, result appreviewcompose.PublishedResult, request ComposeRequest, detail string, cause error) execution {
+	err := appreviewcompose.NewReconciliationFailure(result, detail, cause)
+	return execution{
+		failureData: compositeFailureResultJSONForPublished(result, request),
+		failure:     executionFailureFor(command, err, domain.FailureInternal),
+	}
+}
+
+func compositeFailureResultJSON() []byte {
+	data, _ := json.Marshal(compositeFailureResultData("", []string{}))
+	return data
+}
+
+func compositeFailureResultJSONFor(err error, request ComposeRequest) []byte {
+	data := compositeFailureResultData(request.RootRunID(), request.RecoveryRunIDs())
+	var identified interface {
+		CompositeIdentity() (domain.SessionID, domain.RunID, bool)
+	}
+	if errors.As(err, &identified) {
+		if sessionID, runID, ok := identified.CompositeIdentity(); ok {
+			setCompositeStatusRequired(data, sessionID, runID)
+		}
+	}
+	encoded, _ := json.Marshal(data)
+	return encoded
+}
+
+func compositeFailureResultJSONForPublished(result appreviewcompose.PublishedResult, request ComposeRequest) []byte {
+	data := compositeFailureResultData(request.RootRunID(), request.RecoveryRunIDs())
+	if _, err := domain.ParseSessionID(result.SessionID().String()); err == nil {
+		if _, err := domain.ParseRunID(result.RunID().String()); err == nil {
+			setCompositeStatusRequired(data, result.SessionID(), result.RunID())
+		}
+	}
+	encoded, _ := json.Marshal(data)
+	return encoded
+}
+
+func compositeFailureResultData(rootRunID string, recoveryRunIDs []string) map[string]any {
+	var rootRunValue any
+	if rootRunID != "" {
+		rootRunValue = rootRunID
+	}
+	return map[string]any{
+		"kind": "composite_failed", "session_id": nil, "run_id": nil, "review_id": nil,
+		"root_run_id": rootRunValue, "recovery_run_ids": recoveryRunIDs,
+		"run_type": string(domain.RunTypeComposite), "run_manifest_uri": nil, "review_artifact_uri": nil,
+		"role_report_uris": []any{}, "publication_status": nil, "target_sha256": nil,
+		"recovered_roles": []string{}, "coverage_status": nil, "content_verdict": nil,
+		"structured_extraction_status": nil, "ci_decision": nil, "reconciliation_state": string(domain.CompositionNotCommitted),
+		"recovery_action": nil, "retry_safe": true,
+	}
+}
+
+func setCompositeStatusRequired(data map[string]any, sessionID domain.SessionID, runID domain.RunID) {
+	data["session_id"], data["run_id"] = sessionID.String(), runID.String()
+	data["reconciliation_state"] = string(domain.CompositionStatusRequired)
+	data["retry_safe"] = false
 }
 
 func validateApplicationCommandHandlers(specs []cli.CommandSpec, handlers map[app.CommandName]applicationCommandHandler) error {

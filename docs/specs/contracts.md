@@ -170,14 +170,24 @@ non-retryable `invocation_registry_closed` rather than observer-only
 may receive no response even though shutdown still cancels and drains their
 server-owned reviews. Invocation state is never recovered after server exit.
 The tool grammar comprises `preflight_review`, `run_review`,
-`start_review`, `await_review`, `cancel_review`, `list_runs`, `get_run`, and
-`list_findings`.
-Review targets are workspace, stage, dirty,
-diff, or patch; stdio is reserved for JSON-RPC and is not a review target. Run
-pages admit a limit from 1 through 100, finding responses admit at most 1,000
-summaries, and no tool result embeds report or source bodies. `request_changes`
-means the review completed with a policy rejection; it is not an MCP call
-failure.
+`start_review`, `await_review`, `cancel_review`, `compose_review`, `list_runs`,
+`get_run`, and `list_findings`. An uncertain `compose_review` publication
+returns `composite_publication_incomplete`, the deterministic non-null
+`session_id` and `run_id`, and `retryable: false`; clients inspect that exact
+run before deciding whether to repeat the same mapping. An admission rejection
+before entering the publication boundary returns one of the stable composition
+reason codes other than `composite_publication_incomplete`, without a
+reconciliation identity, and remains safe to correct and retry. Once the
+mutation enters the publication boundary, any failure, including a lock or
+cancellation failure that wrote nothing, returns
+`composite_publication_incomplete` with the deterministic identity. If an exact
+reconciliation read reports that run as unavailable, nothing was committed and
+the same exact mapping may be repeated. Review targets are workspace, stage,
+dirty, diff, or patch; stdio is reserved for JSON-RPC and is not a review
+target. Run pages admit a limit from 1 through 100, finding responses admit at
+most 1,000 summaries, and no tool result embeds report or source bodies.
+`request_changes` means the review completed with a policy rejection; it is not
+an MCP call failure.
 
 The attached transport prefers MCP `2026-07-28` and admits only that version,
 `2025-11-25`, or `2025-06-18`. Discovery lists all three newest first. A legacy
@@ -214,6 +224,9 @@ publishes the full-content SHA-256, byte offset, chunk byte length, total byte
 length, completion flag, and canonical next URI in `io.mulgae/*` metadata.
 Offsets are zero-based byte offsets and must be a canonical continuation; a
 report offset cannot split UTF-8. Evidence is returned as an exact-byte blob.
+Composite finding summaries set `evidence_resource_uri` to `null` because
+composite runs do not publish current-target evidence excerpts; their status,
+findings, report, and export surfaces remain available.
 
 Schema validation is necessary but not sufficient. Services also enforce
 trusted field ownership, identity relationships, state transitions, path
@@ -262,9 +275,44 @@ may change only explicitly allowed provider-owned paths.
       review_<uuidv7>.json
 ```
 
-`manifest.json` is the run index and integrity record. A completed run has at
-most one top-level final review. Failed, repaired, and extracted candidates
-remain beneath `attempts/`. A structured extraction trailer adds
+A committed composite recovery run is provider-free and uses the following
+self-contained delta from the ordinary run layout:
+
+```text
+.mulgae/
+  s_<uuidv7>/
+    r_<composite-uuidv7>/
+      manifest.json
+      status.json
+      publication/
+        journal.json
+      role-reports/
+        <role>.md
+      support/
+        index.json
+      target/
+        target.bytes
+        target-manifest.json
+        captured-review.json
+        blobs/
+          sha256-<hex>
+      review_<uuidv7>.json
+  store/
+    epochs/
+      epoch_<20-digit-number>.json
+    lineage-edges/
+      e_<uuidv7>.json
+```
+
+It contains no provider runtime stream, attempts, or validation directories.
+The copied role reports, target support, immutable lineage edge, and epoch make
+the composite readable after its source runs are cleaned. The captured-review
+manifest and blobs are present when the root retained a captured archive.
+
+For an ordinary run, `manifest.json` is the run index and integrity record. A
+completed run has at most one top-level final review. Failed, repaired, and
+extracted candidates remain beneath `attempts/`. A structured extraction
+trailer adds
 `attempts/<a_...>/candidate.extracted.NNN.json`,
 `attempts/<a_...>/invocations/002-extract/{stdout,stderr}.raw`, and
 `prompts/<a_...>/002-extract.{stdin,manifest.json}`. A role still has exactly
@@ -421,28 +469,42 @@ vocabulary (`role_path_scheduled`, `role_path_started`,
 Readers reject v1 status documents and old lane-named fields with the typed
 unsupported-contract error; there is no compatibility shim.
 
-`review`, `followup`, `delta`, and `rerun` create distinct runs. They
-respectively start a review, check one prior finding, review a delta, or repeat
-a selected attempt.
+`review`, `followup`, `delta`, `rerun`, and `compose` create distinct runs. They
+respectively start a review, check one prior finding, review a delta, repeat a
+selected attempt, or construct one composite run from an exact incomplete root
+and exact recovery runs.
 
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v5` envelope. Rejected JSON `init`, `followup`,
-`delta`, and `rerun` requests also return that envelope: `request_state:
-invalid` means syntax was rejected before selector I/O, while `request_state:
-unresolved` means project-root or selector resolution failed before execution.
-Child selector failures preserve cancellation and typed artifact or security
-exits; only an unclassified resolver failure uses exit `10` and
-`selector_resolution_failed`.
+return a `mulgae-command-result.v6` envelope. Rejected JSON `init`, `followup`,
+`delta`, `rerun`, and `compose` requests also return that envelope.
+`request_state: invalid` means syntax was rejected before selector I/O and is
+available for all five commands. `request_state: unresolved` is available only
+for `followup`, `delta`, and `rerun`, whose project-root or selector resolution
+can fail before execution. Child selector failures preserve cancellation and
+typed artifact or security exits; only an unclassified resolver failure uses
+exit `10` and `selector_resolution_failed`.
 
-Other commands do not have rejected-request variants in v5. If one of them
-fails before a contract-valid request can be frozen, it returns the typed exit
-and human stderr even when `--output json` was requested. For example,
-`export --run latest` with no committed run returns artifact exit `7` without
-fabricating an `export` request envelope. Command result v2/v3/v4 and
-review-preflight v2 are intentionally unsupported after this contract revision.
+Command-result v5 remains readable as the immediate predecessor but is never
+emitted by the current command surface. Other commands do not have
+rejected-request variants in v6. If one of them fails before a contract-valid
+request can be frozen, it returns the typed exit and human stderr even when
+`--output json` was requested. For example, `export --run latest` with no
+committed run returns artifact exit `7` without fabricating an `export` request
+envelope. `compose` accepts only exact run IDs and returns the exact mapping,
+deterministic composite identity, outcome axes, and reconciliation state.
+`status_required` directs the caller to inspect that run ID instead of blindly
+retrying. `retry_safe` is the mutation-level signal: it is `true` when repeating
+the same exact mapping is known to be safe because it was not committed or its
+successful publication is idempotent, and `false` only for `status_required`.
+Reason-level `retryable` remains `false` for composite failures and is not a
+substitute for `retry_safe`. Command result v2/v3/v4 and review-preflight v2 are
+intentionally unsupported after this contract revision.
+Composition admission failures return artifact exit `7` with their stable
+composite reason code because Mulgae validates the caller's exact mapping
+against committed run artifacts.
 Process
 exits:
 

@@ -169,9 +169,10 @@ func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expecte
 
 // FindingProjection is one verified finding summary selected by application policy.
 type FindingProjection struct {
-	ID       string
-	Severity domain.Severity
-	Title    string
+	ID          string
+	Severity    domain.Severity
+	Title       string
+	HasEvidence bool
 }
 
 // FindingsProjection is the typed input to the bounded MCP finding result.
@@ -201,9 +202,13 @@ func ProjectFindings(view FindingsProjection) (map[string]any, error) {
 			finding.Title == "" || strings.ContainsAny(finding.Title, "\x00\r\n") {
 			return nil, fmt.Errorf("MCP finding projection is invalid")
 		}
-		evidenceURI, err := NewEvidenceResourceURI(view.RunID, finding.ID, view.TargetSHA256)
-		if err != nil {
-			return nil, fmt.Errorf("MCP finding resource URI is invalid")
+		var evidenceURI any
+		if finding.HasEvidence {
+			uri, err := NewEvidenceResourceURI(view.RunID, finding.ID, view.TargetSHA256)
+			if err != nil {
+				return nil, fmt.Errorf("MCP finding resource URI is invalid")
+			}
+			evidenceURI = uri
 		}
 		findings = append(findings, map[string]any{
 			"id": finding.ID, "severity": string(finding.Severity), "title": finding.Title,

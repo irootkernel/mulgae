@@ -229,7 +229,7 @@ func TestProjectFindingsValidatesSelectedPublicRows(t *testing.T) {
 	view := FindingsProjection{
 		RunID: testMCPRunID, MinimumSeverity: domain.SeverityHigh,
 		TargetSHA256: testMCPTargetSHA256, ReviewArtifactURI: ".mulgae/review.json",
-		Findings: []FindingProjection{{ID: "F001", Severity: domain.SeverityHigh, Title: "Boundary regression"}},
+		Findings: []FindingProjection{{ID: "F001", Severity: domain.SeverityHigh, Title: "Boundary regression", HasEvidence: true}},
 	}
 	projected, err := ProjectFindings(view)
 	if err != nil || projected["finding_count"] != 1 {
@@ -238,6 +238,11 @@ func TestProjectFindingsValidatesSelectedPublicRows(t *testing.T) {
 	rows := projected["findings"].([]any)
 	if rows[0].(map[string]any)["evidence_resource_uri"] == "" {
 		t.Fatalf("finding resource URI = %#v", rows[0])
+	}
+	view.Findings[0].HasEvidence = false
+	projected, err = ProjectFindings(view)
+	if err != nil || projected["findings"].([]any)[0].(map[string]any)["evidence_resource_uri"] != nil {
+		t.Fatalf("composite finding exposed dead evidence URI: %#v, %v", projected, err)
 	}
 	view.Findings[0].Severity = domain.SeverityLow
 	if _, err := ProjectFindings(view); err == nil {

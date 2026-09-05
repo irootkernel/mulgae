@@ -36,7 +36,7 @@ func TestCompositeContractEnums(t *testing.T) {
 	if !RunTypeComposite.Valid() {
 		t.Fatal("composite run type is invalid")
 	}
-	for _, state := range []CompositionState{CompositionCreated, CompositionRecovered, CompositionAlreadyCommitted, CompositionPublicationIncomplete, CompositionFailed} {
+	for _, state := range []CompositionState{CompositionCreated, CompositionReconciled, CompositionNotCommitted, CompositionStatusRequired} {
 		if !state.Valid() {
 			t.Fatalf("state %q is invalid", state)
 		}

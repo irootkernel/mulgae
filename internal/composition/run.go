@@ -20,8 +20,10 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
+	"github.com/irootkernel/mulgae/internal/app/publication"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
+	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -129,6 +131,31 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		writeDiagnostic(stderr, "mulgae: artifact root is unavailable\n")
 		return 10
 	}
+	compositionReader, err := appreviewcompose.NewQueryReader(artifactRoot, queryService)
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: composite source reader is unavailable\n")
+		return 10
+	}
+	compositionService, err := appreviewcompose.NewService(compositionReader)
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: composite review service is unavailable\n")
+		return 10
+	}
+	publicationService, err := publication.NewService(publicationStore, validator, clock, ports.PublicationStructuredMemberMaxBytes)
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: composite publication service is unavailable\n")
+		return 10
+	}
+	compositionPublisher, err := appreviewcompose.NewPublisher(artifactRoot, publicationService)
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: composite publisher is unavailable\n")
+		return 10
+	}
+	compositionMutation, err := appreviewcompose.NewMutationService(compositionService, compositionPublisher)
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: composite mutation service is unavailable\n")
+		return 10
+	}
 	runSelector := filesystem.NewRunSelector(artifactRoot)
 	requestInput := stdin
 	if mcpMode {
@@ -207,6 +234,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		FollowupRuns:       deferredFollowupRunService{composer: childComposer},
 		DeltaRuns:          deferredDeltaRunService{composer: childComposer},
 		Reruns:             deferredRerunService{composer: childComposer},
+		CompositeReviews:   compositionMutation,
 		PublicationQueries: publicationQueries,
 		DiagnosticQueries:  diagnosticQueries,
 		PublicationReports: publicationReports,

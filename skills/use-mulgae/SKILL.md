@@ -132,15 +132,22 @@ already available.
      --output json
    ```
 
-4. Read the complete `mulgae-command-result.v5` JSON envelope even when the
+4. Read the complete `mulgae-command-result.v6` JSON envelope even when the
    process exits nonzero. Exit `1` is a policy outcome. A rejected `followup`,
-   `delta`, or `rerun` request still has a machine envelope: `request_state`
-   `invalid` means syntax rejection, while `unresolved` means pre-execution
-   selector or project-root resolution failed. Use the stable reason code and
-   bounded message; JSON does not expose raw internal errors or require a
-   public stage or remediation field. Treat exits `2`, `4`, `7`, `8`, `9`, and
-   `10` by that envelope rather than prose or provider output. Read
+   `delta`, `rerun`, or `compose` request still has a machine envelope:
+   `request_state` `invalid` means syntax rejection, while `unresolved` applies
+   only to `followup`, `delta`, and `rerun` when pre-execution selector or
+   project-root resolution failed. Use the stable reason code and bounded
+   message; JSON does not expose raw internal errors or require a public stage
+   or remediation field. Treat exits `2`, `4`, `7`, `8`, `9`, and `10` by that
+   envelope rather than prose or provider output. Read
    [lifecycle.md](references/lifecycle.md) for child-workflow selector failures.
+   For composite recovery, call `compose_review` or `mulgae compose` once with
+   one exact root and every exact recovery run. Preserve its deterministic run
+   ID. For CLI, `status_required` means inspect that ID and never blindly
+   retry. For MCP, apply the same rule when
+   `composite_publication_incomplete` returns non-null `session_id` and
+   `run_id` with `retryable: false`.
 5. Immediately re-read authoritative state using the exact returned run ID:
 
    ```bash

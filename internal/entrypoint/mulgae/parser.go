@@ -109,6 +109,8 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseDelta(remaining, requestID)
 	case app.CommandRerun:
 		return parseRerun(remaining, requestID)
+	case app.CommandCompose:
+		return parseCompose(remaining, requestID)
 	case app.CommandClean:
 		return parseClean(remaining, requestID)
 	case app.CommandExport:
@@ -388,6 +390,7 @@ func parseCommand(value string) (app.CommandName, error) {
 		app.CommandFollowup,
 		app.CommandDelta,
 		app.CommandRerun,
+		app.CommandCompose,
 		app.CommandStatus,
 		app.CommandReport,
 		app.CommandFindings,
@@ -1547,6 +1550,85 @@ func parseRerun(arguments []string, requestID string) (Invocation, error) {
 		return Invocation{}, err
 	}
 	return Invocation{command: app.CommandRerun, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, rerun: &request}, nil
+}
+
+func parseCompose(arguments []string, requestID string) (Invocation, error) {
+	positionals := make([]string, 0)
+	rootRunID := ""
+	rootSeen := false
+	recoveryRunIDs := make([]string, 0, len(domain.FixedRoleOrder()))
+	outputValue := ""
+	outputSeen := false
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
+		if !strings.HasPrefix(argument, "-") {
+			positionals = append(positionals, argument)
+			continue
+		}
+		if argument != "--root-run" && argument != "--recovery-run" && argument != "--output" {
+			return Invocation{}, usageError("unknown flag")
+		}
+		if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
+			return Invocation{}, usageError("flag value is missing")
+		}
+		value := arguments[index+1]
+		index++
+		switch argument {
+		case "--root-run":
+			if rootSeen {
+				return Invocation{}, usageError("duplicate flag")
+			}
+			rootRunID = value
+			rootSeen = true
+		case "--recovery-run":
+			recoveryRunIDs = append(recoveryRunIDs, value)
+		case "--output":
+			if outputSeen {
+				return Invocation{}, usageError("duplicate flag")
+			}
+			outputValue = value
+			outputSeen = true
+		}
+	}
+	if len(positionals) != 0 || rootRunID == "" || len(recoveryRunIDs) == 0 || len(recoveryRunIDs) > len(domain.FixedRoleOrder()) {
+		return Invocation{}, usageError("compose requires one --root-run and between one and seven --recovery-run values")
+	}
+	root, err := domain.ParseRunID(rootRunID)
+	if err != nil {
+		return Invocation{}, usageError("root run ID is not a canonical UUIDv7")
+	}
+	seen := map[string]struct{}{root.String(): {}}
+	for index, value := range recoveryRunIDs {
+		runID, parseErr := domain.ParseRunID(value)
+		if parseErr != nil {
+			return Invocation{}, usageError("recovery run ID is not a canonical UUIDv7")
+		}
+		if _, duplicate := seen[runID.String()]; duplicate {
+			return Invocation{}, usageError("compose run selection contains a duplicate")
+		}
+		seen[runID.String()] = struct{}{}
+		recoveryRunIDs[index] = runID.String()
+	}
+	options := map[string]string{}
+	if outputSeen {
+		options["--output"] = outputValue
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	request := ComposeRequest{rootRunID: root.String(), recoveryRuns: cloneStrings(recoveryRunIDs)}
+	requestJSON, err := marshalRequest(struct {
+		RequestID      string       `json:"request_id"`
+		Command        string       `json:"command"`
+		RootRunID      string       `json:"root_run_id"`
+		RecoveryRunIDs []string     `json:"recovery_run_ids"`
+		OutputFormat   OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandCompose), request.rootRunID, cloneStrings(request.recoveryRuns), outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{command: app.CommandCompose, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, compose: &request}, nil
 }
 
 func parseClean(arguments []string, requestID string) (Invocation, error) {

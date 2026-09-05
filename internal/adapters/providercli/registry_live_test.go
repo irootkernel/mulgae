@@ -13,6 +13,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,36 +43,133 @@ type liveCapabilityConfig struct {
 }
 
 func TestLiveKimiCapability(t *testing.T) {
-	certifyLiveCapability(t, liveCapabilityConfig{
+	config := liveCapabilityConfig{
 		family: providercli.FamilyKimi, credential: providercli.CredentialSourceKimi, instance: "kimi-logic", role: domain.RoleLogic,
 		executableEnv: "MULGAE_LIVE_KIMI_BIN", dataHomeEnv: "MULGAE_LIVE_KIMI_DATA_HOME", transportIndex: 4,
 		minimumVersion: [3]int{0, 38, 0}, kimiModel: "kimi-code/kimi-for-coding",
 		protectedPaths: func(_ string, dataHome string) []string {
 			return []string{filepath.Join(dataHome, "config.toml"), filepath.Join(dataHome, "credentials", "kimi-code.json")}
 		},
-	})
+	}
+	if err := certifyLiveCapability(t, config); err != nil {
+		t.Fatal(liveProbeFailureMessage("kimi live capability certification", err))
+	}
 }
 
 func TestLiveZCodeCapability(t *testing.T) {
-	certifyLiveCapability(t, liveCapabilityConfig{
+	config := liveCapabilityConfig{
 		family: providercli.FamilyZcode, credential: providercli.CredentialSourceZCode, instance: "zcode-security", role: domain.RoleSecurity,
 		executableEnv: "MULGAE_LIVE_ZCODE_NODE_BIN", launcherEnv: "MULGAE_LIVE_ZCODE_LAUNCHER", transportIndex: 6,
 		minimumVersion: [3]int{0, 16, 3},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}
 		},
-	})
+	}
+	if err := certifyLiveCapability(t, config); err != nil {
+		t.Fatal(liveProbeFailureMessage("zcode live capability certification", err))
+	}
 }
 
 func TestLiveCodexCapability(t *testing.T) {
-	certifyLiveCapability(t, liveCapabilityConfig{
+	config := liveCapabilityConfig{
 		family: providercli.FamilyCodex, credential: providercli.CredentialSourceCodex, instance: "codex-logic", role: domain.RoleLogic,
-		executableEnv: "MULGAE_LIVE_CODEX_BIN", transport: ports.ProviderPacketChannelStdin, transportIndex: -1,
+		executableEnv: "MULGAE_LIVE_CODEX_BIN", dataHomeEnv: "MULGAE_LIVE_CODEX_HOME", transport: ports.ProviderPacketChannelStdin, transportIndex: -1,
 		minimumVersion: [3]int{0, 149, 0},
-		protectedPaths: func(home, _ string) []string {
-			return []string{filepath.Join(home, ".codex", "auth.json")}
+		protectedPaths: func(_ string, dataHome string) []string {
+			return []string{filepath.Join(dataHome, "auth.json")}
 		},
-	})
+	}
+	err := certifyLiveCapability(t, config)
+	if err == nil {
+		t.Logf("codex selected credential profile: primary=%s", liveCodexCredentialHomeLabel(os.Getenv(config.dataHomeEnv)))
+		return
+	}
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureQuota {
+		t.Fatal(liveProbeFailureMessage("codex live capability certification", err))
+	}
+	if os.Getenv("MULGAE_LIVE_CODEX_FALLBACK_HOME") == "" {
+		t.Fatal("INCONCLUSIVE: codex live capability certification: the primary account has no quota and no fallback credential home is configured. Set MULGAE_E2E_CODEX_FALLBACK_HOME for make test-e2e, or MULGAE_LIVE_CODEX_FALLBACK_HOME when running this suite directly, to an absolute authenticated Codex home, then run the check again.")
+	}
+	t.Log("codex primary credential home has no quota; retrying capability certification with the configured fallback home")
+	config.dataHomeEnv = "MULGAE_LIVE_CODEX_FALLBACK_HOME"
+	if fallbackErr := certifyLiveCapability(t, config); fallbackErr != nil {
+		t.Fatal(liveProbeFailureMessage("codex fallback live capability certification", fallbackErr))
+	}
+	t.Logf("codex selected credential profile: quota_fallback=%s", liveCodexCredentialHomeLabel(os.Getenv(config.dataHomeEnv)))
+}
+
+func liveCodexCredentialHomeLabel(value string) string {
+	if value == "" {
+		return "<unset>"
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		switch filepath.Clean(value) {
+		case filepath.Join(home, ".codex"):
+			return "~/.codex"
+		case filepath.Join(home, ".codex-hsy"):
+			return "~/.codex-hsy"
+		}
+	}
+	return "<custom>"
+}
+
+func TestLiveCodexCredentialHomeLabel(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		value string
+		want  string
+	}{
+		{value: "", want: "<unset>"},
+		{value: filepath.Join(home, ".codex"), want: "~/.codex"},
+		{value: filepath.Join(home, ".codex-hsy"), want: "~/.codex-hsy"},
+		{value: filepath.Join(home, ".codex-secondary"), want: "<custom>"},
+		{value: filepath.Join(home, "private-codex-profile"), want: "<custom>"},
+	} {
+		if got := liveCodexCredentialHomeLabel(test.value); got != test.want {
+			t.Fatalf("liveCodexCredentialHomeLabel(%q) = %q, want %q", test.value, got, test.want)
+		}
+	}
+}
+
+func TestLiveCodexCredentialPathDiagnosticsRedactNativePaths(t *testing.T) {
+	privateRoot := t.TempDir()
+	privateFile := filepath.Join(privateRoot, "auth.json")
+	if err := os.WriteFile(privateFile, []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checks := []struct {
+		name   string
+		value  string
+		file   bool
+		reason string
+	}{
+		{name: "missing credential file", value: filepath.Join(privateRoot, "missing-auth.json"), file: true, reason: "is not canonical"},
+		{name: "credential file is a directory", value: privateRoot, file: true, reason: "is unavailable or has the wrong mode"},
+		{name: "relative credential file", value: "private-auth.json", file: true, reason: "is not canonical"},
+		{name: "missing credential home", value: filepath.Join(privateRoot, "missing-home"), reason: "is not a canonical directory"},
+		{name: "credential home is a file", value: privateFile, reason: "is unavailable"},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			var reason string
+			if check.file {
+				_, reason = resolveLiveCapabilityFile(check.value, false)
+			} else {
+				_, reason = resolveLiveCapabilityDirectory(check.value)
+			}
+			if reason != check.reason {
+				t.Fatalf("reason = %q, want %q", reason, check.reason)
+			}
+			if strings.Contains(reason, privateRoot) || strings.Contains(reason, check.value) {
+				t.Fatalf("diagnostic disclosed a native credential path: %q", reason)
+			}
+		})
+	}
 }
 
 // liveProbeFailureMessage classifies a live capability-probe error so an
@@ -113,7 +211,7 @@ func liveProbeFailureMessage(subject string, err error) string {
 	}
 }
 
-func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
+func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	t.Helper()
 	installed, err := user.Current()
 	if err != nil || installed == nil {
@@ -129,7 +227,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 	if config.dataHomeEnv != "" {
 		dataHome = liveCapabilityDirectory(t, config.dataHomeEnv, os.Getenv(config.dataHomeEnv))
 	}
-	protectedBefore := liveCapabilityManifest(t, config.protectedPaths(runtimeHome, dataHome))
+	protectedBefore := liveCapabilityManifest(t, config.family+" protected credential/settings file", config.protectedPaths(runtimeHome, dataHome))
 
 	workspaceRoot := liveCapabilityTempDir(t)
 	anchoredWorkspace, err := ports.NewAnchoredRoot(workspaceRoot)
@@ -172,7 +270,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 	families := map[string]providercli.CredentialSourceFamily{config.instance: config.credential}
 	policies := map[string]providercli.RuntimeSafetyPolicy{config.instance: policy}
 	sourceRoots := map[string]string{}
-	if config.credential == providercli.CredentialSourceKimi {
+	if config.credential == providercli.CredentialSourceKimi || config.credential == providercli.CredentialSourceCodex {
 		sourceRoots[config.instance] = dataHome
 	}
 	projectedNamespaces, err := providercli.NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(
@@ -182,11 +280,11 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 		t.Fatalf("%s credential namespace: %v", config.family, err)
 	}
 
-	executableSHA := liveCapabilitySHA256(t, executable)
+	executableSHA := liveCapabilitySHA256(t, config.executableEnv, executable)
 	launcherSHA := executableSHA
 	baseArgv := []string{executable}
 	if launcher != "" {
-		launcherSHA = liveCapabilitySHA256(t, launcher)
+		launcherSHA = liveCapabilitySHA256(t, config.launcherEnv, launcher)
 		baseArgv = append(baseArgv, launcher)
 	} else {
 		launcher = executable
@@ -248,7 +346,11 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 			t.Logf("%s failed observation: launches=%d termination=%s exited=%t exit_code=%d stdout_bytes=%d stderr_bytes=%d stdin_complete=%t",
 				config.family, count, observation.Termination(), exited, exitCode, len(observation.Stdout()), len(observation.Stderr()), observation.StdinWriteReceipt().Complete())
 		}
-		t.Fatal(liveProbeFailureMessage(string(config.family)+" live capability certification", err))
+		protectedAfter := liveCapabilityManifest(t, config.family+" protected credential/settings file", config.protectedPaths(runtimeHome, dataHome))
+		if !reflect.DeepEqual(protectedBefore, protectedAfter) {
+			t.Fatalf("%s certification changed protected native credential/settings state", config.family)
+		}
+		return err
 	}
 	if !providercli.VersionAtLeast(result.Version, config.minimumVersion[0], config.minimumVersion[1], config.minimumVersion[2]) {
 		t.Fatalf("%s version %q is below the supported minimum", config.family, result.Version)
@@ -280,13 +382,14 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) {
 			t.Fatalf("%s namespace terminal receipt is incomplete", config.family)
 		}
 	}
-	protectedAfter := liveCapabilityManifest(t, config.protectedPaths(runtimeHome, dataHome))
+	protectedAfter := liveCapabilityManifest(t, config.family+" protected credential/settings file", config.protectedPaths(runtimeHome, dataHome))
 	if !reflect.DeepEqual(protectedBefore, protectedAfter) {
 		t.Fatalf("%s certification changed protected native credential/settings state", config.family)
 	}
 	workspaceDrained = true
 	registryDrained = true
 	t.Logf("PASS: %s %s completed one production-boundary capability certification", config.family, result.Version)
+	return nil
 }
 
 func liveCapabilityRequireReceipts(t *testing.T, family string, receipts []providercli.CurrentProbeReceipt) {
@@ -331,17 +434,17 @@ type liveCapabilityFileState struct {
 	sha256   string
 }
 
-func liveCapabilityManifest(t *testing.T, paths []string) []liveCapabilityFileState {
+func liveCapabilityManifest(t *testing.T, label string, paths []string) []liveCapabilityFileState {
 	t.Helper()
 	states := make([]liveCapabilityFileState, 0, len(paths))
 	for _, path := range paths {
-		canonical := liveCapabilityFilePath(t, path, false)
+		canonical := liveCapabilityFilePath(t, label, path, false)
 		info, err := os.Lstat(canonical)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			t.Fatalf("protected live capability file is unavailable: %v", err)
+			t.Fatalf("%s is unavailable or has the wrong mode", label)
 		}
 		states = append(states, liveCapabilityFileState{
-			path: canonical, mode: info.Mode(), size: info.Size(), modified: info.ModTime().UnixNano(), sha256: liveCapabilitySHA256(t, canonical),
+			path: canonical, mode: info.Mode(), size: info.Size(), modified: info.ModTime().UnixNano(), sha256: liveCapabilitySHA256(t, label, canonical),
 		})
 	}
 	return states
@@ -353,45 +456,61 @@ func liveCapabilityFile(t *testing.T, environmentName string, executable bool) s
 	if value == "" {
 		t.Fatalf("%s is required", environmentName)
 	}
-	return liveCapabilityFilePath(t, value, executable)
+	return liveCapabilityFilePath(t, environmentName, value, executable)
 }
 
-func liveCapabilityFilePath(t *testing.T, value string, executable bool) string {
+func liveCapabilityFilePath(t *testing.T, label, value string, executable bool) string {
 	t.Helper()
+	resolved, reason := resolveLiveCapabilityFile(value, executable)
+	if reason != "" {
+		t.Fatalf("live capability file %s %s", label, reason)
+	}
+	return resolved
+}
+
+func resolveLiveCapabilityFile(value string, executable bool) (string, string) {
 	resolved, err := filepath.EvalSymlinks(value)
 	if err != nil || !filepath.IsAbs(resolved) || filepath.Clean(resolved) != resolved {
-		t.Fatalf("live capability file %q is not canonical: %v", value, err)
+		return "", "is not canonical"
 	}
 	info, err := os.Stat(resolved)
 	if err != nil || !info.Mode().IsRegular() || executable && info.Mode()&0o111 == 0 {
-		t.Fatalf("live capability file %q is unavailable or has the wrong mode: %v", resolved, err)
+		return "", "is unavailable or has the wrong mode"
 	}
-	return resolved
+	return resolved, ""
 }
 
 func liveCapabilityDirectory(t *testing.T, label, value string) string {
 	t.Helper()
-	resolved, err := filepath.EvalSymlinks(value)
-	if err != nil || !filepath.IsAbs(resolved) || filepath.Clean(resolved) != resolved {
-		t.Fatalf("%s is not a canonical directory: %v", label, err)
-	}
-	info, err := os.Stat(resolved)
-	if err != nil || !info.IsDir() {
-		t.Fatalf("%s is unavailable: %v", label, err)
+	resolved, reason := resolveLiveCapabilityDirectory(value)
+	if reason != "" {
+		t.Fatalf("%s %s", label, reason)
 	}
 	return resolved
 }
 
-func liveCapabilitySHA256(t *testing.T, path string) string {
+func resolveLiveCapabilityDirectory(value string) (string, string) {
+	resolved, err := filepath.EvalSymlinks(value)
+	if err != nil || !filepath.IsAbs(resolved) || filepath.Clean(resolved) != resolved {
+		return "", "is not a canonical directory"
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return "", "is unavailable"
+	}
+	return resolved, ""
+}
+
+func liveCapabilitySHA256(t *testing.T, label, path string) string {
 	t.Helper()
 	file, err := os.Open(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s is unreadable", label)
 	}
 	defer file.Close()
 	digest := sha256.New()
 	if _, err := io.Copy(digest, file); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s could not be hashed", label)
 	}
 	return "sha256:" + hex.EncodeToString(digest.Sum(nil))
 }

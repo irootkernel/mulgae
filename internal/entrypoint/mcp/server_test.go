@@ -229,8 +229,11 @@ func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) 
 		if tool["outputSchema"].(map[string]any)["$id"] != "https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json" {
 			t.Fatalf("tool output schema = %#v", tool["outputSchema"])
 		}
+		if tool["name"] == toolComposeReview && tool["annotations"].(map[string]any)["idempotentHint"] == true {
+			t.Fatalf("compose_review must not advertise blind-retry idempotence: %#v", tool["annotations"])
+		}
 	}
-	if strings.Join(names, ",") != "await_review,cancel_review,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
+	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
 		t.Fatalf("tool names = %v", names)
 	}
 
@@ -478,6 +481,86 @@ func TestServeRunReviewPreservesRequestChangesOutcome(t *testing.T) {
 	structured := result["structuredContent"].(map[string]any)
 	if structured["outcome"] != toolOutcomeRequestChanges || result["isError"] != nil || backend.runReviewCalls != 1 {
 		t.Fatalf("run_review result = %#v, calls = %d", result, backend.runReviewCalls)
+	}
+}
+
+func TestServeComposeReviewDispatchesExactSelection(t *testing.T) {
+	backend := &toolBackendFake{}
+	call := latestRequest(1, "tools/call", `{"name":"compose_review","arguments":{"root_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","recovery_run_ids":["r_019f596a-cf81-7c67-b265-f37053d51ccf"]}}`)
+	response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), call)[0])
+	result := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	if backend.composeCalls != 1 || backend.composeInput.RootRunID != "r_019f596a-cf80-7c67-b265-f37053d51ccf" ||
+		len(backend.composeInput.RecoveryRuns) != 1 || result["outcome"] != toolOutcomeSuccess {
+		t.Fatalf("compose dispatch = calls:%d input:%#v result:%#v", backend.composeCalls, backend.composeInput, result)
+	}
+}
+
+type mcpCompositeTestFailure struct {
+	reason    string
+	sessionID domain.SessionID
+	runID     domain.RunID
+	cause     error
+}
+
+type mcpCompositeReasonTestFailure struct{ reason string }
+
+func (failure mcpCompositeReasonTestFailure) Error() string      { return "private composite failure" }
+func (failure mcpCompositeReasonTestFailure) ReasonCode() string { return failure.reason }
+
+func (failure mcpCompositeTestFailure) Error() string      { return "private composite failure" }
+func (failure mcpCompositeTestFailure) ReasonCode() string { return failure.reason }
+func (failure mcpCompositeTestFailure) Unwrap() error      { return failure.cause }
+func (failure mcpCompositeTestFailure) CompositeIdentity() (domain.SessionID, domain.RunID, bool) {
+	return failure.sessionID, failure.runID, true
+}
+
+func TestComposePublicationErrorRequiresStatusBeforeRetryAndPreservesFailureClass(t *testing.T) {
+	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause, err := domain.NewFailure("publication.commit", domain.FailureSecurityPolicy, "private", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := publicToolError(mcpCompositeTestFailure{
+		reason: domain.CompositePublicationIncomplete, sessionID: sessionID, runID: runID, cause: cause,
+	}, toolComposeReview)
+	if failure.Class != "security" || failure.Stage != "publication" || failure.Retryable ||
+		failure.SessionID == nil || *failure.SessionID != sessionID.String() ||
+		failure.RunID == nil || *failure.RunID != runID.String() {
+		t.Fatalf("composite publication tool error = %#v", failure)
+	}
+}
+
+func TestComposeFailureReasonCodesProjectStableClassification(t *testing.T) {
+	for _, reason := range domain.CompositeReasonCodes() {
+		t.Run(reason, func(t *testing.T) {
+			failure := publicToolError(mcpCompositeReasonTestFailure{reason: reason}, toolComposeReview)
+			wantStage := "validation"
+			if reason == domain.CompositePublicationIncomplete {
+				wantStage = "publication"
+			}
+			if failure.Code != reason || failure.Class != "artifact" || failure.Stage != wantStage || failure.Retryable ||
+				failure.SessionID != nil || failure.RunID != nil {
+				t.Fatalf("composite reason projection = %#v", failure)
+			}
+		})
+	}
+}
+
+func TestComposeFailureNeverAuthorizesGenericReadinessRetry(t *testing.T) {
+	cause, err := domain.NewFailure("compose.unreachable", domain.FailureQuota, "private", errors.New("private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := publicToolError(cause, toolComposeReview)
+	if failure.Class != "readiness" || failure.Code != "review_unavailable" || failure.Retryable {
+		t.Fatalf("generic compose readiness failure = %#v", failure)
 	}
 }
 
@@ -803,6 +886,25 @@ func TestToolAdmissionRejectsAmbiguousOrUnboundedArguments(t *testing.T) {
 			t.Fatalf("validateRunReviewInput(%#v) = %v", input, err)
 		}
 	}
+	validCompose := ComposeReviewInput{RootRunID: "r_019f596a-cf80-7c67-b265-f37053d51ccf", RecoveryRuns: []string{"r_019f596a-cf81-7c67-b265-f37053d51ccf"}}
+	if err := validateComposeReviewInput(validCompose); err != nil {
+		t.Fatalf("valid compose input = %v", err)
+	}
+	tooManyRecoveries := make([]string, len(domain.FixedRoleOrder())+1)
+	for index := range tooManyRecoveries {
+		tooManyRecoveries[index] = fmt.Sprintf("r_019f596a-cf%02x-7c67-b265-f37053d51ccf", index+1)
+	}
+	for _, input := range []ComposeReviewInput{
+		{},
+		{RootRunID: "latest", RecoveryRuns: validCompose.RecoveryRuns},
+		{RootRunID: validCompose.RootRunID, RecoveryRuns: []string{validCompose.RootRunID}},
+		{RootRunID: validCompose.RootRunID, RecoveryRuns: []string{validCompose.RecoveryRuns[0], validCompose.RecoveryRuns[0]}},
+		{RootRunID: validCompose.RootRunID, RecoveryRuns: tooManyRecoveries},
+	} {
+		if err := validateComposeReviewInput(input); !errors.Is(err, errInvalidToolArguments) {
+			t.Fatalf("validateComposeReviewInput(%#v) = %v", input, err)
+		}
+	}
 	var decoded GetRunInput
 	if err := decodeArguments(json.RawMessage(`{"run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","unknown":true}`), &decoded); !errors.Is(err, errInvalidToolArguments) {
 		t.Fatalf("unknown argument error = %v", err)
@@ -978,6 +1080,8 @@ type toolBackendFake struct {
 	runReviewCancelled chan error
 	runReviewFinished  chan struct{}
 	preflightCalls     int
+	composeCalls       int
+	composeInput       ComposeReviewInput
 	getRunData         map[string]any
 	getRunErr          error
 	getRunCalls        int
@@ -1015,6 +1119,12 @@ func (fake *toolBackendFake) RunReview(ctx context.Context, _ string, _ RunRevie
 		outcome = toolOutcomeSuccess
 	}
 	return BackendResult{Outcome: outcome, Data: map[string]any{"run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf"}}, nil
+}
+
+func (fake *toolBackendFake) ComposeReview(_ context.Context, _ string, input ComposeReviewInput) (BackendResult, error) {
+	fake.composeCalls++
+	fake.composeInput = input
+	return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{"run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf"}}, nil
 }
 
 func (fake *toolBackendFake) PreflightReview(context.Context, string, RunReviewInput) (BackendResult, error) {

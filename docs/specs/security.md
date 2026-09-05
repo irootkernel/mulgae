@@ -14,11 +14,13 @@ stdout exclusively for newline-delimited JSON-RPC. Each nonempty input record
 must be LF-terminated; an unterminated record at EOF is rejected before parsing
 or dispatch. Client parameters remain untrusted and do not acquire provider,
 publication, configuration, approval, or path authority merely by crossing the
-MCP transport. Tool arguments are strictly decoded and bounded. `run_review`
-and `start_review` admit no stdin target, and query
-tools expose only verified, project-confined status, artifact identities, and
-bounded finding summaries. Native paths, provider transcripts, report bodies,
-and captured source are not part of these tool results. Report and evidence
+MCP transport. Tool arguments are strictly decoded and bounded. `compose_review`
+admits one exact root and one to seven unique exact recovery IDs, invokes no
+provider, and grants authority only after shared publication reaches P2.
+`run_review` and `start_review` admit no stdin target, and query tools expose
+only verified, project-confined status, artifact identities, and bounded finding
+summaries. Native paths, provider transcripts, report bodies, and captured
+source are not part of these tool results. Report and evidence
 bodies are available only through project-confined `mulgae://` templates. Each
 read re-verifies the committed source, admits only canonical byte offsets, and
 returns at most 16 KiB with integrity and continuation metadata. Evidence URIs
@@ -28,16 +30,18 @@ path.
 
 Failed tool results expose only bounded Mulgae-owned recovery identity. A failed
 `run_review` or terminal `await_review` includes both session and run IDs when
-allocation occurred and is never marked retryable; provider details, runtime diagnostics, and native paths
-remain private. `get_run` may expose the separate bounded diagnostic status
-projection only after a typed publication-not-found result. That projection has
-no publication authority, artifact URI, report URI, findings, raw event stream,
-or provider transcript, and admits only a completed `failed` or `cancelled`
-status. Other publication failures remain fail-closed, and an allocated identity
-with no diagnostic status or only a nonterminal snapshot returns
-`run_status_unavailable` instead of inventing recoverable state. Pure query
-cancellation remains cancellation; cancellation joined with diagnostic damage
-retains artifact-failure precedence.
+allocation occurred and is never marked retryable; provider details, runtime
+diagnostics, and native paths remain private. An uncertain composite publication
+exposes only its deterministic session/run identity and requires exact status
+reconciliation; it never authorizes blind retry. `get_run` may expose the
+separate bounded diagnostic status projection only after a typed
+publication-not-found result. That projection has no publication authority,
+artifact URI, report URI, findings, raw event stream, or provider transcript,
+and admits only a completed `failed` or `cancelled` status. Other publication
+failures remain fail-closed, and an allocated identity with no diagnostic status
+or only a nonterminal snapshot returns `run_status_unavailable` instead of
+inventing recoverable state. Pure query cancellation remains cancellation;
+cancellation joined with diagnostic damage retains artifact-failure precedence.
 
 Optional `run_review` progress notifications contain only fixed Mulgae
 lifecycle messages, an admitted bounded client token, and a monotonic counter;

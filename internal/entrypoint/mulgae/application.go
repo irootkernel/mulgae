@@ -26,6 +26,7 @@ import (
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
+	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -69,9 +70,10 @@ type RunStatusView struct {
 
 // FindingView is one finding in the query service's preserved final order.
 type FindingView struct {
-	ID       string
-	Severity domain.Severity
-	Title    string
+	ID          string
+	Severity    domain.Severity
+	Title       string
+	HasEvidence bool
 }
 
 // FindingsView is a committed finding selection and its committed review URI.
@@ -177,9 +179,10 @@ func (adapter publicationQueryAdapter) ListFindings(
 	}
 	for index, finding := range findings {
 		view.Findings[index] = FindingView{
-			ID:       finding.ID(),
-			Severity: finding.Severity(),
-			Title:    finding.Title(),
+			ID:          finding.ID(),
+			Severity:    finding.Severity(),
+			Title:       finding.Title(),
+			HasEvidence: len(finding.Evidence()) > 0,
 		}
 	}
 	return view, nil
@@ -253,6 +256,12 @@ type DeltaRunService interface {
 // RerunService is the command-facing rerun workflow boundary.
 type RerunService interface {
 	StartRerun(context.Context, appreplay.Request) (StartedRun, error)
+}
+
+// CompositeReviewService is the shared provider-free mutation used by both CLI
+// and MCP entrypoints.
+type CompositeReviewService interface {
+	ComposeReview(context.Context, appreviewcompose.Request) (appreviewcompose.PublishedResult, error)
 }
 
 // ReviewRunService is the command-facing independent review workflow boundary.
@@ -937,6 +946,71 @@ func (adapter rerunAdapter) StartRerun(ctx context.Context, request appreplay.Re
 	}, nil
 }
 
+// ComposeReview executes the exact transport-neutral composition mutation.
+func (application *Application) ComposeReview(ctx context.Context, request ComposeRequest) (appreviewcompose.PublishedResult, error) {
+	if application == nil || nilApplicationDependency(application.compositeReviews) {
+		return appreviewcompose.PublishedResult{}, fmt.Errorf("composite review service is unavailable")
+	}
+	rootRunID, err := domain.ParseRunID(request.RootRunID())
+	if err != nil {
+		return appreviewcompose.PublishedResult{}, fmt.Errorf("composite root run ID: %w", err)
+	}
+	recoveryValues := request.RecoveryRunIDs()
+	recoveryRunIDs := make([]domain.RunID, len(recoveryValues))
+	for index, value := range recoveryValues {
+		recoveryRunIDs[index], err = domain.ParseRunID(value)
+		if err != nil {
+			return appreviewcompose.PublishedResult{}, fmt.Errorf("composite recovery run ID: %w", err)
+		}
+	}
+	return application.compositeReviews.ComposeReview(ctx, appreviewcompose.Request{RootRunID: rootRunID, RecoveryRuns: recoveryRunIDs})
+}
+
+// ProjectCompositeResult returns the one shared public data shape consumed by
+// CLI structured output and MCP tool results.
+func ProjectCompositeResult(result appreviewcompose.PublishedResult) (map[string]any, error) {
+	if result.PublicationStatus() != domain.PublicationCommitted || result.RecoveryAction() != domain.RecoveryActionReconstructCompletedStatus ||
+		result.CoverageStatus() != domain.CoverageComplete || !result.ContentVerdict().Valid() ||
+		!result.StructuredExtractionStatus().Valid() || !result.CIDecision().Valid() ||
+		(result.ReconciliationState() != domain.CompositionCreated && result.ReconciliationState() != domain.CompositionReconciled) ||
+		!strings.HasPrefix(result.TargetSHA256(), "sha256:") {
+		return nil, fmt.Errorf("composite result projection is invalid")
+	}
+	recovered := result.RecoveredRoles()
+	recoveredRoles := make([]string, len(recovered))
+	for index, role := range recovered {
+		if !role.Valid() {
+			return nil, fmt.Errorf("composite recovered role is invalid")
+		}
+		recoveredRoles[index] = string(role)
+	}
+	reports := result.RoleReportURIs()
+	roleReportURIs := make([]any, len(reports))
+	for index, report := range reports {
+		if !report.Role.Valid() || !strings.HasPrefix(report.URI, ".mulgae/") {
+			return nil, fmt.Errorf("composite report projection is invalid")
+		}
+		roleReportURIs[index] = map[string]any{"role": string(report.Role), "uri": report.URI}
+	}
+	recoveryRunIDs := result.RecoveryRunIDs()
+	projectedRecoveryRunIDs := make([]string, len(recoveryRunIDs))
+	for index, runID := range recoveryRunIDs {
+		projectedRecoveryRunIDs[index] = runID.String()
+	}
+	return map[string]any{
+		"kind": "composite_published", "session_id": result.SessionID().String(),
+		"run_id": result.RunID().String(), "review_id": result.ReviewID().String(),
+		"root_run_id": result.RootRunID().String(), "recovery_run_ids": projectedRecoveryRunIDs,
+		"run_type": string(domain.RunTypeComposite), "run_manifest_uri": result.RunManifestURI(),
+		"review_artifact_uri": result.ReviewArtifactURI(), "role_report_uris": roleReportURIs,
+		"publication_status": string(result.PublicationStatus()), "target_sha256": result.TargetSHA256(),
+		"recovered_roles": recoveredRoles, "coverage_status": string(result.CoverageStatus()),
+		"content_verdict": string(result.ContentVerdict()), "structured_extraction_status": string(result.StructuredExtractionStatus()),
+		"ci_decision": string(result.CIDecision()), "reconciliation_state": string(result.ReconciliationState()),
+		"recovery_action": string(result.RecoveryAction()), "retry_safe": true,
+	}, nil
+}
+
 // RetentionServiceFunc adapts a command retention function to RetentionService.
 type RetentionServiceFunc func(context.Context, RetentionRequest) (RetentionResult, error)
 
@@ -978,6 +1052,7 @@ type Dependencies struct {
 	ReviewRuns              ReviewRunService
 	DeltaRuns               DeltaRunService
 	Reruns                  RerunService
+	CompositeReviews        CompositeReviewService
 	Retention               RetentionService
 	Exports                 RedactedExportService
 	EvidenceReader          doctor.EvidenceReader
@@ -1004,6 +1079,7 @@ type Application struct {
 	reviewRuns         ReviewRunService
 	deltaRuns          DeltaRunService
 	reruns             RerunService
+	compositeReviews   CompositeReviewService
 	retention          RetentionService
 	exports            RedactedExportService
 	evidenceReader     doctor.EvidenceReader
@@ -1160,6 +1236,9 @@ func newApplication(
 	if nilApplicationDependency(dependencies.Reruns) {
 		dependencies.Reruns = nil
 	}
+	if nilApplicationDependency(dependencies.CompositeReviews) {
+		dependencies.CompositeReviews = nil
+	}
 	if nilApplicationDependency(dependencies.Retention) {
 		dependencies.Retention = nil
 	}
@@ -1193,6 +1272,7 @@ func newApplication(
 		reviewRuns:         dependencies.ReviewRuns,
 		deltaRuns:          dependencies.DeltaRuns,
 		reruns:             dependencies.Reruns,
+		compositeReviews:   dependencies.CompositeReviews,
 		retention:          dependencies.Retention,
 		exports:            dependencies.Exports,
 		evidenceReader:     evidenceReader,
@@ -1280,7 +1360,7 @@ func childWorkflowIntent(argv []string) (app.CommandName, OutputFormat, bool) {
 	}
 	command := app.CommandName(argv[0])
 	switch command {
-	case app.CommandFollowup, app.CommandDelta, app.CommandRerun:
+	case app.CommandFollowup, app.CommandDelta, app.CommandRerun, app.CommandCompose:
 	default:
 		return "", OutputFormatHuman, false
 	}
@@ -1439,6 +1519,7 @@ type execution struct {
 	exit                   app.ExitCode
 	committedReasons       []string
 	committedReasonDetails []app.CommittedReason
+	postCommitFailure      func(error) error
 	verbatim               bool
 	direct                 *Result
 }
@@ -1483,17 +1564,28 @@ func (application *Application) renderSuccess(ctx context.Context, invocation In
 		commandResult, err = app.NewCommandSuccess(invocation.Command(), run.data)
 	}
 	if err != nil {
+		err = mapPostCommitFailure(run, err)
 		return application.renderFailure(context.WithoutCancel(ctx), invocation, execution{
-			failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal),
+			failureData: run.failureData,
+			failure:     executionFailureFor(invocation.Command(), err, domain.FailureInternal),
 		})
 	}
 	output, err := application.renderer.Render(context.WithoutCancel(ctx), commandResult, request, nil)
 	if err != nil {
+		err = mapPostCommitFailure(run, err)
 		return application.renderFailure(context.WithoutCancel(ctx), invocation, execution{
-			failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal),
+			failureData: run.failureData,
+			failure:     executionFailureFor(invocation.Command(), err, domain.FailureInternal),
 		})
 	}
 	return newResult(output, nil, run.exit)
+}
+
+func mapPostCommitFailure(run execution, err error) error {
+	if run.postCommitFailure == nil {
+		return err
+	}
+	return run.postCommitFailure(err)
 }
 
 func (application *Application) renderFailure(ctx context.Context, invocation Invocation, run execution) Result {
@@ -1648,6 +1740,12 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			RunManifestURI    *string `json:"run_manifest_uri"`
 			ReviewArtifactURI *string `json:"review_artifact_uri"`
 		}{"review_started", nil, nil, nil, nil})
+	case app.CommandCompose:
+		request, available := invocation.Compose()
+		if !available {
+			return compositeFailureResultJSON(), nil
+		}
+		return json.Marshal(compositeFailureResultData(request.RootRunID(), request.RecoveryRunIDs()))
 	case app.CommandDoctor:
 		return json.Marshal(struct {
 			Kind            string  `json:"kind"`
@@ -1767,6 +1865,34 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			failure.diagnosticURI = uri.String()
 		}
 	}()
+	var composite interface{ ReasonCode() string }
+	if command == app.CommandCompose && errors.As(err, &composite) && domain.ValidCompositeReasonCode(composite.ReasonCode()) {
+		code := composite.ReasonCode()
+		statusRequired := code == domain.CompositePublicationIncomplete
+		retryable := false
+		hint := "run from the canonical Git worktree root, then verify the exact root and recovery run identities"
+		humanMessage := "mulgae: " + code
+		stage := "compose.validation"
+		if statusRequired {
+			stage = "compose.publication"
+			hint = "inspect the returned composite run with status before repeating the same exact mapping"
+			var identified interface {
+				CompositeIdentity() (domain.SessionID, domain.RunID, bool)
+			}
+			if errors.As(err, &identified) {
+				if sessionID, runID, ok := identified.CompositeIdentity(); ok {
+					humanMessage = fmt.Sprintf("mulgae: %s\nsession_id: %s\nrun_id: %s", code, sessionID, runID)
+					hint = "mulgae status --run " + runID.String() + " --output json"
+				}
+			}
+		}
+		return &executionFailure{
+			class: reducedFailureClass(err, fallback), code: code,
+			message:      "The exact composite review request could not be committed.",
+			humanMessage: humanMessage, stage: stage, exit: requestedExit(reducedFailureClass(err, fallback)),
+			retryable: retryable, hasRetryable: true, recommendedNextCommand: hint,
+		}
+	}
 	if capture, ok := ports.ReviewCaptureFailureFromError(err); ok {
 		class := domain.FailureArtifact
 		if capture.Code() == ports.ReviewCapturePolicyBlocked {
@@ -2149,6 +2275,7 @@ func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool 
 		app.CommandFollowup:  {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandDelta:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandRerun:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandCompose:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandClean:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
 		app.CommandExport:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
 		app.CommandConfig:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},

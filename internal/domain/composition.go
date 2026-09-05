@@ -21,19 +21,18 @@ const (
 	CompositePublicationIncomplete = "composite_publication_incomplete"
 )
 
-// CompositionState describes the retry-safe state of one exact composition.
+// CompositionState describes the public reconciliation state of one exact composition.
 type CompositionState string
 
 const (
-	CompositionCreated               CompositionState = "created"
-	CompositionRecovered             CompositionState = "recovered"
-	CompositionAlreadyCommitted      CompositionState = "already_committed"
-	CompositionPublicationIncomplete CompositionState = "publication_incomplete"
-	CompositionFailed                CompositionState = "failed"
+	CompositionCreated        CompositionState = "created"
+	CompositionReconciled     CompositionState = "reconciled"
+	CompositionNotCommitted   CompositionState = "not_committed"
+	CompositionStatusRequired CompositionState = "status_required"
 )
 
 func (state CompositionState) Valid() bool {
-	return oneOf(string(state), string(CompositionCreated), string(CompositionRecovered), string(CompositionAlreadyCommitted), string(CompositionPublicationIncomplete), string(CompositionFailed))
+	return oneOf(string(state), string(CompositionCreated), string(CompositionReconciled), string(CompositionNotCommitted), string(CompositionStatusRequired))
 }
 
 // CompositionSource is the trusted coordinate of one accepted role result.
@@ -122,4 +121,13 @@ func rolePosition(role Role) int {
 
 func CompositeReasonCodes() []string {
 	return []string{CompositeTargetMismatch, CompositeTargetDigestInvalid, CompositeLineageMismatch, CompositeRoleNotRequired, CompositeRoleAlreadySatisfied, CompositeRecoveryIncomplete, CompositeRecoveryUnavailable, CompositeSelectionAmbiguous, CompositeValidationFailed, CompositePublicationIncomplete}
+}
+
+func ValidCompositeReasonCode(value string) bool {
+	for _, candidate := range CompositeReasonCodes() {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }

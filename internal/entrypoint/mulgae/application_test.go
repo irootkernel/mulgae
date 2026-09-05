@@ -36,6 +36,7 @@ import (
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
+	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	appschema "github.com/irootkernel/mulgae/internal/app/schema"
 	"github.com/irootkernel/mulgae/internal/builtin"
@@ -45,7 +46,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v5.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v6.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -65,6 +66,19 @@ type fixedFoundationRequestIDs struct{}
 
 func (fixedFoundationRequestIDs) NewRequestID(time.Time) (string, error) {
 	return foundationRequestID, nil
+}
+
+type rejectOnceSchemaValidator struct {
+	delegate cli.SchemaValidator
+	reject   bool
+}
+
+func (validator *rejectOnceSchemaValidator) Validate(ctx context.Context, schemaID ports.AssetID, raw []byte) error {
+	if validator.reject {
+		validator.reject = false
+		return errors.New("injected envelope validation failure")
+	}
+	return validator.delegate.Validate(ctx, schemaID, raw)
 }
 
 type doctorIdentityInspector struct {
@@ -373,8 +387,8 @@ func TestApplicationCommandHandlersMatchCanonicalRegistry(t *testing.T) {
 	specs := cli.CommandSpecs()
 	handlers := applicationCommandHandlers()
 
-	if len(specs) != 18 {
-		t.Fatalf("canonical registry has %d commands, want 18", len(specs))
+	if len(specs) != 19 {
+		t.Fatalf("canonical registry has %d commands, want 19", len(specs))
 	}
 	if err := validateApplicationCommandHandlers(specs, handlers); err != nil {
 		t.Fatalf("application handler map is not complete: %v", err)
@@ -485,6 +499,301 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 	unavailable := fixture.application.Run(ctx, []string{"review", "--dirty"}, root)
 	if unavailable.ExitCode() != app.ExitCodeReadiness || len(unavailable.Stdout()) != 0 || len(unavailable.Stderr()) == 0 {
 		t.Fatalf("authority-absent review result = %#v", unavailable)
+	}
+}
+
+func TestApplicationComposeUnavailableReturnsV6ReconciliationEnvelope(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	result := fixture.application.Run(context.Background(), []string{
+		"compose", "--root-run", "r_019f596a-cf80-7c67-b265-f37053d51ccf",
+		"--recovery-run", "r_019f596a-cf81-7c67-b265-f37053d51ccf", "--output", "json",
+	}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+	var envelope struct {
+		SchemaVersion string         `json:"schema_version"`
+		Result        map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.SchemaVersion != "mulgae-command-result.v6" || envelope.Result["kind"] != "composite_failed" ||
+		envelope.Result["root_run_id"] == nil || envelope.Result["reconciliation_state"] != "not_committed" || envelope.Result["retry_safe"] != true {
+		t.Fatalf("compose failure envelope = %#v", envelope)
+	}
+}
+
+type compositeReviewServiceFunc func(context.Context, appreviewcompose.Request) (appreviewcompose.PublishedResult, error)
+
+func (service compositeReviewServiceFunc) ComposeReview(ctx context.Context, request appreviewcompose.Request) (appreviewcompose.PublishedResult, error) {
+	return service(ctx, request)
+}
+
+func TestApplicationComposeProjectsCommittedPolicyOutcome(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	published := compositePublishedResult(t, domain.ExitCommittedCIRejected, domain.CIFail)
+	fixture.application.compositeReviews = compositeReviewServiceFunc(func(_ context.Context, request appreviewcompose.Request) (appreviewcompose.PublishedResult, error) {
+		if request.RootRunID != published.RootRunID() || !reflect.DeepEqual(request.RecoveryRuns, published.RecoveryRunIDs()) {
+			t.Fatalf("compose request = %#v", request)
+		}
+		return published, nil
+	})
+	arguments := []string{"compose", "--root-run", published.RootRunID().String()}
+	for _, runID := range published.RecoveryRunIDs() {
+		arguments = append(arguments, "--recovery-run", runID.String())
+	}
+	arguments = append(arguments, "--output", "json")
+	result := fixture.application.Run(context.Background(), arguments, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodePolicy)
+	var envelope struct {
+		Exit struct {
+			Kind string `json:"kind"`
+		} `json:"exit"`
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Exit.Kind != "policy" || envelope.Result["kind"] != "composite_published" ||
+		envelope.Result["run_id"] != published.RunID().String() || envelope.Result["ci_decision"] != string(domain.CIFail) ||
+		envelope.Result["reconciliation_state"] != "created" || envelope.Result["retry_safe"] != true {
+		t.Fatalf("compose success envelope = %#v", envelope)
+	}
+}
+
+func compositePublishedResult(t *testing.T, exitCode domain.OperationalExitCode, ci domain.CIDecision) appreviewcompose.PublishedResult {
+	t.Helper()
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	rootRunID, _ := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
+	recoveryRunID, _ := domain.ParseRunID("r_019f596a-cf82-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cf83-7c67-b265-f37053d51ccf")
+	reviewID, _ := domain.ParseReviewID("019f596a-d174-7321-b920-c2d312c82cc2")
+	reasonCode := "policy_evaluated"
+	if exitCode == domain.ExitCommittedCIRejected {
+		reasonCode = "request_changes_threshold"
+	}
+	reason, err := domain.NewExitReason(exitCode, reasonCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := domain.NewOperationalExitInput([]domain.ExitReason{reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit, err := domain.ReduceOperationalExit(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := appreviewcompose.NewPublishedResult(appreviewcompose.PublishedResultInput{
+		SessionID: sessionID, RunID: runID, ReviewID: reviewID, RootRunID: rootRunID,
+		RecoveryRunIDs: []domain.RunID{recoveryRunID}, TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		RecoveredRoles: []domain.Role{domain.RoleSecurity}, RoleReportURIs: []appreviewcompose.RoleReportURI{
+			{Role: domain.RoleLogic, URI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/role-reports/logic.md"},
+			{Role: domain.RoleSecurity, URI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/role-reports/security.md"},
+		},
+		Coverage: domain.CoverageComplete, Content: domain.ContentRequestChanges,
+		StructuredExtractionStatus: domain.StructuredExtractionStructured, CIDecision: ci,
+		PublicationStatus: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionReconstructCompletedStatus,
+		TerminalExit: exit, ReconciliationState: "created",
+		RunManifestURI:    ".mulgae/" + sessionID.String() + "/" + runID.String() + "/manifest.json",
+		ReviewArtifactURI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/review_" + reviewID.String() + ".json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+type identifiedCompositeTestFailure struct {
+	sessionID domain.SessionID
+	runID     domain.RunID
+}
+
+func (failure identifiedCompositeTestFailure) Error() string { return "private publication failure" }
+func (failure identifiedCompositeTestFailure) ReasonCode() string {
+	return domain.CompositePublicationIncomplete
+}
+func (failure identifiedCompositeTestFailure) CompositeIdentity() (domain.SessionID, domain.RunID, bool) {
+	return failure.sessionID, failure.runID, true
+}
+
+type compositeValidationTestFailure struct{ reason string }
+
+func (compositeValidationTestFailure) Error() string { return "private validation failure" }
+func (failure compositeValidationTestFailure) ReasonCode() string {
+	if failure.reason == "" {
+		return domain.CompositeValidationFailed
+	}
+	return failure.reason
+}
+
+func TestCompositeValidationFailureGuidanceIncludesCanonicalProjectRoot(t *testing.T) {
+	failure := executionFailureFor(app.CommandCompose, compositeValidationTestFailure{}, domain.FailureArtifact)
+	if failure.recommendedNextCommand != "run from the canonical Git worktree root, then verify the exact root and recovery run identities" ||
+		failure.retryable || failure.stage != "compose.validation" || failure.code != domain.CompositeValidationFailed {
+		t.Fatalf("composite validation guidance = %#v", failure)
+	}
+}
+
+func TestCompositeReasonCodesProjectStableCLIClassification(t *testing.T) {
+	for _, reason := range domain.CompositeReasonCodes() {
+		t.Run(reason, func(t *testing.T) {
+			failure := executionFailureFor(app.CommandCompose, compositeValidationTestFailure{reason: reason}, domain.FailureArtifact)
+			wantStage := "compose.validation"
+			if reason == domain.CompositePublicationIncomplete {
+				wantStage = "compose.publication"
+			}
+			if failure.code != reason || failure.class != domain.FailureArtifact || failure.stage != wantStage ||
+				failure.exit != app.ExitCodeArtifact || failure.retryable || !failure.hasRetryable {
+				t.Fatalf("composite reason projection = %#v", failure)
+			}
+		})
+	}
+}
+
+func TestCompositePublicationFailureHumanGuidanceIncludesExactReconciliationIdentity(t *testing.T) {
+	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := executionFailureFor(app.CommandCompose, identifiedCompositeTestFailure{sessionID: sessionID, runID: runID}, domain.FailureArtifact)
+	if failure.humanMessage != "mulgae: composite_publication_incomplete\nsession_id: "+sessionID.String()+"\nrun_id: "+runID.String() ||
+		failure.recommendedNextCommand != "mulgae status --run "+runID.String()+" --output json" || failure.retryable || failure.stage != "compose.publication" {
+		t.Fatalf("composite reconciliation guidance = %#v", failure)
+	}
+}
+
+func TestApplicationComposePublicationFailureReturnsStatusRequiredEnvelope(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f596a-cf83-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.application.compositeReviews = compositeReviewServiceFunc(func(context.Context, appreviewcompose.Request) (appreviewcompose.PublishedResult, error) {
+		return appreviewcompose.PublishedResult{}, identifiedCompositeTestFailure{sessionID: sessionID, runID: runID}
+	})
+	result := fixture.application.Run(context.Background(), []string{
+		"compose", "--root-run", "r_019f596a-cf81-7c67-b265-f37053d51ccf",
+		"--recovery-run", "r_019f596a-cf82-7c67-b265-f37053d51ccf", "--output", "json",
+	}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+	var envelope struct {
+		Reasons []struct {
+			Code      string `json:"code"`
+			Retryable bool   `json:"retryable"`
+		} `json:"reasons"`
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != domain.CompositePublicationIncomplete || envelope.Reasons[0].Retryable ||
+		envelope.Result["kind"] != "composite_failed" || envelope.Result["session_id"] != sessionID.String() || envelope.Result["run_id"] != runID.String() ||
+		envelope.Result["reconciliation_state"] != "status_required" || envelope.Result["retry_safe"] != false {
+		t.Fatalf("compose reconciliation envelope = %#v", envelope)
+	}
+}
+
+func TestCompositePostCommitFailurePreservesStatusIdentity(t *testing.T) {
+	published := compositePublishedResult(t, domain.ExitCommittedPass, domain.CIPass)
+	request := ComposeRequest{rootRunID: published.RootRunID().String()}
+	for _, runID := range published.RecoveryRunIDs() {
+		request.recoveryRuns = append(request.recoveryRuns, runID.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(compositeFailureResultJSONForPublished(published, request), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["session_id"] != published.SessionID().String() || result["run_id"] != published.RunID().String() ||
+		result["root_run_id"] != published.RootRunID().String() || result["reconciliation_state"] != "status_required" || result["retry_safe"] != false {
+		t.Fatalf("post-commit failure result = %#v", result)
+	}
+}
+
+func TestCompositeCommonRenderingFailuresPreserveStatusIdentity(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	published := compositePublishedResult(t, domain.ExitCommittedPass, domain.CIPass)
+	fixture.application.compositeReviews = compositeReviewServiceFunc(func(context.Context, appreviewcompose.Request) (appreviewcompose.PublishedResult, error) {
+		return published, nil
+	})
+	arguments := []string{"compose", "--root-run", published.RootRunID().String(), "--output", "json"}
+	for _, runID := range published.RecoveryRunIDs() {
+		arguments = append(arguments, "--recovery-run", runID.String())
+	}
+	invocation := mustParse(t, arguments)
+	run := fixture.application.handleCompose(context.Background(), invocation)
+	if run.failure != nil {
+		t.Fatalf("handleCompose() failure = %v", run.failure)
+	}
+
+	tests := []struct {
+		name    string
+		prepare func(execution) execution
+	}{
+		{
+			name: "committed outcome construction",
+			prepare: func(run execution) execution {
+				run.data = nil
+				return run
+			},
+		},
+		{
+			name: "envelope rendering",
+			prepare: func(run execution) execution {
+				renderer, err := cli.NewEnvelopeRenderer(fixture.application.clock, &rejectOnceSchemaValidator{delegate: fixture.validator, reject: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				fixture.application.renderer = renderer
+				return run
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := fixture.application.renderSuccess(context.Background(), invocation, test.prepare(run))
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeInternal)
+			var envelope struct {
+				Reasons []struct {
+					Code string `json:"code"`
+				} `json:"reasons"`
+				Result map[string]any `json:"result"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != domain.CompositePublicationIncomplete ||
+				envelope.Result["session_id"] != published.SessionID().String() || envelope.Result["run_id"] != published.RunID().String() ||
+				envelope.Result["reconciliation_state"] != "status_required" || envelope.Result["retry_safe"] != false {
+				t.Fatalf("post-commit rendering failure result = %#v", envelope.Result)
+			}
+		})
+	}
+}
+
+func TestCompositePostCommitHumanFailurePreservesStatusIdentity(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	published := compositePublishedResult(t, domain.ExitCommittedPass, domain.CIPass)
+	request := ComposeRequest{rootRunID: published.RootRunID().String()}
+	arguments := []string{"compose", "--root-run", published.RootRunID().String()}
+	for _, runID := range published.RecoveryRunIDs() {
+		request.recoveryRuns = append(request.recoveryRuns, runID.String())
+		arguments = append(arguments, "--recovery-run", runID.String())
+	}
+	invocation := mustParse(t, arguments)
+	run := compositePublishedFailureExecution(app.CommandCompose, published, request, "composite result projection failed", errors.New("injected projection failure"))
+	result := fixture.application.renderFailure(context.Background(), invocation, run)
+	want := "mulgae: composite_publication_incomplete\nsession_id: " + published.SessionID().String() + "\nrun_id: " + published.RunID().String() +
+		"\ncode: composite_publication_incomplete\nstage: compose.publication\nhint: run mulgae status --run " + published.RunID().String() + " --output json\n"
+	if result.ExitCode() != app.ExitCodeInternal || len(result.Stdout()) != 0 || string(result.Stderr()) != want {
+		t.Fatalf("post-commit human result = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
 	}
 }
 
@@ -634,6 +943,11 @@ func TestApplicationRejectedChildWorkflowJSONPreservesFailureContract(t *testing
 		{
 			name:  "followup syntax is rejected before latest resolution",
 			argv:  []string{"followup", "--run", "latest", "--finding", "F001", "--output", "json"},
+			state: "invalid", code: "invalid_command_usage", exit: app.ExitCodeUsage,
+		},
+		{
+			name:  "compose syntax is rejected before execution",
+			argv:  []string{"compose", "--root-run", "latest", "--recovery-run", testRecoveryRunID, "--output", "json"},
 			state: "invalid", code: "invalid_command_usage", exit: app.ExitCodeUsage,
 		},
 		{
@@ -1445,6 +1759,30 @@ func TestApplicationProjectsFailuresToSamePermittedExitsInHumanAndJSON(t *testin
 				t.Fatalf("human failure = exit %d stdout %q stderr %q, want exit %d and stderr only", humanResult.ExitCode(), humanResult.Stdout(), humanResult.Stderr(), test.exit)
 			}
 		})
+	}
+}
+
+func TestApplicationComposeCancellationPreservesExactSelection(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result := fixture.application.Run(ctx, []string{
+		"compose", "--root-run", testRunID, "--recovery-run", testRecoveryRunID, "--output", "json",
+	}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeCancellation)
+	var envelope struct {
+		Result struct {
+			RootRunID      *string  `json:"root_run_id"`
+			RecoveryRunIDs []string `json:"recovery_run_ids"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.RootRunID == nil || *envelope.Result.RootRunID != testRunID ||
+		!reflect.DeepEqual(envelope.Result.RecoveryRunIDs, []string{testRecoveryRunID}) {
+		t.Fatalf("cancelled compose selection = root:%v recoveries:%v", envelope.Result.RootRunID, envelope.Result.RecoveryRunIDs)
 	}
 }
 

@@ -10,7 +10,7 @@ None.
 
 ## Adopted active dossiers
 
-- [EPIC-002: Composite recovery for incomplete multi-role reviews](TODO-composite-review-recovery.md)
+None.
 
 When a candidate is adopted with tasks, identify its epic here and link the
 dossier from the roadmap as `Detailed SOT`. Epic closeout promotes durable

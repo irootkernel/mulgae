@@ -47,7 +47,9 @@ test-release:
 		MULGAE_RELEASE_GOBIN="$$release_gobin" \
 		MULGAE_RELEASE_VERSION="$(RELEASE_VERSION)" \
 		MULGAE_RELEASE_REVISION="$$release_commit" \
-		$(GO) test -tags=releasecheck -count=1 ./internal/releasecheck
+		$(GO) test -tags=releasecheck -count=1 ./internal/releasecheck && \
+	MULGAE_E2E_BINARY="$$release_gobin/mulgae" $(GO) test -count=1 \
+		-run '^TestIntegrationReleaseBinaryComposesExactRecoveredReview$$' ./test/e2e
 	@printf '%s\n' '[test-release] completed'
 
 test-e2e:
@@ -72,6 +74,26 @@ test-e2e:
 	codex_bin="$${MULGAE_E2E_CODEX_EXECUTABLE:-$$(command -v codex)}"; \
 	test -n "$$codex_bin" && test -x "$$codex_bin" || { echo "test-e2e requires the Codex executable" >&2; exit 1; }; \
 	case "$$codex_bin" in /*) ;; *) echo "test-e2e requires an absolute Codex executable" >&2; exit 1;; esac; \
+	codex_home="$${MULGAE_E2E_CODEX_HOME:-$${HOME}/.codex}"; \
+	codex_fallback_home="$${MULGAE_E2E_CODEX_FALLBACK_HOME:-}"; \
+	if test -z "$$codex_fallback_home" && test -d "$${HOME}/.codex-hsy"; then codex_fallback_home="$${HOME}/.codex-hsy"; fi; \
+	test -n "$$codex_home" && test -d "$$codex_home" || { echo "test-e2e requires the Codex home" >&2; exit 1; }; \
+	case "$$codex_home" in /*) ;; *) echo "test-e2e requires an absolute Codex home" >&2; exit 1;; esac; \
+	if test -n "$$codex_fallback_home"; then \
+		case "$$codex_fallback_home" in /*) ;; *) echo "test-e2e requires an absolute Codex fallback home when configured" >&2; exit 1;; esac; \
+		test -d "$$codex_fallback_home" || { echo "test-e2e requires an existing Codex fallback home when configured" >&2; exit 1; }; \
+	fi; \
+	case "$${codex_home%/}" in \
+		"$${HOME}/.codex") codex_home_label='~/.codex' ;; \
+		*) codex_home_label='<custom>' ;; \
+	esac; \
+	case "$${codex_fallback_home%/}" in \
+		"") codex_fallback_home_label='<unset>' ;; \
+		"$${HOME}/.codex") codex_fallback_home_label='~/.codex' ;; \
+		"$${HOME}/.codex-hsy") codex_fallback_home_label='~/.codex-hsy' ;; \
+		*) codex_fallback_home_label='<custom>' ;; \
+	esac; \
+	printf '%s\n' "[test-e2e] Codex credential homes: primary=$$codex_home_label quota_fallback=$$codex_fallback_home_label"; \
 	if MULGAE_E2E_BINARY="$$MULGAE_E2E_BINARY" MULGAE_E2E_PROJECT_ROOT="$$e2e_project" \
 		MULGAE_E2E_ZCODE_NODE_EXECUTABLE="$$zcode_node" MULGAE_E2E_ZCODE_LAUNCHER="$$zcode_launcher" \
 		MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
@@ -83,8 +105,10 @@ test-e2e:
 		exit $$status; \
 	fi; \
 	MULGAE_LIVE_ZCODE_NODE_BIN="$$zcode_node" MULGAE_LIVE_ZCODE_LAUNCHER="$$zcode_launcher" \
-	MULGAE_LIVE_AGY_BIN="$$agy_bin" MULGAE_LIVE_CODEX_BIN="$$codex_bin" $(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLive(ZCode|Agy|Codex)Capability$$' ./internal/adapters/providercli || { \
+	MULGAE_LIVE_AGY_BIN="$$agy_bin" MULGAE_LIVE_CODEX_BIN="$$codex_bin" MULGAE_LIVE_CODEX_HOME="$$codex_home" \
+		MULGAE_LIVE_CODEX_FALLBACK_HOME="$$codex_fallback_home" \
+		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
+		-run '^TestLive(ZCode|Agy|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \
