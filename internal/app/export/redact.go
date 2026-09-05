@@ -73,7 +73,12 @@ func validateProjection(source VerifiedSourceProjection, options BuildOptions) e
 	if !sourceFindingBound {
 		return fmt.Errorf("%w: source identity does not bind exported evidence", ErrMalformedProjection)
 	}
-	if source.SourceIdentity.FindingID == "" && len(source.Findings) != 0 {
+	compositeWithoutEvidence := source.Review.SchemaVersion == "mulgae-composite-review-artifact.v1" &&
+		source.Run.SchemaVersion == "mulgae-composite-run-manifest.v1" &&
+		source.Review.CoverageStatus == string(domain.CoverageComplete) && len(source.Evidence) == 0 &&
+		source.SourceIdentity == (SourceIdentity{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID, SourceTargetSHA256: source.CurrentIdentity.TargetSHA256}) &&
+		source.CurrentIdentity == (CurrentIdentity{TargetSHA256: source.SourceIdentity.SourceTargetSHA256})
+	if source.SourceIdentity.FindingID == "" && len(source.Findings) != 0 && !compositeWithoutEvidence {
 		return fmt.Errorf("%w: findings require source finding identity", ErrMalformedProjection)
 	}
 	return nil

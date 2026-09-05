@@ -19,6 +19,7 @@ import (
 	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	appexport "github.com/irootkernel/mulgae/internal/app/export"
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
+	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/builtin"
@@ -467,4 +468,76 @@ func (g008RealComparator) Compare(context.Context, appdelta.ImmutableTarget, app
 func g008RealTargetHash(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
+}
+
+func TestIntegrationCompositeExportRetainsFindingsWithoutSourceRuns(t *testing.T) {
+	ctx := context.Background()
+	fixture := newG008RealE2EFixture(t)
+	session, _ := fixture.ids.NewSessionID(fixture.clock.Now())
+	rootRun, _ := fixture.ids.NewRunID(fixture.clock.Now())
+	recoveryRun, _ := fixture.ids.NewRunID(fixture.clock.Now())
+	rootReview, _ := fixture.ids.NewReviewID(fixture.clock.Now())
+	recoveryReview, _ := fixture.ids.NewReviewID(fixture.clock.Now())
+	attempt, _ := fixture.ids.NewAttemptID(fixture.clock.Now())
+	coordinate, err := domain.NewCompositionSource(domain.RoleLogic, recoveryRun, recoveryReview, attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := domain.NewCompositionFingerprint(rootRun, []domain.CompositionSource{coordinate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := fingerprint.RunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := []byte("# Logic\n\nA retained finding.\n")
+	reportDigest := "sha256:" + g008RealTargetHash(report)
+	candidate, err := publication.PrepareCompositeCandidate(publication.CompositeCandidateInput{
+		SessionID: session, RunID: runID, Fingerprint: fingerprint, RootRunID: rootRun, RootReviewID: rootReview,
+		Target: fixture.target, TargetBytes: []byte("diff --git a/a.go b/a.go\n"), Threshold: domain.SeverityHigh,
+		ContentVerdict: domain.ContentFindingsPresent, CoverageStatus: domain.CoverageComplete,
+		ExtractionStatus: domain.StructuredExtractionStructured, CIDecision: domain.CIPass, CIReasonCodes: []string{"policy_evaluated"},
+		Sources:     []publication.CompositeSourceInput{{Kind: "recovery", Role: domain.RoleLogic, RunID: recoveryRun, ReviewID: recoveryReview, AttemptID: attempt, RoleReportSHA256: reportDigest}},
+		Roles:       []publication.CompositeRoleInput{{Role: domain.RoleLogic, Required: true, Outcome: "completed", AttemptID: attempt, ProviderInstance: "g008.logic", SourceRunID: recoveryRun, SourceReviewID: recoveryReview, ValidFindingIDs: []string{"F001"}}},
+		RoleReports: []publication.CompositeRoleReportInput{{Role: domain.RoleLogic, AttemptID: attempt, ProviderInstance: "g008.logic", SHA256: reportDigest, Bytes: report, SourceRunID: recoveryRun}},
+		Findings:    []publication.CompositeFindingInput{{ID: "F001", Fingerprint: "sha256:" + g008RealTargetHash([]byte("retained finding")), Role: domain.RoleLogic, Severity: domain.SeverityLow, Title: "Retained finding", Description: "A finding from exact recovery.", Recommendation: "Handle the finding.", Confidence: domain.ConfidenceHigh, Lifecycle: domain.FindingOpen, SourceRunID: recoveryRun, SourceReviewID: recoveryReview, SourceAttemptID: attempt, SourceFindingID: "F007"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := fixture.publisher.PublishCompositeNext(ctx, fixture.root, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, ok := published.Final()
+	if !ok {
+		t.Fatal("composite has no committed final")
+	}
+	exports, err := NewRedactedExportService(fixture.queries, mustG008RealExportInstaller(t, fixture), fixture.clock, fixture.ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectRoot, err := ports.NewAnchoredRoot(filepath.Dir(fixture.root.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := exports.ExportRedactedRun(ctx, RedactedExportRequest{ProjectRoot: projectRoot, ArtifactRoot: fixture.root, RunID: runID.String(), OutputPath: "exports/composite.zip", Redacted: true})
+	if err != nil {
+		t.Fatalf("export composite with findings: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(projectRoot.String(), result.ExportManifestURI))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest appexport.ExportManifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.ImmutableSource.RunID != runID.String() || manifest.ImmutableSource.ReviewID != final.ReviewID().String() || manifest.SourceIdentity.RunID != runID.String() || manifest.SourceIdentity.FindingID != "" || manifest.SourceIdentity.SourceExcerptSHA256 != "" || manifest.CurrentIdentity.TargetSHA256 != "sha256:"+fixture.target.SHA256() || manifest.CurrentIdentity.CurrentExcerptSHA256 != "" {
+		t.Fatalf("composite export fabricated or lost identity: %#v", manifest)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot.String(), result.BundleURI)); err != nil {
+		t.Fatal(err)
+	}
 }

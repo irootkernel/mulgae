@@ -3,6 +3,7 @@
 package publication
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -175,11 +176,15 @@ func TestCompositeCandidateBuildsSelfContainedSchemaValidBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reports.Render(context.Background(), run); err != nil {
+	rendered, renderErr := reports.Render(context.Background(), run)
+	if err := renderErr; err != nil {
 		for cause := err; cause != nil; cause = errors.Unwrap(cause) {
 			t.Logf("report cause: %T %v", cause, cause)
 		}
 		t.Fatalf("composite report: %v", err)
+	}
+	if !bytes.Contains(rendered.Bytes(), []byte("2026-07-13T03:10:00Z")) {
+		t.Fatal("composite report omitted its committed creation timestamp")
 	}
 	unchanged, err := os.ReadFile(sourceReportPath)
 	if err != nil {

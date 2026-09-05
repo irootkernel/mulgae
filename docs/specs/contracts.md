@@ -324,6 +324,11 @@ one attempt: the trailer is invocation 2 of that attempt, not a second attempt.
 repositories should ignore `/.mulgae/*` and re-include only
 `!/.mulgae/config.yaml`.
 
+Composite exports retain findings without current-target excerpt evidence. Their
+source identity names the committed composite run and review, and their current
+identity contains only the target digest; no finding/excerpt identity is
+fabricated. Export remains available after the source runs have been cleaned.
+
 `target/captured-review.json` is a reference-only v2 capture manifest. Exact
 target, workspace, project-context, and evidence bytes are stored once under
 `target/blobs/sha256-<hex>` and may be shared by any number of manifest entries.

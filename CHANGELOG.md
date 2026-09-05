@@ -19,3 +19,8 @@ This file records concise shipped outcomes and the planned next stable release.
 - Classify Codex process failures from stderr into typed quota, rate-limit,
   availability, timeout, and authentication outcomes, while requiring standalone
   numeric HTTP status tokens for transient classification across all providers.
+
+### Fixed
+
+- Export finding-bearing composite reviews without fabricated excerpt evidence
+  and retain their committed creation time in rendered reports.

@@ -165,8 +165,14 @@ type reportProvenanceDTO struct {
 	Production          *reportProductionProvenanceDTO `json:"production,omitempty"`
 }
 
-func reportFinalFromCommitted(review query.CommittedReview) reportFinalDTO {
-	final := reportFinalDTO{SchemaVersion: "mulgae-composite-review-artifact.v1", SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{AggregationPath: reportAggregationPath, FinalValidationPath: reportFinalValidationPath, ManifestPath: "manifest.json"}}
+func reportFinalFromCommitted(review query.CommittedReview) (reportFinalDTO, error) {
+	var metadata struct {
+		CreatedAt string `json:"created_at"`
+	}
+	if err := json.Unmarshal(review.FinalBytes(), &metadata); err != nil {
+		return reportFinalDTO{}, err
+	}
+	final := reportFinalDTO{CreatedAt: metadata.CreatedAt, SchemaVersion: "mulgae-composite-review-artifact.v1", SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{AggregationPath: reportAggregationPath, FinalValidationPath: reportFinalValidationPath, ManifestPath: "manifest.json"}}
 	for _, role := range review.Roles() {
 		attempt, hasAttempt := role.AttemptID()
 		provider, hasProvider := role.ProviderInstance()
@@ -189,7 +195,7 @@ func reportFinalFromCommitted(review query.CommittedReview) reportFinalDTO {
 	for _, finding := range review.Findings() {
 		final.Findings = append(final.Findings, reportFindingDTO{ID: finding.ID(), Fingerprint: finding.Fingerprint(), Role: string(finding.Role()), ProviderInstance: finding.ProviderInstance(), Severity: string(finding.Severity()), Title: finding.Title(), Description: finding.Description(), Evidence: []reportEvidenceDTO{}, Recommendation: finding.Recommendation(), Confidence: string(finding.Confidence()), Lifecycle: string(finding.Lifecycle())})
 	}
-	return final
+	return final, nil
 }
 
 type reportProductionProvenanceDTO struct {
