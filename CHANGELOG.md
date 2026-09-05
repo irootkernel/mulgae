@@ -26,3 +26,4 @@ This file records concise shipped outcomes and the planned next stable release.
   and retain their committed creation time in rendered reports.
 - Recover composite status after interrupted publication, preserve Git target
   identities on reads, and reject findings without a selected role provider.
+- Align composite schema constraints with the supported committed states.

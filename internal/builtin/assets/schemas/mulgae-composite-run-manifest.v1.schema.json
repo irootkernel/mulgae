@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": {"const": "mulgae-composite-run-manifest.v1"},
     "session_id": {"$ref": "#/$defs/session_id"}, "run_id": {"$ref": "#/$defs/run_id"}, "run_type": {"const": "composite"},
-    "state": {"enum": ["completed", "degraded"]}, "sealed": {"const": true},
+    "state": {"const": "completed"}, "sealed": {"const": true},
     "created_at": {"type": "string", "format": "date-time"}, "completed_at": {"type": "string", "format": "date-time"},
     "target": {"type": "object", "additionalProperties": false, "required": ["manifest_path", "content_sha256"], "properties": {"manifest_path": {"const": "target/target-manifest.json"}, "content_sha256": {"$ref": "#/$defs/sha256"}}},
     "immutable_lineage": {"type": "object", "additionalProperties": false, "required": ["parent_run_id", "source_run_id", "source_review_id", "source_finding_ref", "replay_mode", "lineage_edge_path", "lineage_edge_sha256"], "properties": {"parent_run_id": {"type": "null"}, "source_run_id": {"type": "null"}, "source_review_id": {"type": "null"}, "source_attempt_id": {"type": "null"}, "source_finding_ref": {"type": "null"}, "replay_mode": {"type": "null"}, "lineage_edge_path": {"type": "string", "minLength": 1}, "lineage_edge_sha256": {"$ref": "#/$defs/sha256"}}},
@@ -25,7 +25,7 @@
     "recovery_journal": {"type": "object", "additionalProperties": false, "required": ["expected_staged", "expected_final", "validated_candidate_sha256"], "properties": {"expected_staged": {"$ref": "#/$defs/artifact"}, "expected_final": {"$ref": "#/$defs/artifact"}, "validated_candidate_sha256": {"$ref": "#/$defs/sha256"}}},
     "composite_identity": {"type": "object", "additionalProperties": false, "required": ["manifest", "lineage_edge", "epoch", "support_index"], "properties": {"manifest": {"$ref": "#/$defs/path_pointer"}, "lineage_edge": {"$ref": "#/$defs/artifact"}, "epoch": {"$ref": "#/$defs/path_pointer"}, "support_index": {"$ref": "#/$defs/artifact"}}},
     "final_review": {"type": "object", "additionalProperties": false, "required": ["review_id", "path", "sha256"], "properties": {"review_id": {"$ref": "#/$defs/review_id"}, "path": {"type": "string", "pattern": "^s_[0-9a-f-]+/r_[0-9a-f-]+/review_[0-9a-f-]+\\.json$"}, "sha256": {"$ref": "#/$defs/sha256"}}},
-    "role_reports": {"type": "array", "minItems": 1, "maxItems": 7, "items": {"type": "object", "additionalProperties": false, "required": ["role", "path", "sha256", "byte_length", "attempt_id", "source_run_id"], "properties": {"role": {"$ref": "#/$defs/role"}, "path": {"type": "string", "pattern": "^role-reports/[a-z]+\\.md$"}, "sha256": {"$ref": "#/$defs/sha256"}, "byte_length": {"type": "integer", "minimum": 0}, "attempt_id": {"$ref": "#/$defs/attempt_id"}, "source_run_id": {"$ref": "#/$defs/run_id"}}}},
+    "role_reports": {"type": "array", "minItems": 1, "maxItems": 7, "items": {"type": "object", "additionalProperties": false, "required": ["role", "path", "sha256", "byte_length", "attempt_id", "source_run_id"], "properties": {"role": {"$ref": "#/$defs/role"}, "path": {"type": "string", "pattern": "^role-reports/[a-z]+\\.md$"}, "sha256": {"$ref": "#/$defs/sha256"}, "byte_length": {"type": "integer", "minimum": 1}, "attempt_id": {"$ref": "#/$defs/attempt_id"}, "source_run_id": {"$ref": "#/$defs/run_id"}}}},
     "exit_code": {"type": "integer", "enum": [0, 1]}
   },
   "$defs": {

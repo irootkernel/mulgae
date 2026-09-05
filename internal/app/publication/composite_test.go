@@ -5,6 +5,7 @@ package publication
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -101,6 +102,32 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode) {
 	}
 	if err := validator.Validate(context.Background(), recorder.ids[1], recorder.bytes[1]); err != nil {
 		t.Fatalf("manifest schema: %v\n%s", err, recorder.bytes[1])
+	}
+	for _, test := range []struct {
+		name   string
+		index  int
+		mutate func(map[string]any)
+	}{
+		{"degraded run", 1, func(value map[string]any) { value["state"] = "degraded" }},
+		{"empty role report", 1, func(value map[string]any) {
+			value["role_reports"].([]any)[0].(map[string]any)["byte_length"] = 0
+		}},
+		{"not applicable role", 0, func(value map[string]any) {
+			value["role_outcomes"].([]any)[0].(map[string]any)["outcome"] = "not_applicable"
+		}},
+	} {
+		var value map[string]any
+		if err := json.Unmarshal(recorder.bytes[test.index], &value); err != nil {
+			t.Fatal(err)
+		}
+		test.mutate(value)
+		invalid, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validator.Validate(context.Background(), recorder.ids[test.index], invalid); err == nil {
+			t.Errorf("composite schema accepted unpublishable %s", test.name)
+		}
 	}
 	if !bundle.Valid() {
 		t.Fatal("composite bundle is invalid")
