@@ -304,33 +304,20 @@ func (candidate PreparedCompositeCandidate) ValidatedCandidateSHA256() string {
 	return "sha256:" + fmt.Sprintf("%x", digest.Sum(nil))
 }
 
-type compositeSourceWire struct{ Kind, Role, RunID, ReviewID, AttemptID, RoleReportSHA256 string }
-
-func (value compositeSourceWire) MarshalJSON() ([]byte, error) {
-	type wire struct {
-		Kind             string `json:"kind"`
-		Role             string `json:"role"`
-		RunID            string `json:"run_id"`
-		ReviewID         string `json:"review_id"`
-		AttemptID        string `json:"attempt_id"`
-		RoleReportSHA256 string `json:"role_report_sha256"`
-	}
-	return marshalCanonical(wire(value))
+type compositeSourceWire struct {
+	Kind             string `json:"kind"`
+	Role             string `json:"role"`
+	RunID            string `json:"run_id"`
+	ReviewID         string `json:"review_id"`
+	AttemptID        string `json:"attempt_id"`
+	RoleReportSHA256 string `json:"role_report_sha256"`
 }
 
 type compositeCompositionWire struct {
-	Fingerprint, RootRunID, RootReviewID string
-	Sources                              []compositeSourceWire
-}
-
-func (value compositeCompositionWire) MarshalJSON() ([]byte, error) {
-	type wire struct {
-		Fingerprint  string                `json:"fingerprint"`
-		RootRunID    string                `json:"root_run_id"`
-		RootReviewID string                `json:"root_review_id"`
-		Sources      []compositeSourceWire `json:"sources"`
-	}
-	return marshalCanonical(wire(value))
+	Fingerprint  string                `json:"fingerprint"`
+	RootRunID    string                `json:"root_run_id"`
+	RootReviewID string                `json:"root_review_id"`
+	Sources      []compositeSourceWire `json:"sources"`
 }
 
 type compositeRoleWire struct {
@@ -425,75 +412,44 @@ func (value compositeFinalWire) MarshalJSON() ([]byte, error) {
 }
 
 type compositeManifestRoleWire struct {
-	Role, Path, SHA256     string
-	ByteLength             int
-	AttemptID, SourceRunID string
-}
-
-func (value compositeManifestRoleWire) MarshalJSON() ([]byte, error) {
-	type wire struct {
-		Role        string `json:"role"`
-		Path        string `json:"path"`
-		SHA256      string `json:"sha256"`
-		ByteLength  int    `json:"byte_length"`
-		AttemptID   string `json:"attempt_id"`
-		SourceRunID string `json:"source_run_id"`
-	}
-	return marshalCanonical(wire(value))
+	Role        string `json:"role"`
+	Path        string `json:"path"`
+	SHA256      string `json:"sha256"`
+	ByteLength  int    `json:"byte_length"`
+	AttemptID   string `json:"attempt_id"`
+	SourceRunID string `json:"source_run_id"`
 }
 
 type compositeManifestWire struct {
-	SchemaVersion, SessionID, RunID, RunType, State                                                string
-	Sealed                                                                                         bool
-	CreatedAt, CompletedAt                                                                         string
-	Target                                                                                         manifestTargetWire
-	ImmutableLineage                                                                               immutableLineageWire
-	ReviewComposition                                                                              compositeCompositionWire
-	SelectedRoles, RequiredRoles                                                                   []string
-	ContentVerdict, CoverageStatus, StructuredExtractionStatus, PublicationStatus, CIDecision      string
-	CIReasonCodes                                                                                  []string
-	PersistedJournalState, DurableObservationClass, DerivedPublicationStatus, PublicationAuthority string
-	RecoveryJournal                                                                                recoveryJournalWire
-	CompositeIdentity                                                                              compositeIdentityWire
-	RecoveryAction                                                                                 string
-	FinalReview                                                                                    finalReviewIdentityWire
-	RoleReports                                                                                    []compositeManifestRoleWire
-	ExitCode                                                                                       int
-}
-
-func (value compositeManifestWire) MarshalJSON() ([]byte, error) {
-	type wire struct {
-		SchemaVersion              string                      `json:"schema_version"`
-		SessionID                  string                      `json:"session_id"`
-		RunID                      string                      `json:"run_id"`
-		RunType                    string                      `json:"run_type"`
-		State                      string                      `json:"state"`
-		Sealed                     bool                        `json:"sealed"`
-		CreatedAt                  string                      `json:"created_at"`
-		CompletedAt                string                      `json:"completed_at"`
-		Target                     manifestTargetWire          `json:"target"`
-		ImmutableLineage           immutableLineageWire        `json:"immutable_lineage"`
-		ReviewComposition          compositeCompositionWire    `json:"review_composition"`
-		SelectedRoles              []string                    `json:"selected_roles"`
-		RequiredRoles              []string                    `json:"required_roles"`
-		ContentVerdict             string                      `json:"content_verdict"`
-		CoverageStatus             string                      `json:"coverage_status"`
-		StructuredExtractionStatus string                      `json:"structured_extraction_status"`
-		PublicationStatus          string                      `json:"publication_status"`
-		CIDecision                 string                      `json:"ci_decision"`
-		CIReasonCodes              []string                    `json:"ci_reason_codes"`
-		PersistedJournalState      string                      `json:"persisted_journal_state"`
-		DurableObservationClass    string                      `json:"durable_observation_class"`
-		DerivedPublicationStatus   string                      `json:"derived_publication_status"`
-		PublicationAuthority       string                      `json:"publication_authority"`
-		RecoveryJournal            recoveryJournalWire         `json:"recovery_journal"`
-		CompositeIdentity          compositeIdentityWire       `json:"composite_identity"`
-		RecoveryAction             string                      `json:"recovery_action"`
-		FinalReview                finalReviewIdentityWire     `json:"final_review"`
-		RoleReports                []compositeManifestRoleWire `json:"role_reports"`
-		ExitCode                   int                         `json:"exit_code"`
-	}
-	return marshalCanonical(wire(value))
+	SchemaVersion              string                      `json:"schema_version"`
+	SessionID                  string                      `json:"session_id"`
+	RunID                      string                      `json:"run_id"`
+	RunType                    string                      `json:"run_type"`
+	State                      string                      `json:"state"`
+	Sealed                     bool                        `json:"sealed"`
+	CreatedAt                  string                      `json:"created_at"`
+	CompletedAt                string                      `json:"completed_at"`
+	Target                     manifestTargetWire          `json:"target"`
+	ImmutableLineage           immutableLineageWire        `json:"immutable_lineage"`
+	ReviewComposition          compositeCompositionWire    `json:"review_composition"`
+	SelectedRoles              []string                    `json:"selected_roles"`
+	RequiredRoles              []string                    `json:"required_roles"`
+	ContentVerdict             string                      `json:"content_verdict"`
+	CoverageStatus             string                      `json:"coverage_status"`
+	StructuredExtractionStatus string                      `json:"structured_extraction_status"`
+	PublicationStatus          string                      `json:"publication_status"`
+	CIDecision                 string                      `json:"ci_decision"`
+	CIReasonCodes              []string                    `json:"ci_reason_codes"`
+	PersistedJournalState      string                      `json:"persisted_journal_state"`
+	DurableObservationClass    string                      `json:"durable_observation_class"`
+	DerivedPublicationStatus   string                      `json:"derived_publication_status"`
+	PublicationAuthority       string                      `json:"publication_authority"`
+	RecoveryJournal            recoveryJournalWire         `json:"recovery_journal"`
+	CompositeIdentity          compositeIdentityWire       `json:"composite_identity"`
+	RecoveryAction             string                      `json:"recovery_action"`
+	FinalReview                finalReviewIdentityWire     `json:"final_review"`
+	RoleReports                []compositeManifestRoleWire `json:"role_reports"`
+	ExitCode                   int                         `json:"exit_code"`
 }
 
 func (candidate PreparedCompositeCandidate) compositionWire() compositeCompositionWire {

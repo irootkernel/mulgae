@@ -147,7 +147,7 @@ func buildCompositeCommittedReview(run ports.PublicationRun, decision domain.Pub
 		severity := domain.Severity(item.Severity)
 		confidence := domain.Confidence(item.Confidence)
 		lifecycle := domain.FindingLifecycle(item.Lifecycle)
-		if !role.Valid() || !severity.Valid() || !confidence.Valid() || !lifecycle.Valid() {
+		if !role.Valid() || providers[item.Role] == "" || !severity.Valid() || !confidence.Valid() || !lifecycle.Valid() {
 			return CommittedReview{}, fmt.Errorf("composite finding is invalid")
 		}
 		findings[i] = Finding{id: item.ID, fingerprint: item.Fingerprint, role: role, providerInstance: providers[item.Role], severity: severity, title: item.Title, description: item.Description, recommendation: item.Recommendation, confidence: confidence, lifecycle: lifecycle}

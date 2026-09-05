@@ -283,9 +283,12 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
+	// Composite finals bind the target digest; their Git object identities live
+	// in the independently verified runtime manifest read above.
 	if strings.TrimPrefix(manifest.Target.SHA256, "sha256:") != strings.TrimPrefix(target.ContentSHA256, "sha256:") ||
-		!sameOptionalTargetOID(manifest.BaseObjectID, target.BaseOID) ||
-		!sameOptionalTargetOID(manifest.HeadObjectID, target.HeadOID) {
+		(review.RunType() != domain.RunTypeComposite &&
+			(!sameOptionalTargetOID(manifest.BaseObjectID, target.BaseOID) ||
+				!sameOptionalTargetOID(manifest.HeadObjectID, target.HeadOID))) {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target identity does not match committed final", nil)
 	}
 	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{

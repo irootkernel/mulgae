@@ -1376,7 +1376,15 @@ func completedRecoveryDocuments(
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return PublicationDocument{}, PublicationDocument{}, fmt.Errorf("decode committed manifest: %w", err)
 	}
-	canonicalManifest, err := marshalCanonical(manifest)
+	var canonicalValue any = manifest
+	if manifest.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+		var composite compositeManifestWire
+		if err := json.Unmarshal(manifestBytes, &composite); err != nil {
+			return PublicationDocument{}, PublicationDocument{}, fmt.Errorf("decode committed composite manifest: %w", err)
+		}
+		canonicalValue = composite
+	}
+	canonicalManifest, err := marshalCanonical(canonicalValue)
 	if err != nil {
 		return PublicationDocument{}, PublicationDocument{}, fmt.Errorf("canonicalize committed manifest: %w", err)
 	}
@@ -1391,7 +1399,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, err
 	}
 	normalExit := domain.OperationalExitCode(manifest.ExitCode)
-	if manifest.SchemaVersion != "mulgae-run-manifest.v1" ||
+	if (manifest.SchemaVersion != "mulgae-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v1") ||
 		manifest.SessionID != run.SessionID().String() ||
 		manifest.RunID != run.RunID().String() ||
 		manifest.PersistedJournalState != string(domain.JournalManifestCommitted) ||

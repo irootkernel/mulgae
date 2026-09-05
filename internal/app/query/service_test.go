@@ -3218,3 +3218,31 @@ func failureClass(t *testing.T, err error) domain.FailureClass {
 	}
 	return failure.Class()
 }
+
+func TestCompositeFindingRequiresSelectedRoleProvider(t *testing.T) {
+	run, snapshot, observation, _, _, _ := queryRuntimeFixture(t)
+	decision, err := domain.ClassifyPublication(observation.ClassifierInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final compositeFinalDTO
+	if err := json.Unmarshal(snapshot.Final().Bytes(), &final); err != nil {
+		t.Fatal(err)
+	}
+	var manifest compositeManifestDTO
+	if err := json.Unmarshal(snapshot.Manifest().Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	final.SchemaVersion, final.RunType = "mulgae-composite-review-artifact.v1", string(domain.RunTypeComposite)
+	manifest.SchemaVersion, manifest.RunType = "mulgae-composite-run-manifest.v1", final.RunType
+	if _, err := buildCompositeCommittedReview(run, decision, snapshot, final, manifest); err != nil {
+		t.Fatalf("valid selected-role finding: %v", err)
+	}
+	if len(final.Findings) == 0 {
+		t.Fatal("fixture must contain a finding")
+	}
+	final.Findings[0].Role = string(domain.RoleDocumentation)
+	if _, err := buildCompositeCommittedReview(run, decision, snapshot, final, manifest); err == nil {
+		t.Fatal("composite accepted a finding without a selected role provider")
+	}
+}

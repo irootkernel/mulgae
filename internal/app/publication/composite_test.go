@@ -24,9 +24,43 @@ type compositeTestIDs struct{ reviewID domain.ReviewID }
 
 func (ids compositeTestIDs) NewReviewID(time.Time) (domain.ReviewID, error) { return ids.reviewID, nil }
 
+type compositeStatusConflictStore struct {
+	*filesystem.PublicationStore
+	conflicted bool
+}
+
+func (store *compositeStatusConflictStore) ReplaceMutable(ctx context.Context, request ports.MutableReplaceRequest) (ports.MutableReplaceResult, error) {
+	if request.Document() == ports.MutablePublicationStatus && !store.conflicted {
+		store.conflicted = true
+		return ports.MutableReplaceResult{}, ports.ErrMutableCASConflict
+	}
+	return store.PublicationStore.ReplaceMutable(ctx, request)
+}
+
 func TestCompositeCandidateBuildsSelfContainedSchemaValidBundle(t *testing.T) {
+	testCompositeLifecycle(t, "")
+}
+
+func TestCompositeGitTargetsRemainReadableAndRecoverable(t *testing.T) {
+	for _, mode := range []domain.GitTargetMode{domain.GitTargetDiff, domain.GitTargetStage, domain.GitTargetDirty} {
+		t.Run(string(mode), func(t *testing.T) { testCompositeLifecycle(t, mode) })
+	}
+}
+
+func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode) {
+	t.Helper()
 	targetBytes := []byte("diff --git a/a.go b/a.go\n")
-	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{Kind: domain.TargetPatch, SHA256: bareSHA256(targetBytes)})
+	targetInput := domain.TargetIdentityInput{Kind: domain.TargetPatch, SHA256: bareSHA256(targetBytes)}
+	if mode != "" {
+		targetInput.Kind = domain.TargetGit
+		targetInput.RepositoryID = "fixture"
+		targetInput.BaseObjectID = "1111111111111111111111111111111111111111"
+		targetInput.HeadObjectID = "2222222222222222222222222222222222222222"
+		targetInput.HeadTreeObjectID = "3333333333333333333333333333333333333333"
+		targetInput.IndexTreeObjectID = "4444444444444444444444444444444444444444"
+		targetInput.GitMode = mode
+	}
+	target, err := domain.NewTargetIdentity(targetInput)
 	if err != nil {
 		for cause := err; cause != nil; cause = errors.Unwrap(cause) {
 			t.Logf("cause: %T %v", cause, cause)
@@ -94,7 +128,8 @@ func TestCompositeCandidateBuildsSelfContainedSchemaValidBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewService(store, validator, clock, 8<<20)
+	faultStore := &compositeStatusConflictStore{PublicationStore: store}
+	service, err := NewService(faultStore, validator, clock, 8<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +142,12 @@ func TestCompositeCandidateBuildsSelfContainedSchemaValidBundle(t *testing.T) {
 	}
 	if result.Decision().Authority() != domain.PublicationAuthorityP2 {
 		t.Fatalf("authority = %s", result.Decision().Authority())
+	}
+	if !faultStore.conflicted {
+		t.Fatal("publication did not exercise post-commit status recovery")
+	}
+	if _, err := os.Stat(filepath.Join(rootPath, session.String(), runID.String(), "status.json")); err != nil {
+		t.Fatalf("recovered composite status: %v", err)
 	}
 	retried, err := service.PublishCompositeNext(context.Background(), rootScope, candidate)
 	if err != nil {
@@ -133,6 +174,17 @@ func TestCompositeCandidateBuildsSelfContainedSchemaValidBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	recovered, err := service.Recover(context.Background(), run)
+	if err != nil {
+		for cause := err; cause != nil; cause = errors.Unwrap(cause) {
+			t.Logf("recovery cause: %T %v", cause, cause)
+		}
+		t.Fatalf("recover committed composite: %v", err)
+	}
+	recoveredFinal, ok := recovered.Final()
+	if !ok || recoveredFinal != firstFinal || recovered.Decision().Authority() != domain.PublicationAuthorityP2 {
+		t.Fatal("recovery changed committed composite authority")
+	}
 	queries, err := appquery.NewService(store, validator, nil, 8<<20)
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +200,7 @@ func TestCompositeCandidateBuildsSelfContainedSchemaValidBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(runtimeTarget.Bytes()) != string(targetBytes) {
+	if string(runtimeTarget.Bytes()) != string(targetBytes) || runtimeTarget.Identity() != target {
 		t.Fatal("composite target bytes changed")
 	}
 	content, err := queries.ReadCommittedRoleReport(context.Background(), run, committed.RoleReports()[0])
