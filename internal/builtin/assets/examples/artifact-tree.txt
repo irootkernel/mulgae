@@ -32,6 +32,16 @@
       r_019f596a-cfe4-7c9c-b82e-7149158243ba/
         status.json
         mulgae-runtime.jsonl
+        qualification/
+          a_019f596a-cfe5-79e7-b2b7-59822f012273/
+            request/
+              stdout.raw
+            version/
+              stdout.raw
+              stderr.raw
+            capability/
+              stdout.raw
+              stderr.raw
         attempts/
           a_019f596a-d048-79e7-b2b7-59822f012273/
             status.json

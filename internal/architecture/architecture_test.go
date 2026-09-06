@@ -276,7 +276,7 @@ func TestMakefileContract(t *testing.T) {
 		"codex_fallback_home=", "MULGAE_E2E_CODEX_FALLBACK_HOME", `test -d "$${HOME}/.codex-hsy"`, `test -d "$$codex_fallback_home"`,
 		"codex_home_label=", "codex_fallback_home_label=", "~/.codex", "~/.codex-hsy", "<unset>", "<custom>", "[test-e2e] Codex credential homes:",
 		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN", "MULGAE_LIVE_CODEX_BIN", "MULGAE_LIVE_CODEX_HOME", "MULGAE_LIVE_CODEX_FALLBACK_HOME",
-		"-tags=liveprovider", "-run '^TestLive(ZCode|Agy|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"-tags=liveprovider", "-run '^TestLive(ZCode|Agy|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
 		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {

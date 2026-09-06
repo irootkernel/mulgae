@@ -28,6 +28,7 @@ const (
 )
 
 var errInvalidZcodeEnvelope = errors.New("invalid ZCode headless envelope")
+var errInvalidAGYEnvelope = errors.New("invalid AGY headless envelope")
 var errProviderOutputFrameMissing = errors.New("provider output frame missing")
 
 type providerOutputFailure struct {
@@ -1435,6 +1436,15 @@ func isolatedProcessEnvironment(
 			return nil, fmt.Errorf("provider registry: incomplete namespace environment")
 		}
 	}
+	if family == FamilyAgy {
+		// AGY invokes system tools by name; never inherit the operator's PATH.
+		path, err := ports.NewEnvironmentVariable("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+		if err != nil {
+			return nil, fmt.Errorf("provider registry: invalid AGY system path: %w", err)
+		}
+		environment = append(environment, path)
+		owned["PATH"] = struct{}{}
+	}
 	for _, variable := range configured {
 		if !variable.Valid() {
 			return nil, fmt.Errorf("provider registry: invalid configured environment")
@@ -1613,7 +1623,7 @@ func buildArgv(definition definition, workingDirectory string, packet []byte) ([
 		if agyPermissionBypassEnabled(definition.baseArgv, definition.transport) {
 			controls = append(controls, "--dangerously-skip-permissions")
 		}
-		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--effort", "low", "--print-timeout", agyPrintTimeout(definition.timeout).String(), "--print", value)
+		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--effort", "low", "--print-timeout", agyPrintTimeout(definition.timeout).String(), "--output-format=json", "--print", value)
 		return append(argv, controls...), nil
 	case FamilyCodex:
 		return appendCodexInvocation(argv, workingDirectory, definition.codexModel, definition.codexReasoningEffort), nil
@@ -1649,6 +1659,9 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 	case FamilyAgy:
 		result, err := agyContent(stdout)
 		if err != nil {
+			if errors.Is(err, errInvalidAGYEnvelope) {
+				return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
+			}
 			return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputDecodeFailed, err)
 		}
 		return result, true, nil
@@ -1674,10 +1687,43 @@ func agyContent(stdout []byte) ([]byte, error) {
 		// Trim only for nonempty/shape checks; return exact stdout bytes.
 		return append([]byte(nil), stdout...), nil
 	}
+	if err := validateAGYNativeEnvelope(frame); err != nil {
+		return nil, err
+	}
+	var native struct {
+		Response *string `json:"response"`
+	}
+	if json.Unmarshal(frame, &native) == nil && native.Response != nil {
+		return []byte(*native.Response), nil
+	}
 	if text := agyReviewResultText(frame); len(bytes.TrimSpace(text)) > 0 {
 		return append([]byte(nil), text...), nil
 	}
 	return frame, nil
+}
+
+func validateAGYNativeEnvelope(frame []byte) error {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(frame, &envelope); err != nil {
+		return err
+	}
+	response, hasResponse := envelope["response"]
+	status, hasStatus := envelope["status"]
+	_, hasConversation := envelope["conversation_id"]
+	if !hasResponse && !hasStatus && !hasConversation {
+		return nil // Direct review JSON has no native envelope.
+	}
+	if hasStatus {
+		var value string
+		if json.Unmarshal(status, &value) != nil || !strings.EqualFold(value, "success") {
+			return fmt.Errorf("%w: unsuccessful status", errInvalidAGYEnvelope)
+		}
+	}
+	var body string
+	if !hasResponse || json.Unmarshal(response, &body) != nil || strings.TrimSpace(body) == "" {
+		return fmt.Errorf("%w: no nonempty response string", errInvalidAGYEnvelope)
+	}
+	return nil
 }
 
 func zcodeContent(stdout []byte) ([]byte, error) {
@@ -2035,7 +2081,7 @@ func validateRuntimeTransportShape(family string, baseArgv []string, transport R
 	if transport.channel == ports.ProviderPacketChannelStdin {
 		return nil
 	}
-	if family == FamilyAgy && (transport.argvIndex == len(baseArgv)+11 || transport.argvIndex == len(baseArgv)+12) {
+	if family == FamilyAgy && (transport.argvIndex == len(baseArgv)+12 || transport.argvIndex == len(baseArgv)+13) {
 		return nil
 	}
 	index, err := runtimeTransportArgvIndex(family, len(baseArgv))
@@ -2055,9 +2101,9 @@ func runtimeTransportArgvIndex(family string, baseArgvLength int) (int, error) {
 	case FamilyZcode:
 		return baseArgvLength + 4, nil
 	case FamilyAgy:
-		// Safe AGY argv omits --dangerously-skip-permissions; print lands at +11.
-		// Explicit headless bypass uses +12 and remains opt-in only.
-		return baseArgvLength + 11, nil
+		// Safe AGY argv omits --dangerously-skip-permissions; print lands at +12.
+		// Explicit headless bypass uses +13 and remains opt-in only.
+		return baseArgvLength + 12, nil
 	case FamilyCodex:
 		return 0, fmt.Errorf("codex requires stdin transport")
 	default:

@@ -652,3 +652,47 @@ func TestDiagnosticStoreClassifiesRawWriterFailure(t *testing.T) {
 		t.Fatalf("writer error classification = %T %v", err, err)
 	}
 }
+
+func TestQualificationDiagnosticStreamsUsePrivateScannerAndSeparatePaths(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	for _, phase := range []string{"request", "version", "capability"} {
+		for _, body := range []string{"private probe response", "KKACHI_SECRET_password=value_7f20c84d"} {
+			stream := domain.DiagnosticStdout
+			if strings.HasPrefix(body, "KKACHI_SECRET") {
+				stream = domain.DiagnosticStderr
+			}
+			request, err := ports.NewQualificationDiagnosticRawRequest(attempt, "i_019f596a-d04a-7a7a-8b3c-123456789abc", phase, stream, strings.NewReader(body), int64(len(body)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := fixture.store.PersistRaw(context.Background(), request)
+			relative := "qualification/" + attempt.String() + "/" + phase + "/" + string(stream) + ".raw"
+			if stream == domain.DiagnosticStderr {
+				var rejection *ports.RuntimeDiagnosticSecurityRejectionError
+				if !errors.As(err, &rejection) {
+					t.Fatalf("secret not rejected: %v", err)
+				}
+				if _, err := os.Stat(diagnosticStorePath(fixture, relative)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("secret persisted: %v", err)
+				}
+				continue
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			uri, ok := result.URI()
+			if !ok || !strings.HasSuffix(uri.String(), relative) {
+				t.Fatalf("wrong probe path: %v", result)
+			}
+			stored, err := os.ReadFile(diagnosticStorePath(fixture, relative))
+			if err != nil || string(stored) != body {
+				t.Fatalf("probe changed: %q %v", stored, err)
+			}
+			info, err := os.Stat(diagnosticStorePath(fixture, relative))
+			if err != nil || info.Mode().Perm() != 0600 {
+				t.Fatalf("probe permissions: %v %v", info, err)
+			}
+		}
+	}
+}

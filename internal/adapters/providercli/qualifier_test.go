@@ -205,6 +205,60 @@ func (r *currentProbeRunner) Run(_ context.Context, request ports.ProcessRequest
 	return result, nil
 }
 
+func TestCapabilityResponseClassifiesNativeFailureWithoutWeakeningProof(t *testing.T) {
+	fixture := &currentProbeFixture{role: domain.RoleLogic}
+	for _, test := range []struct {
+		name, output, stderr string
+		class                domain.FailureClass
+		cause                domain.RuntimeDiagnosticCause
+	}{
+		{"quota", `{"response":"quota_exceeded"}`, "", domain.FailureQuota, domain.DiagnosticCauseQuotaExceeded},
+		{"rate limit", `{"response":"rate limit exceeded"}`, "", domain.FailureRateLimit, domain.DiagnosticCauseRateLimited},
+		{"turn failure", "", "turn execution failed", domain.FailureProviderUnavailable, domain.DiagnosticCauseProviderTurnFailed},
+		{"wrong proof", `{"root":"wrong","link":"linked","role":"logic"}`, "", domain.FailureInvalidOutput, domain.DiagnosticCauseObservationMismatch},
+		{"valid proof", `{"response":"root=nonce link=linked role=logic; rate limit is not observed"}`, "", "", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := acceptCapabilityResponse(context.Background(), FamilyZcode, []byte(test.output), []byte(test.stderr), fixture)
+			if test.class == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if cause, ok := providerDiagnosticCause(err); !ok || cause != test.cause {
+				t.Fatalf("cause = %s, want %s", cause, test.cause)
+			}
+			var failure *domain.Failure
+			if !errors.As(err, &failure) || failure.Class() != test.class {
+				t.Fatalf("failure = %v, want %s", err, test.class)
+			}
+		})
+	}
+}
+
+func TestAGYCapabilityResponsePreservesEnvelopeRejectionCause(t *testing.T) {
+	fixture := &currentProbeFixture{role: domain.RoleLogic}
+	for _, output := range []string{
+		`{"status":"ERROR","response":"root=nonce link=linked role=logic"}`,
+		`{"status":"SUCCESS","response":""}`,
+		`{"status":"SUCCESS"}`,
+		`{"status":"SUCCESS","response":[]}`,
+	} {
+		t.Run(output, func(t *testing.T) {
+			err := acceptCapabilityResponse(context.Background(), FamilyAgy, []byte(output), nil, fixture)
+			requireProviderDiagnosticCause(t, err, domain.DiagnosticCauseOutputEnvelopeInvalid)
+			var failure *domain.Failure
+			if !errors.As(err, &failure) || failure.Class() != domain.FailureInvalidOutput {
+				t.Fatalf("envelope rejection = %v", err)
+			}
+			if strings.Contains(err.Error(), output) {
+				t.Fatal("envelope rejection exposed raw provider output")
+			}
+		})
+	}
+}
+
 func TestBoundedProbeTimeoutCapsLongProductionTimeout(t *testing.T) {
 	if got := boundedProbeTimeout(30 * time.Minute); got != currentProbeTimeout {
 		t.Fatalf("bounded probe timeout = %s, want %s", got, currentProbeTimeout)
@@ -266,7 +320,7 @@ func TestCurrentProbeClassifiesSuccessfulAGYPermissionDenialBeforeOutputDecode(t
 		t.Fatal(err)
 	}
 	fixture := &currentProbeFixture{root: root, identity: identity}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +549,7 @@ func TestCurrentProbeAgyBindsProviderPacketAndRequiresLifecycleEvidence(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,7 +618,7 @@ func TestCurrentProbeAcceptsNarratedAGYCapabilityWithoutTerminalFrame(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,7 +688,7 @@ func TestCurrentProbeRejectsUnboundEvidenceAsOperationalCapabilityFailure(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +729,7 @@ func TestCurrentProbeRejectsPromptEchoAsOperationalCapabilityFailure(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -718,7 +772,7 @@ func requireOperationalCapabilityMismatch(t *testing.T, err error) {
 }
 
 func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
-	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -918,7 +972,7 @@ func TestValidateProbeTransportAndLifecycleSignalSequence(t *testing.T) {
 // probe that narrated its proof without emitting one still passes transport and
 // lifecycle validation; the bound fixture evidence decides acceptance later.
 func TestValidateProbeTransportAllowsFramelessSuccessfulAGYProbe(t *testing.T) {
-	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1053,7 +1107,7 @@ func TestBoundProbeProviderRequestUsesExactAGYLiteralPacket(t *testing.T) {
 }
 
 func TestValidateProbeLifecyclePreservesNonPostOutputProcessFailure(t *testing.T) {
-	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transportPolicy, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1367,7 +1421,7 @@ func (r *agyCurrentProbeRunner) Run(_ context.Context, request ports.ProcessRequ
 	}
 	if binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
 		binding.PromptFileReference() != "" ||
-		binding.ArgvIndex() != 13 ||
+		binding.ArgvIndex() != 14 ||
 		binding.SnapshotCWD() != "" {
 		r.t.Fatal("capability request omitted the literal packet binding")
 	}
@@ -1515,7 +1569,7 @@ func TestNativeProbeInvocationFamilyPolicy(t *testing.T) {
 	for family, want := range map[string][]string{
 		FamilyKimi:  {"--model", "kimi-code/kimi-for-coding", "--prompt", "fixture", "--output-format", "stream-json"},
 		FamilyZcode: {"--mode", "plan", "--no-color", "--prompt", "fixture", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools},
-		FamilyAgy:   {"--new-project", "--sandbox", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "fixture"},
+		FamilyAgy:   {"--new-project", "--sandbox", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--output-format=json", "--print", "fixture"},
 	} {
 		definition := testProfile(t, family, "kimi_current", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)

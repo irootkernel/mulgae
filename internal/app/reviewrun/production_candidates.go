@@ -287,9 +287,9 @@ func productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTi
 			return nil, fmt.Errorf("invalid Codex credential profile")
 		}
 	}
-	agyArgvIndex := 12
+	agyArgvIndex := 13
 	if agyPermissionMode == "dangerously-skip-permissions" {
-		agyArgvIndex = 13
+		agyArgvIndex = 14
 	}
 	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
 	if err != nil {

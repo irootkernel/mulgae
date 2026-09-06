@@ -197,12 +197,12 @@ func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.Work
 	if agyPermissionBypassEnabled(definition.BaseArgv(), definition.Transport()) {
 		controls = append(controls, "--dangerously-skip-permissions")
 	}
-	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", agyProbePrintTimeout(definition.Timeout()).String(), "--print", string(packet.Bytes()))
+	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", agyProbePrintTimeout(definition.Timeout()).String(), "--output-format=json", "--print", string(packet.Bytes()))
 	return append(baseArgv, controls...), nil
 }
 
 func agyPermissionBypassEnabled(baseArgv []string, transport RuntimeTransport) bool {
-	return transport.ArgvIndex() == len(baseArgv)+12
+	return transport.ArgvIndex() == len(baseArgv)+13
 }
 
 func agyPrintTimeout(runtimeTimeout time.Duration) time.Duration {

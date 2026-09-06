@@ -34,7 +34,7 @@ func TestNativeProbeInvocationAgyBindsImmutableSnapshotPath(t *testing.T) {
 	definition.timeout = 15 * time.Minute
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "2m55s", "--print", "fixture-packet")
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "2m55s", "--output-format=json", "--print", "fixture-packet")
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("AGY argv = %#v, err = %v, want %#v", argv, err, want)
 	}
@@ -104,7 +104,7 @@ func TestAGYReviewPrintTimeoutKeepsConfiguredRuntimeDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}
+	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--output-format=json", "--print", "review bytes"}
 	if !reflect.DeepEqual(argv, want) {
 		t.Fatalf("review AGY argv = %#v, want %#v", argv, want)
 	}
@@ -116,7 +116,7 @@ func TestAGYReviewPrintTimeoutKeepsConfiguredRuntimeDeadline(t *testing.T) {
 func TestNativeProbeInvocationAgyHeadlessOptInKeepsSandboxAndSnapshot(t *testing.T) {
 	identity := nativeInvocationIdentity(t, t.TempDir())
 	fixture := nativeInvocationFixture{identity: identity}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestNativeProbeInvocationAgyHeadlessOptInKeepsSandboxAndSnapshot(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "2m55s", "--print", "fixture-packet")
+	want := append(definition.BaseArgv(), "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", identity.SnapshotPath(), "--mode", "plan", "--effort", "low", "--print-timeout", "2m55s", "--output-format=json", "--print", "fixture-packet")
 	if !reflect.DeepEqual(argv, want) {
 		t.Fatalf("headless AGY probe argv = %#v, want %#v", argv, want)
 	}

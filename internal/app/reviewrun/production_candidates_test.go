@@ -34,7 +34,7 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 				t.Fatalf("%s template timeout = %s, want %s", family, template.limits.Timeout(), productionDefaultProviderTimeout)
 			}
 			if family == FamilyAGY {
-				if template.transportArgvIndex != 12 || template.lifecycle == nil || !template.lifecycle.Valid() {
+				if template.transportArgvIndex != 13 || template.lifecycle == nil || !template.lifecycle.Valid() {
 					t.Fatalf("AGY template %s lifecycle = %#v", role, template)
 				}
 			} else if template.lifecycle != nil {
@@ -135,7 +135,7 @@ func TestProductionCandidateTemplatesBindAGYPermissionMode(t *testing.T) {
 	for _, test := range []struct {
 		mode string
 		want int
-	}{{"safe", 12}, {"dangerously-skip-permissions", 13}} {
+	}{{"safe", 13}, {"dangerously-skip-permissions", 14}} {
 		templates, err := productionCandidateTemplatesWithAGYPermissionMode(identities, test.mode)
 		if err != nil {
 			t.Fatal(err)

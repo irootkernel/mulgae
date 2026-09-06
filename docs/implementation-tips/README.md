@@ -23,6 +23,20 @@ serialized race-instrumented integration tests, an exact-binary production
 workflow, and independent live capability certification for ZCode, AGY, and
 Codex. It then invokes the opt-in mixed-profile target, which reports a stable
 skip unless `MULGAE_E2E_OPT_IN=1` is present.
+The mandatory workflow also requires the documentation role report to reproduce
+a fresh marker stored only in the captured README, never in the objective.
+A published report that merely claims it could not read the target does not
+certify workspace access.
+Independent live capability certification failures preserve the exact request,
+nonempty version/capability stdout and stderr, and process exit metadata in a
+private `mulgae-capability-failure-<family>-*` temporary directory. The failure
+log prints that directory; the secure writer drops credential-bearing streams.
+These diagnostics survive fixture cleanup and are local evidence, not published
+review artifacts. `launches=2` means version plus capability, not two retries.
+Inspect this evidence before attributing a binding mismatch to provider load or
+to a Mulgae decoder defect; successful reruns alone do not establish stability.
+The mandatory `make test-e2e` capability filter also runs the offline checks for
+private evidence permissions, credential screening, and failure guidance.
 
 Smaller targets are available while iterating:
 

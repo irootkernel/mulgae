@@ -623,6 +623,9 @@ func (store *DiagnosticStore) PersistRaw(ctx context.Context, request ports.Runt
 		return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "closed", errors.New("diagnostic store is finalized"))
 	}
 	destination, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/attempts/%s/invocations/%03d-%s/%s.raw", store.request.RunPath().String(), request.AttemptID().String(), request.Ordinal(), request.Purpose(), request.Stream()))
+	if phase := request.QualificationPhase(); phase != "" {
+		destination, err = ports.NewSafeRelativePath(fmt.Sprintf("%s/qualification/%s/%s/%s.raw", store.request.RunPath().String(), request.AttemptID().String(), phase, request.Stream()))
+	}
 	if err != nil {
 		return ports.RuntimeDiagnosticRawResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceRaw, "path", err)
 	}

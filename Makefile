@@ -108,7 +108,7 @@ test-e2e:
 	MULGAE_LIVE_AGY_BIN="$$agy_bin" MULGAE_LIVE_CODEX_BIN="$$codex_bin" MULGAE_LIVE_CODEX_HOME="$$codex_home" \
 		MULGAE_LIVE_CODEX_FALLBACK_HOME="$$codex_fallback_home" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLive(ZCode|Agy|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$' ./internal/adapters/providercli || { \
+		-run '^TestLive(ZCode|Agy|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \

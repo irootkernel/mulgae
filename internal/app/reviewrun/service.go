@@ -126,6 +126,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, NewAllocatedRunIdentityError(identity.sessionID, identity.runID, err)
 	}
 	cleanup.setDiagnostics(diagnostics)
+	ctx = qualificationDiagnosticContext(ctx, diagnostics, service.dependencies.IDs)
 	if input.Target().NoChange() {
 		abortReason = ports.WorkspaceAbortPublicationFailure
 		return service.publishNoChange(ctx, request, cleanup, input, target, identity, diagnostics)

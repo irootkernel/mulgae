@@ -254,6 +254,11 @@ may change only explicitly allowed provider-owned paths.
       r_<uuidv7>/
         status.json
         mulgae-runtime.jsonl
+        qualification/
+          a_<uuidv7>/
+            request/stdout.raw
+            version/{stdout,stderr}.raw
+            capability/{stdout,stderr}.raw
         attempts/
   exports/
     r_<uuidv7>.zip
@@ -377,6 +382,15 @@ is never the primary report URI.
 
 `transport` is adapter-owned per provider family, not configurable. ZCode
 review invocations are granted `staged_file`; AGY and Kimi remain `stdout`.
+AGY review, extraction, and capability invocations request `--output-format=json`;
+the adapter unwraps the native envelope's `response` as the review content.
+The JSON envelope does not replace process termination or lifecycle validation.
+AGY native JSON envelopes must contain a nonempty string `response`; when
+`status` is present it must be `SUCCESS` (case insensitive). Empty, missing,
+non-string responses and unsuccessful statuses are rejected before free-form
+report acceptance. Mulgae extracts the exact response bytes, not other envelope
+metadata. Direct review JSON without native envelope fields remains supported.
+
 Exact replay (`rerun --exact`) preserves the source attempt's framed review
 input and provider route. On a `staged_file` route Mulgae replaces only the
 expired Mulgae-owned output-destination layer with a fresh per-launch grant;
@@ -627,6 +641,21 @@ rejects an observed false value when the configuration requested true.
 
 ## Provider qualification readiness
 
+Review and child-run qualification preserve private request packets and nonempty
+version/capability stdout and stderr under the diagnostic run before fixture
+cleanup. Runtime events retain process exit/termination facts and typed rejection
+causes, including empty responses. A decoded AGY native envelope with an
+unsuccessful status or a missing, empty, or non-string response is classified as
+`provider_output_envelope_invalid` in both review and qualification, separately
+from JSON decoding failures. The existing secure writer screens these
+streams; rejected content is dropped with metadata, never copied into public
+command output or exports. Each retry has its own qualification attempt directory.
+A child command allocates its diagnostic run identity before qualification and
+hands the same sink to execution on success. Qualification failure leaves a
+terminal diagnostic-only run referenced by the reason's `artifact_uri`; child
+result identities and publication artifact URIs remain null. No manifest or P2
+publication authority is created by that diagnostic identity.
+
 Current qualification is family/runtime-profile scoped within one command:
 Mulgae performs one version-plus-capability probe per distinct provider family
 profile, with at most one bounded operational retry, then derives role admission
@@ -654,7 +683,11 @@ process behavior, and mere prompt echo is rejected. A terminal JSON stdout frame
 is optional metadata, never a required result transport; when a frame is
 present, its integrity (framing policy, byte length, stdout digest, stability
 and termination timing, and packet-bound post-output signal receipts) is
-enforced fail-closed. Packet-transport, lifecycle, signal-receipt, and
+enforced fail-closed. Post-output cleanup retains one total one-second deadline;
+the SIGTERM grace is capped at half the remaining budget so escalation leaves
+time to join the process, readers, and stdout spooler. Receiving JSON alone
+does not bypass lifecycle or publication checks.
+Packet-transport, lifecycle, signal-receipt, and
 frame-integrity violations remain security-policy violations, while missing
 fixture binding or prompt echo is instead an operational invalid-provider-output
 capability rejection, not a security-policy violation. Capability packets embed
@@ -668,6 +701,11 @@ unbound fixture evidence, security-policy violations, and login-required
 responses are never retried; one transient operational probe failure (rate
 limit, quota, timeout, provider unavailable, or a typed provider execution
 failure) admits at most one additional probe on a freshly materialized fixture.
+When a zero-exit capability response fails fixture proof, an explicit native
+provider failure is classified through the existing typed failure vocabulary
+before retry policy is applied. Unbound or malformed output without such a
+failure remains invalid provider output; valid fixture proof is not rejected
+merely for mentioning a failure phrase.
 Each local capability invocation has a three-minute upper bound.
 Every acquired fixture is still drained exactly once, sibling role routes still
 derive from a single successful family probe, and the retried attempt is

@@ -50,15 +50,26 @@ type childDiagnosticLifecycle struct {
 }
 
 func openChildDiagnostics(ctx context.Context, factory ports.RuntimeDiagnosticSinkFactory, root ports.AnchoredRoot, clock ports.Clock, run domain.Run) (*childDiagnosticLifecycle, error) {
+	sink, started, sequence, prepared, err := reviewrun.TakePreparedRunDiagnostics(ctx, run.SessionID(), run.ID())
+	if err != nil {
+		return nil, err
+	}
+	if prepared {
+		roles := make([]domain.Role, 0, len(run.RoleTasks()))
+		for _, task := range run.RoleTasks() {
+			roles = append(roles, task.Role())
+		}
+		return &childDiagnosticLifecycle{sink: sink, clock: clock, sessionID: run.SessionID(), runID: run.ID(), roles: roles, startedAt: started, lastSeq: sequence}, nil
+	}
 	if factory == nil {
 		return nil, nil
 	}
-	started := clock.Now().UTC()
+	started = clock.Now().UTC()
 	request, err := ports.NewRuntimeDiagnosticOpenRequest(root, run.SessionID(), run.ID(), started)
 	if err != nil {
 		return nil, childDiagnosticArtifactFailure(err)
 	}
-	sink, err := factory.Open(ctx, request)
+	sink, err = factory.Open(ctx, request)
 	if err != nil || sink == nil {
 		if err == nil {
 			err = fmt.Errorf("diagnostic factory returned nil sink")

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/app/childrun"
 	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
@@ -68,6 +69,12 @@ func (service deferredFollowupRunService) StartFollowupRun(ctx context.Context, 
 	if err != nil {
 		return mulgae.StartedRun{}, abortCaptured(captured, err)
 	}
+	prepared, ctx, err := reviewrun.PrepareChildRunDiagnostics(ctx, graph.diagnostics, service.composer.artifactRoot, source.SessionID, selection.Roles(), graph.clock, graph.ids)
+	if err != nil {
+		return mulgae.StartedRun{}, abortCaptured(captured, err)
+	}
+	defer func() { err = prepared.Finish(ctx, err) }()
+	childIDs := &reservedChildRunIDs{IdentityGenerator: graph.ids, runID: prepared.RunID()}
 	authority, err := authorityFactory.NewQualifiedRun(ctx, captured, selection)
 	if err != nil {
 		return mulgae.StartedRun{}, abortCapturedAfterAuthorityError(captured, err)
@@ -96,7 +103,7 @@ func (service deferredFollowupRunService) StartFollowupRun(ctx context.Context, 
 	if err != nil {
 		return mulgae.StartedRun{}, err
 	}
-	executor, err := childrun.NewFollowupExecutor(graph.clock, graph.ids, newChildPacketScreeningProvider(authority.Provider(), graph.detector), prompts, followupValidator, graph.publisher, service.composer.artifactRoot, childrun.FollowupExecutorConfig{
+	executor, err := childrun.NewFollowupExecutor(graph.clock, childIDs, newChildPacketScreeningProvider(authority.Provider(), graph.detector), prompts, followupValidator, graph.publisher, service.composer.artifactRoot, childrun.FollowupExecutorConfig{
 		ProviderInstance: sourceProviderForFinding(source), SeverityThreshold: graph.policy.planner.Threshold, MulgaeVersion: graph.build.Version, MulgaeCommit: graph.build.ImmutableReference(), Diagnostics: graph.diagnostics,
 	})
 	if err != nil {
@@ -121,12 +128,12 @@ func (service deferredDeltaRunService) StartDeltaRun(ctx context.Context, reques
 		return mulgae.StartedRun{}, err
 	}
 	defer func() { err = errors.Join(err, graph.cleanupRoots()) }()
+	source, sourceErr := service.composer.sources.ReadSource(ctx, request.SourceRunID)
+	if sourceErr != nil {
+		return mulgae.StartedRun{}, sourceErr
+	}
 	roles := append([]domain.Role(nil), request.Roles...)
 	if len(roles) == 0 {
-		source, sourceErr := service.composer.sources.ReadSource(ctx, request.SourceRunID)
-		if sourceErr != nil {
-			return mulgae.StartedRun{}, sourceErr
-		}
 		for _, task := range source.Roles {
 			roles = append(roles, task.Role())
 		}
@@ -135,6 +142,12 @@ func (service deferredDeltaRunService) StartDeltaRun(ctx context.Context, reques
 	if err != nil {
 		return mulgae.StartedRun{}, err
 	}
+	prepared, ctx, err := reviewrun.PrepareChildRunDiagnostics(ctx, graph.diagnostics, service.composer.artifactRoot, source.SessionID, selection.Roles(), graph.clock, graph.ids)
+	if err != nil {
+		return mulgae.StartedRun{}, abortCaptured(captured, err)
+	}
+	defer func() { err = prepared.Finish(ctx, err) }()
+	childIDs := &reservedChildRunIDs{IdentityGenerator: graph.ids, runID: prepared.RunID()}
 	authority, err := graph.authority.NewQualifiedRun(ctx, captured, selection)
 	if err != nil {
 		return mulgae.StartedRun{}, abortCapturedAfterAuthorityError(captured, err)
@@ -156,7 +169,7 @@ func (service deferredDeltaRunService) StartDeltaRun(ctx context.Context, reques
 	if err != nil {
 		return mulgae.StartedRun{}, err
 	}
-	workflow, err := appdelta.NewService(graph.clock, graph.ids, service.composer.sources, staticDeltaTargetCapturer{target: target}, canonicalDeltaComparator{}, executor)
+	workflow, err := appdelta.NewService(graph.clock, childIDs, service.composer.sources, staticDeltaTargetCapturer{target: target}, canonicalDeltaComparator{}, executor)
 	if err != nil {
 		return mulgae.StartedRun{}, err
 	}
@@ -200,6 +213,12 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 			return mulgae.StartedRun{}, abortCaptured(captured, err)
 		}
 	}
+	prepared, ctx, err := reviewrun.PrepareChildRunDiagnostics(ctx, graph.diagnostics, service.composer.artifactRoot, source.SessionID, selection.Roles(), graph.clock, graph.ids)
+	if err != nil {
+		return mulgae.StartedRun{}, abortCaptured(captured, err)
+	}
+	defer func() { err = prepared.Finish(ctx, err) }()
+	childIDs := &reservedChildRunIDs{IdentityGenerator: graph.ids, runID: prepared.RunID()}
 	authority, err := authorityFactory.NewQualifiedRun(ctx, captured, selection)
 	if err != nil {
 		return mulgae.StartedRun{}, abortCapturedAfterAuthorityError(captured, err)
@@ -216,7 +235,7 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 	if err != nil {
 		return mulgae.StartedRun{}, err
 	}
-	workflow, err := appreplay.NewService(service.composer.sources, executor, appreplay.Config{Clock: graph.clock, IDs: graph.ids, Assignments: assignments})
+	workflow, err := appreplay.NewService(service.composer.sources, executor, appreplay.Config{Clock: graph.clock, IDs: childIDs, Assignments: assignments})
 	if err != nil {
 		return mulgae.StartedRun{}, err
 	}
@@ -554,3 +573,18 @@ func (provider *childPacketScreeningProvider) Observe(ctx context.Context, invoc
 var _ mulgae.FollowupRunService = deferredFollowupRunService{}
 var _ mulgae.DeltaRunService = deferredDeltaRunService{}
 var _ mulgae.RerunService = deferredRerunService{}
+
+// reservedChildRunIDs gives the executor the identity allocated for qualification.
+type reservedChildRunIDs struct {
+	review.IdentityGenerator
+	runID  domain.RunID
+	issued bool
+}
+
+func (ids *reservedChildRunIDs) NewRunID(time.Time) (domain.RunID, error) {
+	if ids.issued {
+		return domain.RunID{}, fmt.Errorf("child run identity already issued")
+	}
+	ids.issued = true
+	return ids.runID, nil
+}

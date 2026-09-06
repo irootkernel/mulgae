@@ -208,6 +208,10 @@ Mulgae-owned and disposable. Separate AGY runs may therefore access the same
 provider-owned authentication state concurrently. Mulgae neither serializes
 that access nor treats it as publication authority; operators must account for
 provider-side concurrency and account limits.
+AGY qualification and review invocations receive the adapter-owned system
+`PATH=/usr/bin:/bin:/usr/sbin:/sbin` so tool hooks can resolve `sh` and standard
+utilities. Ambient and configured `PATH` values cannot override it. This path
+is part of the effective environment identity used for qualification.
 
 Runtime diagnostics and exports must not disclose secrets or native paths. A
 new diagnostic field is a data-release boundary and requires review.
@@ -272,6 +276,14 @@ but that diagnostic drop does not turn an otherwise valid review into a
 provider failure. Canonical final reviews and path-authorized run support retain
 validated source evidence; unvalidated writes and exported projections continue
 to use their existing redaction and secret-rejection boundaries.
+
+
+Qualification diagnostics use the same private secure writer as review process
+streams. Probe packets and version/capability streams are persisted before
+fixture cleanup; scanner rejection drops the offending stream. Diagnostic run
+identity allocated before child qualification does not confer admission or P2
+publication authority. Public errors expose only the diagnostic artifact
+reference and typed failure, never the raw probe response.
 
 ## Validation and fail-closed behavior
 

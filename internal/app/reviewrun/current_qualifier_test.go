@@ -961,7 +961,7 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	if family == FamilyZCode {
 		argvIndex = 6
 	} else if family == FamilyAGY {
-		argvIndex = 13
+		argvIndex = 14
 	}
 	channel, reference := ports.ProviderPacketChannelPromptFile, "@roadmap.md"
 	if family == FamilyCodex {

@@ -27,7 +27,7 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 	}{
 		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"}},
 		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "yolo", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools}},
-		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}},
+		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--output-format=json", "--print", "review bytes"}},
 	}
 	for _, test := range tests {
 		t.Run(test.family, func(t *testing.T) {
@@ -86,7 +86,7 @@ func TestBuildArgvUsesIsolatedCodexExecProfile(t *testing.T) {
 }
 
 func TestBuildArgvIncludesAGYPermissionBypassOnlyForExplicitHeadlessTransport(t *testing.T) {
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestBuildArgvIncludesAGYPermissionBypassOnlyForExplicitHeadlessTransport(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes"}
+	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--output-format=json", "--print", "review bytes"}
 	if !equalStrings(got, want) {
 		t.Fatalf("headless AGY argv = %q, want %q", got, want)
 	}
@@ -146,7 +146,7 @@ func TestAGYReviewArgvKeepsPlanModeAndSandbox(t *testing.T) {
 	}
 	want := []string{
 		"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work",
-		"--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--print", "review bytes",
+		"--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--output-format=json", "--print", "review bytes",
 	}
 	if !equalStrings(argv, want) {
 		t.Fatalf("AGY review argv = %q, want %q", argv, want)
@@ -318,6 +318,49 @@ func TestProviderResultStrictness(t *testing.T) {
 	}
 }
 
+func TestAGYJSONEnvelopeRejectsMissingOrFailedResponse(t *testing.T) {
+	for _, output := range []string{
+		`{"status":"SUCCESS","response":""}`,
+		`{"status":"SUCCESS","response":"  "}`,
+		`{"conversation_id":"c","status":"SUCCESS"}`,
+		`{"status":"SUCCESS","response":null}`,
+		`{"status":"SUCCESS","response":{"findings":[]}}`,
+		`{"status":"ERROR","response":"No findings."}`,
+		`{"status":42,"response":"No findings."}`,
+	} {
+		if body, _, err := providerResult(FamilyAgy, []byte(output)); err == nil {
+			t.Errorf("accepted invalid envelope %s as %q", output, body)
+		}
+	}
+}
+
+func TestAGYJSONEnvelopePreservesResponseContent(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		response string
+	}{
+		{"review", "  # Documentation review\n\nNo findings.\n"},
+		{"extraction", `{"schema_version":"provider-review.v1","summary":"No findings.","findings":[]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, err := json.Marshal(map[string]any{
+				"conversation_id": "native-conversation",
+				"message":         "Native transport metadata must not replace the response.",
+				"status":          "SUCCESS",
+				"response":        test.response,
+				"usage":           map[string]int{"total_tokens": 100},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, isolated, err := providerResult(FamilyAgy, stdout)
+			if err != nil || !isolated || string(got) != test.response {
+				t.Fatalf("AGY JSON response = %q, isolated=%t, err=%v", got, isolated, err)
+			}
+		})
+	}
+}
+
 func TestProviderResultFailuresExposeExactTypedCausesWithoutRawText(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -331,6 +374,11 @@ func TestProviderResultFailuresExposeExactTypedCausesWithoutRawText(t *testing.T
 		{"ZCode missing output", FamilyZcode, nil, domain.DiagnosticCauseOutputMissing},
 		{"ZCode invalid envelope", FamilyZcode, []byte(`{"response":""}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
 		{"AGY missing output", FamilyAgy, nil, domain.DiagnosticCauseOutputMissing},
+		{"AGY unsuccessful status", FamilyAgy, []byte(`{"status":"ERROR","response":"unavailable"}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
+		{"AGY empty response", FamilyAgy, []byte(`{"status":"SUCCESS","response":""}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
+		{"AGY missing response", FamilyAgy, []byte(`{"status":"SUCCESS"}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
+		{"AGY non-string response", FamilyAgy, []byte(`{"status":"SUCCESS","response":[]}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
+		{"AGY malformed envelope", FamilyAgy, []byte(`{"status":"SUCCESS","response":`), domain.DiagnosticCauseOutputDecodeFailed},
 		{"AGY malformed stream", FamilyAgy, []byte(`{"findings":[]} trailing`), domain.DiagnosticCauseOutputDecodeFailed},
 	}
 	for _, test := range tests {
@@ -888,7 +936,7 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			family:     FamilyAgy,
 			stdout:     []byte("{\"findings\":[]}"),
 			wantResult: []byte("{\"findings\":[]}"),
-			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", "review bytes"},
+			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--output-format=json", "--print", "review bytes"},
 		},
 	}
 	for _, test := range tests {
@@ -1294,13 +1342,13 @@ func TestRegistryObserveWorkspaceBindsProductionAgyAddDirAndPacketReceipt(t *tes
 		t.Fatal(err)
 	}
 
-	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", root.Path(), "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--print", string(invocation.PacketBytes())}
+	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", root.Path(), "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--output-format=json", "--print", string(invocation.PacketBytes())}
 	if !equalStrings(runner.request.Argv(), wantArgv) || runner.request.WorkingDirectory() != root.Path() {
 		t.Fatalf("request argv=%q working directory=%q, want argv=%q working directory=%q", runner.request.Argv(), runner.request.WorkingDirectory(), wantArgv, root.Path())
 	}
 	binding, ok := runner.request.ProviderPacketBinding()
 	if !ok || binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
-		binding.ArgvIndex() != len(profile.baseArgv)+11 ||
+		binding.ArgvIndex() != len(profile.baseArgv)+12 ||
 		runner.request.Argv()[binding.ArgvIndex()] != string(invocation.PacketBytes()) {
 		t.Fatalf("packet binding = %#v, argv=%q", binding, runner.request.Argv())
 	}

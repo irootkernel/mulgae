@@ -907,7 +907,8 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 				termSent = true
 				_ = closeStdin(in)
 				if len(requests) > before {
-					termination = time.NewTimer(min(lifecycle.TerminationGrace(), remainingTerminalBudget()))
+					// Reserve time after SIGKILL for Wait, readers, and stdout spooling.
+					termination = time.NewTimer(min(lifecycle.TerminationGrace(), remainingTerminalBudget()/2))
 					terminationC = termination.C
 				}
 			}

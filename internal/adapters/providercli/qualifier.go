@@ -334,7 +334,7 @@ type CurrentProbeResult struct {
 	Receipts    []CurrentProbeReceipt
 }
 
-func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentProbeRequest) (CurrentProbeResult, error) {
+func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentProbeRequest) (result CurrentProbeResult, retErr error) {
 	if probe == nil || probe.runner == nil || nilSpawnVerifier(probe.verifier) || ctx == nil || request.Now.IsZero() || request.TTL <= 0 || request.Namespace == nil || request.Fixture == nil || request.Invocation == nil {
 		return CurrentProbeResult{}, probeFailure("authority", domain.FailureInternal, "missing isolated qualification authority", nil)
 	}
@@ -351,6 +351,17 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if _, err := validateCurrentProbeFixtures(fixture, request.RoleFixtures); err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("fixture", "role fixtures are not independently bound", err)
 	}
+	var versionObservation, capabilityObservation ports.ProcessObservation
+	var versionError, capabilityError error
+	defer func() {
+		if err := ports.ObserveQualificationProbe(context.WithoutCancel(ctx), ports.QualificationProbeObservation{
+			Provider: definition.Instance(), Role: fixture.Role(), Packet: fixture.Packet(),
+			Version: versionObservation, Capability: capabilityObservation, VersionError: versionError, CapabilityError: capabilityError, Err: retErr,
+		}); err != nil {
+			result = CurrentProbeResult{}
+			retErr = errors.Join(probeFailure("diagnostics", domain.FailureArtifact, "qualification diagnostics persistence failed", err), retErr)
+		}
+	}()
 	namespaceEnvironment := namespace.Environment()
 	environment, err := isolatedProcessEnvironment(definition.Family(), definition.Environment(), namespaceEnvironment)
 	if err != nil {
@@ -361,9 +372,9 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe version invocation unavailable", err)
 	}
-	versionObservation, err := probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil, nil)
-	if err != nil {
-		return CurrentProbeResult{}, err
+	versionObservation, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil, nil)
+	if versionError != nil {
+		return CurrentProbeResult{}, versionError
 	}
 	version, err := plainSemver(definition.Family(), versionObservation)
 	if err != nil {
@@ -392,9 +403,9 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		}
 		executionPolicy = &policy
 	}
-	capabilityObservation, runErr := probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet, executionPolicy)
-	if runErr != nil {
-		return CurrentProbeResult{}, runErr
+	capabilityObservation, capabilityError = probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet, executionPolicy)
+	if capabilityError != nil {
+		return CurrentProbeResult{}, capabilityError
 	}
 	if evidenceErr := validateProbeTransportAndLifecycle(definition, packet, capabilityObservation); evidenceErr != nil {
 		return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch", evidenceErr)
@@ -413,7 +424,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), processErr, capabilityObservation.Stderr(), capabilityObservation.Stdout())
 	}
 	output := capabilityObservation.Stdout()
-	if evidenceErr := acceptCapabilityEvidence(definition.Family(), output, roleFixture); evidenceErr != nil {
+	if evidenceErr := acceptCapabilityResponse(ctx, definition.Family(), output, capabilityObservation.Stderr(), roleFixture); evidenceErr != nil {
 		return CurrentProbeResult{}, evidenceErr
 	}
 	transport, _ := capabilityObservation.ProviderPacketTransportReceipt()
@@ -457,6 +468,9 @@ func qualificationFamilyOutputCause(family string, err error) domain.RuntimeDiag
 	case FamilyZcode:
 		return domain.DiagnosticCauseOutputEnvelopeInvalid
 	case FamilyAgy:
+		if errors.Is(err, errInvalidAGYEnvelope) {
+			return domain.DiagnosticCauseOutputEnvelopeInvalid
+		}
 		return domain.DiagnosticCauseOutputFrameMissing
 	default:
 		return domain.DiagnosticCauseObservationInvalid
@@ -981,6 +995,20 @@ func strictKimiProbeContent(stdout []byte) ([]byte, error) {
 	}
 	return []byte(content), nil
 }
+
+func acceptCapabilityResponse(ctx context.Context, family string, output, stderr []byte, fixture ProbeFixtureLease) error {
+	err := acceptCapabilityEvidence(family, output, fixture)
+	if err == nil {
+		return nil
+	}
+	// A zero exit code does not erase native failure evidence. Classify it only
+	// after proof validation fails, so valid narrated proofs keep their meaning.
+	if _, _, cause, known := nativeProviderOutcome(family, output, stderr); known {
+		return classifyProbeFailure(ctx, family, newProviderOutputFailure(cause, errors.New("capability response failed")), stderr, output)
+	}
+	return err
+}
+
 func acceptCapabilityEvidence(family string, output []byte, fixture ProbeFixtureLease) error {
 	candidates, err := capabilityEvidenceCandidates(family, output)
 	if err != nil {
@@ -1016,6 +1044,9 @@ func capabilityEvidenceCandidates(family string, output []byte) ([][]byte, error
 		}
 	case FamilyAgy:
 		if frame, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, trimmed); err == nil {
+			if err := validateAGYNativeEnvelope(frame); err != nil {
+				return nil, err
+			}
 			if structured := agyQualificationStructuredOutput(frame); len(bytes.TrimSpace(structured)) > 0 {
 				candidates = append(candidates, structured)
 			}

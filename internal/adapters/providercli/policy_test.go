@@ -14,6 +14,33 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+func TestAGYEnvironmentOwnsSystemPath(t *testing.T) {
+	t.Setenv("PATH", "/untrusted/ambient")
+	root := t.TempDir()
+	namespace := directExecutionNamespaceEnvironment(t, root, filepath.Join(root, "home"))
+	for _, configured := range [][]ports.EnvironmentVariable{
+		nil,
+		{mustEnvironment(t, "PATH", "/untrusted/configured")},
+	} {
+		environment, err := isolatedProcessEnvironment(FamilyAgy, configured, namespace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		for _, variable := range environment {
+			if variable.Name() == "PATH" {
+				count++
+				if variable.Value() != "/usr/bin:/bin:/usr/sbin:/sbin" {
+					t.Fatalf("PATH = %q", variable.Value())
+				}
+			}
+		}
+		if count != 1 {
+			t.Fatalf("PATH entries = %d, want 1", count)
+		}
+	}
+}
+
 func TestAGYSafetyContractIsDeterministicAndNotMaterialized(t *testing.T) {
 	const want = "{\"authentication_context\":\"installed_user_home\",\"policy_scope\":\"namespace_auth_only\"}\n"
 	policy, err := RuntimeSafetyPolicyForFamily(CredentialSourceAGY)

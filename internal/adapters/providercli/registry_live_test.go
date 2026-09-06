@@ -3,9 +3,11 @@
 package providercli_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -204,8 +206,8 @@ func liveProbeFailureMessage(subject string, err error) string {
 			"Retry when the provider is responsive; if it persists, treat it as a provider defect.", subject, err)
 	case domain.FailureInvalidOutput:
 		return fmt.Sprintf("FAIL: %s: the provider answered but did not satisfy capability certification (%v). "+
-			"Under heavy load this provider can answer poorly, so retry once before treating it as a defect; "+
-			"a repeatable failure means this provider version no longer meets the capability contract.", subject, err)
+			"Inspect the preserved private request and response to distinguish a provider mismatch from a Mulgae decoding defect. "+
+			"A successful retry alone does not establish stability.", subject, err)
 	default:
 		return fmt.Sprintf("FAIL: %s: %v", subject, err)
 	}
@@ -340,6 +342,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 		Now: time.Now().UTC(), TTL: time.Minute,
 	})
 	if err != nil {
+		preserveLiveCapabilityFailure(t, config.family, fixture.Packet(), recording.observations)
 		if count := len(recording.observations); count > 0 {
 			observation := recording.observations[count-1]
 			exitCode, exited := observation.ExitCode()
@@ -522,4 +525,119 @@ func liveCapabilityTempDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return resolved
+}
+
+// Failed standalone certifications outlive their disposable fixture so exact
+// provider responses can be investigated without printing raw data in test logs.
+func preserveLiveCapabilityFailure(t *testing.T, family string, packet []byte, observations []ports.ProcessObservation) string {
+	t.Helper()
+	directory, err := os.MkdirTemp("", "mulgae-capability-failure-"+family+"-")
+	if err != nil {
+		t.Fatalf("create private capability diagnostics: %v", err)
+	}
+	directory, err = filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := filesystemadapter.NewSecureWriter()
+	write := func(name, channel string, body []byte) {
+		if len(body) == 0 {
+			return
+		}
+		destination, pathErr := ports.NewSafeRelativePath(name)
+		if pathErr != nil {
+			t.Fatal(pathErr)
+		}
+		request, requestErr := ports.NewSecureWriteRequest(root, destination, channel, bytes.NewReader(body), int64(len(body)), []string{"capability:" + family}, func(error) {})
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		_, drop, writeErr := writer.Write(context.Background(), request)
+		if drop != nil {
+			t.Logf("capability diagnostic stream dropped by security screening: %s", name)
+			return
+		}
+		if writeErr != nil {
+			t.Fatalf("persist capability diagnostic: %v", writeErr)
+		}
+	}
+	write("request.txt", "provider_stdout", packet)
+	for index, observation := range observations {
+		prefix := fmt.Sprintf("%03d", index+1)
+		write(prefix+".stdout.raw", "provider_stdout", observation.Stdout())
+		write(prefix+".stderr.raw", "provider_stderr", observation.Stderr())
+		exitCode, exited := observation.ExitCode()
+		metadata, marshalErr := json.Marshal(struct {
+			Termination ports.ProcessTermination `json:"termination"`
+			Exited      bool                     `json:"exited"`
+			ExitCode    int                      `json:"exit_code"`
+			StdoutBytes int                      `json:"stdout_bytes"`
+			StderrBytes int                      `json:"stderr_bytes"`
+		}{observation.Termination(), exited, exitCode, len(observation.Stdout()), len(observation.Stderr())})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		write(prefix+".json", "runtime_diagnostic", metadata)
+	}
+	t.Logf("preserved private capability diagnostics: %s", directory)
+	return directory
+}
+
+func TestLiveCapabilityFailureEvidenceIsPrivateAndScreened(t *testing.T) {
+	now := time.Now().UTC()
+	emptyHash := sha256.Sum256(nil)
+	stdin, err := ports.NewStdinWriteReceipt(0, 0, hex.EncodeToString(emptyHash[:]), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := 0
+	output := []byte(`{"response":"wrong fixture proof"}`)
+	observation, err := ports.NewProcessObservation(output, []byte("KKACHI_SECRET_password=value_7f20c84d"), &code, ports.ProcessTerminationExited, stdin, now, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := []byte("private capability packet")
+	directory := preserveLiveCapabilityFailure(t, "zcode", packet, []ports.ProcessObservation{observation})
+	t.Cleanup(func() {
+		if err := os.RemoveAll(directory); err != nil {
+			t.Error(err)
+		}
+	})
+	for name, want := range map[string][]byte{"request.txt": packet, "001.stdout.raw": output} {
+		path := filepath.Join(directory, name)
+		got, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("retained %s = %q, err=%v", name, got, err)
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0600 {
+			t.Fatalf("private mode: %v %v", info, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(directory, "001.stderr.raw")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("secret response persisted: %v", err)
+	}
+	info, err := os.Stat(directory)
+	if err != nil || info.Mode().Perm() != 0700 {
+		t.Fatalf("private directory: %v %v", info, err)
+	}
+	metadata, err := os.ReadFile(filepath.Join(directory, "001.json"))
+	if err != nil || !bytes.Contains(metadata, []byte(`"exit_code":0`)) || !bytes.Contains(metadata, []byte(`"exited":true`)) {
+		t.Fatalf("missing process facts: %q %v", metadata, err)
+	}
+}
+
+func TestLiveCapabilityMismatchGuidanceDoesNotInventRootCause(t *testing.T) {
+	failure, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "controlled evidence mismatch", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := liveProbeFailureMessage("zcode certification", failure)
+	if strings.Contains(message, "heavy load") || strings.Contains(message, "provider version no longer") || !strings.Contains(message, "Mulgae decoding defect") {
+		t.Fatalf("misleading failure guidance: %s", message)
+	}
 }

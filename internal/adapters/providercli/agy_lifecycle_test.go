@@ -49,6 +49,22 @@ func TestAgyLifecycleOfflineRealProcess(t *testing.T) {
 		t.Skip("native-home descriptor binding is Darwin-only")
 	}
 
+	t.Run("native JSON envelope drains before response extraction", func(t *testing.T) {
+		h := newAgyLifecycleHarness(t, "envelope", 256, agyLifecycleFixtureTimeout)
+		defer h.close(t)
+		observation, err := h.registry.Observe(context.Background(), h.invocation(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !observation.Succeeded() || !observation.ProcessGroupAbsent() {
+			t.Fatalf("native AGY envelope did not complete its lifecycle: %#v", observation)
+		}
+		got, isolated, err := providerResult(FamilyAgy, observation.ProcessObservation().Stdout())
+		if err != nil || !isolated || string(got) != `{"findings":[]}` {
+			t.Fatalf("native AGY response = %q, isolated=%t, err=%v", got, isolated, err)
+		}
+	})
+
 	t.Run("strict print output is bounded and drains the complete process group", func(t *testing.T) {
 		h := newAgyLifecycleHarness(t, "post", 256, agyLifecycleFixtureTimeout)
 		defer h.close(t)
@@ -221,8 +237,9 @@ if [ "$1" = "--version" ]; then printf '1.1.2\n'; exit 0; fi
 [ "$HOME" = "$MULGAE_AGY_EXPECTED_HOME" ] || exit 91
 [ ! -e "$HOME/.mulgae-credential-copy" ] || exit 92
 [ "$PWD" = "$MULGAE_AGY_EXPECTED_CWD" ] || exit 93
-[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--add-dir" ] && [ "$4" = "$MULGAE_AGY_EXPECTED_CWD" ] && [ "$5" = "--mode" ] && [ "$6" = "plan" ] && [ "$7" = "--effort" ] && [ "$8" = "low" ] && [ "$9" = "--print-timeout" ] && [ "${10}" = "$MULGAE_AGY_EXPECTED_PRINT_TIMEOUT" ] && [ "${11}" = "--print" ] || exit 94
+[ "$1" = "--new-project" ] && [ "$2" = "--sandbox" ] && [ "$3" = "--add-dir" ] && [ "$4" = "$MULGAE_AGY_EXPECTED_CWD" ] && [ "$5" = "--mode" ] && [ "$6" = "plan" ] && [ "$7" = "--effort" ] && [ "$8" = "low" ] && [ "$9" = "--print-timeout" ] && [ "${10}" = "$MULGAE_AGY_EXPECTED_PRINT_TIMEOUT" ] && [ "${11}" = "--output-format=json" ] && [ "${12}" = "--print" ] || exit 94
 case "$MULGAE_AGY_TEST_MODE" in
+envelope) printf '%s' '{"status":"SUCCESS","response":"{\"findings\":[]}"}'; (sleep 30) & wait ;;
 post) printf '{"findings":[]}'; (sleep 30) & echo $! > "$MULGAE_AGY_CHILD_PID"; wait ;;
 trailing) trap 'printf x; exit 0' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
 resistant) trap '' TERM; printf '{"findings":[]}'; while :; do sleep 1; done ;;
@@ -251,7 +268,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -113,7 +113,7 @@ func TestLiveAgyCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal("INCONCLUSIVE: hash AGY executable")
 	}
-	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 12, "")
+	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 13, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,6 +186,7 @@ func TestLiveAgyCapability(t *testing.T) {
 		Now: time.Now().UTC(), TTL: time.Minute,
 	})
 	if err != nil {
+		preserveLiveCapabilityFailure(t, providercli.FamilyAgy, fixture.Packet(), recordingRunner.observations)
 		t.Fatalf("%s; safe observation shape: %s", liveProbeFailureMessage("installed AGY current probe", err), liveAgyObservationShape(recordingRunner.observations))
 	}
 	if len(recordingRunner.observations) != 2 || len(recordingRunner.requests) != 2 {
@@ -201,7 +202,7 @@ func TestLiveAgyCapability(t *testing.T) {
 	if !bound || !binding.Valid() ||
 		binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
 		binding.PromptFileReference() != "" ||
-		binding.ArgvIndex() != 12 ||
+		binding.ArgvIndex() != 13 ||
 		binding.SnapshotCWD() != "" {
 		t.Fatal("FAIL: AGY capability launch omitted the literal packet binding")
 	}

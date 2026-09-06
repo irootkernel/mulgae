@@ -626,7 +626,7 @@ func stagedOutputAgyArgv(binary, snapshot, staging, mode, prompt string) []strin
 	if mode != "" {
 		argv = append(argv, "--mode", mode)
 	}
-	return append(argv, "--effort", "low", "--print-timeout", stagedOutputPrintTimeout.String(), "--print", prompt)
+	return append(argv, "--effort", "low", "--print-timeout", stagedOutputPrintTimeout.String(), "--output-format=json", "--print", prompt)
 }
 
 // stagedOutputAgyProjectedHome builds a disposable HOME holding only a read-only

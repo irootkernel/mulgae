@@ -622,6 +622,46 @@ func TestRunnerStartFailureForArgvProviderPacketHasNoTransportReceipt(t *testing
 		t.Fatalf("start failure claimed argv delivery: %#v", observation)
 	}
 }
+func TestRunnerPostOutputReservesTimeAfterEscalation(t *testing.T) {
+	for _, spooled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("spooled=%t", spooled), func(t *testing.T) {
+			groupPath := filepath.Join(t.TempDir(), "process-group")
+			request, identity := newPostOutputProviderHelperRequest(t, t.TempDir(),
+				"post-output-resistant", []string{groupPath}, 5*time.Second, 1024,
+				100*time.Millisecond, time.Second)
+			if spooled {
+				var err error
+				request, err = ports.NewSpooledStdoutProcessRequest(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			done := runRunnerAsync(newTestRunner(t), context.Background(), request)
+			groupID := readHelperPID(t, groupPath)
+			result := waitForRunnerResultAllowError(t, done)
+			assertNoLiveProcessGroup(t, groupID)
+			if result.err != nil {
+				t.Fatal(result.err)
+			}
+			assertBoundedPostOutputEvidence(t, result.observation, identity, true, "SIGKILL", []postOutputSignalExpectation{
+				{ports.ProcessGroupSignalRequestPostOutput, "SIGTERM"},
+				{ports.ProcessGroupSignalRequestPostOutputEscalation, "SIGKILL"},
+			})
+			if string(result.observation.Stdout()) != `{"status":"ok"}` {
+				t.Fatalf("stdout = %q", result.observation.Stdout())
+			}
+			if artifact, ok := result.observation.StdoutArtifact(); ok {
+				defer closeContentArtifact(artifact)
+				if artifact.Identity().ByteLength() != int64(len(`{"status":"ok"}`)) {
+					t.Fatal("incomplete stdout artifact")
+				}
+			} else if spooled {
+				t.Fatal("missing stdout artifact")
+			}
+		})
+	}
+}
+
 func TestRunnerBoundedPostOutputLifecycle(t *testing.T) {
 	const (
 		stabilityGrace   = 100 * time.Millisecond

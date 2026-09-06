@@ -309,15 +309,34 @@ func (status RuntimeDiagnosticInvocationStatus) Stderr() (RuntimeDiagnosticRawRe
 }
 
 type RuntimeDiagnosticRawRequest struct {
-	attemptID    domain.AttemptID
-	invocationID string
-	ordinal      uint64
-	purpose      ProviderInvocationPurpose
-	stream       domain.RuntimeDiagnosticStream
-	source       io.Reader
-	maxBytes     int64
-	sourceIDs    []string
-	abort        func(error)
+	qualificationPhase string
+	attemptID          domain.AttemptID
+	invocationID       string
+	ordinal            uint64
+	purpose            ProviderInvocationPurpose
+	stream             domain.RuntimeDiagnosticStream
+	source             io.Reader
+	maxBytes           int64
+	sourceIDs          []string
+	abort              func(error)
+}
+
+// NewQualificationDiagnosticRawRequest separates probe evidence from review
+// attempt output while retaining the same secure raw-stream persistence policy.
+func NewQualificationDiagnosticRawRequest(attemptID domain.AttemptID, invocationID, phase string, stream domain.RuntimeDiagnosticStream, source io.Reader, length int64) (RuntimeDiagnosticRawRequest, error) {
+	if phase != "request" && phase != "version" && phase != "capability" {
+		return RuntimeDiagnosticRawRequest{}, fmt.Errorf("qualification diagnostic: invalid phase")
+	}
+	request, err := NewRuntimeDiagnosticRawRequest(attemptID, invocationID, 1, ProviderInvocationInitial, stream, source, length, []string{"qualification:" + phase}, func(error) {})
+	if err != nil {
+		return RuntimeDiagnosticRawRequest{}, err
+	}
+	request.qualificationPhase = phase
+	return request, nil
+}
+
+func (request RuntimeDiagnosticRawRequest) QualificationPhase() string {
+	return request.qualificationPhase
 }
 
 func NewRuntimeDiagnosticRawRequest(attemptID domain.AttemptID, invocationID string, ordinal uint64, purpose ProviderInvocationPurpose, stream domain.RuntimeDiagnosticStream, source io.Reader, maxBytes int64, sourceIDs []string, abort func(error)) (RuntimeDiagnosticRawRequest, error) {
@@ -742,5 +761,8 @@ func validDiagnosticTimes(started, updated, completed time.Time, hasCompleted bo
 	return completed.IsZero()
 }
 func (sink *inMemoryRuntimeDiagnosticSink) diagnosticRawPath(request RuntimeDiagnosticRawRequest) (SafeRelativePath, error) {
+	if phase := request.QualificationPhase(); phase != "" {
+		return NewSafeRelativePath(fmt.Sprintf("%s/qualification/%s/%s/%s.raw", sink.request.RunPath().String(), request.attemptID.String(), phase, request.stream))
+	}
 	return NewSafeRelativePath(fmt.Sprintf("%s/attempts/%s/invocations/%03d-%s/%s.raw", sink.request.RunPath().String(), request.attemptID.String(), request.ordinal, request.purpose, request.stream))
 }

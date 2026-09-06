@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -198,6 +199,20 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	environment := requireLiveE2EEnvironment(t)
 	validator := newLiveE2EValidator(t)
 	project := initializeLiveE2ERepository(t)
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		t.Fatal(err)
+	}
+	readMarker := "documentation-read-" + hex.EncodeToString(nonce[:])
+	readmePath := filepath.Join(project, "README.md")
+	readme, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme = append(readme, []byte("\nRead-verification marker: `"+readMarker+"`\n")...)
+	if err := os.WriteFile(readmePath, readme, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	initResult := runLiveMulgae(t, validator, environment, project, 0, liveInitArguments(environment, "auto")...)
 	if initResult.Result.Kind != "initialized" {
@@ -216,10 +231,19 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	}
 	run := runLiveRecoverableWorkflow(t, validator, environment, project, expected,
 		"review", "--dirty",
-		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the Mulgae contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return a Markdown role report, the primary success form; Mulgae itself transcribes it into structured findings. It is valid to report no defects; report only concrete actionable defects supported by exact current-target evidence.",
+		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the Mulgae contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return a Markdown role report, the primary success form; Mulgae itself transcribes it into structured findings. It is valid to report no defects; report only concrete actionable defects supported by exact current-target evidence. For the documentation role, read the current README.md in the captured workspace and reproduce its Read-verification marker verbatim in your Markdown role report.",
 		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
+	var documentationReport []byte
+	for _, report := range run.envelope.Result.RoleReportURIs {
+		if report.Role == "documentation" {
+			documentationReport = readLiveArtifact(t, project, report.URI)
+		}
+	}
+	if !bytes.Contains(documentationReport, []byte(readMarker)) {
+		t.Fatal("published documentation report does not prove captured README access")
+	}
 	assertLiveStructuredExtraction(t, project, run)
 	assertLiveRoleReportTransports(t, run, "review", true)
 	assertNoProjectProviderLocks(t, project)

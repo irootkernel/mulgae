@@ -2705,6 +2705,12 @@ func main() {
 		panic(err)
 	}
 	if capability {
+        if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
+            if _, err := os.Stat("__FAKE_ZCODE_LOG__.reviewed"); err == nil {
+                fmt.Print("{\"response\":\"Qualification response omitted fixture bindings.\"}")
+                return
+            }
+        }
 		if destination != "" {
 			panic("ZCode capability invocation carries a staged output destination")
 		}
@@ -2748,6 +2754,9 @@ func main() {
 	if destination == "" {
 		panic("ZCode review invocation omits the staged output destination")
 	}
+    if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
+        if err := os.WriteFile("__FAKE_ZCODE_LOG__.reviewed", []byte("reviewed"), 0600); err != nil { panic(err) }
+    }
 	waitForPeer()
 	stage(destination, report(prompt))
 	fmt.Print(__FAKE_ZCODE_STDOUT__)
@@ -2878,6 +2887,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -2915,32 +2925,18 @@ func main() {
 	}
 	printTimeout := ""
 	switch {
-	case len(argv) == 12 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
-		argv[2] == "--add-dir" && argv[3] == cwd && argv[4] == "--mode" && argv[5] == "plan" &&
-		argv[6] == "--effort" && argv[7] == "low" && argv[8] == "--print-timeout" &&
-		argv[10] == "--print":
-		printTimeout = argv[9]
-		observation.Snapshot, observation.Prompt = argv[3], argv[11]
-	case len(argv) == 16 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
-		argv[2] == "--add-dir" && argv[3] == cwd && argv[4] == "--mode" && argv[5] == "plan" &&
-		argv[6] == "--effort" && argv[7] == "low" && argv[8] == "--print-timeout" &&
-		argv[10] == "--print" && argv[12] == "--output-format" && argv[13] == "json" &&
-		argv[14] == "--json-schema" && json.Valid([]byte(argv[15])):
-		printTimeout = argv[9]
-		observation.Snapshot, observation.Prompt = argv[3], argv[11]
 	case len(argv) == 13 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
+		argv[2] == "--add-dir" && argv[3] == cwd && argv[4] == "--mode" && argv[5] == "plan" &&
+		argv[6] == "--effort" && argv[7] == "low" && argv[8] == "--print-timeout" &&
+		argv[10] == "--output-format=json" && argv[11] == "--print":
+		printTimeout = argv[9]
+		observation.Snapshot, observation.Prompt = argv[3], argv[12]
+	case len(argv) == 14 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
 		argv[2] == "--dangerously-skip-permissions" && argv[3] == "--add-dir" && argv[4] == cwd &&
 		argv[5] == "--mode" && argv[6] == "plan" && argv[7] == "--effort" && argv[8] == "low" &&
-		argv[9] == "--print-timeout" && argv[11] == "--print":
+		argv[9] == "--print-timeout" && argv[11] == "--output-format=json" && argv[12] == "--print":
 		printTimeout = argv[10]
-		observation.Snapshot, observation.Prompt = argv[4], argv[12]
-	case len(argv) == 17 && argv[0] == "--new-project" && argv[1] == "--sandbox" &&
-		argv[2] == "--dangerously-skip-permissions" && argv[3] == "--add-dir" && argv[4] == cwd &&
-		argv[5] == "--mode" && argv[6] == "plan" && argv[7] == "--effort" && argv[8] == "low" &&
-		argv[9] == "--print-timeout" && argv[11] == "--print" && argv[13] == "--output-format" &&
-		argv[14] == "json" && argv[15] == "--json-schema" && json.Valid([]byte(argv[16])):
-		printTimeout = argv[10]
-		observation.Snapshot, observation.Prompt = argv[4], argv[12]
+		observation.Snapshot, observation.Prompt = argv[4], argv[13]
 	default:
 		panic("non-canonical AGY invocation")
 	}
@@ -2948,13 +2944,21 @@ func main() {
 	// keep the full configured runtime deadline.
 	qualification := strings.Contains(observation.Prompt, "Prove readiness")
 	if qualification {
-		if printTimeout != "2m55s" || len(argv) != 12 && len(argv) != 13 {
+		if printTimeout != "2m55s" {
 			panic("non-canonical AGY qualification print timeout")
 		}
-	} else if printTimeout != "59m55s" || len(argv) != 12 && len(argv) != 13 {
+	} else if printTimeout != "59m55s" {
 		panic("non-canonical AGY review print timeout")
 	}
+	if os.Getenv("PATH") != "/usr/bin:/bin:/usr/sbin:/sbin" {
+		panic("non-canonical AGY system path")
+	}
 	if !qualification {
+		// Resolve sh in Go before a shell can supply its own default PATH.
+		manifest, err := exec.Command("sh", "-c", "cat ._mulgae_workspace_manifest.json").Output()
+		if err != nil || !json.Valid(manifest) {
+			panic("AGY shell could not read the captured workspace manifest")
+		}
 		fixture, fixtureErr := os.ReadFile("after/security-fixtures.txt")
 		png, pngErr := os.ReadFile("after/screenshots/staged.png")
 		if fixtureErr == nil && pngErr == nil {
@@ -2973,7 +2977,8 @@ func main() {
 		if len(root) != 2 || len(link) != 2 || len(role) != 2 {
 			panic("literal qualification packet did not contain bindings")
 		}
-		fmt.Printf("{\"status\":\"success\",\"structured_output\":{\"root\":%q,\"link\":%q,\"role\":%q}}", root[1], link[1], role[1])
+		content := fmt.Sprintf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], link[1], role[1])
+		printResponse(content)
 		_ = os.Stdout.Close()
 		for { time.Sleep(time.Hour) }
 	}
@@ -2984,15 +2989,18 @@ func main() {
 	if trailer := __FAKE_AGY_TRAILER_OUTPUT__; trailer != "" && reviewInvocationOrdinal() > 1 {
 		content = trailer
 	}
-	fmt.Print(content)
+	printResponse(content)
 	_ = os.Stdout.Close()
-	// Pure prose is not a terminal JSON object, so Mulgae has no output frame to
-	// stabilize on and never sends its post-output SIGTERM. A real provider CLI
-	// exits after printing its report; mirror that instead of idling.
-	if !strings.HasPrefix(strings.TrimSpace(content), "{") {
-		return
-	}
 	for { time.Sleep(time.Hour) }
+}
+
+// printResponse mirrors AGY's native JSON envelope for both prose and structured content.
+func printResponse(content string) {
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
+		"conversation_id": "fake-conversation", "status": "SUCCESS", "response": content,
+	}); err != nil {
+		panic(err)
+	}
 }
 
 // reviewInvocationOrdinal counts review invocations recorded so far, including
@@ -3408,4 +3416,100 @@ func (reader *compositionProjectReader) ResolveCommit(context.Context, ports.Anc
 func (reader *compositionProjectReader) ReadFileAtCommit(context.Context, ports.AnchoredRoot, ports.GitObjectID, ports.SafeRelativePath) ([]byte, error) {
 	reader.reads++
 	return nil, reader.readErr
+}
+
+func TestIntegrationChildQualificationFailureRetainsPrivateDiagnostics(t *testing.T) {
+	repository := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, repository)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+	installed, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerDirectory := canonicalTestTempDir(t)
+	node, launcher := filepath.Join(providerDirectory, "node"), filepath.Join(providerDirectory, "zcode.cjs")
+	buildFakeZCode(t, repository, node, launcher, filepath.Join(canonicalTestTempDir(t), "zcode.jsonl"), "reject_child_qualification")
+	environment := isolatedMulgaeEnvWith(t, installed.HomeDir, providerDirectory)
+	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment, "init", "--providers", "zcode", "--roles", "logic", "--zcode-node-executable", node, "--zcode-launcher", launcher)
+	if initialized.exitCode != 0 {
+		t.Fatalf("init failed: %s", initialized.stdout)
+	}
+	root := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--dirty", "--roles", "logic", "--output", "json")
+	var parent commandEnvelope
+	if err := json.Unmarshal(root.stdout, &parent); err != nil {
+		t.Fatal(err)
+	}
+	if root.exitCode != 0 || parent.Result.RunID == nil {
+		t.Fatalf("root failed: %s", root.stdout)
+	}
+	rootLog := readRuntimeDiagnosticLog(t, project, *parent.Result.SessionID, *parent.Result.RunID)
+	candidates := 0
+	for _, line := range bytes.Split(bytes.TrimSpace(rootLog), []byte("\n")) {
+		var event struct{ Event, Provider, Outcome string }
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Event == "qualification_candidate_checked" {
+			candidates++
+			if event.Provider != "zcode-logic" || event.Outcome != "qualified" {
+				t.Fatalf("probe I/O misrepresented as admission: %+v", event)
+			}
+		}
+	}
+	if candidates != 1 {
+		t.Fatalf("qualification decisions = %d, want 1", candidates)
+	}
+	child := runMulgaeBinaryWithEnv(t, binary, project, environment, "delta", "--since-run", *parent.Result.RunID, "--dirty", "--roles", "logic", "--output", "json")
+	var rejected commandEnvelope
+	if err := json.Unmarshal(child.stdout, &rejected); err != nil {
+		t.Fatal(err)
+	}
+	if child.exitCode != 4 || !commandEnvelopeHasReason(rejected, "provider_qualification_failed") || rejected.Result.RunID != nil || rejected.Result.SessionID != nil || rejected.Result.RunManifestURI != nil || rejected.Result.ReviewArtifactURI != nil {
+		t.Fatalf("child qualification failure = %s stderr=%s", child.stdout, child.stderr)
+	}
+	var diagnosticURI string
+	for _, reason := range rejected.Reasons {
+		if reason.ArtifactURI != nil {
+			diagnosticURI = *reason.ArtifactURI
+		}
+	}
+	parts := strings.Split(diagnosticURI, "/")
+	if len(parts) != 3 || parts[0] != "diagnostics" {
+		t.Fatalf("missing diagnostic reference: %q", diagnosticURI)
+	}
+	sessionID, runID := parts[1], parts[2]
+	if runID == *parent.Result.RunID || sessionID != *parent.Result.SessionID {
+		t.Fatal("child diagnostic identity does not preserve lineage")
+	}
+	assertRuntimeDiagnosticStatus(t, project, sessionID, runID, domain.RunFailed, "")
+	log := readRuntimeDiagnosticLog(t, project, sessionID, runID)
+	if !bytes.Contains(log, []byte(`"operation":"capability"`)) || !bytes.Contains(log, []byte(`"exit_code":0`)) || !bytes.Contains(log, []byte(`"outcome":"rejected"`)) {
+		t.Fatalf("missing qualification process diagnostics: %s", log)
+	}
+	base := filepath.Join(project, ".mulgae", "diagnostics", sessionID, runID, "qualification")
+	files, err := filepath.Glob(filepath.Join(base, "*", "capability", "stdout.raw"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("retained capability streams = %v, err=%v", files, err)
+	}
+	body, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != `{"response":"Qualification response omitted fixture bindings."}` {
+		t.Fatalf("capability response was changed: %q", body)
+	}
+	info, err := os.Stat(files[0])
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("private stream permissions: %v %v", info, err)
+	}
+	for _, phase := range []string{"request", "version"} {
+		files, err := filepath.Glob(filepath.Join(base, "*", phase, "stdout.raw"))
+		if err != nil || len(files) != 1 {
+			t.Fatalf("missing %s evidence: %v %v", phase, files, err)
+		}
+	}
+	if bytes.Contains(child.stdout, []byte("Qualification response omitted")) {
+		t.Fatal("raw response leaked to public result")
+	}
 }
