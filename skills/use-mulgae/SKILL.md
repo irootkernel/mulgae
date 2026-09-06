@@ -1,9 +1,75 @@
 ---
 name: use-mulgae
-description: Use Mulgae safely through attached MCP tools or the CLI for local multi-provider code reviews, run inspection, findings follow-up, configuration diagnosis, cleanup planning, and recovery. Trigger when a user asks an AI coding agent to run, inspect, continue, diagnose, configure, clean up, or recover a Mulgae workflow in a project.
+description: Start Mulgae reviews asynchronously through MCP and await completion without status polling. Use for authorized code reviews, run inspection, finding follow-up, configuration diagnosis, cleanup planning, and recovery. Use foreground MCP or CLI execution when the async lifecycle is unavailable.
 ---
 
 # Use Mulgae
+
+## Default: start once, await completion
+
+For a new root review, prefer attached Mulgae MCP when `start_review`,
+`await_review`, and `cancel_review` are all connected for the canonical project.
+Complete [preparation](#establish-current-authority) before starting. Select
+exactly one authorized target: `workspace`, `stage`, `dirty`, `diff`, or `patch`.
+MCP stdin is transport-only. Use the same target, objective, and roles for
+preflight and execution; the staged target below is illustrative:
+
+```text
+preflight_review({"target": {"kind": "stage"}})
+# Inspect capture, routing, warnings, and budget.run_deadline; check retention below.
+start_review({"target": {"kind": "stage"}})
+# Preserve the exact returned invocation_id; do not invent or substitute an ID.
+await_review({"invocation_id": "<returned invocation_id>"})
+# Only after the terminal envelope returns, inspect its exact run ID.
+```
+
+Call start exactly once. A successful start or a pending await is not a completed
+review and does not guarantee a durable run ID. Keep one `await_review` pending
+on the returned invocation until completion. Never repeat an uncertain start or
+start another review to change transports.
+On non-retryable `invocation_limit_reached`, follow
+[recovery.md](references/recovery.md) rather than retrying start or bypassing the
+session limit through another execution path.
+
+Prefer a host-native wait that suspends the pending tool call until completion.
+If the host returns a deferred handle or cell, wait only on that same handle for
+up to five minutes at a time, or the longest shorter duration the host supports
+and higher-priority instructions permit. Return early on completion. Do not
+resume model reasoning merely for liveness or shorter empty waits unless
+higher-priority host instructions require it. Required progress reports do not
+require a new Mulgae status call. Waiting on the same pending handle is not
+Mulgae status polling.
+
+Do not repeatedly call `get_run`, `list_runs`, CLI `status`, inspect status-file
+existence, or poll OS processes while waiting. Mulgae has no bounded-wait or
+invocation-snapshot tool: `get_run` reads publication-backed or completed
+failed/cancelled diagnostic state, not live invocation progress. If the user
+asks for progress, report the known pending state and observation limits;
+do not replace the await with a recurring query loop.
+
+When readable, check the host's hard tool-call timeout against preflight's
+`budget.run_deadline`, the admitted run budget. Do not use the policy ceiling
+`budget.ceilings.run_deadline` for this comparison. One uninterrupted await needs
+a host deadline above the admitted budget, with room for transport overhead.
+Do not change host or provider configuration without authorization.
+An unknown host deadline is not evidence that async is unavailable: report the
+uncertainty and try awaiting. A verified shorter deadline
+or observed host timeout may require re-awaiting the same invocation while the
+same MCP session lives. Neither a host handle wait nor a tool timeout extends
+the admitted review deadline.
+
+An await timeout or retryable `await_cancelled` ends only that observer, not the
+review. Re-await the preserved invocation in the same live session without
+restarting execution. On disconnect, `invocation_not_found`, or
+`invocation_registry_closed`, stop automated waiting and follow
+[recovery.md](references/recovery.md). If awaiting cannot continue, report the
+concrete limitation; do not substitute run-status polling or a new execution.
+
+Use `cancel_review` only for a preserved invocation returned by `start_review`
+and only on explicit user intent. Its acknowledgement is not completion: await
+the same invocation for the terminal result. Keep the MCP session attached;
+server shutdown cancels active reviews and discards invocation
+identities. Cancellation never rolls back an already committed publication.
 
 ## Establish current authority
 
@@ -56,62 +122,69 @@ and `--all`, recommend the age-bounded option, and ask for an exact choice.
 Apply only the authorized selector without `--dry-run`, then repeat its dry run
 and report the remaining eligible count and bytes.
 
-## Prefer the attached MCP workflow
+## Read the terminal result
 
-1. Use attached Mulgae MCP tools when they are available for the canonical
-   project. Match exactly one target: `workspace`, `stage`, `dirty`, `diff`, or
-   `patch`. MCP stdin is transport-only and cannot be a review target.
-2. Call `preflight_review` with the selected `target` and the same optional
-   `objective` and `roles` intended for execution. Inspect capture counts,
-   routing, warnings, and the admitted run deadline before provider work.
-3. Discover the attached tool surface before execution. Only when
-   `start_review`, `await_review`, and `cancel_review` are all present, call
-   `start_review` exactly once with the preflight arguments and preserve its
-   exact `i_...` invocation identity. Never retry a lost or uncertain start.
-   Call `await_review` for that identity. Prefer a host-native wait
-   that keeps the same pending call suspended until completion. If the host
-   instead returns a deferred execution handle or cell, wait on that same
-   handle for up to five minutes at a time, or the longest shorter duration the
-   host supports, and return early when it completes. Do not resume model
-   reasoning merely to report liveness or perform a shorter empty wait. Do not
-   poll `list_runs` or `get_run` while the review is active. If an await is
-   cancelled or reaches the host timeout, confirm the same MCP session is alive
-   and re-await the preserved invocation; never replace it with another start.
-   This client-side wait policy does not extend the admitted run deadline or MCP
-   tool timeout.
-   `invocation_limit_reached` is non-retryable in the current session because
-   terminal identities remain available for repeated await. Reconcile every
-   exact returned run ID, then ask the host to restart the attached MCP server
-   before starting another review; that restart discards every preserved
-   invocation identity. A non-retryable `invocation_registry_closed` means the
-   server session is ending and must not be re-awaited.
-4. If any lifecycle tool is unavailable, atomically fall back to one foreground
-   `run_review` with the preflight arguments. Do not mix a lifecycle invocation
-   with the foreground path. Wait on the same foreground handle using the same
-   long-wait policy. A lost or uncertain foreground call is not safe to retry.
-5. Read the common structured envelope even when the outcome is
-   `request_changes` or `error`. Preserve the exact returned run ID, including
-   the identity attached to a failed `run_review`. Do not retry a lost or
-   uncertain `run_review`: a second call creates another run.
-6. After the terminal result returns, call `get_run` with the exact run ID. Call
-   `list_findings` only when the result has publication authority; a
-   diagnostic-only result has no findings. Treat `run_status_unavailable` as an
-   allocated identity without durable status and stop rather than retrying the
-   review. Use `minimum_severity: low` for the broadest permitted finding query.
-   Follow a resource's canonical `nextURI` exactly until `complete` is true when
-   the report or verified evidence is needed; do not invent offsets or paths.
-7. Call `cancel_review` only on explicit user intent and only for a preserved
-   lifecycle invocation. Its first acknowledgement requests cancellation but is
-   not completion; call `await_review` for the terminal result. On the foreground
-   fallback, cancel the MCP request itself. Neither form rolls back an already
-   committed publication.
+Read the common structured envelope even for `request_changes` or `error`.
+`request_changes` is a completed policy outcome. Preserve the exact returned
+run ID, including one attached to a failed review. Only after terminal completion,
+call `get_run` for that ID. If no run ID was returned, report the terminal outcome
+without inventing one.
 
-## Fall back to the CLI
+Call `list_findings` only when the status has publication authority;
+diagnostic-only status has no findings. Treat `run_status_unavailable` as an
+allocated identity without durable status and stop rather than retrying the
+review. Use `minimum_severity: low` for the broadest permitted finding query.
+Follow a resource's canonical `nextURI` exactly until `complete` is true when
+the report or verified evidence is needed; do not invent offsets or paths.
+Verify findings against the captured target and current code before changing
+anything, as described in the CLI workflow below.
+
+## Fallbacks
+
+Choose the execution path before starting a new review. State the concrete tool
+or host limitation once. Slowness, a pending handle, or an unknown host timeout
+alone does not justify abandoning the async lifecycle. Never switch an
+already-started invocation to `run_review` or CLI execution.
+
+### Foreground MCP
+
+If any of the three lifecycle tools is unavailable, use one foreground
+`run_review` with the preflight arguments only when the host's hard tool-call
+timeout is verified to exceed preflight's `budget.run_deadline`, allowing
+transport overhead. If that timeout is insufficient or cannot be verified,
+choose the CLI before starting instead. Cancelling a foreground MCP request cancels the review,
+unlike cancelling an `await_review` observer; a host timeout can therefore cancel
+execution or leave its outcome unknown. For an admitted foreground call, use the
+same pending-handle wait policy as above. A lost or uncertain foreground call is
+not safe to retry.
+
+If the user explicitly requests cancellation on this foreground path, cancel
+the MCP request itself. Do not call `cancel_review`: a `run_review` call has no
+registry invocation for that tool to cancel. Preserve any returned run ID and
+reconcile the outcome as described in [recovery.md](references/recovery.md).
+
+### CLI execution and host waiting
 
 Use the CLI when Mulgae MCP tools are unavailable, when the authorized target
 is stdin, or for commands outside the MCP surface such as follow-up, report, and
 export. Do not start a second MCP server from a shell when an attached server is
-already available.
+already available. The CLI is also a fallback when no usable MCP execution path
+can be selected before starting.
+
+Run the command once and await completion through the host's process-wait
+facility. Preserve any returned process handle and wait on that same handle,
+using the longest waits permitted by the host and higher-priority instructions.
+This also applies to CLI-only child workflows. A CLI process has no MCP
+invocation ID; never start another review to obtain one.
+
+Only if the host provides no completion-wait facility and exposes only a
+nonblocking process-handle status check, use that check as a last resort. After
+each nonterminal result, wait 50 seconds through the host's wait or sleep facility
+before checking the same handle again. Shorter sleeps may be combined without
+extra status checks. If timed waiting is unavailable, stop automated polling and
+report the limitation. Stop on terminal completion, a lost handle, or an
+operational error; use recovery for an uncertain outcome. Never use Mulgae run
+queries, file existence, or OS process scans as substitutes.
 
 1. Match exactly one target to the authorized scope: `--diff RANGE`, `--stage`,
    `--dirty`, `--workspace`, `--patch PATH`, or `--stdin`.
@@ -148,7 +221,8 @@ already available.
    retry. For MCP, apply the same rule when
    `composite_publication_incomplete` returns non-null `session_id` and
    `run_id` with `retryable: false`.
-5. Immediately re-read authoritative state using the exact returned run ID:
+5. After command completion, re-read status using the exact returned run ID.
+   Query findings only if that status has publication authority:
 
    ```bash
    mulgae status --run r_... --output json
@@ -219,7 +293,9 @@ already available.
   profile, role, artist, or configuration authoring requests.
 - Read [recovery.md](references/recovery.md) when state is stale, a mutation's
   outcome is unknown, publication is incomplete, or a provider failed.
-- Re-read effective configuration or exact run status after every mutation.
+- Re-read effective configuration after configuration changes and exact run
+  status after review completion. Start and cancellation acknowledgements must
+  be followed by terminal awaiting, not immediate run-status queries.
 - Never weaken path, locality, capture, validation, evidence, or publication
   fences. Never edit manifests, attempts, diagnostics, or final artifacts.
 - Preserve Mulgae's product boundary: it is a local advisory code-review CLI,

@@ -384,10 +384,12 @@ cancelling its request does not cancel the server-owned review.
 
 Installing or upgrading Mulgae does not create or update an MCP host
 registration. Configure each host separately, revisit existing registrations,
-and set its hard tool-call timeout above the `run_deadline` reported by Mulgae
-preflight. This is a host setting, not a provider timeout. Generated project
-configuration gives every selected role an active lane, so roles run in
-parallel. The default and maximum provider timeout is 60 minutes per
+and set its hard tool-call timeout above the `budget.run_deadline` reported by
+Mulgae preflight. This is the admitted run budget; `budget.ceilings.run_deadline`
+is the policy ceiling and must not be used for this comparison. This is a host
+setting, not a provider timeout. Generated project configuration gives every
+selected role an active lane, so roles run in parallel. The default and maximum
+provider timeout is 60 minutes per
 invocation, not per role; one role still reserves its initial provider call and
 one possible retry, repair, or structured extraction in sequence. That standard
 topology has a `2h0m7s` run deadline. The examples below round up to three hours:
@@ -478,23 +480,49 @@ Copy this minimal project-wide template into the reviewed project's
 - Prefer attached Mulgae MCP tools when available: call `preflight_review`, then,
   only when `start_review`, `await_review`, and `cancel_review` are all present,
   call `start_review` once and preserve its exact invocation ID. Call
-  `await_review` on that identity and keep the same pending tool handle suspended
-  for up to five minutes at a time. If any lifecycle tool is absent, atomically
-  fall back to one foreground `run_review`; never mix the two modes.
-  Preserve the exact run ID, inspect it with `get_run`, call `list_findings`
-  only for publication-backed status, and follow resource `nextURI` values
-  exactly. Fall back to the CLI when MCP is unavailable; MCP cannot accept the
-  `stdin` review target.
+  `await_review` on that identity until completion. If the host defers the call,
+  wait on the same pending handle for up to five minutes at a time, or the
+  longest shorter duration the host and higher-priority instructions permit.
+  Do not poll `get_run`, `list_runs`, CLI status, files, or OS processes.
+  Required progress reports do not require another status query.
+- Check a readable host tool timeout against preflight's `budget.run_deadline`,
+  the admitted run budget, without changing configuration. Do not compare against
+  the policy ceiling `budget.ceilings.run_deadline`. An unknown host timeout
+  does not justify abandoning async.
+  An await timeout ends only the observer: re-await the same invocation while
+  the same MCP session lives. On disconnect, `invocation_not_found`, or
+  `invocation_registry_closed`, stop automated waiting and never guess an
+  invocation identity. If an exact run ID was returned, reconcile it through
+  `get_run` or CLI `status`; otherwise report the outcome as unknown. Never
+  start another review to recover a wait.
+- Choose fallback before starting: if any lifecycle tool is absent, use one
+  foreground `run_review` only when the host timeout is verified to exceed
+  preflight's `budget.run_deadline`, allowing transport overhead. If the timeout
+  is insufficient or unverifiable, choose the CLI before starting: cancelling a
+  foreground request cancels the review itself. Also use the CLI when MCP
+  execution is unavailable or for unsupported targets such as `stdin`. Await
+  the same host process handle; use nonblocking handle checks only when host
+  completion waiting is unavailable, with 50 seconds between checks. If timed
+  waiting is unavailable, stop automated polling and report the limitation.
+  Never switch an already-started invocation to another execution path.
+- After terminal completion, preserve the exact returned run ID and inspect it
+  with `get_run`. Call `list_findings` only for publication-backed status and
+  follow resource `nextURI` values exactly.
 - Read the JSON envelope even when Mulgae exits `1`: exit `1` is a policy
   outcome, not an execution failure. Treat other non-zero exits per
   `mulgae help exit-codes`. Preserve returned run IDs and inspect runs with
   `mulgae status --run r_... --output json`.
 - Treat Mulgae as advisory. Verify findings against the captured target before
   changing code, and record only claims supported by current evidence.
-- Call `cancel_review` only on explicit user intent, then await the terminal
-  result; its acknowledgement is not completion. Require explicit user intent before cleanup, cancellation, configuration or
-  goal changes, or another lifecycle-changing action. Re-read status after
-  every mutation and never blindly retry an uncertain mutation.
+- On explicit user cancellation, use `cancel_review` only for a preserved
+  invocation returned by `start_review`, then await the terminal result; its
+  acknowledgement is not completion. For a foreground `run_review`, cancel
+  the MCP request itself; `cancel_review` cannot cancel that path.
+  Require explicit user intent before cleanup, cancellation, configuration or
+  goal changes, or another lifecycle-changing action. Re-read configuration
+  after configuration changes
+  and run status after review completion; never blindly retry an uncertain
+  mutation.
 - Commit only `.mulgae/config.yaml`. Never commit or share
   `.mulgae/local.yaml`, any other `.mulgae/**` path, provider credential
   directories, raw transcripts, or exported review bundles.

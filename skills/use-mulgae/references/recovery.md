@@ -6,6 +6,14 @@ failed.
 
 ## Reconcile authoritative state
 
+If a known lifecycle invocation is still pending, preserve its `i_...` identity
+and await it in the same live MCP session before applying the terminal run
+inspection below. A host timeout or retryable `await_cancelled` ends only the
+observer; it does not cancel execution or authorize another start. Re-await that
+same invocation. If awaiting cannot continue, report the concrete limitation
+without switching to another execution or polling run status. `get_run` is not
+a live invocation snapshot, and start need not return a durable run ID.
+
 1. Stop issuing mutations. Preserve the complete command envelope, exit code,
    and any exact session, run, and attempt IDs already returned.
 2. Re-read the exact run, including an identity returned on a failed MCP
@@ -30,13 +38,13 @@ failed.
    the newest committed run, but each of those commands mutates or writes;
    `latest` is never a read-only probe.
 
-For the attached MCP lifecycle, preserve the exact `i_...` identity returned by
-`start_review`. Never retry an uncertain start: a second start creates another
-review. A retryable `await_cancelled` result ends only that observer, so re-await
-the same identity while the same MCP server session is alive. Invocation state
-is process-local and is lost when that server exits; after exit, do not guess an
-invocation identity or claim that the invocation can be recovered. Reconcile an
-exact returned run ID through `get_run` when one is available.
+Never retry an uncertain `start_review`: a second start creates another review.
+Invocation state is process-local and is lost when that server exits. On
+disconnect, `invocation_not_found`, or `invocation_registry_closed`, stop
+automated waiting. Do not guess an invocation identity or claim that a new
+server can recover it. Reconcile an exact returned run ID through `get_run` when
+one is available; without one, report the outcome as unknown. Do not use repeated
+`list_runs`, status-file checks, or OS process scans to reconstruct live state.
 
 The registry retains at most 64 cumulative invocation identities so terminal
 results remain repeatable. `invocation_limit_reached` is non-retryable in that
@@ -49,7 +57,7 @@ means that the server session is ending rather than that one observer timed out.
 
 Read-only `version`, `doctor`, `config`, `providers`, `roles`, `status`,
 `findings`, and review `--preflight` calls may be repeated. `clean --dry-run` is
-also read-only.
+also read-only. Repeatability does not make run queries a live polling interface.
 
 `init`, `review`, `followup`, `delta`, `rerun`, `report`/`export` writes (each
 requires `--run` and `--output-path`), and clean apply mutate durable or
