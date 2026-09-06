@@ -1924,7 +1924,7 @@ func nativeProviderOutcome(
 		"insufficient_credits", "insufficient credits", "usage limit", "usage_limit_reached"):
 		return ports.ProviderExecutionStatusQuota, "provider_quota", domain.DiagnosticCauseQuotaExceeded, true
 	case containsAny("rate_limit", "rate limit", "too many requests", "rate-limited", "ratelimit") ||
-		errorContainsAny("http 429", "slow down", "try again later", "please try again", "retry after", "retry-after") ||
+		errorContainsAny("slow down", "try again later", "please try again", "retry after", "retry-after") ||
 		errorContainsStatus("429"):
 		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit", domain.DiagnosticCauseRateLimited, true
 	case containsAny("service unavailable", "bad gateway", "gateway timeout", "internal server error") ||

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,6 +31,37 @@ type compositeStatusConflictStore struct {
 	conflicted bool
 }
 
+type compositeInterruptedStore struct {
+	*filesystem.PublicationStore
+	after  int
+	writes int
+}
+
+func (store *compositeInterruptedStore) PersistValidatedCandidate(ctx context.Context, request ports.PersistValidatedCandidateRequest) (ports.PersistValidatedCandidateResult, error) {
+	result, err := store.PublicationStore.PersistValidatedCandidate(ctx, request)
+	if err == nil && store.after == 0 {
+		return ports.PersistValidatedCandidateResult{}, errors.New("interrupted after candidate installation")
+	}
+	return result, err
+}
+
+func (store *compositeInterruptedStore) PersistAuxiliaryArtifact(ctx context.Context, request ports.PersistAuxiliaryArtifactRequest) (ports.PersistAuxiliaryArtifactResult, error) {
+	result, err := store.PublicationStore.PersistAuxiliaryArtifact(ctx, request)
+	store.writes++
+	if err == nil && store.writes == store.after {
+		return ports.PersistAuxiliaryArtifactResult{}, errors.New("interrupted after support installation")
+	}
+	return result, err
+}
+
+func TestCompositePublicationResumesUnjournaledCandidate(t *testing.T) {
+	for _, after := range []int{0, 1, 2, 3, 4} {
+		t.Run(fmt.Sprintf("after-%d", after), func(t *testing.T) {
+			testCompositeLifecycle(t, "", after)
+		})
+	}
+}
+
 func (store *compositeStatusConflictStore) ReplaceMutable(ctx context.Context, request ports.MutableReplaceRequest) (ports.MutableReplaceResult, error) {
 	if request.Document() == ports.MutablePublicationStatus && !store.conflicted {
 		store.conflicted = true
@@ -48,7 +80,7 @@ func TestCompositeGitTargetsRemainReadableAndRecoverable(t *testing.T) {
 	}
 }
 
-func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode) {
+func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, interruptAfter ...int) {
 	t.Helper()
 	targetBytes := []byte("diff --git a/a.go b/a.go\n")
 	targetInput := domain.TargetIdentityInput{Kind: domain.TargetPatch, SHA256: bareSHA256(targetBytes)}
@@ -156,6 +188,66 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode) {
 		t.Fatal(err)
 	}
 	faultStore := &compositeStatusConflictStore{PublicationStore: store}
+	if len(interruptAfter) != 0 {
+		interrupted := &compositeInterruptedStore{PublicationStore: store, after: interruptAfter[0]}
+		firstService, err := NewService(interrupted, validator, clock, 8<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, candidate); err == nil {
+			t.Fatal("interrupted publication succeeded")
+		}
+		changed := input
+		changed.CIDecision = domain.CIFail
+		mismatched, err := PrepareCompositeCandidate(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, mismatched); err == nil {
+			t.Fatal("unjournaled candidate accepted different composition inputs")
+		}
+		cancelled, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := firstService.PublishCompositeNext(cancelled, rootScope, candidate); err == nil {
+			t.Fatal("cancelled replay succeeded")
+		}
+		if interruptAfter[0] > 0 {
+			support := bundle.SupportArtifacts()[0]
+			path := filepath.Join(rootPath, support.Path().String())
+			if err := os.WriteFile(path, []byte("conflicting support"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, candidate); err == nil {
+				t.Fatal("replay accepted conflicting support bytes")
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			targetPath := filepath.Join(t.TempDir(), "outside-support")
+			if err := os.WriteFile(targetPath, support.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(targetPath, path); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, candidate); err == nil {
+				t.Fatal("replay followed a support symlink")
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, support.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		clock.now = clock.now.Add(time.Hour)
+		nextID, _ := domain.ParseReviewID("019f596a-d177-7321-b920-c2d312c82cc2")
+		store, err = filesystem.NewPublicationStore(validator, clock, compositeTestIDs{reviewID: nextID}, filesystem.NewSecureWriter())
+		if err != nil {
+			t.Fatal(err)
+		}
+		faultStore.PublicationStore = store
+	}
 	service, err := NewService(faultStore, validator, clock, 8<<20)
 	if err != nil {
 		t.Fatal(err)
@@ -181,6 +273,9 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode) {
 		t.Fatalf("exact retry: %v", err)
 	}
 	firstFinal, _ := result.Final()
+	if len(interruptAfter) != 0 && firstFinal != bundle.Final().Identity() {
+		t.Fatal("replay changed the persisted review ID, creation time, or final bytes")
+	}
 	retryFinal, _ := retried.Final()
 	if retryFinal != firstFinal || retried.Decision().Authority() != domain.PublicationAuthorityP2 {
 		t.Fatal("exact retry did not converge to the same P2 final")

@@ -223,12 +223,13 @@ The repository intentionally has no GitHub Actions release workflow:
 1. start from a clean commit on `main`;
 2. replace the current changelog section's `Unreleased` marker with the release
    date;
-3. run `make test`;
-4. verify module installation in a temporary `GOBIN`;
-5. verify `mulgae version`, `mulgae --help`, and project initialization;
-6. tag the exact verified commit;
-7. push the commit and tag as a separate explicit operation;
-8. after publication, immediately open the next planned release cycle in a
+3. commit the release metadata and require a clean candidate on `main`;
+4. run `make test` against that exact candidate;
+5. verify module installation in a temporary `GOBIN`;
+6. verify `mulgae version`, `mulgae --help`, and project initialization;
+7. tag the exact verified commit;
+8. push the commit and tag as a separate explicit operation;
+9. after publication, immediately open the next planned release cycle in a
    separate change by advancing `RELEASE_VERSION` and its architecture assertion
    and prepending an empty `Unreleased` changelog section.
 

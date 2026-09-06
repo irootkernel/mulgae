@@ -1,6 +1,6 @@
 schema: podway.procedure/v2
 id: aquarium-validation-v2
-version: "6"
+version: "7"
 name: Aquarium Validation
 purpose: Audit one completed epic through bounded remediation, confirmation, and explicit finding disposition.
 description: A bounded Podway procedure for epic-wide audit, one automatic confirmation, user-directed follow-up, and validation closeout.
@@ -462,8 +462,8 @@ graph:
           to: final-review
           effect: advance
         gaps-found:
-          to: remediate
-          effect: rework
+          to: final-review
+          effect: advance
         incomplete:
           to: record-incomplete
           effect: advance

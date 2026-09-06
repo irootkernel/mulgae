@@ -336,8 +336,14 @@ func (service *Service) publishCandidate(
 		return PublicationResult{}, publicationFailure("publish.validate", domain.FailureConfiguration, "invalid validated candidate", nil)
 	}
 	_, isCompositeCandidate := candidate.(PreparedCompositeCandidate)
+	var resumed ports.FinalReviewArtifact
+	var preparationStore ports.CompositePreparationStore
 	if isCompositeCandidate {
-		if existing, decision, observeErr := service.observe(ctx, run); observeErr == nil && decision.Authority() == domain.PublicationAuthorityP2 {
+		existing, decision, observeErr := service.observe(ctx, run)
+		if observeErr != nil {
+			return PublicationResult{}, observeErr
+		}
+		if decision.Authority() == domain.PublicationAuthorityP2 {
 			material, ok := existing.RecoveryMaterial()
 			if !ok {
 				return PublicationResult{}, publicationFailure("publish.validate", domain.FailureArtifact, "committed composition omitted recovery material", nil)
@@ -352,6 +358,19 @@ func (service *Service) publishCandidate(
 			}
 			return service.p2ResultFromDecision(ctx, run, existing, decision, nil, nil, true)
 		}
+		var ok bool
+		preparationStore, ok = service.store.(ports.CompositePreparationStore)
+		if !ok {
+			return PublicationResult{}, publicationFailure("publish.resume", domain.FailureConfiguration, "store does not support composite preparation recovery", nil)
+		}
+		request, err := ports.NewObserveRunRequest(run, service.maxBytes)
+		if err != nil {
+			return PublicationResult{}, err
+		}
+		resumed, _, err = preparationStore.ReadUnjournaledCompositeCandidate(ctx, request)
+		if err != nil {
+			return PublicationResult{}, service.storeFailure(ctx, "publish.resume", "composite preparation inspection failed", err)
+		}
 	}
 	if err := observePublicationLifecycle(ctx, observer, LifecyclePreparationStarted, nil); err != nil {
 		return PublicationResult{}, err
@@ -360,6 +379,18 @@ func (service *Service) publishCandidate(
 		return PublicationResult{}, err
 	}
 	createdAt := service.clock.Now()
+	if resumed.Valid() {
+		var wire struct {
+			CreatedAt string `json:"created_at"`
+		}
+		if err := json.Unmarshal(resumed.Bytes(), &wire); err != nil {
+			return PublicationResult{}, publicationFailure("publish.resume", domain.FailureArtifact, "invalid persisted composite candidate", err)
+		}
+		createdAt, err = time.Parse(time.RFC3339Nano, wire.CreatedAt)
+		if err != nil {
+			return PublicationResult{}, publicationFailure("publish.resume", domain.FailureArtifact, "invalid persisted creation time", err)
+		}
+	}
 	preflightID, err := domain.ParseReviewID("019f596a-d174-7321-b920-c2d312c82cc2")
 	if err != nil {
 		return PublicationResult{}, publicationFailure("publish.preflight", domain.FailureInternal, "preflight review ID is invalid", err)
@@ -378,7 +409,13 @@ func (service *Service) publishCandidate(
 	if err != nil {
 		return PublicationResult{}, publicationFailure("publish.issue_review_id", domain.FailureConfiguration, "invalid issuance request", err)
 	}
-	issued, issueErr := service.store.IssueReviewID(ctx, issueRequest)
+	var issued ports.IssuedReviewID
+	var issueErr error
+	if resumed.Valid() {
+		issued, issueErr = ports.NewIssuedReviewID(resumed.Identity().ReviewID(), candidateHash)
+	} else {
+		issued, issueErr = service.store.IssueReviewID(ctx, issueRequest)
+	}
 	if issueErr != nil && issued.Valid() {
 		observation, decision, observeErr := service.observe(ctx, run)
 		if observeErr != nil {
@@ -418,6 +455,9 @@ func (service *Service) publishCandidate(
 	if err != nil {
 		return PublicationResult{}, service.classifyBuildFailure(ctx, err)
 	}
+	if resumed.Valid() && (resumed.Identity() != bundle.Final().Identity() || !bytes.Equal(resumed.Bytes(), bundle.Final().Bytes())) {
+		return PublicationResult{}, publicationFailure("publish.resume", domain.FailureArtifact, "persisted candidate differs from composition inputs", nil)
+	}
 	if !bundle.Valid() {
 		return PublicationResult{}, publicationFailure("publish.build", domain.FailureArtifact, "publication bundle is inconsistent", nil)
 	}
@@ -432,16 +472,29 @@ func (service *Service) publishCandidate(
 	if err != nil {
 		return PublicationResult{}, publicationFailure("publish.persist_candidate", domain.FailureInternal, "candidate request is invalid", err)
 	}
-	candidatePersisted, candidateErr := service.store.PersistValidatedCandidate(ctx, candidateRequest)
-	if candidateErr != nil {
-		if candidatePersisted.Valid() || candidatePersisted.Durability().Valid() {
-			return service.publishRecovered(ctx, run, issued, bundle.Final().Identity())
+	adopted := false
+	if resumed.Valid() {
+		artifact, err := ports.NewImmutablePublicationArtifact(candidateRequest.Path(), resumed.Identity().SHA256(), resumed.Bytes())
+		if err != nil {
+			return PublicationResult{}, err
 		}
-		return PublicationResult{}, service.storeFailure(ctx, "publish.persist_candidate", "validated candidate persistence failed", candidateErr)
+		adopted, err = preparationStore.AdoptCompositePreparationArtifact(ctx, run, artifact)
+		if err != nil || !adopted {
+			return PublicationResult{}, service.storeFailure(ctx, "publish.resume", "persisted candidate could not be adopted", err)
+		}
 	}
-	if candidatePersisted.Durability() != ports.ValidatedCandidateDurable ||
-		!persistedCandidateMatches(candidatePersisted, run, bundle.Final()) {
-		return PublicationResult{}, publicationFailure("publish.persist_candidate", domain.FailureArtifact, "store returned inconsistent candidate receipt", nil)
+	if !adopted {
+		candidatePersisted, candidateErr := service.store.PersistValidatedCandidate(ctx, candidateRequest)
+		if candidateErr != nil {
+			if candidatePersisted.Valid() || candidatePersisted.Durability().Valid() {
+				return service.publishRecovered(ctx, run, issued, bundle.Final().Identity())
+			}
+			return PublicationResult{}, service.storeFailure(ctx, "publish.persist_candidate", "validated candidate persistence failed", candidateErr)
+		}
+		if candidatePersisted.Durability() != ports.ValidatedCandidateDurable ||
+			!persistedCandidateMatches(candidatePersisted, run, bundle.Final()) {
+			return PublicationResult{}, publicationFailure("publish.persist_candidate", domain.FailureArtifact, "store returned inconsistent candidate receipt", nil)
+		}
 	}
 	persistedSupportArtifacts := make([]ports.ImmutablePublicationArtifact, 0, len(bundle.SupportArtifacts()))
 
@@ -453,16 +506,25 @@ func (service *Service) publishCandidate(
 		if err := service.checkpoint(ctx, "publish.persist_support"); err != nil {
 			return PublicationResult{}, err
 		}
-		persisted, persistErr := service.store.PersistAuxiliaryArtifact(ctx, request)
-		if persistErr != nil {
-			if persisted.Valid() || persisted.Durability().Valid() {
-				return service.publishRecovered(ctx, run, issued, bundle.Final().Identity())
+		adopted := false
+		if resumed.Valid() {
+			adopted, err = preparationStore.AdoptCompositePreparationArtifact(ctx, run, support)
+			if err != nil {
+				return PublicationResult{}, service.storeFailure(ctx, "publish.resume", "persisted support differs or is unsafe", err)
 			}
-			return PublicationResult{}, service.storeFailure(ctx, "publish.persist_support", "run support persistence failed", persistErr)
 		}
-		if persisted.Durability() != ports.AuxiliaryArtifactDurable ||
-			!persistedAuxiliaryMatches(persisted, run, support) {
-			return PublicationResult{}, publicationFailure("publish.persist_support", domain.FailureArtifact, "store returned inconsistent run support receipt", nil)
+		if !adopted {
+			persisted, persistErr := service.store.PersistAuxiliaryArtifact(ctx, request)
+			if persistErr != nil {
+				if persisted.Valid() || persisted.Durability().Valid() {
+					return service.publishRecovered(ctx, run, issued, bundle.Final().Identity())
+				}
+				return PublicationResult{}, service.storeFailure(ctx, "publish.persist_support", "run support persistence failed", persistErr)
+			}
+			if persisted.Durability() != ports.AuxiliaryArtifactDurable ||
+				!persistedAuxiliaryMatches(persisted, run, support) {
+				return PublicationResult{}, publicationFailure("publish.persist_support", domain.FailureArtifact, "store returned inconsistent run support receipt", nil)
+			}
 		}
 		readMaximum := max(service.maxBytes, int64(len(support.Bytes())))
 		readRequest, err := ports.NewReadRunSupportArtifactRequest(run, support.Path(), support.SHA256(), readMaximum)

@@ -182,7 +182,11 @@ mutation enters the publication boundary, any failure, including a lock or
 cancellation failure that wrote nothing, returns
 `composite_publication_incomplete` with the deterministic identity. If an exact
 reconciliation read reports that run as unavailable, nothing was committed and
-the same exact mapping may be repeated. Review targets are workspace, stage,
+the same exact mapping may be repeated. Before journal creation, an exact
+composition replay validates and reuses the persisted candidate's review ID,
+creation time, and bytes, adopts matching durable support files, and writes only
+missing members. Conflicting or unsafe material fails closed; ordinary immutable
+writes still reject replacement. Review targets are workspace, stage,
 dirty, diff, or patch; stdio is reserved for JSON-RPC and is not a review
 target. Run pages admit a limit from 1 through 100, finding responses admit at
 most 1,000 summaries, and no tool result embeds report or source bodies.

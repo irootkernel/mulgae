@@ -1196,6 +1196,8 @@ func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T
 		[]byte("panic at src/session.rs:429:12"),
 		[]byte("codex 0.502.0"),
 		[]byte("trace req-429-7"),
+		[]byte("http 4290"),
+		[]byte("http 429-extra"),
 	} {
 		if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, stderr); ok {
 			t.Fatalf("Codex unrelated numeric stderr classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
@@ -1204,6 +1206,22 @@ func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T
 	status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, []byte("request failed with status 429"))
 	if !ok || status != ports.ProviderExecutionStatusRateLimit || diagnostic != "provider_rate_limit" || cause != domain.DiagnosticCauseRateLimited {
 		t.Fatalf("Codex standalone HTTP status was not classified: status = %q, diagnostic = %q, cause = %q, ok = %t", status, diagnostic, cause, ok)
+	}
+}
+
+func TestNativeProviderOutcomeRequiresExactHTTPStatusToken(t *testing.T) {
+	for _, family := range []string{FamilyCodex, FamilyAgy, FamilyZcode, FamilyKimi} {
+		t.Run(family, func(t *testing.T) {
+			for _, stderr := range []string{"http 4290", "http 429-extra"} {
+				if _, _, _, ok := nativeProviderOutcome(family, nil, []byte(stderr)); ok {
+					t.Fatalf("classified malformed status %q", stderr)
+				}
+			}
+			status, _, _, ok := nativeProviderOutcome(family, nil, []byte("HTTP 429"))
+			if !ok || status != ports.ProviderExecutionStatusRateLimit {
+				t.Fatal("did not classify exact HTTP 429")
+			}
+		})
 	}
 }
 
