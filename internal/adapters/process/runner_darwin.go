@@ -201,77 +201,21 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	}
 	defer stderrReader.Close()
 
-	argv := request.Argv()
-	environment := explicitEnvironment(request.Environment())
-	child := &exec.Cmd{
-		Env:         environment,
-		Stdout:      stdoutWriter,
-		Stderr:      stderrWriter,
-		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
-	}
-	var launchDirectory *os.File
-	if boundDirectory, root, bound := request.BoundLaunchDirectory(); bound {
+	if boundDirectory, _, bound := request.BoundLaunchDirectory(); bound {
 		defer boundDirectory.Close()
-		if root.Path() != request.WorkingDirectory() {
-			_ = stdoutWriter.Close()
-			_ = stderrWriter.Close()
-			return processExecutionFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, "", nil, nil,
-				fmt.Errorf("process runner: bound directory does not match diagnostic working directory"))
-		}
-		duplicate, err := unix.Dup(int(boundDirectory.Fd()))
-		if err != nil {
-			_ = stdoutWriter.Close()
-			_ = stderrWriter.Close()
-			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
-				fmt.Errorf("process runner: duplicate bound launch directory: %w", err))
-		}
-		launchDirectory = os.NewFile(uintptr(duplicate), root.Path())
-		mulgaeExecutable, err := os.Executable()
-		if err != nil {
-			_ = launchDirectory.Close()
-			_ = stdoutWriter.Close()
-			_ = stderrWriter.Close()
-			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
-				fmt.Errorf("process runner: resolve trusted Mulgae executable: %w", err))
-		}
-		mulgaeExecutable, err = filepath.Abs(mulgaeExecutable)
-		if err != nil {
-			_ = launchDirectory.Close()
-			_ = stdoutWriter.Close()
-			_ = stderrWriter.Close()
-			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
-				fmt.Errorf("process runner: canonicalize trusted Mulgae executable: %w", err))
-		}
-		if authority, protected := request.NativeHomeLaunchAuthority(); protected {
-			child.Path = mulgaeExecutable
-			child.Args = append([]string{
-				mulgaeExecutable,
-				fdExecNativeHomeHiddenArgument,
-				strconv.Itoa(3),
-				request.Executable(),
-				authority.Path(),
-				strconv.FormatUint(authority.Device(), 10),
-				strconv.FormatUint(authority.Inode(), 10),
-				strconv.FormatUint(uint64(authority.EffectiveUID()), 10),
-			}, argv[1:]...)
-			child.ExtraFiles = []*os.File{launchDirectory}
-		} else {
-			child.Path = mulgaeExecutable
-			child.Args = append([]string{mulgaeExecutable, fdExecHiddenArgument, strconv.Itoa(3), request.Executable()}, argv[1:]...)
-			child.ExtraFiles = []*os.File{launchDirectory}
-		}
-	} else {
-		child.Path = request.Executable()
-		child.Args = argv
-		child.Dir = request.WorkingDirectory()
+	}
+	child, launchDirectory, assembleCause, assembleErr := assembleDirectChild(request, stdoutWriter, stderrWriter)
+	if assembleErr != nil {
+		_ = launchDirectory.Close()
+		_ = stdoutWriter.Close()
+		_ = stderrWriter.Close()
+		return processExecutionFailure(assembleCause, "", nil, nil, assembleErr)
 	}
 	var stdinWriter io.WriteCloser
 	if needsStdinPipe {
 		stdinWriter, err = child.StdinPipe()
 		if err != nil {
-			if launchDirectory != nil {
-				_ = launchDirectory.Close()
-			}
+			_ = launchDirectory.Close()
 			_ = stdoutWriter.Close()
 			_ = stderrWriter.Close()
 			return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, nil,
@@ -1043,6 +987,70 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 	return bound, bindErr
 }
 
+// assembleDirectChild builds the exec.Cmd for one direct child-process launch.
+// Descriptor-bound requests launch through the trusted fd-exec trampoline and
+// return the duplicated launch-directory descriptor, which the caller owns
+// and closes after a successful start. A non-nil error is paired with the
+// typed diagnostic cause for the assembled failure; the caller remains
+// responsible for closing the passed pipe writers.
+func assembleDirectChild(request ports.ProcessRequest, stdoutWriter, stderrWriter *os.File) (*exec.Cmd, *os.File, domain.RuntimeDiagnosticCause, error) {
+	argv := request.Argv()
+	child := &exec.Cmd{
+		Env:         explicitEnvironment(request.Environment()),
+		Stdout:      stdoutWriter,
+		Stderr:      stderrWriter,
+		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
+	}
+	boundDirectory, root, bound := request.BoundLaunchDirectory()
+	if !bound {
+		child.Path = request.Executable()
+		child.Args = argv
+		child.Dir = request.WorkingDirectory()
+		return child, nil, "", nil
+	}
+	if root.Path() != request.WorkingDirectory() {
+		return nil, nil, domain.DiagnosticCauseWorkspaceRevalidationFailed,
+			fmt.Errorf("process runner: bound directory does not match diagnostic working directory")
+	}
+	duplicate, err := unix.Dup(int(boundDirectory.Fd()))
+	if err != nil {
+		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
+			fmt.Errorf("process runner: duplicate bound launch directory: %w", err)
+	}
+	launchDirectory := os.NewFile(uintptr(duplicate), root.Path())
+	mulgaeExecutable, err := os.Executable()
+	if err != nil {
+		_ = launchDirectory.Close()
+		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
+			fmt.Errorf("process runner: resolve trusted Mulgae executable: %w", err)
+	}
+	mulgaeExecutable, err = filepath.Abs(mulgaeExecutable)
+	if err != nil {
+		_ = launchDirectory.Close()
+		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
+			fmt.Errorf("process runner: canonicalize trusted Mulgae executable: %w", err)
+	}
+	if authority, protected := request.NativeHomeLaunchAuthority(); protected {
+		child.Path = mulgaeExecutable
+		child.Args = append([]string{
+			mulgaeExecutable,
+			fdExecNativeHomeHiddenArgument,
+			strconv.Itoa(3),
+			request.Executable(),
+			authority.Path(),
+			strconv.FormatUint(authority.Device(), 10),
+			strconv.FormatUint(authority.Inode(), 10),
+			strconv.FormatUint(uint64(authority.EffectiveUID()), 10),
+		}, argv[1:]...)
+		child.ExtraFiles = []*os.File{launchDirectory}
+		return child, launchDirectory, "", nil
+	}
+	child.Path = mulgaeExecutable
+	child.Args = append([]string{mulgaeExecutable, fdExecHiddenArgument, strconv.Itoa(3), request.Executable()}, argv[1:]...)
+	child.ExtraFiles = []*os.File{launchDirectory}
+	return child, launchDirectory, "", nil
+}
+
 func explicitEnvironment(environment []ports.EnvironmentVariable) []string {
 	result := make([]string, 0, len(environment))
 	for _, variable := range environment {
@@ -1225,7 +1233,7 @@ func providerTransportReceipt(
 		err     error
 	)
 	switch binding.Channel() {
-	case ports.ProviderPacketChannelArgvLiteral, ports.ProviderPacketChannelStdin:
+	case ports.ProviderPacketChannelArgvLiteral, ports.ProviderPacketChannelStdin, ports.ProviderPacketChannelProtocol:
 		receipt, err = ports.NewProviderPacketTransportReceipt(
 			binding.Channel(), packetIdentity, "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
 		)

@@ -74,7 +74,7 @@ follow-up work in the Aquarium repository.
 
 ## EPIC-003: ZCode app-server provider transport
 
-Status: Planned
+Status: In Progress
 
 Detailed SOT: [ZCode app-server provider transport dossier](../todo/TODO-zcode-app-server-transport.md)
 
@@ -104,7 +104,7 @@ change.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-009 | Planned | Add an additive protocol packet channel, driver session interface, and process-runner conversation mode (line-oriented exchange, tee-spooled stdout, reused timeout, process-group termination, and classification) with no production caller. | Unit and integration tests against a scripted fake protocol child; `make test-prepare`, `make test-unit`, and `make test-int`. |
+| TASK-009 | Completed | Add an additive protocol packet channel, driver session interface, and process-runner conversation mode (line-oriented exchange, tee-spooled stdout, reused timeout, process-group termination, and classification) with no production caller. | Unit and integration tests against a scripted fake protocol child; `make test-prepare`, `make test-unit`, and `make test-int`. |
 | TASK-010 | Planned | Pin the installed app-server wire shapes in a live spike (go/no-go gate), then atomically move ZCode review and qualification invocations onto the protocol, remove the print path and `zcodeContent`, add protocol-native failure classification, raise the version floor, and update contracts, security documentation, and one new ADR. | Focused tests, live spike evidence, updated argv and e2e pins, and the complete `make test` gate including mandatory live ZCode certification. |
 
 TASK-009 lands the dark capability first because it changes no runtime

@@ -3,6 +3,7 @@
 package process
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -2118,6 +2119,56 @@ func TestRunnerHelperProcess(t *testing.T) {
 	}
 
 	switch arguments[0] {
+	case "conversation-echo":
+		if len(arguments) != 1 {
+			os.Exit(2)
+		}
+		reader := bufio.NewReader(os.Stdin)
+		if _, err := reader.ReadString('\n'); err != nil {
+			os.Exit(3)
+		}
+		fmt.Fprintln(os.Stdout, `{"id":1,"result":{"sessionId":"session"}}`)
+		if _, err := reader.ReadString('\n'); err != nil {
+			os.Exit(3)
+		}
+		fmt.Fprintln(os.Stdout, `{"method":"turn-completed","params":{"sessionId":"session"}}`)
+		// A real app-server keeps serving after turn completion; the
+		// conversation teardown, not the server, ends the process.
+		time.Sleep(10 * time.Second)
+	case "conversation-hold":
+		if len(arguments) != 1 {
+			os.Exit(2)
+		}
+		reader := bufio.NewReader(os.Stdin)
+		if _, err := reader.ReadString('\n'); err != nil {
+			os.Exit(3)
+		}
+		fmt.Fprintln(os.Stdout, `{"id":1,"result":{"sessionId":"session"}}`)
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "conversation-quiet":
+		if len(arguments) != 1 {
+			os.Exit(2)
+		}
+		time.Sleep(10 * time.Second)
+	case "conversation-quiet-descendant":
+		if len(arguments) != 2 || !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		child := exec.Command(os.Args[0], "-test.run=^TestRunnerHelperProcess$", "--", "conversation-sleep-child")
+		child.Env = os.Environ()
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		time.Sleep(10 * time.Second)
+	case "conversation-sleep-child":
+		time.Sleep(10 * time.Second)
+	case "conversation-partial-line":
+		if len(arguments) != 1 {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, `{"partial":`)
+		os.Exit(0)
 	case "native-home-provider":
 		if len(arguments) != 2 || !helperWriteMarker(arguments[1], "executed") {
 			os.Exit(2)

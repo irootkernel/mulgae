@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -436,12 +437,18 @@ const (
 	ProviderPacketChannelArgvLiteral ProviderPacketChannel = "argv_literal"
 	ProviderPacketChannelStdin       ProviderPacketChannel = "stdin"
 	ProviderPacketChannelPromptFile  ProviderPacketChannel = "prompt_file"
+	// ProviderPacketChannelProtocol delivers the packet as the payload of
+	// adapter-owned protocol frames exchanged line-by-line over the child's
+	// stdin and stdout pipes. The packet never appears in argv and is never
+	// written as raw stdin bytes.
+	ProviderPacketChannelProtocol ProviderPacketChannel = "protocol"
 )
 
 func (channel ProviderPacketChannel) Valid() bool {
 	return channel == ProviderPacketChannelArgvLiteral ||
 		channel == ProviderPacketChannelStdin ||
-		channel == ProviderPacketChannelPromptFile
+		channel == ProviderPacketChannelPromptFile ||
+		channel == ProviderPacketChannelProtocol
 }
 
 // ProviderPacketBinding binds one packet to exactly one child-process channel.
@@ -477,6 +484,17 @@ func NewPromptFileProviderPacketBinding(packet ProviderPacket, argvIndex int, re
 	return ProviderPacketBinding{channel: ProviderPacketChannelPromptFile, packet: packet, argvIndex: argvIndex, promptFile: reference, snapshotCWD: snapshotCWD}, nil
 }
 
+// NewProtocolProviderPacketBinding binds one packet to the adapter-owned
+// line-oriented protocol exchange. The conversation runner supplies the child
+// process; a session driver delivers the packet inside protocol frames, so the
+// binding carries no argv index or prompt-file reference.
+func NewProtocolProviderPacketBinding(packet ProviderPacket) (ProviderPacketBinding, error) {
+	if !packet.Valid() {
+		return ProviderPacketBinding{}, fmt.Errorf("provider packet binding: invalid packet")
+	}
+	return ProviderPacketBinding{channel: ProviderPacketChannelProtocol, packet: packet, argvIndex: -1}, nil
+}
+
 func (binding ProviderPacketBinding) Channel() ProviderPacketChannel { return binding.channel }
 func (binding ProviderPacketBinding) Packet() ProviderPacket {
 	packet, _ := NewProviderPacket(binding.packet.Bytes(), binding.packet.Identity().CompleteSHA256())
@@ -498,6 +516,9 @@ func (binding ProviderPacketBinding) Valid() bool {
 		return err == nil
 	case ProviderPacketChannelPromptFile:
 		_, err := NewPromptFileProviderPacketBinding(binding.packet, binding.argvIndex, binding.promptFile, binding.snapshotCWD)
+		return err == nil
+	case ProviderPacketChannelProtocol:
+		_, err := NewProtocolProviderPacketBinding(binding.packet)
 		return err == nil
 	default:
 		return false
@@ -639,6 +660,33 @@ func NewProviderProcessRequestWithPostOutputLifecycle(
 	return request, nil
 }
 
+// NewProviderProtocolProcessRequest builds a conversation-mode request whose
+// packet is delivered through the adapter-owned protocol exchange. Child stdin
+// starts empty; the session driver supplies every protocol frame, and the
+// conversation runner tee-spools the complete protocol transcript.
+func NewProviderProtocolProcessRequest(
+	executable string, argv []string, environment []EnvironmentVariable, workingDirectory string,
+	binding ProviderPacketBinding, timeout time.Duration,
+) (ProcessRequest, error) {
+	request, err := NewProcessRequest(
+		executable,
+		argv,
+		environment,
+		workingDirectory,
+		nil,
+		timeout,
+	)
+	if err != nil {
+		return ProcessRequest{}, err
+	}
+	if err := validateProviderPacketRequestBinding(request, binding); err != nil {
+		return ProcessRequest{}, fmt.Errorf("provider process request: %w", err)
+	}
+	request.providerPacketBinding = binding
+	request.hasProviderPacketBinding = true
+	return request, nil
+}
+
 // NewBoundProcessRequest transfers a caller-owned launch-directory descriptor
 // into an immutable request. The descriptor is consumed and closed by the
 // process runner; callers must not use it after this constructor succeeds.
@@ -706,6 +754,13 @@ func validateProviderPacketRequestBinding(request ProcessRequest, binding Provid
 	case ProviderPacketChannelStdin:
 		if packetOccurrences != 0 || !bytes.Equal(request.stdin, packetBytes) {
 			return fmt.Errorf("stdin packet must occur exactly once on stdin")
+		}
+	case ProviderPacketChannelProtocol:
+		if len(request.stdin) != 0 {
+			return fmt.Errorf("protocol packet transport must start with empty stdin")
+		}
+		if packetOccurrences != 0 {
+			return fmt.Errorf("protocol packet must not occur in argv")
 		}
 	case ProviderPacketChannelPromptFile:
 		if len(request.stdin) != 0 {
@@ -1019,6 +1074,12 @@ const (
 	ProcessGroupSignalRequestStdinIncomplete      ProcessGroupSignalRequestReason = "stdin_incomplete"
 	ProcessGroupSignalRequestResidualGroup        ProcessGroupSignalRequestReason = "residual_process_group"
 	ProcessGroupSignalRequestInternalTeardown     ProcessGroupSignalRequestReason = "internal_teardown"
+	// ProcessGroupSignalRequestConversationTeardown terminates a provider
+	// conversation whose session driver has finished or failed.
+	ProcessGroupSignalRequestConversationTeardown ProcessGroupSignalRequestReason = "conversation_teardown"
+	// ProcessGroupSignalRequestConversationTeardownEscalation escalates a
+	// conversation teardown whose graceful termination did not complete.
+	ProcessGroupSignalRequestConversationTeardownEscalation ProcessGroupSignalRequestReason = "conversation_teardown_escalation"
 )
 
 type ProcessGroupSignalRequestReceipt struct {
@@ -1059,7 +1120,9 @@ func isNonPostOutputProcessGroupSignalRequestReason(reason ProcessGroupSignalReq
 		ProcessGroupSignalRequestTimeout,
 		ProcessGroupSignalRequestStdinIncomplete,
 		ProcessGroupSignalRequestResidualGroup,
-		ProcessGroupSignalRequestInternalTeardown:
+		ProcessGroupSignalRequestInternalTeardown,
+		ProcessGroupSignalRequestConversationTeardown,
+		ProcessGroupSignalRequestConversationTeardownEscalation:
 		return true
 	default:
 		return false
@@ -1236,7 +1299,7 @@ func (receipt ProviderPacketTransportReceipt) Valid() bool {
 		return false
 	}
 	switch receipt.channel {
-	case ProviderPacketChannelArgvLiteral, ProviderPacketChannelStdin:
+	case ProviderPacketChannelArgvLiteral, ProviderPacketChannelStdin, ProviderPacketChannelProtocol:
 		return receipt.promptFileReference == "" && receipt.snapshotCWD == "" &&
 			!receipt.preStartIdentity.Valid() && !receipt.postTerminationIdentity.Valid()
 	case ProviderPacketChannelPromptFile:
@@ -1582,6 +1645,35 @@ type ProcessRunner interface {
 	Run(context.Context, ProcessRequest) (ProcessObservation, error)
 }
 
+// ErrProviderSessionExchangeClosed reports that a conversation exchange is
+// closed for further line exchange because its conversation is tearing down.
+var ErrProviderSessionExchangeClosed = errors.New("provider session exchange closed")
+
+// ProviderSessionExchange is the line-oriented transport between one session
+// driver and its provider child process. ReceiveLine returns the next complete
+// child stdout line without its terminating newline. SendLine writes exactly
+// one newline-terminated frame to child stdin; the line itself must not
+// contain a newline or NUL byte. Both operations fail closed once the
+// conversation is tearing down or the supplied context is done. A child stdout
+// stream that ends returns an error wrapping io.EOF from ReceiveLine; a final
+// partial line without its newline returns an error wrapping
+// io.ErrUnexpectedEOF.
+type ProviderSessionExchange interface {
+	ReceiveLine(ctx context.Context) ([]byte, error)
+	SendLine(ctx context.Context, line []byte) error
+}
+
+// ProviderSessionDriver conducts one provider protocol conversation. The
+// driver owns protocol semantics such as framing, request correlation, and
+// terminal turn detection; the conversation runner owns the child process,
+// its process group, the timeout budget, the spooled protocol transcript, and
+// teardown. Drive must return promptly once the exchange reports closure or
+// its context ends; a returned nil error records the driver's own terminal
+// completion and does not by itself prove child process success.
+type ProviderSessionDriver interface {
+	Drive(ctx context.Context, exchange ProviderSessionExchange) error
+}
+
 // ProcessExecutionError preserves the closed primary cause and any captured
 // streams when a runner cannot return a coherent ProcessObservation. Cleanup
 // failure is supplemental: it never replaces the initiating cause. The
@@ -1831,7 +1923,10 @@ func validateProviderPacketTransportReceipt(termination ProcessTermination, stdi
 	if !receipt.Valid() {
 		return fmt.Errorf("invalid transport receipt")
 	}
-	if receipt.Channel() == ProviderPacketChannelStdin {
+	if receipt.Channel() == ProviderPacketChannelStdin || receipt.Channel() == ProviderPacketChannelProtocol {
+		// Protocol frames also flow over the child stdin pipe, so their
+		// transport evidence admits the conversation's incremental stdin
+		// write receipt instead of a single upfront packet write.
 		return nil
 	}
 	if stdin.IntendedByteLength() != 0 || stdin.WrittenByteCount() != 0 || !stdin.Complete() || stdin.SHA256() != providerPacketDigest(nil) {
