@@ -168,12 +168,13 @@ type reportProvenanceDTO struct {
 
 func reportFinalFromCommitted(review query.CommittedReview) (reportFinalDTO, error) {
 	var metadata struct {
-		CreatedAt string `json:"created_at"`
+		CreatedAt     string   `json:"created_at"`
+		CIReasonCodes []string `json:"ci_reason_codes"`
 	}
 	if err := json.Unmarshal(review.FinalBytes(), &metadata); err != nil {
 		return reportFinalDTO{}, err
 	}
-	final := reportFinalDTO{CreatedAt: metadata.CreatedAt, SchemaVersion: "mulgae-composite-review-artifact.v1", SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{AggregationPath: reportAggregationPath, FinalValidationPath: reportFinalValidationPath, ManifestPath: "manifest.json"}}
+	final := reportFinalDTO{CreatedAt: metadata.CreatedAt, SchemaVersion: "mulgae-composite-review-artifact.v1", SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), CIReasonCodes: metadata.CIReasonCodes, SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{ManifestPath: "manifest.json"}}
 	for _, role := range review.Roles() {
 		attempt, hasAttempt := role.AttemptID()
 		provider, hasProvider := role.ProviderInstance()
@@ -472,6 +473,19 @@ func canonicalReportProvenance(
 	provenance reportProvenanceDTO,
 	review query.CommittedReview,
 ) (reportProvenanceDTO, error) {
+	manifest, err := canonicalReportProvenancePath(review, provenance.ManifestPath)
+	if err != nil {
+		return reportProvenanceDTO{}, fmt.Errorf("manifest path: %w", err)
+	}
+	if manifest != review.ManifestPath().String() {
+		return reportProvenanceDTO{}, fmt.Errorf("manifest path does not match the committed snapshot")
+	}
+	if review.RunType() == domain.RunTypeComposite {
+		if provenance.AggregationPath != "" || provenance.FinalValidationPath != "" {
+			return reportProvenanceDTO{}, fmt.Errorf("composite provenance contains provider validation references")
+		}
+		return reportProvenanceDTO{ManifestPath: manifest}, nil
+	}
 	aggregation, err := canonicalReportProvenancePath(review, provenance.AggregationPath)
 	if err != nil {
 		return reportProvenanceDTO{}, fmt.Errorf("aggregation path: %w", err)
@@ -494,14 +508,6 @@ func canonicalReportProvenance(
 	}
 	if finalValidation != expectedFinalValidation {
 		return reportProvenanceDTO{}, fmt.Errorf("final validation path is not the canonical committed reference")
-	}
-
-	manifest, err := canonicalReportProvenancePath(review, provenance.ManifestPath)
-	if err != nil {
-		return reportProvenanceDTO{}, fmt.Errorf("manifest path: %w", err)
-	}
-	if manifest != review.ManifestPath().String() {
-		return reportProvenanceDTO{}, fmt.Errorf("manifest path does not match the committed snapshot")
 	}
 
 	return reportProvenanceDTO{
@@ -831,8 +837,12 @@ func renderMarkdown(
 	writeField(&output, "Lineage edge SHA-256", review.LineageEdgeSHA256())
 	writeField(&output, "Publication epoch", fmt.Sprintf("%d", review.Epoch()))
 	writeField(&output, "Epoch record path", review.EpochPath().String())
-	writeField(&output, "Canonical aggregation artifact reference", provenance.AggregationPath)
-	writeField(&output, "Canonical final validation artifact reference", provenance.FinalValidationPath)
+	if provenance.AggregationPath != "" {
+		writeField(&output, "Canonical aggregation artifact reference", provenance.AggregationPath)
+	}
+	if provenance.FinalValidationPath != "" {
+		writeField(&output, "Canonical final validation artifact reference", provenance.FinalValidationPath)
+	}
 	writeField(&output, "Verified provenance manifest", provenance.ManifestPath)
 	writeBlankLine(&output)
 

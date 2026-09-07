@@ -36,6 +36,8 @@ layout:
     r_<composite-uuidv7>/
       manifest.json
       status.json
+      validation/
+        final-candidate.json
       publication/
         journal.json
       role-reports/
@@ -57,9 +59,11 @@ layout:
 ```
 
 The composite copies every selected role report and the verified target support
-needed to remain readable after its source runs are cleaned. It has no provider
-runtime stream, attempts, or validation directories because composition does
-not execute providers or revalidate provider output. `captured-review.json` and
+needed to remain readable after its source runs are cleaned. It has no
+provider runtime stream or attempts because composition does not execute
+providers or revalidate provider output. `validation/final-candidate.json`
+retains the immutable publication candidate for interruption recovery.
+`captured-review.json` and
 its blobs are present when the source review retained a captured archive.
 
 For an ordinary run, `manifest.json` records lineage, target identity, attempts,

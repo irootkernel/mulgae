@@ -506,13 +506,13 @@ func TestCatalogArtifactsHelpDocumentsCompositeLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	for source, content := range map[string]string{"help": string(help), "example": string(example)} {
-		for _, required := range []string{"status.json", "publication/", "role-reports/", "support/", "target/"} {
+		for _, required := range []string{"status.json", "publication/", "role-reports/", "support/", "target/", "final-candidate.json"} {
 			if !strings.Contains(content, required) {
 				t.Errorf("%s composite artifact layout is missing %q", source, required)
 			}
 		}
 	}
-	if !strings.Contains(string(help), "attempts, or validation directories") {
+	if !strings.Contains(string(help), "provider runtime stream or attempts") {
 		t.Error("artifact help does not distinguish provider-free composite runs")
 	}
 }

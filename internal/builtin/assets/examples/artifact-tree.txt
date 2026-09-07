@@ -146,6 +146,8 @@
     r_019f596a-cfe5-7c9c-b82e-7149158243ba/
       manifest.json
       status.json
+      validation/
+        final-candidate.json
       publication/
         journal.json
       role-reports/

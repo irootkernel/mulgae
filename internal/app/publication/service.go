@@ -358,6 +358,22 @@ func (service *Service) publishCandidate(
 			}
 			return service.p2ResultFromDecision(ctx, run, existing, decision, nil, nil, true)
 		}
+		if decision.Action() != domain.RecoveryActionResumeCollection {
+			material, ok := existing.RecoveryMaterial()
+			if !ok {
+				return PublicationResult{}, publicationFailure("publish.resume", domain.FailureArtifact, "interrupted composition omitted recovery material", nil)
+			}
+			persisted, hasCandidate := material.ValidatedCandidate()
+			prepared, hasPrepared := material.PreparedComposite()
+			if !hasCandidate || !hasPrepared {
+				return PublicationResult{}, publicationFailure("publish.resume", domain.FailureArtifact, "interrupted composition omitted candidate binding", nil)
+			}
+			issued, bindingErr := issuedReviewIDFromMaterial(material, persisted, prepared)
+			if bindingErr != nil || issued.ValidatedCandidateSHA256() != candidateHash {
+				return PublicationResult{}, publicationFailure("publish.resume", domain.FailureArtifact, "run identity is already bound to different composition inputs", bindingErr)
+			}
+			return service.Recover(ctx, run)
+		}
 		var ok bool
 		preparationStore, ok = service.store.(ports.CompositePreparationStore)
 		if !ok {

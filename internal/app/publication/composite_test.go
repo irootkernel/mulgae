@@ -59,7 +59,10 @@ func TestCompositePublicationResumesJournaledCandidate(t *testing.T) {
 		name  string
 		after int
 	}{{"journal", -1}, {"final", -2}} {
-		t.Run(test.name, func(t *testing.T) { testCompositeLifecycle(t, "", test.after) })
+		t.Run(test.name, func(t *testing.T) {
+			t.Run("recover", func(t *testing.T) { testCompositeLifecycle(t, "", true, test.after) })
+			t.Run("repeat", func(t *testing.T) { testCompositeLifecycle(t, "", false, test.after) })
+		})
 	}
 }
 
@@ -83,7 +86,7 @@ func (store *compositeInterruptedStore) PersistAuxiliaryArtifact(ctx context.Con
 func TestCompositePublicationResumesUnjournaledCandidate(t *testing.T) {
 	for _, after := range []int{0, 1, 2, 3, 4} {
 		t.Run(fmt.Sprintf("after-%d", after), func(t *testing.T) {
-			testCompositeLifecycle(t, "", after)
+			testCompositeLifecycle(t, "", false, after)
 		})
 	}
 }
@@ -97,16 +100,16 @@ func (store *compositeStatusConflictStore) ReplaceMutable(ctx context.Context, r
 }
 
 func TestCompositeCandidateBuildsSelfContainedSchemaValidBundle(t *testing.T) {
-	testCompositeLifecycle(t, "")
+	testCompositeLifecycle(t, "", false)
 }
 
 func TestCompositeGitTargetsRemainReadableAndRecoverable(t *testing.T) {
 	for _, mode := range []domain.GitTargetMode{domain.GitTargetDiff, domain.GitTargetStage, domain.GitTargetDirty} {
-		t.Run(string(mode), func(t *testing.T) { testCompositeLifecycle(t, mode) })
+		t.Run(string(mode), func(t *testing.T) { testCompositeLifecycle(t, mode, false) })
 	}
 }
 
-func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, interruptAfter ...int) {
+func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, recoverFirst bool, interruptAfter ...int) {
 	t.Helper()
 	targetBytes := []byte("diff --git a/a.go b/a.go\n")
 	targetInput := domain.TargetIdentityInput{Kind: domain.TargetPatch, SHA256: bareSHA256(targetBytes)}
@@ -297,6 +300,31 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, interruptAf
 		t.Fatal(err)
 	}
 	if len(interruptAfter) != 0 && interruptAfter[0] < 0 {
+		journalPath := filepath.Join(rootPath, session.String(), runID.String(), "publication", "journal.json")
+		before, err := os.ReadFile(journalPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed := input
+		changed.CIDecision = domain.CIFail
+		mismatched, err := PrepareCompositeCandidate(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.PublishCompositeNext(context.Background(), rootScope, mismatched); err == nil {
+			t.Fatal("journaled candidate accepted different composition inputs")
+		}
+		cancelled, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := service.PublishCompositeNext(cancelled, rootScope, candidate); err == nil {
+			t.Fatal("cancelled journaled replay succeeded")
+		}
+		after, err := os.ReadFile(journalPath)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatal("rejected replay changed the persisted journal")
+		}
+	}
+	if recoverFirst {
 		run, err := ports.NewPublicationRun(rootScope, session, runID)
 		if err != nil {
 			t.Fatal(err)
@@ -417,6 +445,14 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, interruptAf
 	}
 	if !bytes.Contains(rendered.Bytes(), []byte("2026-07-13T03:10:00Z")) {
 		t.Fatal("composite report omitted its committed creation timestamp")
+	}
+	if !bytes.Contains(rendered.Bytes(), []byte("**Reason codes:** `policy_evaluated`")) {
+		t.Fatal("composite report omitted committed CI reason codes")
+	}
+	for _, absent := range []string{"aggregation.json", "validation/final-validation.json"} {
+		if bytes.Contains(rendered.Bytes(), []byte(absent)) {
+			t.Fatalf("composite report advertised absent artifact %s", absent)
+		}
 	}
 	unchanged, err := os.ReadFile(sourceReportPath)
 	if err != nil {
