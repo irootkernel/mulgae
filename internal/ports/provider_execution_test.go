@@ -279,6 +279,121 @@ func TestIsolatedSuccessfulProviderExecutionObservationRejectsPrimaryValidationF
 	}
 }
 
+// conversationTeardownTestProcess builds a protocol-conversation process
+// observation whose child ended through the runner's teardown requests.
+func conversationTeardownTestProcess(
+	t *testing.T,
+	invocation ProviderInvocation,
+	termination ProcessTermination,
+	requestReasons ...ProcessGroupSignalRequestReason,
+) ProcessObservation {
+	t.Helper()
+	packetIdentity, err := NewProviderPacketIdentity(len(invocation.Stdin()), invocation.CompleteStdinSHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := NewProviderPacketTransportReceipt(
+		ProviderPacketChannelProtocol, packetIdentity, "", "",
+		ProviderPacketIdentity{}, ProviderPacketIdentity{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signal, err := NewProcessSignal(15, "SIGTERM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := make([]ProcessGroupSignalRequestReceipt, 0, len(requestReasons))
+	for _, reason := range requestReasons {
+		receipt, err := NewAcceptedProcessGroupSignalRequestReceipt(reason, signal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		requests = append(requests, receipt)
+	}
+	final, err := NewSignaledProcessFinalTermination(signal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := NewProcessLifecycleReceipt(final, true, requests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, stdinErr := NewStdinWriteReceipt(0, 0, providerTestDigest(nil), true)
+	if stdinErr != nil {
+		t.Fatal(stdinErr)
+	}
+	process, err := NewStartedProviderProcessObservation(
+		[]byte("protocol transcript"), nil, termination, stdin, transport, lifecycle,
+		providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return process
+}
+
+// TestStagedSuccessAcceptsConversationTeardownProcess pins the live-e2e
+// regression: a protocol conversation whose app-server outlived the completed
+// turn and was ended by the runner's receipt-proven teardown remains a valid
+// successful staged observation instead of collapsing into an untyped
+// construction failure.
+func TestStagedSuccessAcceptsConversationTeardownProcess(t *testing.T) {
+	invocation := newProviderExecutionTestInvocation(t)
+	destination := newProviderExecutionTestStagedDestination(t)
+	staged, err := NewProviderInvocationWithStagedOutput(invocation, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stagedBytes := []byte("# staged report\n")
+	result := newProviderExecutionTestResult(t, staged, stagedBytes)
+	stagedReceipt := newProviderExecutionTestStagedReceipt(t, stagedBytes)
+
+	teardown := conversationTeardownTestProcess(
+		t, staged, ProcessTerminationSignaled,
+		ProcessGroupSignalRequestConversationTeardown,
+	)
+	observation, err := NewStagedFileSuccessfulProviderExecutionObservation(staged, result, teardown, stagedReceipt)
+	if err != nil {
+		t.Fatalf("signaled conversation teardown rejected: %v", err)
+	}
+	if !observation.Succeeded() {
+		t.Fatal("teardown observation is not successful")
+	}
+
+	escalated := conversationTeardownTestProcess(
+		t, staged, ProcessTerminationSignaled,
+		ProcessGroupSignalRequestConversationTeardown,
+		ProcessGroupSignalRequestConversationTeardownEscalation,
+	)
+	if _, err := NewStagedFileSuccessfulProviderExecutionObservation(staged, result, escalated, stagedReceipt); err != nil {
+		t.Fatalf("escalated conversation teardown rejected: %v", err)
+	}
+
+	for _, test := range []struct {
+		name     string
+		process  ProcessObservation
+		wantText string
+	}{
+		{
+			name:     "cancellation teardown reason is not a conversation teardown",
+			process:  conversationTeardownTestProcess(t, staged, ProcessTerminationSignaled, ProcessGroupSignalRequestCancellation),
+			wantText: "successful status requires a successful process observation",
+		},
+		{
+			name:     "internal teardown reason is not a conversation teardown",
+			process:  conversationTeardownTestProcess(t, staged, ProcessTerminationSignaled, ProcessGroupSignalRequestInternalTeardown),
+			wantText: "successful status requires a successful process observation",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewStagedFileSuccessfulProviderExecutionObservation(staged, result, test.process, stagedReceipt); err == nil || !strings.Contains(err.Error(), test.wantText) {
+				t.Fatalf("error = %v, want %q", err, test.wantText)
+			}
+		})
+	}
+}
+
 func TestProviderInvocationRetainsStagedOutputDestinationThroughCanonicalization(t *testing.T) {
 	invocation := newProviderExecutionTestInvocation(t)
 	if _, ok := invocation.StagedOutputDestination(); ok {

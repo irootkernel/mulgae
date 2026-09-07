@@ -560,7 +560,7 @@ func (observation ProviderExecutionObservation) Validate() error {
 		if !observation.hasProcess {
 			return fmt.Errorf("provider execution observation: successful status requires process observation")
 		}
-		if !canonicalProcess.Succeeded() {
+		if !canonicalProcess.Succeeded() && !canonicalProcess.conversationTeardownCompleted() {
 			return fmt.Errorf("provider execution observation: successful status requires a successful process observation")
 		}
 		if !observation.hasResult {
@@ -933,6 +933,42 @@ func providerExecutionStatusMatchesProcessObservation(
 	default:
 		return false
 	}
+}
+
+// conversationTeardownCompleted reports whether this process observation is
+// the intentional bounded teardown of a completed protocol conversation: the
+// protocol packet channel carried the packet, the child terminated through a
+// signal or exit that followed the runner's teardown requests, and every
+// recorded signal request is a conversation teardown reason. The one-shot
+// Succeeded() frame contract does not apply to that shape, because a live
+// app-server routinely outlives the conversation it finished.
+func (observation ProcessObservation) conversationTeardownCompleted() bool {
+	switch observation.Termination() {
+	case ProcessTerminationSignaled, ProcessTerminationExited:
+	default:
+		return false
+	}
+	transport, ok := observation.ProviderPacketTransportReceipt()
+	if !ok || transport.Channel() != ProviderPacketChannelProtocol {
+		return false
+	}
+	lifecycle, ok := observation.LifecycleReceipt()
+	if !ok || !lifecycle.Valid() || !lifecycle.ProcessGroupAbsent() {
+		return false
+	}
+	requests := lifecycle.SignalRequests()
+	if len(requests) == 0 {
+		return false
+	}
+	for _, request := range requests {
+		switch request.Reason() {
+		case ProcessGroupSignalRequestConversationTeardown,
+			ProcessGroupSignalRequestConversationTeardownEscalation:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func providerResultIsZero(result ProviderResult) bool {

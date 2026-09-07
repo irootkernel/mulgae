@@ -2081,6 +2081,80 @@ func requireStagingRemoved(t *testing.T, destination ports.StagedOutputDestinati
 	}
 }
 
+// protocolTeardownObservation builds the process observation a real protocol
+// conversation returns when the app-server outlives the completed turn and
+// the runner's bounded teardown ends it with SIGTERM.
+func protocolTeardownObservation(t *testing.T, stdout []byte) ports.ProcessObservation {
+	t.Helper()
+	packet := []byte("review bytes")
+	packetIdentity, err := ports.NewProviderPacketIdentity(len(packet), testStdinDigest(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := ports.NewProviderPacketTransportReceipt(
+		ports.ProviderPacketChannelProtocol, packetIdentity, "", "",
+		ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signal, err := ports.NewProcessSignal(15, "SIGTERM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ports.NewAcceptedProcessGroupSignalRequestReceipt(ports.ProcessGroupSignalRequestConversationTeardown, signal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewSignaledProcessFinalTermination(signal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := ports.NewProcessLifecycleReceipt(final, true, []ports.ProcessGroupSignalRequestReceipt{request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := ports.NewStartedProviderProcessObservation(
+		stdout, nil, ports.ProcessTerminationSignaled, stdin, transport, lifecycle,
+		time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
+}
+
+// TestRegistryObserveAcceptsSignaledConversationTeardownAsStagedSuccess pins
+// the live-e2e regression: a protocol conversation whose app-server was ended
+// by the runner's receipt-proven teardown after completing its turn still
+// publishes the staged report instead of collapsing into an untyped failure.
+func TestRegistryObserveAcceptsSignaledConversationTeardownAsStagedSuccess(t *testing.T) {
+	content := []byte("# Role report\n\nPublished from a torn-down conversation.\n")
+	runner := &stagedOutputRunnerFake{
+		observation: protocolTeardownObservation(t, []byte("protocol transcript")),
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+	runner.stage = func() { writeStagedProviderReport(t, destination, content) }
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusSucceeded ||
+		observed.OutputTransport() != ports.ProviderOutputTransportStagedFile {
+		t.Fatalf("status = %q, transport = %q", observed.Status(), observed.OutputTransport())
+	}
+	result, ok := observed.Result()
+	if !ok || !bytes.Equal(result.Stdout(), content) {
+		t.Fatalf("result = %q, present=%t", result.Stdout(), ok)
+	}
+	requireStagingRemoved(t, destination)
+}
+
 func TestRegistryObserveAcceptsStagedFileOutputAsPrimaryResult(t *testing.T) {
 	content := []byte("# Role report\n\nOne bounded finding.\n")
 	runner := &stagedOutputRunnerFake{
