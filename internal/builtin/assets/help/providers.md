@@ -70,15 +70,19 @@ post-execution drift detection overriding provider success.
 Role reports reach Mulgae over a per-family transport recorded in
 `manifest.role_reports[].transport`:
 
-- ZCode: `staged_file`. ZCode review runs in `--mode yolo` with the denylist
-  `Bash,Edit,NotebookEdit,WebSearch,WebFetch`, so `Write` is enabled for one
-  purpose only: writing `role-report.md` to the exact absolute staging path
-  Mulgae names in the last trusted prompt layer. That directory sits in a
-  disposable namespace outside the workspace view and outside `.mulgae`. Mulgae
-  validates the file after the process exits, copies the accepted bytes into
-  `role-reports/<role>.md`, and always removes staging. ZCode's write authority
-  is not path-scoped by the provider; containment is Mulgae-side. ZCode
-  qualification is unchanged and remains fully tool-denied.
+- ZCode: `staged_file`. ZCode review and qualification speak the app-server
+  protocol: Mulgae launches `zcode app-server` and conducts one
+  newline-delimited protocol conversation, so no prompt, mode, or tool policy
+  appears on the command line. Review conversations request `yolo` mode with
+  the denylist `Bash,Edit,NotebookEdit,WebSearch,WebFetch,EnterPlanMode,ExitPlanMode`,
+  so `Write` is enabled for one purpose only: writing `role-report.md` to the
+  exact absolute staging path Mulgae names in the last trusted prompt layer.
+  That directory sits in a disposable namespace outside the workspace view and
+  outside `.mulgae`. Mulgae validates the file after the conversation
+  completes, copies the accepted bytes into `role-reports/<role>.md`, and
+  always removes staging. ZCode's write authority is not path-scoped by the
+  provider; containment is Mulgae-side. ZCode qualification runs in plan mode
+  and remains fully tool-denied.
 - AGY, Kimi, and Codex: `stdout`. Headless AGY auto-denies `write_file` in
   safe mode.
 - Exact replay (`rerun --exact`) keeps the provider family's transport. For
