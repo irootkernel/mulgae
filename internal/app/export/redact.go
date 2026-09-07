@@ -127,7 +127,9 @@ func validateCurrentIdentity(identity CurrentIdentity) error {
 	return nil
 }
 
-func validSide(value string) bool { return value == "base" || value == "head" || value == "worktree" }
+func validSide(value string) bool {
+	return value == "base" || value == "head" || value == "worktree" || value == "index"
+}
 func validVerification(value string) bool {
 	switch value {
 	case "claimed", "verified", "stale", "invalid", "unverifiable":

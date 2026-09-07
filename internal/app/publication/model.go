@@ -2483,7 +2483,16 @@ func validateCommittedSnapshotSemantics(
 	if !run.Valid() || !snapshot.Valid() {
 		return 0, fmt.Errorf("invalid run or committed snapshot")
 	}
-	final := snapshot.Final()
+	return validatePublicationMaterialSemantics(run, snapshot.Final(), snapshot.Manifest(), snapshot.LineageEdge(), snapshot.Epoch())
+}
+
+func validatePublicationMaterialSemantics(
+	run ports.PublicationRun,
+	final ports.FinalReviewArtifact,
+	manifest ports.ImmutablePublicationArtifact,
+	lineage ports.ImmutablePublicationArtifact,
+	epoch ports.PublicationEpoch,
+) (domain.OperationalExitCode, error) {
 	if final.Identity().Path().String() != run.SessionID().String()+"/"+run.RunID().String()+"/review_"+final.Identity().ReviewID().String()+".json" {
 		return 0, fmt.Errorf("committed final path is not canonical for the observed run")
 	}
@@ -2491,14 +2500,9 @@ func validateCommittedSnapshotSemantics(
 		SchemaVersion string `json:"schema_version"`
 	}
 	if err := json.Unmarshal(final.Bytes(), &envelope); err == nil && envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
-		return validateCompositeSnapshot(run, snapshot)
+		return validateCompositeMaterial(run, final, manifest, lineage, epoch)
 	}
-	return validatePublicationCompositeSemantics(
-		final,
-		snapshot.Manifest(),
-		snapshot.LineageEdge(),
-		snapshot.Epoch(),
-	)
+	return validatePublicationCompositeSemantics(final, manifest, lineage, epoch)
 }
 
 func validateFinalProductionProvenance(final finalReviewWire) error {
@@ -3383,6 +3387,27 @@ func validateManifestFailures(manifest runManifestWire, outcomes []roleOutcomeWi
 	return nil
 }
 
+func decodePublicationRecoveryJournal(raw []byte) (recoveryJournalWire, error) {
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return recoveryJournalWire{}, err
+	}
+	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+		var wire compositeManifestWire
+		if err := unmarshalCanonicalPublicationRecord(raw, &wire, "composite run manifest"); err != nil {
+			return recoveryJournalWire{}, err
+		}
+		return wire.RecoveryJournal, nil
+	}
+	var wire runManifestWire
+	if err := unmarshalCanonicalPublicationRecord(raw, &wire, "run manifest"); err != nil {
+		return recoveryJournalWire{}, err
+	}
+	return wire.RecoveryJournal, nil
+}
+
 func validateRestartStateSemantics(
 	restart restartStateWire,
 	expectedState domain.PersistedJournalState,
@@ -3404,8 +3429,8 @@ func validateRestartStateSemantics(
 	if err != nil {
 		return err
 	}
-	var manifestWire runManifestWire
-	if err := unmarshalCanonicalPublicationRecord(manifest.Bytes(), &manifestWire, "run manifest"); err != nil {
+	recovery, err := decodePublicationRecoveryJournal(manifest.Bytes())
+	if err != nil {
 		return err
 	}
 	if paths.final != final.Path() ||
@@ -3415,7 +3440,7 @@ func validateRestartStateSemantics(
 		restart.ExpectedFinal.Path != final.Path().String() ||
 		restart.ExpectedFinal.SHA256 != final.SHA256() ||
 		!validSHA256(restart.ValidatedCandidateSHA256) ||
-		restart.ValidatedCandidateSHA256 != manifestWire.RecoveryJournal.ValidatedCandidateSHA256 ||
+		restart.ValidatedCandidateSHA256 != recovery.ValidatedCandidateSHA256 ||
 		restart.StoreEpoch != epoch.Value() ||
 		restart.NormalExit != int(normalExit) ||
 		restart.ManifestPath != manifest.Path().String() ||

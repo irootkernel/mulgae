@@ -6,6 +6,31 @@ import (
 	"testing"
 )
 
+func TestExportStagedFindingPreservesIndexEvidence(t *testing.T) {
+	for _, side := range []string{"index", "invalid"} {
+		t.Run(side, func(t *testing.T) {
+			source := validProjection()
+			source.CurrentIdentity.Side = side
+			source.Evidence[0].Side = side
+			bundle, manifest, err := BuildRedactedBundle(source, validOptions())
+			if side == "invalid" {
+				if !errors.Is(err, ErrMalformedProjection) {
+					t.Fatalf("invalid side error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var evidence []Evidence
+			decodeBundleMember(t, bundle, "evidence.json", &evidence)
+			if manifest.CurrentIdentity.Side != side || len(evidence) != 1 || evidence[0].Side != side {
+				t.Fatal("export changed staged evidence identity")
+			}
+		})
+	}
+}
+
 func TestEvidenceAndCurrentIdentityMarshalDistinctExcerptDigests(t *testing.T) {
 	sourceDigest := testHash("e")
 	currentDigest := testHash("0")

@@ -299,6 +299,8 @@ self-contained delta from the ordinary run layout:
         <role>.md
       support/
         index.json
+      validation/
+        final-candidate.json
       target/
         target.bytes
         target-manifest.json
@@ -313,7 +315,9 @@ self-contained delta from the ordinary run layout:
       e_<uuidv7>.json
 ```
 
-It contains no provider runtime stream, attempts, or validation directories.
+It contains no provider runtime stream, attempts, or provider validation output.
+The `validation/final-candidate.json` file retains the immutable publication
+candidate for interruption recovery; it is not a provider validation result.
 The copied role reports, target support, immutable lineage edge, and epoch make
 the composite readable after its source runs are cleaned. The captured-review
 manifest and blobs are present when the root retained a captured archive.

@@ -655,7 +655,13 @@ func validateCompositeBundleSemantics(bundle PublicationBundle) error {
 	return nil
 }
 
-func validateCompositeSnapshot(run ports.PublicationRun, snapshot ports.CommittedPublicationSnapshot) (domain.OperationalExitCode, error) {
+func validateCompositeMaterial(
+	run ports.PublicationRun,
+	finalArtifact ports.FinalReviewArtifact,
+	manifestArtifact ports.ImmutablePublicationArtifact,
+	lineageArtifact ports.ImmutablePublicationArtifact,
+	epochArtifact ports.PublicationEpoch,
+) (domain.OperationalExitCode, error) {
 	var final struct {
 		SchemaVersion string `json:"schema_version"`
 		SessionID     string `json:"session_id"`
@@ -663,7 +669,7 @@ func validateCompositeSnapshot(run ports.PublicationRun, snapshot ports.Committe
 		ReviewID      string `json:"review_id"`
 		RunType       string `json:"run_type"`
 	}
-	if err := json.Unmarshal(snapshot.Final().Bytes(), &final); err != nil {
+	if err := json.Unmarshal(finalArtifact.Bytes(), &final); err != nil {
 		return 0, err
 	}
 	var manifest struct {
@@ -676,18 +682,18 @@ func validateCompositeSnapshot(run ports.PublicationRun, snapshot ports.Committe
 		CompositeIdentity    compositeIdentityWire   `json:"composite_identity"`
 		ExitCode             int                     `json:"exit_code"`
 	}
-	if err := json.Unmarshal(snapshot.Manifest().Bytes(), &manifest); err != nil {
+	if err := json.Unmarshal(manifestArtifact.Bytes(), &manifest); err != nil {
 		return 0, err
 	}
 	var edge lineageEdgeWire
-	if err := json.Unmarshal(snapshot.LineageEdge().Bytes(), &edge); err != nil {
+	if err := json.Unmarshal(lineageArtifact.Bytes(), &edge); err != nil {
 		return 0, err
 	}
 	var epoch publicationEpochWire
-	if err := json.Unmarshal(snapshot.Epoch().Record().Bytes(), &epoch); err != nil {
+	if err := json.Unmarshal(epochArtifact.Record().Bytes(), &epoch); err != nil {
 		return 0, err
 	}
-	if final.SchemaVersion != "mulgae-composite-review-artifact.v1" || manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" || final.SessionID != run.SessionID().String() || final.RunID != run.RunID().String() || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || final.RunType != string(domain.RunTypeComposite) || manifest.RunType != final.RunType || manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) || manifest.FinalReview.SHA256 != snapshot.Final().Identity().SHA256() || manifest.FinalReview.Path != snapshot.Final().Identity().Path().String() || manifest.CompositeIdentity.Manifest.Path != snapshot.Manifest().Path().String() || manifest.CompositeIdentity.LineageEdge.SHA256 != snapshot.LineageEdge().SHA256() || manifest.CompositeIdentity.Epoch.Path != snapshot.Epoch().Record().Path().String() || edge.Child.ReviewID != final.ReviewID || edge.ParentRunID != nil || edge.SourceRunID != nil || epoch.StoreEpoch != snapshot.Epoch().Value() || epoch.Manifest.SHA256 != snapshot.Manifest().SHA256() || epoch.FinalReview.SHA256 != snapshot.Final().Identity().SHA256() {
+	if final.SchemaVersion != "mulgae-composite-review-artifact.v1" || manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" || final.SessionID != run.SessionID().String() || final.RunID != run.RunID().String() || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || final.RunType != string(domain.RunTypeComposite) || manifest.RunType != final.RunType || manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) || manifest.FinalReview.SHA256 != finalArtifact.Identity().SHA256() || manifest.FinalReview.Path != finalArtifact.Identity().Path().String() || manifest.CompositeIdentity.Manifest.Path != manifestArtifact.Path().String() || manifest.CompositeIdentity.LineageEdge.SHA256 != lineageArtifact.SHA256() || manifest.CompositeIdentity.Epoch.Path != epochArtifact.Record().Path().String() || edge.Child.ReviewID != final.ReviewID || edge.ParentRunID != nil || edge.SourceRunID != nil || epoch.StoreEpoch != epochArtifact.Value() || epoch.Manifest.SHA256 != manifestArtifact.SHA256() || epoch.FinalReview.SHA256 != finalArtifact.Identity().SHA256() {
 		return 0, fmt.Errorf("composite committed snapshot bindings are invalid")
 	}
 	exit := domain.OperationalExitCode(manifest.ExitCode)

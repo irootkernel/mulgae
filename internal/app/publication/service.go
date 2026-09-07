@@ -1667,12 +1667,12 @@ func issuedReviewIDFromMaterial(
 	if journal.SchemaVersion != publicationJournalV1 {
 		return ports.IssuedReviewID{}, fmt.Errorf("recovery journal schema version is invalid")
 	}
-	var manifest runManifestWire
-	if err := unmarshalCanonicalPublicationRecord(prepared.Composite().Manifest().Bytes(), &manifest, "recovery manifest"); err != nil {
+	recovery, err := decodePublicationRecoveryJournal(prepared.Composite().Manifest().Bytes())
+	if err != nil {
 		return ports.IssuedReviewID{}, err
 	}
 	if journal.ValidatedCandidateSHA256 == "" ||
-		journal.ValidatedCandidateSHA256 != manifest.RecoveryJournal.ValidatedCandidateSHA256 {
+		journal.ValidatedCandidateSHA256 != recovery.ValidatedCandidateSHA256 {
 		return ports.IssuedReviewID{}, fmt.Errorf("recovery material candidate binding does not match the immutable manifest")
 	}
 	return ports.NewIssuedReviewID(candidate.Identity().ReviewID(), journal.ValidatedCandidateSHA256)
@@ -1897,7 +1897,8 @@ func validateRecoveryMaterial(
 	if wire.SchemaVersion != publicationJournalV1 {
 		return fmt.Errorf("recovery journal schema version is invalid")
 	}
-	normalExit, err := validatePublicationCompositeSemantics(
+	normalExit, err := validatePublicationMaterialSemantics(
+		run,
 		candidate,
 		prepared.Composite().Manifest(),
 		prepared.Composite().LineageEdge(),

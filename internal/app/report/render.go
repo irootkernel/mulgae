@@ -67,6 +67,7 @@ type reportLineageDTO struct {
 	ParentRunID      *string `json:"parent_run_id"`
 	SourceRunID      *string `json:"source_run_id"`
 	SourceReviewID   *string `json:"source_review_id"`
+	SourceAttemptID  *string `json:"source_attempt_id,omitempty"`
 	SourceFindingRef *string `json:"source_finding_ref"`
 	ReplayMode       *string `json:"replay_mode"`
 	LineageEdgePath  string  `json:"lineage_edge_path"`
@@ -672,6 +673,7 @@ func renderMarkdown(
 	writeOptionalField(&output, "Parent run ID", final.ImmutableLineage.ParentRunID)
 	writeOptionalField(&output, "Source run ID", final.ImmutableLineage.SourceRunID)
 	writeOptionalField(&output, "Source review ID", final.ImmutableLineage.SourceReviewID)
+	writeOptionalField(&output, "Source attempt ID", final.ImmutableLineage.SourceAttemptID)
 	writeOptionalField(&output, "Source finding reference", final.ImmutableLineage.SourceFindingRef)
 	writeOptionalField(&output, "Replay mode", final.ImmutableLineage.ReplayMode)
 	writeField(&output, "Lineage edge path", review.LineageEdgePath().String())

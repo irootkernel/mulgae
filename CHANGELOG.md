@@ -16,6 +16,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Changed
 
+- Await reviews without status polling, check the admitted wait budget, and
+  reconcile interrupted waits by exact identity without duplicate starts.
 - Accept AGY native JSON response envelopes while preserving exact response
   bytes, and use an adapter-owned system PATH for provider execution.
 - Retain private qualification request and process diagnostics before temporary
@@ -26,6 +28,10 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Recover composite publication after journal or final installation interruptions
+  while preserving the original review identity and publication bindings.
+- Render rerun reports with the recorded source attempt and export staged findings
+  with their verified index evidence.
 - Resume exact composite publication after interruption before journal creation
   without replacing candidate identity or already persisted support files.
 - Reject malformed HTTP status suffixes when classifying provider rate limits.

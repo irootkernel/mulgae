@@ -37,5 +37,6 @@ contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a future schema version. This release neither embeds
-nor accepts a compatibility schema for a superseded Mulgae contract.
+Breaking changes require a future schema version. The command-result v5 schema
+remains available for explicit backward reads while commands emit v6. Other
+superseded contracts have no compatibility schema in this release.

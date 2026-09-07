@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -35,6 +36,31 @@ type compositeInterruptedStore struct {
 	*filesystem.PublicationStore
 	after  int
 	writes int
+}
+
+func (store *compositeInterruptedStore) ReplaceMutable(ctx context.Context, request ports.MutableReplaceRequest) (ports.MutableReplaceResult, error) {
+	result, err := store.PublicationStore.ReplaceMutable(ctx, request)
+	if err == nil && store.after == -1 && request.Document() == ports.MutablePublicationJournal {
+		os.Exit(73)
+	}
+	return result, err
+}
+
+func (store *compositeInterruptedStore) InstallFinal(ctx context.Context, request ports.InstallFinalRequest) (ports.InstallFinalResult, error) {
+	result, err := store.PublicationStore.InstallFinal(ctx, request)
+	if err == nil && store.after == -2 {
+		os.Exit(73)
+	}
+	return result, err
+}
+
+func TestCompositePublicationResumesJournaledCandidate(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		after int
+	}{{"journal", -1}, {"final", -2}} {
+		t.Run(test.name, func(t *testing.T) { testCompositeLifecycle(t, "", test.after) })
+	}
 }
 
 func (store *compositeInterruptedStore) PersistValidatedCandidate(ctx context.Context, request ports.PersistValidatedCandidateRequest) (ports.PersistValidatedCandidateResult, error) {
@@ -167,8 +193,14 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, interruptAf
 	if got := len(bundle.SupportArtifacts()); got != 4 {
 		t.Fatalf("support artifact count = %d", got)
 	}
-	rootPath := filepath.Join(t.TempDir(), ".mulgae")
-	if err := os.Mkdir(rootPath, 0o700); err != nil {
+	var rootPath string
+	if len(interruptAfter) != 0 && interruptAfter[0] < 0 {
+		rootPath = os.Getenv("MULGAE_TEST_COMPOSITE_INTERRUPT_ROOT")
+	}
+	if rootPath == "" {
+		rootPath = filepath.Join(t.TempDir(), ".mulgae")
+	}
+	if err := os.MkdirAll(rootPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	rootScope, err := ports.NewAnchoredRoot(rootPath)
@@ -194,50 +226,62 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, interruptAf
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, candidate); err == nil {
-			t.Fatal("interrupted publication succeeded")
-		}
-		changed := input
-		changed.CIDecision = domain.CIFail
-		mismatched, err := PrepareCompositeCandidate(changed)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, mismatched); err == nil {
-			t.Fatal("unjournaled candidate accepted different composition inputs")
-		}
-		cancelled, cancel := context.WithCancel(context.Background())
-		cancel()
-		if _, err := firstService.PublishCompositeNext(cancelled, rootScope, candidate); err == nil {
-			t.Fatal("cancelled replay succeeded")
-		}
-		if interruptAfter[0] > 0 {
-			support := bundle.SupportArtifacts()[0]
-			path := filepath.Join(rootPath, support.Path().String())
-			if err := os.WriteFile(path, []byte("conflicting support"), 0o600); err != nil {
-				t.Fatal(err)
+		if interruptAfter[0] < 0 && os.Getenv("MULGAE_TEST_COMPOSITE_INTERRUPT_ROOT") == "" {
+			command := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$")
+			command.Env = append(os.Environ(), "MULGAE_TEST_COMPOSITE_INTERRUPT_ROOT="+rootPath)
+			output, err := command.CombinedOutput()
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != 73 {
+				t.Fatalf("publication child exit = %v, want interruption: %s", err, output)
 			}
+		} else {
 			if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, candidate); err == nil {
-				t.Fatal("replay accepted conflicting support bytes")
+				t.Fatal("interrupted publication succeeded")
 			}
-			if err := os.Remove(path); err != nil {
+		}
+		if interruptAfter[0] >= 0 {
+			changed := input
+			changed.CIDecision = domain.CIFail
+			mismatched, err := PrepareCompositeCandidate(changed)
+			if err != nil {
 				t.Fatal(err)
 			}
-			targetPath := filepath.Join(t.TempDir(), "outside-support")
-			if err := os.WriteFile(targetPath, support.Bytes(), 0o600); err != nil {
-				t.Fatal(err)
+			if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, mismatched); err == nil {
+				t.Fatal("unjournaled candidate accepted different composition inputs")
 			}
-			if err := os.Symlink(targetPath, path); err != nil {
-				t.Fatal(err)
+			cancelled, cancel := context.WithCancel(context.Background())
+			cancel()
+			if _, err := firstService.PublishCompositeNext(cancelled, rootScope, candidate); err == nil {
+				t.Fatal("cancelled replay succeeded")
 			}
-			if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, candidate); err == nil {
-				t.Fatal("replay followed a support symlink")
-			}
-			if err := os.Remove(path); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(path, support.Bytes(), 0o600); err != nil {
-				t.Fatal(err)
+			if interruptAfter[0] > 0 {
+				support := bundle.SupportArtifacts()[0]
+				path := filepath.Join(rootPath, support.Path().String())
+				if err := os.WriteFile(path, []byte("conflicting support"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, candidate); err == nil {
+					t.Fatal("replay accepted conflicting support bytes")
+				}
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				targetPath := filepath.Join(t.TempDir(), "outside-support")
+				if err := os.WriteFile(targetPath, support.Bytes(), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(targetPath, path); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := firstService.PublishCompositeNext(context.Background(), rootScope, candidate); err == nil {
+					t.Fatal("replay followed a support symlink")
+				}
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, support.Bytes(), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 		clock.now = clock.now.Add(time.Hour)
@@ -251,6 +295,20 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, interruptAf
 	service, err := NewService(faultStore, validator, clock, 8<<20)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(interruptAfter) != 0 && interruptAfter[0] < 0 {
+		run, err := ports.NewPublicationRun(rootScope, session, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recovered, err := service.Recover(context.Background(), run)
+		if err != nil {
+			t.Fatalf("recover interrupted composite: %v", err)
+		}
+		final, ok := recovered.Final()
+		if !ok || final != bundle.Final().Identity() || recovered.Decision().Authority() != domain.PublicationAuthorityP2 {
+			t.Fatal("recovery changed the journaled candidate identity or omitted P2")
+		}
 	}
 	result, err := service.PublishCompositeNext(context.Background(), rootScope, candidate)
 	if err != nil {

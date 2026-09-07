@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,6 +19,40 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
+
+func TestDecodeReportFinalAcceptsRerunSourceAttempt(t *testing.T) {
+	_, review := reportCommittedFixture(t)
+	for _, test := range []struct {
+		name      string
+		field     string
+		value     any
+		wantError bool
+	}{
+		{name: "legacy"},
+		{name: "source attempt", field: "source_attempt_id", value: "a_019f596a-d048-79e7-b2b7-59822f012273"},
+		{name: "null source attempt", field: "source_attempt_id"},
+		{name: "unknown field", field: "unexpected_attempt_id", value: "unexpected", wantError: true},
+		{name: "wrong type", field: "source_attempt_id", value: 42, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var final map[string]any
+			if err := json.Unmarshal(review.FinalBytes(), &final); err != nil {
+				t.Fatal(err)
+			}
+			if test.field != "" {
+				final["immutable_lineage"].(map[string]any)[test.field] = test.value
+			}
+			raw, err := json.Marshal(final)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = decodeReportFinal(raw)
+			if (err != nil) != test.wantError {
+				t.Fatalf("decodeReportFinal() = %v, want error %v", err, test.wantError)
+			}
+		})
+	}
+}
 
 func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 	run, review := reportCommittedFixture(t)
