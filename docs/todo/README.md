@@ -10,7 +10,9 @@ None.
 
 ## Adopted active dossiers
 
-None.
+- [`TODO-zcode-app-server-transport.md`](TODO-zcode-app-server-transport.md):
+  execution dossier for
+  [EPIC-003](../roadmap/README.md#epic-003-zcode-app-server-provider-transport).
 
 When a candidate is adopted with tasks, identify its epic here and link the
 dossier from the roadmap as `Detailed SOT`. Epic closeout promotes durable
