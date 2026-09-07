@@ -74,9 +74,9 @@ follow-up work in the Aquarium repository.
 
 ## EPIC-003: ZCode app-server provider transport
 
-Status: In Progress
+Status: Completed
 
-Detailed SOT: [ZCode app-server provider transport dossier](../todo/TODO-zcode-app-server-transport.md)
+Canonical Outcomes: [product boundaries](../specs/goals.md), [architecture](../architecture/README.md), [public contracts](../specs/contracts.md), [security requirements](../specs/security.md), and the accepted [app-server transport decision](../architecture-decision-records/zcode-app-server-transport.md)
 
 Goal: replace the ZCode family's one-shot print-mode CLI invocation with the
 ZCode app-server stdio wire protocol while keeping the staged-file report
