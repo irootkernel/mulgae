@@ -27,7 +27,7 @@ func TestProductionCandidateTemplatesAreCanonicalAndAGYIsBounded(t *testing.T) {
 			if template.family != family || template.instance != wantInstance || template.profileID != wantInstance || !reflect.DeepEqual(template.supportedRoles, []domain.Role{role}) {
 				t.Fatalf("template %s/%s = %#v", family, role, template)
 			}
-			if family == FamilyZCode && template.transportArgvIndex != 6 {
+			if family == FamilyZCode && (template.transportChannel != ports.ProviderPacketChannelProtocol || template.transportArgvIndex != -1) {
 				t.Fatalf("ZCode template %s = %#v", role, template)
 			}
 			if template.limits.Timeout() != productionDefaultProviderTimeout {

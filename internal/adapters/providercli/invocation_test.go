@@ -159,7 +159,7 @@ func TestNativeProbeInvocationKeepsKimiAndZcodeArgv(t *testing.T) {
 	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
 	for family, want := range map[string][]string{
 		FamilyKimi:  {"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "fixture-packet", "--output-format", "stream-json"},
-		FamilyZcode: {"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools},
+		FamilyZcode: {"/private/bin/zcode", "app-server"},
 	} {
 		definition := testProfile(t, family, "provider_current", "", "")
 		argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
@@ -214,17 +214,14 @@ func TestZCodeQualificationDenylistStillFullyToolDenied(t *testing.T) {
 	definition := testProfile(t, FamilyZcode, "zcode_current", "", "")
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := []string{
-		"/private/bin/zcode", "--mode", "plan", "--no-color", "--prompt", "fixture-packet",
-		"--json", "--disallowed-tools", "*",
-	}
+	want := []string{"/private/bin/zcode", "app-server"}
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("ZCode qualification argv = %#v, err = %v, want %#v", argv, err, want)
 	}
 	if err := (NativeProbeInvocation{}).Validate(definition, fixture, argv); err != nil {
 		t.Fatalf("validate exact ZCode qualification argv: %v", err)
 	}
-	if zcodeCapabilityDisallowedTools == zcodeWorkspaceReadOnlyDisallowedTools {
+	if reflect.DeepEqual(zcodeCapabilityProtocolDenylist, zcodeReviewProtocolDenylist) {
 		t.Fatal("qualification shares the review denylist")
 	}
 }
@@ -247,7 +244,7 @@ func TestNativeProbeInvocationAllowsDeclaredZcodeLauncher(t *testing.T) {
 	definition.baseArgv = []string{definition.executable, definition.launcher}
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := []string{definition.executable, definition.launcher, "--mode", "plan", "--no-color", "--prompt", "fixture-packet", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools}
+	want := []string{definition.executable, definition.launcher, "app-server"}
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("ZCode launcher argv = %#v, err = %v, want %#v", argv, err, want)
 	}

@@ -61,8 +61,8 @@ func TestLiveKimiCapability(t *testing.T) {
 func TestLiveZCodeCapability(t *testing.T) {
 	config := liveCapabilityConfig{
 		family: providercli.FamilyZcode, credential: providercli.CredentialSourceZCode, instance: "zcode-security", role: domain.RoleSecurity,
-		executableEnv: "MULGAE_LIVE_ZCODE_NODE_BIN", launcherEnv: "MULGAE_LIVE_ZCODE_LAUNCHER", transportIndex: 6,
-		minimumVersion: [3]int{0, 16, 3},
+		executableEnv: "MULGAE_LIVE_ZCODE_NODE_BIN", launcherEnv: "MULGAE_LIVE_ZCODE_LAUNCHER", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
+		minimumVersion: [3]int{0, 16, 5},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}
 		},
@@ -425,6 +425,19 @@ type liveCapabilityRecordingRunner struct {
 func (runner *liveCapabilityRecordingRunner) Run(ctx context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
 	runner.requests = append(runner.requests, request)
 	observation, err := runner.runner.Run(ctx, request)
+	runner.observations = append(runner.observations, observation)
+	return observation, err
+}
+
+// Converse carries protocol-channel routes through the same recording so live
+// zcode certification exercises the real conversation runner.
+func (runner *liveCapabilityRecordingRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	conversationRunner, ok := runner.runner.(ports.ProviderConversationRunner)
+	if !ok {
+		return ports.ProcessObservation{}, fmt.Errorf("live capability recording runner cannot converse")
+	}
+	runner.requests = append(runner.requests, request)
+	observation, err := conversationRunner.Converse(ctx, request, driver)
 	runner.observations = append(runner.observations, observation)
 	return observation, err
 }

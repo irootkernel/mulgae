@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -835,6 +837,57 @@ func (r *authorityProbeRunner) Run(_ context.Context, request ports.ProcessReque
 	return authorityProbeObservation(r.t, output, binding.Channel(), binding.PacketIdentity(), binding.PromptFileReference(), binding.SnapshotCWD(), binding.Packet().Bytes(), &lifecycle), nil
 }
 
+// Converse carries protocol-channel routes through the same canned
+// observations while the real session driver runs against a scripted
+// exchange whose assistant message carries the controlled proof.
+func (r *authorityProbeRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	observation, err := r.Run(ctx, request)
+	if err != nil {
+		return observation, err
+	}
+	if r.family != FamilyZCode {
+		return observation, nil
+	}
+	proof := `{"root":"nonce","link":"linked","role":"logic"}`
+	script := []string{
+		`{"id":"server-1","method":"session/requestRuntimePreferences","params":{"sessionId":"sess_script","scope":"runtime-materialization"}}`,
+		`{"id":"mulgae-create","result":{"session":{"sessionId":"sess_script"}}}`,
+		`{"id":"mulgae-send","result":{"accepted":true,"sessionId":"sess_script","stateRevision":1}}`,
+		`{"method":"computer-use/operation-event","params":{"kind":"turn-completed","turnId":"turn_script"}}`,
+		`{"id":"mulgae-messages","result":{"messages":[{"info":{"role":"assistant"},"parts":[{"type":"text","text":` + strconv.Quote(proof) + `}]}]}}`,
+		`{"id":"mulgae-close","result":{"closed":true}}`,
+	}
+	exchange := &authorityProbeProtocolExchange{lines: make(chan string, len(script))}
+	for _, line := range script {
+		exchange.lines <- line
+	}
+	close(exchange.lines)
+	if driveErr := driver.Drive(ctx, exchange); driveErr != nil {
+		r.t.Fatalf("zcode protocol conversation failed: %v", driveErr)
+	}
+	return observation, nil
+}
+
+type authorityProbeProtocolExchange struct {
+	lines chan string
+}
+
+func (exchange *authorityProbeProtocolExchange) ReceiveLine(ctx context.Context) ([]byte, error) {
+	select {
+	case line, ok := <-exchange.lines:
+		if !ok {
+			return nil, io.EOF
+		}
+		return []byte(line), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (exchange *authorityProbeProtocolExchange) SendLine(_ context.Context, _ []byte) error {
+	return nil
+}
+
 func authorityProbeObservation(t *testing.T, output []byte, channel ports.ProviderPacketChannel, packet ports.ProviderPacketIdentity, reference, cwd string, stdinBytes []byte, lifecycle *ports.ProcessLifecycleReceipt) ports.ProcessObservation {
 	t.Helper()
 	var written int64
@@ -958,14 +1011,15 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 func authorityProbeDefinition(t *testing.T, family Family, instance, version, workingDirectory string) (providercli.RuntimeDefinition, authorityProbeNamespace) {
 	t.Helper()
 	argvIndex := 4
-	if family == FamilyZCode {
-		argvIndex = 6
-	} else if family == FamilyAGY {
+	if family == FamilyAGY {
 		argvIndex = 14
 	}
 	channel, reference := ports.ProviderPacketChannelPromptFile, "@roadmap.md"
 	if family == FamilyCodex {
 		channel, argvIndex, reference = ports.ProviderPacketChannelStdin, -1, ""
+	}
+	if family == FamilyZCode {
+		channel, argvIndex, reference = ports.ProviderPacketChannelProtocol, -1, ""
 	}
 	transport, err := providercli.NewRuntimeTransport(channel, argvIndex, reference)
 	if err != nil {

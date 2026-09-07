@@ -390,7 +390,13 @@ is never the primary report URI.
 
 `transport` is adapter-owned per provider family, not configurable. ZCode
 review invocations are granted `staged_file`; AGY and Kimi remain `stdout`.
-AGY review, extraction, and capability invocations request `--output-format=json`;
+ZCode review and qualification invocations speak the ZCode app-server protocol:
+the adapter launches `[node, launcher, app-server]` and delivers every packet
+inside one newline-delimited protocol conversation over the child's stdin and
+stdout, so no prompt, mode, or tool policy ever appears on the argv. The
+conversation's turn completion, not child exit, is the provider's terminal
+review fact, and protocol stdout transcripts are never report content. AGY
+review, extraction, and capability invocations request `--output-format=json`;
 the adapter unwraps the native envelope's `response` as the review content.
 The JSON envelope does not replace process termination or lifecycle validation.
 AGY native JSON envelopes must contain a nonempty string `response`; when
@@ -670,7 +676,12 @@ profile, with at most one bounded operational retry, then derives role admission
 for configured role routes that share that profile. Shareable
 profiles are equivalent across base argv, transport channel/reference/index,
 environment, working directory, lifecycle, model, Codex reasoning effort,
-executable/launcher identity, and runtime safety policy identity. ZCode may
+executable/launcher identity, and runtime safety policy identity. ZCode
+qualification probes use the app-server protocol conversation in plan mode
+with every tool denied; their capability evidence is the conversation's
+captured assistant response text, read back through the protocol after the
+turn completes, and the protocol transcript on stdout is never evidence.
+ZCode may
 share one probe across sibling role instances only when that full shareable
 profile matches; AGY profiles also include provider instance because AGY control
 evidence is instance-bound. Direct-execution authority construction and Matches

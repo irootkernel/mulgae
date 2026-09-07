@@ -7,10 +7,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -191,6 +194,9 @@ func (g *currentProbeGuard) Close() error                    { g.fixture.closes+
 type currentProbeRunner struct {
 	observations []ports.ProcessObservation
 	requests     []ports.ProcessRequest
+	// protocol, when set, is driven by Converse so protocol-channel tests
+	// exercise the real session driver against a scripted exchange.
+	protocol ports.ProviderSessionExchange
 }
 
 func (r *currentProbeRunner) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
@@ -205,6 +211,66 @@ func (r *currentProbeRunner) Run(_ context.Context, request ports.ProcessRequest
 	return result, nil
 }
 
+func (r *currentProbeRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	observation, err := r.Run(ctx, request)
+	if err != nil || r.protocol == nil {
+		return observation, err
+	}
+	if driveErr := driver.Drive(ctx, r.protocol); driveErr != nil {
+		return observation, driveErr
+	}
+	return observation, nil
+}
+
+// scriptedProtocolExchange serves recorded server lines and records every
+// client line for one ZCode Protocol conversation.
+type scriptedProtocolExchange struct {
+	lines  chan []byte
+	sentMu sync.Mutex
+	sent   [][]byte
+}
+
+func newScriptedProtocolExchange(serverLines ...string) *scriptedProtocolExchange {
+	exchange := &scriptedProtocolExchange{lines: make(chan []byte, len(serverLines))}
+	for _, line := range serverLines {
+		exchange.lines <- []byte(line)
+	}
+	close(exchange.lines)
+	return exchange
+}
+
+func (exchange *scriptedProtocolExchange) ReceiveLine(ctx context.Context) ([]byte, error) {
+	select {
+	case line, ok := <-exchange.lines:
+		if !ok {
+			return nil, io.EOF
+		}
+		return line, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (exchange *scriptedProtocolExchange) SendLine(_ context.Context, line []byte) error {
+	exchange.sentMu.Lock()
+	defer exchange.sentMu.Unlock()
+	exchange.sent = append(exchange.sent, append([]byte(nil), line...))
+	return nil
+}
+
+// zcodeProtocolScript builds one complete happy-path server script whose
+// assistant message carries the given proof text.
+func zcodeProtocolScript(proof string) *scriptedProtocolExchange {
+	return newScriptedProtocolExchange(
+		`{"id":"server-1","method":"session/requestRuntimePreferences","params":{"sessionId":"sess_script","scope":"runtime-materialization"}}`,
+		`{"id":"mulgae-create","result":{"session":{"sessionId":"sess_script"}}}`,
+		`{"id":"mulgae-send","result":{"accepted":true,"sessionId":"sess_script","stateRevision":1}}`,
+		`{"method":"computer-use/operation-event","params":{"kind":"turn-completed","turnId":"turn_script"}}`,
+		`{"id":"mulgae-messages","result":{"messages":[{"info":{"role":"assistant"},"parts":[{"type":"text","text":`+strconv.Quote(proof)+`}]},{"info":{"role":"user"},"parts":[{"type":"text","text":"prompt"}]}]}}`,
+		`{"id":"mulgae-close","result":{"closed":true}}`,
+	)
+}
+
 func TestCapabilityResponseClassifiesNativeFailureWithoutWeakeningProof(t *testing.T) {
 	fixture := &currentProbeFixture{role: domain.RoleLogic}
 	for _, test := range []struct {
@@ -212,11 +278,11 @@ func TestCapabilityResponseClassifiesNativeFailureWithoutWeakeningProof(t *testi
 		class                domain.FailureClass
 		cause                domain.RuntimeDiagnosticCause
 	}{
-		{"quota", `{"response":"quota_exceeded"}`, "", domain.FailureQuota, domain.DiagnosticCauseQuotaExceeded},
-		{"rate limit", `{"response":"rate limit exceeded"}`, "", domain.FailureRateLimit, domain.DiagnosticCauseRateLimited},
+		{"quota", "quota_exceeded", "", domain.FailureQuota, domain.DiagnosticCauseQuotaExceeded},
+		{"rate limit", "rate limit exceeded", "", domain.FailureRateLimit, domain.DiagnosticCauseRateLimited},
 		{"turn failure", "", "turn execution failed", domain.FailureProviderUnavailable, domain.DiagnosticCauseProviderTurnFailed},
 		{"wrong proof", `{"root":"wrong","link":"linked","role":"logic"}`, "", domain.FailureInvalidOutput, domain.DiagnosticCauseObservationMismatch},
-		{"valid proof", `{"response":"root=nonce link=linked role=logic; rate limit is not observed"}`, "", "", ""},
+		{"valid proof", `{"root":"nonce","link":"linked","role":"logic"}`, "", "", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := acceptCapabilityResponse(context.Background(), FamilyZcode, []byte(test.output), []byte(test.stderr), fixture)
@@ -280,6 +346,33 @@ func currentProbeExitedLifecycle(t *testing.T) ports.ProcessLifecycleReceipt {
 
 func currentProbeCapabilityObservation(t *testing.T, fixture *currentProbeFixture, output []byte) ports.ProcessObservation {
 	return currentProbeCapabilityObservationWithStderr(t, fixture, output, nil)
+}
+
+func currentProbeCapabilityProtocolObservation(t *testing.T, fixture *currentProbeFixture, output []byte) ports.ProcessObservation {
+	t.Helper()
+	packet, err := ports.NewProviderPacketFromBytes(fixture.Packet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := ports.NewProviderPacketTransportReceipt(
+		ports.ProviderPacketChannelProtocol, packet.Identity(), "", "",
+		ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := ports.NewStartedProviderProcessObservation(
+		output, nil, ports.ProcessTerminationExited, stdin, transport, currentProbeExitedLifecycle(t),
+		time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
 }
 
 func currentProbeCapabilityObservationWithStderr(t *testing.T, fixture *currentProbeFixture, output, stderr []byte) ports.ProcessObservation {
@@ -513,8 +606,9 @@ func TestCurrentProbeZCodeMintsTypedDirectExecutionAuthority(t *testing.T) {
 	evidence := []byte(`{"root":"nonce","link":"linked","role":"logic"}`)
 	runner := &currentProbeRunner{observations: []ports.ProcessObservation{
 		testProcessObservation(t, []byte("1.2.3\n"), nil, ports.ProcessTerminationExited, 0),
-		currentProbeCapabilityObservation(t, fixture, evidence),
+		currentProbeCapabilityProtocolObservation(t, fixture, evidence),
 	}}
+	runner.protocol = zcodeProtocolScript(string(evidence))
 	probe, err := NewCurrentProbe(runner, &currentProbeVerifier{})
 	if err != nil {
 		t.Fatal(err)
@@ -1568,7 +1662,7 @@ func TestNativeProbeInvocationFamilyPolicy(t *testing.T) {
 	fixture := &currentProbeFixture{identity: identity}
 	for family, want := range map[string][]string{
 		FamilyKimi:  {"--model", "kimi-code/kimi-for-coding", "--prompt", "fixture", "--output-format", "stream-json"},
-		FamilyZcode: {"--mode", "plan", "--no-color", "--prompt", "fixture", "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools},
+		FamilyZcode: {"app-server"},
 		FamilyAgy:   {"--new-project", "--sandbox", "--add-dir", directory, "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--output-format=json", "--print", "fixture"},
 	} {
 		definition := testProfile(t, family, "kimi_current", "", "")

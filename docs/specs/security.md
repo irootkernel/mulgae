@@ -117,10 +117,28 @@ Project configuration cannot introduce an executable command.
 Write authority is not uniform across families, and it is no longer accurate to
 say that no provider ever holds it.
 
-- ZCode review invocations run with `--mode yolo` and the adapter-owned
-  denylist `Bash,Edit,NotebookEdit,WebSearch,WebFetch`. `Write` is deliberately
-  enabled so ZCode can place its role report at the one absolute path Mulgae
-  chose. ZCode qualification is unchanged: plan mode with all tools denied.
+- ZCode review and qualification invocations speak the app-server protocol:
+  the adapter launches `[node, launcher, app-server]` and conducts one
+  newline-delimited protocol conversation over the child's stdin and stdout,
+  replacing the former one-shot print invocation without a fallback. Review
+  conversations request `yolo` mode with the adapter-owned denylist
+  `Bash,Edit,NotebookEdit,WebSearch,WebFetch,EnterPlanMode,ExitPlanMode`.
+  `Write` is deliberately enabled so ZCode can place its role report at the one
+  absolute path Mulgae chose. The plan tools are denied because the protocol's
+  plan flow persists `plan-<session>.md` files inside the workspace, which the
+  sealed snapshot's drift detection must continue to reject. ZCode
+  qualification conversations use plan mode with all tools denied; their
+  capability evidence is the conversation's captured assistant text. The
+  server's runtime-preferences request is answered with a fixed local-only
+  object, and every other server-initiated interaction request is left
+  unanswered. A missing turn completion, a reported turn failure, or an
+  unparseable protocol message fails closed through typed classification, with
+  the stderr token classification retained as the fallback. Because the
+  app-server binds a per-process unix socket under its temp directory, ZCode
+  namespaces redirect `TMPDIR`, `TMP`, and `TEMP` to the short shared
+  mode-`0700` runtime directory `/tmp/mulgae-zcode`; a namespace-rooted temp
+  path exceeds the kernel socket path limit. Socket names carry process-unique
+  random identifiers, and the directory is never used for review content.
 - AGY review invocations are unchanged: `--new-project --sandbox --add-dir
   <workspace> --mode plan` in the default safe permission mode. Headless AGY
   auto-denies `write_file` in safe mode, so AGY role reports stay on the stdout

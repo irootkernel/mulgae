@@ -372,7 +372,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe version invocation unavailable", err)
 	}
-	versionObservation, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil, nil)
+	versionObservation, _, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil, nil)
 	if versionError != nil {
 		return CurrentProbeResult{}, versionError
 	}
@@ -403,7 +403,8 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		}
 		executionPolicy = &policy
 	}
-	capabilityObservation, capabilityError = probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet, executionPolicy)
+	var capabilityEvidence []byte
+	capabilityObservation, capabilityEvidence, capabilityError = probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet, executionPolicy)
 	if capabilityError != nil {
 		return CurrentProbeResult{}, capabilityError
 	}
@@ -419,11 +420,20 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 			capabilityObservation.Stdout(),
 		)
 	}
-	if !capabilityObservation.Succeeded() {
+	// A protocol conversation succeeds through its driver: the bounded
+	// teardown that ends a live app-server classifies as signaled, so the
+	// one-shot Succeeded() frame contract does not apply to it.
+	protocolConversation := definition.Transport().Channel() == ports.ProviderPacketChannelProtocol
+	if !protocolConversation && !capabilityObservation.Succeeded() {
 		processErr := qualificationProcessFailure(definition.Family(), capabilityObservation, fmt.Errorf("capability probe failed"))
 		return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), processErr, capabilityObservation.Stderr(), capabilityObservation.Stdout())
 	}
 	output := capabilityObservation.Stdout()
+	if protocolConversation {
+		// ZCode capability evidence is the conversation's captured assistant
+		// text; the protocol transcript on stdout is never evidence.
+		output = capabilityEvidence
+	}
 	if evidenceErr := acceptCapabilityResponse(ctx, definition.Family(), output, capabilityObservation.Stderr(), roleFixture); evidenceErr != nil {
 		return CurrentProbeResult{}, evidenceErr
 	}
@@ -479,13 +489,15 @@ func qualificationFamilyOutputCause(family string, err error) domain.RuntimeDiag
 
 // runBound makes exactly one descriptor-bound launch. Every return path validates
 // the namespace and fixture before launch and the fixture guard after launch.
-func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket, executionPolicy *AGYExecutionPolicy) (observation ports.ProcessObservation, err error) {
+// A ZCode capability probe converses the packet through the app-server protocol
+// and returns the captured assistant evidence text alongside the observation.
+func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket, executionPolicy *AGYExecutionPolicy) (observation ports.ProcessObservation, zcodeEvidence []byte, err error) {
 	if err := namespace.ValidateForSpawn(); err != nil {
-		return ports.ProcessObservation{}, securityProbeFailure("namespace", "namespace validation failed", err)
+		return ports.ProcessObservation{}, nil, securityProbeFailure("namespace", "namespace validation failed", err)
 	}
 	guard, guardErr := fixture.RevalidateForExecution()
 	if guardErr != nil || nilWorkspaceExecutionGuard(guard) {
-		return ports.ProcessObservation{}, securityProbeFailure("fixture", "fixture execution guard unavailable", guardErr)
+		return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "fixture execution guard unavailable", guardErr)
 	}
 	defer func() {
 		if closeErr := guard.Close(); closeErr != nil {
@@ -494,36 +506,47 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	}()
 	root := guard.WorkspaceRoot()
 	if !root.Valid() || guard.WorkspaceSnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() || root.SnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() {
-		return ports.ProcessObservation{}, securityProbeFailure("fixture", "fixture descriptor binding drift", nil)
+		return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "fixture descriptor binding drift", nil)
 	}
 	if definition.Family() == FamilyAgy && packet != nil {
 		if executionPolicy == nil || executionPolicy.Validate() != nil ||
 			executionPolicy.SnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() ||
 			!reflect.DeepEqual(executionPolicy.Argv(), argv) || executionPolicy.PacketIdentity() != packet.Identity() {
-			return ports.ProcessObservation{}, securityProbeFailure("direct-execution-authority", "AGY execution policy drift", nil)
+			return ports.ProcessObservation{}, nil, securityProbeFailure("direct-execution-authority", "AGY execution policy drift", nil)
 		}
 	} else if executionPolicy != nil {
-		return ports.ProcessObservation{}, securityProbeFailure("direct-execution-authority", "unexpected execution policy", nil)
+		return ports.ProcessObservation{}, nil, securityProbeFailure("direct-execution-authority", "unexpected execution policy", nil)
 	}
 	var request ports.ProcessRequest
 	var requestErr error
+	var zcodeSession *zcodeProtocolSession
 	if packet == nil {
 		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, root.Path(), nil, timeout)
+	} else if definition.Family() == FamilyZcode {
+		binding, bindingErr := ports.NewProtocolProviderPacketBinding(*packet)
+		if bindingErr != nil {
+			requestErr = bindingErr
+		} else {
+			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, root.Path(), binding, timeout)
+		}
+		if requestErr == nil {
+			zcodeSession, requestErr = newZcodeCapabilityProtocolSession(root.Path(), packet.Bytes())
+		}
 	} else {
 		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, root.Path(), timeout)
 	}
 	if requestErr != nil {
-		return ports.ProcessObservation{}, securityProbeFailure("process", "bound process request rejected", requestErr)
+		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "bound process request rejected", requestErr)
 	}
 	launchDirectory, duplicateErr := guard.DuplicateLaunchDirectory()
 	if duplicateErr != nil {
-		return ports.ProcessObservation{}, securityProbeFailure("fixture", "launch descriptor unavailable", duplicateErr)
+		return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "launch descriptor unavailable", duplicateErr)
 	}
 	if definition.Family() == FamilyAgy {
 		authority, ok := namespace.NativeHomeLaunchAuthority()
 		if !ok || !authority.Valid() {
 			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, securityProbeFailure("namespace", "AGY native home authority unavailable", nil)
+			return ports.ProcessObservation{}, nil, securityProbeFailure("namespace", "AGY native home authority unavailable", nil)
 		}
 		request, requestErr = ports.NewBoundProcessRequestWithNativeHomeAuthority(request, root, launchDirectory, authority)
 	} else {
@@ -531,23 +554,31 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	}
 	if requestErr != nil {
 		_ = launchDirectory.Close()
-		return ports.ProcessObservation{}, securityProbeFailure("process", "bound process descriptor rejected", requestErr)
+		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "bound process descriptor rejected", requestErr)
 	}
 	if err := probe.verifier.VerifyProviderSpawn(ctx, definition); err != nil {
 		launchDirectory, _, _ := request.BoundLaunchDirectory()
 		if launchDirectory != nil {
 			_ = launchDirectory.Close()
 		}
-		return ports.ProcessObservation{}, securityProbeFailure("spawn", "spawn verification failed", err)
+		return ports.ProcessObservation{}, nil, securityProbeFailure("spawn", "spawn verification failed", err)
 	}
-	observation, err = probe.runner.Run(ctx, request)
+	if zcodeSession != nil {
+		conversationRunner, ok := probe.runner.(ports.ProviderConversationRunner)
+		if !ok {
+			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "process runner cannot converse", nil)
+		}
+		observation, err = conversationRunner.Converse(ctx, request, zcodeSession)
+	} else {
+		observation, err = probe.runner.Run(ctx, request)
+	}
 	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
-		return observation, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
+		return observation, nil, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
 	}
 	if err != nil {
-		return observation, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
+		return observation, nil, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
 	}
-	return observation, nil
+	return observation, zcodeSession.assistantEvidenceText(), nil
 }
 
 func qualificationProcessFailure(family string, observation ports.ProcessObservation, err error) error {
@@ -855,6 +886,8 @@ func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacke
 
 func qualificationTransportChannel(family string) ports.ProviderPacketChannel {
 	switch family {
+	case FamilyZcode:
+		return ports.ProviderPacketChannelProtocol
 	case FamilyAgy:
 		return ports.ProviderPacketChannelArgvLiteral
 	case FamilyCodex:
@@ -1054,14 +1087,10 @@ func capabilityEvidenceCandidates(family string, output []byte) ([][]byte, error
 		if content, err := agyContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
 			candidates = append(candidates, content)
 		}
-	case FamilyZcode:
-		if content, err := zcodeContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
-			candidates = append(candidates, content)
-		}
-		if response := zcodeResponseText(trimmed); len(bytes.TrimSpace(response)) > 0 {
-			candidates = append(candidates, response)
-		}
 	}
+	// ZCode capability evidence arrives as the conversation's captured
+	// assistant text, so its candidates are the controlled probe JSON and the
+	// trimmed text itself.
 	if content, err := controlledProbeJSON(trimmed); err == nil {
 		candidates = append(candidates, content)
 	}
@@ -1076,26 +1105,6 @@ func capabilityEvidencePayload(family string, output []byte) ([]byte, error) {
 		return nil, err
 	}
 	return bytes.Join(candidates, []byte{'\n'}), nil
-}
-
-func zcodeResponseText(stdout []byte) []byte {
-	frame, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, stdout)
-	if err != nil {
-		return nil
-	}
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(frame, &envelope); err != nil {
-		return nil
-	}
-	rawResponse, present := envelope["response"]
-	if !present {
-		return nil
-	}
-	var response string
-	if err := json.Unmarshal(rawResponse, &response); err != nil {
-		return append([]byte(nil), rawResponse...)
-	}
-	return []byte(response)
 }
 
 func agyReviewResultText(frame []byte) []byte {

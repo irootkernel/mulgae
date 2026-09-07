@@ -269,6 +269,12 @@ type namespaceLease struct {
 
 var _ ports.ProviderNamespaceLease = (*namespaceLease)(nil)
 
+// zcodeRuntimeTempDirectory is the short shared temp directory for ZCode
+// app-server conversations. The server binds a per-process unix socket under
+// os.tmpdir(), and a namespace-rooted temp path exceeds the kernel socket
+// path limit, so ZCode namespaces redirect their temp variables here instead.
+const zcodeRuntimeTempDirectory = "/tmp/mulgae-zcode"
+
 func newNamespaceLease(instance, generation, root, rootName string, parentDirectory, rootDirectory *os.File, binding ports.ProviderNamespaceTerminalBinding) (*namespaceLease, error) {
 	if !validProviderInstanceID(instance) || generation == "" || !validCanonicalAbsolute(root) || rootName == "" ||
 		parentDirectory == nil || rootDirectory == nil {
@@ -317,6 +323,27 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 	environment, err := namespaceEnvironment(root)
 	if err != nil {
 		return lease, err
+	}
+	if strings.HasPrefix(instance, FamilyZcode+"-") {
+		// The ZCode app-server binds a per-process unix socket under
+		// os.tmpdir(), and the namespace temp path exceeds the kernel's
+		// socket path limit, so ZCode temp state points at a short shared
+		// runtime directory instead. Socket names carry process-unique
+		// random identifiers.
+		runtimeTemp := zcodeRuntimeTempDirectory
+		if err := os.MkdirAll(runtimeTemp, 0o700); err != nil {
+			return lease, fmt.Errorf("provider namespace: zcode runtime temp: %w", err)
+		}
+		for index, variable := range environment {
+			switch variable.Name() {
+			case "TMPDIR", "TMP", "TEMP":
+				replacement, replaceErr := ports.NewEnvironmentVariable(variable.Name(), runtimeTemp)
+				if replaceErr != nil {
+					return lease, fmt.Errorf("provider namespace: zcode runtime temp: %w", replaceErr)
+				}
+				environment[index] = replacement
+			}
+		}
 	}
 	lease.rootInfo, lease.environment, lease.directoryInfo = rootInfo, environment, directoryInfo
 	if err := lease.closePendingDescriptors(); err != nil {

@@ -26,7 +26,7 @@ func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
 		want   []string
 	}{
 		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"}},
-		{FamilyZcode, []string{"/private/bin/zcode", "--mode", "yolo", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools}},
+		{FamilyZcode, []string{"/private/bin/zcode", "app-server"}},
 		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--output-format=json", "--print", "review bytes"}},
 	}
 	for _, test := range tests {
@@ -102,12 +102,16 @@ func TestBuildArgvIncludesAGYPermissionBypassOnlyForExplicitHeadlessTransport(t 
 	}
 }
 
-// TestZCodeReviewArgvUsesYoloModeAndWriteEnabledDenylist pins the exact review
-// argv that grants ZCode the write authority the staged_file transport needs.
-func TestZCodeReviewArgvUsesYoloModeAndWriteEnabledDenylist(t *testing.T) {
+// TestZCodeReviewArgvIsTheBareAppServer pins the exact review argv of the
+// protocol transport: the write grant and read-only denylist travel inside the
+// session conversation, never on the argv.
+func TestZCodeReviewArgvIsTheBareAppServer(t *testing.T) {
 	transport, err := defaultRuntimeTransport(FamilyZcode, 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if transport.Channel() != ports.ProviderPacketChannelProtocol || transport.ArgvIndex() != -1 {
+		t.Fatalf("zcode default transport = %#v, want the protocol channel", transport)
 	}
 	argv, err := buildArgv(definition{
 		family: FamilyZcode, baseArgv: []string{"/private/bin/zcode"}, transport: transport, timeout: 30 * time.Minute,
@@ -115,18 +119,15 @@ func TestZCodeReviewArgvUsesYoloModeAndWriteEnabledDenylist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"/private/bin/zcode", "--mode", "yolo", "--no-color", "--prompt", "review bytes",
-		"--json", "--disallowed-tools", "Bash,Edit,NotebookEdit,WebSearch,WebFetch",
-	}
+	want := []string{"/private/bin/zcode", "app-server"}
 	if !equalStrings(argv, want) {
 		t.Fatalf("ZCode review argv = %q, want %q", argv, want)
 	}
-	// plan to yolo and the denylist swap are both single-token replacements, so
-	// the packet must still land on the pinned zcode transport index.
-	index, err := runtimeTransportArgvIndex(FamilyZcode, 1)
-	if err != nil || index != transport.ArgvIndex() || argv[index] != "review bytes" {
-		t.Fatalf("zcode transport index = %d (err %v), argv = %q", index, err, argv)
+	if occurrences := packetOccurrences(argv, "review bytes"); occurrences != 0 {
+		t.Fatalf("ZCode review argv carries %d packet occurrences, want 0", occurrences)
+	}
+	if _, err := runtimeTransportArgvIndex(FamilyZcode, 1); err == nil {
+		t.Fatal("zcode print transport index is still admitted")
 	}
 }
 
@@ -200,91 +201,24 @@ func TestProviderResultStrictness(t *testing.T) {
 	if err != nil || !isolated || !bytes.Equal(got, codexRaw) {
 		t.Fatalf("Codex result = %q, isolated=%t, err=%v", got, isolated, err)
 	}
-	zcodeRaw := []byte("```json\n{\"findings\":[]}\n```")
-	got, isolated, err = providerResult(FamilyZcode, zcodeRaw)
-	if err != nil || isolated || !bytes.Equal(got, zcodeRaw) {
-		t.Fatalf("ZCode bare fence result = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	got, isolated, err = providerResult(FamilyZcode, want)
-	if err != nil || !isolated || !bytes.Equal(got, want) {
-		t.Fatalf("ZCode result = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	zcodeEnvelope := []byte(`{"sessionId":"session","response":"{\"findings\":[]}","usage":{"inputTokens":1}}`)
-	got, isolated, err = providerResult(FamilyZcode, zcodeEnvelope)
-	if err != nil || !isolated || !bytes.Equal(got, want) {
-		t.Fatalf("ZCode envelope result = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	zcodeNarratedResponse := "The review is complete.\n\n```json\n{\"findings\":[]}\n```"
-	zcodeNarratedEnvelope, err := json.Marshal(map[string]any{
-		"sessionId": "session",
-		"response":  zcodeNarratedResponse,
-		"usage":     map[string]any{"inputTokens": 1},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, isolated, err = providerResult(FamilyZcode, zcodeNarratedEnvelope)
-	if err != nil || !isolated || string(got) != zcodeNarratedResponse {
-		t.Fatalf("ZCode narrated envelope result = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	zcodeTrailingResponse := "Analysis before the result.\n\n```json\n{\"findings\":[]}\n```\n\nThe requested review is complete."
-	zcodeTrailingNarrationEnvelope, err := json.Marshal(map[string]any{
-		"sessionId": "session",
-		"response":  zcodeTrailingResponse,
-		"usage":     map[string]any{"inputTokens": 1},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, isolated, err = providerResult(FamilyZcode, zcodeTrailingNarrationEnvelope)
-	if err != nil || !isolated || string(got) != zcodeTrailingResponse {
-		t.Fatalf("ZCode trailing narration envelope result = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	malformed := `{"schema_version":"mulgae-provider-followup-output.v1","limitations":[]}]}`
-	malformedFenced := "```json\n" + malformed + "\n```"
-	zcodeMalformedFencedEnvelope, err := json.Marshal(map[string]any{
-		"sessionId": "session",
-		"response":  malformedFenced,
-		"usage":     map[string]any{"inputTokens": 1},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, isolated, err = providerResult(FamilyZcode, zcodeMalformedFencedEnvelope)
-	if err != nil || !isolated || string(got) != malformedFenced {
-		t.Fatalf("ZCode malformed fenced payload = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	zcodeMalformedDirectEnvelope, err := json.Marshal(map[string]any{
-		"sessionId": "session",
-		"response":  malformed,
-		"usage":     map[string]any{"inputTokens": 1},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, isolated, err = providerResult(FamilyZcode, zcodeMalformedDirectEnvelope)
-	if err != nil || !isolated || string(got) != malformed {
-		t.Fatalf("ZCode malformed direct payload = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	ambiguousResponse := "```json\n{\"findings\":[]}\n```\n```json\n{\"findings\":[]}\n```\ntrailing"
-	zcodeAmbiguousEnvelope, err := json.Marshal(map[string]any{
-		"sessionId": "session",
-		"response":  ambiguousResponse,
-		"usage":     map[string]any{"inputTokens": 1},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, isolated, err = providerResult(FamilyZcode, zcodeAmbiguousEnvelope)
-	if err != nil || !isolated || string(got) != ambiguousResponse {
-		t.Fatalf("ZCode multi-fence assistant response = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	if _, _, err := providerResult(FamilyZcode, []byte(`{"response":""}`)); err == nil {
-		t.Fatal("ZCode accepted an empty headless response")
-	}
-	got, isolated, err = providerResult(FamilyZcode, []byte(`{"response":"narration without terminal JSON"}`))
-	if err != nil || !isolated || string(got) != "narration without terminal JSON" {
-		t.Fatalf("ZCode fence-free prose = %q, isolated=%t, err=%v", got, isolated, err)
+	// The protocol transport never delivers report content on stdout: the
+	// review report arrives through the staged file and qualification evidence
+	// through the conversation, so every stdout shape fails closed.
+	for index, stdout := range [][]byte{
+		[]byte("```json\n{\"findings\":[]}\n```"),
+		[]byte(`{"findings":[]}`),
+		[]byte(`{"sessionId":"session","response":"{\"findings\":[]}","usage":{"inputTokens":1}}`),
+		[]byte(`{"response":"narration without terminal JSON"}`),
+		[]byte(`{"response":""}`),
+	} {
+		if _, _, err := providerResult(FamilyZcode, stdout); err == nil {
+			t.Fatalf("ZCode accepted protocol-era stdout fixture %d", index)
+		} else {
+			var failure *providerOutputFailure
+			if !errors.As(err, &failure) || failure.Cause() != domain.DiagnosticCauseOutputMissing {
+				t.Fatalf("ZCode stdout fixture %d = %v, want the missing-output cause", index, err)
+			}
+		}
 	}
 	agyStdout := []byte("I inspected the immutable snapshot.\n{\"findings\":[]}\n")
 	got, isolated, err = providerResult(FamilyAgy, agyStdout)
@@ -300,18 +234,6 @@ func TestProviderResultStrictness(t *testing.T) {
 	got, isolated, err = providerResult(FamilyAgy, agyStructured)
 	if err != nil || !isolated || string(got) != "completed" {
 		t.Fatalf("AGY structured output = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	zcodeSpaced, err := json.Marshal(map[string]any{
-		"sessionId": "session",
-		"response":  "  narration with spaces  \n",
-		"usage":     map[string]any{"inputTokens": 1},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, isolated, err = providerResult(FamilyZcode, zcodeSpaced)
-	if err != nil || !isolated || string(got) != "  narration with spaces  \n" {
-		t.Fatalf("ZCode whitespace preservation = %q, isolated=%t, err=%v", got, isolated, err)
 	}
 	if _, _, err := providerResult(FamilyAgy, []byte("{\"findings\":[]}\ntrailing")); err == nil {
 		t.Fatal("AGY accepted trailing malformed JSON envelope")
@@ -372,7 +294,7 @@ func TestProviderResultFailuresExposeExactTypedCausesWithoutRawText(t *testing.T
 		{"Kimi missing frame", FamilyKimi, []byte(`{"role":"system"}`), domain.DiagnosticCauseOutputFrameMissing},
 		{"Kimi decode failure", FamilyKimi, []byte(`{"role":"assistant","content":[]}`), domain.DiagnosticCauseOutputDecodeFailed},
 		{"ZCode missing output", FamilyZcode, nil, domain.DiagnosticCauseOutputMissing},
-		{"ZCode invalid envelope", FamilyZcode, []byte(`{"response":""}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
+		{"ZCode protocol stdout", FamilyZcode, []byte(`{"response":""}`), domain.DiagnosticCauseOutputMissing},
 		{"AGY missing output", FamilyAgy, nil, domain.DiagnosticCauseOutputMissing},
 		{"AGY unsuccessful status", FamilyAgy, []byte(`{"status":"ERROR","response":"unavailable"}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
 		{"AGY empty response", FamilyAgy, []byte(`{"status":"SUCCESS","response":""}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
@@ -926,13 +848,6 @@ func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.
 			wantArgv:     []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"},
 		},
 		{
-			family:       FamilyZcode,
-			stdout:       []byte(`{"sessionId":"session","response":"I inspected the snapshot.\n\n` + "```json\\n{\\\"findings\\\":[]}\\n```\\n\\nThe review is complete.\\n\\n```go\\nfunc checked() {}\\n```" + `","usage":{"inputTokens":1}}`),
-			wantResult:   []byte("I inspected the snapshot.\n\n```json\n{\"findings\":[]}\n```\n\nThe review is complete.\n\n```go\nfunc checked() {}\n```"),
-			wantIsolated: true,
-			wantArgv:     []string{"/private/bin/zcode", "--mode", "yolo", "--no-color", "--prompt", "review bytes", "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools},
-		},
-		{
 			family:     FamilyAgy,
 			stdout:     []byte("{\"findings\":[]}"),
 			wantResult: []byte("{\"findings\":[]}"),
@@ -1232,6 +1147,13 @@ type observationRunner struct {
 }
 
 func (runner *observationRunner) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
+	runner.request = request
+	return runner.observation, runner.err
+}
+
+// Converse lets the fake runner carry protocol-channel routes so zcode tests
+// exercise the conversation dispatch with canned observations.
+func (runner *observationRunner) Converse(_ context.Context, request ports.ProcessRequest, _ ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
 	runner.request = request
 	return runner.observation, runner.err
 }
@@ -1663,6 +1585,12 @@ func (runner *barrierRunner) Run(_ context.Context, request ports.ProcessRequest
 	}
 	exitCode := 0
 	return ports.NewProviderProcessObservation([]byte("{}"), nil, &exitCode, ports.ProcessTerminationExited, receipt, transport, time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC())
+}
+
+// Converse carries protocol-channel routes through the same barrier so
+// concurrency assertions cover the conversation dispatch.
+func (runner *barrierRunner) Converse(ctx context.Context, request ports.ProcessRequest, _ ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	return runner.Run(ctx, request)
 }
 
 func (runner *barrierRunner) workingDirectories() []string {
@@ -2102,6 +2030,12 @@ func (runner *stagedOutputRunnerFake) Run(_ context.Context, request ports.Proce
 		runner.stage()
 	}
 	return runner.observation, runner.err
+}
+
+// Converse lets the fake carry protocol-channel routes so staged zcode tests
+// exercise the conversation dispatch.
+func (runner *stagedOutputRunnerFake) Converse(_ context.Context, request ports.ProcessRequest, _ ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	return runner.Run(nil, request)
 }
 
 // stagedZcodeRegistry builds the ZCode registry together with the staged

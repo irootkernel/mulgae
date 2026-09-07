@@ -1674,6 +1674,14 @@ type ProviderSessionDriver interface {
 	Drive(ctx context.Context, exchange ProviderSessionExchange) error
 }
 
+// ProviderConversationRunner executes one conversation-mode provider process
+// request. It is implemented by the process runner that also implements
+// ProcessRunner; adapters type-assert it for protocol-channel routes and fail
+// closed when the injected runner cannot converse.
+type ProviderConversationRunner interface {
+	Converse(ctx context.Context, request ProcessRequest, driver ProviderSessionDriver) (ProcessObservation, error)
+}
+
 // ProcessExecutionError preserves the closed primary cause and any captured
 // streams when a runner cannot return a coherent ProcessObservation. Cleanup
 // failure is supplemental: it never replaces the initiating cause. The

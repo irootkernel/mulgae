@@ -11,3 +11,6 @@ explain why durable choices were made.
   same-target reruns are combined into a new immutable authority.
 - [Review await design](review-await.md) records the accepted session-local MCP
   review lifecycle and its rejected alternatives.
+- [ZCode app-server transport](zcode-app-server-transport.md) records why ZCode
+  review and qualification speak the app-server protocol and the wire shapes
+  its live spike pinned.

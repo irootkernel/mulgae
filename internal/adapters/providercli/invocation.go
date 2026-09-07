@@ -68,9 +68,10 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		// immutable snapshot.
 		return appendKimiInvocation(baseArgv, definition.KimiModel(), string(packet)), nil
 	case FamilyZcode:
-		// Capability stays tool-denied so qualification remains bounded. Review
-		// invocations use appendZcodeInvocation's read-oriented denylist.
-		return appendZcodeCapabilityInvocation(baseArgv, string(packet)), nil
+		// Capability stays tool-denied so qualification remains bounded. The
+		// conversation runs in plan mode with every tool denied; review
+		// conversations use zcodeReviewProtocolDenylist instead.
+		return appendZcodeProtocolServerArgv(baseArgv), nil
 	case FamilyAgy:
 		providerPacket, err := ports.NewProviderPacketFromBytes(packet)
 		if err != nil {
@@ -89,9 +90,8 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 	}
 }
 
-// zcodeWorkspaceReadOnlyDisallowedTools is the adapter-owned ZCode denylist for
-// workspace-first reviews. Local ZCode 0.16.1 rejects --allowed-tools at
-// runtime, so Mulgae uses an explicit shell/edit/network denylist instead.
+// zcodeReviewProtocolDenylist is the adapter-owned ZCode tool denylist for
+// workspace-first reviews on the app-server protocol session.
 //
 // Write is deliberately absent: it is the single authority a staged_file review
 // needs to place its role report at the Mulgae-chosen staging path. The
@@ -99,28 +99,26 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 // NotebookEdit remain denied, the snapshot the process is launched in is
 // immutable, and post-execution drift detection revalidates it. Every byte the
 // grant produces is bounded by the staged-output validation that reads it back.
-const zcodeWorkspaceReadOnlyDisallowedTools = "Bash,Edit,NotebookEdit,WebSearch,WebFetch"
+// The plan tools stay denied because the protocol's plan flow persists
+// plan-<session>.md files inside the workspace, which the sealed snapshot's
+// drift detection must continue to reject.
+var zcodeReviewProtocolDenylist = []string{"Bash", "Edit", "NotebookEdit", "WebSearch", "WebFetch", "EnterPlanMode", "ExitPlanMode"}
 
-// zcodeCapabilityDisallowedTools keeps qualification prompt-bound and latency
+// zcodeCapabilityProtocolDenylist keeps qualification prompt-bound and latency
 // bounded. Workspace-selective read is exercised on review invocations.
-const zcodeCapabilityDisallowedTools = "*"
+var zcodeCapabilityProtocolDenylist = []string{"*"}
 
-// appendZcodeInvocation builds the ZCode REVIEW argv only. Qualification keeps
-// its own fully tool-denied plan-mode profile in appendZcodeCapabilityInvocation.
-//
-// yolo is the headless auto-approve mode for the non-denied toolset: plan mode
-// suppresses the write authority the staged_file transport depends on. Write
-// authority is granted deliberately here and bounded by the staged-output
-// validation, snapshot immutability and workspace drift detection (owner
-// decision recorded on live capability evidence).
-func appendZcodeInvocation(argv []string, prompt string) []string {
-	result := append([]string(nil), argv...)
-	return append(result, "--mode", "yolo", "--no-color", "--prompt", prompt, "--json", "--disallowed-tools", zcodeWorkspaceReadOnlyDisallowedTools)
-}
+// zcodeProtocolServerArgv is the complete argv of the ZCode app-server: the
+// protocol needs no stdio flags because the server speaks newline-delimited
+// JSON on its standard pipes by default.
+const zcodeProtocolServerArgument = "app-server"
 
-func appendZcodeCapabilityInvocation(argv []string, prompt string) []string {
+// appendZcodeProtocolServerArgv builds the ZCode review and qualification
+// argv. Every ZCode packet travels inside the protocol conversation, so the
+// argv never carries the prompt or tool policy.
+func appendZcodeProtocolServerArgv(argv []string) []string {
 	result := append([]string(nil), argv...)
-	return append(result, "--mode", "plan", "--no-color", "--prompt", prompt, "--json", "--disallowed-tools", zcodeCapabilityDisallowedTools)
+	return append(result, zcodeProtocolServerArgument)
 }
 
 func appendKimiInvocation(argv []string, model, prompt string) []string {

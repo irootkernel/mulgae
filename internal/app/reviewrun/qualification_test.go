@@ -17,7 +17,7 @@ func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
 	}
 	guidance := []VersionGuidance{
 		{Family: FamilyKimi, Minimum: "0.38.0", VerifiedLatest: "0.38.0"},
-		{Family: FamilyZCode, Minimum: "0.16.3", VerifiedLatest: "0.16.3"},
+		{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 		{Family: FamilyAGY, Minimum: "1.1.19", VerifiedLatest: "1.1.19"},
 		{Family: FamilyCodex, Minimum: "0.149.0", VerifiedLatest: "0.149.0"},
 	}
@@ -55,9 +55,9 @@ func TestClassifyVersion(t *testing.T) {
 		{name: "minimum", family: FamilyKimi, version: "0.38.0", want: VersionGreen},
 		{name: "verified latest", family: FamilyKimi, version: "0.38.0", want: VersionGreen},
 		{name: "above verified latest", family: FamilyKimi, version: "0.38.1", want: VersionYellow},
-		{name: "minimum", family: FamilyZCode, version: "0.16.3", want: VersionGreen},
-		{name: "verified latest", family: FamilyZCode, version: "0.16.3", want: VersionGreen},
-		{name: "above verified latest", family: FamilyZCode, version: "0.16.4", want: VersionYellow},
+		{name: "minimum", family: FamilyZCode, version: "0.16.5", want: VersionGreen},
+		{name: "verified latest", family: FamilyZCode, version: "0.16.5", want: VersionGreen},
+		{name: "above verified latest", family: FamilyZCode, version: "0.16.6", want: VersionYellow},
 		{name: "below minimum", family: FamilyAGY, version: "1.1.18", want: VersionRed},
 		{name: "minimum", family: FamilyAGY, version: "1.1.19", want: VersionGreen},
 		{name: "verified latest", family: FamilyAGY, version: "1.1.19", want: VersionGreen},
@@ -189,7 +189,7 @@ func TestValidateQualificationRequiresScopedAuthorities(t *testing.T) {
 			version string
 		}{
 			{family: FamilyKimi, version: "0.38.0"},
-			{family: FamilyZCode, version: "0.16.3"},
+			{family: FamilyZCode, version: "0.16.5"},
 		} {
 			family := test.family
 			t.Run(string(family), func(t *testing.T) {
@@ -226,7 +226,7 @@ func TestValidateQualificationRejectsCallerManufacturedAuthorities(t *testing.T)
 		version string
 	}{
 		{family: FamilyKimi, version: "0.38.0"},
-		{family: FamilyZCode, version: "0.16.3"},
+		{family: FamilyZCode, version: "0.16.5"},
 		{family: FamilyAGY, version: "1.1.19"},
 	} {
 		t.Run(string(test.family), func(t *testing.T) {
@@ -255,7 +255,7 @@ func TestAdapterIssuedAuthorityBaselinesRejectBindingMutations(t *testing.T) {
 				input.Receipts[index].Identity.Instance = "other-instance"
 			}
 		}},
-		{name: "namespace generation", family: FamilyZCode, version: "0.16.3", mutate: func(input *QualificationInput) {
+		{name: "namespace generation", family: FamilyZCode, version: "0.16.5", mutate: func(input *QualificationInput) {
 			input.Identity.NamespaceGeneration = "stale-generation"
 			for index := range input.Receipts {
 				input.Receipts[index].Identity.NamespaceGeneration = "stale-generation"
@@ -373,8 +373,8 @@ func TestValidateQualificationRequiresCanonicalExecutableProvenance(t *testing.T
 func TestDiscoverProviderProfilesUsesIdentityOnlyZCodeNodeLauncher(t *testing.T) {
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
 		"kimi":        discoveredExecutable(t, "kimi", "/opt/providers/kimi", "0.38.0"),
-		"node":        discoveredExecutable(t, "node", "/opt/node/bin/node", "0.16.3"),
-		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.3"),
+		"node":        discoveredExecutable(t, "node", "/opt/node/bin/node", "0.16.5"),
+		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.5"),
 		"agy":         discoveredExecutable(t, "agy", "/opt/providers/agy", "1.1.5"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
@@ -388,8 +388,8 @@ func TestDiscoverProviderProfilesUsesIdentityOnlyZCodeNodeLauncher(t *testing.T)
 		zcode.Launcher() != ZCodeLauncher || !reflect.DeepEqual(zcode.Argv(), wantArgv) {
 		t.Fatalf("unqualified zcode profile = %#v", zcode)
 	}
-	zcode = zcode.WithQualifiedVersion(append(wantArgv, "--version"), "0.16.3")
-	if !zcode.Available() || zcode.Version() != "0.16.3" {
+	zcode = zcode.WithQualifiedVersion(append(wantArgv, "--version"), "0.16.5")
+	if !zcode.Available() || zcode.Version() != "0.16.5" {
 		t.Fatalf("qualified zcode profile = available %t version %q", zcode.Available(), zcode.Version())
 	}
 }
@@ -528,8 +528,8 @@ func TestDiscoverZCodeProfileObservesOnlyEffectiveOverrideComponents(t *testing.
 func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
 		"kimi":        discoveredExecutable(t, "kimi", "/new/location/kimi", "0.38.0"),
-		"node":        discoveredExecutable(t, "node", "/new/location/node", "0.16.3"),
-		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.3"),
+		"node":        discoveredExecutable(t, "node", "/new/location/node", "0.16.5"),
+		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.5"),
 		"agy":         discoveredExecutable(t, "agy", "/new/location/agy", "1.1.19"),
 		"codex":       discoveredExecutable(t, "codex", "/new/location/codex", "0.149.0"),
 	}}
@@ -547,8 +547,8 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 func TestDiscoverProviderProfilesTreatsUnparseableAsYellowUnavailable(t *testing.T) {
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
 		"kimi":        discoveredExecutable(t, "kimi", "/opt/providers/kimi", "current"),
-		"node":        discoveredExecutable(t, "node", "/opt/node/bin/node", "0.16.3"),
-		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.3"),
+		"node":        discoveredExecutable(t, "node", "/opt/node/bin/node", "0.16.5"),
+		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.5"),
 		"agy":         discoveredExecutable(t, "agy", "/opt/providers/agy", "1.1.19"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)

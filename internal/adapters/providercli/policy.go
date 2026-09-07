@@ -274,10 +274,20 @@ func validatedDisposableNamespaceEnvironment(environment []ports.EnvironmentVari
 		paths["XDG_CONFIG_HOME"] != filepath.Join(root, "settings") ||
 		paths["XDG_DATA_HOME"] != filepath.Join(root, "auth") ||
 		paths["XDG_CACHE_HOME"] != filepath.Join(root, "cache") ||
-		paths["TMPDIR"] != filepath.Join(root, "tmp") ||
-		paths["TMP"] != filepath.Join(root, "tmp") ||
-		paths["TEMP"] != filepath.Join(root, "tmp") ||
 		paths["MULGAE_PROVIDER_SCRATCH"] != filepath.Join(root, "scratch") {
+		return nil, fmt.Errorf("namespace environment escapes Mulgae-owned root")
+	}
+	// Temp state either stays inside the namespace root or, for ZCode
+	// namespaces, moves to the short shared runtime directory their
+	// app-server sockets require. All three temp variables must agree.
+	namespaceTemp := filepath.Join(root, "tmp")
+	switch paths["TMPDIR"] {
+	case namespaceTemp:
+	case zcodeRuntimeTempDirectory:
+	default:
+		return nil, fmt.Errorf("namespace environment escapes Mulgae-owned root")
+	}
+	if paths["TMP"] != paths["TMPDIR"] || paths["TEMP"] != paths["TMPDIR"] {
 		return nil, fmt.Errorf("namespace environment escapes Mulgae-owned root")
 	}
 	values := make([]string, 0, len(paths))
@@ -354,7 +364,11 @@ func containsNamespaceEnvironment(environment, namespace []ports.EnvironmentVari
 
 func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, observedVersion, namespaceGeneration string, namespace QualificationNamespace, namespaceEnvironment, environment []ports.EnvironmentVariable, fixture ProbeFixtureLease, argv []string, packet ports.ProviderPacket, observation ports.ProcessObservation, executionPolicy *AGYExecutionPolicy) (currentProbeDirectExecutionRoleProof, error) {
 	if safeProbeDefinition(definition) != nil || namespace == nil || fixture == nil || validateProbeFixtureLease(fixture) != nil ||
-		namespaceGeneration == "" || !semverOutput.MatchString(observedVersion) || !fixture.Role().Valid() || !observation.Valid() || !observation.Succeeded() ||
+		namespaceGeneration == "" || !semverOutput.MatchString(observedVersion) || !fixture.Role().Valid() || !observation.Valid() ||
+		// A protocol conversation succeeds through its driver; the bounded
+		// teardown that ends a live app-server classifies as signaled, so the
+		// one-shot Succeeded() frame contract does not apply to it.
+		(!observation.Succeeded() && definition.Transport().Channel() != ports.ProviderPacketChannelProtocol) ||
 		!validRelativeNativeReference(fixture.Reference()) {
 		return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: invalid direct execution")
 	}

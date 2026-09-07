@@ -33,8 +33,10 @@ const (
 	stagedOutputReportName     = "report.md"
 	stagedOutputEscapeName     = "escape.md"
 	// stagedOutputZcodeReviewDenylist mirrors the production ZCode review
-	// denylist (zcodeWorkspaceReadOnlyDisallowedTools) minus Write.
-	stagedOutputZcodeReviewDenylist = "Bash,Edit,NotebookEdit,WebSearch,WebFetch"
+	// conversation denylist (zcodeReviewProtocolDenylist) minus Write. The
+	// probe drives the provider's print surface directly; production speaks
+	// the app-server protocol with the same tool policy.
+	stagedOutputZcodeReviewDenylist = "Bash,Edit,NotebookEdit,WebSearch,WebFetch,EnterPlanMode,ExitPlanMode"
 )
 
 // stagedOutputAgyWriteMode records which AGY permission mode actually produced

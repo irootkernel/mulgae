@@ -320,7 +320,9 @@ func productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTi
 			case FamilyKimi:
 				template.kimiModel, template.transportArgvIndex = kimiModel, 4
 			case FamilyZCode:
-				template.transportArgvIndex = 6
+				// The app-server conversation owns the packet; the argv never
+				// carries the prompt or tool policy.
+				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
 			case FamilyAGY:
 				template.transportArgvIndex, template.lifecycle = agyArgvIndex, &lifecycle
 				template.environment = []ports.EnvironmentVariable{agyEnvironment}
@@ -417,6 +419,9 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		validTransport := template.transportChannel == ports.ProviderPacketChannelArgvLiteral && template.transportArgvIndex >= 0
 		if template.family == FamilyCodex {
 			validTransport = template.transportChannel == ports.ProviderPacketChannelStdin && template.transportArgvIndex == -1
+		}
+		if template.family == FamilyZCode {
+			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1
 		}
 		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" || !validTransport || template.transportReference != "" ||
 			!validIdentity || len(template.supportedRoles) == 0 {

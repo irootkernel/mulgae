@@ -59,7 +59,9 @@ type VersionGuidance struct {
 
 var guidance = [...]VersionGuidance{
 	{Family: FamilyKimi, Minimum: "0.38.0", VerifiedLatest: "0.38.0"},
-	{Family: FamilyZCode, Minimum: "0.16.3", VerifiedLatest: "0.16.3"},
+	// 0.16.5 is the first locally verified app-server-capable ZCode release;
+	// the print transport is gone, so older releases cannot qualify.
+	{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 	{Family: FamilyAGY, Minimum: "1.1.19", VerifiedLatest: "1.1.19"},
 	{Family: FamilyCodex, Minimum: "0.149.0", VerifiedLatest: "0.149.0"},
 }

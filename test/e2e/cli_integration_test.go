@@ -2632,6 +2632,7 @@ func buildFakeZCodeWithStagedOutputAndBarrier(t *testing.T, root, binary, launch
 	program := `package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -2642,10 +2643,10 @@ import (
 )
 
 type observation struct {
-	Argv []string ` + "`json:\"argv\"`" + `
-	CWD string ` + "`json:\"cwd\"`" + `
-	Prompt string ` + "`json:\"prompt\"`" + `
-	Destination string ` + "`json:\"destination,omitempty\"`" + `
+	Argv        []string ` + "`json:\"argv\"`" + `
+	CWD         string   ` + "`json:\"cwd\"`" + `
+	Prompt      string   ` + "`json:\"prompt\"`" + `
+	Destination string   ` + "`json:\"destination,omitempty\"`" + `
 }
 
 const destinationMarker = "__FAKE_ZCODE_DESTINATION_MARKER__"
@@ -2659,70 +2660,174 @@ func main() {
 		fmt.Println("22.14.0")
 		return
 	}
-	prompt := ""
-	mode := ""
-	disallowed := ""
-	for index := range argv {
-		switch argv[index] {
-		case "--prompt":
-			if index+1 < len(argv) {
-				prompt = argv[index+1]
-			}
-		case "--mode":
-			if index+1 < len(argv) {
-				mode = argv[index+1]
-			}
-		case "--disallowed-tools":
-			if index+1 < len(argv) {
-				disallowed = argv[index+1]
-			}
-		}
-	}
-	if prompt == "" || mode == "" || disallowed == "" {
+	if len(argv) != 2 || argv[1] != "app-server" {
 		panic("non-canonical ZCode invocation")
 	}
-	capability := strings.Contains(prompt, "Prove readiness by returning exactly one JSON object and nothing else.")
-	if capability {
-		if mode != "plan" || disallowed != "*" {
-			panic("non-canonical ZCode capability invocation")
+	serve(argv)
+}
+
+// serve speaks the ZCode app-server protocol on stdio: one session per
+// process, the packet as the single turn's content, and the staged report or
+// controlled qualification proof produced before turn completion.
+func serve(argv []string) {
+	sessionID := "sess_fake"
+	var prompt, mode, denylist, proof string
+	capability := false
+	stdout := bufio.NewWriter(os.Stdout)
+	defer stdout.Flush()
+	reply := func(id json.RawMessage, result any) {
+		payload, err := json.Marshal(map[string]any{"id": id, "result": result})
+		if err != nil {
+			panic(err)
 		}
-	} else if mode != "yolo" || !strings.Contains(disallowed, "Bash") || strings.Contains(disallowed, "Write") {
-		panic("non-canonical ZCode review invocation")
+		fmt.Fprintln(stdout, string(payload))
+		stdout.Flush()
 	}
-	destination := stagedDestination(prompt)
-	cwd, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	log, err := os.OpenFile("__FAKE_ZCODE_LOG__", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		panic(err)
-	}
-	if err := json.NewEncoder(log).Encode(observation{Argv: argv, CWD: cwd, Prompt: prompt, Destination: destination}); err != nil {
-		panic(err)
-	}
-	if err := log.Close(); err != nil {
-		panic(err)
-	}
-	if capability {
-        if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
-            if _, err := os.Stat("__FAKE_ZCODE_LOG__.reviewed"); err == nil {
-                fmt.Print("{\"response\":\"Qualification response omitted fixture bindings.\"}")
-                return
-            }
-        }
-		if destination != "" {
-			panic("ZCode capability invocation carries a staged output destination")
+	notifyTurn := func(kind string) {
+		payload, err := json.Marshal(map[string]any{
+			"method": "computer-use/operation-event",
+			"params": map[string]any{"kind": kind, "turnId": "turn_fake", "sessionId": sessionID},
+		})
+		if err != nil {
+			panic(err)
 		}
-		root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(prompt)
-		link := regexp.MustCompile("(?:link must be |link=)([^\\s;]+)").FindStringSubmatch(prompt)
-		role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(prompt)
-		if len(root) != 2 || len(link) != 2 || len(role) != 2 {
-			panic("native qualification reference did not resolve")
-		}
-		fmt.Printf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], link[1], role[1])
-		return
+		fmt.Fprintln(stdout, string(payload))
+		stdout.Flush()
 	}
+	serverRequest := func(id, method string, params any) {
+		payload, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
+		if err != nil {
+			panic(err)
+		}
+		fmt.Fprintln(stdout, string(payload))
+		stdout.Flush()
+	}
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+		var message struct {
+			ID     json.RawMessage ` + "`json:\"id\"`" + `
+			Method string          ` + "`json:\"method\"`" + `
+			Params json.RawMessage ` + "`json:\"params\"`" + `
+		}
+		if json.Unmarshal([]byte(line), &message) != nil {
+			panic("unparseable protocol message")
+		}
+		if message.Method == "" {
+			// A client response to a server-initiated request carries no
+			// method; the fake requires no answer beyond the preferences
+			// acknowledgment.
+			continue
+		}
+		switch message.Method {
+		case "session/create":
+			var params struct {
+				Mode         string   ` + "`json:\"mode\"`" + `
+				ToolDenylist []string ` + "`json:\"toolDenylist\"`" + `
+			}
+			if json.Unmarshal(message.Params, &params) != nil || params.Mode == "" || len(params.ToolDenylist) == 0 {
+				panic("non-canonical ZCode session create")
+			}
+			mode = params.Mode
+			denylist = strings.Join(params.ToolDenylist, ",")
+			serverRequest("server-1", "session/requestRuntimePreferences", map[string]any{
+				"sessionId": sessionID,
+				"scope":     "runtime-materialization",
+			})
+			reply(message.ID, map[string]any{"session": map[string]any{"sessionId": sessionID}})
+		case "session/send":
+			var params struct {
+				SessionID string ` + "`json:\"sessionId\"`" + `
+				Content   string ` + "`json:\"content\"`" + `
+			}
+			if json.Unmarshal(message.Params, &params) != nil || params.Content == "" {
+				panic("non-canonical ZCode session send")
+			}
+			prompt = params.Content
+			capability = strings.Contains(prompt, "Prove readiness by returning exactly one JSON object and nothing else.")
+			if capability {
+				if mode != "plan" || denylist != "*" {
+					panic("non-canonical ZCode capability conversation")
+				}
+			} else if mode != "yolo" || !strings.Contains(denylist, "Bash") || strings.Contains(denylist, "Write") {
+				panic("non-canonical ZCode review conversation")
+			}
+			destination := stagedDestination(prompt)
+			cwd, cwdErr := os.Getwd()
+			if cwdErr != nil {
+				panic(cwdErr)
+			}
+			log, logErr := os.OpenFile("__FAKE_ZCODE_LOG__", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+			if logErr != nil {
+				panic(logErr)
+			}
+			if encodeErr := json.NewEncoder(log).Encode(observation{Argv: argv, CWD: cwd, Prompt: prompt, Destination: destination}); encodeErr != nil {
+				panic(encodeErr)
+			}
+			if closeErr := log.Close(); closeErr != nil {
+				panic(closeErr)
+			}
+			reply(message.ID, map[string]any{"accepted": true, "sessionId": sessionID, "stateRevision": 1})
+			if capability {
+				proof = capabilityProof(prompt)
+				notifyTurn("turn-completed")
+				continue
+			}
+			if destination == "" {
+				// The structured extraction trailer runs without a staged
+				// destination and returns exact JSON as the assistant text.
+				proof = __FAKE_ZCODE_STDOUT__
+				notifyTurn("turn-completed")
+				continue
+			}
+			if !reviewFailureVariant() {
+				if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
+					if writeErr := os.WriteFile("__FAKE_ZCODE_LOG__.reviewed", []byte("reviewed"), 0600); writeErr != nil {
+						panic(writeErr)
+					}
+				}
+				waitForPeer()
+				stage(destination, report(prompt))
+			}
+			notifyTurn("turn-completed")
+		case "session/messages":
+			reply(message.ID, map[string]any{
+				"messages": []any{map[string]any{
+					"info":  map[string]any{"role": "assistant"},
+					"parts": []any{map[string]any{"type": "text", "text": proof}},
+				}},
+			})
+		case "session/close":
+			reply(message.ID, map[string]any{"closed": true})
+		default:
+			panic("unexpected ZCode protocol method " + message.Method)
+		}
+	}
+}
+
+// capabilityProof extracts the controlled qualification binding from the
+// packet and returns the JSON object a real provider would answer with.
+func capabilityProof(prompt string) string {
+	if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
+		if _, err := os.Stat("__FAKE_ZCODE_LOG__.reviewed"); err == nil {
+			return "Qualification response omitted fixture bindings."
+		}
+	}
+	root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(prompt)
+	link := regexp.MustCompile("(?:link must be |link=)([^\\s;]+)").FindStringSubmatch(prompt)
+	role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(prompt)
+	if len(root) != 2 || len(link) != 2 || len(role) != 2 {
+		panic("native qualification reference did not resolve")
+	}
+	return fmt.Sprintf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], link[1], role[1])
+}
+
+// reviewFailureVariant applies the configured simulated review failure and
+// reports whether the conversation failed instead of staging a report.
+func reviewFailureVariant() bool {
 	if "__FAKE_ZCODE_MODE__" == "fail_first_review" {
 		for attempt := 1; attempt <= 2; attempt++ {
 			marker, err := os.OpenFile(fmt.Sprintf("__FAKE_ZCODE_LOG__.failed.%d", attempt), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -2738,8 +2843,6 @@ func main() {
 			}
 		}
 	}
-	// A provider that fails before it produces output never honours staging, so
-	// the simulated failures below exit ahead of the destination requirement.
 	switch "__FAKE_ZCODE_MODE__" {
 	case "rate_limit_review":
 		fmt.Fprintln(os.Stderr, "rate_limit")
@@ -2751,15 +2854,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "provider execution failed")
 		os.Exit(1)
 	}
-	if destination == "" {
-		panic("ZCode review invocation omits the staged output destination")
-	}
-    if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
-        if err := os.WriteFile("__FAKE_ZCODE_LOG__.reviewed", []byte("reviewed"), 0600); err != nil { panic(err) }
-    }
-	waitForPeer()
-	stage(destination, report(prompt))
-	fmt.Print(__FAKE_ZCODE_STDOUT__)
+	return false
 }
 
 func waitForPeer() {
@@ -3496,7 +3591,10 @@ func TestIntegrationChildQualificationFailureRetainsPrivateDiagnostics(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != `{"response":"Qualification response omitted fixture bindings."}` {
+	// The capability stream is the protocol transcript; the qualification
+	// evidence is the assistant text it carries, which the fake deliberately
+	// omits fixture bindings from in this scenario.
+	if !bytes.Contains(body, []byte(`"text":"Qualification response omitted fixture bindings."`)) {
 		t.Fatalf("capability response was changed: %q", body)
 	}
 	info, err := os.Stat(files[0])

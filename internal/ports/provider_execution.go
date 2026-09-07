@@ -852,6 +852,13 @@ func validateProviderExecutionStdinReceipt(invocation ProviderInvocation, proces
 		if receipt.SHA256() != providerPacketDigest(packet[:int(writtenByteCount)]) {
 			return fmt.Errorf("stdin receipt digest does not match written packet prefix")
 		}
+	case ProviderPacketChannelProtocol:
+		// Protocol frames also flow over the child stdin pipe, so their
+		// transport evidence admits the conversation's incremental stdin
+		// write receipt instead of a single upfront packet write.
+		if !receipt.Complete() {
+			return fmt.Errorf("protocol stdin receipt is incomplete")
+		}
 	default:
 		if receipt.IntendedByteLength() != 0 || receipt.WrittenByteCount() != 0 ||
 			!receipt.Complete() || receipt.SHA256() != providerPacketDigest(nil) {
