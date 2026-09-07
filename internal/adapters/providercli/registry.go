@@ -914,9 +914,6 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	if nilProviderNamespaceLease(namespace) || namespace.Generation() != r.namespaceGenerations[definition.instance] {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace generation drift"))
 	}
-	if namespace.Generation() != r.namespaceGenerations[definition.instance] {
-		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace generation drift"))
-	}
 	if err := namespace.ValidateForSpawn(); err != nil {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace lease validation: %w", err))
 	}
