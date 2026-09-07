@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 
@@ -333,6 +334,15 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 		runtimeTemp := zcodeRuntimeTempDirectory
 		if err := os.MkdirAll(runtimeTemp, 0o700); err != nil {
 			return lease, fmt.Errorf("provider namespace: zcode runtime temp: %w", err)
+		}
+		// The directory is shared across ZCode namespaces, so a pre-existing
+		// replacement with the wrong shape is rejected instead of trusted.
+		info, statErr := os.Lstat(runtimeTemp)
+		if statErr != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 || info.Mode()&os.ModeSymlink != 0 {
+			return lease, fmt.Errorf("provider namespace: zcode runtime temp is not a private directory")
+		}
+		if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Getuid() {
+			return lease, fmt.Errorf("provider namespace: zcode runtime temp is not owned by the current user")
 		}
 		for index, variable := range environment {
 			switch variable.Name() {

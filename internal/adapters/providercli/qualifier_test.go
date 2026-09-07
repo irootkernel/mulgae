@@ -83,7 +83,6 @@ func TestQualificationFamilyOutputCauseIsExact(t *testing.T) {
 	}{
 		{name: "kimi missing frame", family: FamilyKimi, err: errProviderOutputFrameMissing, want: domain.DiagnosticCauseOutputFrameMissing},
 		{name: "kimi decode", family: FamilyKimi, err: errors.New("decode"), want: domain.DiagnosticCauseOutputDecodeFailed},
-		{name: "zcode envelope", family: FamilyZcode, err: errInvalidZcodeEnvelope, want: domain.DiagnosticCauseOutputEnvelopeInvalid},
 		{name: "agy missing frame", family: FamilyAgy, err: errProviderOutputFrameMissing, want: domain.DiagnosticCauseOutputFrameMissing},
 	} {
 		t.Run(test.name, func(t *testing.T) {

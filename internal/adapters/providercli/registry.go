@@ -27,7 +27,6 @@ const (
 	FamilyCodex = "codex"
 )
 
-var errInvalidZcodeEnvelope = errors.New("invalid ZCode headless envelope")
 var errInvalidAGYEnvelope = errors.New("invalid AGY headless envelope")
 var errProviderOutputFrameMissing = errors.New("provider output frame missing")
 

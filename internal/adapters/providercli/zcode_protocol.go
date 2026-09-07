@@ -161,7 +161,8 @@ func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.P
 				// The provider turn already completed; a stream that ends
 				// between the closing requests and their responses ends the
 				// driver while the conversation runner's teardown ends the
-				// child.
+				// child. The captured assistant evidence stays usable.
+				session.assistantEvidence = state.assistantEvidence
 				return nil
 			}
 			return zcodeProtocolFailure(domain.DiagnosticCauseProviderTurnFailed,
@@ -212,9 +213,14 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		}
 		return true, nil
 	}
-	if message.Error != nil {
+	if message.Error != nil && message.correlatesTo(zcodeProtocolCreateID, zcodeProtocolSendID, zcodeProtocolMessagesID, zcodeProtocolCloseID) {
 		return true, zcodeProtocolFailure(domain.DiagnosticCauseProviderExecutionFailed,
 			fmt.Errorf("request %s failed: %s", string(message.ID), message.Error.Message))
+	}
+	if message.Error != nil {
+		// Error responses outside this conversation's own requests are inert
+		// protocol facts, exactly like uncorrelated success responses.
+		return false, nil
 	}
 	switch {
 	case message.isResponseID(zcodeProtocolCreateID):
@@ -392,6 +398,17 @@ func (message zcodeProtocolMessage) isResponseID(id string) bool {
 	}
 	var decoded string
 	return json.Unmarshal(message.ID, &decoded) == nil && decoded == id
+}
+
+// correlatesTo reports whether the message is a response to one of this
+// conversation's own requests.
+func (message zcodeProtocolMessage) correlatesTo(ids ...string) bool {
+	for _, id := range ids {
+		if message.isResponseID(id) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseZcodeProtocolMessage(line []byte) (zcodeProtocolMessage, error) {
