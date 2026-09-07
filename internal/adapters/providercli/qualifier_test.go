@@ -257,6 +257,14 @@ func (exchange *scriptedProtocolExchange) SendLine(_ context.Context, line []byt
 	return nil
 }
 
+// sentLines returns a caller-owned copy of every recorded client line.
+func (exchange *scriptedProtocolExchange) sentLines(t *testing.T) [][]byte {
+	t.Helper()
+	exchange.sentMu.Lock()
+	defer exchange.sentMu.Unlock()
+	return append([][]byte(nil), exchange.sent...)
+}
+
 // zcodeProtocolScript builds one complete happy-path server script whose
 // assistant message carries the given proof text.
 func zcodeProtocolScript(proof string) *scriptedProtocolExchange {
