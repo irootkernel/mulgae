@@ -897,9 +897,14 @@ func newNamespaceTraversal(rootFD int) (*namespaceTraversal, error) {
 		return traversal, errors.Join(err, closeErr)
 	}
 	names, pending, err := namespaceDirectoryNames(fd)
-	traversal := &namespaceTraversal{
-		frames: []*namespaceTraversalFrame{{fd: fd, device: info.Dev, inode: info.Ino, names: names}},
+	root := &namespaceTraversalFrame{fd: fd, device: info.Dev, inode: info.Ino, names: names}
+	if err != nil {
+		// A failed or partial root listing must be re-read on retry: an
+		// empty listing would otherwise report the namespace as drained
+		// without removing anything.
+		root.refreshPending = true
 	}
+	traversal := &namespaceTraversal{frames: []*namespaceTraversalFrame{root}}
 	if pending != nil {
 		traversal.pendingClose = append(traversal.pendingClose, pending)
 	}
@@ -958,6 +963,12 @@ func (traversal *namespaceTraversal) advance() error {
 			child := &namespaceTraversalFrame{
 				parentFD: frame.fd, name: name, fd: childFD, device: info.Dev, inode: info.Ino, names: names,
 			}
+			if err != nil {
+				// A failed or partial listing must be re-read on retry: the
+				// frame would otherwise pop while entries remain and the
+				// directory removal would fail permanently with ENOTEMPTY.
+				child.refreshPending = true
+			}
 			traversal.frames = append(traversal.frames, child)
 			if pending != nil {
 				traversal.pendingClose = append(traversal.pendingClose, pending)
@@ -1002,7 +1013,12 @@ func (traversal *namespaceTraversal) advance() error {
 	return nil
 }
 
-func namespaceDirectoryNames(fd int) ([]string, *os.File, error) {
+// namespaceDirectoryNames lists one directory through a duplicated descriptor.
+// It is a variable so tests can inject bounded listing failures for retry
+// coverage, mirroring the other traversal operation boundaries.
+var namespaceDirectoryNames = readNamespaceDirectoryNames
+
+func readNamespaceDirectoryNames(fd int) ([]string, *os.File, error) {
 	duplicate, err := unix.Dup(fd)
 	if err != nil {
 		return nil, nil, err

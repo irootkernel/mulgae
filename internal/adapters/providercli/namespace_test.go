@@ -814,6 +814,95 @@ func TestRemoveNamespaceContentsReturnsRecursiveCloseFailureForRetry(t *testing.
 	}
 }
 
+// TestNamespaceTraversalRootListingFailureRetriesRefresh pins the recovery
+// contract for a failed root listing: the traversal must be retained with a
+// pending refresh instead of reporting an unread namespace as drained.
+func TestNamespaceTraversalRootListingFailureRetriesRefresh(t *testing.T) {
+	notADirectory := filepath.Join(t.TempDir(), "regular")
+	if err := os.WriteFile(notADirectory, []byte("bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := os.Open(notADirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+
+	traversal, err := newNamespaceTraversal(int(opened.Fd()))
+	if err == nil || traversal == nil {
+		t.Fatalf("root listing over a regular file succeeded: err=%v traversal=%#v", err, traversal)
+	}
+	if len(traversal.frames) != 1 || !traversal.frames[0].refreshPending {
+		t.Fatalf("failed root listing was not retained for a re-read: %#v", traversal.frames)
+	}
+	defer unix.Close(traversal.frames[0].fd)
+	// The retry must re-list instead of treating the empty listing as a
+	// completed drain: re-listing the regular file keeps failing honestly.
+	if err := traversal.advance(); err == nil {
+		t.Fatal("retry reported a failed root listing as drained")
+	}
+}
+
+// TestNamespaceTraversalChildListingFailureRetriesRefresh pins the recovery
+// contract for a failed child listing: the retry re-reads the child directory
+// instead of popping its frame while entries remain, which would loop forever
+// on ENOTEMPTY.
+func TestNamespaceTraversalChildListingFailureRetriesRefresh(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0700); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(child, "entry")
+	if err := os.WriteFile(inside, []byte("data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+
+	listingFailure := errors.New("directory listing failed")
+	calls := 0
+	originalListing := namespaceDirectoryNames
+	t.Cleanup(func() { namespaceDirectoryNames = originalListing })
+	namespaceDirectoryNames = func(fd int) ([]string, *os.File, error) {
+		calls++
+		if calls == 2 {
+			// The second listing is the child frame's first read.
+			return nil, nil, listingFailure
+		}
+		return originalListing(fd)
+	}
+
+	traversal, err := newNamespaceTraversal(int(directory.Fd()))
+	if err != nil || traversal == nil {
+		t.Fatalf("traversal setup = %v, traversal=%#v", err, traversal)
+	}
+	if err := traversal.advance(); !errors.Is(err, listingFailure) {
+		t.Fatalf("child listing failure = %v", err)
+	}
+	if len(traversal.frames) != 2 || !traversal.frames[1].refreshPending {
+		t.Fatalf("child frame after failed listing = %#v", traversal.frames)
+	}
+	if _, statErr := os.Stat(inside); statErr != nil {
+		t.Fatalf("entry disappeared before the retry: %v", statErr)
+	}
+
+	namespaceDirectoryNames = originalListing
+	if err := traversal.advance(); err != nil {
+		t.Fatalf("retry after listing failure = %v", err)
+	}
+	if _, statErr := os.Stat(child); !os.IsNotExist(statErr) {
+		t.Fatalf("child remains after retry: %v", statErr)
+	}
+	entries, readErr := os.ReadDir(root)
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("root retains entries after retry: %v, %d", readErr, len(entries))
+	}
+}
+
 func TestNamespaceLocateScanCloseFailureRetainsEnumerationDescriptor(t *testing.T) {
 	factory, err := NewNamespaceFactory(t.TempDir())
 	if err != nil {
