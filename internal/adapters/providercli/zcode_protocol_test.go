@@ -175,6 +175,12 @@ func TestZCodeProtocolDriveClassifiesFailureBranches(t *testing.T) {
 			wantCause:   domain.DiagnosticCauseOutputEnvelopeInvalid,
 			wantText:    "unexpected session messages response",
 		},
+		{
+			name:        "unreadable notification params are an output decode failure",
+			serverLines: []string{protocolCreateResult, protocolSendAck, `{"method":"computer-use/operation-event","params":{"kind":42}}`},
+			wantCause:   domain.DiagnosticCauseOutputDecodeFailed,
+			wantText:    "unreadable protocol event payload",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			session := mustCapabilitySession(t)
@@ -190,6 +196,86 @@ func TestZCodeProtocolDriveClassifiesFailureBranches(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), test.wantText) {
 				t.Fatalf("error %q does not contain %q", err.Error(), test.wantText)
+			}
+		})
+	}
+}
+
+// failingSendExchange accepts a fixed number of client sends and then fails
+// every further send with a persistent pipe error.
+type failingSendExchange struct {
+	inner    *scriptedProtocolExchange
+	succeeds int
+	failures int
+	failWith error
+}
+
+func (exchange *failingSendExchange) ReceiveLine(ctx context.Context) ([]byte, error) {
+	return exchange.inner.ReceiveLine(ctx)
+}
+
+func (exchange *failingSendExchange) SendLine(ctx context.Context, line []byte) error {
+	if exchange.succeeds > 0 {
+		exchange.succeeds--
+		return exchange.inner.SendLine(ctx, line)
+	}
+	exchange.failures++
+	return exchange.failWith
+}
+
+// TestZCodeProtocolDriveClassifiesSendFailures pins the typed classification
+// of client-side send failures inside the driver.
+func TestZCodeProtocolDriveClassifiesSendFailures(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		succeeds    int
+		serverLines []string
+		wantText    string
+	}{
+		{
+			name:        "create send failure",
+			succeeds:    0,
+			serverLines: nil,
+			wantText:    "zcode protocol: send session/create request",
+		},
+		{
+			name:        "runtime-preferences response send failure",
+			succeeds:    1,
+			serverLines: []string{protocolPrefsRequest, protocolCreateResult},
+			wantText:    "zcode protocol: send response",
+		},
+		{
+			name:        "turn send failure",
+			succeeds:    1,
+			serverLines: []string{protocolCreateResult},
+			wantText:    "zcode protocol: send session/send request",
+		},
+		{
+			name:        "close send failure",
+			succeeds:    2,
+			serverLines: []string{protocolCreateResult, protocolSendAck, protocolTurnDone},
+			wantText:    "zcode protocol: send session/close request",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			exchange := &failingSendExchange{
+				inner:    newScriptedProtocolExchange(test.serverLines...),
+				succeeds: test.succeeds,
+				failWith: errors.New("broken pipe"),
+			}
+			session := mustReviewSession(t)
+			err := session.Drive(context.Background(), exchange)
+			if err == nil {
+				t.Fatal("Drive succeeded with a failing send")
+			}
+			if cause := protocolCause(t, err); cause != domain.DiagnosticCauseProviderExecutionFailed {
+				t.Fatalf("cause = %q, want provider execution failure (error %v)", cause, err)
+			}
+			if !strings.Contains(err.Error(), test.wantText) {
+				t.Fatalf("error %q does not contain %q", err.Error(), test.wantText)
+			}
+			if exchange.failures == 0 {
+				t.Fatal("exchange never observed the failing send")
 			}
 		})
 	}
