@@ -442,6 +442,61 @@ func TestRunnerConverseTearsDownLiveChildAfterDriverCompletion(t *testing.T) {
 	}
 }
 
+func TestRunnerConverseTearsDownOrphanedGroupAfterNaturalChildExit(t *testing.T) {
+	request, _ := newConversationRequest(t, "conversation-orphan-holder", nil, processTestExecutionTimeout)
+	runner := newTestRunner(t)
+	driver := &conversationSingleResponseDriver{}
+
+	observation, err := runner.Converse(context.Background(), request, driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(driver.received) == 0 {
+		t.Fatal("driver received no response")
+	}
+	// The child ended on its own while a descendant kept the conversation
+	// pipes open; the remaining group is still torn down within the teardown
+	// budget, so the conversation completes instead of waiting for the stream
+	// ends forever. Whether the child's own end classifies as exited or
+	// signaled depends on the natural-exit grace race, so only completion and
+	// group cleanup are pinned here.
+	lifecycle, ok := observation.LifecycleReceipt()
+	if !ok || !lifecycle.Valid() || !observation.ProcessGroupAbsent() {
+		t.Fatalf("lifecycle receipt = %#v, present=%t", lifecycle, ok)
+	}
+	requests := observation.SignalRequests()
+	if len(requests) != 1 || requests[0].Reason() != ports.ProcessGroupSignalRequestConversationTeardown ||
+		requests[0].Signal().Name() != "SIGTERM" {
+		t.Fatalf("signal requests = %#v", requests)
+	}
+}
+
+func TestRunnerConverseEscalatesOrphanedGroupThatIgnoresTermination(t *testing.T) {
+	request, _ := newConversationRequest(t, "conversation-orphan-resistant", nil, processTestExecutionTimeout)
+	runner := newTestRunner(t)
+	driver := &conversationSingleResponseDriver{}
+
+	observation, err := runner.Converse(context.Background(), request, driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(driver.received) == 0 {
+		t.Fatal("driver received no response")
+	}
+	lifecycle, ok := observation.LifecycleReceipt()
+	if !ok || !lifecycle.Valid() || !observation.ProcessGroupAbsent() {
+		t.Fatalf("lifecycle receipt = %#v, present=%t", lifecycle, ok)
+	}
+	requests := observation.SignalRequests()
+	if len(requests) != 2 ||
+		requests[0].Reason() != ports.ProcessGroupSignalRequestConversationTeardown ||
+		requests[0].Signal().Name() != "SIGTERM" ||
+		requests[1].Reason() != ports.ProcessGroupSignalRequestConversationTeardownEscalation ||
+		requests[1].Signal().Name() != "SIGKILL" {
+		t.Fatalf("signal requests = %#v", requests)
+	}
+}
+
 func TestRunnerConverseSurfacesDriverErrorWithCoherentTeardown(t *testing.T) {
 	request, _ := newConversationRequest(t, "conversation-hold", nil, processTestExecutionTimeout)
 	runner := newTestRunner(t)

@@ -226,6 +226,14 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 		exchange.close()
 		_ = closeStdin(stdinWriter)
 		teardownDeadline = time.Now().Add(processGroupTeardownTimeout)
+		// The teardown budget bounds the stream waits themselves: a descendant
+		// that outlives the child can keep the pipe write ends open past every
+		// signal, and the read deadline is the only in-loop fact that unwinds
+		// the blocked feeds. The deadline is best-effort: a feed that already
+		// ended may have closed its reader, and the group teardown signals
+		// remain the primary bounded cleanup.
+		_ = stdoutReader.SetDeadline(teardownDeadline)
+		_ = stderrReader.SetDeadline(teardownDeadline)
 		go func() { waitResult <- child.Wait() }()
 		naturalExitTimer = time.NewTimer(conversationNaturalExitGrace)
 		naturalExitC = naturalExitTimer.C
@@ -300,7 +308,11 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 			waited = true
 			waitErr = err
 		case <-naturalExitC:
-			if !waited && !groupAbsent {
+			// The direct child may have ended on its own while descendants
+			// still hold the conversation pipes, so the remaining group is
+			// torn down whether or not the child was already waited for. A
+			// fully reaped group reports absence without a receipt.
+			if !groupAbsent {
 				sendTermination()
 			}
 		case <-escalationC:

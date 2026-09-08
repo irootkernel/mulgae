@@ -2163,6 +2163,33 @@ func TestRunnerHelperProcess(t *testing.T) {
 		time.Sleep(10 * time.Second)
 	case "conversation-sleep-child":
 		time.Sleep(10 * time.Second)
+	case "conversation-ignore-term-child":
+		signal.Ignore(syscall.SIGTERM)
+		time.Sleep(10 * time.Second)
+	case "conversation-orphan-holder", "conversation-orphan-resistant":
+		resistant := arguments[0] == "conversation-orphan-resistant"
+		if len(arguments) != 1 {
+			os.Exit(2)
+		}
+		reader := bufio.NewReader(os.Stdin)
+		if _, err := reader.ReadString('\n'); err != nil {
+			os.Exit(3)
+		}
+		scenario := "conversation-sleep-child"
+		if resistant {
+			scenario = "conversation-ignore-term-child"
+		}
+		child := exec.Command(os.Args[0], "-test.run=^TestRunnerHelperProcess$", "--", scenario)
+		child.Env = os.Environ()
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		fmt.Fprintln(os.Stdout, `{"id":1,"result":{"sessionId":"session"}}`)
+		// The parent ends on its own while the descendant keeps holding the
+		// conversation pipes.
+		os.Exit(0)
 	case "conversation-partial-line":
 		if len(arguments) != 1 {
 			os.Exit(2)
