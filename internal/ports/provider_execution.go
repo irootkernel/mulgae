@@ -935,6 +935,29 @@ func providerExecutionStatusMatchesProcessObservation(
 	}
 }
 
+// ProtocolConversationCompleted reports whether this process observation
+// carries the process-level completion fact of a protocol conversation: the
+// runner's receipt-proven bounded teardown of a live app-server, or the
+// natural zero exit of a server that ended on its own after its close. It is
+// the one shared predicate behind the registry's success dispatch and the
+// direct-execution role proof; the conversation's own semantics stay owned by
+// its driver, and any other termination keeps the one-shot failure
+// classification.
+func (observation ProcessObservation) ProtocolConversationCompleted() bool {
+	if observation.conversationTeardownCompleted() {
+		return true
+	}
+	if observation.Termination() != ProcessTerminationExited {
+		return false
+	}
+	transport, ok := observation.ProviderPacketTransportReceipt()
+	if !ok || transport.Channel() != ProviderPacketChannelProtocol {
+		return false
+	}
+	exitCode, exited := observation.ExitCode()
+	return exited && exitCode == 0
+}
+
 // conversationTeardownCompleted reports whether this process observation is
 // the intentional bounded teardown of a completed protocol conversation: the
 // protocol packet channel carried the packet, the child terminated through a

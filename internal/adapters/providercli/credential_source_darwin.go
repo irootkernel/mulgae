@@ -197,7 +197,7 @@ func newCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 	}, nil
 }
 
-func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ctx context.Context, instance string) (lease ports.ProviderNamespaceLease, err error) {
+func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ctx context.Context, instance, providerFamily string) (lease ports.ProviderNamespaceLease, err error) {
 	if factory == nil || ctx == nil || ctx.Err() != nil || !validCredentialSourceInstance(instance) {
 		return nil, fmt.Errorf("credential source factory: invalid request")
 	}
@@ -212,7 +212,7 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 	} else if err := factory.revalidateHome(instance); err != nil {
 		return nil, err
 	}
-	lease, err = factory.base.AcquireProviderNamespace(ctx, instance)
+	lease, err = factory.base.AcquireProviderNamespace(ctx, instance, providerFamily)
 	if err != nil {
 		return nil, err
 	}

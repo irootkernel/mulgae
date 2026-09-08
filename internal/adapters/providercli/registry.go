@@ -586,7 +586,7 @@ func newRegistryWithNamespaces(
 			cause := fmt.Errorf("provider registry: duplicate instance %q", definition.instance)
 			return nil, registryConstructionError(cause, registry.drainNamespacesError(ctx), registry)
 		}
-		namespace, err := factory.AcquireProviderNamespace(ctx, definition.instance)
+		namespace, err := factory.AcquireProviderNamespace(ctx, definition.instance, definition.family)
 		if err != nil || nilProviderNamespaceLease(namespace) ||
 			namespace.ProviderInstance() != definition.instance || namespace.Generation() == "" ||
 			namespace.ValidateForSpawn() != nil {
@@ -993,20 +993,14 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			"provider_permission_denied", domain.DiagnosticCausePermissionDenied, "",
 		)
 	}
-	// A protocol conversation succeeds through its driver: the bounded
-	// teardown that ends a live app-server classifies as signaled, and a
-	// server that ends on its own after the close must exit zero. Any other
-	// termination keeps the one-shot failure classification.
-	protocolConversationSucceeded := false
-	if definition.transport.channel == ports.ProviderPacketChannelProtocol {
-		switch processObservation.Termination() {
-		case ports.ProcessTerminationSignaled:
-			protocolConversationSucceeded = true
-		case ports.ProcessTerminationExited:
-			exitCode, exited := processObservation.ExitCode()
-			protocolConversationSucceeded = exited && exitCode == 0
-		}
-	}
+	// A protocol conversation succeeds through its driver: the runner's
+	// receipt-proven bounded teardown classifies as signaled, and a server
+	// that ends on its own after the close must exit zero. Any other
+	// termination keeps the one-shot failure classification. The predicate is
+	// the same one the staged-success validation and the direct-execution
+	// role proof apply, so the layers cannot drift apart.
+	protocolConversationSucceeded := definition.transport.channel == ports.ProviderPacketChannelProtocol &&
+		processObservation.ProtocolConversationCompleted()
 	if processObservation.Succeeded() || protocolConversationSucceeded {
 		if staging != nil {
 			// The workspace guard has already revalidated at this point, so the

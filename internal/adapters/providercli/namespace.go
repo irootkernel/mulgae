@@ -39,6 +39,18 @@ type NamespaceFactory struct {
 
 var _ ports.ProviderNamespaceFactory = (*NamespaceFactory)(nil)
 
+// validNamespaceFamily reports whether family is one of the supported
+// provider families. The family, not the instance name, selects
+// family-specific namespace environment shaping.
+func validNamespaceFamily(family string) bool {
+	switch family {
+	case FamilyKimi, FamilyZcode, FamilyAgy, FamilyCodex:
+		return true
+	default:
+		return false
+	}
+}
+
 // NewNamespaceFactory constructs a namespace authority rooted at root. Root is
 // created with owner-only permissions when absent. An existing root may be
 // readable, but must be a real directory that no non-owner can modify.
@@ -81,12 +93,17 @@ func (factory *NamespaceFactory) validatePinnedRoot() error {
 
 // AcquireProviderNamespace creates one generation for exactly one provider
 // instance. Registries retain the returned lease for their complete lifetime.
-func (factory *NamespaceFactory) AcquireProviderNamespace(ctx context.Context, instance string) (ports.ProviderNamespaceLease, error) {
-	return ports.AcquireProviderNamespaceLease(ctx, instance, factory.acquireProviderNamespace)
+// The declared provider family, not the instance name, selects
+// family-specific environment shaping.
+func (factory *NamespaceFactory) AcquireProviderNamespace(ctx context.Context, instance, family string) (ports.ProviderNamespaceLease, error) {
+	return ports.AcquireProviderNamespaceLease(ctx, instance, func(ctx context.Context, instance string, binding ports.ProviderNamespaceTerminalBinding) (ports.ProviderNamespaceLease, error) {
+		return factory.acquireProviderNamespace(ctx, instance, family, binding)
+	})
 }
 
-func (factory *NamespaceFactory) acquireProviderNamespace(ctx context.Context, instance string, binding ports.ProviderNamespaceTerminalBinding) (ports.ProviderNamespaceLease, error) {
-	if factory == nil || factory.rootDirectory == nil || !validCanonicalAbsolute(factory.root) || !validProviderInstanceID(instance) {
+func (factory *NamespaceFactory) acquireProviderNamespace(ctx context.Context, instance, family string, binding ports.ProviderNamespaceTerminalBinding) (ports.ProviderNamespaceLease, error) {
+	if factory == nil || factory.rootDirectory == nil || !validCanonicalAbsolute(factory.root) || !validProviderInstanceID(instance) ||
+		!validNamespaceFamily(family) {
 		return nil, fmt.Errorf("provider namespace factory: invalid request")
 	}
 	if err := factory.validatePinnedRoot(); err != nil {
@@ -139,7 +156,7 @@ func (factory *NamespaceFactory) acquireProviderNamespace(ctx context.Context, i
 	}
 	rootDirectory := os.NewFile(uintptr(rootFD), "provider namespace root")
 	root := filepath.Join(factory.root, rootName)
-	lease, err := newNamespaceLease(instance, generation, root, rootName, parentDirectory, rootDirectory, binding)
+	lease, err := newNamespaceLease(instance, generation, root, rootName, parentDirectory, rootDirectory, binding, family == FamilyZcode)
 	if err == nil {
 		err = factory.validatePinnedRoot()
 		if err == nil {
@@ -276,7 +293,7 @@ var _ ports.ProviderNamespaceLease = (*namespaceLease)(nil)
 // path limit, so ZCode namespaces redirect their temp variables here instead.
 const zcodeRuntimeTempDirectory = "/tmp/mulgae-zcode"
 
-func newNamespaceLease(instance, generation, root, rootName string, parentDirectory, rootDirectory *os.File, binding ports.ProviderNamespaceTerminalBinding) (*namespaceLease, error) {
+func newNamespaceLease(instance, generation, root, rootName string, parentDirectory, rootDirectory *os.File, binding ports.ProviderNamespaceTerminalBinding, sharedRuntimeTemp bool) (*namespaceLease, error) {
 	if !validProviderInstanceID(instance) || generation == "" || !validCanonicalAbsolute(root) || rootName == "" ||
 		parentDirectory == nil || rootDirectory == nil {
 		return nil, fmt.Errorf("provider namespace: invalid identity")
@@ -325,12 +342,13 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 	if err != nil {
 		return lease, err
 	}
-	if strings.HasPrefix(instance, FamilyZcode+"-") {
+	if sharedRuntimeTemp {
 		// The ZCode app-server binds a per-process unix socket under
 		// os.tmpdir(), and the namespace temp path exceeds the kernel's
 		// socket path limit, so ZCode temp state points at a short shared
 		// runtime directory instead. Socket names carry process-unique
-		// random identifiers.
+		// random identifiers. The declared family, not the instance name,
+		// decides this redirect.
 		runtimeTemp := zcodeRuntimeTempDirectory
 		if err := os.MkdirAll(runtimeTemp, 0o700); err != nil {
 			return lease, fmt.Errorf("provider namespace: zcode runtime temp: %w", err)

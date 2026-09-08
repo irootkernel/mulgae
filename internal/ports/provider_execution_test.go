@@ -394,6 +394,93 @@ func TestStagedSuccessAcceptsConversationTeardownProcess(t *testing.T) {
 	}
 }
 
+func TestProtocolConversationCompletedCoversDriverCompletionFacts(t *testing.T) {
+	invocation := newProviderExecutionTestInvocation(t)
+	packetIdentity, err := NewProviderPacketIdentity(len(invocation.Stdin()), invocation.CompleteStdinSHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocolTransport, err := NewProviderPacketTransportReceipt(
+		ProviderPacketChannelProtocol, packetIdentity, "", "",
+		ProviderPacketIdentity{}, ProviderPacketIdentity{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdinTransport, err := NewProviderPacketTransportReceipt(
+		ProviderPacketChannelStdin, packetIdentity, "", "",
+		ProviderPacketIdentity{}, ProviderPacketIdentity{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, stdinErr := NewStdinWriteReceipt(0, 0, providerTestDigest(nil), true)
+	if stdinErr != nil {
+		t.Fatal(stdinErr)
+	}
+	exitedProtocol := func(exitCode int) ProcessObservation {
+		final, err := NewExitedProcessFinalTermination(exitCode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lifecycle, err := NewProcessLifecycleReceipt(final, true, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		process, err := NewStartedProviderProcessObservation(
+			[]byte("protocol transcript"), nil, ProcessTerminationExited, stdin, protocolTransport, lifecycle,
+			providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return process
+	}
+	exitedOneShot := func(exitCode int) ProcessObservation {
+		final, err := NewExitedProcessFinalTermination(exitCode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lifecycle, err := NewProcessLifecycleReceipt(final, true, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		process, err := NewStartedProviderProcessObservation(
+			[]byte("report"), nil, ProcessTerminationExited, stdin, stdinTransport, lifecycle,
+			providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return process
+	}
+
+	teardown := conversationTeardownTestProcess(t, invocation, ProcessTerminationSignaled, ProcessGroupSignalRequestConversationTeardown)
+	if !teardown.ProtocolConversationCompleted() {
+		t.Fatal("receipt-proven conversation teardown is not a completed protocol conversation")
+	}
+	escalated := conversationTeardownTestProcess(
+		t, invocation, ProcessTerminationSignaled,
+		ProcessGroupSignalRequestConversationTeardown, ProcessGroupSignalRequestConversationTeardownEscalation,
+	)
+	if !escalated.ProtocolConversationCompleted() {
+		t.Fatal("escalated conversation teardown is not a completed protocol conversation")
+	}
+	if !exitedProtocol(0).ProtocolConversationCompleted() {
+		t.Fatal("natural zero exit of a protocol server is not a completed protocol conversation")
+	}
+	if exitedProtocol(1).ProtocolConversationCompleted() {
+		t.Fatal("nonzero protocol exit completed a protocol conversation")
+	}
+	cancellation := conversationTeardownTestProcess(t, invocation, ProcessTerminationSignaled, ProcessGroupSignalRequestCancellation)
+	if cancellation.ProtocolConversationCompleted() {
+		t.Fatal("cancellation teardown completed a protocol conversation")
+	}
+	if exitedOneShot(0).ProtocolConversationCompleted() {
+		t.Fatal("one-shot exit without the protocol channel completed a protocol conversation")
+	}
+}
+
 func TestProviderInvocationRetainsStagedOutputDestinationThroughCanonicalization(t *testing.T) {
 	invocation := newProviderExecutionTestInvocation(t)
 	if _, ok := invocation.StagedOutputDestination(); ok {

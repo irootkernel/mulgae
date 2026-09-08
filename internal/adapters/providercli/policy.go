@@ -365,10 +365,10 @@ func containsNamespaceEnvironment(environment, namespace []ports.EnvironmentVari
 func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, observedVersion, namespaceGeneration string, namespace QualificationNamespace, namespaceEnvironment, environment []ports.EnvironmentVariable, fixture ProbeFixtureLease, argv []string, packet ports.ProviderPacket, observation ports.ProcessObservation, executionPolicy *AGYExecutionPolicy) (currentProbeDirectExecutionRoleProof, error) {
 	if safeProbeDefinition(definition) != nil || namespace == nil || fixture == nil || validateProbeFixtureLease(fixture) != nil ||
 		namespaceGeneration == "" || !semverOutput.MatchString(observedVersion) || !fixture.Role().Valid() || !observation.Valid() ||
-		// A protocol conversation succeeds through its driver; the bounded
-		// teardown that ends a live app-server classifies as signaled, so the
-		// one-shot Succeeded() frame contract does not apply to it.
-		(!observation.Succeeded() && definition.Transport().Channel() != ports.ProviderPacketChannelProtocol) ||
+		// A protocol conversation succeeds through its driver; the shared
+		// process-level completion predicate replaces the one-shot Succeeded()
+		// frame contract for it.
+		(!observation.Succeeded() && !observation.ProtocolConversationCompleted()) ||
 		!validRelativeNativeReference(fixture.Reference()) {
 		return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: invalid direct execution")
 	}

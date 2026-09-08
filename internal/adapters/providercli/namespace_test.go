@@ -20,11 +20,11 @@ func TestNamespaceFactoryIsolatesInstancesAndRetainsGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	first, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := factory.AcquireProviderNamespace(context.Background(), "kimi_secondary")
+	second, err := factory.AcquireProviderNamespace(context.Background(), "kimi_secondary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,12 +49,53 @@ func TestNamespaceFactoryIsolatesInstancesAndRetainsGeneration(t *testing.T) {
 	}
 }
 
+func TestNamespaceTempRedirectFollowsDeclaredFamilyNotInstanceName(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The redirect's trigger is the declared family: a ZCode family instance
+	// gets the shared short runtime temp directory even when its instance
+	// name carries no zcode prefix.
+	zcode, err := factory.AcquireProviderNamespace(context.Background(), "unprefixed_logic", FamilyZcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zcodeEnvironment := namespaceEnvironmentMap(t, zcode.Environment())
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if zcodeEnvironment[name] != zcodeRuntimeTempDirectory {
+			t.Fatalf("%s of a zcode-family namespace = %q, want %q", name, zcodeEnvironment[name], zcodeRuntimeTempDirectory)
+		}
+	}
+	// An instance whose name merely looks like ZCode keeps the
+	// namespace-rooted temp directory.
+	lookalike, err := factory.AcquireProviderNamespace(context.Background(), "zcode_lookalike", FamilyKimi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookalikeEnvironment := namespaceEnvironmentMap(t, lookalike.Environment())
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if lookalikeEnvironment[name] == zcodeRuntimeTempDirectory {
+			t.Fatalf("%s of a kimi-family namespace uses the zcode runtime temp directory", name)
+		}
+		if lookalikeEnvironment[name] == "" {
+			t.Fatalf("%s of a kimi-family namespace is empty", name)
+		}
+	}
+	if err := zcode.ValidateForSpawn(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lookalike.ValidateForSpawn(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNamespaceLeaseRejectsDriftAndDrainsExactlyOnce(t *testing.T) {
 	factory, err := NewNamespaceFactory(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +123,7 @@ func TestCredentialProjectionSafeAndTerminallyZeroesAndUnlinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +165,7 @@ func TestCredentialProjectionDrainAcceptsProviderOwnedAtomicRefresh(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +207,7 @@ func TestCredentialProjectionRejectsSymlinkRefreshAndStillDrains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +277,7 @@ func TestCredentialProjectionRejectsUnsafeSourcesAndDestinationsWithoutSecrets(t
 			if err != nil {
 				t.Fatal(err)
 			}
-			lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+			lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -255,7 +296,7 @@ func TestCredentialProjectionRejectsHashDriftDuplicateAndSpawnSourceDrift(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +329,7 @@ func TestNamespaceDoesNotSeedCredentialsWithoutDescriptor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +352,7 @@ func TestCredentialProjectionUsesOnlyProviderHomePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +435,7 @@ func TestNamespaceDrainCancellationCanRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +473,7 @@ func TestNamespaceDrainRecoversRenamedAcquiredRoot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+			lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -466,7 +507,7 @@ func TestNamespaceDrainFinalQuarantineRestoresSubstitution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +549,7 @@ func TestNamespaceDrainRetriesAfterQuarantineFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +587,7 @@ func TestNamespaceDrainRetriesAfterPartialSeedCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +658,7 @@ func TestNamespaceDrainResumesDescriptorOwnedLateStages(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+			lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -659,7 +700,7 @@ func TestNamespaceDrainCloseFailureRetainsOwnerAndAggregatesFailures(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -690,7 +731,7 @@ func TestNamespaceDrainRetriesAfterPartialDescriptorClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -754,7 +795,7 @@ func TestNamespaceSetupFailureReturnsAllDescriptorCloseFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := lease.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	acquired, err := lease.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if acquired != nil || err == nil || !errors.Is(err, openFailure) {
 		t.Fatalf("failed setup returned lease %v, error %v", acquired, err)
 	}
@@ -908,7 +949,7 @@ func TestNamespaceLocateScanCloseFailureRetainsEnumerationDescriptor(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	acquired, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -963,7 +1004,7 @@ func TestNamespaceConstructionOpenFailureRetainsExactRootForRetry(t *testing.T) 
 		return -1, openFailure
 	}
 
-	acquired, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	acquired, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if acquired != nil || !errors.Is(err, openFailure) {
 		t.Fatalf("construction failure = lease %v, error %v", acquired, err)
 	}
@@ -998,7 +1039,7 @@ func TestNamespaceRootUnlinkRetryRelocatesRetainedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	acquired, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1096,7 +1137,7 @@ func TestNamespaceDrainRefreshesParentAfterChildDetach(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary")
+	acquired, err := factory.AcquireProviderNamespace(context.Background(), "kimi_primary", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}

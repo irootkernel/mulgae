@@ -1688,7 +1688,7 @@ type scriptedNamespaceFactory struct {
 	capture func(context.Context, string)
 }
 
-func (factory scriptedNamespaceFactory) AcquireProviderNamespace(ctx context.Context, instance string) (ports.ProviderNamespaceLease, error) {
+func (factory scriptedNamespaceFactory) AcquireProviderNamespace(ctx context.Context, instance, family string) (ports.ProviderNamespaceLease, error) {
 	if factory.capture != nil {
 		factory.capture(ctx, instance)
 	}

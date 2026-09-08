@@ -41,7 +41,7 @@ func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lease, err := factory.AcquireProviderNamespace(context.Background(), "provider")
+			lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", string(test.family))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -83,7 +83,7 @@ func TestKimiCredentialProjectionUsesConfiguredDataHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi", FamilyKimi)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestCodexCredentialProjectionUsesConfiguredCodexHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "codex-work-logic")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "codex-work-logic", FamilyCodex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestAGYUsesInstalledHomeWithoutCredentialProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "agy")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "agy", FamilyAgy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestNativeHomeMappingsFailClosed(t *testing.T) {
 	if err := os.Mkdir(nativeHome, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := factory.AcquireProviderNamespace(context.Background(), "agy"); err == nil {
+	if _, err := factory.AcquireProviderNamespace(context.Background(), "agy", FamilyAgy); err == nil {
 		t.Fatal("AGY acquisition accepted native home identity drift")
 	}
 }
@@ -303,7 +303,7 @@ func TestCredentialSourceRejectsSymlinksAndAllowsAbsentFiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lease, err := factory.AcquireProviderNamespace(context.Background(), "provider")
+			lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode)
 			if test.want {
 				if err != nil {
 					t.Fatal(err)
@@ -336,7 +336,7 @@ func TestCredentialSourceUsesExplicitHomeAndDetectsSourceDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestCredentialSourceRejectsPostProjectionIntermediateDirectorySwap(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestCredentialSourceProjectionFailureDrainsLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := factory.AcquireProviderNamespace(context.Background(), "provider"); err == nil {
+	if _, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode); err == nil {
 		t.Fatal("projection failure accepted")
 	}
 	if !lease.drained {
@@ -469,7 +469,7 @@ func TestCredentialProjectingNamespaceFactoryWithPoliciesClonesPolicy(t *testing
 		t.Fatal(err)
 	}
 	policies["provider"] = RuntimeSafetyPolicy{}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func mustSymlink(t *testing.T, target, link string) {
 
 type staticLeaseFactory struct{ lease ports.ProviderNamespaceLease }
 
-func (factory staticLeaseFactory) AcquireProviderNamespace(context.Context, string) (ports.ProviderNamespaceLease, error) {
+func (factory staticLeaseFactory) AcquireProviderNamespace(context.Context, string, string) (ports.ProviderNamespaceLease, error) {
 	return factory.lease, nil
 }
 

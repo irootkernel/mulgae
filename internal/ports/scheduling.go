@@ -72,9 +72,10 @@ func (variable EnvironmentVariable) Valid() bool {
 // each configured provider instance. Its environment must not inherit ambient
 // host state. A family-specific factory may inject a startup-frozen,
 // identity-revalidated authentication HOME, but the resulting lease must not
-// receive cleanup authority over that external HOME.
+// receive cleanup authority over that external HOME. The declared provider
+// family, not the instance name, shapes family-specific environment rules.
 type ProviderNamespaceFactory interface {
-	AcquireProviderNamespace(context.Context, string) (ProviderNamespaceLease, error)
+	AcquireProviderNamespace(context.Context, string, string) (ProviderNamespaceLease, error)
 }
 
 // CredentialProjectionDestination is the closed set of provider-owned files

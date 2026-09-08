@@ -58,7 +58,7 @@ func TestAGYSafetyContractIsDeterministicAndNotMaterialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "agy_primary")
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "agy_primary", FamilyAgy)
 	if err != nil {
 		t.Fatal(err)
 	}
