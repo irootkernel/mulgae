@@ -611,11 +611,31 @@ func TestProviderInvocationWorkspaceSharedAcrossRoles(t *testing.T) {
 }
 
 func TestRuntimeProviderErrorConditionPreservesProtectedFailuresAcrossContext(t *testing.T) {
+	transientSpawnRevalidation, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderExecutionFailed, errors.New("temporary inability to attest"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	driftedSpawnRevalidation, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("%w: descriptor hash mismatch", ports.ErrProviderSpawnEnvironmentDrift))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := runtimeProviderErrorCondition(context.Background(), errors.Join(ports.ErrWorkspaceSnapshotDrift, errors.New("provider unavailable"))); got != AttemptConditionSecurityViolation {
 		t.Fatalf("workspace drift condition = %q, want security violation", got)
 	}
 	if got := runtimeProviderErrorCondition(context.Background(), ports.ErrProviderPacketSecurity); got != AttemptConditionSecurityViolation {
 		t.Fatalf("packet screening condition = %q, want security violation", got)
+	}
+	// A spawn-time revalidation refusal is never an internal invariant: a
+	// transient inability is a retryable provider-unavailable condition, and a
+	// proven environment change is the deterministic spawn-failed condition.
+	if got := runtimeProviderErrorCondition(context.Background(), transientSpawnRevalidation); got != AttemptConditionProviderUnavailable {
+		t.Fatalf("transient spawn revalidation condition = %q, want provider unavailable", got)
+	}
+	if decision, decisionErr := DecideTransition(TransitionInput{Condition: AttemptConditionProviderUnavailable}); decisionErr != nil || !decision.ScheduleRetry() {
+		t.Fatalf("transient spawn revalidation retry decision = %v, %v", decision.ScheduleRetry(), decisionErr)
+	}
+	if got := runtimeProviderErrorCondition(context.Background(), driftedSpawnRevalidation); got != AttemptConditionProviderSpawnFailed {
+		t.Fatalf("drifted spawn revalidation condition = %q, want provider spawn failed", got)
 	}
 	if got := runtimeProviderErrorCondition(context.Background(), fmt.Errorf("registry refusal: %w", ports.ErrProviderInstanceAlreadyActive)); got != AttemptConditionInternalInvariant {
 		t.Fatalf("duplicate provider instance condition = %q, want internal invariant", got)

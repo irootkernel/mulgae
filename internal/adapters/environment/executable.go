@@ -286,7 +286,7 @@ func (descriptor *darwinExecutableDescriptor) Stat() (executableSnapshot, error)
 func (descriptor *darwinExecutableDescriptor) EffectiveExecutable(expected executableSnapshot) (bool, error) {
 	before, err := executableSnapshotAt(descriptor.parentFD, descriptor.name)
 	if err != nil || !before.sameFile(expected) {
-		return false, errors.New("executable target changed")
+		return false, fmt.Errorf("%w: executable target changed", ports.ErrProviderSpawnEnvironmentDrift)
 	}
 
 	accessErr := unix.Faccessat(
@@ -298,7 +298,7 @@ func (descriptor *darwinExecutableDescriptor) EffectiveExecutable(expected execu
 
 	after, err := executableSnapshotAt(descriptor.parentFD, descriptor.name)
 	if err != nil || !after.sameFile(expected) {
-		return false, errors.New("executable target changed")
+		return false, fmt.Errorf("%w: executable target changed", ports.ErrProviderSpawnEnvironmentDrift)
 	}
 	if accessErr == nil {
 		return true, nil
@@ -673,7 +673,7 @@ func verifyCurrentIdentity(ctx context.Context, path, expectedHash string, requi
 	if requireExecutable {
 		executable, err := file.EffectiveExecutable(before)
 		if err != nil || !executable {
-			return errors.New("descriptor is not executable")
+			return fmt.Errorf("%w: descriptor is not executable", ports.ErrProviderSpawnEnvironmentDrift)
 		}
 	}
 	hash := sha256.New()
@@ -694,7 +694,7 @@ func verifyCurrentIdentity(ctx context.Context, path, expectedHash string, requi
 		return errors.New("descriptor changed")
 	}
 	if "sha256:"+hex.EncodeToString(hash.Sum(nil)) != expectedHash {
-		return errors.New("descriptor hash mismatch")
+		return fmt.Errorf("%w: descriptor hash mismatch", ports.ErrProviderSpawnEnvironmentDrift)
 	}
 	return nil
 }

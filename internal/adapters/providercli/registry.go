@@ -1205,6 +1205,20 @@ func providerRuntimeFailure(cause domain.RuntimeDiagnosticCause, err error) erro
 	return failure
 }
 
+// spawnRevalidationFailure classifies a spawn-time revalidation refusal. A
+// proven environment change keeps the deterministic provider-unusable
+// spawn-failed classification; an inability to establish the environment
+// right now is a transient provider-execution failure that the sole
+// same-route retry may clear. Neither is an internal invariant: the
+// bookkeeping itself stayed sound.
+func spawnRevalidationFailure(operation string, err error) error {
+	cause := domain.DiagnosticCauseProviderExecutionFailed
+	if errors.Is(err, ports.ErrProviderSpawnEnvironmentDrift) {
+		cause = domain.DiagnosticCauseProviderSpawnFailed
+	}
+	return providerRuntimeFailure(cause, fmt.Errorf("provider registry: %s: %w", operation, err))
+}
+
 // executeProviderProcess runs one provider process request. Protocol-channel
 // routes converse the packet through a ZCode session driver instead of
 // delivering it upfront; every other channel keeps the one-shot run path. The
@@ -1248,14 +1262,14 @@ func (r *Registry) runLegacy(
 ) (ports.ProcessObservation, []byte, error) {
 	request, err := processRequest(definition, packet, definition.workingDirectory, environment)
 	if err != nil {
-		return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: %w", err)
+		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", err))
 	}
 	if definition.requiresSpawnVerification {
 		if r.spawnVerifier == nil {
-			return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: missing spawn verifier")
+			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing spawn verifier"))
 		}
 		if err := r.spawnVerifier.VerifyProviderSpawn(ctx, RuntimeDefinition(definition)); err != nil {
-			return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: spawn revalidation: %w", err)
+			return ports.ProcessObservation{}, nil, spawnRevalidationFailure("spawn revalidation", err)
 		}
 	}
 	observation, evidence, err := r.executeProviderProcess(ctx, definition, packet, request, purpose)
@@ -1293,12 +1307,12 @@ func (r *Registry) runInWorkspace(
 	}
 	request, requestErr := processRequest(definition, packet, root.Path(), environment)
 	if requestErr != nil {
-		return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: %w", requestErr)
+		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", requestErr))
 	}
 	if _, staged := invocation.StagedOutputDestination(); !staged && definition.transport.channel != ports.ProviderPacketChannelProtocol {
 		request, requestErr = ports.NewSpooledStdoutProcessRequest(request)
 		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: mark report stdout: %w", requestErr)
+			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: mark report stdout: %w", requestErr))
 		}
 	}
 	launchDirectory, duplicateErr := guard.DuplicateLaunchDirectory()
@@ -1309,12 +1323,12 @@ func (r *Registry) runInWorkspace(
 		authorityLease, ok := namespace.(nativeHomeLaunchAuthorityLease)
 		if !ok {
 			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: missing AGY native home authority")
+			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing AGY native home authority"))
 		}
 		authority, ok := authorityLease.NativeHomeLaunchAuthority()
 		if !ok {
 			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: missing AGY native home authority")
+			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing AGY native home authority"))
 		}
 		request, requestErr = ports.NewBoundProcessRequestWithNativeHomeAuthority(request, root, launchDirectory, authority)
 	} else {
@@ -1326,10 +1340,12 @@ func (r *Registry) runInWorkspace(
 	}
 	if definition.requiresSpawnVerification {
 		if r.spawnVerifier == nil {
-			return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: missing spawn verifier")
+			_ = launchDirectory.Close()
+			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing spawn verifier"))
 		}
 		if err := r.spawnVerifier.VerifyProviderSpawn(ctx, RuntimeDefinition(definition)); err != nil {
-			return ports.ProcessObservation{}, nil, fmt.Errorf("provider registry: spawn revalidation: %w", err)
+			_ = launchDirectory.Close()
+			return ports.ProcessObservation{}, nil, spawnRevalidationFailure("spawn revalidation", err)
 		}
 	}
 
@@ -1574,6 +1590,12 @@ func workspaceGuardError(operation string, cause error) error {
 }
 
 func providerRunCauses(err error) (domain.RuntimeDiagnosticCause, domain.RuntimeDiagnosticCause) {
+	var runtimeFailure *ports.ProviderRuntimeError
+	if errors.As(err, &runtimeFailure) && runtimeFailure.Cause().Valid() {
+		// A spawn-path failure that already chose its typed cause keeps it, so
+		// the transient-versus-drift distinction survives re-classification.
+		return runtimeFailure.Cause(), ""
+	}
 	var failure *ports.ProcessExecutionError
 	if errors.As(err, &failure) {
 		cleanup, _ := failure.CleanupCause()

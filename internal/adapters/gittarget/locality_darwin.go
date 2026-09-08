@@ -118,7 +118,7 @@ func revalidateLiveConfigProof(request ports.ConfigLocalityRequest) error {
 		return fmt.Errorf("config locality: live config proof: %w", err)
 	}
 	if !actual.Equal(request.Config()) {
-		return fmt.Errorf("config locality: live config drifted")
+		return fmt.Errorf("%w: config locality live config drifted", ports.ErrProviderSpawnEnvironmentDrift)
 	}
 	return nil
 }
@@ -129,7 +129,7 @@ func (attestor *GitLocalityAttestor) Revalidate(ctx context.Context, request por
 		return err
 	}
 	if !actual.Equal(expected) {
-		return fmt.Errorf("config locality: drifted")
+		return fmt.Errorf("%w: config locality drifted", ports.ErrProviderSpawnEnvironmentDrift)
 	}
 	return nil
 }

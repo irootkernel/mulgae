@@ -4,6 +4,7 @@ package gittarget
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,6 +130,8 @@ func TestGitLocalityAttestorRejectsLiveConfigAndRepositoryDrift(t *testing.T) {
 			test.mutate(t, root)
 			if err := attestor.Revalidate(context.Background(), request, expected); err == nil {
 				t.Fatal("locality drift was accepted")
+			} else if !errors.Is(err, ports.ErrProviderSpawnEnvironmentDrift) {
+				t.Fatalf("locality drift is unclassified: %v", err)
 			}
 		})
 	}

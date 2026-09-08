@@ -11,15 +11,19 @@ work.
   asymmetry is bounded. Re-entry: before adding a second protocol-channel
   provider family, derive both dispatch decisions from one channel-plus-driver
   authority so the driver constructor owns which protocol it speaks.
-- `DF-002` Live review runs intermittently fail every role with an
-  unconditioned `internal_invariant` after invocation preparation and before
-  process spawn, cancelling accepted work; the underlying plain error is not
-  recorded in diagnostics, so field diagnosis is impossible. Observed on a
-  released pre-EPIC-003 orchestrator and once in an EPIC-003-era extraction
-  trailer wave under provider throttling. Re-entry: when a run reproduces this
-  signature, first capture the retry or extraction invocation's underlying
-  error in runtime diagnostics, then decide whether the internal-class
-  extraction-trailer failure may keep its bounded absorption.
+- `DF-002` Live review runs intermittently lost every role to an unconditioned
+  `internal_invariant` after invocation preparation and before process spawn.
+  Spawn-path revalidation refusals are now typed: a proven environment change
+  (`ports.ErrProviderSpawnEnvironmentDrift`: executable identity mismatch,
+  locality drift) keeps the deterministic `provider_spawn_failed`
+  classification, while an inability to establish the environment right now
+  classifies as retryable `provider_unavailable` instead of destroying the
+  run. Residual: the exact transient trigger (for example a subprocess or
+  descriptor failure under concurrent spawn load) is still not captured as
+  diagnostic text. Re-entry: when a run retries or fails through
+  `provider_execution_failed` at the spawn boundary, capture the bounded
+  underlying error in runtime diagnostics before considering further
+  hardening.
 
 Promote an epic-sized finding to a TODO candidate or an adopted roadmap work
 unit. Do not use this index as a second roadmap or status authority.

@@ -20,6 +20,13 @@ var ErrProviderLoginRequired = errors.New("provider login required")
 // it as an internal invariant rather than a provider or security failure.
 var ErrProviderInstanceAlreadyActive = errors.New("provider instance already active")
 
+// ErrProviderSpawnEnvironmentDrift marks a spawn-time revalidation failure
+// that proved a deterministic change in the provider launch environment: the
+// executable or launcher identity no longer matches, or the attested project
+// locality drifted. Failures without this marker mean the revalidation could
+// not establish the environment right now, which is transient and retryable.
+var ErrProviderSpawnEnvironmentDrift = errors.New("provider spawn environment drifted")
+
 // ProviderRuntimeError carries a closed detailed cause when the provider
 // boundary itself fails. A caller may still receive a valid observation with
 // this error and must preserve that evidence before applying policy.
