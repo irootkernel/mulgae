@@ -22,7 +22,7 @@ not complete an epic without explicit epic acceptance.
 |---|---|---|
 | [EPIC-001](#epic-001-token-efficient-review-waiting) | Completed | Let attached agents await long reviews without repeated model turns while preserving exact lifecycle and publication authority. |
 | [EPIC-002](#epic-002-composite-recovery-for-incomplete-multi-role-reviews) | Completed | Recover missing required-role coverage by composing exact same-target rerun results into one authoritative immutable review. |
-| [EPIC-003](#epic-003-zcode-app-server-provider-transport) | Planned | Drive ZCode review and qualification through the ZCode app-server wire protocol instead of one-shot print invocations. |
+| [EPIC-003](#epic-003-zcode-app-server-provider-transport) | Completed | Drive ZCode review and qualification through the ZCode app-server wire protocol instead of one-shot print invocations. |
 
 ## EPIC-001: Token-efficient review waiting
 
