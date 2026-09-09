@@ -85,7 +85,7 @@ Role reports reach Mulgae over a per-family transport recorded in
   and remains fully tool-denied.
 - AGY, Kimi, and Codex: `stdout`. Headless AGY auto-denies `write_file` in
   safe mode.
-- Exact replay (`rerun --exact`) keeps the provider family's transport. For
+- Exact replay (`rerun --replay exact`) keeps the provider family's transport. For
   ZCode, Mulgae preserves the stored review frames but replaces the expired
   output path with a fresh per-launch staging destination.
 

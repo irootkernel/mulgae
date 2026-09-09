@@ -499,6 +499,23 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 	}
 }
 
+func TestCatalogProvidersHelpUsesExactReplayGrammar(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+	_, help, err := catalog.Read(context.Background(), mustAssetID(t, "help:providers"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(help)
+	if !strings.Contains(content, "`rerun --replay exact`") {
+		t.Error("providers help does not document the exact replay grammar")
+	}
+	if strings.Contains(content, "`rerun --exact`") {
+		t.Error("providers help retains the unsupported --exact flag")
+	}
+}
+
 func TestCatalogArtifactsHelpDocumentsCompositeLayout(t *testing.T) {
 	t.Parallel()
 

@@ -437,7 +437,7 @@ non-string responses and unsuccessful statuses are rejected before free-form
 report acceptance. Mulgae extracts the exact response bytes, not other envelope
 metadata. Direct review JSON without native envelope fields remains supported.
 
-Exact replay (`rerun --exact`) preserves the source attempt's framed review
+Exact replay (`rerun --replay exact`) preserves the source attempt's framed review
 input and provider route. On a `staged_file` route Mulgae replaces only the
 expired Mulgae-owned output-destination layer with a fresh per-launch grant;
 stdout routes preserve their complete stored stdin bytes.

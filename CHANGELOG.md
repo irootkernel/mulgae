@@ -8,8 +8,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 - Retain verified inputs and accepted results for unpublished failed reviews, and expose
   recovery availability and exact replay data through CLI command-result v7 and MCP `get_run`.
-- Add v2 recovery, rerun, and composite contracts with failed-rerun lineage while
-  preserving v1 reads and existing valid composition identities.
+- Add a versioned failed-run recovery source and v2 run, review, and composite
+  contracts while preserving v1 reads and existing valid composition identities.
 
 ### Changed
 
@@ -20,6 +20,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 - Recover every failed selected role, including optional roles, through exact reruns and
   composition; reject incomplete mappings and update `use-mulgae` to guide the full flow.
+- Keep reviews recoverable by classifying transient spawn revalidation as retryable
+  `provider_unavailable`, re-reading failed namespace listings, and bounding orphan teardown.
 
 ## v0.1.19 - 2026-09-07
 
