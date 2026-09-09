@@ -6,6 +6,7 @@
 .codex
 .claude
 .zcode
+.sorage/
 .gaori/*
 !.gaori/tester.yaml
 !.gaori/tester/
