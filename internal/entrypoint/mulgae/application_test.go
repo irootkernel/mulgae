@@ -4038,6 +4038,43 @@ func TestApplicationStatusReadsDiagnosticOnlyRunWhenPublicationIsAbsent(t *testi
 	}
 }
 
+func TestApplicationStatusSerializesAvailableFailedRunRecovery(t *testing.T) {
+	kind, runID, manifest := "failed_run_recovery", testRunID, "sha256:"+strings.Repeat("a", 64)
+	want := recovery.Status{
+		Available:      true,
+		SourceKind:     &kind,
+		RunID:          &runID,
+		ManifestSHA256: &manifest,
+		AcceptedRoles:  []domain.Role{domain.RoleLogic},
+		RetryAttempts: []recovery.RetryAttempt{{
+			Role: domain.RoleDocumentation, AttemptID: "a_019f596a-cf80-7c67-b265-f37053d51ccf",
+		}},
+	}
+	query := newG006QueryFake()
+	query.status = RunStatusView{
+		FailedRunRecovery: want,
+		RunID:             testRunID,
+		RunState:          domain.RunFailed,
+		HasRunState:       true,
+		PublicationState:  domain.PublicationNotPublished,
+		RecoveryAction:    domain.RecoveryActionResumeCollection,
+	}
+	fixture := newG006Fixture(t, query, &g006ReportFake{})
+	result := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID, "--output", "json"}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+	var envelope struct {
+		Result struct {
+			FailedRunRecovery recovery.Status `json:"failed_run_recovery"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(envelope.Result.FailedRunRecovery, want) {
+		t.Fatalf("status recovery round trip = %#v, want %#v", envelope.Result.FailedRunRecovery, want)
+	}
+}
+
 func TestApplicationG006StatusDoesNotDiscloseNonP2Paths(t *testing.T) {
 	tests := []struct {
 		name   string

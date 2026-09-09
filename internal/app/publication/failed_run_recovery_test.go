@@ -159,6 +159,47 @@ func TestPrepareFailedRunRecoveryAdmitsAndRejectsTerminalFailures(t *testing.T) 
 	}
 }
 
+func TestPrepareFailedRunRecoveryBindsRecoveryRerunLineage(t *testing.T) {
+	result, target, inputs, _ := failedRecoveryCoordinatorForRoles(t, review.AttemptConditionInternalInvariant, []domain.Role{domain.RoleDocumentation})
+	parent, err := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceRun, err := domain.ParseRunID("r_019f596a-cf82-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceAttempt, err := domain.ParseAttemptID("a_019f596a-cf83-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceManifest := "sha256:" + strings.Repeat("b", 64)
+	source, err := domain.NewRecoverySourceReference(sourceRun, sourceManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage, err := NewRecoveryRerunPublicationContext(parent, source, sourceAttempt, ReplayModeExact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceManifest := "sha256:" + strings.Repeat("a", 64)
+	prepared, err := PrepareFailedRunRecovery(context.Background(), result, target, domain.SeverityHigh, workspaceManifest, lineage, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := prepared.Seal(context.Background(), failedRecoveryTerminalReceipt(t, result.RunID(), workspaceManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := snapshot.Document()
+	if document.RunType != domain.RunTypeRerun || document.Source == nil ||
+		document.Source.Kind != "failed_run_recovery" || document.Source.RunID != sourceRun.String() ||
+		document.Source.RecoveryManifestSHA256 == nil || *document.Source.RecoveryManifestSHA256 != sourceManifest ||
+		document.Source.AttemptID != sourceAttempt.String() || document.Source.ReplayMode != string(ReplayModeExact) {
+		t.Fatalf("prepared recovery rerun lineage = %#v", document.Source)
+	}
+}
+
 func failedRecoveryTerminalReceipt(t *testing.T, runID domain.RunID, manifest string) ports.WorkspaceTerminalReceipt {
 	t.Helper()
 	identity, err := ports.NewWorkspaceSnapshotIdentity("/private/snapshot", "snapshot-0123456789abcdef0123456789abcdef", manifest, "policy", 1, 2, 3, 4)
@@ -187,6 +228,10 @@ func failedRecoveryTerminalReceipt(t *testing.T, runID domain.RunID, manifest st
 }
 
 func failedRecoveryCoordinator(t *testing.T, condition review.AttemptCondition) (review.CoordinatorResult, domain.TargetIdentity, []review.RuntimeArtifactInventory, []domain.Role) {
+	return failedRecoveryCoordinatorForRoles(t, condition, []domain.Role{domain.RoleLogic, domain.RoleDocumentation, domain.RoleTesting})
+}
+
+func failedRecoveryCoordinatorForRoles(t *testing.T, condition review.AttemptCondition, roles []domain.Role) (review.CoordinatorResult, domain.TargetIdentity, []review.RuntimeArtifactInventory, []domain.Role) {
 	t.Helper()
 	target, err := ports.NewCapturedReviewPatchTarget([]byte("immutable target"))
 	if err != nil {
@@ -221,7 +266,7 @@ func failedRecoveryCoordinator(t *testing.T, condition review.AttemptCondition) 
 	faultRuntime := &failedRecoveryRuntime{runtime: runtime, condition: condition}
 	var assignments []review.Assignment
 	var budgets []review.RoleBudget
-	for _, role := range []domain.Role{domain.RoleLogic, domain.RoleDocumentation, domain.RoleTesting} {
+	for _, role := range roles {
 		route, err := ports.NewProviderRoute("provider-" + string(role))
 		if err != nil {
 			t.Fatal(err)

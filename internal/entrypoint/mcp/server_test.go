@@ -215,7 +215,23 @@ func TestServeCancellationClosesBlockingInput(t *testing.T) {
 }
 
 func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) {
-	backend := &toolBackendFake{getRunData: map[string]any{"run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf"}}
+	backend := &toolBackendFake{getRunData: map[string]any{
+		"run_id":             "r_019f596a-cf80-7c67-b265-f37053d51ccf",
+		"run_state":          "failed",
+		"publication_status": "not_published",
+		"recovery_action":    "resume_collection",
+		"failed_run_recovery": map[string]any{
+			"available":       true,
+			"source_kind":     "failed_run_recovery",
+			"run_id":          "r_019f596a-cf80-7c67-b265-f37053d51ccf",
+			"manifest_sha256": "sha256:" + strings.Repeat("a", 64),
+			"accepted_roles":  []any{"logic"},
+			"retry_attempts": []any{map[string]any{
+				"role": "documentation", "attempt_id": "a_019f596a-cf81-7c67-b265-f37053d51ccf",
+			}},
+			"unavailable_reason": nil,
+		},
+	}}
 	discover := latestRequest(1, "server/discover", `{}`)
 	list := latestRequest(2, "tools/list", `{}`)
 	call := latestRequest(3, "tools/call", `{"name":"get_run","arguments":{"run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf"}}`)
@@ -242,6 +258,12 @@ func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) 
 	if structured["schema_version"] != toolResultSchemaVersion || structured["tool"] != toolGetRun ||
 		structured["request_id"] != "i_019f596a-cf80-7c67-b265-f37053d51ccf" || structured["outcome"] != toolOutcomeSuccess {
 		t.Fatalf("structured tool result = %#v", structured)
+	}
+	data := structured["data"].(map[string]any)
+	recovery := data["failed_run_recovery"].(map[string]any)
+	if recovery["available"] != true || recovery["manifest_sha256"] != "sha256:"+strings.Repeat("a", 64) ||
+		len(recovery["retry_attempts"].([]any)) != 1 {
+		t.Fatalf("get_run recovery transport = %#v", recovery)
 	}
 	if result["isError"] != nil {
 		t.Fatalf("successful tool call has isError = %v", result["isError"])
