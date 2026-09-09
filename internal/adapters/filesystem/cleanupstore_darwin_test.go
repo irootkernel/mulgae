@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/app/clean"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
@@ -677,4 +679,79 @@ func cleanupJSON(t *testing.T, value any) []byte {
 func cleanupTestHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func TestCleanupStoreObservesFailedRecoveryWithoutFinalAuthority(t *testing.T) {
+	for _, malformed := range []bool{false, true} {
+		t.Run(fmt.Sprint(malformed), func(t *testing.T) {
+			root, err := ports.NewAnchoredRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := newCleanupStoreForTest(t, root)
+			raw, err := os.ReadFile("../../builtin/assets/examples/run-recovery.v1.valid.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document recovery.Document
+			if err := json.Unmarshal(raw, &document); err != nil {
+				t.Fatal(err)
+			}
+			parent := document.RunID
+			write := func(d recovery.Document) {
+				raw, err := json.Marshal(d)
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(root.String(), d.SessionID, d.RunID, "recovery", "manifest.json")
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, raw, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(document)
+			sessionID, _ := domain.ParseSessionID(document.SessionID)
+			parentID, _ := domain.ParseRunID(document.RunID)
+			parentRun, _ := ports.NewPublicationRun(root, sessionID, parentID)
+			if _, err := recovery.ReadRetentionMetadata(context.Background(), lockedRecoveryReader{}, store.publication.validator, parentRun, cleanupMaximumBytes); err != nil {
+				t.Fatal(err)
+			}
+			canonical, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hash := recovery.Digest(canonical)
+			document.Source = &recovery.Source{Kind: "failed_run_recovery", RunID: parent, RecoveryManifestSHA256: &hash, AttemptID: document.Attempts[1].AttemptID, ReplayMode: "exact"}
+			document.RunID = "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+			document.RunType = domain.RunTypeRerun
+			document.Attempts = document.Attempts[1:]
+			document.Roles = document.Roles[1:]
+			document.Findings = []recovery.Finding{}
+			if malformed {
+				document.WorkspaceTerminalReceipt = ""
+			}
+			write(document)
+			snapshot, err := store.Snapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(snapshot.Runs) != 2 {
+				t.Fatalf("recovery inventory: %+v", snapshot.Runs)
+			}
+			for _, run := range snapshot.Runs {
+				if run.Committed || run.Kind != clean.RunKindPublication {
+					t.Fatalf("recovery granted final authority: %+v", run)
+				}
+				wantCorrupt := malformed && run.RunID == document.RunID
+				if run.Corrupt != wantCorrupt || run.Completed == wantCorrupt {
+					t.Fatalf("wrong recovery metadata state: %+v", run)
+				}
+			}
+			if !malformed && (len(snapshot.Edges) != 1 || snapshot.Edges[0].ParentRunID != parent || snapshot.Edges[0].ChildRunID != document.RunID || !snapshot.Edges[0].Valid) {
+				t.Fatalf("recovery parent edge missing: %+v", snapshot.Edges)
+			}
+		})
+	}
 }

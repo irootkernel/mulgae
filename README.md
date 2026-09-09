@@ -609,7 +609,14 @@ mulgae report --run r_... --output-path reports/review.md
 mulgae export --run r_...
 ```
 
-Recover every missing required role from explicitly selected committed reruns:
+If a review failed without publishing a final result, inspect
+`status --run r_... --output json` or MCP `get_run` first. When
+`failed_run_recovery.available` is true, use each returned retry attempt with
+`mulgae rerun --run r_... --attempt a_... --replay exact --output json`.
+Accepted roles are retained. A missing recovery source requires a new review
+when authorized; old diagnostic-only runs cannot be recovered retrospectively.
+
+After every missing selected role has a committed rerun, combine the results:
 
 ```bash
 mulgae compose --root-run r_... --recovery-run r_... --output json

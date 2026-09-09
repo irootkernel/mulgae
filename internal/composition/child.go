@@ -217,15 +217,21 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 	if err != nil {
 		return mulgae.StartedRun{}, abortCaptured(captured, err)
 	}
-	defer func() { err = prepared.Finish(ctx, err) }()
+	defer func() {
+		err = reviewrun.NewAllocatedRunIdentityError(source.SessionID, prepared.RunID(), prepared.Finish(ctx, err))
+	}()
 	childIDs := &reservedChildRunIDs{IdentityGenerator: graph.ids, runID: prepared.RunID()}
 	authority, err := authorityFactory.NewQualifiedRun(ctx, captured, selection)
 	if err != nil {
 		return mulgae.StartedRun{}, abortCapturedAfterAuthorityError(captured, err)
 	}
 	completed := false
+	recoveryCleaned := false
 	var childRunID string
 	defer func() {
+		if recoveryCleaned {
+			return
+		}
 		cleanupErr := finishChildAuthority(ctx, captured, authority, childRunID, completed)
 		if cleanupErr != nil {
 			err = errors.Join(err, cleanupErr)
@@ -233,6 +239,40 @@ func (service deferredRerunService) StartRerun(ctx context.Context, request appr
 	}()
 	executor, assignments, err := graph.childExecutor(ctx, service.composer.artifactRoot, captured, selection, authority, service.composer.sources)
 	if err != nil {
+		return mulgae.StartedRun{}, err
+	}
+	if err := executor.BindRecoveryCleanup(captured.WorkspaceLease().WorkspaceSnapshotIdentity().ManifestSHA256(), func(cleanupCtx context.Context, runID domain.RunID) (ports.WorkspaceTerminalReceipt, error) {
+		observed, err := service.composer.sources.ReadRerunSource(cleanupCtx, request.SourceRunID, request.SourceAttemptID)
+		if err != nil {
+			return ports.WorkspaceTerminalReceipt{}, err
+		}
+		if observed.ImmutableSHA256 != source.ImmutableSHA256 {
+			return ports.WorkspaceTerminalReceipt{}, fmt.Errorf("recovery source changed during child execution")
+		}
+		if err := cleanupCtx.Err(); err != nil {
+			return ports.WorkspaceTerminalReceipt{}, err
+		}
+		terminal, err := reviewrun.DrainRunAuthorityTerminalForRetention(cleanupCtx, authority)
+		if err != nil {
+			return ports.WorkspaceTerminalReceipt{}, err
+		}
+		if err := cleanupCtx.Err(); err != nil {
+			return ports.WorkspaceTerminalReceipt{}, err
+		}
+		completion, err := ports.NewWorkspaceCompletionEvidence(captured.WorkspaceLease().WorkspaceSnapshotIdentity(), runID.String(), terminal.ProviderRunTerminalReceipt())
+		if err != nil {
+			return ports.WorkspaceTerminalReceipt{}, err
+		}
+		receipt, err := captured.WorkspaceLease().Release(completion)
+		if err != nil {
+			return ports.WorkspaceTerminalReceipt{}, err
+		}
+		if !receipt.Valid() || receipt.RunID() != runID.String() {
+			return ports.WorkspaceTerminalReceipt{}, fmt.Errorf("recovery cleanup receipt is invalid")
+		}
+		recoveryCleaned = true
+		return receipt, nil
+	}); err != nil {
 		return mulgae.StartedRun{}, err
 	}
 	workflow, err := appreplay.NewService(service.composer.sources, executor, appreplay.Config{Clock: graph.clock, IDs: childIDs, Assignments: assignments})

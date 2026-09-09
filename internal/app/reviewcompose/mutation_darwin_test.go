@@ -15,6 +15,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -37,6 +38,7 @@ func (mutationFailingEpochStore) WithNextPublicationEpoch(context.Context, ports
 func TestMutationServicePublishesAndReconcilesExactComposite(t *testing.T) {
 	ctx := context.Background()
 	root, security, docs := compositionFixtures(t)
+	root.Roles[2].Required = false
 	targetBytes := []byte("diff --git a/main.go b/main.go\n")
 	targetDigest := sha256.Sum256(targetBytes)
 	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
@@ -134,6 +136,23 @@ func TestMutationServicePublishesAndReconcilesExactComposite(t *testing.T) {
 	if reconciled.ReconciliationState() != "reconciled" || reconciled.RunID() != created.RunID() || reconciled.ReviewID() != created.ReviewID() ||
 		reconciled.TerminalExit().Code() != created.TerminalExit().Code() {
 		t.Fatalf("reconciled result drifted: created=%#v reconciled=%#v", created, reconciled)
+	}
+
+	queries, err := query.NewService(store, validator, nil, 8<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := queries.ResolveRun(ctx, artifactRoot, created.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := queries.ReadCommitted(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := review.Roles()
+	if len(roles) != 3 || roles[2].Name() != domain.RoleDocumentation || roles[2].Required() || roles[2].Outcome() != "completed" || len(review.RoleReports()) != 3 {
+		t.Fatalf("committed optional role or reports lost: %#v", review)
 	}
 
 	failingService, err := publication.NewService(mutationFailingEpochStore{PublicationStore: store}, validator, clock, 8<<20)

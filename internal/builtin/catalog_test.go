@@ -242,8 +242,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 76 {
-		t.Fatalf("manifest asset count = %d, want 76", len(manifest.Assets))
+	if len(manifest.Assets) != 88 {
+		t.Fatalf("manifest asset count = %d, want 88", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -288,6 +288,12 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		if walkErr != nil {
 			return walkErr
 		}
+		if filename != testSOTRoot && (strings.HasPrefix(entry.Name(), ".") || strings.HasPrefix(entry.Name(), "_")) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if filename == filepath.Join(testSOTRoot, "plan") && entry.IsDir() {
 			return filepath.SkipDir
 		}
@@ -322,8 +328,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 65 {
-		t.Fatalf("authoritative runtime source count = %d, want 65", len(authoritativeSources))
+	if len(authoritativeSources) != 77 {
+		t.Fatalf("authoritative runtime source count = %d, want 77", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -538,6 +544,13 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 	t.Parallel()
 
 	expected := []schemaExamplePair{
+		{"https://mulgae.local/schemas/mulgae-command-result.v7.schema.json", "schemas/mulgae-command-result.v7.schema.json", "examples/command-result.v7.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json", "schemas/mulgae-composite-review-artifact.v2.schema.json", "examples/composite-review-artifact.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v2.schema.json", "schemas/mulgae-composite-run-manifest.v2.schema.json", "examples/composite-run-manifest.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json", "schemas/mulgae-review-artifact.v2.schema.json", "examples/review-artifact.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json", "schemas/mulgae-run-manifest.v2.schema.json", "examples/run-manifest.v2.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json", "schemas/mulgae-run-recovery.v1.schema.json", "examples/run-recovery.v1.valid.json"},
+
 		{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "schemas/mulgae-clean-plan.v1.schema.json", "examples/clean-plan.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json", "schemas/mulgae-composite-review-artifact.v1.schema.json", "examples/composite-review-artifact.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json", "schemas/mulgae-composite-run-manifest.v1.schema.json", "examples/composite-run-manifest.v1.valid.json"},
@@ -561,8 +574,8 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.v1.valid.json"},
 	}
-	if len(expected) != 22 {
-		t.Fatalf("test pair inventory contains %d pairs, want 22", len(expected))
+	if len(expected) != 28 {
+		t.Fatalf("test pair inventory contains %d pairs, want 28", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

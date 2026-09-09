@@ -2,6 +2,7 @@ package mulgae
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
 	"strings"
@@ -113,10 +114,16 @@ func (reader p2ExportProjectionReader) ReadCommittedProjection(_ context.Context
 		return appexport.VerifiedSourceProjection{}, fmt.Errorf("P2 export source identity mismatch")
 	}
 	findings := committed.Findings()
-	reviewSchema, manifestSchema := "mulgae-review-artifact.v1", "mulgae-run-manifest.v1"
-	if committed.RunType() == domain.RunTypeComposite {
-		reviewSchema, manifestSchema = "mulgae-composite-review-artifact.v1", "mulgae-composite-run-manifest.v1"
+	var finalVersion, manifestVersion struct {
+		SchemaVersion string `json:"schema_version"`
 	}
+	if err := json.Unmarshal(committed.FinalBytes(), &finalVersion); err != nil {
+		return appexport.VerifiedSourceProjection{}, err
+	}
+	if err := json.Unmarshal(committed.ManifestBytes(), &manifestVersion); err != nil {
+		return appexport.VerifiedSourceProjection{}, err
+	}
+	reviewSchema, manifestSchema := finalVersion.SchemaVersion, manifestVersion.SchemaVersion
 	projection := appexport.VerifiedSourceProjection{
 		SessionID: committed.SessionID().String(), RunID: committed.RunID().String(), ReviewID: committed.ReviewID().String(),
 		RunManifest:     appexport.ImmutableArtifactRef{ArtifactPath: committed.ManifestPath().String(), SHA256: committed.ManifestSHA256()},

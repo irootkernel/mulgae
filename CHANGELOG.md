@@ -4,6 +4,22 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.20 - Unreleased
 
+### Added
+
+- Retain verified failed-run recovery inputs after successful cleanup, so exact
+  role reruns and composition can recover an unpublished review.
+- Expose recovery availability, accepted roles, and retry attempts in CLI status
+  v7 and MCP `get_run`; preserve recovery lineage across failed reruns.
+- Add versioned recovery and v2 lineage/composite contracts while retaining v1
+  reads and existing valid composition identities.
+
+### Fixed
+
+- Recover failed selected roles through composition even when they are not
+  configured as required, and reject mappings that omit any failed selected role.
+- Guide agents from partial review failure through exact role reruns and composite
+  result verification in `use-mulgae`.
+
 ## v0.1.19 - 2026-09-07
 
 ### Added

@@ -1167,3 +1167,21 @@ func decodeResponse(t *testing.T, raw []byte) map[string]any {
 	}
 	return response
 }
+
+func TestPublicToolErrorPreservesPrimaryFailureWithRecoveryDescription(t *testing.T) {
+	for _, class := range []domain.FailureClass{domain.FailureCancelled, domain.FailureConfiguration} {
+		primary, err := domain.NewFailure("reviewrun.execute", class, "provider execution failed", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		secondary, err := domain.NewFailure("recovery.persist", domain.FailureArtifact, "private retention failure", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		original := publicToolError(primary, toolRunReview)
+		actual := publicToolError(fmt.Errorf("%w; failed-run recovery: %v", primary, secondary), toolRunReview)
+		if actual.Class != original.Class || actual.Code != original.Code || actual.Stage != original.Stage || actual.Retryable != original.Retryable || strings.Contains(actual.Message, "retention") {
+			t.Fatalf("recovery changed public failure: %+v", actual)
+		}
+	}
+}

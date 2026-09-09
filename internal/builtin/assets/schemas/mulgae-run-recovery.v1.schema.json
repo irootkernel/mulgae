@@ -1,0 +1,649 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json",
+  "title": "Mulgae failed-run recovery manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "session_id",
+    "run_id",
+    "run_type",
+    "run_state",
+    "threshold",
+    "source",
+    "target",
+    "snapshot_manifest_sha256",
+    "workspace_terminal_receipt",
+    "roles",
+    "attempts",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-run-recovery.v1"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_type": {
+      "enum": [
+        "review",
+        "rerun"
+      ]
+    },
+    "run_state": {
+      "enum": [
+        "failed",
+        "cancelled"
+      ]
+    },
+    "threshold": {
+      "enum": [
+        "blocker",
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "info"
+      ]
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/source"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "snapshot_manifest_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "workspace_terminal_receipt": {
+      "type": "string",
+      "pattern": "^workspace-terminal:v1:sha256:[0-9a-f]{64}$"
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "items": {
+        "$ref": "#/$defs/role"
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "items": {
+        "$ref": "#/$defs/attempt"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "blob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "byte_length"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "run_id",
+        "review_id",
+        "recovery_manifest_sha256",
+        "attempt_id",
+        "replay_mode"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "published_review",
+            "failed_run_recovery"
+          ]
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "review_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/review_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recovery_manifest_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "replay_mode": {
+          "enum": [
+            "exact",
+            "recompose"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "published_review"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "review_id": {
+                "$ref": "#/$defs/review_id"
+              },
+              "recovery_manifest_sha256": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "review_id": {
+                "type": "null"
+              },
+              "recovery_manifest_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stdin",
+        "source_invocation_id",
+        "execution_invocation_id",
+        "template_id",
+        "template_version",
+        "template_sha256",
+        "adapter_profile",
+        "adapter_parameters",
+        "scope"
+      ],
+      "properties": {
+        "stdin": {
+          "$ref": "#/$defs/blob"
+        },
+        "source_invocation_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "execution_invocation_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "template_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "template_version": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "template_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "adapter_profile": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "adapter_parameters": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "scope": {
+          "type": "string",
+          "maxLength": 512
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_id",
+        "role",
+        "provider_instance",
+        "state",
+        "failure_class",
+        "reason_code",
+        "initial_prompt"
+      ],
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "logic",
+            "security",
+            "maintainability",
+            "product",
+            "documentation",
+            "testing",
+            "artist"
+          ]
+        },
+        "provider_instance": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "state": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "timed_out",
+            "cancelled",
+            "blocked"
+          ]
+        },
+        "failure_class": {
+          "enum": [
+            "",
+            "provider_unavailable",
+            "invalid_provider_output",
+            "timeout",
+            "auth",
+            "quota",
+            "rate_limit",
+            "mulgae_internal_error",
+            "user_cancelled"
+          ]
+        },
+        "reason_code": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "initial_prompt": {
+          "$ref": "#/$defs/prompt"
+        }
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "required",
+        "outcome",
+        "attempt_id",
+        "provider_instance",
+        "reports_only",
+        "report",
+        "finding_ids"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": [
+            "logic",
+            "security",
+            "maintainability",
+            "product",
+            "documentation",
+            "testing",
+            "artist"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "outcome": {
+          "enum": [
+            "completed",
+            "degraded",
+            "failed"
+          ]
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "provider_instance": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "reports_only": {
+          "type": "boolean"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/blob"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finding_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 1000,
+          "items": {
+            "type": "string",
+            "pattern": "^F[0-9]{3,}$"
+          }
+        }
+      }
+    },
+    "visual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_sha256",
+        "side",
+        "path",
+        "line_start",
+        "line_end",
+        "quote",
+        "excerpt_sha256",
+        "visual"
+      ],
+      "properties": {
+        "target_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "side": {
+          "enum": [
+            "base",
+            "head",
+            "worktree",
+            "index"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "quote": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "excerpt_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "visual": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/visual"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "fingerprint",
+        "role",
+        "provider_instance",
+        "severity",
+        "title",
+        "description",
+        "recommendation",
+        "confidence",
+        "lifecycle",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,}$"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "logic",
+            "security",
+            "maintainability",
+            "product",
+            "documentation",
+            "testing",
+            "artist"
+          ]
+        },
+        "provider_instance": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "severity": {
+          "enum": [
+            "blocker",
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "recommendation": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": [
+            "open",
+            "acknowledged",
+            "resolved",
+            "dismissed"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "sha256",
+        "repository_id",
+        "base_object_id",
+        "head_object_id",
+        "head_tree_object_id",
+        "index_tree_object_id",
+        "git_mode",
+        "bytes",
+        "captured_archive"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "git",
+            "workspace",
+            "patch",
+            "stdin"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "repository_id": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "base_object_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "head_object_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "head_tree_object_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "index_tree_object_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "git_mode": {
+          "enum": [
+            "",
+            "diff",
+            "stage",
+            "dirty"
+          ]
+        },
+        "bytes": {
+          "$ref": "#/$defs/blob"
+        },
+        "captured_archive": {
+          "$ref": "#/$defs/blob"
+        }
+      }
+    },
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    }
+  }
+}

@@ -185,6 +185,12 @@ to the location: `assets/roles.yaml` sits at the repository root so the tunable
 role defaults are discoverable, and is embedded by the root `assets` package
 because a `go:embed` pattern cannot escape its own package directory.
 
+The checksum generator follows the `go:embed assets` directory rule: files and
+directories whose names start with `.` or `_` are excluded at every depth.
+Excluded directories are not traversed, so local tool state inside them cannot
+enter the checksum inventory. Included assets must remain regular files; symbolic
+links and other non-regular entries are rejected.
+
 ```bash
 go generate ./internal/app/init
 go generate ./internal/builtin

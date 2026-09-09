@@ -818,8 +818,12 @@ type serviceDiagnosticFactory struct {
 	calls            *[]string
 	openErr          error
 	finalizeErr      error
+	refuseEvent      domain.RuntimeDiagnosticEventCode
+	refusal          error
+	refusals         int
 	events           []domain.RuntimeDiagnosticEventCode
 	finalizeRequests []ports.RuntimeDiagnosticFinalizeRequest
+	emitCheck        func(context.Context, domain.RuntimeDiagnosticEventCode)
 }
 
 func (factory *serviceDiagnosticFactory) Open(_ context.Context, request ports.RuntimeDiagnosticOpenRequest) (ports.RuntimeDiagnosticSink, error) {
@@ -840,7 +844,15 @@ type serviceDiagnosticSink struct {
 }
 
 func (sink *serviceDiagnosticSink) Emit(ctx context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
-	sink.factory.events = append(sink.factory.events, draft.Input().Event)
+	event := draft.Input().Event
+	if sink.factory.emitCheck != nil {
+		sink.factory.emitCheck(ctx, event)
+	}
+	if sink.factory.refuseEvent != "" && event == sink.factory.refuseEvent && sink.factory.refusals == 0 {
+		sink.factory.refusals++
+		return domain.RuntimeDiagnosticEvent{}, sink.factory.refusal
+	}
+	sink.factory.events = append(sink.factory.events, event)
 	return sink.RuntimeDiagnosticSink.Emit(ctx, draft)
 }
 
@@ -916,6 +928,7 @@ type serviceLease struct {
 	calls           *[]string
 	abort           ports.WorkspaceAbortEvidence
 	aborted         bool
+	released        bool
 	abortErr        error
 	mismatchRelease bool
 }
@@ -937,7 +950,11 @@ func (lease *serviceLease) Release(evidence ports.WorkspaceCompletionEvidence) (
 		*lease.calls = append(*lease.calls, "release")
 		return ports.WorkspaceTerminalReceipt{}, nil
 	}
-	return lease.release(evidence)
+	receipt, err := lease.release(evidence)
+	if err == nil {
+		lease.released = true
+	}
+	return receipt, err
 }
 func (lease *serviceLease) Abort(evidence ports.WorkspaceAbortEvidence) error {
 	*lease.calls = append(*lease.calls, "abort")

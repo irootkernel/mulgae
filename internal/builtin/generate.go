@@ -29,14 +29,13 @@ type sourceFile struct {
 }
 
 func main() {
-	if err := generate(); err != nil {
+	if err := generate(filepath.Dir(generatorPath())); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func generate() error {
-	packageRoot := filepath.Dir(generatorPath())
+func generate(packageRoot string) error {
 	files, err := readAssets(filepath.Join(packageRoot, "assets"))
 	if err != nil {
 		return err
@@ -79,6 +78,13 @@ func readAssets(root string) ([]sourceFile, error) {
 	err = filepath.WalkDir(root, func(filename string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		// Match go:embed's directory traversal before inspecting excluded entries.
+		if filename != root && (strings.HasPrefix(entry.Name(), ".") || strings.HasPrefix(entry.Name(), "_")) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		info, err := os.Lstat(filename)
 		if err != nil {

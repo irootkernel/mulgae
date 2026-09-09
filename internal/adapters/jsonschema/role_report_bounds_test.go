@@ -11,10 +11,21 @@ import (
 func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 	t.Parallel()
 
-	commandDoc := readAssetJSON(t, "schemas/mulgae-command-result.v6.schema.json")
-	manifestDoc := readAssetJSON(t, "schemas/mulgae-run-manifest.v1.schema.json")
-	commandID := "https://mulgae.local/schemas/mulgae-command-result.v6.schema.json"
-	manifestID := "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	for _, versions := range []struct{ command, manifest string }{{"v6", "v1"}, {"v7", "v2"}} {
+		t.Run(versions.command+"/"+versions.manifest, func(t *testing.T) {
+			checkRoleReportSchemaBounds(t, versions.command, versions.manifest)
+		})
+	}
+}
+
+func checkRoleReportSchemaBounds(t *testing.T, commandVersion, manifestVersion string) {
+	t.Helper()
+	commandName := "mulgae-command-result." + commandVersion + ".schema.json"
+	manifestName := "mulgae-run-manifest." + manifestVersion + ".schema.json"
+	commandDoc := readAssetJSON(t, "schemas/"+commandName)
+	manifestDoc := readAssetJSON(t, "schemas/"+manifestName)
+	commandID := "https://mulgae.local/schemas/" + commandName
+	manifestID := "https://mulgae.local/schemas/" + manifestName
 
 	seven := []any{
 		map[string]any{"role": "logic", "uri": "role-reports/logic.md"},

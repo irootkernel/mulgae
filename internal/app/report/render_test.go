@@ -149,6 +149,77 @@ func TestRenderIsDeterministicAndCoversCommittedReview(t *testing.T) {
 		t.Fatal("Report source identities do not match the committed review")
 	}
 }
+
+func TestRenderMarkdownIncludesRecoverySourceProvenance(t *testing.T) {
+	run, review := reportCommittedFixtureWithFinal(t, nil)
+
+	const (
+		sourceRunID      = "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+		sourceAttemptID  = "a_019f596a-cfe4-7c9c-b82e-7149158243bc"
+		recoveryManifest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	)
+	recoveryFinal := string(review.FinalBytes())
+	recoveryFinal = replaceReportFixtureString(t, recoveryFinal,
+		`"schema_version":"mulgae-review-artifact.v1"`,
+		`"schema_version":"mulgae-review-artifact.v2"`,
+	)
+	recoveryFinal = replaceReportFixtureString(t, recoveryFinal,
+		`"run_type":"review"`,
+		`"run_type":"rerun"`,
+	)
+	legacyLineage := fmt.Sprintf(
+		`"immutable_lineage":{"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null,"lineage_edge_path":%q,"lineage_edge_sha256":%q}`,
+		review.LineageEdgePath().String(), review.LineageEdgeSHA256(),
+	)
+	recoveryLineage := fmt.Sprintf(
+		`"immutable_lineage":{"parent_run_id":%q,"source_run_id":%q,"source_review_id":null,"source_finding_ref":null,"replay_mode":"exact","lineage_edge_path":%q,"lineage_edge_sha256":%q,"source_kind":"failed_run_recovery","source_recovery_manifest_sha256":%q,"source_attempt_id":%q}`,
+		sourceRunID, sourceRunID, review.LineageEdgePath().String(), review.LineageEdgeSHA256(), recoveryManifest, sourceAttemptID,
+	)
+	recoveryFinal = replaceReportFixtureString(t, recoveryFinal, legacyLineage, recoveryLineage)
+	final, err := decodeReportFinal([]byte(recoveryFinal))
+	if err != nil {
+		t.Fatalf("decodeReportFinal() recovery fixture error = %v", err)
+	}
+
+	reader := &reportReader{review: review, excerpt: []byte("line one\nline two")}
+	rendered, err := renderMarkdown(context.Background(), reader, run, review, final)
+	if err != nil {
+		t.Fatalf("renderMarkdown() recovery fixture error = %v", err)
+	}
+	output := string(rendered)
+	for _, expected := range []string{
+		"- **Source run ID:** `" + sourceRunID + "`",
+		"- **Source review ID:** `none`",
+		"- **Source kind:** `failed_run_recovery`",
+		"- **Source recovery manifest SHA-256:** `" + recoveryManifest + "`",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("recovery report does not contain %q:\n%s", expected, output)
+		}
+	}
+
+	legacy, err := decodeReportFinal(review.FinalBytes())
+	if err != nil {
+		t.Fatalf("decodeReportFinal() legacy fixture error = %v", err)
+	}
+	legacyRendered, err := renderMarkdown(context.Background(), reader, run, review, legacy)
+	if err != nil {
+		t.Fatalf("renderMarkdown() legacy fixture error = %v", err)
+	}
+	legacyOutput := string(legacyRendered)
+	if !strings.Contains(legacyOutput, "- **Source run ID:** `none`") {
+		t.Fatalf("legacy report lost the existing absent source run field:\n%s", legacyOutput)
+	}
+	for _, absent := range []string{
+		"- **Source kind:**",
+		"- **Source recovery manifest SHA-256:**",
+	} {
+		if strings.Contains(legacyOutput, absent) {
+			t.Errorf("legacy report added optional recovery field %q:\n%s", absent, legacyOutput)
+		}
+	}
+}
+
 func TestCanonicalReportEvidenceItemsSupportsBoundedDeterministicEvidence(t *testing.T) {
 	makeEvidence := func(index int) reportEvidenceDTO {
 		quote := fmt.Sprintf("excerpt %02d\n", index)

@@ -70,12 +70,114 @@ func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 	}
 }
 
+func TestCommandResultV7AvailableRecoveryRequiresCoherentStatusTuple(t *testing.T) {
+	validator := newBuiltinValidator(t)
+	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v7.schema.json")
+	base := map[string]any{
+		"schema_version": "mulgae-command-result.v7",
+		"command":        "status",
+		"request": map[string]any{
+			"request_id":    "i_019f596a-cf80-7c67-b265-f37053d51ccf",
+			"command":       "status",
+			"run_id":        "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+			"output_format": "json",
+		},
+		"completed_at": "2026-09-04T06:00:00Z",
+		"exit":         map[string]any{"code": 0, "kind": "success"},
+		"reasons":      []any{},
+		"result": map[string]any{
+			"kind":               "status_read",
+			"run_id":             "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+			"run_state":          "failed",
+			"publication_status": "not_published",
+			"recovery_action":    "resume_collection",
+			"final_artifact_uri": nil,
+			"failed_run_recovery": map[string]any{
+				"available":          true,
+				"source_kind":        "failed_run_recovery",
+				"run_id":             "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+				"manifest_sha256":    "sha256:" + string(bytes.Repeat([]byte("a"), 64)),
+				"accepted_roles":     []any{"logic"},
+				"retry_attempts":     []any{map[string]any{"role": "security", "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273"}},
+				"unavailable_reason": nil,
+			},
+		},
+	}
+	validate := func(value map[string]any) error {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return validator.Validate(context.Background(), schemaID, raw)
+	}
+	for _, runState := range []string{"failed", "cancelled"} {
+		envelope := cloneJSONMap(t, base)
+		envelope["result"].(map[string]any)["run_state"] = runState
+		if err := validate(envelope); err != nil {
+			t.Fatalf("available %s recovery envelope rejected: %v", runState, err)
+		}
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{
+			name: "staged publication",
+			mutate: func(envelope map[string]any) {
+				result := envelope["result"].(map[string]any)
+				result["publication_status"] = "staged"
+				result["recovery_action"] = "install_staged_final"
+			},
+		},
+		{
+			name: "completed state",
+			mutate: func(envelope map[string]any) {
+				envelope["result"].(map[string]any)["run_state"] = "completed"
+			},
+		},
+		{
+			name: "empty retry attempts",
+			mutate: func(envelope map[string]any) {
+				envelope["result"].(map[string]any)["failed_run_recovery"].(map[string]any)["retry_attempts"] = []any{}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			envelope := cloneJSONMap(t, base)
+			test.mutate(envelope)
+			if err := validate(envelope); err == nil {
+				t.Fatal("incoherent available recovery envelope was accepted")
+			}
+		})
+	}
+}
+
+func cloneJSONMap(t *testing.T, value map[string]any) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clone map[string]any
+	if err := json.Unmarshal(raw, &clone); err != nil {
+		t.Fatal(err)
+	}
+	return clone
+}
+
 type schemaExamplePair struct {
 	schemaID  string
 	exampleID string
 }
 
 var authoritativePairs = []schemaExamplePair{
+	{"https://mulgae.local/schemas/mulgae-command-result.v7.schema.json", "example:command-result.v7.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json", "example:composite-review-artifact.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v2.schema.json", "example:composite-run-manifest.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json", "example:review-artifact.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json", "example:run-manifest.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json", "example:run-recovery.v1.valid.json"},
+
 	{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", "example:clean-plan.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json", "example:composite-review-artifact.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json", "example:composite-run-manifest.v1.valid.json"},
@@ -263,25 +365,25 @@ func TestBuildPairsRejectsReverseAndCardinalityViolations(t *testing.T) {
 			},
 		},
 		{
-			name: "twenty two schemas",
+			name: "missing schema",
 			mutate: func(_ map[string]catalogExample, schemas map[string]string) {
 				delete(schemas, authoritativePairs[0].schemaID)
 			},
 		},
 		{
-			name: "twenty four schemas",
+			name: "extra schema",
 			mutate: func(_ map[string]catalogExample, schemas map[string]string) {
 				schemas["https://mulgae.local/schemas/extra.schema.json"] = "schemas/extra.schema.json"
 			},
 		},
 		{
-			name: "twenty two examples",
+			name: "missing example",
 			mutate: func(examples map[string]catalogExample, _ map[string]string) {
 				delete(examples, authoritativePairs[0].exampleID)
 			},
 		},
 		{
-			name: "twenty four examples",
+			name: "extra example",
 			mutate: func(examples map[string]catalogExample, _ map[string]string) {
 				examples["example:extra.valid.json"] = examples[authoritativePairs[0].exampleID]
 			},

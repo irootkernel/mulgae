@@ -41,7 +41,7 @@ func (store *PublicationStore) ReadUnjournaledCompositeCandidate(ctx context.Con
 		if err != nil {
 			return err
 		}
-		if err := store.validator.Validate(ctx, store.compositeFinalSchema, file.bytes); err != nil {
+		if err := store.validatePublicationSchema(ctx, store.compositeFinalSchema, file.bytes); err != nil {
 			return fmt.Errorf("read composite preparation: schema: %w", err)
 		}
 		facts, err := parsePublicationFinalFacts(file.bytes)
@@ -83,7 +83,7 @@ func (store *PublicationStore) AdoptCompositePreparationArtifact(ctx context.Con
 	channel := "publication_auxiliary_artifact"
 	if artifact.Path() == candidatePath {
 		channel = "publication_validated_candidate"
-		if err := store.validator.Validate(ctx, store.compositeFinalSchema, artifact.Bytes()); err != nil {
+		if err := store.validatePublicationSchema(ctx, store.compositeFinalSchema, artifact.Bytes()); err != nil {
 			return false, err
 		}
 	} else if _, err := ports.NewPersistRunSupportArtifactRequest(run, artifact); err != nil {

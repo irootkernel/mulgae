@@ -776,6 +776,24 @@ func TestRegistryObservePreservesRunnerErrorWithObservation(t *testing.T) {
 	}
 }
 
+func TestRegistryObservePreservesCoherentCancellationFromRunnerError(t *testing.T) {
+	process := testProcessObservation(t, nil, nil, ports.ProcessTerminationCancelled, 0)
+	runner := &observationRunner{observation: process, err: context.Canceled}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusCancelled ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderExecutionFailed ||
+		observed.DiagnosticCode() != "process_cancelled" {
+		t.Fatalf("cancellation observation = status:%q cause:%q diagnostic:%q", observed.Status(), observed.PrimaryCause(), observed.DiagnosticCode())
+	}
+}
+
 func TestRegistryObservePreservesPartialStreamsAndCleanupCause(t *testing.T) {
 	runnerFailure, err := ports.NewProcessExecutionError(
 		domain.DiagnosticCauseProviderProcessWaitFailed,

@@ -68,13 +68,14 @@ type PreparedCandidate struct {
 	noChangeProvenance *NoChangeProvenance
 }
 type preparedLineage struct {
-	runType          domain.RunType
-	parentRunID      *domain.RunID
-	sourceRunID      *domain.RunID
-	sourceReviewID   *domain.ReviewID
-	sourceAttemptID  *domain.AttemptID
-	sourceFindingRef *string
-	replayMode       *ReplayMode
+	runType                      domain.RunType
+	parentRunID                  *domain.RunID
+	sourceRunID                  *domain.RunID
+	sourceReviewID               *domain.ReviewID
+	sourceRecoveryManifestSHA256 *string
+	sourceAttemptID              *domain.AttemptID
+	sourceFindingRef             *string
+	replayMode                   *ReplayMode
 }
 
 // ReplayMode describes how a rerun obtains its prompt material.
@@ -184,7 +185,7 @@ func rootPublicationContext() RunPublicationContext {
 func (context RunPublicationContext) validate() error {
 	lineage := context.lineage
 	if lineage.runType == "" {
-		if lineage.parentRunID != nil || lineage.sourceRunID != nil || lineage.sourceReviewID != nil ||
+		if lineage.parentRunID != nil || lineage.sourceRunID != nil || lineage.sourceReviewID != nil || lineage.sourceRecoveryManifestSHA256 != nil ||
 			lineage.sourceAttemptID != nil || lineage.sourceFindingRef != nil || lineage.replayMode != nil {
 			return fmt.Errorf("root lineage cannot contain child fields")
 		}
@@ -194,7 +195,7 @@ func (context RunPublicationContext) validate() error {
 		return fmt.Errorf("invalid run type %q", lineage.runType)
 	}
 	if lineage.runType == domain.RunTypeReview {
-		if lineage.parentRunID != nil || lineage.sourceRunID != nil || lineage.sourceReviewID != nil ||
+		if lineage.parentRunID != nil || lineage.sourceRunID != nil || lineage.sourceReviewID != nil || lineage.sourceRecoveryManifestSHA256 != nil ||
 			lineage.sourceAttemptID != nil || lineage.sourceFindingRef != nil || lineage.replayMode != nil {
 			return fmt.Errorf("review lineage must be root")
 		}
@@ -208,7 +209,7 @@ func (context RunPublicationContext) validate() error {
 	if context.production != nil {
 		return fmt.Errorf("child publication context cannot contain production provenance")
 	}
-	if lineage.parentRunID == nil || lineage.sourceRunID == nil || lineage.sourceReviewID == nil {
+	if lineage.parentRunID == nil || lineage.sourceRunID == nil || (lineage.sourceReviewID == nil) == (lineage.sourceRecoveryManifestSHA256 == nil) {
 		return fmt.Errorf("%s lineage requires parent run, source run, and source review", lineage.runType)
 	}
 	if _, err := domain.ParseRunID(lineage.parentRunID.String()); err != nil {
@@ -217,8 +218,12 @@ func (context RunPublicationContext) validate() error {
 	if _, err := domain.ParseRunID(lineage.sourceRunID.String()); err != nil {
 		return fmt.Errorf("source run ID: %w", err)
 	}
-	if _, err := domain.ParseReviewID(lineage.sourceReviewID.String()); err != nil {
-		return fmt.Errorf("source review ID: %w", err)
+	if lineage.sourceReviewID != nil {
+		if _, err := domain.ParseReviewID(lineage.sourceReviewID.String()); err != nil {
+			return fmt.Errorf("source review ID: %w", err)
+		}
+	} else if lineage.runType != domain.RunTypeRerun || !validSHA256(*lineage.sourceRecoveryManifestSHA256) {
+		return fmt.Errorf("recovery source requires a rerun and exact manifest digest")
 	}
 	if lineage.sourceAttemptID != nil {
 		if _, err := domain.ParseAttemptID(lineage.sourceAttemptID.String()); err != nil {
@@ -252,6 +257,7 @@ func (context RunPublicationContext) runType() domain.RunType { return context.l
 
 func (context RunPublicationContext) immutableLineage() preparedLineage {
 	lineage := context.lineage
+	lineage.sourceRecoveryManifestSHA256 = cloneOptionalString(lineage.sourceRecoveryManifestSHA256)
 	if lineage.parentRunID != nil {
 		value := *lineage.parentRunID
 		lineage.parentRunID = &value
@@ -1086,6 +1092,10 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 		}
 		if lineage.sourceReviewID != nil {
 			write(lineage.sourceReviewID.String())
+		}
+		if lineage.sourceRecoveryManifestSHA256 != nil {
+			write("failed_run_recovery")
+			write(*lineage.sourceRecoveryManifestSHA256)
 		}
 		if lineage.sourceFindingRef != nil {
 			write(*lineage.sourceFindingRef)
@@ -2303,7 +2313,7 @@ func validatePublicationBundleSemantics(bundle PublicationBundle) error {
 	var envelope struct {
 		SchemaVersion string `json:"schema_version"`
 	}
-	if err := json.Unmarshal(bundle.final.Bytes(), &envelope); err == nil && envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
+	if err := json.Unmarshal(bundle.final.Bytes(), &envelope); err == nil && (envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || envelope.SchemaVersion == "mulgae-composite-review-artifact.v2") {
 		return validateCompositeBundleSemantics(bundle)
 	}
 	normalExit, err := validatePublicationCompositeSemantics(
@@ -2499,7 +2509,7 @@ func validatePublicationMaterialSemantics(
 	var envelope struct {
 		SchemaVersion string `json:"schema_version"`
 	}
-	if err := json.Unmarshal(final.Bytes(), &envelope); err == nil && envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
+	if err := json.Unmarshal(final.Bytes(), &envelope); err == nil && (envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || envelope.SchemaVersion == "mulgae-composite-review-artifact.v2") {
 		return validateCompositeMaterial(run, final, manifest, lineage, epoch)
 	}
 	return validatePublicationCompositeSemantics(final, manifest, lineage, epoch)
@@ -2598,7 +2608,7 @@ func validatePublicationCompositeSemantics(
 	if err != nil {
 		return 0, err
 	}
-	if finalWire.SchemaVersion != "mulgae-review-artifact.v1" ||
+	if finalWire.SchemaVersion != lineageVersion("mulgae-review-artifact.v1", finalWire.ImmutableLineage.SourceRecoveryManifestSHA256) ||
 		!domain.RunType(finalWire.RunType).Valid() ||
 		final.Identity().ReviewID() != reviewID ||
 		final.Identity().Path() != paths.final ||
@@ -2657,7 +2667,7 @@ func validatePublicationCompositeSemantics(
 		return 0, err
 	}
 
-	if manifest.SchemaVersion != "mulgae-run-manifest.v1" ||
+	if manifest.SchemaVersion != lineageVersion("mulgae-run-manifest.v1", manifest.ImmutableLineage.SourceRecoveryManifestSHA256) ||
 		manifest.SessionID != finalWire.SessionID ||
 		manifest.RunID != finalWire.RunID ||
 		manifest.RunType != finalWire.RunType ||
@@ -2763,17 +2773,23 @@ func validatePublicationLineage(
 		lineage.LineageEdgePath != edgeArtifact.Path().String() || lineage.LineageEdgeSHA256 != edgeArtifact.SHA256() {
 		return fmt.Errorf("lineage does not bind the canonical immutable edge")
 	}
-	if edge.SchemaVersion != lineageEdgeV1 || edge.EdgeID != "e_"+reviewID.String() ||
+	if edge.SchemaVersion != lineageVersion(lineageEdgeV1, lineage.SourceRecoveryManifestSHA256) || edge.EdgeID != "e_"+reviewID.String() ||
 		edge.Child.SessionID != sessionID.String() || edge.Child.RunID != runID.String() || edge.Child.ReviewID != reviewID.String() ||
 		!reflect.DeepEqual(edge.ParentRunID, lineage.ParentRunID) ||
 		!reflect.DeepEqual(edge.SourceRunID, lineage.SourceRunID) ||
 		!reflect.DeepEqual(edge.SourceReviewID, lineage.SourceReviewID) ||
+		!reflect.DeepEqual(edge.SourceRecoveryManifestSHA256, lineage.SourceRecoveryManifestSHA256) ||
+		edge.SourceKind != lineage.SourceKind ||
 		!reflect.DeepEqual(edge.SourceAttemptID, lineage.SourceAttemptID) ||
 		!reflect.DeepEqual(edge.SourceFindingRef, lineage.SourceFindingRef) ||
 		!reflect.DeepEqual(edge.ReplayMode, lineage.ReplayMode) {
 		return fmt.Errorf("lineage edge does not match final lineage")
 	}
 	context := RunPublicationContext{lineage: preparedLineage{runType: runType}}
+	context.lineage.sourceRecoveryManifestSHA256 = cloneOptionalString(lineage.SourceRecoveryManifestSHA256)
+	if lineage.SourceKind != recoverySourceKind(lineage.SourceRecoveryManifestSHA256) {
+		return fmt.Errorf("lineage source kind does not match its identity")
+	}
 	if lineage.ParentRunID != nil {
 		value, err := domain.ParseRunID(*lineage.ParentRunID)
 		if err != nil {
@@ -3394,7 +3410,7 @@ func decodePublicationRecoveryJournal(raw []byte) (recoveryJournalWire, error) {
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return recoveryJournalWire{}, err
 	}
-	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2" {
 		var wire compositeManifestWire
 		if err := unmarshalCanonicalPublicationRecord(raw, &wire, "composite run manifest"); err != nil {
 			return recoveryJournalWire{}, err

@@ -53,6 +53,23 @@ func TestComposeRecoversMultipleRolesDeterministicallyAndKeepsCollidingSourceIDs
 	}
 }
 
+func TestComposeRecoversFailedOptionalMaintainability(t *testing.T) {
+	root, _, _ := compositionFixtures(t)
+	role := failedRole(t, domain.RoleMaintainability, "22")
+	role.Required = false
+	root.Roles = []Role{root.Roles[0], role}
+	root.Attempts = []Attempt{root.Attempts[0], attemptFor(role, domain.AttemptFailed)}
+	recovery := recoverySource(t, root, domain.RoleMaintainability, "02", "12", "24", domain.SeverityLow)
+	service, _ := NewService(sourceReader{root.RunID: root, recovery.RunID: recovery})
+	result, err := service.Compose(context.Background(), Request{RootRunID: root.RunID, RecoveryRuns: []domain.RunID{recovery.RunID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CoverageStatus != domain.CoverageComplete || len(result.Roles) != 2 || result.Roles[1].Required || result.Roles[1].Role != domain.RoleMaintainability || result.Roles[1].SourceRunID != recovery.RunID || len(result.Findings) != 2 {
+		t.Fatalf("optional recovery lost root coverage or provenance: %#v", result)
+	}
+}
+
 func TestIdentifiedPublicationFailurePreservesDeterministicReconciliationIdentity(t *testing.T) {
 	sessionID := sessionID(t)
 	runID := runID(t, "01")
@@ -95,6 +112,7 @@ func TestCompositeReasonCodeContract(t *testing.T) {
 
 func TestComposeAcceptsTransitiveSameRoleRerunLineage(t *testing.T) {
 	root, security, _ := compositionFixtures(t)
+	root.Roles[1].Required = false
 	intermediate := security
 	intermediate.RunID = runID(t, "04")
 	intermediate.ReviewID = reviewID(t, "14")
@@ -152,7 +170,7 @@ func TestComposeRejectsAdmissionMatrix(t *testing.T) {
 		{"lineage attempt mismatch", func(_ *Source, security, _ *Source, _ *Request, _ sourceReader) {
 			security.SourceAttemptID = attemptID(t, "99")
 		}, domain.CompositeLineageMismatch},
-		{"non-required role", func(root, security, _ *Source, _ *Request, _ sourceReader) {
+		{"unselected role", func(root, security, _ *Source, _ *Request, _ sourceReader) {
 			root.Roles[1].Required = false
 			security.Roles[0].Name = domain.RoleProduct
 			security.RoleReports[0].Role = domain.RoleProduct
@@ -204,23 +222,44 @@ func TestComposeRejectsAdmissionMatrix(t *testing.T) {
 	}
 }
 
-func TestComposeOmitsFailedOptionalRolesAndAcceptsDegradedRecovery(t *testing.T) {
-	root, security, _ := compositionFixtures(t)
+func TestComposeRequiresFailedOptionalRolesAndAcceptsDegradedRecovery(t *testing.T) {
+	root, security, docs := compositionFixtures(t)
 	root.Roles[2].Required = false
 	security.Roles[0].Outcome = "degraded"
 	security.Coverage = domain.CoverageDegraded
-	reader := sourceReader{root.RunID: root, security.RunID: security}
+	reader := sourceReader{root.RunID: root, security.RunID: security, docs.RunID: docs}
 	service, _ := NewService(reader)
+	_, err := service.Compose(context.Background(), Request{RootRunID: root.RunID, RecoveryRuns: []domain.RunID{security.RunID}})
+	wantReason(t, err, domain.CompositeRecoveryIncomplete)
 
-	result, err := service.Compose(context.Background(), Request{RootRunID: root.RunID, RecoveryRuns: []domain.RunID{security.RunID}})
+	result, err := service.Compose(context.Background(), Request{RootRunID: root.RunID, RecoveryRuns: []domain.RunID{security.RunID, docs.RunID}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Roles) != 2 || result.Roles[0].Role != domain.RoleLogic || result.Roles[1].Role != domain.RoleSecurity {
-		t.Fatalf("optional failed role was retained: %#v", result.Roles)
+	if len(result.Roles) != 3 || result.Roles[0].Role != domain.RoleLogic || result.Roles[1].Role != domain.RoleSecurity || result.Roles[2].Required {
+		t.Fatalf("optional recovered role was lost: %#v", result.Roles)
 	}
 	if result.CoverageStatus != domain.CoverageComplete || result.CIDecision != domain.CIFail || !reflect.DeepEqual(result.CIReasonCodes, []string{"request_changes_threshold", "degraded_role"}) {
 		t.Fatalf("degraded recovery policy = coverage:%s ci:%s reasons:%v", result.CoverageStatus, result.CIDecision, result.CIReasonCodes)
+	}
+}
+
+func TestComposeDoesNotRequireProviderFreeRootRoles(t *testing.T) {
+	for _, outcome := range []string{"skipped", "not_applicable"} {
+		t.Run(outcome, func(t *testing.T) {
+			root, security, _ := compositionFixtures(t)
+			root.Roles[2] = Role{Name: domain.RoleDocumentation, Required: false, Outcome: outcome}
+			root.Attempts = root.Attempts[:2]
+			reader := sourceReader{root.RunID: root, security.RunID: security}
+			service, _ := NewService(reader)
+			result, err := service.Compose(context.Background(), Request{RootRunID: root.RunID, RecoveryRuns: []domain.RunID{security.RunID}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Roles) != 2 || result.Roles[0].Role != domain.RoleLogic || result.Roles[1].Role != domain.RoleSecurity {
+				t.Fatalf("provider-free role changed effective composition: %#v", result.Roles)
+			}
+		})
 	}
 }
 

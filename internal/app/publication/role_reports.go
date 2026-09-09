@@ -78,7 +78,7 @@ func ProjectRoleReportURIs(result PublicationResult) ([]RoleReportURI, error) {
 	if err := json.Unmarshal(snapshot.Manifest().Bytes(), &envelope); err != nil {
 		return nil, fmt.Errorf("publication role report URIs: committed manifest is invalid: %w", err)
 	}
-	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2" {
 		return projectCompositeRoleReportURIs(result, snapshot)
 	}
 	reports, err := ProjectCommittedRoleReports(snapshot)

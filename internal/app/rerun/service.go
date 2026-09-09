@@ -206,8 +206,8 @@ func validateSource(source SourceAttempt, request Request) error {
 	if _, err := parseSessionID(source.SessionID); err != nil {
 		return fmt.Errorf("%w: source session ID: %v", ErrSourceCorrupt, err)
 	}
-	if _, err := parseReviewID(source.ReviewID); err != nil {
-		return fmt.Errorf("%w: source review ID: %v", ErrSourceCorrupt, err)
+	if _, err := source.Reference(); err != nil {
+		return fmt.Errorf("%w: source reference: %v", ErrSourceCorrupt, err)
 	}
 	if source.ProviderInstance == "" || !validTarget(source.Target) || !validPrompt(source.Prompt) || source.ImmutableSHA256 != sourceAttemptDigest(source) {
 		return ErrSourceCorrupt
@@ -225,7 +225,7 @@ func validateChild(child ChildReplayResult, replay ChildReplay, source SourceAtt
 	if _, err := parseRunID(child.RunID); err != nil || child.RunID == source.RunID {
 		return ErrInvalidChild
 	}
-	if child.ParentRunID != source.RunID || child.SourceRunID != source.RunID || child.SourceReviewID != source.ReviewID || child.SourceAttemptID != source.AttemptID {
+	if child.ParentRunID != source.RunID || child.SourceRunID != source.RunID || child.SourceReviewID != source.ReviewID || child.SourceRecoveryManifestSHA256 != source.RecoveryManifestSHA256 || child.SourceAttemptID != source.AttemptID {
 		return ErrInvalidChild
 	}
 	if child.ExecutionInvocationID == "" || child.PromptIdentity == "" || child.PromptManifestURI == "" || !validSHA256(child.PromptManifestSHA256) || child.ReplayMode != request.ReplayMode || child.ExactReplay != (request.ReplayMode == ExactReplay) {
@@ -240,12 +240,12 @@ func validateChild(child ChildReplayResult, replay ChildReplay, source SourceAtt
 func childReplay(source SourceAttempt, mode ReplayMode) ChildReplay {
 	publication := ChildPublicationContext{
 		SessionID: source.SessionID, ParentRunID: source.RunID, SourceRunID: source.RunID,
-		SourceReviewID: source.ReviewID, SourceAttemptID: source.AttemptID,
+		SourceReviewID: source.ReviewID, SourceRecoveryManifestSHA256: source.RecoveryManifestSHA256, SourceAttemptID: source.AttemptID,
 		SourceManifestURI: source.Prompt.URI, SourceManifestSHA256: source.Prompt.SHA256, ReplayMode: mode,
 	}
 	child := ChildReplay{
 		SessionID: source.SessionID, ParentRunID: source.RunID, SourceRunID: source.RunID,
-		SourceReviewID: source.ReviewID, SourceAttemptID: source.AttemptID, Mode: mode,
+		SourceReviewID: source.ReviewID, SourceRecoveryManifestSHA256: source.RecoveryManifestSHA256, SourceAttemptID: source.AttemptID, Mode: mode,
 		Target: cloneTarget(source.Target), Scope: source.Prompt.Scope, Role: source.Prompt.Role, Publication: publication,
 	}
 	if mode == ExactReplay {
@@ -315,6 +315,9 @@ func sourceAttemptDigest(source SourceAttempt) string {
 	writeReplayDigestField(hasher, "session_id", []byte(source.SessionID.String()))
 	writeReplayDigestField(hasher, "run_id", []byte(source.RunID.String()))
 	writeReplayDigestField(hasher, "review_id", []byte(source.ReviewID.String()))
+	if source.RecoveryManifestSHA256 != "" {
+		writeReplayDigestField(hasher, "recovery_manifest_sha256", []byte(source.RecoveryManifestSHA256))
+	}
 	writeReplayDigestField(hasher, "attempt_id", []byte(source.AttemptID.String()))
 	writeReplayDigestField(hasher, "provider_instance", []byte(source.ProviderInstance))
 	writeReplayDigestField(hasher, "target_bytes", source.Target.Bytes)
@@ -388,14 +391,6 @@ func parseRunID(id interface{ String() string }) (string, error) {
 func parseAttemptID(id interface{ String() string }) (string, error) {
 	value := id.String()
 	if _, err := domain.ParseAttemptID(value); err != nil {
-		return "", err
-	}
-	return value, nil
-}
-
-func parseReviewID(id interface{ String() string }) (string, error) {
-	value := id.String()
-	if _, err := domain.ParseReviewID(value); err != nil {
 		return "", err
 	}
 	return value, nil

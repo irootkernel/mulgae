@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -117,7 +118,7 @@ func TestProjectRunStatusValidatesPublicationPolicyAndPublicShape(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	status := RunStatusProjection{
+	status := RunStatusProjection{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 		SessionID: testMCPSessionID, RunID: testMCPRunID,
 		RunState: domain.RunCompleted, HasRunState: true,
 		PublicationState: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionReconstructCompletedStatus,
@@ -247,5 +248,30 @@ func TestProjectFindingsValidatesSelectedPublicRows(t *testing.T) {
 	view.Findings[0].Severity = domain.SeverityLow
 	if _, err := ProjectFindings(view); err == nil {
 		t.Fatal("finding below the selected threshold was accepted")
+	}
+}
+
+func TestProjectRunStatusExposesRecoveryWithoutPublicationAuthority(t *testing.T) {
+	sessionID, err := domain.ParseSessionID(testMCPSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID(testMCPRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind, hash := "failed_run_recovery", testMCPTargetSHA256
+	runValue := runID.String()
+	status := RunStatusProjection{SessionID: testMCPSessionID, RunID: testMCPRunID, RunState: domain.RunFailed, HasRunState: true, PublicationState: domain.PublicationNotPublished, RecoveryAction: domain.RecoveryActionResumeCollection, FailedRunRecovery: recovery.Status{Available: true, SourceKind: &kind, RunID: &runValue, ManifestSHA256: &hash, AcceptedRoles: []domain.Role{domain.RoleLogic}, RetryAttempts: []recovery.RetryAttempt{{Role: domain.RoleDocumentation, AttemptID: "a_019f596a-cf80-7c67-b265-f37053d51ccf"}}}}
+	projected, err := ProjectRunStatus(status, sessionID, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projected["report_resource_uri"] != nil || projected["final_artifact_uri"] != nil || projected["ci_decision"] != nil || !projected["failed_run_recovery"].(recovery.Status).Available {
+		t.Fatal("recovery acquired final-review authority")
+	}
+	status.FailedRunRecovery.RetryAttempts[0].Role = domain.RoleLogic
+	if _, err := ProjectRunStatus(status, sessionID, runID); err == nil {
+		t.Fatal("accepted role was advertised for retry")
 	}
 }

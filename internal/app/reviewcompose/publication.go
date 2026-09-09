@@ -31,16 +31,16 @@ func (publisher *Publisher) Publish(ctx context.Context, result Result) (publica
 	if err != nil {
 		return publication.PublicationResult{}, fail(domain.CompositeValidationFailed, "composition identity is invalid", err)
 	}
-	input := publication.CompositeCandidateInput{SessionID: result.SessionID, RunID: runID, Fingerprint: result.Fingerprint, RootRunID: result.RootRunID, RootReviewID: result.RootReviewID, Target: result.TargetIdentity, TargetBytes: result.TargetBytes, CapturedArchive: result.CapturedArchive, Threshold: result.Threshold, ContentVerdict: result.ContentVerdict, CoverageStatus: result.CoverageStatus, ExtractionStatus: result.ExtractionStatus, CIDecision: result.CIDecision, CIReasonCodes: result.CIReasonCodes}
+	input := publication.CompositeCandidateInput{SessionID: result.SessionID, RunID: runID, Fingerprint: result.Fingerprint, RootRunID: result.RootRunID, RootReviewID: result.RootReviewID, RootRecoveryManifestSHA256: result.RootRecoveryManifestSHA256, Target: result.TargetIdentity, TargetBytes: result.TargetBytes, CapturedArchive: result.CapturedArchive, Threshold: result.Threshold, ContentVerdict: result.ContentVerdict, CoverageStatus: result.CoverageStatus, ExtractionStatus: result.ExtractionStatus, CIDecision: result.CIDecision, CIReasonCodes: result.CIReasonCodes}
 	for _, source := range result.Sources {
-		input.Sources = append(input.Sources, publication.CompositeSourceInput{Kind: source.Kind, Role: source.Role, RunID: source.RunID, ReviewID: source.ReviewID, AttemptID: source.AttemptID, RoleReportSHA256: source.RoleReport.SHA256})
+		input.Sources = append(input.Sources, publication.CompositeSourceInput{Kind: source.Kind, Role: source.Role, RunID: source.RunID, ReviewID: source.ReviewID, RecoveryManifestSHA256: source.RecoveryManifestSHA256, AttemptID: source.AttemptID, RoleReportSHA256: source.RoleReport.SHA256})
 		input.RoleReports = append(input.RoleReports, publication.CompositeRoleReportInput{Role: source.Role, AttemptID: source.AttemptID, ProviderInstance: source.RoleReport.ProviderInstance, SHA256: source.RoleReport.SHA256, Bytes: source.RoleReport.Bytes, SourceRunID: source.RunID})
 	}
 	for _, role := range result.Roles {
-		input.Roles = append(input.Roles, publication.CompositeRoleInput{Role: role.Role, Required: role.Required, Outcome: role.Outcome, AttemptID: role.AttemptID, ProviderInstance: role.ProviderInstance, ValidFindingIDs: role.FindingIDs, SourceRunID: role.SourceRunID, SourceReviewID: role.SourceReviewID, ReportsOnly: role.ReportsOnly})
+		input.Roles = append(input.Roles, publication.CompositeRoleInput{Role: role.Role, Required: role.Required, Outcome: role.Outcome, AttemptID: role.AttemptID, ProviderInstance: role.ProviderInstance, ValidFindingIDs: role.FindingIDs, SourceRunID: role.SourceRunID, SourceReviewID: role.SourceReviewID, SourceRecoveryManifestSHA256: role.SourceRecoveryManifestSHA256, ReportsOnly: role.ReportsOnly})
 	}
 	for _, finding := range result.Findings {
-		input.Findings = append(input.Findings, publication.CompositeFindingInput{ID: finding.ID, Fingerprint: finding.Fingerprint, Role: finding.Role, Severity: finding.Severity, Title: finding.Title, Description: finding.Description, Recommendation: finding.Recommendation, Confidence: finding.Confidence, Lifecycle: finding.Lifecycle, SourceRunID: finding.SourceRunID, SourceReviewID: finding.SourceReviewID, SourceAttemptID: finding.SourceAttemptID, SourceFindingID: finding.SourceFindingID})
+		input.Findings = append(input.Findings, publication.CompositeFindingInput{ID: finding.ID, Fingerprint: finding.Fingerprint, Role: finding.Role, Severity: finding.Severity, Title: finding.Title, Description: finding.Description, Recommendation: finding.Recommendation, Confidence: finding.Confidence, Lifecycle: finding.Lifecycle, SourceRunID: finding.SourceRunID, SourceReviewID: finding.SourceReviewID, SourceRecoveryManifestSHA256: finding.SourceRecoveryManifestSHA256, SourceAttemptID: finding.SourceAttemptID, SourceFindingID: finding.SourceFindingID})
 	}
 	candidate, err := publication.PrepareCompositeCandidate(input)
 	if err != nil {

@@ -28,14 +28,16 @@ type compositeFinalDTO struct {
 	ReviewComposition          compositeCompositionDTO `json:"review_composition"`
 }
 type compositeRoleDTO struct {
-	Role             string   `json:"role"`
-	Required         bool     `json:"required"`
-	Outcome          string   `json:"outcome"`
-	AttemptID        string   `json:"attempt_id"`
-	ProviderInstance string   `json:"provider_instance"`
-	ValidFindingIDs  []string `json:"valid_finding_ids"`
-	SourceRunID      string   `json:"source_run_id"`
-	SourceReviewID   string   `json:"source_review_id"`
+	Role                         string   `json:"role"`
+	Required                     bool     `json:"required"`
+	Outcome                      string   `json:"outcome"`
+	AttemptID                    string   `json:"attempt_id"`
+	ProviderInstance             string   `json:"provider_instance"`
+	ValidFindingIDs              []string `json:"valid_finding_ids"`
+	SourceRunID                  string   `json:"source_run_id"`
+	SourceReviewID               string   `json:"source_review_id,omitempty"`
+	SourceRecoveryManifestSHA256 string   `json:"source_recovery_manifest_sha256,omitempty"`
+	SourceKind                   string   `json:"source_kind,omitempty"`
 }
 type compositeFindingDTO struct {
 	ID             string                    `json:"id"`
@@ -50,24 +52,30 @@ type compositeFindingDTO struct {
 	Source         compositeFindingSourceDTO `json:"source"`
 }
 type compositeFindingSourceDTO struct {
-	RunID     string `json:"run_id"`
-	ReviewID  string `json:"review_id"`
-	AttemptID string `json:"attempt_id"`
-	FindingID string `json:"finding_id"`
+	RunID                  string `json:"run_id"`
+	ReviewID               string `json:"review_id,omitempty"`
+	AttemptID              string `json:"attempt_id"`
+	FindingID              string `json:"finding_id"`
+	RecoveryManifestSHA256 string `json:"recovery_manifest_sha256,omitempty"`
+	SourceKind             string `json:"source_kind,omitempty"`
 }
 type compositeCompositionDTO struct {
-	Fingerprint  string               `json:"fingerprint"`
-	RootRunID    string               `json:"root_run_id"`
-	RootReviewID string               `json:"root_review_id"`
-	Sources      []compositeSourceDTO `json:"sources"`
+	Fingerprint                string               `json:"fingerprint"`
+	RootRunID                  string               `json:"root_run_id"`
+	RootReviewID               string               `json:"root_review_id,omitempty"`
+	Sources                    []compositeSourceDTO `json:"sources"`
+	RootRecoveryManifestSHA256 string               `json:"root_recovery_manifest_sha256,omitempty"`
+	RootSourceKind             string               `json:"root_source_kind,omitempty"`
 }
 type compositeSourceDTO struct {
-	Kind             string `json:"kind"`
-	Role             string `json:"role"`
-	RunID            string `json:"run_id"`
-	ReviewID         string `json:"review_id"`
-	AttemptID        string `json:"attempt_id"`
-	RoleReportSHA256 string `json:"role_report_sha256"`
+	Kind                   string `json:"kind"`
+	Role                   string `json:"role"`
+	RunID                  string `json:"run_id"`
+	ReviewID               string `json:"review_id,omitempty"`
+	AttemptID              string `json:"attempt_id"`
+	RoleReportSHA256       string `json:"role_report_sha256"`
+	RecoveryManifestSHA256 string `json:"recovery_manifest_sha256,omitempty"`
+	SourceKind             string `json:"source_kind,omitempty"`
 }
 type compositeManifestDTO struct {
 	SchemaVersion              string                     `json:"schema_version"`
@@ -110,8 +118,11 @@ type compositeManifestRoleDTO struct {
 }
 
 func buildCompositeCommittedReview(run ports.PublicationRun, decision domain.PublicationDecision, snapshot ports.CommittedPublicationSnapshot, final compositeFinalDTO, manifest compositeManifestDTO) (CommittedReview, error) {
-	if final.SchemaVersion != "mulgae-composite-review-artifact.v1" || manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" || final.RunType != string(domain.RunTypeComposite) || manifest.RunType != final.RunType || final.SessionID != run.SessionID().String() || final.RunID != run.RunID().String() || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || !manifest.Sealed || manifest.State != string(domain.RunCompleted) || manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) || manifest.PublicationStatus != string(domain.PublicationCommitted) {
+	if (final.SchemaVersion != "mulgae-composite-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v2") || (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2") || final.RunType != string(domain.RunTypeComposite) || manifest.RunType != final.RunType || final.SessionID != run.SessionID().String() || final.RunID != run.RunID().String() || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || !manifest.Sealed || manifest.State != string(domain.RunCompleted) || manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) || manifest.PublicationStatus != string(domain.PublicationCommitted) {
 		return CommittedReview{}, fmt.Errorf("composite identity or authority is invalid")
+	}
+	if err := validateCompositeSourceReferences(final, manifest); err != nil {
+		return CommittedReview{}, err
 	}
 	reviewID, err := domain.ParseReviewID(final.ReviewID)
 	if err != nil || reviewID != snapshot.Final().Identity().ReviewID() {

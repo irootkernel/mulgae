@@ -86,18 +86,19 @@ type PromptManifest struct {
 // SourceAttempt is a verified immutable source attempt. ImmutableSHA256 must
 // change whenever any source bytes or replay-relevant identity changes.
 type SourceAttempt struct {
-	SessionID        domain.SessionID
-	RunID            domain.RunID
-	ReviewID         domain.ReviewID
-	AttemptID        domain.AttemptID
-	ProviderInstance string
-	Target           Target
-	Prompt           PromptManifest
-	ImmutableSHA256  string
+	SessionID              domain.SessionID
+	RunID                  domain.RunID
+	ReviewID               domain.ReviewID
+	RecoveryManifestSHA256 string
+	AttemptID              domain.AttemptID
+	ProviderInstance       string
+	Target                 Target
+	Prompt                 PromptManifest
+	ImmutableSHA256        string
 }
 
 // SourceReader is the narrow authority for verified source attempt, target,
-// and prompt-manifest reads. Implementations must reject non-P2 sources.
+// and prompt-manifest reads. Implementations must require P2 or a verified failed-run recovery manifest.
 type SourceReader interface {
 	ReadRerunSource(context.Context, domain.RunID, domain.AttemptID) (SourceAttempt, error)
 }
@@ -105,18 +106,19 @@ type SourceReader interface {
 // ChildReplay contains defensive copies of verified source authority and a
 // freshly constructed lineage/publication context for one child execution.
 type ChildReplay struct {
-	SessionID       domain.SessionID
-	ParentRunID     domain.RunID
-	SourceRunID     domain.RunID
-	SourceReviewID  domain.ReviewID
-	SourceAttemptID domain.AttemptID
-	Mode            ReplayMode
-	Target          Target
-	Scope           string
-	Role            string
-	Publication     ChildPublicationContext
-	Run             domain.Run
-	Assignments     []review.Assignment
+	SessionID                    domain.SessionID
+	ParentRunID                  domain.RunID
+	SourceRunID                  domain.RunID
+	SourceReviewID               domain.ReviewID
+	SourceRecoveryManifestSHA256 string
+	SourceAttemptID              domain.AttemptID
+	Mode                         ReplayMode
+	Target                       Target
+	Scope                        string
+	Role                         string
+	Publication                  ChildPublicationContext
+	Run                          domain.Run
+	Assignments                  []review.Assignment
 
 	// Exact is populated only for exact replay. It deliberately includes the
 	// original adapter profile and parameters, plus source prompt authority.
@@ -126,14 +128,15 @@ type ChildReplay struct {
 // ChildPublicationContext binds a new child publication to the immutable
 // source authority. The executor must preserve every field in its result.
 type ChildPublicationContext struct {
-	SessionID            domain.SessionID
-	ParentRunID          domain.RunID
-	SourceRunID          domain.RunID
-	SourceReviewID       domain.ReviewID
-	SourceAttemptID      domain.AttemptID
-	SourceManifestURI    string
-	SourceManifestSHA256 string
-	ReplayMode           ReplayMode
+	SessionID                    domain.SessionID
+	ParentRunID                  domain.RunID
+	SourceRunID                  domain.RunID
+	SourceReviewID               domain.ReviewID
+	SourceRecoveryManifestSHA256 string
+	SourceAttemptID              domain.AttemptID
+	SourceManifestURI            string
+	SourceManifestSHA256         string
+	ReplayMode                   ReplayMode
 }
 
 // ExactInput is the exact replay-only provider wire contract.
@@ -162,20 +165,21 @@ type ChildReplayExecutor interface {
 // ChildReplayResult is the child identity, persisted prompt-manifest view,
 // verified committed role-report URIs, and verified P2 terminal exit decision.
 type ChildReplayResult struct {
-	SessionID             domain.SessionID
-	RunID                 domain.RunID
-	ParentRunID           domain.RunID
-	SourceRunID           domain.RunID
-	SourceReviewID        domain.ReviewID
-	SourceAttemptID       domain.AttemptID
-	ExecutionInvocationID string
-	PromptIdentity        string
-	PromptManifestURI     string
-	PromptManifestSHA256  string
-	ReplayMode            ReplayMode
-	ExactReplay           bool
-	RoleReportURIs        []RoleReportURI
-	terminalExit          *domain.OperationalExitDecision
+	SessionID                    domain.SessionID
+	RunID                        domain.RunID
+	ParentRunID                  domain.RunID
+	SourceRunID                  domain.RunID
+	SourceReviewID               domain.ReviewID
+	SourceRecoveryManifestSHA256 string
+	SourceAttemptID              domain.AttemptID
+	ExecutionInvocationID        string
+	PromptIdentity               string
+	PromptManifestURI            string
+	PromptManifestSHA256         string
+	ReplayMode                   ReplayMode
+	ExactReplay                  bool
+	RoleReportURIs               []RoleReportURI
+	terminalExit                 *domain.OperationalExitDecision
 }
 
 // NewChildReplayResult validates and binds the verified P2 terminal exit to

@@ -162,6 +162,11 @@
         blobs/
           sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       review_019f596a-d175-7321-b920-c2d312c82cc2.json
+    r_019f596a-cfe6-7c9c-b82e-7149158243ba/
+      recovery/
+        manifest.json
+        blobs/
+          sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
   store/
     manifests/
       m_019f596a-d174-7321-b920-c2d312c82cc2.json
@@ -178,3 +183,5 @@
         <run-and-plan-sha256>.json
 
 A committed publication is visible only when the epoch record references the matching immutable manifest and lineage-edge hashes. Recovery reads the journal plus staged, installed, manifest, edge, and epoch observations. Cleanup plans and tombstones are transient crash-recovery state and are removed after successful deletion.
+
+A failed or cancelled run with retained recovery inputs has recovery/manifest.json and hash-bound blobs, but no final review or committed publication. Cleanup reads only bounded recovery metadata to retain its source ancestors; replay and status reads verify every blob and captured evidence.

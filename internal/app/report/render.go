@@ -64,14 +64,16 @@ type reportMulgaeDTO struct {
 }
 
 type reportLineageDTO struct {
-	ParentRunID      *string `json:"parent_run_id"`
-	SourceRunID      *string `json:"source_run_id"`
-	SourceReviewID   *string `json:"source_review_id"`
-	SourceAttemptID  *string `json:"source_attempt_id,omitempty"`
-	SourceFindingRef *string `json:"source_finding_ref"`
-	ReplayMode       *string `json:"replay_mode"`
-	LineageEdgePath  string  `json:"lineage_edge_path"`
-	LineageEdgeSHA   string  `json:"lineage_edge_sha256"`
+	ParentRunID                  *string `json:"parent_run_id"`
+	SourceRunID                  *string `json:"source_run_id"`
+	SourceReviewID               *string `json:"source_review_id"`
+	SourceRecoveryManifestSHA256 *string `json:"source_recovery_manifest_sha256,omitempty"`
+	SourceKind                   string  `json:"source_kind,omitempty"`
+	SourceAttemptID              *string `json:"source_attempt_id,omitempty"`
+	SourceFindingRef             *string `json:"source_finding_ref"`
+	ReplayMode                   *string `json:"replay_mode"`
+	LineageEdgePath              string  `json:"lineage_edge_path"`
+	LineageEdgeSHA               string  `json:"lineage_edge_sha256"`
 }
 
 type reportTargetDTO struct {
@@ -168,13 +170,14 @@ type reportProvenanceDTO struct {
 
 func reportFinalFromCommitted(review query.CommittedReview) (reportFinalDTO, error) {
 	var metadata struct {
+		SchemaVersion string   `json:"schema_version"`
 		CreatedAt     string   `json:"created_at"`
 		CIReasonCodes []string `json:"ci_reason_codes"`
 	}
 	if err := json.Unmarshal(review.FinalBytes(), &metadata); err != nil {
 		return reportFinalDTO{}, err
 	}
-	final := reportFinalDTO{CreatedAt: metadata.CreatedAt, SchemaVersion: "mulgae-composite-review-artifact.v1", SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), CIReasonCodes: metadata.CIReasonCodes, SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{ManifestPath: "manifest.json"}}
+	final := reportFinalDTO{CreatedAt: metadata.CreatedAt, SchemaVersion: metadata.SchemaVersion, SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), CIReasonCodes: metadata.CIReasonCodes, SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{ManifestPath: "manifest.json"}}
 	for _, role := range review.Roles() {
 		attempt, hasAttempt := role.AttemptID()
 		provider, hasProvider := role.ProviderInstance()
@@ -335,7 +338,7 @@ func consumeReportJSONValue(decoder *json.Decoder) error {
 }
 
 func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
-	if final.SchemaVersion != "mulgae-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v1" ||
+	if final.SchemaVersion != "mulgae-review-artifact.v1" && final.SchemaVersion != "mulgae-review-artifact.v2" && (final.SchemaVersion != "mulgae-composite-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v2") ||
 		final.SessionID != review.SessionID().String() ||
 		final.RunID != review.RunID().String() ||
 		final.ReviewID != review.ReviewID().String() ||
@@ -679,6 +682,12 @@ func renderMarkdown(
 	writeOptionalField(&output, "Parent run ID", final.ImmutableLineage.ParentRunID)
 	writeOptionalField(&output, "Source run ID", final.ImmutableLineage.SourceRunID)
 	writeOptionalField(&output, "Source review ID", final.ImmutableLineage.SourceReviewID)
+	if final.ImmutableLineage.SourceKind != "" {
+		writeField(&output, "Source kind", final.ImmutableLineage.SourceKind)
+	}
+	if final.ImmutableLineage.SourceRecoveryManifestSHA256 != nil {
+		writeField(&output, "Source recovery manifest SHA-256", *final.ImmutableLineage.SourceRecoveryManifestSHA256)
+	}
 	writeOptionalField(&output, "Source attempt ID", final.ImmutableLineage.SourceAttemptID)
 	writeOptionalField(&output, "Source finding reference", final.ImmutableLineage.SourceFindingRef)
 	writeOptionalField(&output, "Replay mode", final.ImmutableLineage.ReplayMode)

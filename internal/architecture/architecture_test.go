@@ -252,6 +252,7 @@ func TestMakefileContract(t *testing.T) {
 		"main.buildRevision=", "-tags=releasecheck", "MULGAE_RELEASE_BINARY",
 		"MULGAE_RELEASE_GOBIN", "MULGAE_RELEASE_VERSION", "MULGAE_RELEASE_REVISION",
 		"TestIntegrationReleaseBinaryComposesExactRecoveredReview",
+		"TestIntegrationReleaseBinaryRecoversCancelledRunThroughExactReruns",
 	} {
 		if !strings.Contains(releaseTarget, required) {
 			t.Errorf("test-release missing installation-contract token %q", required)

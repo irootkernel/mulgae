@@ -266,6 +266,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return inventory
 	}
 	defer drainRuntimeInventory()
+	defer runtime.DiscardInitialInputsForRun(identity.runID)
 	coordinator, err := review.NewCoordinatorWithRuntimeDiagnostics(service.dependencies.Clock, runIDs, runtime, plan.MaxWorkers, receipt, diagnostics.Sink())
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: coordinator: %w", err)
@@ -291,6 +292,12 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, fmt.Errorf("review run: execute: %w", err)
 	}
 	if failure := CoordinatorExecutionFailure(coordinatorResult); failure != nil {
+		retentionCtx, cancelRetention := DetachedFailedRunRecoveryContext(ctx)
+		recoveryErr := service.preserveFailedRun(retentionCtx, request.ArtifactRoot, cleanup, coordinatorResult, target, plan.Threshold, runtime.DrainInitialInputsForRun(identity.runID))
+		cancelRetention()
+		if recoveryErr != nil {
+			failure = fmt.Errorf("%w; failed-run recovery: %v", failure, recoveryErr)
+		}
 		return Result{}, failure
 	}
 	inventory = drainRuntimeInventory()
@@ -714,6 +721,17 @@ func (cleanup *ReviewRunCleanup) DrainAndAbort(ctx context.Context, reason ports
 }
 
 func (cleanup *ReviewRunCleanup) observe(ctx context.Context, event domain.RuntimeDiagnosticEventCode, component string, operation string) error {
+	return cleanup.emitObservation(context.WithoutCancel(ctx), event, component, operation)
+}
+
+func (cleanup *ReviewRunCleanup) observeRetention(ctx context.Context, event domain.RuntimeDiagnosticEventCode, component string, operation string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return cleanup.emitObservation(ctx, event, component, operation)
+}
+
+func (cleanup *ReviewRunCleanup) emitObservation(ctx context.Context, event domain.RuntimeDiagnosticEventCode, component string, operation string) error {
 	if cleanup == nil || cleanup.diagnostics == nil {
 		return nil
 	}
@@ -723,7 +741,7 @@ func (cleanup *ReviewRunCleanup) observe(ctx context.Context, event domain.Runti
 	if finalized {
 		return nil
 	}
-	return cleanup.diagnostics.observeRunEvent(context.WithoutCancel(ctx), event, component, operation, "")
+	return cleanup.diagnostics.observeRunEvent(ctx, event, component, operation, "")
 }
 
 type reviewRunCleanupError struct {
@@ -755,20 +773,41 @@ func CleanupStateFromError(err error) (*ReviewRunCleanup, bool) {
 // fresh bounded context. Root and child workflows must use the same cleanup
 // proof policy so a transient first drain cannot change command semantics.
 func DrainRunAuthorityTerminal(parent context.Context, qualified RunAuthority) (QualifiedRunTerminalReceipt, error) {
+	return drainRunAuthorityTerminal(context.WithoutCancel(parent), qualified)
+}
+
+// DrainRunAuthorityTerminalForRetention retries one partial drain using the
+// shared retention context. Each attempt is clipped to one minute remaining
+// in that budget. An already expired context is refused.
+func DrainRunAuthorityTerminalForRetention(ctx context.Context, qualified RunAuthority) (QualifiedRunTerminalReceipt, error) {
+	if err := ctx.Err(); err != nil {
+		return QualifiedRunTerminalReceipt{}, err
+	}
+	return drainRunAuthorityTerminal(ctx, qualified)
+}
+
+func drainRunAuthorityTerminal(parent context.Context, qualified RunAuthority) (QualifiedRunTerminalReceipt, error) {
 	var (
 		lastErr  error
 		terminal QualifiedRunTerminalReceipt
 	)
 	for attempt := 0; attempt < 2; attempt++ {
-		drainCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), time.Minute)
-		terminal, lastErr = qualified.DrainTerminal(drainCtx)
+		if err := parent.Err(); err != nil {
+			if lastErr == nil {
+				lastErr = err
+			}
+			break
+		}
+		drainCtx, cancel := context.WithTimeout(parent, time.Minute)
+		next, err := qualified.DrainTerminal(drainCtx)
 		cancel()
-		if lastErr == nil && terminal.Drained() {
-			return terminal, nil
+		if err == nil && next.Drained() {
+			return next, nil
 		}
-		if lastErr == nil {
-			lastErr = fmt.Errorf("review run: terminal drain returned incomplete receipt")
+		if err == nil {
+			err = fmt.Errorf("review run: terminal drain returned incomplete receipt")
 		}
+		terminal, lastErr = next, err
 	}
 	return QualifiedRunTerminalReceipt{}, &terminalDrainCleanupError{
 		cause:    lastErr,

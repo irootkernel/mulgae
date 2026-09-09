@@ -888,6 +888,24 @@ func (coordinator *Coordinator) execute(
 		wave = append(wave, job)
 	}
 
+	// Freeze all initial inputs before any provider can run. A queued role may
+	// be cancelled by another role and must still retain its original input.
+	if preparer, ok := coordinator.runtime.(interface {
+		PrepareInitial(context.Context, []InvocationJob) error
+	}); ok {
+		if prepareErr := preparer.PrepareInitial(workCtx, wave); prepareErr != nil {
+			if contextErr := workCtx.Err(); contextErr != nil && errors.Is(prepareErr, contextErr) {
+				if cancelErr := execution.cancelAll(scheduler, execution.contextCondition()); cancelErr != nil {
+					return CoordinatorResult{}, errors.Join(
+						fmt.Errorf("review coordinator: prepare initial inputs: %w", prepareErr),
+						cancelErr,
+					)
+				}
+			}
+			return CoordinatorResult{}, fmt.Errorf("review coordinator: prepare initial inputs: %w", prepareErr)
+		}
+	}
+
 	for len(wave) > 0 {
 		if workCtx.Err() != nil {
 			if err := execution.cancelAll(scheduler, execution.contextCondition()); err != nil {

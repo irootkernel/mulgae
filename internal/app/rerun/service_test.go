@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,12 +45,13 @@ func (reader *rerunSourceReader) ReadRerunSource(ctx context.Context, _ domain.R
 }
 
 type rerunExecutor struct {
-	child    ChildReplay
-	calls    int
-	resultID domain.RunID
-	cancel   func()
-	result   *ChildReplayResult
-	exitCode domain.OperationalExitCode
+	child        ChildReplay
+	calls        int
+	resultID     domain.RunID
+	cancel       func()
+	result       *ChildReplayResult
+	mutateResult func(*ChildReplayResult)
+	exitCode     domain.OperationalExitCode
 }
 
 func (executor *rerunExecutor) ExecuteChildReplay(_ context.Context, child ChildReplay) (ChildReplayResult, error) {
@@ -66,7 +68,11 @@ func (executor *rerunExecutor) ExecuteChildReplay(_ context.Context, child Child
 	if executor.result != nil {
 		return *executor.result, nil
 	}
-	return mustChildReplayResult(child, executor.resultID, executor.exitCode), nil
+	result := mustChildReplayResult(child, executor.resultID, executor.exitCode)
+	if executor.mutateResult != nil {
+		executor.mutateResult(&result)
+	}
+	return result, nil
 }
 
 func TestStartRerunExactCopiesImmutableSource(t *testing.T) {
@@ -330,6 +336,62 @@ func TestStartRerunRejectsMalformedIDsAndStaleSource(t *testing.T) {
 	}
 }
 
+func TestStartRerunRecoverySourceDigestBindsManifestHash(t *testing.T) {
+	source := validRecoveryRerunSource()
+	original := source.ImmutableSHA256
+	source.RecoveryManifestSHA256 = "sha256:" + strings.Repeat("b", 64)
+	source.ImmutableSHA256 = original
+	request := Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay}
+	if err := validateSource(source, request); !errors.Is(err, ErrSourceCorrupt) {
+		t.Fatalf("validateSource() error = %v, want corrupt source after recovery hash mutation with stored digest", err)
+	}
+}
+
+func TestStartRerunExactCopiesImmutableRecoverySource(t *testing.T) {
+	source := validRecoveryRerunSource()
+	before := cloneRerunSource(source)
+	reader := &rerunSourceReader{source: source}
+	executor := &rerunExecutor{}
+	service := testRerunService(t, reader, executor)
+	result, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RunID != mustRerunRun(rerunChildRun) || executor.child.SourceReviewID.String() != "" || executor.child.SourceRecoveryManifestSHA256 != source.RecoveryManifestSHA256 {
+		t.Fatalf("recovery child lineage = %#v", executor.child)
+	}
+	if !reflect.DeepEqual(source, before) {
+		t.Fatalf("recovery source changed: got %#v want %#v", source, before)
+	}
+}
+
+func TestStartRerunRejectsAmbiguousPublishedAndRecoverySourceIdentity(t *testing.T) {
+	source := cloneRerunSource(validRerunSource())
+	source.RecoveryManifestSHA256 = "sha256:" + strings.Repeat("a", 64)
+	source.ImmutableSHA256 = sourceAttemptDigest(source)
+	reader := &rerunSourceReader{source: source}
+	executor := &rerunExecutor{}
+	service := testRerunService(t, reader, executor)
+	if _, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay}); !errors.Is(err, ErrSourceCorrupt) {
+		t.Fatalf("ambiguous source identity error = %v, want corrupt source", err)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("executor calls = %d, want no child execution", executor.calls)
+	}
+}
+
+func TestStartRerunRejectsChildRecoveryManifestMismatch(t *testing.T) {
+	source := validRecoveryRerunSource()
+	reader := &rerunSourceReader{source: source}
+	executor := &rerunExecutor{mutateResult: func(result *ChildReplayResult) {
+		result.SourceRecoveryManifestSHA256 = "sha256:" + strings.Repeat("c", 64)
+	}}
+	service := testRerunService(t, reader, executor)
+	if _, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay}); !errors.Is(err, ErrInvalidChild) {
+		t.Fatalf("child recovery hash mismatch error = %v, want invalid child", err)
+	}
+}
+
 func TestStartRerunClassifiesSourceMutationAsSecurityPolicy(t *testing.T) {
 	source := validRerunSource()
 	mutated := cloneRerunSource(source)
@@ -373,6 +435,14 @@ func TestStartRerunRejectsMissingOrStaleAuthority(t *testing.T) {
 	if _, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: ExactReplay}); !errors.Is(err, ErrInvalidChild) {
 		t.Fatalf("stale child authority error = %v, want invalid child", err)
 	}
+}
+
+func validRecoveryRerunSource() SourceAttempt {
+	source := cloneRerunSource(validRerunSource())
+	source.ReviewID = domain.ReviewID{}
+	source.RecoveryManifestSHA256 = "sha256:" + strings.Repeat("a", 64)
+	source.ImmutableSHA256 = sourceAttemptDigest(source)
+	return source
 }
 
 func validRerunSource() SourceAttempt {
@@ -477,6 +547,7 @@ func mustChildReplayResult(child ChildReplay, resultID domain.RunID, code domain
 	if err != nil {
 		panic(err)
 	}
+	result.SourceRecoveryManifestSHA256 = child.SourceRecoveryManifestSHA256
 	return result
 }
 

@@ -111,7 +111,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		if err := json.Unmarshal(got.stdout, &envelope); err != nil {
 			t.Fatal(err)
 		}
-		if envelope.SchemaVersion != "mulgae-command-result.v6" || envelope.Command != "delta" ||
+		if envelope.SchemaVersion != "mulgae-command-result.v7" || envelope.Command != "delta" ||
 			envelope.Request.RequestState != "unresolved" || envelope.Request.OutputFormat != "json" ||
 			envelope.Exit.Code != 2 || envelope.Exit.Kind != "usage" || len(envelope.Reasons) != 1 ||
 			envelope.Reasons[0].Code != "project_root_mismatch" ||
@@ -532,7 +532,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 				exit:       7,
 				nullFields: []string{"session_id", "run_id", "review_id", "run_manifest_uri", "review_artifact_uri"},
 				check: func(t *testing.T, envelope commandEnvelope) {
-					if envelope.SchemaVersion != "mulgae-command-result.v6" || envelope.Command != "compose" ||
+					if envelope.SchemaVersion != "mulgae-command-result.v7" || envelope.Command != "compose" ||
 						envelope.Request.OutputFormat != "json" ||
 						envelope.Result.Kind != "composite_failed" || envelope.Result.RootRunID == nil ||
 						*envelope.Result.RootRunID != "r_019f596a-cf80-7c67-b265-f37053d51ccf" ||
@@ -1384,6 +1384,17 @@ func TestIntegrationStagedFileMissingIsAnOperationalRoleFailure(t *testing.T) {
 }
 
 func TestIntegrationReleaseBinaryComposesExactRecoveredReview(t *testing.T) {
+	for _, role := range []string{"logic", "maintainability"} {
+		t.Run(role, func(t *testing.T) { testReleaseBinaryComposesRecoveredRole(t, role) })
+	}
+}
+
+func testReleaseBinaryComposesRecoveredRole(t *testing.T, failedRole string) {
+	t.Helper()
+	reviewRoles := "logic"
+	if failedRole != "logic" {
+		reviewRoles += "," + failedRole
+	}
 	root := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, root)
 	project := canonicalTestTempDir(t)
@@ -1398,12 +1409,12 @@ func TestIntegrationReleaseBinaryComposesExactRecoveredReview(t *testing.T) {
 	zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
 	zcodeNode := filepath.Join(providerDirectory, "node")
 	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
-	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "fail_first_review")
+	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "fail_first_"+failedRole)
 	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
-	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic", zcodeNode, zcodeLauncher, "")
+	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", reviewRoles, zcodeNode, zcodeLauncher, "")
 
 	incomplete := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"review", "--dirty", "--roles", "logic", "--output", "json")
+		"review", "--dirty", "--roles", reviewRoles, "--output", "json")
 	var rootEnvelope commandEnvelope
 	if err := json.Unmarshal(incomplete.stdout, &rootEnvelope); err != nil {
 		t.Fatalf("decode incomplete root: %v: %q", err, incomplete.stdout)
@@ -1414,7 +1425,7 @@ func TestIntegrationReleaseBinaryComposesExactRecoveredReview(t *testing.T) {
 	}
 
 	recovered := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"rerun", "--run", *rootEnvelope.Result.RunID, "--role", "logic", "--provider", "zcode-logic", "--output", "json")
+		"rerun", "--run", *rootEnvelope.Result.RunID, "--role", failedRole, "--provider", "zcode-"+failedRole, "--output", "json")
 	var recoveryEnvelope commandEnvelope
 	if err := json.Unmarshal(recovered.stdout, &recoveryEnvelope); err != nil {
 		t.Fatalf("decode exact recovery: %v: %q", err, recovered.stdout)
@@ -2783,7 +2794,7 @@ func serve(argv []string) {
 				notifyTurn("turn-completed")
 				continue
 			}
-			if !reviewFailureVariant() {
+			if !reviewFailureVariant(prompt) {
 				if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
 					if writeErr := os.WriteFile("__FAKE_ZCODE_LOG__.reviewed", []byte("reviewed"), 0600); writeErr != nil {
 						panic(writeErr)
@@ -2827,8 +2838,19 @@ func capabilityProof(prompt string) string {
 
 // reviewFailureVariant applies the configured simulated review failure and
 // reports whether the conversation failed instead of staging a report.
-func reviewFailureVariant() bool {
-	if "__FAKE_ZCODE_MODE__" == "fail_first_review" {
+func reviewFailureVariant(prompt string) bool {
+ role := roleGuide.FindStringSubmatch(prompt)
+ if len(role) == 2 && "__FAKE_ZCODE_MODE__" == "wait_twice_documentation" && strings.ToLower(role[1]) == "documentation" {
+  for index := 1; index <= 2; index++ {
+   marker, err := os.OpenFile(fmt.Sprintf("__FAKE_ZCODE_LOG__.waiting.%d", index), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+   if err == nil {
+    if err := marker.Close(); err != nil { panic(err) }
+    for { time.Sleep(time.Second) }
+   }
+   if !os.IsExist(err) { panic(err) }
+  }
+ }
+ if len(role) == 2 && "__FAKE_ZCODE_MODE__" == "fail_first_"+strings.ToLower(role[1]) {
 		for attempt := 1; attempt <= 2; attempt++ {
 			marker, err := os.OpenFile(fmt.Sprintf("__FAKE_ZCODE_LOG__.failed.%d", attempt), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 			if err == nil {

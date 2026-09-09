@@ -21,25 +21,27 @@ type Request struct {
 
 // Source is the bounded application projection of one verified committed review.
 type Source struct {
-	SessionID        domain.SessionID
-	RunID            domain.RunID
-	ReviewID         domain.ReviewID
-	RunType          domain.RunType
-	TargetSHA256     string
-	TargetIdentity   domain.TargetIdentity
-	TargetBytes      []byte
-	CapturedArchive  []byte
-	Coverage         domain.CoverageStatus
-	Threshold        domain.Severity
-	Roles            []Role
-	RoleReports      []RoleReport
-	Attempts         []Attempt
-	Findings         []SourceFinding
-	SourceRunID      domain.RunID
-	SourceReviewID   domain.ReviewID
-	SourceAttemptID  domain.AttemptID
-	HasSource        bool
-	HasSourceAttempt bool
+	SessionID                    domain.SessionID
+	RunID                        domain.RunID
+	ReviewID                     domain.ReviewID
+	RecoveryManifestSHA256       string
+	RunType                      domain.RunType
+	TargetSHA256                 string
+	TargetIdentity               domain.TargetIdentity
+	TargetBytes                  []byte
+	CapturedArchive              []byte
+	Coverage                     domain.CoverageStatus
+	Threshold                    domain.Severity
+	Roles                        []Role
+	RoleReports                  []RoleReport
+	Attempts                     []Attempt
+	Findings                     []SourceFinding
+	SourceRunID                  domain.RunID
+	SourceReviewID               domain.ReviewID
+	SourceRecoveryManifestSHA256 string
+	SourceAttemptID              domain.AttemptID
+	HasSource                    bool
+	HasSourceAttempt             bool
 }
 
 // Attempt is one verified source attempt used to prove exact failed lineage.
@@ -90,64 +92,68 @@ type SourceFinding struct {
 
 // Result is the deterministic, publication-ready application result.
 type Result struct {
-	Fingerprint      domain.CompositionFingerprint
-	RootRunID        domain.RunID
-	RootReviewID     domain.ReviewID
-	SessionID        domain.SessionID
-	TargetSHA256     string
-	TargetIdentity   domain.TargetIdentity
-	TargetBytes      []byte
-	CapturedArchive  []byte
-	Threshold        domain.Severity
-	Sources          []SelectedSource
-	Roles            []CompositeRole
-	Findings         []Finding
-	ContentVerdict   domain.ContentVerdict
-	CoverageStatus   domain.CoverageStatus
-	ExtractionStatus domain.StructuredExtractionStatus
-	CIDecision       domain.CIDecision
-	CIReasonCodes    []string
+	Fingerprint                domain.CompositionFingerprint
+	RootRunID                  domain.RunID
+	RootReviewID               domain.ReviewID
+	RootRecoveryManifestSHA256 string
+	SessionID                  domain.SessionID
+	TargetSHA256               string
+	TargetIdentity             domain.TargetIdentity
+	TargetBytes                []byte
+	CapturedArchive            []byte
+	Threshold                  domain.Severity
+	Sources                    []SelectedSource
+	Roles                      []CompositeRole
+	Findings                   []Finding
+	ContentVerdict             domain.ContentVerdict
+	CoverageStatus             domain.CoverageStatus
+	ExtractionStatus           domain.StructuredExtractionStatus
+	CIDecision                 domain.CIDecision
+	CIReasonCodes              []string
 }
 
 // SelectedSource binds one effective role to its exact accepted source.
 type SelectedSource struct {
-	Kind       string
-	Role       domain.Role
-	RunID      domain.RunID
-	ReviewID   domain.ReviewID
-	AttemptID  domain.AttemptID
-	RoleReport RoleReport
+	Kind                   string
+	Role                   domain.Role
+	RunID                  domain.RunID
+	ReviewID               domain.ReviewID
+	RecoveryManifestSHA256 string
+	AttemptID              domain.AttemptID
+	RoleReport             RoleReport
 }
 
 // CompositeRole is one complete effective role outcome.
 type CompositeRole struct {
-	Role             domain.Role
-	Required         bool
-	Outcome          string
-	AttemptID        domain.AttemptID
-	ProviderInstance string
-	FindingIDs       []string
-	ReportsOnly      bool
-	SourceRunID      domain.RunID
-	SourceReviewID   domain.ReviewID
+	Role                         domain.Role
+	Required                     bool
+	Outcome                      string
+	AttemptID                    domain.AttemptID
+	ProviderInstance             string
+	FindingIDs                   []string
+	ReportsOnly                  bool
+	SourceRunID                  domain.RunID
+	SourceReviewID               domain.ReviewID
+	SourceRecoveryManifestSHA256 string
 }
 
 // Finding is one newly identified composite finding with source-local provenance.
 type Finding struct {
-	ID               string
-	Fingerprint      string
-	Role             domain.Role
-	ProviderInstance string
-	Severity         domain.Severity
-	Title            string
-	Description      string
-	Recommendation   string
-	Confidence       domain.Confidence
-	Lifecycle        domain.FindingLifecycle
-	SourceRunID      domain.RunID
-	SourceReviewID   domain.ReviewID
-	SourceAttemptID  domain.AttemptID
-	SourceFindingID  string
+	ID                           string
+	Fingerprint                  string
+	Role                         domain.Role
+	ProviderInstance             string
+	Severity                     domain.Severity
+	Title                        string
+	Description                  string
+	Recommendation               string
+	Confidence                   domain.Confidence
+	Lifecycle                    domain.FindingLifecycle
+	SourceRunID                  domain.RunID
+	SourceReviewID               domain.ReviewID
+	SourceRecoveryManifestSHA256 string
+	SourceAttemptID              domain.AttemptID
+	SourceFindingID              string
 }
 
 // Failure carries the stable public reason code for a rejected composition.

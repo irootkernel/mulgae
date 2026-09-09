@@ -23,6 +23,8 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+const compositeRecoveryManifestSHA256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 type compositeTestIDs struct{ reviewID domain.ReviewID }
 
 func (ids compositeTestIDs) NewReviewID(time.Time) (domain.ReviewID, error) { return ids.reviewID, nil }
@@ -91,6 +93,14 @@ func TestCompositePublicationResumesUnjournaledCandidate(t *testing.T) {
 	}
 }
 
+func TestCompositePublicationResumesUnjournaledRecoveryV2Candidate(t *testing.T) {
+	for _, after := range []int{0, 1} {
+		t.Run(fmt.Sprintf("after-%d", after), func(t *testing.T) {
+			testCompositeLifecycleWithRecoveryRoot(t, "", false, compositeRecoveryManifestSHA256, after)
+		})
+	}
+}
+
 func (store *compositeStatusConflictStore) ReplaceMutable(ctx context.Context, request ports.MutableReplaceRequest) (ports.MutableReplaceResult, error) {
 	if request.Document() == ports.MutablePublicationStatus && !store.conflicted {
 		store.conflicted = true
@@ -110,6 +120,10 @@ func TestCompositeGitTargetsRemainReadableAndRecoverable(t *testing.T) {
 }
 
 func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, recoverFirst bool, interruptAfter ...int) {
+	testCompositeLifecycleWithRecoveryRoot(t, mode, recoverFirst, "", interruptAfter...)
+}
+
+func testCompositeLifecycleWithRecoveryRoot(t *testing.T, mode domain.GitTargetMode, recoverFirst bool, rootRecoveryManifestSHA256 string, interruptAfter ...int) {
 	t.Helper()
 	targetBytes := []byte("diff --git a/a.go b/a.go\n")
 	targetInput := domain.TargetIdentityInput{Kind: domain.TargetPatch, SHA256: bareSHA256(targetBytes)}
@@ -136,10 +150,23 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, recoverFirs
 	attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
 	session, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
 	coordinate, _ := domain.NewCompositionSource(domain.RoleLogic, sourceRun, sourceReview, attempt)
-	fingerprint, _ := domain.NewCompositionFingerprint(root, []domain.CompositionSource{coordinate})
+	var fingerprint domain.CompositionFingerprint
+	if rootRecoveryManifestSHA256 == "" {
+		fingerprint, err = domain.NewCompositionFingerprint(root, []domain.CompositionSource{coordinate})
+	} else {
+		rootReview = domain.ReviewID{}
+		recoveryRoot, recoveryErr := domain.NewRecoverySourceReference(root, rootRecoveryManifestSHA256)
+		if recoveryErr != nil {
+			t.Fatal(recoveryErr)
+		}
+		fingerprint, err = domain.NewRecoveryCompositionFingerprint(recoveryRoot, []domain.CompositionSource{coordinate})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	runID, _ := fingerprint.RunID()
 	report := []byte("# Logic\n\nNo findings.\n")
-	input := CompositeCandidateInput{SessionID: session, RunID: runID, Fingerprint: fingerprint, RootRunID: root, RootReviewID: rootReview, Target: target, TargetBytes: targetBytes, Threshold: domain.SeverityHigh, ContentVerdict: domain.ContentFindingsPresent, CoverageStatus: domain.CoverageComplete, ExtractionStatus: domain.StructuredExtractionStructured, CIDecision: domain.CIPass, CIReasonCodes: []string{"policy_evaluated"}}
+	input := CompositeCandidateInput{SessionID: session, RunID: runID, Fingerprint: fingerprint, RootRunID: root, RootReviewID: rootReview, RootRecoveryManifestSHA256: rootRecoveryManifestSHA256, Target: target, TargetBytes: targetBytes, Threshold: domain.SeverityHigh, ContentVerdict: domain.ContentFindingsPresent, CoverageStatus: domain.CoverageComplete, ExtractionStatus: domain.StructuredExtractionStructured, CIDecision: domain.CIPass, CIReasonCodes: []string{"policy_evaluated"}}
 	input.Sources = []CompositeSourceInput{{Kind: "recovery", Role: domain.RoleLogic, RunID: sourceRun, ReviewID: sourceReview, AttemptID: attempt, RoleReportSHA256: sha256Identifier(report)}}
 	input.Roles = []CompositeRoleInput{{Role: domain.RoleLogic, Required: true, Outcome: "completed", AttemptID: attempt, ProviderInstance: "codex-primary", SourceRunID: sourceRun, SourceReviewID: sourceReview, ValidFindingIDs: []string{"F001"}}}
 	input.Findings = []CompositeFindingInput{{ID: "F001", Fingerprint: sha256Identifier([]byte("logic finding")), Role: domain.RoleLogic, Severity: domain.SeverityLow, Title: "Logic finding", Description: "A source finding retained by composition.", Recommendation: "Address the source finding.", Confidence: domain.ConfidenceHigh, Lifecycle: domain.FindingOpen, SourceRunID: sourceRun, SourceReviewID: sourceReview, SourceAttemptID: attempt, SourceFindingID: "F007"}}
@@ -157,6 +184,30 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, recoverFirs
 	bundle, err := candidate.Build(context.Background(), recorder, reviewID, time.Date(2026, 7, 13, 3, 10, 0, 0, time.UTC), 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	wantFinalSchemaVersion := "mulgae-composite-review-artifact.v1"
+	wantManifestSchemaVersion := "mulgae-composite-run-manifest.v1"
+	if rootRecoveryManifestSHA256 != "" {
+		wantFinalSchemaVersion = "mulgae-composite-review-artifact.v2"
+		wantManifestSchemaVersion = "mulgae-composite-run-manifest.v2"
+	}
+	var finalEnvelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(bundle.Final().Bytes(), &finalEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if finalEnvelope.SchemaVersion != wantFinalSchemaVersion {
+		t.Fatalf("built final schema version = %q, want %q", finalEnvelope.SchemaVersion, wantFinalSchemaVersion)
+	}
+	var manifestEnvelope struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(bundle.Manifest().Bytes(), &manifestEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if manifestEnvelope.SchemaVersion != wantManifestSchemaVersion {
+		t.Fatalf("built manifest schema version = %q, want %q", manifestEnvelope.SchemaVersion, wantManifestSchemaVersion)
 	}
 	if err := validator.Validate(context.Background(), recorder.ids[0], recorder.bytes[0]); err != nil {
 		t.Fatalf("final schema: %v\n%s", err, recorder.bytes[0])
@@ -193,6 +244,7 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, recoverFirs
 	if !bundle.Valid() {
 		t.Fatal("composite bundle is invalid")
 	}
+	checkCompositeVersionPairs(t, bundle)
 	if got := len(bundle.SupportArtifacts()); got != 4 {
 		t.Fatalf("support artifact count = %d", got)
 	}
@@ -243,6 +295,30 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, recoverFirs
 			}
 		}
 		if interruptAfter[0] >= 0 {
+			run, err := ports.NewPublicationRun(rootScope, session, runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidatePath, err := ports.ValidatedCandidatePath(run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			persisted, err := os.ReadFile(filepath.Join(rootPath, candidatePath.String()))
+			if err != nil {
+				t.Fatalf("persisted candidate: %v", err)
+			}
+			if !bytes.Equal(persisted, bundle.Final().Bytes()) || sha256Identifier(persisted) != bundle.Final().Identity().SHA256() {
+				t.Fatal("persisted candidate bytes or digest differ from the built final")
+			}
+			var persistedEnvelope struct {
+				SchemaVersion string `json:"schema_version"`
+			}
+			if err := json.Unmarshal(persisted, &persistedEnvelope); err != nil {
+				t.Fatalf("persisted candidate JSON: %v", err)
+			}
+			if persistedEnvelope.SchemaVersion != wantFinalSchemaVersion {
+				t.Fatalf("persisted candidate schema version = %q, want %q", persistedEnvelope.SchemaVersion, wantFinalSchemaVersion)
+			}
 			changed := input
 			changed.CIDecision = domain.CIFail
 			mismatched, err := PrepareCompositeCandidate(changed)
@@ -474,3 +550,85 @@ func testCompositeLifecycle(t *testing.T, mode domain.GitTargetMode, recoverFirs
 }
 
 func bareSHA256(value []byte) string { return sha256Identifier(value)[len("sha256:"):] }
+
+func checkCompositeVersionPairs(t *testing.T, original PublicationBundle) {
+	t.Helper()
+	for _, pair := range []struct{ final, manifest string }{{"v1", "v1"}, {"v2", "v2"}, {"v1", "v2"}, {"v2", "v1"}} {
+		t.Run("versions-"+pair.final+"-"+pair.manifest, func(t *testing.T) {
+			bundle := original
+			var final, manifest, epoch map[string]any
+			for _, item := range []struct {
+				raw   []byte
+				value *map[string]any
+			}{{bundle.final.Bytes(), &final}, {bundle.manifest.Bytes(), &manifest}, {bundle.epoch.Record().Bytes(), &epoch}} {
+				if err := json.Unmarshal(item.raw, item.value); err != nil {
+					t.Fatal(err)
+				}
+			}
+			final["schema_version"] = "mulgae-composite-review-artifact." + pair.final
+			finalBytes, err := marshalCanonical(final)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity, err := ports.NewFinalReviewIdentity(bundle.final.Identity().ReviewID(), bundle.final.Identity().Path(), sha256Identifier(finalBytes))
+			if err != nil {
+				t.Fatal(err)
+			}
+			bundle.final, err = ports.NewFinalReviewArtifact(identity, finalBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bundle.staged, err = immutableArtifact(bundle.staged.Path(), finalBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest["schema_version"] = "mulgae-composite-run-manifest." + pair.manifest
+			manifest["final_review"].(map[string]any)["sha256"] = identity.SHA256()
+			manifestBytes, err := marshalCanonical(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bundle.manifest, err = immutableArtifact(bundle.manifest.Path(), manifestBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			epoch["manifest"].(map[string]any)["sha256"] = bundle.manifest.SHA256()
+			epoch["final_review"].(map[string]any)["sha256"] = identity.SHA256()
+			epochBytes, err := marshalCanonical(epoch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record, err := immutableArtifact(bundle.epoch.Record().Path(), epochBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bundle.epoch, err = ports.NewPublicationEpoch(bundle.epoch.Value(), record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, err := ports.NewAnchoredRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := domain.ParseSessionID(final["session_id"].(string))
+			if err != nil {
+				t.Fatal(err)
+			}
+			runID, err := domain.ParseRunID(final["run_id"].(string))
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, err := ports.NewPublicationRun(root, session, runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			matching := pair.final == pair.manifest
+			if err := validateCompositeBundleSemantics(bundle); (err == nil) != matching {
+				t.Errorf("bundle pair accepted=%t, want %t: %v", err == nil, matching, err)
+			}
+			if _, err := validateCompositeMaterial(run, bundle.final, bundle.manifest, bundle.lineageEdge, bundle.epoch); (err == nil) != matching {
+				t.Errorf("material pair accepted=%t, want %t: %v", err == nil, matching, err)
+			}
+		})
+	}
+}

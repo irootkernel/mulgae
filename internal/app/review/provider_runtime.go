@@ -100,6 +100,8 @@ func (inventory RuntimeArtifactInventory) DiagnosticStderr() (ports.RuntimeDiagn
 // AdapterProfile and AdapterParameters identify the trusted execution adapter.
 // They are source material, never provider output.
 type RuntimePrompt struct {
+	// frozenTarget marks package-owned immutable target and archive storage.
+	frozenTarget      bool
 	Prompt            prompt.CompiledPrompt
 	Target            []byte
 	CapturedArchive   []byte
@@ -264,6 +266,7 @@ type DeltaInvocationPromptSource interface {
 // attempt. The prompt source mints a fresh execution identity and may rebind
 // only a Mulgae-owned per-launch staged output destination.
 type ExactReplayInput struct {
+	SourceScope                 string
 	SourceRunID                 domain.RunID
 	SourceAttemptID             domain.AttemptID
 	SourceProviderInstance      string
@@ -324,6 +327,7 @@ type ProviderInvocationRuntime struct {
 	captures          map[captureKey]AttemptCapture
 	inventory         map[captureKey]RuntimeArtifactInventory
 	activeExplicit    map[captureKey]struct{}
+	preparedInitial   map[domain.AttemptID]preparedInitialInput
 }
 
 type captureKey struct {
@@ -559,8 +563,6 @@ func (runtime *ProviderInvocationRuntime) runtimeArtifacts(drain bool) []Runtime
 
 func cloneRuntimeArtifactInventory(inventory RuntimeArtifactInventory) RuntimeArtifactInventory {
 	clone := inventory
-	clone.target = append([]byte(nil), inventory.target...)
-	clone.capturedArchive = append([]byte(nil), inventory.capturedArchive...)
 	clone.stdin = append([]byte(nil), inventory.stdin...)
 	clone.adapterParameters = inventory.AdapterParameters()
 	clone.captures = append([]ports.CapturedAttemptArtifact(nil), inventory.captures...)
@@ -632,6 +634,8 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			return runtimeCondition(job, AttemptConditionConfigurationViolation)
 		}
 		material, err = extractionSource.ExtractionPrompt(invocationCtx, job, *extraction)
+	} else if initial, prepared := runtime.initialMaterial(job); prepared {
+		material = initial
 	} else {
 		material, err = runtime.source.Prompt(invocationCtx, job, repair)
 	}
@@ -993,7 +997,7 @@ func (runtime *ProviderInvocationRuntime) InvokeDelta(ctx context.Context, job I
 // a fresh execution identity supplied by the explicit replay prompt source.
 func (runtime *ProviderInvocationRuntime) InvokeExactReplay(ctx context.Context, job InvocationJob, input ExactReplayInput) AttemptOutcome {
 	if runtime == nil || (job.Purpose() != domain.InvocationInitial && job.Purpose() != domain.InvocationRetry) || input.Role != job.Role() ||
-		input.SourceRunID.String() == "" || input.SourceAttemptID.String() == "" ||
+		input.SourceRunID.String() == "" || input.SourceAttemptID.String() == "" || input.SourceScope == "" ||
 		!validCoordinatorProviderInstance(input.SourceProviderInstance) ||
 		input.SourceProviderInstance != job.Route().ProviderInstance() ||
 		input.CompleteStdinSHA256 == "" || prompt.CompleteStdinSHA256(input.Stdin) != input.CompleteStdinSHA256 ||
@@ -1004,15 +1008,18 @@ func (runtime *ProviderInvocationRuntime) InvokeExactReplay(ctx context.Context,
 	if !ok {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
-	material, err := source.ExactReplayPrompt(ctx, job, cloneExactReplayInput(input))
+	material, prepared := runtime.initialMaterial(job)
+	var err error
+	if !prepared {
+		material, err = source.ExactReplayPrompt(ctx, job, cloneExactReplayInput(input))
+	}
 	if err != nil {
 		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
 	}
 	scope := material.Prompt.Scope()
 	destination, staged := runtime.stagedOutputDestination(job)
 	if scope.SessionID() != job.SessionID() ||
-		scope.RunID() != input.SourceRunID ||
-		scope.AttemptID() != input.SourceAttemptID ||
+		scope.FrameScope().String() != input.SourceScope ||
 		scope.SourceInvocationID().String() != input.SourceInvocationID ||
 		material.AdapterProfile != input.AdapterProfile {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
@@ -1103,6 +1110,11 @@ type explicitRuntimePromptSource struct {
 }
 
 func (source explicitRuntimePromptSource) Prompt(_ context.Context, _ InvocationJob, _ *InvocationRepairInput) (RuntimePrompt, error) {
+	if source.material.frozenTarget {
+		material := source.material
+		material.AdapterParameters = cloneAdapterParameters(material.AdapterParameters)
+		return material, nil
+	}
 	return RuntimePrompt{
 		Prompt: source.material.Prompt, Target: append([]byte(nil), source.material.Target...),
 		CapturedArchive: append([]byte(nil), source.material.CapturedArchive...),
@@ -1573,11 +1585,25 @@ func (runtime *ProviderInvocationRuntime) recordRuntimeArtifact(job InvocationJo
 		material.Prompt.CompleteStdinSHA256() == "" {
 		return fmt.Errorf("invalid runtime artifact scope")
 	}
+	inventory := initialArtifactInventory(job, material)
+	runtime.mu.Lock()
+	runtime.inventory[captureKey{job.AttemptID(), invocationSequence(job.Purpose())}] = inventory
+	runtime.mu.Unlock()
+	return nil
+}
+
+func initialArtifactInventory(job InvocationJob, material RuntimePrompt) RuntimeArtifactInventory {
+	target, archive := material.Target, material.CapturedArchive
+	if !material.frozenTarget {
+		target = append([]byte(nil), target...)
+		archive = append([]byte(nil), archive...)
+	}
+	scope := material.Prompt.Scope()
 	template := material.Prompt.TrustedTemplate()
 	inventory := RuntimeArtifactInventory{
 		runID: job.RunID(), attemptID: job.AttemptID(), sequence: invocationSequence(job.Purpose()),
-		purpose: job.Purpose(), role: job.Role(), target: append([]byte(nil), material.Target...),
-		capturedArchive: append([]byte(nil), material.CapturedArchive...),
+		purpose: job.Purpose(), role: job.Role(), target: target,
+		capturedArchive: archive,
 		targetIdentity:  job.Target(), stdin: material.Prompt.Stdin(),
 		stdinSHA256: material.Prompt.CompleteStdinSHA256(), templateID: template.ID(),
 		templateVersion: template.Version(), templateSHA256: template.SHA256(),
@@ -1588,10 +1614,7 @@ func (runtime *ProviderInvocationRuntime) recordRuntimeArtifact(job InvocationJo
 	for key, value := range material.AdapterParameters {
 		inventory.adapterParameters[key] = value
 	}
-	runtime.mu.Lock()
-	runtime.inventory[captureKey{job.AttemptID(), invocationSequence(job.Purpose())}] = inventory
-	runtime.mu.Unlock()
-	return nil
+	return inventory
 }
 
 func (runtime *ProviderInvocationRuntime) providerInvocation(job InvocationJob, material RuntimePrompt) (ports.ProviderInvocation, error) {

@@ -49,7 +49,7 @@ test-release:
 		MULGAE_RELEASE_REVISION="$$release_commit" \
 		$(GO) test -tags=releasecheck -count=1 ./internal/releasecheck && \
 	MULGAE_E2E_BINARY="$$release_gobin/mulgae" $(GO) test -count=1 \
-		-run '^TestIntegrationReleaseBinaryComposesExactRecoveredReview$$' ./test/e2e
+		-run '^(TestIntegrationReleaseBinaryComposesExactRecoveredReview|TestIntegrationReleaseBinaryRecoversCancelledRunThroughExactReruns)$$' ./test/e2e
 	@printf '%s\n' '[test-release] completed'
 
 test-e2e:

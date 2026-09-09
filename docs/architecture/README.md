@@ -37,6 +37,7 @@ root.
 | `internal/app/reviewrun` | Target capture, planning, qualification, prompts, orchestration |
 | `internal/app/review` | Assignments, coordination, aggregation, results |
 | `internal/app/validation` | Wire parsing, trusted-field injection, checks, repair |
+| `internal/app/recovery` | Immutable failed-run inputs, accepted partial results, replay admission |
 | `internal/app/publication` | Manifests, attempts, final artifacts, recovery, integrity |
 | `internal/app/reviewcompose` | Exact composite admission, lineage and target verification, recomputation |
 | `internal/app/{followup,delta,rerun}` | Child-run lineage and specialized reviews |

@@ -34,6 +34,7 @@ import (
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	appheartbeat "github.com/irootkernel/mulgae/internal/app/heartbeat"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
@@ -46,7 +47,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v6.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v7.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -502,7 +503,7 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 	}
 }
 
-func TestApplicationComposeUnavailableReturnsV6ReconciliationEnvelope(t *testing.T) {
+func TestApplicationComposeUnavailableReturnsV7ReconciliationEnvelope(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	result := fixture.application.Run(context.Background(), []string{
 		"compose", "--root-run", "r_019f596a-cf80-7c67-b265-f37053d51ccf",
@@ -516,7 +517,7 @@ func TestApplicationComposeUnavailableReturnsV6ReconciliationEnvelope(t *testing
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v6" || envelope.Result["kind"] != "composite_failed" ||
+	if envelope.SchemaVersion != "mulgae-command-result.v7" || envelope.Result["kind"] != "composite_failed" ||
 		envelope.Result["root_run_id"] == nil || envelope.Result["reconciliation_state"] != "not_committed" || envelope.Result["retry_safe"] != true {
 		t.Fatalf("compose failure envelope = %#v", envelope)
 	}
@@ -3932,7 +3933,7 @@ func TestApplicationG006CommandsHumanAndJSON(t *testing.T) {
 					"\nfinal_artifact_uri: " + g006ReviewArtifactURI +
 					"\ncontent_verdict: request_changes" +
 					"\ncoverage_status: complete" +
-					"\nci_decision: fail",
+					"\nci_decision: fail\nfailed_run_recovery: unavailable (published_review)",
 			)),
 		},
 		{
@@ -4046,7 +4047,7 @@ func TestApplicationG006StatusDoesNotDiscloseNonP2Paths(t *testing.T) {
 	}{
 		{
 			name: "P0 staged",
-			status: RunStatusView{
+			status: RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 				RunID: testRunID, PublicationState: domain.PublicationStaged,
 				RecoveryAction: domain.RecoveryActionInstallStagedFinal,
 			},
@@ -4054,7 +4055,7 @@ func TestApplicationG006StatusDoesNotDiscloseNonP2Paths(t *testing.T) {
 		},
 		{
 			name: "P1 installed",
-			status: RunStatusView{
+			status: RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 				RunID: testRunID, PublicationState: domain.PublicationInstalled,
 				RecoveryAction: domain.RecoveryActionCommitCompositeEpoch,
 			},
@@ -4062,7 +4063,7 @@ func TestApplicationG006StatusDoesNotDiscloseNonP2Paths(t *testing.T) {
 		},
 		{
 			name: "corrupt",
-			status: RunStatusView{
+			status: RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 				RunID: testRunID, PublicationState: domain.PublicationCorrupt,
 				RecoveryAction: domain.RecoveryActionEmitImmutableCorruptionDiagnostic,
 			},
@@ -4109,21 +4110,21 @@ func TestStatusResultDataRejectsIncoherentPublicationPairs(t *testing.T) {
 	}{
 		{
 			name: "not published with none",
-			status: RunStatusView{
+			status: RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 				RunID: testRunID, PublicationState: domain.PublicationNotPublished,
 				RecoveryAction: domain.RecoveryActionNone,
 			},
 		},
 		{
 			name: "staged with resume",
-			status: RunStatusView{
+			status: RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 				RunID: testRunID, PublicationState: domain.PublicationStaged,
 				RecoveryAction: domain.RecoveryActionResumeCollection,
 			},
 		},
 		{
 			name: "installed with none",
-			status: RunStatusView{
+			status: RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 				RunID: testRunID, PublicationState: domain.PublicationInstalled,
 				RecoveryAction: domain.RecoveryActionNone,
 			},
@@ -4654,7 +4655,7 @@ func TestG006CommandSchemaRejectsAuthorityAndBase64Lies(t *testing.T) {
 		root,
 	)
 	assertFoundationEnvelope(t, fixture, committedStatus, app.ExitCodeSuccess)
-	query.status = RunStatusView{
+	query.status = RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 		RunID:            testRunID,
 		PublicationState: domain.PublicationStaged,
 		RecoveryAction:   domain.RecoveryActionInstallStagedFinal,
@@ -5528,7 +5529,7 @@ func TestIntegrationProductionRedactedExportAcceptsCommittedNoFindingsAndRejects
 
 func newG006QueryFake() *g006QueryFake {
 	return &g006QueryFake{
-		status: RunStatusView{
+		status: RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("published_review"),
 			SessionID: g006SessionID, RunID: testRunID, RunState: domain.RunCompleted, HasRunState: true,
 			PublicationState: domain.PublicationCommitted,
 			RecoveryAction:   domain.RecoveryActionReconstructCompletedStatus,
@@ -5990,6 +5991,126 @@ func TestProviderFailureHintRoutesByRemediation(t *testing.T) {
 		if review.ConditionProviderFault(condition) && !review.ConditionProviderUnusable(condition) &&
 			condition != review.AttemptConditionProviderPermissionDenied && hint != rerun {
 			t.Errorf("recoverable provider fault %q routes to %q, want %q", condition, hint, rerun)
+		}
+	}
+}
+
+func TestRerunFailurePreservesAllocatedIdentityWithoutPromptAuthority(t *testing.T) {
+	session, err := domain.ParseSessionID(g006SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := domain.ParseRunID(testRecoveryRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakes := newG008WorkflowFakes(t)
+	failure, err := domain.NewFailure("rerun.test", domain.FailureInternal, "injected child failure", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakes.rerun.err = reviewrun.NewAllocatedRunIdentityError(session, run, failure)
+	fixture := newG008Fixture(t, fakes)
+	result := fixture.application.Run(context.Background(), []string{"rerun", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeInternal)
+	var envelope struct {
+		Result struct {
+			SessionID *string `json:"session_id"`
+			RunID     *string `json:"run_id"`
+			PromptURI *string `json:"prompt_manifest_uri"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.SessionID == nil || *envelope.Result.SessionID != session.String() || envelope.Result.RunID == nil || *envelope.Result.RunID != run.String() || envelope.Result.PromptURI != nil {
+		t.Fatalf("failure lost allocated identity or fabricated prompt authority: %s", result.Stdout())
+	}
+}
+
+func TestApplicationReviewAndRerunPreservePrimaryFailureWithRecoveryDescription(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		class         domain.FailureClass
+		condition     review.AttemptCondition
+		cleanupClass  domain.FailureClass
+		loginRequired bool
+		exit          app.ExitCode
+	}{
+		{name: "configuration", class: domain.FailureConfiguration, condition: review.AttemptConditionConfigurationViolation, exit: app.ExitCodeUsage},
+		{name: "cancellation", class: domain.FailureCancelled, condition: review.AttemptConditionCancelled, exit: app.ExitCodeCancellation},
+		{name: "provider login", class: domain.FailureAuthentication, condition: review.AttemptConditionLoginRequired, loginRequired: true, exit: app.ExitCodeReadiness},
+		{name: "cancellation with artifact cleanup", class: domain.FailureCancelled, condition: review.AttemptConditionCancelled, cleanupClass: domain.FailureArtifact, exit: app.ExitCodeArtifact},
+		{name: "cancellation with internal cleanup", class: domain.FailureCancelled, condition: review.AttemptConditionCancelled, cleanupClass: domain.FailureInternal, exit: app.ExitCodeInternal},
+		{name: "provider login with artifact cleanup", class: domain.FailureAuthentication, condition: review.AttemptConditionLoginRequired, cleanupClass: domain.FailureArtifact, loginRequired: true, exit: app.ExitCodeArtifact},
+		{name: "provider login with internal cleanup", class: domain.FailureAuthentication, condition: review.AttemptConditionLoginRequired, cleanupClass: domain.FailureInternal, loginRequired: true, exit: app.ExitCodeInternal},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fact, err := reviewrun.NewProviderExecutionFailure("zcode-security", domain.RoleSecurity, string(test.condition), test.class)
+			if err != nil {
+				t.Fatal(err)
+			}
+			failure, err := domain.NewFailure("reviewrun.execute", test.class, "provider execution failed", reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{fact}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var primary error = failure
+			if test.loginRequired {
+				primary = reviewrun.NewProviderLoginRequiredError([]string{"zcode-security"}, failure)
+			}
+			recoveryFailure := fmt.Errorf("%w; failed-run recovery: recovery_storage_failed", primary)
+			if test.cleanupClass.Valid() {
+				cleanupFailure, cleanupErr := domain.NewFailure("reviewrun.cleanup.provider", test.cleanupClass, "mandatory cleanup failed: private cleanup detail", nil)
+				if cleanupErr != nil {
+					t.Fatal(cleanupErr)
+				}
+				recoveryFailure = errors.Join(recoveryFailure, cleanupFailure)
+			}
+			rootFixture := newFoundationFixture(t)
+			rootFixture.application.reviewRuns = &reviewRunFake{err: recoveryFailure}
+			rootResult := rootFixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, rootFixture, rootResult, test.exit)
+			assertApplicationFailureJSONExit(t, rootResult, test.exit)
+			assertApplicationRecoveryErrorRedacted(t, rootResult.Stdout())
+			fakes := newG008WorkflowFakes(t)
+			fakes.rerun.err = fmt.Errorf("child rerun: %w", recoveryFailure)
+			fixture := newG008Fixture(t, fakes)
+			result := fixture.application.Run(context.Background(), []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"}, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, test.exit)
+			assertApplicationFailureJSONExit(t, result, test.exit)
+			assertApplicationRecoveryErrorRedacted(t, result.Stdout())
+		})
+	}
+}
+
+func assertApplicationFailureJSONExit(t *testing.T, result Result, want app.ExitCode) {
+	t.Helper()
+	var envelope struct {
+		Exit struct {
+			Code int    `json:"code"`
+			Kind string `json:"kind"`
+		} `json:"exit"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	wantKind := map[app.ExitCode]string{
+		app.ExitCodeUsage:        "usage",
+		app.ExitCodeReadiness:    "readiness",
+		app.ExitCodeArtifact:     "artifact",
+		app.ExitCodeCancellation: "cancellation",
+		app.ExitCodeInternal:     "internal",
+	}[want]
+	if envelope.Exit.Code != int(want) || envelope.Exit.Kind != wantKind {
+		t.Fatalf("JSON exit = %#v, want code %d kind %q", envelope.Exit, want, wantKind)
+	}
+}
+
+func assertApplicationRecoveryErrorRedacted(t *testing.T, output []byte) {
+	t.Helper()
+	for _, privateDetail := range []string{"recovery_storage_failed", "recovery_cleanup_failed", "private cleanup detail"} {
+		if bytes.Contains(output, []byte(privateDetail)) {
+			t.Fatalf("private recovery error leaked into public envelope: %q", privateDetail)
 		}
 	}
 }

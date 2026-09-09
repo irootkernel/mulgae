@@ -50,19 +50,21 @@ func (candidate PreparedCandidate) Build(
 	}
 	lineage := candidate.publicationLineage()
 	edgeBytes, err := marshalCanonical(lineageEdgeWire{
-		SchemaVersion: lineageEdgeV1,
+		SchemaVersion: lineageVersion(lineageEdgeV1, lineage.sourceRecoveryManifestSHA256),
 		EdgeID:        "e_" + reviewID.String(),
 		Child: lineageChildWire{
 			SessionID: candidate.sessionID.String(),
 			RunID:     candidate.runID.String(),
 			ReviewID:  reviewID.String(),
 		},
-		ParentRunID:      lineageRunID(lineage.parentRunID),
-		SourceRunID:      lineageRunID(lineage.sourceRunID),
-		SourceReviewID:   lineageReviewID(lineage.sourceReviewID),
-		SourceAttemptID:  lineageAttemptID(lineage.sourceAttemptID),
-		SourceFindingRef: cloneOptionalString(lineage.sourceFindingRef),
-		ReplayMode:       lineageReplayMode(lineage.replayMode),
+		ParentRunID:                  lineageRunID(lineage.parentRunID),
+		SourceRunID:                  lineageRunID(lineage.sourceRunID),
+		SourceReviewID:               lineageReviewID(lineage.sourceReviewID),
+		SourceRecoveryManifestSHA256: cloneOptionalString(lineage.sourceRecoveryManifestSHA256),
+		SourceKind:                   recoverySourceKind(lineage.sourceRecoveryManifestSHA256),
+		SourceAttemptID:              lineageAttemptID(lineage.sourceAttemptID),
+		SourceFindingRef:             cloneOptionalString(lineage.sourceFindingRef),
+		ReplayMode:                   lineageReplayMode(lineage.replayMode),
 	})
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSerializationFailed, fmt.Errorf("publication build: serialize lineage edge: %w", err))
@@ -100,7 +102,7 @@ func (candidate PreparedCandidate) Build(
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationFinalReview, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
-	finalSchema, err := ports.ParseAssetID(finalReviewSchemaAsset)
+	finalSchema, err := ports.ParseAssetID(lineageSchema(finalReviewSchemaAsset, lineage.sourceRecoveryManifestSHA256))
 	if err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: final schema asset: %w", err)
 	}
@@ -124,7 +126,7 @@ func (candidate PreparedCandidate) Build(
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
-	manifestSchema, err := ports.ParseAssetID(runManifestSchemaAsset)
+	manifestSchema, err := ports.ParseAssetID(lineageSchema(runManifestSchemaAsset, lineage.sourceRecoveryManifestSHA256))
 	if err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: manifest schema asset: %w", err)
 	}
@@ -735,7 +737,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		}
 	}
 	return marshalCanonical(finalReviewWire{
-		SchemaVersion: "mulgae-review-artifact.v1",
+		SchemaVersion: lineageVersion("mulgae-review-artifact.v1", candidate.publicationLineage().sourceRecoveryManifestSHA256),
 		SessionID:     candidate.sessionID.String(),
 		RunID:         candidate.runID.String(),
 		ReviewID:      reviewID.String(),
@@ -782,7 +784,7 @@ func (candidate PreparedCandidate) buildManifestBytes(
 	supportIndex ports.ImmutablePublicationArtifact,
 ) ([]byte, error) {
 	return marshalCanonical(runManifestWire{
-		SchemaVersion:              "mulgae-run-manifest.v1",
+		SchemaVersion:              lineageVersion("mulgae-run-manifest.v1", candidate.publicationLineage().sourceRecoveryManifestSHA256),
 		SessionID:                  candidate.sessionID.String(),
 		RunID:                      candidate.runID.String(),
 		RunType:                    string(candidate.publicationLineage().runType),
@@ -1073,14 +1075,16 @@ func cloneOptionalString(value *string) *string {
 
 func (candidate PreparedCandidate) immutableLineageWire(edge ports.ImmutablePublicationArtifact) immutableLineageWire {
 	return immutableLineageWire{
-		ParentRunID:       lineageRunID(candidate.publicationLineage().parentRunID),
-		SourceRunID:       lineageRunID(candidate.publicationLineage().sourceRunID),
-		SourceReviewID:    lineageReviewID(candidate.publicationLineage().sourceReviewID),
-		SourceAttemptID:   lineageAttemptID(candidate.publicationLineage().sourceAttemptID),
-		SourceFindingRef:  cloneOptionalString(candidate.publicationLineage().sourceFindingRef),
-		ReplayMode:        lineageReplayMode(candidate.publicationLineage().replayMode),
-		LineageEdgePath:   edge.Path().String(),
-		LineageEdgeSHA256: edge.SHA256(),
+		ParentRunID:                  lineageRunID(candidate.publicationLineage().parentRunID),
+		SourceRunID:                  lineageRunID(candidate.publicationLineage().sourceRunID),
+		SourceReviewID:               lineageReviewID(candidate.publicationLineage().sourceReviewID),
+		SourceRecoveryManifestSHA256: cloneOptionalString(candidate.publicationLineage().sourceRecoveryManifestSHA256),
+		SourceKind:                   recoverySourceKind(candidate.publicationLineage().sourceRecoveryManifestSHA256),
+		SourceAttemptID:              lineageAttemptID(candidate.publicationLineage().sourceAttemptID),
+		SourceFindingRef:             cloneOptionalString(candidate.publicationLineage().sourceFindingRef),
+		ReplayMode:                   lineageReplayMode(candidate.publicationLineage().replayMode),
+		LineageEdgePath:              edge.Path().String(),
+		LineageEdgeSHA256:            edge.SHA256(),
 	}
 }
 
@@ -1123,14 +1127,16 @@ type mulgaeWire struct {
 }
 
 type immutableLineageWire struct {
-	ParentRunID       *string `json:"parent_run_id"`
-	SourceRunID       *string `json:"source_run_id"`
-	SourceReviewID    *string `json:"source_review_id"`
-	SourceAttemptID   *string `json:"source_attempt_id,omitempty"`
-	SourceFindingRef  *string `json:"source_finding_ref"`
-	ReplayMode        *string `json:"replay_mode"`
-	LineageEdgePath   string  `json:"lineage_edge_path"`
-	LineageEdgeSHA256 string  `json:"lineage_edge_sha256"`
+	ParentRunID                  *string `json:"parent_run_id"`
+	SourceRunID                  *string `json:"source_run_id"`
+	SourceReviewID               *string `json:"source_review_id"`
+	SourceRecoveryManifestSHA256 *string `json:"source_recovery_manifest_sha256,omitempty"`
+	SourceKind                   string  `json:"source_kind,omitempty"`
+	SourceAttemptID              *string `json:"source_attempt_id,omitempty"`
+	SourceFindingRef             *string `json:"source_finding_ref"`
+	ReplayMode                   *string `json:"replay_mode"`
+	LineageEdgePath              string  `json:"lineage_edge_path"`
+	LineageEdgeSHA256            string  `json:"lineage_edge_sha256"`
 }
 
 type finalTargetWire struct {
@@ -1389,15 +1395,17 @@ type lineageChildWire struct {
 }
 
 type lineageEdgeWire struct {
-	SchemaVersion    string           `json:"schema_version"`
-	EdgeID           string           `json:"edge_id"`
-	Child            lineageChildWire `json:"child"`
-	ParentRunID      *string          `json:"parent_run_id"`
-	SourceRunID      *string          `json:"source_run_id"`
-	SourceReviewID   *string          `json:"source_review_id"`
-	SourceAttemptID  *string          `json:"source_attempt_id,omitempty"`
-	SourceFindingRef *string          `json:"source_finding_ref"`
-	ReplayMode       *string          `json:"replay_mode"`
+	SchemaVersion                string           `json:"schema_version"`
+	EdgeID                       string           `json:"edge_id"`
+	Child                        lineageChildWire `json:"child"`
+	ParentRunID                  *string          `json:"parent_run_id"`
+	SourceRunID                  *string          `json:"source_run_id"`
+	SourceReviewID               *string          `json:"source_review_id"`
+	SourceRecoveryManifestSHA256 *string          `json:"source_recovery_manifest_sha256,omitempty"`
+	SourceKind                   string           `json:"source_kind,omitempty"`
+	SourceAttemptID              *string          `json:"source_attempt_id,omitempty"`
+	SourceFindingRef             *string          `json:"source_finding_ref"`
+	ReplayMode                   *string          `json:"replay_mode"`
 }
 
 type publicationEpochWire struct {

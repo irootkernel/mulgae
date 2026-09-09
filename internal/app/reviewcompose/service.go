@@ -61,12 +61,12 @@ func (service *Service) Compose(ctx context.Context, request Request) (Result, e
 	missing := make(map[domain.Role]Role)
 	for _, role := range root.Roles {
 		roles[role.Name] = role
-		if role.Required && !accepted(role) {
+		if role.Outcome == "failed" && role.HasAttempt {
 			missing[role.Name] = role
 		}
 	}
 	if len(missing) == 0 {
-		return Result{}, fail(domain.CompositeRoleAlreadySatisfied, "root has no missing required role", nil)
+		return Result{}, fail(domain.CompositeRoleAlreadySatisfied, "root has no missing selected role", nil)
 	}
 
 	recoveries := make(map[domain.Role]Source, len(request.RecoveryRuns))
@@ -81,7 +81,7 @@ func (service *Service) Compose(ctx context.Context, request Request) (Result, e
 		if recovery.RunID != runID {
 			return Result{}, fail(domain.CompositeRecoveryUnavailable, "source reader substituted a different recovery identity", nil)
 		}
-		role, admitErr := service.admitRecovery(ctx, root, recovery, missing)
+		role, admitErr := service.admitRecovery(ctx, root, recovery)
 		if admitErr != nil {
 			return Result{}, admitErr
 		}
@@ -91,7 +91,7 @@ func (service *Service) Compose(ctx context.Context, request Request) (Result, e
 		recoveries[role.Name] = recovery
 	}
 	if len(recoveries) != len(missing) {
-		return Result{}, fail(domain.CompositeRecoveryIncomplete, "selection does not recover every missing required role", nil)
+		return Result{}, fail(domain.CompositeRecoveryIncomplete, "selection does not recover every missing selected role", nil)
 	}
 
 	return buildResult(root, roles, recoveries)
@@ -110,8 +110,8 @@ func validateRoot(root Source, expected domain.RunID) error {
 	if _, err := domain.ParseSessionID(root.SessionID.String()); err != nil {
 		return fail(domain.CompositeValidationFailed, "root session identity is invalid", err)
 	}
-	if _, err := domain.ParseReviewID(root.ReviewID.String()); err != nil {
-		return fail(domain.CompositeValidationFailed, "root review identity is invalid", err)
+	if _, err := sourceReference(root.RunID, root.ReviewID, root.RecoveryManifestSHA256); err != nil {
+		return fail(domain.CompositeValidationFailed, "root source identity is invalid", err)
 	}
 	seen := make(map[domain.Role]struct{}, len(root.Roles))
 	for _, role := range root.Roles {
@@ -126,8 +126,19 @@ func validateRoot(root Source, expected domain.RunID) error {
 			if _, err := acceptedReport(root, role); err != nil {
 				return err
 			}
-		} else if role.Required && role.Outcome != "failed" && role.Outcome != "skipped" {
-			return fail(domain.CompositeValidationFailed, "missing root role has an invalid outcome", nil)
+		} else {
+			switch role.Outcome {
+			case "failed":
+				if !role.HasAttempt || strings.TrimSpace(role.ProviderInstance) == "" {
+					return fail(domain.CompositeValidationFailed, "failed root role has no attempt binding", nil)
+				}
+			case "skipped", "not_applicable":
+				if role.HasAttempt || strings.TrimSpace(role.ProviderInstance) != "" || len(role.FindingIDs) != 0 {
+					return fail(domain.CompositeValidationFailed, "non-attempt root role has attempt-owned content", nil)
+				}
+			default:
+				return fail(domain.CompositeValidationFailed, "missing root role has an invalid outcome", nil)
+			}
 		}
 	}
 	if err := validateSourceAttempts(root); err != nil {
@@ -136,7 +147,7 @@ func validateRoot(root Source, expected domain.RunID) error {
 	return validateFindings(root)
 }
 
-func (service *Service) admitRecovery(ctx context.Context, root, recovery Source, missing map[domain.Role]Role) (Role, error) {
+func (service *Service) admitRecovery(ctx context.Context, root, recovery Source) (Role, error) {
 	if recovery.RunType != domain.RunTypeRerun ||
 		(recovery.Coverage != domain.CoverageComplete && recovery.Coverage != domain.CoverageDegraded) || len(recovery.Roles) != 1 {
 		return Role{}, fail(domain.CompositeRecoveryIncomplete, "recovery must be one complete committed rerun role", nil)
@@ -152,14 +163,11 @@ func (service *Service) admitRecovery(ctx context.Context, root, recovery Source
 	}
 	role := recovery.Roles[0]
 	rootRole, exists := findRole(root.Roles, role.Name)
-	if !exists || !rootRole.Required {
-		return Role{}, fail(domain.CompositeRoleNotRequired, "recovery role is not required by the root", nil)
+	if !exists {
+		return Role{}, fail(domain.CompositeRoleNotRequired, "recovery role was not selected by the root", nil)
 	}
 	if accepted(rootRole) {
 		return Role{}, fail(domain.CompositeRoleAlreadySatisfied, "recovery would replace an accepted root role", nil)
-	}
-	if _, required := missing[role.Name]; !required {
-		return Role{}, fail(domain.CompositeRoleNotRequired, "recovery role is not missing from the root", nil)
 	}
 	if !accepted(role) {
 		return Role{}, fail(domain.CompositeRecoveryIncomplete, "recovery role has no accepted terminal result", nil)
@@ -183,6 +191,9 @@ func (service *Service) verifyLineage(ctx context.Context, root, recovery Source
 	current := recovery
 	seen := map[domain.RunID]struct{}{current.RunID: {}}
 	for {
+		if len(seen) > 128 {
+			return fail(domain.CompositeLineageMismatch, "recovery lineage exceeds 128 runs", nil)
+		}
 		if current.RunType != domain.RunTypeRerun || !current.HasSource || !current.HasSourceAttempt {
 			return fail(domain.CompositeLineageMismatch, "recovery lineage is not a rerun chain", nil)
 		}
@@ -190,11 +201,11 @@ func (service *Service) verifyLineage(ctx context.Context, root, recovery Source
 			return fail(domain.CompositeLineageMismatch, "recovery lineage changed session, target, or role", nil)
 		}
 		if current.SourceRunID == root.RunID {
-			if current.SourceReviewID != root.ReviewID {
+			if current.SourceReviewID != root.ReviewID || current.SourceRecoveryManifestSHA256 != root.RecoveryManifestSHA256 {
 				return fail(domain.CompositeLineageMismatch, "recovery lineage root review does not match", nil)
 			}
 			rootRole, exists := findRole(root.Roles, role)
-			if !exists || !rootRole.Required || accepted(rootRole) || !failedAttempt(root, role, current.SourceAttemptID) {
+			if !exists || accepted(rootRole) || !failedAttempt(root, role, current.SourceAttemptID) {
 				return fail(domain.CompositeLineageMismatch, "recovery does not end at the failed root role attempt", nil)
 			}
 			return nil
@@ -210,7 +221,7 @@ func (service *Service) verifyLineage(ctx context.Context, root, recovery Source
 		if err != nil {
 			return fail(domain.CompositeLineageMismatch, "recovery lineage source is unavailable", err)
 		}
-		if next.ReviewID != current.SourceReviewID {
+		if next.ReviewID != current.SourceReviewID || next.RecoveryManifestSHA256 != current.SourceRecoveryManifestSHA256 {
 			return fail(domain.CompositeLineageMismatch, "recovery lineage source review does not match", nil)
 		}
 		if next.RunID != current.SourceRunID {
@@ -282,12 +293,12 @@ func buildResult(root Source, rootRoles map[domain.Role]Role, recoveries map[dom
 		}
 		recoveryCoordinates = append(recoveryCoordinates, coordinate)
 	}
-	fingerprint, err := domain.NewCompositionFingerprint(root.RunID, recoveryCoordinates)
+	fingerprint, err := compositionFingerprint(root, recoveryCoordinates)
 	if err != nil {
 		return Result{}, fail(domain.CompositeValidationFailed, "composition fingerprint is invalid", err)
 	}
 	result := Result{
-		Fingerprint: fingerprint, RootRunID: root.RunID, RootReviewID: root.ReviewID,
+		Fingerprint: fingerprint, RootRunID: root.RunID, RootReviewID: root.ReviewID, RootRecoveryManifestSHA256: root.RecoveryManifestSHA256,
 		SessionID: root.SessionID, TargetSHA256: root.TargetSHA256, Threshold: root.Threshold,
 		TargetIdentity: root.TargetIdentity, TargetBytes: append([]byte(nil), root.TargetBytes...),
 		CapturedArchive: append([]byte(nil), root.CapturedArchive...),
@@ -319,13 +330,13 @@ func buildResult(root Source, rootRoles map[domain.Role]Role, recoveries map[dom
 			return Result{}, reportErr
 		}
 		result.Sources = append(result.Sources, SelectedSource{
-			Kind: kind, Role: roleName, RunID: source.RunID, ReviewID: source.ReviewID,
+			Kind: kind, Role: roleName, RunID: source.RunID, ReviewID: source.ReviewID, RecoveryManifestSHA256: source.RecoveryManifestSHA256,
 			AttemptID: selectedRole.AttemptID, RoleReport: cloneRoleReport(report),
 		})
 		result.Roles = append(result.Roles, CompositeRole{
 			Role: roleName, Required: rootRole.Required, Outcome: selectedRole.Outcome,
 			AttemptID: selectedRole.AttemptID, ProviderInstance: selectedRole.ProviderInstance,
-			ReportsOnly: selectedRole.ReportsOnly, SourceRunID: source.RunID, SourceReviewID: source.ReviewID,
+			ReportsOnly: selectedRole.ReportsOnly, SourceRunID: source.RunID, SourceReviewID: source.ReviewID, SourceRecoveryManifestSHA256: source.RecoveryManifestSHA256,
 		})
 		if selectedRole.ReportsOnly {
 			reportsOnly++
@@ -372,7 +383,7 @@ func buildResult(root Source, rootRoles map[domain.Role]Role, recoveries map[dom
 			ID: id, Fingerprint: fingerprint, Role: item.finding.Role, ProviderInstance: item.finding.ProviderInstance,
 			Severity: item.finding.Severity, Title: item.finding.Title, Description: item.finding.Description,
 			Recommendation: item.finding.Recommendation, Confidence: item.finding.Confidence, Lifecycle: item.finding.Lifecycle,
-			SourceRunID: item.source.RunID, SourceReviewID: item.source.ReviewID,
+			SourceRunID: item.source.RunID, SourceReviewID: item.source.ReviewID, SourceRecoveryManifestSHA256: item.source.RecoveryManifestSHA256,
 			SourceAttemptID: item.attempt, SourceFindingID: item.finding.ID,
 		})
 		roleFindingIDs[item.finding.Role] = append(roleFindingIDs[item.finding.Role], id)

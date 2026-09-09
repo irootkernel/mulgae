@@ -2,9 +2,11 @@ package reviewcompose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -29,6 +31,13 @@ func (reader *QueryReader) ReadCompositionSource(ctx context.Context, runID doma
 	run, err := reader.queries.ResolveRun(ctx, reader.root, runID)
 	if err != nil {
 		return Source{}, err
+	}
+	snapshot, recoveryErr := reader.queries.ReadFailedRunRecovery(ctx, run)
+	if recoveryErr == nil {
+		return sourceFromRecovery(snapshot)
+	}
+	if !errors.Is(recoveryErr, recovery.ErrUnavailable) {
+		return Source{}, recoveryErr
 	}
 	review, err := reader.queries.ReadCommittedForComposition(ctx, run)
 	if err != nil {
@@ -69,10 +78,12 @@ func sourceFromCommitted(review query.CommittedReview) (Source, error) {
 	if sourceRunID, ok := lineage.SourceRunID(); ok {
 		source.SourceRunID, source.HasSource = sourceRunID, true
 		sourceReviewID, present := lineage.SourceReviewID()
-		if !present {
-			return Source{}, fmt.Errorf("committed source lineage has no review identity")
+		recoveryHash, hasRecovery := lineage.SourceRecoveryManifestSHA256()
+		if present == hasRecovery {
+			return Source{}, fmt.Errorf("committed source lineage has ambiguous identity")
 		}
 		source.SourceReviewID = sourceReviewID
+		source.SourceRecoveryManifestSHA256 = recoveryHash
 	}
 	if sourceAttemptID, ok := lineage.SourceAttemptID(); ok {
 		source.SourceAttemptID, source.HasSourceAttempt = sourceAttemptID, true

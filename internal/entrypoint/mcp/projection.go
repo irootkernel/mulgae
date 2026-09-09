@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -17,19 +18,20 @@ type RoleReportProjection struct {
 
 // RunStatusProjection is the typed input to the MCP public run-status shape.
 type RunStatusProjection struct {
-	SessionID        string
-	RunID            string
-	RunState         domain.RunState
-	HasRunState      bool
-	PublicationState domain.PublicationStatus
-	RecoveryAction   domain.RecoveryAction
-	FinalArtifactURI string
-	HasFinalArtifact bool
-	ContentVerdict   domain.ContentVerdict
-	CoverageStatus   domain.CoverageStatus
-	CIDecision       domain.CIDecision
-	HasAxes          bool
-	RoleReports      []RoleReportProjection
+	FailedRunRecovery recovery.Status
+	SessionID         string
+	RunID             string
+	RunState          domain.RunState
+	HasRunState       bool
+	PublicationState  domain.PublicationStatus
+	RecoveryAction    domain.RecoveryAction
+	FinalArtifactURI  string
+	HasFinalArtifact  bool
+	ContentVerdict    domain.ContentVerdict
+	CoverageStatus    domain.CoverageStatus
+	CIDecision        domain.CIDecision
+	HasAxes           bool
+	RoleReports       []RoleReportProjection
 }
 
 // ProjectRunStatus validates and renders one bounded MCP run-status object.
@@ -40,6 +42,12 @@ func ProjectRunStatus(status RunStatusProjection, expectedSessionID domain.Sessi
 		!status.PublicationState.Valid() || !status.RecoveryAction.Valid() || status.PublicationState == domain.PublicationCorrupt ||
 		!domain.PublicationRecoveryCompatible(status.PublicationState, status.RecoveryAction) {
 		return nil, fmt.Errorf("MCP run status projection is invalid")
+	}
+	if err := status.FailedRunRecovery.ValidateFor(runID); err != nil {
+		return nil, err
+	}
+	if status.FailedRunRecovery.Available && (status.PublicationState != domain.PublicationNotPublished || !status.HasRunState || status.RunState != domain.RunFailed && status.RunState != domain.RunCancelled) {
+		return nil, fmt.Errorf("MCP recovery status has inconsistent terminal state")
 	}
 	if status.PublicationState == domain.PublicationCommitted &&
 		status.RunState != domain.RunCompleted && status.RunState != domain.RunDegraded && status.RunState != domain.RunFailed {
@@ -67,8 +75,9 @@ func ProjectRunStatus(status RunStatusProjection, expectedSessionID domain.Sessi
 		return nil, fmt.Errorf("MCP non-committed run status exposed committed fields")
 	}
 	data := map[string]any{
-		"kind":       "status_read",
-		"session_id": status.SessionID, "run_id": status.RunID,
+		"failed_run_recovery": status.FailedRunRecovery,
+		"kind":                "status_read",
+		"session_id":          status.SessionID, "run_id": status.RunID,
 		"publication_status": string(status.PublicationState), "recovery_action": string(status.RecoveryAction),
 	}
 	if status.PublicationState == domain.PublicationCommitted {
@@ -156,7 +165,8 @@ func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expecte
 		terminalPhase = string(phase)
 	}
 	return map[string]any{
-		"kind": "diagnostic_status_read", "session_id": status.SessionID().String(), "run_id": status.RunID().String(),
+		"failed_run_recovery": recovery.UnavailableStatus("source_not_retained"),
+		"kind":                "diagnostic_status_read", "session_id": status.SessionID().String(), "run_id": status.RunID().String(),
 		"run_state": string(status.State()), "publication_status": nil, "recovery_action": "rerun_review",
 		"final_artifact_uri": nil, "report_resource_uri": nil, "content_verdict": nil, "coverage_status": nil, "ci_decision": nil,
 		"role_report_uris": []any{}, "started_at": status.StartedAt().Format(time.RFC3339Nano),

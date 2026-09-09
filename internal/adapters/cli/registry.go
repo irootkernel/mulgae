@@ -9,23 +9,28 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v6.schema.json"
+const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v7.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
 const fixedCommandSpecCount = 19
 
 const (
-	doctorResultContractURI             = "https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json"
-	heartbeatResultContractURI          = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json"
-	runManifestContractURI              = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
-	reviewArtifactContractURI           = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
-	compositeManifestContractURI        = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json"
-	compositeReviewContractURI          = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json"
-	reviewPreflightContractURI          = "https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json"
-	providerFollowupOutputContractURI   = "https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json"
-	providerContractEvidenceContractURI = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
-	cleanPlanContractURI                = "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json"
-	exportManifestContractURI           = "https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json"
+	failedRunRecoveryContractURI         = "https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json"
+	recoveryRunManifestContractURI       = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
+	recoveryReviewArtifactContractURI    = "https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json"
+	recoveryCompositeManifestContractURI = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v2.schema.json"
+	recoveryCompositeReviewContractURI   = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json"
+	doctorResultContractURI              = "https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json"
+	heartbeatResultContractURI           = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json"
+	runManifestContractURI               = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	reviewArtifactContractURI            = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	compositeManifestContractURI         = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json"
+	compositeReviewContractURI           = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json"
+	reviewPreflightContractURI           = "https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json"
+	providerFollowupOutputContractURI    = "https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json"
+	providerContractEvidenceContractURI  = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
+	cleanPlanContractURI                 = "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json"
+	exportManifestContractURI            = "https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json"
 )
 
 // CommandSpec is immutable metadata for one command in the fixed Mulgae surface.
@@ -98,14 +103,14 @@ func canonicalCommandSpecs() []CommandSpec {
 	return []CommandSpec{
 		newCommandSpec(app.CommandInit, "internal/app/init", "InitializeProject", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandDoctor, "internal/app/doctor", "DiagnoseEnvironment", []string{doctorResultContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation}),
-		newCommandSpec(app.CommandReview, "internal/app/review", "StartReviewRun", []string{runManifestContractURI, reviewArtifactContractURI, reviewPreflightContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandReview, "internal/app/review", "StartReviewRun", []string{runManifestContractURI, reviewArtifactContractURI, reviewPreflightContractURI, failedRunRecoveryContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandFollowup, "internal/app/followup", "StartFollowupRun", []string{providerFollowupOutputContractURI, runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandDelta, "internal/app/delta", "StartDeltaRun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandRerun, "internal/app/rerun", "StartRerun", []string{runManifestContractURI, reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandCompose, "internal/app/reviewcompose", "ComposeReview", []string{compositeManifestContractURI, compositeReviewContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandStatus, "internal/app/query", "ReadRunStatus", []string{runManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandRerun, "internal/app/rerun", "StartRerun", []string{runManifestContractURI, reviewArtifactContractURI, recoveryRunManifestContractURI, recoveryReviewArtifactContractURI, failedRunRecoveryContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandCompose, "internal/app/reviewcompose", "ComposeReview", []string{compositeManifestContractURI, compositeReviewContractURI, recoveryCompositeManifestContractURI, recoveryCompositeReviewContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodePolicy, app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandStatus, "internal/app/query", "ReadRunStatus", []string{runManifestContractURI, recoveryRunManifestContractURI, failedRunRecoveryContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandReport, "internal/app/report", "RenderReport", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
-		newCommandSpec(app.CommandFindings, "internal/app/query", "ListFindings", []string{reviewArtifactContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
+		newCommandSpec(app.CommandFindings, "internal/app/query", "ListFindings", []string{reviewArtifactContractURI, recoveryReviewArtifactContractURI, recoveryCompositeReviewContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandExcerpt, "internal/app/query", "RenderExcerpt", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 		newCommandSpec(app.CommandProviders, "internal/app/providers", "ListProviderProfiles", []string{providerContractEvidenceContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity}),
 		newCommandSpec(app.CommandHeartbeat, "internal/app/heartbeat", "ProbeProvider", []string{heartbeatResultContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeReadiness, app.ExitCodeArtifact, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),

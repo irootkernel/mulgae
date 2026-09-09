@@ -1,7 +1,7 @@
 # JSON Schema Contracts
 
-Mulgae emits one current version of each JSON contract and may retain an
-explicitly documented predecessor for backward reads. Every schema uses JSON Schema
+Mulgae selects the documented contract version for each source kind and retains
+predecessors for backward reads. Every schema uses JSON Schema
 Draft 2020-12 and a canonical
 `https://mulgae.local/schemas/<filename>.schema.json` identifier.
 
@@ -9,6 +9,12 @@ Draft 2020-12 and a canonical
 
 | Schema | Valid example |
 |---|---|
+| `mulgae-command-result.v7` | `../examples/command-result.v7.valid.json` |
+| `mulgae-run-recovery.v1` | `../examples/run-recovery.v1.valid.json` |
+| `mulgae-review-artifact.v2` | `../examples/review-artifact.v2.valid.json` |
+| `mulgae-run-manifest.v2` | `../examples/run-manifest.v2.valid.json` |
+| `mulgae-composite-review-artifact.v2` | `../examples/composite-review-artifact.v2.valid.json` |
+| `mulgae-composite-run-manifest.v2` | `../examples/composite-run-manifest.v2.valid.json` |
 | `mulgae-clean-plan.v1` | `../examples/clean-plan.v1.valid.json` |
 | `mulgae-composite-review-artifact.v1` | `../examples/composite-review-artifact.v1.valid.json` |
 | `mulgae-composite-run-manifest.v1` | `../examples/composite-run-manifest.v1.valid.json` |
@@ -37,6 +43,7 @@ contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a future schema version. The command-result v5 schema
-remains available for explicit backward reads while commands emit v6. Other
-superseded contracts have no compatibility schema in this release.
+Breaking changes require a future schema version. Command-result v5 and v6 schemas
+remain available for explicit backward reads while commands emit v7. Published
+review, run-manifest, and composite v1 contracts remain readable alongside the
+v2 contracts for recovery-derived artifacts.

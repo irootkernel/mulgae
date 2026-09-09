@@ -33,15 +33,32 @@ Failed tool results expose only bounded Mulgae-owned recovery identity. A failed
 allocation occurred and is never marked retryable; provider details, runtime
 diagnostics, and native paths remain private. An uncertain composite publication
 exposes only its deterministic session/run identity and requires exact status
-reconciliation; it never authorizes blind retry. `get_run` may expose the
-separate bounded diagnostic status projection only after a typed
-publication-not-found result. That projection has no publication authority,
-artifact URI, report URI, findings, raw event stream, or provider transcript,
-and admits only a completed `failed` or `cancelled` status. Other publication
-failures remain fail-closed, and an allocated identity with no diagnostic status
-or only a nonterminal snapshot returns `run_status_unavailable` instead of
-inventing recoverable state. Pure query cancellation remains cancellation;
-cancellation joined with diagnostic damage retains artifact-failure precedence.
+reconciliation; it never authorizes blind retry.
+
+The `failed_run_recovery` projection has exactly seven fields: `available`,
+nullable `source_kind`, nullable `run_id`, nullable `manifest_sha256`,
+`accepted_roles`, `retry_attempts` (each containing `role` and `attempt_id`),
+and nullable `unavailable_reason`. An available source sets `available` to true,
+uses `source_kind: failed_run_recovery`, supplies its run ID and manifest hash,
+and returns the verified accepted-role and retry-attempt inventories. An
+unavailable source sets `available` to false, leaves source identity null,
+returns empty inventories, and supplies only one of
+`source_not_retained`, `source_invalid`, `publication_in_progress`, or
+`published_review` as its reason. The projection carries no publication or
+final-review authority, artifact/report/role-report URI, finding or outcome
+axis, raw event stream, provider transcript, or native path.
+
+`get_run` may expose `kind: status_read` for the ordinary publication-status
+path, including P0 and P1 observations, and for a verified retained
+failed/cancelled recovery. It may expose the separate bounded diagnostic status
+projection only after a typed publication-not-found result. That projection has
+no publication authority, artifact URI, report URI, findings, raw event stream,
+or provider transcript, and admits only a completed `failed` or `cancelled`
+status. Other publication failures remain fail-closed, and an allocated identity
+with no diagnostic status or only a nonterminal snapshot returns
+`run_status_unavailable` instead of inventing recoverable state. Pure query
+cancellation remains cancellation; cancellation joined with diagnostic damage
+retains artifact-failure precedence.
 
 Optional `run_review` progress notifications contain only fixed Mulgae
 lifecycle messages, an admitted bounded client token, and a monotonic counter;

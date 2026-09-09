@@ -15,15 +15,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/dlclark/regexp2"
-	jschema "github.com/santhosh-tekuri/jsonschema/v6"
-
 	"github.com/irootkernel/mulgae/internal/ports"
+	jschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 const (
 	draft2020URI           = "https://json-schema.org/draft/2020-12/schema"
 	fileCatalogExampleID   = "example:file-catalog.v1.valid.json"
-	authoritativePairCount = 22
+	authoritativePairCount = 28
 	regexpMatchTimeout     = 100 * time.Millisecond
 	maxJSONDepth           = 256
 )

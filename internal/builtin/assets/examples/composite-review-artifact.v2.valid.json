@@ -1,0 +1,97 @@
+{
+  "schema_version": "mulgae-composite-review-artifact.v2",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_a762f42b-e969-74a1-a00c-ea406393240e",
+  "review_id": "019f596a-d176-7321-b920-c2d312c82cc2",
+  "run_type": "composite",
+  "created_at": "2026-07-13T03:10:00Z",
+  "target": {
+    "content_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "manifest_path": "target/target-manifest.json"
+  },
+  "review_composition": {
+    "fingerprint": "sha256:a762f42be96904a1e00cea406393240e136db165185d5512b3383e345344cbd1",
+    "root_run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+    "sources": [
+      {
+        "kind": "root",
+        "role": "logic",
+        "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+        "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273",
+        "role_report_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "source_kind": "failed_run_recovery",
+        "recovery_manifest_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      {
+        "kind": "recovery",
+        "role": "security",
+        "run_id": "r_019f596a-cfe6-7c9c-b82e-7149158243ba",
+        "review_id": "019f596a-d175-7321-b920-c2d312c82cc2",
+        "attempt_id": "a_019f596a-d049-79e7-b2b7-59822f012273",
+        "role_report_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_kind": "published_review"
+      }
+    ],
+    "root_recovery_manifest_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "root_source_kind": "failed_run_recovery"
+  },
+  "content_verdict": "findings_present",
+  "coverage_status": "complete",
+  "structured_extraction_status": "structured",
+  "publication_status": "committed",
+  "ci_decision": "pass",
+  "ci_reason_codes": [
+    "policy_evaluated"
+  ],
+  "severity_threshold": {
+    "request_changes_at_or_above": "high",
+    "policy_source": "root_review"
+  },
+  "role_outcomes": [
+    {
+      "role": "logic",
+      "required": true,
+      "outcome": "completed",
+      "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273",
+      "provider_instance": "zcode-logic",
+      "valid_finding_ids": [
+        "F001"
+      ],
+      "source_run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+      "source_kind": "failed_run_recovery",
+      "source_recovery_manifest_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "role": "security",
+      "required": true,
+      "outcome": "completed",
+      "attempt_id": "a_019f596a-d049-79e7-b2b7-59822f012273",
+      "provider_instance": "agy-security",
+      "valid_finding_ids": [],
+      "source_run_id": "r_019f596a-cfe6-7c9c-b82e-7149158243ba",
+      "source_review_id": "019f596a-d175-7321-b920-c2d312c82cc2",
+      "source_kind": "published_review"
+    }
+  ],
+  "findings": [
+    {
+      "id": "F001",
+      "fingerprint": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "role": "logic",
+      "severity": "low",
+      "title": "Example finding",
+      "description": "A bounded example finding.",
+      "recommendation": "Apply the verified correction.",
+      "confidence": "high",
+      "lifecycle": "open",
+      "source": {
+        "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+        "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273",
+        "finding_id": "F001",
+        "source_kind": "failed_run_recovery",
+        "recovery_manifest_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    }
+  ],
+  "limitations": []
+}

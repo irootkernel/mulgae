@@ -1765,6 +1765,7 @@ func TestReadRunStatusFailsClosedWhenP2EpochChangesDuringSnapshotRead(t *testing
 	if _, present := status.FinalPath(); present {
 		t.Fatal("ReadRunStatus exposed a final path from a changed P2 epoch")
 	}
+	assertCorruptRunStatus(t, status, run)
 }
 
 func TestValidRoleReportMarkdownMatchesProducerBoundary(t *testing.T) {
@@ -1822,9 +1823,7 @@ func TestReadRunStatusRejectsMissingOrCorruptSupportIndexWithZeroRoleReports(t *
 	if failureClass(t, err) != domain.FailureArtifact {
 		t.Fatalf("missing support index failure class = %q, want artifact", failureClass(t, err))
 	}
-	if status.PublicationStatus() != domain.PublicationCorrupt || len(status.RoleReportURIs()) != 0 {
-		t.Fatalf("missing support index status = %#v", status)
-	}
+	assertCorruptRunStatus(t, status, run)
 
 	run, snapshot, observation, artifacts := queryZeroRoleReportCommittedFixtureWithSupport(t, func(support []byte) []byte {
 		return append([]byte(nil), support[:len(support)/2]...)
@@ -1834,9 +1833,7 @@ func TestReadRunStatusRejectsMissingOrCorruptSupportIndexWithZeroRoleReports(t *
 	if failureClass(t, err) != domain.FailureArtifact {
 		t.Fatalf("corrupt support index failure class = %q, want artifact", failureClass(t, err))
 	}
-	if status.PublicationStatus() != domain.PublicationCorrupt || len(status.RoleReportURIs()) != 0 {
-		t.Fatalf("corrupt support index status = %#v", status)
-	}
+	assertCorruptRunStatus(t, status, run)
 }
 
 func TestReadRunStatusExposesVerifiedRoleReportURIsAndRejectsTamper(t *testing.T) {
@@ -2394,7 +2391,7 @@ func TestReadCommittedAttemptRejectsRepairPromptSelection(t *testing.T) {
 	}
 }
 
-func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact, map[string]string, domain.AttemptID) {
+func queryRuntimeFixture(t *testing.T, canonicalPrompt ...bool) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact, map[string]string, domain.AttemptID) {
 	t.Helper()
 	run, baseSnapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
 	prefix := run.SessionID().String() + "/" + run.RunID().String()
@@ -2439,6 +2436,26 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 	promptPath := prefix + "/prompts/" + attempt.String() + "/001-initial.manifest.json"
 	completeStdinSHA256 := prompt.CompleteStdinSHA256(stdin.Bytes())
 	prompt := mustQueryArtifact(t, mustQueryPath(t, promptPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-prompt-manifest.v1","target":{"path":%q,"sha256":%q},"stdin":{"path":%q,"sha256":%q},"complete_stdin_sha256":%q,"template_id":"review","template_version":"v1","template_sha256":"sha256:%s","source_invocation_id":"source","execution_invocation_id":"execution","scope":"repository","role":"logic","adapter_profile":"default","adapter_parameters":{"model":"trusted"}}`, targetPath, target.SHA256(), stdinPath, stdin.SHA256(), completeStdinSHA256, strings.Repeat("c", 64))))
+	if len(canonicalPrompt) == 1 && canonicalPrompt[0] {
+		compiled := queryCanonicalReplayPrompt(t, run, attempt, target.Bytes())
+		stdin = mustQueryArtifact(t, mustQueryPath(t, stdinPath), compiled.Stdin())
+		var wire runtimePromptManifestDTO
+		if err := json.Unmarshal(prompt.Bytes(), &wire); err != nil {
+			t.Fatal(err)
+		}
+		wire.Stdin.SHA256 = stdin.SHA256()
+		wire.CompleteStdinSHA256 = compiled.CompleteStdinSHA256()
+		wire.TemplateID, wire.TemplateVersion = compiled.TrustedTemplate().ID(), compiled.TrustedTemplate().Version()
+		wire.TemplateSHA256 = "sha256:" + compiled.TrustedTemplate().SHA256()
+		wire.SourceInvocationID = compiled.Scope().SourceInvocationID().String()
+		wire.ExecutionInvocationID = compiled.Scope().ExecutionInvocationID().String()
+		wire.Scope = compiled.Scope().FrameScope().String()
+		raw, err := json.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prompt = mustQueryArtifact(t, mustQueryPath(t, promptPath), raw)
+	}
 	roleReportPath := prefix + "/role-reports/logic.md"
 	roleReport := mustQueryArtifact(t, mustQueryPath(t, roleReportPath), []byte("verified role report\n"))
 	targetManifestPath := prefix + "/target/target-manifest.json"
@@ -2548,7 +2565,9 @@ func queryRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPub
 type queryStore struct {
 	observation                 ports.PublicationObservation
 	observations                []ports.PublicationObservation
+	observationsByRun           map[string]ports.PublicationObservation
 	snapshot                    ports.CommittedPublicationSnapshot
+	snapshotsByRun              map[string]ports.CommittedPublicationSnapshot
 	resolved                    ports.PublicationRun
 	auxiliaryArtifact           ports.ImmutablePublicationArtifact
 	auxiliaryArtifacts          map[string]ports.ImmutablePublicationArtifact
@@ -2563,6 +2582,9 @@ type queryStore struct {
 	auxiliaryReads              int
 	auxiliaryRequest            ports.ReadAuxiliaryArtifactRequest
 	auxiliaryRequests           []ports.ReadAuxiliaryArtifactRequest
+	snapshotReadsByRun          map[string]int
+	auxiliaryReadsByRun         map[string]int
+	snapshotRunIDs              []string
 	afterSnapshot               func()
 	afterAuxiliary              func()
 }
@@ -2575,7 +2597,11 @@ func (store *queryStore) ResolveRun(context.Context, ports.ResolvePublicationRun
 	return store.resolved, store.resolveErr
 }
 
-func (store *queryStore) ObserveRun(context.Context, ports.ObserveRunRequest) (ports.PublicationObservation, error) {
+func (store *queryStore) ObserveRun(_ context.Context, request ports.ObserveRunRequest) (ports.PublicationObservation, error) {
+	if observation, ok := store.observationsByRun[request.Run().RunID().String()]; ok {
+		store.observeCalls++
+		return observation, store.observeErr
+	}
 	index := store.observeCalls
 	store.observeCalls++
 	if len(store.observations) != 0 {
@@ -2597,6 +2623,10 @@ func (store *queryStore) PersistAuxiliaryArtifact(context.Context, ports.Persist
 
 func (store *queryStore) ReadAuxiliaryArtifact(_ context.Context, request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
 	store.auxiliaryReads++
+	if store.auxiliaryReadsByRun == nil {
+		store.auxiliaryReadsByRun = map[string]int{}
+	}
+	store.auxiliaryReadsByRun[request.Run().RunID().String()]++
 	store.auxiliaryRequest = request
 	store.auxiliaryRequests = append(store.auxiliaryRequests, request)
 	if store.afterAuxiliary != nil {
@@ -2641,10 +2671,18 @@ func (store *queryStore) CommitPreparedComposite(context.Context, ports.Prepared
 	return ports.CompositeCommitResult{}, errors.New("not implemented")
 }
 
-func (store *queryStore) ReadCommittedSnapshot(context.Context, ports.ReadCommittedSnapshotRequest) (ports.CommittedPublicationSnapshot, error) {
+func (store *queryStore) ReadCommittedSnapshot(_ context.Context, request ports.ReadCommittedSnapshotRequest) (ports.CommittedPublicationSnapshot, error) {
 	store.snapshotReads++
+	if store.snapshotReadsByRun == nil {
+		store.snapshotReadsByRun = map[string]int{}
+	}
+	store.snapshotReadsByRun[request.Run().RunID().String()]++
+	store.snapshotRunIDs = append(store.snapshotRunIDs, request.Run().RunID().String())
 	if store.afterSnapshot != nil {
 		store.afterSnapshot()
+	}
+	if snapshot, ok := store.snapshotsByRun[request.Run().RunID().String()]; ok {
+		return snapshot, store.readErr
 	}
 	return store.snapshot, store.readErr
 }

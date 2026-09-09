@@ -204,6 +204,32 @@ func (store *PublicationStore) ResolveRun(ctx context.Context, request ports.Res
 					return fmt.Errorf("resolve publication run: scope: %w", err)
 				}
 				manifest, err := readPublicationFile(request.Root(), publicationManifestPath(run), request.MaxReadBytes())
+				if errors.Is(err, errPublicationAbsent) {
+					path := mustPublicationSafePath(sessionName + "/" + runName + "/recovery/manifest.json")
+					recovery, recoveryErr := readPublicationFile(request.Root(), path, request.MaxReadBytes())
+					if errors.Is(recoveryErr, errPublicationAbsent) {
+						continue
+					}
+					if recoveryErr != nil {
+						return fmt.Errorf("resolve recovery run: manifest: %w", recoveryErr)
+					}
+					schema, schemaErr := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json")
+					if schemaErr != nil {
+						return schemaErr
+					}
+					if schemaErr := store.validatePublicationSchema(ctx, schema, recovery.bytes); schemaErr != nil {
+						return fmt.Errorf("resolve recovery run: manifest schema: %w", schemaErr)
+					}
+					var identity struct {
+						SessionID string `json:"session_id"`
+						RunID     string `json:"run_id"`
+					}
+					if json.Unmarshal(recovery.bytes, &identity) != nil || identity.SessionID != sessionName || identity.RunID != runName {
+						return errors.New("resolve recovery run: manifest identity mismatch")
+					}
+					matches = append(matches, run)
+					continue
+				}
 				if err != nil {
 					return fmt.Errorf("resolve publication run: manifest: %w", err)
 				}
@@ -433,7 +459,7 @@ func (store *PublicationStore) PersistAuxiliaryArtifact(ctx context.Context, req
 
 func authorizedUnscannedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
 	switch kind {
-	case ports.RunSupportArtifactExcerpt,
+	case ports.RunSupportArtifactRecoveryBlob, ports.RunSupportArtifactRecoveryManifest, ports.RunSupportArtifactExcerpt,
 		ports.RunSupportArtifactTargetBytes,
 		ports.RunSupportArtifactTargetManifest,
 		ports.RunSupportArtifactCapturedArchive,
@@ -2759,11 +2785,33 @@ func (store *PublicationStore) validatePublicationSchema(
 		SchemaVersion string `json:"schema_version"`
 	}
 	if err := json.Unmarshal(document, &envelope); err == nil {
+		manifestFamily := schema == store.manifestSchema || schema == store.compositeManifestSchema
+		finalFamily := schema == store.finalSchema || schema == store.compositeFinalSchema
+		selected := ""
 		switch envelope.SchemaVersion {
+		case "mulgae-run-manifest.v2", "mulgae-composite-run-manifest.v2":
+			if manifestFamily {
+				selected = envelope.SchemaVersion
+			}
+		case "mulgae-review-artifact.v2", "mulgae-composite-review-artifact.v2":
+			if finalFamily {
+				selected = envelope.SchemaVersion
+			}
 		case "mulgae-composite-review-artifact.v1":
-			schema = store.compositeFinalSchema
+			if finalFamily {
+				schema = store.compositeFinalSchema
+			}
 		case "mulgae-composite-run-manifest.v1":
-			schema = store.compositeManifestSchema
+			if manifestFamily {
+				schema = store.compositeManifestSchema
+			}
+		}
+		if selected != "" {
+			var err error
+			schema, err = ports.ParseAssetID("https://mulgae.local/schemas/" + selected + ".schema.json")
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if err := store.validator.Validate(ctx, schema, append([]byte(nil), document...)); err != nil {
@@ -3102,15 +3150,17 @@ type publicationLineageChildWire struct {
 }
 
 type publicationLineageWire struct {
-	SchemaVersion    string                      `json:"schema_version"`
-	EdgeID           string                      `json:"edge_id"`
-	Child            publicationLineageChildWire `json:"child"`
-	ParentRunID      *string                     `json:"parent_run_id"`
-	SourceRunID      *string                     `json:"source_run_id"`
-	SourceReviewID   *string                     `json:"source_review_id"`
-	SourceAttemptID  *string                     `json:"source_attempt_id,omitempty"`
-	SourceFindingRef *string                     `json:"source_finding_ref"`
-	ReplayMode       *string                     `json:"replay_mode"`
+	SchemaVersion                string                      `json:"schema_version"`
+	EdgeID                       string                      `json:"edge_id"`
+	Child                        publicationLineageChildWire `json:"child"`
+	ParentRunID                  *string                     `json:"parent_run_id"`
+	SourceRunID                  *string                     `json:"source_run_id"`
+	SourceReviewID               *string                     `json:"source_review_id"`
+	SourceRecoveryManifestSHA256 *string                     `json:"source_recovery_manifest_sha256,omitempty"`
+	SourceKind                   string                      `json:"source_kind,omitempty"`
+	SourceAttemptID              *string                     `json:"source_attempt_id,omitempty"`
+	SourceFindingRef             *string                     `json:"source_finding_ref"`
+	ReplayMode                   *string                     `json:"replay_mode"`
 }
 
 type publicationJournalFacts struct {
@@ -4464,7 +4514,7 @@ func parsePublicationFinalFacts(document []byte) (publicationFinalFacts, error) 
 		return publicationFinalFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-review-artifact.v1" && schema != "mulgae-composite-review-artifact.v1" {
+	if err != nil || schema != "mulgae-review-artifact.v1" && schema != "mulgae-review-artifact.v2" && (schema != "mulgae-composite-review-artifact.v1" && schema != "mulgae-composite-review-artifact.v2") {
 		return publicationFinalFacts{}, errors.New("invalid final review schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4497,7 +4547,7 @@ func parsePublicationManifestFacts(document []byte) (publicationManifestFacts, e
 		return publicationManifestFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-run-manifest.v1" && schema != "mulgae-composite-run-manifest.v1" {
+	if err != nil || schema != "mulgae-run-manifest.v1" && schema != "mulgae-run-manifest.v2" && (schema != "mulgae-composite-run-manifest.v1" && schema != "mulgae-composite-run-manifest.v2") {
 		return publicationManifestFacts{}, errors.New("invalid manifest schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4584,9 +4634,16 @@ func parsePublicationLineage(document []byte) (publicationLineageWire, error) {
 	if err := strictDecodePublicationJSON(document, &wire); err != nil {
 		return publicationLineageWire{}, err
 	}
-	if wire.SchemaVersion != "mulgae-lineage-edge.v1" || wire.EdgeID == "" ||
+	if (wire.SchemaVersion != "mulgae-lineage-edge.v1" && wire.SchemaVersion != "mulgae-lineage-edge.v2") || wire.EdgeID == "" ||
 		wire.Child.SessionID == "" || wire.Child.RunID == "" || wire.Child.ReviewID == "" {
 		return publicationLineageWire{}, errors.New("invalid lineage edge")
+	}
+	if wire.SchemaVersion == "mulgae-lineage-edge.v2" {
+		if wire.SourceRunID == nil || wire.SourceReviewID != nil || wire.SourceRecoveryManifestSHA256 == nil || !validPublicationSHA256(*wire.SourceRecoveryManifestSHA256) || wire.SourceKind != "failed_run_recovery" || wire.SourceAttemptID == nil {
+			return publicationLineageWire{}, errors.New("invalid recovery lineage edge")
+		}
+	} else if wire.SourceRecoveryManifestSHA256 != nil || wire.SourceKind != "" {
+		return publicationLineageWire{}, errors.New("v1 lineage edge contains recovery fields")
 	}
 	if _, err := domain.ParseSessionID(wire.Child.SessionID); err != nil {
 		return publicationLineageWire{}, err

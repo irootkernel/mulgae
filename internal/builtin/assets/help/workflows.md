@@ -77,6 +77,15 @@ authorized. Use `--output json` for machine-readable command envelopes,
 including rejected syntax, unresolved selectors, cancellation, and typed
 artifact or security failures.
 
+For an unpublished failed run, inspect `status --run r_... --output json` first.
+When `failed_run_recovery.available` is true, rerun each returned `attempt_id`
+with `rerun --run r_... --attempt a_... --replay exact --output json`.
+Preserve `accepted_roles`; a recovery manifest does not publish a final review.
+A failed rerun may retain another recovery source, so inspect its returned run ID
+before retrying. Missing sources, including v0.1.19 diagnostic-only failures,
+cannot be reconstructed from logs. Internal errors do not authorize an unlimited
+retry loop.
+
 After exact role reruns have committed, compose an incomplete root without
 invoking providers again:
 
@@ -84,7 +93,7 @@ invoking providers again:
 mulgae compose --root-run r_... --recovery-run r_... --output json
 ```
 
-Provide one unique exact recovery run for every missing required role; `latest`
+Provide one unique exact recovery run for every missing selected role; `latest`
 is never accepted. Preserve the returned deterministic composite `run_id`. If
 the result says `status_required`, inspect that ID with `status` instead of
 blindly retrying the mutation.

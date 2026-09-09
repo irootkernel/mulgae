@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/app/clean"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
@@ -339,7 +340,22 @@ func (store *CleanupStore) observeLocked(ctx context.Context) ([]clean.RunObserv
 						observation.Corrupt = true
 					} else {
 						publication, snapshot, observeErr := store.publication.observeLocked(ctx, request)
-						if observeErr != nil || publication.ClassifierInput().Observation() != domain.DurableObservationP2Committed || snapshot == nil || !snapshot.Valid() {
+						if observeErr == nil && publication.ClassifierInput().Observation() == domain.DurableObservationP0None {
+							recovered, recoveryErr := recovery.ReadRetentionMetadata(ctx, lockedRecoveryReader{}, store.publication.validator, run, cleanupMaximumBytes)
+							if recoveryErr != nil {
+								observation.Corrupt = true
+							} else {
+								observation.Completed = true
+								material = append(material, recovered.Manifest().Bytes()...)
+								if source, ok := recovered.Parent(); ok {
+									path, pathErr := recovery.ManifestPath(run)
+									if pathErr != nil {
+										return nil, nil, 0, nil, pathErr
+									}
+									edges = append(edges, clean.LineageEdgeObservation{LineageEdgeRef: clean.LineageEdgeRef{ParentRunID: source.RunID().String(), ChildRunID: child.Name(), EdgePath: path.String(), SHA256: recovered.Manifest().SHA256()}, Valid: true})
+								}
+							}
+						} else if observeErr != nil || publication.ClassifierInput().Observation() != domain.DurableObservationP2Committed || snapshot == nil || !snapshot.Valid() {
 							observation.Corrupt = true
 						} else {
 							final := snapshot.Final()

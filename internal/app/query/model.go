@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -206,12 +207,13 @@ func (review CommittedReview) Lineage() CommittedLineage { return review.lineage
 
 // CommittedLineage is the canonical immutable lineage projection for a committed review.
 type CommittedLineage struct {
-	parentRunID      *domain.RunID
-	sourceRunID      *domain.RunID
-	sourceReviewID   *domain.ReviewID
-	sourceAttemptID  *domain.AttemptID
-	sourceFindingRef *string
-	replayMode       *ReplayMode
+	parentRunID                  *domain.RunID
+	sourceRunID                  *domain.RunID
+	sourceReviewID               *domain.ReviewID
+	sourceRecoveryManifestSHA256 *string
+	sourceAttemptID              *domain.AttemptID
+	sourceFindingRef             *string
+	replayMode                   *ReplayMode
 }
 
 // ReplayMode is the validated prompt authority mode for a rerun.
@@ -273,6 +275,10 @@ func (lineage CommittedLineage) ReplayMode() (ReplayMode, bool) {
 
 func (lineage CommittedLineage) clone() CommittedLineage {
 	result := lineage
+	if lineage.sourceRecoveryManifestSHA256 != nil {
+		value := *lineage.sourceRecoveryManifestSHA256
+		result.sourceRecoveryManifestSHA256 = &value
+	}
 	if lineage.parentRunID != nil {
 		value := *lineage.parentRunID
 		result.parentRunID = &value
@@ -406,6 +412,7 @@ func (prompt RuntimePrompt) AdapterParameters() map[string]string {
 
 // CommittedAttempt is the unique P2-bound source projection for one attempt.
 type CommittedAttempt struct {
+	lineage   CommittedLineage
 	sessionID domain.SessionID
 	runID     domain.RunID
 	reviewID  domain.ReviewID
@@ -651,20 +658,21 @@ func (item Evidence) Verification() evidence.ReceiptStatus { return item.verific
 // artifact details are present only after an independent P2 committed read.
 // RoleReportURIs are present only after support-indexed artifact verification.
 type RunStatus struct {
-	sessionID      domain.SessionID
-	runID          domain.RunID
-	publication    domain.PublicationStatus
-	authority      domain.PublicationAuthority
-	action         domain.RecoveryAction
-	runState       domain.RunState
-	hasRunState    bool
-	content        domain.ContentVerdict
-	coverage       domain.CoverageStatus
-	ci             domain.CIDecision
-	hasAxes        bool
-	finalPath      ports.SafeRelativePath
-	hasFinalPath   bool
-	roleReportURIs []RoleReportURI
+	failedRunRecovery recovery.Status
+	sessionID         domain.SessionID
+	runID             domain.RunID
+	publication       domain.PublicationStatus
+	authority         domain.PublicationAuthority
+	action            domain.RecoveryAction
+	runState          domain.RunState
+	hasRunState       bool
+	content           domain.ContentVerdict
+	coverage          domain.CoverageStatus
+	ci                domain.CIDecision
+	hasAxes           bool
+	finalPath         ports.SafeRelativePath
+	hasFinalPath      bool
+	roleReportURIs    []RoleReportURI
 }
 
 // Status is the report-facing alias for one safe run status projection.
@@ -685,8 +693,8 @@ func (status RunStatus) Authority() domain.PublicationAuthority { return status.
 // RecoveryAction returns the classifier-derived next recovery action.
 func (status RunStatus) RecoveryAction() domain.RecoveryAction { return status.action }
 
-// RunState returns a manifest-backed state only when a committed manifest was
-// independently parsed and semantically verified.
+// RunState returns a state from an independently verified publication or failed-run
+// recovery manifest. Failed recovery does not grant final-review authority.
 func (status RunStatus) RunState() (domain.RunState, bool) {
 	return status.runState, status.hasRunState
 }
@@ -754,14 +762,16 @@ type finalMulgaeDTO struct {
 }
 
 type lineageDTO struct {
-	ParentRunID      *string `json:"parent_run_id"`
-	SourceRunID      *string `json:"source_run_id"`
-	SourceReviewID   *string `json:"source_review_id"`
-	SourceAttemptID  *string `json:"source_attempt_id,omitempty"`
-	SourceFindingRef *string `json:"source_finding_ref"`
-	ReplayMode       *string `json:"replay_mode"`
-	LineageEdgePath  string  `json:"lineage_edge_path"`
-	LineageEdgeSHA   string  `json:"lineage_edge_sha256"`
+	ParentRunID                  *string `json:"parent_run_id"`
+	SourceRunID                  *string `json:"source_run_id"`
+	SourceReviewID               *string `json:"source_review_id"`
+	SourceRecoveryManifestSHA256 *string `json:"source_recovery_manifest_sha256,omitempty"`
+	SourceKind                   string  `json:"source_kind,omitempty"`
+	SourceAttemptID              *string `json:"source_attempt_id,omitempty"`
+	SourceFindingRef             *string `json:"source_finding_ref"`
+	ReplayMode                   *string `json:"replay_mode"`
+	LineageEdgePath              string  `json:"lineage_edge_path"`
+	LineageEdgeSHA               string  `json:"lineage_edge_sha256"`
 }
 
 type finalTargetDTO struct {

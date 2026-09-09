@@ -1,6 +1,6 @@
 ---
 name: use-mulgae
-description: Start Mulgae reviews asynchronously through MCP and await completion without status polling. Use for authorized code reviews, run inspection, finding follow-up, configuration diagnosis, cleanup planning, and recovery. Use foreground MCP or CLI execution when the async lifecycle is unavailable.
+description: Start Mulgae reviews asynchronously through MCP and await completion without status polling. Use for authorized code reviews, run inspection, finding follow-up, configuration diagnosis, cleanup planning, and partial-failure recovery through exact reruns and composition. Use foreground MCP or CLI execution when the async lifecycle is unavailable.
 ---
 
 # Use Mulgae
@@ -125,8 +125,18 @@ and report the remaining eligible count and bytes.
 ## Read the terminal result
 
 Read the common structured envelope even for `request_changes` or `error`.
-`request_changes` is a completed policy outcome. Preserve the exact returned
-run ID, including one attached to a failed review. Only after terminal completion,
+`request_changes` reports a content policy outcome; it does not by itself prove
+complete coverage. Inspect coverage, publication authority, and CI independently.
+For a committed incomplete review or `failed_run_recovery.available: true`, read
+[partial-failure recovery](references/recovery.md#recover-a-partially-failed-review)
+before choosing another review. Recover the failed roles through exact reruns,
+then compose their committed results with the original root. A successful rerun
+does not update the root or finish the whole review. Check recovery availability
+before treating an unpublished run as diagnostic-only; never repeat accepted
+roles. A missing source cannot be reconstructed from runtime logs.
+
+Preserve the exact returned run ID, including one attached to a failed review.
+Only after terminal completion,
 call `get_run` for that ID. If no run ID was returned, report the terminal outcome
 without inventing one.
 
@@ -205,7 +215,7 @@ queries, file existence, or OS process scans as substitutes.
      --output json
    ```
 
-4. Read the complete `mulgae-command-result.v6` JSON envelope even when the
+4. Read the complete `mulgae-command-result.v7` JSON envelope even when the
    process exits nonzero. Exit `1` is a policy outcome. A rejected `followup`,
    `delta`, `rerun`, or `compose` request still has a machine envelope:
    `request_state` `invalid` means syntax rejection, while `unresolved` applies
@@ -215,9 +225,10 @@ queries, file existence, or OS process scans as substitutes.
    or remediation field. Treat exits `2`, `4`, `7`, `8`, `9`, and `10` by that
    envelope rather than prose or provider output. Read
    [lifecycle.md](references/lifecycle.md) for child-workflow selector failures.
-   For composite recovery, call `compose_review` or `mulgae compose` once with
-   one exact root and every exact recovery run. Preserve its deterministic run
-   ID. For CLI, `status_required` means inspect that ID and never blindly
+   For composite recovery, follow
+   [partial-failure recovery](references/recovery.md#recover-a-partially-failed-review)
+   and call `compose_review` or `mulgae compose` with one exact root and every
+   exact recovery run. Preserve its deterministic run ID. For CLI, `status_required` means inspect that ID and never blindly
    retry. For MCP, apply the same rule when
    `composite_publication_incomplete` returns non-null `session_id` and
    `run_id` with `retryable: false`.

@@ -941,6 +941,13 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		processObservation, conversationEvidence, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment(), invocation.Purpose())
 	}
 	if runErr != nil {
+		if errors.Is(runErr, context.Canceled) && processObservation.Valid() &&
+			processObservation.Termination() == ports.ProcessTerminationCancelled {
+			return ports.NewFailedProviderExecutionObservationWithCause(
+				ports.ProviderExecutionStatusCancelled, invocation, processObservation,
+				"process_cancelled", domain.DiagnosticCauseProviderExecutionFailed, "",
+			)
+		}
 		var protocolFailure *zcodeProtocolError
 		if errors.As(runErr, &protocolFailure) && processObservation.Valid() {
 			status, diagnostic := providerFailureProjection(protocolFailure.Cause())

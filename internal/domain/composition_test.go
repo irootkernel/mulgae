@@ -24,6 +24,26 @@ func TestCompositionFingerprintIsRoleOrderedAndExact(t *testing.T) {
 	if first.String() != second.String() {
 		t.Fatalf("fingerprint depends on caller order: %q != %q", first.String(), second.String())
 	}
+	// Literal vectors preserve the pre-recovery v1 fingerprint and derived run ID.
+	if first.String() != "sha256:228c42597119b60066b64ba8d2e390745d81baa18c2fb1b1a55e46310b9b48b9" {
+		t.Fatalf("historical v1 fingerprint changed: %s", first.String())
+	}
+	legacyID, err := first.RunID()
+	if err != nil || legacyID.String() != "r_228c4259-7119-7600-a6b6-4ba8d2e39074" {
+		t.Fatalf("historical v1 run identity changed: %s, %v", legacyID, err)
+	}
+	recoveryRoot, err := NewRecoverySourceReference(root, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := NewRecoveryCompositionFingerprint(recoveryRoot, []CompositionSource{security, logic})
+	if err != nil || recovered.String() != "sha256:daf0374077f33592be816eff209aae5d5138f9c0c77e605b731900e3ec463519" {
+		t.Fatalf("v2 recovery fingerprint changed: %s, %v", recovered.String(), err)
+	}
+	recoveredID, err := recovered.RunID()
+	if err != nil || recoveredID.String() != "r_daf03740-77f3-7592-be81-6eff209aae5d" {
+		t.Fatalf("v2 recovery run identity changed: %s, %v", recoveredID, err)
+	}
 	if len(first.String()) != len("sha256:")+64 {
 		t.Fatalf("fingerprint = %q", first.String())
 	}

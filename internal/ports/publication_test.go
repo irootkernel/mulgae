@@ -1100,14 +1100,16 @@ func TestClassifyRunSupportArtifactPathRequiresCanonicalSupportIndex(t *testing.
 func TestRunSupportArtifactKindSourceSizedPolicy(t *testing.T) {
 	t.Parallel()
 	sourceSized := map[RunSupportArtifactKind]bool{
-		RunSupportArtifactTargetBytes:     true,
-		RunSupportArtifactTargetManifest:  true,
-		RunSupportArtifactCapturedArchive: true,
-		RunSupportArtifactCapturedBlob:    true,
-		RunSupportArtifactArtistBrief:     true,
-		RunSupportArtifactArtistVisuals:   true,
-		RunSupportArtifactPromptStdin:     true,
-		RunSupportArtifactSupportIndex:    true,
+		RunSupportArtifactTargetBytes:      true,
+		RunSupportArtifactTargetManifest:   true,
+		RunSupportArtifactCapturedArchive:  true,
+		RunSupportArtifactCapturedBlob:     true,
+		RunSupportArtifactArtistBrief:      true,
+		RunSupportArtifactArtistVisuals:    true,
+		RunSupportArtifactPromptStdin:      true,
+		RunSupportArtifactSupportIndex:     true,
+		RunSupportArtifactRecoveryManifest: false,
+		RunSupportArtifactRecoveryBlob:     true,
 	}
 	for _, kind := range []RunSupportArtifactKind{
 		RunSupportArtifactExcerpt,
@@ -1127,9 +1129,52 @@ func TestRunSupportArtifactKindSourceSizedPolicy(t *testing.T) {
 		RunSupportArtifactPromptManifest,
 		RunSupportArtifactSupportIndex,
 		RunSupportArtifactRoleReport,
+		RunSupportArtifactRecoveryManifest,
+		RunSupportArtifactRecoveryBlob,
 	} {
 		if got, want := kind.IsSourceSized(), sourceSized[kind]; got != want {
 			t.Fatalf("%q IsSourceSized() = %t, want %t", kind, got, want)
+		}
+	}
+}
+
+func TestClassifyRunSupportArtifactPathRequiresCanonicalRecoveryArtifacts(t *testing.T) {
+	t.Parallel()
+
+	run := publicationTestRun(t)
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
+	digest := strings.Repeat("a", 64)
+	for _, test := range []struct {
+		path     string
+		wantOK   bool
+		wantKind RunSupportArtifactKind
+	}{
+		{prefix + "recovery/manifest.json", true, RunSupportArtifactRecoveryManifest},
+		{prefix + "recovery/blobs/sha256-" + digest, true, RunSupportArtifactRecoveryBlob},
+		{prefix + "recovery/manifest.v1.json", false, ""},
+		{prefix + "recovery/nested/manifest.json", false, ""},
+		{prefix + "recovery/blobs/" + digest, false, ""},
+		{prefix + "recovery/blobs/sha256-" + strings.ToUpper(digest), false, ""},
+		{prefix + "recovery/blobs/sha256-" + digest[:63], false, ""},
+		{prefix + "recovery/blobs/sha256-" + digest[:63] + "g", false, ""},
+		{prefix + "recovery/blobs/nested/sha256-" + digest, false, ""},
+	} {
+		path, err := NewSafeRelativePath(test.path)
+		if err != nil {
+			if test.wantOK {
+				t.Fatalf("NewSafeRelativePath(%q) error = %v", test.path, err)
+			}
+			continue
+		}
+		kind, err := ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+		if test.wantOK {
+			if err != nil || kind != test.wantKind {
+				t.Fatalf("ClassifyRunSupportArtifactPath(%q) = %q, %v", test.path, kind, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Fatalf("ClassifyRunSupportArtifactPath(%q) accepted %q", test.path, kind)
 		}
 	}
 }

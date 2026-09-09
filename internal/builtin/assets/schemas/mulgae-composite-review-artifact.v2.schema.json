@@ -1,0 +1,508 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json",
+  "title": "Mulgae Composite Review Artifact v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "session_id",
+    "run_id",
+    "review_id",
+    "run_type",
+    "created_at",
+    "target",
+    "review_composition",
+    "content_verdict",
+    "coverage_status",
+    "structured_extraction_status",
+    "publication_status",
+    "ci_decision",
+    "ci_reason_codes",
+    "severity_threshold",
+    "role_outcomes",
+    "findings",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-composite-review-artifact.v2"
+    },
+    "session_id": {
+      "$ref": "#/$defs/session_id"
+    },
+    "run_id": {
+      "$ref": "#/$defs/run_id"
+    },
+    "review_id": {
+      "$ref": "#/$defs/review_id"
+    },
+    "run_type": {
+      "const": "composite"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "review_composition": {
+      "$ref": "#/$defs/composition"
+    },
+    "content_verdict": {
+      "enum": [
+        "no_findings",
+        "findings_present",
+        "request_changes",
+        "reports_only"
+      ]
+    },
+    "coverage_status": {
+      "const": "complete"
+    },
+    "structured_extraction_status": {
+      "enum": [
+        "structured",
+        "mixed",
+        "reports_only"
+      ]
+    },
+    "publication_status": {
+      "const": "committed"
+    },
+    "ci_decision": {
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "ci_reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/reason_code"
+      }
+    },
+    "severity_threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_changes_at_or_above",
+        "policy_source"
+      ],
+      "properties": {
+        "request_changes_at_or_above": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "blocker"
+          ]
+        },
+        "policy_source": {
+          "const": "root_review"
+        }
+      }
+    },
+    "role_outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "items": {
+        "$ref": "#/$defs/role_outcome"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    }
+  },
+  "$defs": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "role": {
+      "enum": [
+        "logic",
+        "security",
+        "maintainability",
+        "product",
+        "documentation",
+        "testing",
+        "artist"
+      ]
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "content_sha256",
+        "manifest_path"
+      ],
+      "properties": {
+        "content_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manifest_path": {
+          "const": "target/target-manifest.json"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "role",
+        "run_id",
+        "attempt_id",
+        "role_report_sha256",
+        "source_kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "root",
+            "recovery"
+          ]
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "run_id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "review_id": {
+          "$ref": "#/$defs/review_id"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/attempt_id"
+        },
+        "role_report_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "recovery_manifest_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "source_kind": {
+          "enum": [
+            "published_review",
+            "failed_run_recovery"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source_kind": {
+                "const": "published_review"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "review_id"
+            ],
+            "properties": {
+              "recovery_manifest_sha256": false
+            }
+          },
+          "else": {
+            "required": [
+              "recovery_manifest_sha256"
+            ],
+            "properties": {
+              "review_id": false
+            }
+          }
+        }
+      ]
+    },
+    "composition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "root_run_id",
+        "sources",
+        "root_recovery_manifest_sha256",
+        "root_source_kind"
+      ],
+      "properties": {
+        "fingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "root_run_id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "root_review_id": false,
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/source"
+          }
+        },
+        "root_recovery_manifest_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "root_source_kind": {
+          "const": "failed_run_recovery"
+        }
+      }
+    },
+    "role_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "required",
+        "outcome",
+        "attempt_id",
+        "provider_instance",
+        "valid_finding_ids",
+        "source_run_id",
+        "source_kind"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "outcome": {
+          "enum": [
+            "completed",
+            "degraded"
+          ]
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/attempt_id"
+        },
+        "provider_instance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "valid_finding_ids": {
+          "type": "array",
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^F[0-9]{3}$"
+          }
+        },
+        "source_run_id": {
+          "$ref": "#/$defs/run_id"
+        },
+        "source_review_id": {
+          "$ref": "#/$defs/review_id"
+        },
+        "source_recovery_manifest_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "source_kind": {
+          "enum": [
+            "published_review",
+            "failed_run_recovery"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source_kind": {
+                "const": "published_review"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "source_review_id"
+            ],
+            "properties": {
+              "source_recovery_manifest_sha256": false
+            }
+          },
+          "else": {
+            "required": [
+              "source_recovery_manifest_sha256"
+            ],
+            "properties": {
+              "source_review_id": false
+            }
+          }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "fingerprint",
+        "role",
+        "severity",
+        "title",
+        "description",
+        "recommendation",
+        "confidence",
+        "lifecycle",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^F[0-9]{3}$"
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "blocker"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "lifecycle": {
+          "const": "open"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "run_id",
+            "attempt_id",
+            "finding_id",
+            "source_kind"
+          ],
+          "properties": {
+            "run_id": {
+              "$ref": "#/$defs/run_id"
+            },
+            "review_id": {
+              "$ref": "#/$defs/review_id"
+            },
+            "attempt_id": {
+              "$ref": "#/$defs/attempt_id"
+            },
+            "finding_id": {
+              "type": "string",
+              "pattern": "^F[0-9]{3}$"
+            },
+            "recovery_manifest_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "source_kind": {
+              "enum": [
+                "published_review",
+                "failed_run_recovery"
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "source_kind": {
+                    "const": "published_review"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "review_id"
+                ],
+                "properties": {
+                  "recovery_manifest_sha256": false
+                }
+              },
+              "else": {
+                "required": [
+                  "recovery_manifest_sha256"
+                ],
+                "properties": {
+                  "review_id": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

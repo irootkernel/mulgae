@@ -2,15 +2,17 @@ package mulgae
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
-	"crypto/sha256"
-	"encoding/hex"
 	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	apprerun "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -138,6 +140,13 @@ func (sources *G008Sources) ReadRerunSource(ctx context.Context, runID domain.Ru
 	run, err := sources.resolver.ResolvePublicationRun(ctx, sources.root, runID)
 	if err != nil {
 		return apprerun.SourceAttempt{}, fmt.Errorf("g008 rerun source: resolve run: %w", err)
+	}
+	snapshot, recoveryErr := sources.query.ReadFailedRunRecovery(ctx, run)
+	if recoveryErr == nil {
+		return apprerun.SourceFromRecovery(snapshot, attemptID)
+	}
+	if !errors.Is(recoveryErr, recovery.ErrUnavailable) {
+		return apprerun.SourceAttempt{}, fmt.Errorf("g008 rerun source: recovery integrity: %w", recoveryErr)
 	}
 	attempt, err := sources.query.ReadCommittedAttempt(ctx, run, attemptID)
 	if err != nil {

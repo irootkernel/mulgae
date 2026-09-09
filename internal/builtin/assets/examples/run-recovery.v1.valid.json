@@ -1,0 +1,101 @@
+{
+  "schema_version": "mulgae-run-recovery.v1",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+  "run_type": "review",
+  "run_state": "failed",
+  "threshold": "high",
+  "source": null,
+  "target": {
+    "kind": "patch",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repository_id": "",
+    "base_object_id": "",
+    "head_object_id": "",
+    "head_tree_object_id": "",
+    "index_tree_object_id": "",
+    "git_mode": "",
+    "bytes": {
+      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "byte_length": 100
+    },
+    "captured_archive": {
+      "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "byte_length": 512
+    }
+  },
+  "snapshot_manifest_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  "workspace_terminal_receipt": "workspace-terminal:v1:sha256:8888888888888888888888888888888888888888888888888888888888888888",
+  "roles": [
+    {
+      "role": "logic",
+      "required": true,
+      "outcome": "completed",
+      "attempt_id": "a_019f596a-cfe4-7c9c-b82e-7149158243b0",
+      "provider_instance": "zcode-default",
+      "reports_only": true,
+      "report": {
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "byte_length": 128
+      },
+      "finding_ids": []
+    },
+    {
+      "role": "documentation",
+      "required": true,
+      "outcome": "failed",
+      "attempt_id": "a_019f596a-cfe4-7c9c-b82e-7149158243b1",
+      "provider_instance": "zcode-default",
+      "reports_only": false,
+      "report": null,
+      "finding_ids": []
+    }
+  ],
+  "attempts": [
+    {
+      "attempt_id": "a_019f596a-cfe4-7c9c-b82e-7149158243b0",
+      "role": "logic",
+      "provider_instance": "zcode-default",
+      "state": "succeeded",
+      "failure_class": "",
+      "reason_code": "",
+      "initial_prompt": {
+        "stdin": {
+          "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "byte_length": 1024
+        },
+        "source_invocation_id": "i_019f596a-cfe4-7c9c-b82e-7149158243bd",
+        "execution_invocation_id": "019f596a-cfe4-7c9c-b82e-7149158243be",
+        "template_id": "root-review",
+        "template_version": "1",
+        "template_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "adapter_profile": "root-review",
+        "adapter_parameters": {},
+        "scope": "example source scope"
+      }
+    },
+    {
+      "attempt_id": "a_019f596a-cfe4-7c9c-b82e-7149158243b1",
+      "role": "documentation",
+      "provider_instance": "zcode-default",
+      "state": "failed",
+      "failure_class": "mulgae_internal_error",
+      "reason_code": "internal_invariant",
+      "initial_prompt": {
+        "stdin": {
+          "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "byte_length": 1024
+        },
+        "source_invocation_id": "i_019f596a-cfe4-7c9c-b82e-7149158243bd",
+        "execution_invocation_id": "019f596a-cfe4-7c9c-b82e-7149158243be",
+        "template_id": "root-review",
+        "template_version": "1",
+        "template_sha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "adapter_profile": "root-review",
+        "adapter_parameters": {},
+        "scope": "example source scope"
+      }
+    }
+  ],
+  "findings": []
+}

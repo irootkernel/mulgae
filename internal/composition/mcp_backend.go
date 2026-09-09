@@ -447,7 +447,8 @@ func (backend *mcpBackend) preflight(ctx context.Context) error {
 
 func projectMCPRunStatus(status mulgaeentry.RunStatusView, expectedSessionID domain.SessionID, expectedRunID domain.RunID) (map[string]any, error) {
 	projection := mcpentry.RunStatusProjection{
-		SessionID: status.SessionID, RunID: status.RunID,
+		FailedRunRecovery: status.FailedRunRecovery,
+		SessionID:         status.SessionID, RunID: status.RunID,
 		RunState: status.RunState, HasRunState: status.HasRunState,
 		PublicationState: status.PublicationState, RecoveryAction: status.RecoveryAction,
 		FinalArtifactURI: status.FinalArtifactURI, HasFinalArtifact: status.HasFinalArtifact,

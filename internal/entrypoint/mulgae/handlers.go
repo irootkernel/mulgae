@@ -28,6 +28,7 @@ import (
 	apphelp "github.com/irootkernel/mulgae/internal/app/help"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	"github.com/irootkernel/mulgae/internal/app/providers"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
@@ -644,7 +645,18 @@ func (application *Application) handleRerun(ctx context.Context, invocation Invo
 	mode := appreplay.ReplayMode(request.ReplayMode())
 	result, err := application.reruns.StartRerun(ctx, appreplay.Request{SourceRunID: sourceRunID, SourceAttemptID: sourceAttemptID, ReplayMode: mode})
 	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+		var sessionID, runID *string
+		if session, run, ok := reviewrun.RuntimeDiagnosticIdentityFromError(err); ok {
+			sessionValue, runValue := session.String(), run.String()
+			sessionID, runID = &sessionValue, &runValue
+		}
+		data, projectionErr := json.Marshal(struct {
+			Kind              string  `json:"kind"`
+			SessionID         *string `json:"session_id"`
+			RunID             *string `json:"run_id"`
+			PromptManifestURI *string `json:"prompt_manifest_uri"`
+		}{"rerun_started", sessionID, runID, nil})
+		return execution{failureData: data, failure: executionFailureFor(invocation.Command(), errors.Join(err, projectionErr), domain.FailureArtifact)}
 	}
 	sessionID, runID, manifest := result.SessionID, result.RunID, result.ArtifactURI
 	roleReportURIs, err := commandRoleReportURIs(sessionID, runID, result.RoleReportURIs)
@@ -2107,7 +2119,8 @@ func validateStatusPublicationPair(status RunStatusView) error {
 	default:
 		return errors.New("status does not represent a readable publication state")
 	}
-	if status.HasRunState || status.RunState != "" || status.HasFinalArtifact ||
+	recoveryState := status.FailedRunRecovery.Available && status.PublicationState == domain.PublicationNotPublished && status.HasRunState && (status.RunState == domain.RunFailed || status.RunState == domain.RunCancelled)
+	if (status.HasRunState || status.RunState != "") && !recoveryState || status.HasFinalArtifact ||
 		status.FinalArtifactURI != "" || status.HasAxes ||
 		status.ContentVerdict != "" || status.CoverageStatus != "" || status.CIDecision != "" ||
 		len(status.RoleReportURIs) != 0 {
@@ -2117,6 +2130,13 @@ func validateStatusPublicationPair(status RunStatusView) error {
 }
 
 func statusResultData(request StatusRequest, status RunStatusView) ([]byte, error) {
+	runID, parseErr := domain.ParseRunID(status.RunID)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+	if err := status.FailedRunRecovery.ValidateFor(runID); err != nil {
+		return nil, err
+	}
 	if status.RunID != request.RunID() || !status.PublicationState.Valid() || !status.RecoveryAction.Valid() {
 		return nil, errors.New("status projection is invalid")
 	}
@@ -2179,17 +2199,18 @@ func statusResultData(request StatusRequest, status RunStatusView) ([]byte, erro
 			return nil, errors.New("non-P2 status exposed role report URIs")
 		}
 		return json.Marshal(struct {
-			Kind              string  `json:"kind"`
-			RunID             string  `json:"run_id"`
-			RunState          *string `json:"run_state"`
-			PublicationStatus string  `json:"publication_status"`
-			RecoveryAction    string  `json:"recovery_action"`
-			FinalArtifactURI  *string `json:"final_artifact_uri"`
-			ContentVerdict    *string `json:"content_verdict,omitempty"`
-			CoverageStatus    *string `json:"coverage_status,omitempty"`
-			CIDecision        *string `json:"ci_decision,omitempty"`
+			FailedRunRecovery recovery.Status `json:"failed_run_recovery"`
+			Kind              string          `json:"kind"`
+			RunID             string          `json:"run_id"`
+			RunState          *string         `json:"run_state"`
+			PublicationStatus string          `json:"publication_status"`
+			RecoveryAction    string          `json:"recovery_action"`
+			FinalArtifactURI  *string         `json:"final_artifact_uri"`
+			ContentVerdict    *string         `json:"content_verdict,omitempty"`
+			CoverageStatus    *string         `json:"coverage_status,omitempty"`
+			CIDecision        *string         `json:"ci_decision,omitempty"`
 		}{
-			Kind: "status_read", RunID: status.RunID, RunState: runState,
+			FailedRunRecovery: status.FailedRunRecovery, Kind: "status_read", RunID: status.RunID, RunState: runState,
 			PublicationStatus: string(status.PublicationState), RecoveryAction: recoveryAction,
 			FinalArtifactURI: finalArtifactURI, ContentVerdict: contentVerdict,
 			CoverageStatus: coverageStatus, CIDecision: ciDecision,
@@ -2200,21 +2221,22 @@ func statusResultData(request StatusRequest, status RunStatusView) ([]byte, erro
 		return nil, err
 	}
 	return json.Marshal(struct {
-		Kind              string  `json:"kind"`
-		RunID             string  `json:"run_id"`
-		RunState          *string `json:"run_state"`
-		PublicationStatus string  `json:"publication_status"`
-		RecoveryAction    string  `json:"recovery_action"`
-		FinalArtifactURI  *string `json:"final_artifact_uri"`
-		ContentVerdict    *string `json:"content_verdict,omitempty"`
-		CoverageStatus    *string `json:"coverage_status,omitempty"`
-		CIDecision        *string `json:"ci_decision,omitempty"`
+		FailedRunRecovery recovery.Status `json:"failed_run_recovery"`
+		Kind              string          `json:"kind"`
+		RunID             string          `json:"run_id"`
+		RunState          *string         `json:"run_state"`
+		PublicationStatus string          `json:"publication_status"`
+		RecoveryAction    string          `json:"recovery_action"`
+		FinalArtifactURI  *string         `json:"final_artifact_uri"`
+		ContentVerdict    *string         `json:"content_verdict,omitempty"`
+		CoverageStatus    *string         `json:"coverage_status,omitempty"`
+		CIDecision        *string         `json:"ci_decision,omitempty"`
 		RoleReportURIs    []struct {
 			Role string `json:"role"`
 			URI  string `json:"uri"`
 		} `json:"role_report_uris"`
 	}{
-		Kind: "status_read", RunID: status.RunID, RunState: runState,
+		FailedRunRecovery: status.FailedRunRecovery, Kind: "status_read", RunID: status.RunID, RunState: runState,
 		PublicationStatus: string(status.PublicationState), RecoveryAction: recoveryAction,
 		FinalArtifactURI: finalArtifactURI, ContentVerdict: contentVerdict,
 		CoverageStatus: coverageStatus, CIDecision: ciDecision, RoleReportURIs: roleReportURIs,
@@ -2244,28 +2266,29 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 	}
 	recoveryAction := "rerun_review"
 	return json.Marshal(struct {
-		Kind                 string   `json:"kind"`
-		SessionID            string   `json:"session_id"`
-		RunID                string   `json:"run_id"`
-		RunState             string   `json:"run_state"`
-		PublicationStatus    *string  `json:"publication_status"`
-		RecoveryAction       *string  `json:"recovery_action"`
-		FinalArtifactURI     *string  `json:"final_artifact_uri"`
-		StartedAt            string   `json:"started_at"`
-		UpdatedAt            string   `json:"updated_at"`
-		CompletedAt          *string  `json:"completed_at"`
-		SelectedRoles        []string `json:"selected_roles"`
-		RolePathTotal        int      `json:"role_path_total"`
-		RolePathCompleted    int      `json:"role_path_completed"`
-		RolePathFailed       int      `json:"role_path_failed"`
-		LastSequence         uint64   `json:"last_seq"`
-		TerminalCause        *string  `json:"terminal_cause"`
-		TerminalPhase        *string  `json:"terminal_phase"`
-		DroppedEvents        uint64   `json:"dropped_events"`
-		DiagnosticOnly       bool     `json:"diagnostic_only"`
-		PublicationAuthority bool     `json:"publication_authority"`
+		FailedRunRecovery    recovery.Status `json:"failed_run_recovery"`
+		Kind                 string          `json:"kind"`
+		SessionID            string          `json:"session_id"`
+		RunID                string          `json:"run_id"`
+		RunState             string          `json:"run_state"`
+		PublicationStatus    *string         `json:"publication_status"`
+		RecoveryAction       *string         `json:"recovery_action"`
+		FinalArtifactURI     *string         `json:"final_artifact_uri"`
+		StartedAt            string          `json:"started_at"`
+		UpdatedAt            string          `json:"updated_at"`
+		CompletedAt          *string         `json:"completed_at"`
+		SelectedRoles        []string        `json:"selected_roles"`
+		RolePathTotal        int             `json:"role_path_total"`
+		RolePathCompleted    int             `json:"role_path_completed"`
+		RolePathFailed       int             `json:"role_path_failed"`
+		LastSequence         uint64          `json:"last_seq"`
+		TerminalCause        *string         `json:"terminal_cause"`
+		TerminalPhase        *string         `json:"terminal_phase"`
+		DroppedEvents        uint64          `json:"dropped_events"`
+		DiagnosticOnly       bool            `json:"diagnostic_only"`
+		PublicationAuthority bool            `json:"publication_authority"`
 	}{
-		Kind: "diagnostic_status_read", SessionID: status.SessionID().String(), RunID: status.RunID().String(),
+		FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"), Kind: "diagnostic_status_read", SessionID: status.SessionID().String(), RunID: status.RunID().String(),
 		RecoveryAction: &recoveryAction,
 		RunState:       string(status.State()), StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano),
 		CompletedAt: completedAtValue, SelectedRoles: roleStrings(status.SelectedRoles()), RolePathTotal: total,
@@ -2317,6 +2340,16 @@ func statusHumanOutput(status RunStatusView) []byte {
 		output.WriteString(string(status.CoverageStatus))
 		output.WriteString("\nci_decision: ")
 		output.WriteString(string(status.CIDecision))
+	}
+	if status.FailedRunRecovery.Available {
+		output.WriteString("\nfailed_run_recovery: available")
+		for _, attempt := range status.FailedRunRecovery.RetryAttempts {
+			fmt.Fprintf(&output, "\nretry_attempt: %s %s", attempt.Role, attempt.AttemptID)
+		}
+	} else if status.FailedRunRecovery.UnavailableReason != nil {
+		output.WriteString("\nfailed_run_recovery: unavailable (")
+		output.WriteString(*status.FailedRunRecovery.UnavailableReason)
+		output.WriteString(")")
 	}
 	return []byte(output.String())
 }

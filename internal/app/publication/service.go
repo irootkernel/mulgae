@@ -1216,7 +1216,7 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		SchemaVersion string `json:"schema_version"`
 	}
 	_ = json.Unmarshal(snapshot.Manifest().Bytes(), &envelope)
-	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2" {
 		var composite compositeManifestReadWire
 		if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &composite, "committed composite manifest"); err != nil {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed composite manifest is invalid", err)
@@ -1316,7 +1316,7 @@ func (service *Service) p2RecoveryFailure(
 
 func committedSnapshotValidatedCandidateSHA256(snapshot ports.CommittedPublicationSnapshot) (string, error) {
 	var composite compositeManifestReadWire
-	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &composite, "committed composite manifest"); err == nil && composite.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &composite, "committed composite manifest"); err == nil && (composite.SchemaVersion == "mulgae-composite-run-manifest.v1" || composite.SchemaVersion == "mulgae-composite-run-manifest.v2") {
 		if !validSHA256(composite.RecoveryJournal.ValidatedCandidateSHA256) {
 			return "", fmt.Errorf("manifest candidate binding is invalid")
 		}
@@ -1455,7 +1455,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, fmt.Errorf("decode committed manifest: %w", err)
 	}
 	var canonicalValue any = manifest
-	if manifest.SchemaVersion == "mulgae-composite-run-manifest.v1" {
+	if manifest.SchemaVersion == "mulgae-composite-run-manifest.v1" || manifest.SchemaVersion == "mulgae-composite-run-manifest.v2" {
 		var composite compositeManifestWire
 		if err := json.Unmarshal(manifestBytes, &composite); err != nil {
 			return PublicationDocument{}, PublicationDocument{}, fmt.Errorf("decode committed composite manifest: %w", err)
@@ -1477,7 +1477,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, err
 	}
 	normalExit := domain.OperationalExitCode(manifest.ExitCode)
-	if (manifest.SchemaVersion != "mulgae-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v1") ||
+	if (manifest.SchemaVersion != "mulgae-run-manifest.v1" && manifest.SchemaVersion != "mulgae-run-manifest.v2" && (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2")) ||
 		manifest.SessionID != run.SessionID().String() ||
 		manifest.RunID != run.RunID().String() ||
 		manifest.PersistedJournalState != string(domain.JournalManifestCommitted) ||

@@ -1,7 +1,10 @@
 # Artifacts
 
 Mulgae stores configuration and durable review state beneath `.mulgae/`.
-An ordinary provider-executed published run has the form:
+An ordinary provider-executed run uses the following layout. A retained
+`recovery/` namespace appears only when a failed or cancelled run is preserved;
+a top-level review file grants final-review authority only after a verified P2
+commit.
 
 ```text
 .mulgae/
@@ -22,6 +25,10 @@ An ordinary provider-executed published run has the form:
         target.bytes
         target-manifest.json
         captured-review.json
+        blobs/
+          sha256-<hex>
+      recovery/
+        manifest.json
         blobs/
           sha256-<hex>
       review_<uuidv7>.json
@@ -93,10 +100,16 @@ an isolated staging directory outside `.mulgae`. Accepted role reports and raw
 provider stdout/stderr have no product byte ceiling; structured artifacts and
 public diagnostic metadata retain their own contracts.
 
-Failed runs without publication authority retain a bounded status under
-`.mulgae/diagnostics/`. `status --run <id>` checks published artifacts first and
-then reads that diagnostic-only status when no published run exists. It does
-not expose raw provider streams or runtime event logs.
+Failed or cancelled runs with retained recovery keep the verified source under
+`recovery/manifest.json` and `recovery/blobs/`. `status --run <id>` checks
+published artifacts first and then the retained recovery source. A recovery
+status uses result kind `status_read` with `failed_run_recovery`; exact run
+resolution also finds recovery-only runs. Recovery exposes accepted roles and
+retry attempts for replay admission, but never grants final-review, publication,
+or report authority. When no retained recovery exists, a typed
+publication-not-found lookup may use the bounded diagnostic-only status under
+`.mulgae/diagnostics/`. It does not expose raw provider streams or runtime event
+logs.
 
 Use `status`, `findings`, and `report` to inspect a run. `clean --older-than 30d`
 removes safely deletable terminal runs older than 30 whole days; add `--dry-run`

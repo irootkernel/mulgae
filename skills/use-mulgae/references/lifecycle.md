@@ -85,8 +85,8 @@ prior run:
 
 ```bash
 mulgae delta --since-run latest --dirty --roles logic,testing --output json
-mulgae rerun --run latest --attempt a_... --output json
-mulgae rerun --run latest --role logic --provider zcode-logic --output json
+mulgae rerun --run r_... --attempt a_... --output json
+mulgae rerun --run r_... --role logic --provider zcode-logic --output json
 ```
 
 `delta` requires `--since-run`, `--roles`, and one target; `rerun` selects one
@@ -98,7 +98,7 @@ provider family such as `zcode`.
 Run child workflows from the canonical Git worktree root. They do not discover
 an enclosing root automatically and have no common `--repo` override. A
 rejected child command with `--output json` still returns a
-`mulgae-command-result.v6` envelope. Interpret the pre-execution failures as
+`mulgae-command-result.v7` envelope. Interpret the pre-execution failures as
 follows:
 
 | Reason code | Exit | `request_state` | Next action |
@@ -127,6 +127,14 @@ mulgae review --dirty --session s_... --output json
 
 Mulgae has no task start, task replacement, or session replacement command.
 Do not delete or rewrite state to simulate one.
+
+For a committed incomplete review or an available failed-run recovery, follow
+[partial-failure recovery](recovery.md#recover-a-partially-failed-review) to rerun
+failed roles and compose their results with the exact original root. A rerun
+alone does not complete the original multi-role review. Read `status` or MCP
+`get_run` first: `failed_run_recovery.retry_attempts` is the exact retry inventory,
+and `accepted_roles` must be preserved. A failed rerun may return its allocated
+run identity with no prompt manifest; inspect that exact run before retrying.
 
 ## Cancel foreground work
 

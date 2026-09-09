@@ -34,12 +34,14 @@ type ExecutorConfig struct {
 // Executor is the production delta child executor. It deliberately accepts a
 // supplied domain.Run rather than minting or substituting child identity.
 type Executor struct {
-	coordinator  *review.Coordinator
-	runtime      *review.ProviderInvocationRuntime
-	publisher    *publication.Service
-	artifactRoot ports.AnchoredRoot
-	config       ExecutorConfig
-	diagnostics  *childDiagnosticRegistry
+	coordinator            *review.Coordinator
+	runtime                *review.ProviderInvocationRuntime
+	publisher              *publication.Service
+	artifactRoot           ports.AnchoredRoot
+	config                 ExecutorConfig
+	diagnostics            *childDiagnosticRegistry
+	recoveryCleanup        func(context.Context, domain.RunID) (ports.WorkspaceTerminalReceipt, error)
+	recoverySnapshotSHA256 string
 }
 
 // NewExecutor constructs a child executor with all execution and publication
@@ -246,7 +248,7 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	source, hasSource := run.SourceRunID()
 	if !hasParent || !hasSource || parent != child.ParentRunID || source != child.SourceRunID ||
 		child.Publication.ParentRunID != parent || child.Publication.SourceRunID != source ||
-		child.Publication.SourceReviewID != child.SourceReviewID || child.Publication.SourceAttemptID != child.SourceAttemptID {
+		child.Publication.SourceReviewID != child.SourceReviewID || child.Publication.SourceRecoveryManifestSHA256 != child.SourceRecoveryManifestSHA256 || child.Publication.SourceAttemptID != child.SourceAttemptID {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun lineage differs from replay authority")
 	}
 	if !child.Mode.Valid() {
@@ -274,20 +276,25 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: recomposed replay contains exact prompt authority")
 	}
 
+	defer executor.runtime.DiscardInitialInputsForRun(run.ID())
+	defer executor.runtime.DrainRuntimeArtifactsForRun(run.ID())
+	publicationContext, err := replayPublicationContext(child, parent, source)
+	if err != nil {
+		return rerun.ChildReplayResult{}, err
+	}
 	result, err := executor.executeReplay(ctx, &run, child)
 	if err != nil {
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: execute rerun run: %w", err)
 	}
 	inventory := executor.runtime.DrainRuntimeArtifactsForRun(run.ID())
 	if failure := reviewrun.CoordinatorExecutionFailure(result); failure != nil {
+		retentionCtx, cancelRetention := reviewrun.DetachedFailedRunRecoveryContext(ctx)
+		recoveryErr := executor.preserveFailedReplay(retentionCtx, result, run.Target(), publicationContext)
+		cancelRetention()
+		if recoveryErr != nil {
+			failure = fmt.Errorf("%w; failed-run recovery: %v", failure, recoveryErr)
+		}
 		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun did not reach publication authority: %w", failure)
-	}
-	mode := publication.ReplayMode(child.Mode)
-	publicationContext, err := publication.NewChildPublicationContext(
-		domain.RunTypeRerun, parent, source, child.SourceReviewID, &child.SourceAttemptID, nil, &mode,
-	)
-	if err != nil {
-		return rerun.ChildReplayResult{}, fmt.Errorf("child executor: rerun publication lineage: %w", err)
 	}
 	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(
 		result, run.Target(), executor.config.SeverityThreshold, executor.config.MulgaeVersion,
@@ -334,6 +341,7 @@ func (executor *Executor) ExecuteChildReplay(ctx context.Context, child rerun.Ch
 	if err != nil {
 		return rerun.ChildReplayResult{}, err
 	}
+	execution.SourceRecoveryManifestSHA256 = child.SourceRecoveryManifestSHA256
 	return execution, nil
 }
 
@@ -437,6 +445,7 @@ func (executor *Executor) executeReplay(ctx context.Context, run *domain.Run, ch
 		parameters[parameter.Name] = parameter.Value
 	}
 	return executor.coordinator.ExecuteExactReplayRun(ctx, run, assignment, executor.config.SeverityThreshold, executor.config.Policy, review.ExactReplayInput{
+		SourceScope: child.Scope,
 		SourceRunID: child.SourceRunID, SourceAttemptID: child.SourceAttemptID,
 		SourceProviderInstance: child.Exact.SourceProviderInstance,
 		Stdin:                  append([]byte(nil), child.Exact.ComposedStdin...), CompleteStdinSHA256: child.Exact.CompleteStdinSHA256,

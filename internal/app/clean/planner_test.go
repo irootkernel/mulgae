@@ -349,3 +349,28 @@ func (store *fakeCleanStore) DeleteTombstoned(_ context.Context, tombstone Tombs
 	}
 	return failure(FailureTombstone, "missing tombstone", nil)
 }
+
+func TestPlanProtectsFailedRecoveryAndTransitivePublishedAncestors(t *testing.T) {
+	parent := oldRun(cleanRunOne, 1)
+	recovery := oldRun(cleanRunTwo, 2)
+	recovery.Committed = false
+	// Even an old completion timestamp cannot grant a recovery P2 authority.
+	child := oldRun(cleanRunThree, 3)
+	child.Committed = false
+	unrelated := oldRun(cleanRunFour, 4)
+	snapshot := cleanSnapshot([]RunObservation{parent, recovery, child, unrelated})
+	snapshot.Edges = []LineageEdgeObservation{
+		{LineageEdgeRef: LineageEdgeRef{ParentRunID: cleanRunOne, ChildRunID: cleanRunTwo, EdgePath: "recovery/parent", SHA256: cleanHash}, Valid: true},
+		{LineageEdgeRef: LineageEdgeRef{ParentRunID: cleanRunTwo, ChildRunID: cleanRunThree, EdgePath: "recovery/child", SHA256: cleanHashTwo}, Valid: true},
+	}
+	plan, err := Plan(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsReason(plan.RunDecisions, cleanRunOne, ReasonAncestor) || !containsReason(plan.RunDecisions, cleanRunTwo, ReasonUncommitted) || !containsReason(plan.RunDecisions, cleanRunThree, ReasonUncommitted) {
+		t.Fatalf("recovery protection lost: %+v", plan.RunDecisions)
+	}
+	if len(plan.DeleteSets.AgeDeleteSet) != 1 || plan.DeleteSets.AgeDeleteSet[0].RunID != cleanRunFour {
+		t.Fatalf("cleanup selected recovery or retained unrelated run: %+v", plan.DeleteSets)
+	}
+}

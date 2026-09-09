@@ -1,9 +1,11 @@
 package query
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
@@ -117,5 +119,33 @@ func TestCompositionStatusRequiresExactP2AndCompleteRoleReports(t *testing.T) {
 	invalid.roleReportURIs = nil
 	if err := validateCompositionStatus(review, invalid); err == nil {
 		t.Fatal("incomplete role-report support status was accepted")
+	}
+}
+
+func TestRunStatusRecoveryDefendsCallerMutations(t *testing.T) {
+	kind, run, hash, reason := "failed_run_recovery", "run", "hash", "source_not_retained"
+	for _, original := range []recovery.Status{
+		{Available: true, SourceKind: &kind, RunID: &run, ManifestSHA256: &hash, AcceptedRoles: []domain.Role{domain.RoleLogic}, RetryAttempts: []recovery.RetryAttempt{{Role: domain.RoleSecurity, AttemptID: "attempt"}}},
+		recovery.UnavailableStatus(reason),
+	} {
+		status := RunStatus{failedRunRecovery: original}
+		got := status.FailedRunRecovery()
+		for _, value := range []*string{got.SourceKind, got.RunID, got.ManifestSHA256, got.UnavailableReason} {
+			if value != nil {
+				*value = "changed"
+			}
+		}
+		if len(got.AcceptedRoles) != 0 {
+			got.AcceptedRoles[0] = domain.RoleArtist
+		}
+		if len(got.RetryAttempts) != 0 {
+			got.RetryAttempts[0].AttemptID = "changed"
+		}
+		if next := status.FailedRunRecovery(); reflect.DeepEqual(next, got) {
+			t.Fatal("recovery status retained caller mutation")
+		}
+		if kind != "failed_run_recovery" || run != "run" || hash != "hash" || (len(original.AcceptedRoles) != 0 && original.AcceptedRoles[0] != domain.RoleLogic) || (len(original.RetryAttempts) != 0 && original.RetryAttempts[0].AttemptID != "attempt") || (original.UnavailableReason != nil && *original.UnavailableReason != reason) {
+			t.Fatal("recovery status mutated original references")
+		}
 	}
 }

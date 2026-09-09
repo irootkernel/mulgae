@@ -15,6 +15,7 @@ import (
 	coreapp "github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -590,6 +591,7 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime complete stdin identity is invalid", nil)
 	}
 	return CommittedAttempt{
+		lineage:   review.Lineage(),
 		sessionID: review.SessionID(), runID: review.RunID(), reviewID: review.ReviewID(), attemptID: attemptID,
 		role: role, provider: selected.ProviderInstance, target: target,
 		prompt: RuntimePrompt{stdin: stdin.Bytes(), stdinSHA256: wire.Stdin.SHA256,
@@ -645,8 +647,25 @@ func (service *Service) ReadRunStatus(ctx context.Context, run ports.Publication
 	}
 	decision := observation.decision
 	status := statusFromDecision(run, decision)
+	status.failedRunRecovery = recovery.UnavailableStatus("publication_in_progress")
+	if decision.Status() == domain.PublicationNotPublished {
+		status.failedRunRecovery, status.runState, err = service.readRecoveryStatus(ctx, run)
+		if err != nil {
+			return failedReadStatus(ctx, run, err), dependencyFailure(
+				ctx,
+				readStatusStage,
+				domain.FailureArtifact,
+				"failed-run recovery source is invalid",
+				err,
+			)
+		}
+		status.hasRunState = status.runState != ""
+	}
+	if decision.Status() == domain.PublicationCommitted {
+		status.failedRunRecovery = recovery.UnavailableStatus("published_review")
+	}
 	if decision.Status() == domain.PublicationCorrupt {
-		return status, typedFailure(
+		return corruptStatus(run), typedFailure(
 			readStatusStage,
 			domain.FailureArtifact,
 			"publication observation is corrupt",
@@ -659,7 +678,7 @@ func (service *Service) ReadRunStatus(ctx context.Context, run ports.Publication
 
 	review, err := service.readCommittedSnapshot(ctx, run, observation, readStatusStage)
 	if err != nil {
-		return corruptStatus(run), err
+		return failedReadStatus(ctx, run, err), err
 	}
 	status.runState = review.RunState()
 	status.hasRunState = true
@@ -671,7 +690,7 @@ func (service *Service) ReadRunStatus(ctx context.Context, run ports.Publication
 	status.hasFinalPath = true
 	roleReportURIs, err := service.projectStatusRoleReportURIs(ctx, run, review, observation)
 	if err != nil {
-		return corruptStatus(run), err
+		return failedReadStatus(ctx, run, err), err
 	}
 	status.roleReportURIs = roleReportURIs
 	return status, nil
@@ -1201,8 +1220,16 @@ func (service *Service) readCommittedSnapshot(
 		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "final review envelope decode failed", err)
 	}
 	finalSchema, manifestSchema := finalReviewSchemaAsset, runManifestSchemaAsset
-	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
+	if schemaEnvelope.SchemaVersion == "mulgae-review-artifact.v2" {
+		finalSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json")
+		manifestSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json")
+	}
+	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v2" {
 		finalSchema, manifestSchema = compositeFinalSchemaAsset, compositeManifestSchemaAsset
+		if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v2" {
+			finalSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json")
+			manifestSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-composite-run-manifest.v2.schema.json")
+		}
 	}
 	if err := service.validator.Validate(ctx, finalSchema, cloneBytes(finalBytes)); err != nil {
 		return CommittedReview{}, dependencyFailure(
@@ -1222,7 +1249,7 @@ func (service *Service) readCommittedSnapshot(
 			err,
 		)
 	}
-	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" {
+	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v2" {
 		var finalRecord compositeFinalDTO
 		if err := decodeStrictDTO(finalBytes, &finalRecord); err != nil {
 			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "composite final strict JSON decoding failed", err)
@@ -1299,7 +1326,7 @@ func buildCommittedReview(
 		return CommittedReview{}, fmt.Errorf("manifest path is not canonical")
 	}
 
-	if final.SchemaVersion != "mulgae-review-artifact.v1" || manifest.SchemaVersion != "mulgae-run-manifest.v1" {
+	if final.SchemaVersion != sourceLineageVersion("mulgae-review-artifact.v1", final.ImmutableLineage.SourceRecoveryManifestSHA256) || manifest.SchemaVersion != sourceLineageVersion("mulgae-run-manifest.v1", manifest.ImmutableLineage.SourceRecoveryManifestSHA256) {
 		return CommittedReview{}, fmt.Errorf("schema version does not match committed contract")
 	}
 	sessionID, err := domain.ParseSessionID(final.SessionID)
@@ -1568,13 +1595,13 @@ func validReceiptID(value string) bool {
 }
 func buildCommittedLineage(runType domain.RunType, runID domain.RunID, value lineageDTO) (CommittedLineage, error) {
 	if runType == domain.RunTypeReview {
-		if value.ParentRunID != nil || value.SourceRunID != nil || value.SourceReviewID != nil || value.SourceAttemptID != nil ||
+		if value.ParentRunID != nil || value.SourceRunID != nil || value.SourceReviewID != nil || value.SourceRecoveryManifestSHA256 != nil || value.SourceKind != "" || value.SourceAttemptID != nil ||
 			value.SourceFindingRef != nil || value.ReplayMode != nil {
 			return CommittedLineage{}, fmt.Errorf("root review lineage is not empty")
 		}
 		return CommittedLineage{}, nil
 	}
-	if value.ParentRunID == nil || value.SourceRunID == nil || value.SourceReviewID == nil {
+	if value.ParentRunID == nil || value.SourceRunID == nil || (value.SourceReviewID == nil) == (value.SourceRecoveryManifestSHA256 == nil) {
 		return CommittedLineage{}, fmt.Errorf("%s lineage is missing required source identities", runType)
 	}
 	parentRunID, err := domain.ParseRunID(*value.ParentRunID)
@@ -1585,12 +1612,19 @@ func buildCommittedLineage(runType domain.RunType, runID domain.RunID, value lin
 	if err != nil || sourceRunID == runID {
 		return CommittedLineage{}, fmt.Errorf("source run lineage identity is invalid")
 	}
-	sourceReviewID, err := domain.ParseReviewID(*value.SourceReviewID)
-	if err != nil {
-		return CommittedLineage{}, fmt.Errorf("source review lineage identity is invalid")
-	}
-	result := CommittedLineage{
-		parentRunID: &parentRunID, sourceRunID: &sourceRunID, sourceReviewID: &sourceReviewID,
+	result := CommittedLineage{parentRunID: &parentRunID, sourceRunID: &sourceRunID}
+	if value.SourceReviewID != nil {
+		sourceReviewID, err := domain.ParseReviewID(*value.SourceReviewID)
+		if err != nil || value.SourceKind != "" {
+			return CommittedLineage{}, fmt.Errorf("source review lineage identity is invalid")
+		}
+		result.sourceReviewID = &sourceReviewID
+	} else {
+		if runType != domain.RunTypeRerun || value.SourceKind != "failed_run_recovery" || !validSHA256(*value.SourceRecoveryManifestSHA256) || value.SourceAttemptID == nil {
+			return CommittedLineage{}, fmt.Errorf("source recovery lineage identity is invalid")
+		}
+		hash := *value.SourceRecoveryManifestSHA256
+		result.sourceRecoveryManifestSHA256 = &hash
 	}
 	if value.SourceAttemptID != nil {
 		sourceAttemptID, err := domain.ParseAttemptID(*value.SourceAttemptID)
@@ -2351,6 +2385,7 @@ func sameLineage(first, second lineageDTO) bool {
 	return sameOptionalString(first.ParentRunID, second.ParentRunID) &&
 		sameOptionalString(first.SourceRunID, second.SourceRunID) &&
 		sameOptionalString(first.SourceReviewID, second.SourceReviewID) &&
+		sameOptionalString(first.SourceRecoveryManifestSHA256, second.SourceRecoveryManifestSHA256) && first.SourceKind == second.SourceKind &&
 		sameOptionalString(first.SourceAttemptID, second.SourceAttemptID) &&
 		sameOptionalString(first.SourceFindingRef, second.SourceFindingRef) &&
 		sameOptionalString(first.ReplayMode, second.ReplayMode) &&
@@ -2564,7 +2599,15 @@ func corruptStatus(run ports.PublicationRun) RunStatus {
 	return RunStatus{
 		sessionID: run.SessionID(), runID: run.RunID(), publication: domain.PublicationCorrupt,
 		authority: domain.PublicationAuthorityNone, action: domain.RecoveryActionEmitImmutableCorruptionDiagnostic,
+		failedRunRecovery: recovery.UnavailableStatus("source_invalid"),
 	}
+}
+
+func failedReadStatus(ctx context.Context, run ports.PublicationRun, err error) RunStatus {
+	if reduceDependencyFailureClass(ctx, err, domain.FailureArtifact) == domain.FailureArtifact {
+		return corruptStatus(run)
+	}
+	return RunStatus{}
 }
 func (service *Service) preflight(ctx context.Context, stage string) error {
 	if missingDependency(service) || missingDependency(service.store) || missingDependency(service.validator) {

@@ -560,6 +560,8 @@ const (
 	RunSupportArtifactPromptManifest     RunSupportArtifactKind = "prompt_manifest"
 	RunSupportArtifactSupportIndex       RunSupportArtifactKind = "support_index"
 	RunSupportArtifactRoleReport         RunSupportArtifactKind = "role_report"
+	RunSupportArtifactRecoveryManifest   RunSupportArtifactKind = "recovery_manifest"
+	RunSupportArtifactRecoveryBlob       RunSupportArtifactKind = "recovery_blob"
 )
 
 // Valid reports whether kind is a closed run-support artifact kind.
@@ -572,7 +574,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
 		RunSupportArtifactCapturedArchive, RunSupportArtifactCapturedBlob, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
 		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
-		RunSupportArtifactSupportIndex, RunSupportArtifactRoleReport:
+		RunSupportArtifactSupportIndex, RunSupportArtifactRoleReport, RunSupportArtifactRecoveryManifest, RunSupportArtifactRecoveryBlob:
 		return true
 	default:
 		return false
@@ -584,7 +586,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 // publication-control limit.
 func (kind RunSupportArtifactKind) IsSourceSized() bool {
 	switch kind {
-	case RunSupportArtifactTargetBytes,
+	case RunSupportArtifactRecoveryBlob, RunSupportArtifactTargetBytes,
 		RunSupportArtifactTargetManifest,
 		RunSupportArtifactCapturedArchive,
 		RunSupportArtifactCapturedBlob,
@@ -826,6 +828,15 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 		return "", fmt.Errorf("artifact path %q is outside the run", value)
 	}
 	relative := strings.TrimPrefix(value, prefix)
+	if relative == "recovery/manifest.json" {
+		return RunSupportArtifactRecoveryManifest, nil
+	}
+	if digest, ok := strings.CutPrefix(relative, "recovery/blobs/sha256-"); ok {
+		if validateSHA256("sha256:"+digest) == nil {
+			return RunSupportArtifactRecoveryBlob, nil
+		}
+		return "", fmt.Errorf("recovery blob path %q is not canonical", value)
+	}
 	if name, ok := strings.CutPrefix(relative, "excerpts/"); ok {
 		if canonicalExcerptName(name) {
 			return RunSupportArtifactExcerpt, nil

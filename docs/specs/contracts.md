@@ -10,9 +10,10 @@ The initial release is a clean break from the pre-release prototype. Mulgae
 does not read old command names, paths, environment variables, or schema
 versions.
 
-Composite recovery uses the independent
-`mulgae-composite-run-manifest.v1` and
-`mulgae-composite-review-artifact.v1` contracts. Existing
+Composite recovery uses independent composite manifest and final-review
+contracts. Published roots retain v1; failed-run recovery roots use v2.
+Reruns whose source is a recovery manifest use `mulgae-run-manifest.v2` and
+`mulgae-review-artifact.v2`. Existing
 `mulgae-run-manifest.v1` and `mulgae-review-artifact.v1` documents retain their
 ordinary review and child-run meanings and remain readable. A composite's
 `review_composition` records its exact root and role sources; it never overloads
@@ -129,26 +130,49 @@ while a typed publication, security, or internal failure is being returned does
 not hide the higher-precedence failure. Pure cancellation and deadline outcomes
 continue to use exit 9.
 
+Recovery retention refusal does not replace the original execution failure or
+its exit. An independently failing mandatory provider drain, abort, or workspace
+cleanup remains subject to the same operational precedence and may determine the
+final failure class and exit. This distinction does not add a public failure
+class or status enum.
+
+Failed-run recovery retention is a cooperative ten-minute process-lifetime
+budget, not a public command contract. Public JSON, schema versions, and exit
+codes are unchanged. An expired retention context refuses further preparation,
+sealing, and persistence, and must not install a new recovery manifest. Workspace
+release that already completed remains the actual receipt state. Mandatory
+cleanup after that refusal still follows the ordinary detached drain policy.
+
 ## Embedded versioned contracts
 
 Schemas use JSON Schema Draft 2020-12 and live in
 [`internal/builtin/assets/schemas`](../../internal/builtin/assets/schemas).
-The catalog contains one current schema/example pair for command, doctor, and
-MCP tool results, provider/platform evidence, provider review values, repair
-and validation values, run/final artifacts, clean/export values, and the
-embedded file catalog. `mulgae-mcp-tool-result.v1` is the common structured
+The catalog selects one current schema for each source kind and retains the
+documented predecessors needed for backward reads. Every schema has one paired
+valid example. The catalog covers command, doctor, and MCP tool results,
+provider/platform evidence, provider review values, repair and validation
+values, run/final artifacts, clean/export values, and the embedded file catalog.
+`mulgae-mcp-tool-result.v1` is the common structured
 content envelope for MCP tools. It binds a Mulgae-issued request identity and
 tool name to `success`, `request_changes`, or a typed `error` outcome. The
 error object always carries nullable `session_id` and `run_id` fields. They are
 both non-null only when Mulgae allocated that exact run before failure. `get_run`
-returns `kind: status_read` for publication-backed state or, only when
-publication is absent and a completed `failed` or `cancelled` diagnostic status
-survived,
+returns `kind: status_read` for the ordinary verified publication-status path,
+including P0 and P1 observations, and for a verified retained failed/cancelled
+recovery. Only when publication is absent and a completed `failed` or `cancelled`
+diagnostic status survived a typed publication-not-found result does it return
 `kind: diagnostic_status_read` with `publication_authority: false`, no artifact
-or report URI, and `recovery_action: rerun_review`. If neither status exists it
-returns the non-retryable artifact error `run_status_unavailable`; allocation
-identity or a nonterminal diagnostic snapshot alone does not claim durable
-queryability. `run_review` failures are not retryable because another call
+or report URI, and `recovery_action: rerun_review`. When artifact failure wins
+the existing precedence while reading status, the query layer retains a safe
+`corrupt` status with the known identity and
+`failed_run_recovery.unavailable_reason: source_invalid` alongside the typed
+artifact failure; public CLI and MCP adapters emit the typed error and do not
+expose that status as a successful result. Pure cancellation, security,
+configuration, and internal query failures return their typed error without a
+status projection. If neither durable status exists it returns the
+non-retryable artifact error `run_status_unavailable`; allocation identity or a
+nonterminal diagnostic snapshot alone does not claim durable queryability.
+`run_review` failures are not retryable because another call
 creates a distinct run. `start_review` is also non-idempotent and returns the
 Mulgae request identity as its process-local invocation identity. A successful
 start reports `state: running` and `cancellation_requested: false`; it does not
@@ -251,6 +275,10 @@ may change only explicitly allowed provider-owned paths.
 
 ## Artifact layout
 
+The ordinary run layout below includes an optional retained recovery namespace
+for failed or cancelled runs. A top-level review file grants final-review
+authority only after a verified P2 commit.
+
 ```text
 .mulgae/
   diagnostics/
@@ -279,6 +307,10 @@ may change only explicitly allowed provider-owned paths.
         target.bytes
         target-manifest.json
         captured-review.json
+        blobs/
+          sha256-<hex>
+      recovery/
+        manifest.json
         blobs/
           sha256-<hex>
       review_<uuidv7>.json
@@ -507,11 +539,27 @@ respectively start a review, check one prior finding, review a delta, repeat a
 selected attempt, or construct one composite run from an exact incomplete root
 and exact recovery runs.
 
+Composition requires an accepted result for every role selected by the root,
+including roles whose persisted `required` flag is false. It preserves those
+flags and every accepted root result; a failed selected role cannot be omitted
+from a new complete composite. `composite_recovery_incomplete` rejects mappings
+that leave any selected role unrecovered. The retained compatibility code
+`composite_role_not_required` means the recovery role was not selected by the
+root, not that its configured `required` flag is false.
+
+Existing v1 composite artifacts remain readable without rewriting their stored
+coverage. New composition requests, including repeated mappings, must satisfy
+the selected-role coverage rule. A v0.1.19 mapping that omitted a failed optional
+role is therefore rejected until that role's exact recovery is included. Exact
+mappings that satisfy admission retain their deterministic identity and
+idempotent publication. Accepted degraded results retain the existing composite
+coverage and CI behavior.
+
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v6` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v7` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -520,10 +568,9 @@ can fail before execution. Child selector failures preserve cancellation and
 typed artifact or security exits; only an unclassified resolver failure uses
 exit `10` and `selector_resolution_failed`.
 
-Command-result v5 remains readable as the immediate predecessor but is never
-emitted by the current command surface. Other commands do not have
-rejected-request variants in v6. If one of them fails before a contract-valid
-request can be frozen, it returns the typed exit and human stderr even when
+Command-result v5 and v6 remain readable but are never emitted by the current
+command surface. Other commands do not have rejected-request variants in v7.
+If one of them fails before a contract-valid request can be frozen, it returns the typed exit and human stderr even when
 `--output json` was requested. For example, `export --run latest` with no
 committed run returns artifact exit `7` without fabricating an `export` request
 envelope. `compose` accepts only exact run IDs and returns the exact mapping,
@@ -735,3 +782,78 @@ cross-process reuse is intentionally deferred because a forgeable self-hashed
 cache would weaken trust boundaries. Structured review JSON extraction remains
 optional: Mulgae may apply one constrained repair, then accept free-form primary
 role reports when structured validation does not succeed.
+
+## Failed-run recovery sources
+
+`mulgae-run-recovery.v1` is a separate immutable replay authority at
+`<session>/<run>/recovery/manifest.json`. Content-addressed blobs beneath
+`recovery/blobs/` retain the captured target/archive, complete initial prompts,
+and accepted reports without a provider-content byte ceiling. The structured
+manifest remains bounded. The manifest is installed atomically after every
+blob and only after provider drain, target verification, and workspace cleanup.
+
+The source records the original role/provider/required policy, threshold,
+terminal attempts, accepted findings, and evidence verified against the
+captured archive. It preserves `failed` or `cancelled` state. Security,
+configuration, artifact-integrity, incomplete-input, cleanup, and storage
+failures cannot authorize recovery. A present invalid source causes an artifact
+failure; a missing source reports `source_not_retained`. A persisted manifest
+is never reconstructed from diagnostics or an old v0.1.19 failure.
+
+Exact failed-rerun reads verify each hash-bound parent and the original input
+through at most 128 exact replay links. The stdin, source scope and invocation,
+template, role, provider, target, archive, and adapter parameters must agree.
+The execution invocation ID is fresh; staged-file replay may also replace only
+the canonical final output-destination layer and its matching manifest receipt.
+A missing, cyclic, foreign, mutated, or over-depth ancestor denies replay.
+An ordinary or recomposed origin ends this traversal after its own scope has
+been verified.
+
+CLI status v7 and MCP `get_run` return `failed_run_recovery` with exactly seven
+fields: `available`, nullable `source_kind`, nullable `run_id`, nullable
+`manifest_sha256`, `accepted_roles`, `retry_attempts` (`role`, `attempt_id`),
+and nullable `unavailable_reason`. Available sources use
+`source_kind: failed_run_recovery`; unavailable reasons are
+`source_not_retained`, `source_invalid`, `publication_in_progress`, and
+`published_review`. Available recovery exposes only verified role inventories
+and replay identity. It carries no final-review authority, final/report/
+role-report URI, finding or outcome axes, provider transcript, runtime event
+stream, or native path. When artifact failure wins the existing precedence,
+invalid recovery returns a safe corrupt query status with the known session and
+run identity and `source_invalid` alongside the typed artifact failure; public
+CLI and MCP adapters emit the typed error and do not expose that status as a
+successful result. Pure cancellation, security, configuration, and internal
+query failures return no recovery status. The typed failure preserves the
+existing operational precedence.
+The publication `recovery_action` describes publication reconciliation, not
+permission to launch a role. An available recovery may expose failed/cancelled
+run state while publication remains `not_published`, without final paths,
+role-report paths, content/coverage axes, or CI authority.
+
+Exact rerun accepts only a failed attempt from that source, retains its original
+provider and input, and records `source_kind: failed_run_recovery` with
+`source_recovery_manifest_sha256` in v2 lineage. `source_review_id` is null.
+A failed rerun may itself become a recovery source after the same checks.
+Composition follows at most 128 same-role lineage links and requires one
+committed recovery for every missing selected role. Its v2 provenance uses
+`root_source_kind` and `root_recovery_manifest_sha256`; it omits
+`root_review_id`. The root source entry and root-derived role/finding references
+use the root recovery hash with `source_kind: failed_run_recovery`. Each selected
+committed rerun retains its committed rerun review identity with
+`source_kind: published_review`: composition source entries and finding sources
+use `review_id`, while role outcomes use `source_review_id`. Their recovery
+variants use `recovery_manifest_sha256` in composition source and finding source
+objects, and `source_recovery_manifest_sha256` in role outcomes. The root hash
+participates in the new deterministic composition fingerprint; v1 fingerprints
+are unchanged.
+
+Recovery sources remain protected as uncommitted artifacts during cleanup.
+Their source edges retain required ancestors, including a published parent of
+a failed rerun. Cleanup validates bounded manifest metadata and confirms its
+identity without reading input or report blobs. Replay and status reads still
+verify all blobs and captured evidence. Normal findings, report, and export
+readers still require P2.
+No new command, automatic provider substitution, crash recovery, or unlimited
+retry loop is introduced. CLI v5/v6 schema examples remain available for
+explicit backward validation; current CLI envelopes use v7. MCP retains its v1
+common envelope, whose `data` object carries the extended status projection.

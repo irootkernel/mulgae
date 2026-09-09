@@ -23,6 +23,7 @@ import (
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	apppublication "github.com/irootkernel/mulgae/internal/app/publication"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
@@ -53,19 +54,20 @@ type PublicationQueryService interface {
 // committed read. HasAxes makes the three axes an all-or-none projection.
 // RoleReportURIs are present only after independently verified P2 support checks.
 type RunStatusView struct {
-	SessionID        string
-	RunID            string
-	RunState         domain.RunState
-	HasRunState      bool
-	PublicationState domain.PublicationStatus
-	RecoveryAction   domain.RecoveryAction
-	FinalArtifactURI string
-	HasFinalArtifact bool
-	ContentVerdict   domain.ContentVerdict
-	CoverageStatus   domain.CoverageStatus
-	CIDecision       domain.CIDecision
-	HasAxes          bool
-	RoleReportURIs   []RoleReportURI
+	FailedRunRecovery recovery.Status
+	SessionID         string
+	RunID             string
+	RunState          domain.RunState
+	HasRunState       bool
+	PublicationState  domain.PublicationStatus
+	RecoveryAction    domain.RecoveryAction
+	FinalArtifactURI  string
+	HasFinalArtifact  bool
+	ContentVerdict    domain.ContentVerdict
+	CoverageStatus    domain.CoverageStatus
+	CIDecision        domain.CIDecision
+	HasAxes           bool
+	RoleReportURIs    []RoleReportURI
 }
 
 // FindingView is one finding in the query service's preserved final order.
@@ -128,10 +130,11 @@ func (adapter publicationQueryAdapter) ReadRunStatus(
 		return RunStatusView{}, err
 	}
 	view := RunStatusView{
-		SessionID:        status.SessionID().String(),
-		RunID:            status.RunID().String(),
-		PublicationState: status.PublicationStatus(),
-		RecoveryAction:   status.RecoveryAction(),
+		FailedRunRecovery: status.FailedRunRecovery(),
+		SessionID:         status.SessionID().String(),
+		RunID:             status.RunID().String(),
+		PublicationState:  status.PublicationStatus(),
+		RecoveryAction:    status.RecoveryAction(),
 	}
 	if runState, available := status.RunState(); available {
 		view.RunState = runState
@@ -1929,7 +1932,8 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			role:                   string(capture.Role()),
 		}
 	}
-	if providers, loginRequired := reviewrun.ProviderLoginRequiredProvidersFromError(err); loginRequired {
+	if providers, loginRequired := reviewrun.ProviderLoginRequiredProvidersFromError(err); loginRequired &&
+		reducedFailureClass(err, fallback) == domain.FailureAuthentication {
 		providerList := strings.Join(providers, ", ")
 		return &executionFailure{
 			class:        domain.FailureAuthentication,

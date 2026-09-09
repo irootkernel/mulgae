@@ -19,6 +19,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -129,7 +130,7 @@ func TestMCPCompositeStatusAndFindingsAgreeWithCLI(t *testing.T) {
 	result := mcpCompositePublishedResult(t)
 	runID := result.RunID()
 	prefix := ".mulgae/" + result.SessionID().String() + "/" + runID.String() + "/"
-	statusView := mulgaeentry.RunStatusView{
+	statusView := mulgaeentry.RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 		SessionID: result.SessionID().String(), RunID: runID.String(), RunState: domain.RunCompleted, HasRunState: true,
 		PublicationState: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionReconstructCompletedStatus,
 		FinalArtifactURI: prefix + "review_" + result.ReviewID().String() + ".json", HasFinalArtifact: true,
@@ -332,7 +333,7 @@ func TestMCPBackendListsAndReadsOnlyVerifiedPublicViews(t *testing.T) {
 	}
 	queries := &mcpQueryFake{
 		run: run,
-		status: mulgaeentry.RunStatusView{
+		status: mulgaeentry.RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 			SessionID: sessionID.String(), RunID: runID.String(), RunState: domain.RunCompleted, HasRunState: true,
 			PublicationState: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionReconstructCompletedStatus,
 			FinalArtifactURI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/review_test.json", HasFinalArtifact: true,
@@ -392,7 +393,7 @@ func TestMCPBackendRejectsMalformedPublicProjections(t *testing.T) {
 	}
 	queries := &mcpQueryFake{
 		run: run,
-		status: mulgaeentry.RunStatusView{
+		status: mulgaeentry.RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 			SessionID: sessionID.String(), RunID: runID.String(), RunState: domain.RunCompleted, HasRunState: true,
 			PublicationState: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionNone,
 			FinalArtifactURI: ".mulgae/review.json", HasFinalArtifact: true,
@@ -622,7 +623,7 @@ func (fake *mcpMultiQueryFake) ResolveRun(_ context.Context, root ports.Anchored
 func (fake *mcpMultiQueryFake) ReadRunStatus(_ context.Context, run ports.PublicationRun) (mulgaeentry.RunStatusView, error) {
 	status, ok := fake.statuses[run.RunID()]
 	if !ok {
-		return mulgaeentry.RunStatusView{}, errors.New("status unavailable")
+		return mulgaeentry.RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained")}, errors.New("status unavailable")
 	}
 	return status, nil
 }

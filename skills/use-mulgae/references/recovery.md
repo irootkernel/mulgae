@@ -27,8 +27,9 @@ a live invocation snapshot, and start need not return a durable run ID.
    durable publication or bounded diagnostic status survived. Report that
    limit; do not infer state or retry the review.
 
-3. Trust the current `publication_status`, `diagnostic_only`,
-   `publication_authority`, stable reasons, and `recovery_action`; do not infer
+3. Trust the current `publication_status`, `failed_run_recovery`,
+   `diagnostic_only`, `publication_authority`, stable reasons, and
+   `recovery_action`; do not infer
    completion from provider output, conversation memory, runtime logs, or the
    mere presence of files.
 4. If no exact run ID was returned, report the outcome as unknown. Mulgae has no
@@ -67,6 +68,96 @@ run, not a retry of the same mutation. `compose` is different: its exact root
 and recovery mapping is its idempotency key, but `status_required` still requires
 an exact status read before that mapping may be repeated.
 
+## Recover a partially failed review
+
+Use this path after terminal status confirms either a committed ordinary review
+with `coverage_status: incomplete`, or `failed_run_recovery.available: true`.
+Keep the exact root run, session, source hash when present, selected roles,
+accepted results, and failed attempt IDs. A recovery source has no review ID
+or final publication authority. Do not infer availability from `diagnostic_only`.
+Recover every failed selected role, including `required: false` roles such as
+maintainability. Do not change `required_roles` to work around a failed result.
+
+1. Inspect the exact root status. For an available failed-run source, use
+   `failed_run_recovery.retry_attempts` and preserve `accepted_roles` and
+   `manifest_sha256`. For a committed incomplete root, inspect its referenced
+   committed artifacts to identify each failed role's exact attempt. Retain
+   accepted root roles; composition
+   rejects attempts to replace them. A skipped role without a failed attempt
+   cannot supply the required rerun lineage; report that concrete limitation.
+2. Within existing authorization for recovery, run one exact rerun per failed
+   role from the canonical project root and await each command's terminal result.
+   In these examples, set shell variables from the exact observed IDs:
+
+   ```bash
+   mulgae rerun --run "$root_run_id" --attempt "$failed_attempt_id" --replay exact --output json
+   ```
+
+   Rerun is CLI-only. Preserve the assigned provider and immutable target. A
+   fresh review of apparently identical source does not establish rerun lineage.
+   Do not use `delta`, a new root review, or `--replay recompose` as an automatic
+   replacement for this recovery. A failed rerun does not authorize an unlimited
+   retry loop; inspect its typed reason and the returned run ID. If that failed
+   rerun has an available recovery source, another authorized exact rerun uses
+   its own retry attempt. Preserve the chain to the original root and report
+   any remaining blocker.
+3. Read each exact recovery run after completion. Confirm committed publication,
+   its accepted role result, target digest, and lineage back to the failed root
+   attempt. Retain transitive same-role rerun lineage when a later rerun recovered
+   an earlier failed rerun. A content finding or CI rejection is distinct from
+   failure to deliver an accepted role result.
+4. Once every missing selected role has an accepted recovery, compose once using
+   attached MCP `compose_review` with `root_run_id` and `recovery_run_ids`, or CLI:
+
+   ```bash
+   mulgae compose --root-run "$root_run_id" --recovery-run "$recovery_run_id" \
+     --recovery-run "$second_recovery_run_id" --output json
+   ```
+
+   Supply exactly one recovery run per missing role; omit the second flag when
+   only one role failed. Never use `latest`. Composition invokes no provider,
+   preserves accepted root results, and creates a separate immutable composite;
+   it does not change the root or recovery runs.
+5. Read the exact composite status and check publication authority, coverage,
+   role coverage, and CI independently. Report the composite ID as the combined
+   result. `complete` coverage does not imply CI pass or merge approval, and an
+   accepted degraded report retains the existing degraded-role CI behavior.
+   Query composite findings normally, but do not request composite excerpts.
+
+On `composite_recovery_incomplete`, identify the unrecovered role or incomplete
+recovery instead of repeating the same mapping. On `composite_role_not_required`,
+check whether the role was selected in the root and check the installed version.
+On target, lineage, or integrity rejection, stop and report the mismatch; do not
+edit private artifacts or substitute unrelated successful runs. For uncertain
+publication, follow the exact-ID reconciliation rules below before any retry.
+
+**v0.1.19 compatibility:** this release only admitted required-role recoveries.
+An optional-only failure could return `composite_role_already_satisfied`; a mixed
+failure could reject its optional recovery with `composite_role_not_required`.
+It could also omit failed optional roles when composing required-role recoveries.
+These outcomes do not prove that all selected roles were reviewed. The corrected
+behavior is in the v0.1.20 source cycle; do not assume it is installed or authorize
+an upgrade automatically. Preserve exact run IDs and report the version blocker.
+Existing v1 artifacts remain readable, but new compose requests must recover all
+selected roles, including a repeated old mapping that previously omitted one.
+
+A v0.1.19 diagnostic-only failure has no retained recovery manifest and cannot
+be recovered retrospectively. The new source is available only after normal
+failure handling completes provider drain and workspace cleanup. Forced process
+termination and power loss have no recovery guarantee. A present corrupt source
+fails closed; never edit it or promote diagnostic reports into accepted results.
+
+MCP inspection example (replace the ID with the exact returned value):
+
+```json
+{"name":"get_run","arguments":{"run_id":"r_..."}}
+```
+
+Read `data.failed_run_recovery`; rerun remains CLI-only. Once every missing role
+is recovered, call the existing `compose_review` tool with the exact root and
+committed recovery run IDs. The MCP v1 envelope and CLI v7 envelope carry their
+own documented data shapes; do not infer one from the other's version.
+
 ## Recover the smallest supported unit
 
 - For `composite_publication_incomplete` or `status_required`, preserve the
@@ -77,10 +168,14 @@ mutation-level retry decision.
 - Composition admission failures use artifact exit `7` with their stable
   composite reason code because the exact caller mapping is validated against
   committed run artifacts; they are not generic CLI syntax failures.
-- For `diagnostic_only: true`, no publication authority exists, artifact and
-  report URIs are absent, and findings cannot be queried. Follow
-  `recovery_action: rerun_review` only after the user
-  authorizes a new review; retain the failed run as diagnostic evidence.
+- For `failed_run_recovery.available: true`, use the exact retry attempts above;
+  successful roles remain retained even though no final review was published.
+- For unavailable recovery, read `unavailable_reason` and existing typed terminal
+  reasons. `source_not_retained` does not authorize reconstruction from logs or
+  a blind rerun. Diagnostic-only runs have no final or report URIs and cannot
+  serve findings queries. A new review requires existing or new user authority.
+  `publication_in_progress` requires publication reconciliation;
+  `published_review` means use the committed review's coverage and attempts.
 - For a committed run with one failed role, prefer the source run and exact
   attempt IDs. When selecting by role and provider, use the persisted
   `provider_instance` exactly; never substitute a provider family or another
@@ -93,7 +188,7 @@ mutation-level retry decision.
   For `attempt_selector_unavailable`, prefer the exact attempt ID or re-read the
   run to obtain the persisted provider instance. Neither failure establishes a
   configuration problem.
-- For `selector_resolution_failed`, preserve the v6 envelope request ID and
+- For `selector_resolution_failed`, preserve the v7 envelope request ID and
   bounded reason, stop mutations, and report the failure. Do not treat the
   generic internal exit as evidence that doctor will find a problem.
 - For selector resolution that returns `request_cancelled`, retain exit `9`

@@ -59,6 +59,19 @@ func (source CompositionSource) AttemptID() AttemptID { return source.attemptID 
 type CompositionFingerprint struct{ value string }
 
 func NewCompositionFingerprint(root RunID, sources []CompositionSource) (CompositionFingerprint, error) {
+	return compositionFingerprint(root, "", sources)
+}
+
+// NewRecoveryCompositionFingerprint includes the immutable failed-root manifest
+// while preserving the original fingerprint algorithm for published roots.
+func NewRecoveryCompositionFingerprint(root SourceReference, sources []CompositionSource) (CompositionFingerprint, error) {
+	if !root.Valid() || root.Kind() != "failed_run_recovery" {
+		return CompositionFingerprint{}, fmt.Errorf("composition fingerprint: invalid recovery root")
+	}
+	return compositionFingerprint(root.RunID(), root.RecoveryManifestSHA256(), sources)
+}
+
+func compositionFingerprint(root RunID, recoverySHA256 string, sources []CompositionSource) (CompositionFingerprint, error) {
 	if root.String() == "" || len(sources) == 0 || len(sources) > len(FixedRoleOrder()) {
 		return CompositionFingerprint{}, fmt.Errorf("composition fingerprint: %w: root and bounded sources are required", ErrInvariant)
 	}
@@ -66,8 +79,15 @@ func NewCompositionFingerprint(root RunID, sources []CompositionSource) (Composi
 	sort.Slice(ordered, func(i, j int) bool { return rolePosition(ordered[i].role) < rolePosition(ordered[j].role) })
 	seen := make(map[Role]struct{}, len(ordered))
 	var input strings.Builder
-	input.WriteString("mulgae-review-composition-v1\x00")
+	if recoverySHA256 == "" {
+		input.WriteString("mulgae-review-composition-v1\x00")
+	} else {
+		input.WriteString("mulgae-review-composition-v2\x00")
+	}
 	writeCompositionField(&input, root.String())
+	if recoverySHA256 != "" {
+		writeCompositionField(&input, recoverySHA256)
+	}
 	for _, source := range ordered {
 		if !source.role.Valid() || source.runID.String() == "" || source.reviewID.String() == "" || source.attemptID.String() == "" {
 			return CompositionFingerprint{}, fmt.Errorf("composition fingerprint: %w: invalid source", ErrInvariant)
