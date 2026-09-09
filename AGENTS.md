@@ -170,6 +170,8 @@ caution over speed; apply them proportionally for trivial work.
 
 ## Project Configuration
 
+- Aquarium release notes: CHANGELOG.md
+
 ### Repository Index and Authorities
 
 #### Repository Authorities

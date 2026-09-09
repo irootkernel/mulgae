@@ -6,19 +6,20 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
-- Retain verified failed-run recovery inputs after successful cleanup, so exact
-  role reruns and composition can recover an unpublished review.
-- Expose recovery availability, accepted roles, and retry attempts in CLI status
-  v7 and MCP `get_run`; preserve recovery lineage across failed reruns.
-- Add versioned recovery and v2 lineage/composite contracts while retaining v1
-  reads and existing valid composition identities.
+- Retain verified inputs and accepted results for unpublished failed reviews, and expose
+  recovery availability and exact replay data through CLI command-result v7 and MCP `get_run`.
+- Add v2 recovery, rerun, and composite contracts with failed-rerun lineage while
+  preserving v1 reads and existing valid composition identities.
+
+### Changed
+
+- Require ZCode 0.16.5 or newer for app-server protocol review and qualification,
+  while preserving staged-file reports and fail-closed cleanup.
 
 ### Fixed
 
-- Recover failed selected roles through composition even when they are not
-  configured as required, and reject mappings that omit any failed selected role.
-- Guide agents from partial review failure through exact role reruns and composite
-  result verification in `use-mulgae`.
+- Recover every failed selected role, including optional roles, through exact reruns and
+  composition; reject incomplete mappings and update `use-mulgae` to guide the full flow.
 
 ## v0.1.19 - 2026-09-07
 
