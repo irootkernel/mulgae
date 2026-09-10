@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -50,6 +52,27 @@ type zcodeProtocolError struct {
 	err   error
 }
 
+// zcodeConversationFailure keeps the driver's bounded session facts attached
+// while the process observation travels through workspace revalidation.
+type zcodeConversationFailure struct {
+	observation ports.ProviderSessionObservation
+	err         error
+}
+
+func (failure *zcodeConversationFailure) Error() string { return "zcode conversation failed" }
+func (failure *zcodeConversationFailure) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.err
+}
+func (failure *zcodeConversationFailure) SessionObservation() ports.ProviderSessionObservation {
+	if failure == nil {
+		return ports.ProviderSessionObservation{}
+	}
+	return failure.observation
+}
+
 func zcodeProtocolFailure(cause domain.RuntimeDiagnosticCause, err error) *zcodeProtocolError {
 	return &zcodeProtocolError{cause: cause, err: err}
 }
@@ -90,6 +113,7 @@ type zcodeProtocolSession struct {
 	// the assistant text parts into assistantEvidence.
 	captureAssistantText bool
 	assistantEvidence    []string
+	observation          ports.ProviderSessionObservation
 }
 
 func newZcodeReviewProtocolSession(workspacePath string, prompt []byte) (*zcodeProtocolSession, error) {
@@ -138,7 +162,28 @@ func (session *zcodeProtocolSession) assistantEvidenceText() []byte {
 	return []byte(strings.Join(session.assistantEvidence, "\n"))
 }
 
-func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) (driveErr error) {
+	state := &zcodeProtocolConversation{prompt: session.prompt, captureAssistantText: session.captureAssistantText, phase: ports.ProviderSessionPhaseCreate}
+	defer func() {
+		terminal := ports.ProviderSessionCompleted
+		if driveErr != nil {
+			terminal = ports.ProviderSessionFailed
+		}
+		input := ports.ProviderSessionObservationInput{
+			Phase: state.phase, Terminal: terminal,
+			ProviderSessionID: safeZcodeDiagnosticIdentifier(state.sessionID),
+			ProviderTurnID:    safeZcodeDiagnosticIdentifier(state.turnID),
+			CreateAccepted:    state.createAccepted, SendAccepted: state.sendAccepted, TurnObserved: state.turnObserved,
+			MessagesReceived: state.messagesReceived, CloseSent: state.closeSent, CloseAccepted: state.closeAccepted,
+			ProviderErrorCode: state.providerErrorCode, HasProviderErrorCode: state.hasProviderErrorCode,
+		}
+		var observationErr error
+		observation, observationErr := ports.NewProviderSessionObservation(input)
+		session.observation = observation
+		if observationErr != nil {
+			driveErr = errors.Join(driveErr, zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, observationErr))
+		}
+	}()
 	if err := sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolCreateID, zcodeProtocolCreateMethod, map[string]any{
 		"workspace": map[string]string{
 			"workspacePath": session.workspacePath,
@@ -148,14 +193,15 @@ func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.P
 		"toolDenylist":           session.toolDenylist,
 		"titleGenerationEnabled": false,
 	}); err != nil {
-		return err
+		driveErr = err
+		return
 	}
-	state := &zcodeProtocolConversation{prompt: session.prompt, captureAssistantText: session.captureAssistantText}
 	for {
 		line, err := exchange.ReceiveLine(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
+				driveErr = err
+				return
 			}
 			if state.turnCompleted {
 				// The provider turn already completed; a stream that ends
@@ -163,22 +209,44 @@ func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.P
 				// driver while the conversation runner's teardown ends the
 				// child. The captured assistant evidence stays usable.
 				session.assistantEvidence = state.assistantEvidence
-				return nil
+				return
 			}
-			return zcodeProtocolFailure(domain.DiagnosticCauseProviderTurnFailed,
+			driveErr = zcodeProtocolFailure(domain.DiagnosticCauseProviderTurnFailed,
 				fmt.Errorf("turn completion missing: %w", err))
+			return
 		}
 		message, err := parseZcodeProtocolMessage(line)
 		if err != nil {
-			return zcodeProtocolFailure(domain.DiagnosticCauseOutputDecodeFailed, err)
+			driveErr = zcodeProtocolFailure(domain.DiagnosticCauseOutputDecodeFailed, err)
+			return
 		}
 		if done, err := state.handle(ctx, exchange, message); done || err != nil {
 			if err == nil {
 				session.assistantEvidence = state.assistantEvidence
 			}
-			return err
+			driveErr = err
+			return
 		}
 	}
+}
+
+func (session *zcodeProtocolSession) SessionObservation() (ports.ProviderSessionObservation, bool) {
+	if session == nil || !session.observation.Valid() {
+		return ports.ProviderSessionObservation{}, false
+	}
+	return session.observation, true
+}
+
+func safeZcodeDiagnosticIdentifier(value string) string {
+	if len(value) > 512 || !utf8.ValidString(value) || value != strings.TrimSpace(value) {
+		return ""
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return ""
+		}
+	}
+	return value
 }
 
 // zcodeProtocolConversation tracks one conversation's request correlation and
@@ -186,12 +254,18 @@ func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.P
 type zcodeProtocolConversation struct {
 	prompt               string
 	sessionID            string
+	turnID               string
+	phase                ports.ProviderSessionPhase
 	createAccepted       bool
 	sendAccepted         bool
+	turnObserved         bool
 	turnCompleted        bool
 	messagesRequested    bool
 	messagesReceived     bool
 	closeSent            bool
+	closeAccepted        bool
+	providerErrorCode    int
+	hasProviderErrorCode bool
 	captureAssistantText bool
 	assistantEvidence    []string
 }
@@ -208,12 +282,15 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 			return false, nil
 		}
 		if message.Error != nil {
+			state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseProviderExecutionFailed,
 				fmt.Errorf("session close failed: %s", message.Error.Message))
 		}
+		state.closeAccepted = true
 		return true, nil
 	}
 	if message.Error != nil && message.correlatesTo(zcodeProtocolCreateID, zcodeProtocolSendID, zcodeProtocolMessagesID, zcodeProtocolCloseID) {
+		state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
 		return true, zcodeProtocolFailure(domain.DiagnosticCauseProviderExecutionFailed,
 			fmt.Errorf("request %s failed: %s", string(message.ID), message.Error.Message))
 	}
@@ -227,6 +304,7 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		if err := state.acceptCreate(message.Result); err != nil {
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
 		}
+		state.phase = ports.ProviderSessionPhaseSend
 		return false, sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolSendID, zcodeProtocolSendMethod, map[string]any{
 			"sessionId": state.sessionID,
 			"content":   state.prompt,
@@ -235,6 +313,7 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		if err := state.acceptSend(message.Result); err != nil {
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
 		}
+		state.phase = ports.ProviderSessionPhaseTurn
 		return false, nil
 	case message.isResponseID(zcodeProtocolMessagesID):
 		if err := state.acceptMessages(message.Result); err != nil {
@@ -251,6 +330,7 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 
 func (state *zcodeProtocolConversation) sendClose(ctx context.Context, exchange ports.ProviderSessionExchange) error {
 	state.closeSent = true
+	state.phase = ports.ProviderSessionPhaseClose
 	return sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolCloseID, zcodeProtocolCloseMethod, map[string]any{
 		"sessionId": state.sessionID,
 	})
@@ -258,8 +338,9 @@ func (state *zcodeProtocolConversation) sendClose(ctx context.Context, exchange 
 
 func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, exchange ports.ProviderSessionExchange, params json.RawMessage) (bool, error) {
 	var event struct {
-		Kind   string `json:"kind"`
-		TurnID string `json:"turnId"`
+		Kind      string `json:"kind"`
+		TurnID    string `json:"turnId"`
+		SessionID string `json:"sessionId"`
 	}
 	if len(params) > 0 && json.Unmarshal(params, &event) != nil {
 		return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputDecodeFailed,
@@ -271,9 +352,18 @@ func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, 
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid,
 				errors.New("turn completed before the conversation was established"))
 		}
+		if event.SessionID != "" && event.SessionID != state.sessionID {
+			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid,
+				errors.New("turn session id does not match the established conversation"))
+		}
+		if !state.turnObserved {
+			state.turnID = event.TurnID
+		}
+		state.turnObserved = true
 		state.turnCompleted = true
 		if state.captureAssistantText && !state.messagesReceived {
 			state.messagesRequested = true
+			state.phase = ports.ProviderSessionPhaseMessages
 			return false, sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolMessagesID, zcodeProtocolMessagesMethod, map[string]any{
 				"sessionId": state.sessionID,
 				"limit":     zcodeProtocolMessageLimit,
@@ -281,6 +371,18 @@ func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, 
 		}
 		return false, state.sendClose(ctx, exchange)
 	case zcodeProtocolTurnFailedKind:
+		if !state.createAccepted || !state.sendAccepted || state.sessionID == "" {
+			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid,
+				errors.New("turn failed before the conversation was established"))
+		}
+		if event.SessionID != "" && event.SessionID != state.sessionID {
+			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid,
+				errors.New("failed turn session id does not match the established conversation"))
+		}
+		if !state.turnObserved {
+			state.turnID = event.TurnID
+		}
+		state.turnObserved = true
 		return true, zcodeProtocolFailure(domain.DiagnosticCauseProviderTurnFailed,
 			fmt.Errorf("provider turn %s failed", event.TurnID))
 	default:
@@ -328,6 +430,9 @@ func (state *zcodeProtocolConversation) acceptCreate(result json.RawMessage) err
 func (state *zcodeProtocolConversation) acceptSend(result json.RawMessage) error {
 	if state.sendAccepted {
 		return errors.New("duplicate session send response")
+	}
+	if !state.createAccepted || state.sessionID == "" {
+		return errors.New("session send response before the conversation was established")
 	}
 	var payload struct {
 		Accepted bool `json:"accepted"`

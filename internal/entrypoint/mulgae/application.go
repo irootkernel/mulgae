@@ -54,20 +54,22 @@ type PublicationQueryService interface {
 // committed read. HasAxes makes the three axes an all-or-none projection.
 // RoleReportURIs are present only after independently verified P2 support checks.
 type RunStatusView struct {
-	FailedRunRecovery recovery.Status
-	SessionID         string
-	RunID             string
-	RunState          domain.RunState
-	HasRunState       bool
-	PublicationState  domain.PublicationStatus
-	RecoveryAction    domain.RecoveryAction
-	FinalArtifactURI  string
-	HasFinalArtifact  bool
-	ContentVerdict    domain.ContentVerdict
-	CoverageStatus    domain.CoverageStatus
-	CIDecision        domain.CIDecision
-	HasAxes           bool
-	RoleReportURIs    []RoleReportURI
+	FailedRunRecovery    recovery.Status
+	SessionID            string
+	RunID                string
+	RunState             domain.RunState
+	HasRunState          bool
+	PublicationState     domain.PublicationStatus
+	RecoveryAction       domain.RecoveryAction
+	FinalArtifactURI     string
+	HasFinalArtifact     bool
+	ContentVerdict       domain.ContentVerdict
+	CoverageStatus       domain.CoverageStatus
+	CIDecision           domain.CIDecision
+	HasAxes              bool
+	RoleReportURIs       []RoleReportURI
+	DiagnosticSummary    ports.RuntimeDiagnosticSummary
+	HasDiagnosticSummary bool
 }
 
 // FindingView is one finding in the query service's preserved final order.

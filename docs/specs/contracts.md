@@ -172,6 +172,12 @@ configuration, and internal query failures return their typed error without a
 status projection. If neither durable status exists it returns the
 non-retryable artifact error `run_status_unavailable`; allocation identity or a
 nonterminal diagnostic snapshot alone does not claim durable queryability.
+Both status forms may include `diagnostic_summary`. This bounded projection
+contains the failed invariant identity, component, and phase, Mulgae-owned
+provider, attempt, and invocation identities, the protocol terminal state, and
+domain-separated SHA-256 fingerprints of provider session and turn identifiers.
+Raw provider identifiers remain private. The publication-status path accepts
+the summary only from a diagnostic record with the same session identity.
 `run_review` failures are not retryable because another call
 creates a distinct run. `start_review` is also non-idempotent and returns the
 Mulgae request identity as its process-local invocation identity. A successful
@@ -427,7 +433,10 @@ the adapter launches `[node, launcher, app-server]` and delivers every packet
 inside one newline-delimited protocol conversation over the child's stdin and
 stdout, so no prompt, mode, or tool policy ever appears on the argv. The
 conversation's turn completion, not child exit, is the provider's terminal
-review fact, and protocol stdout transcripts are never report content. AGY
+review fact. A protocol failure remains a provider failure when bounded process
+teardown ends the app server with SIGTERM; that signal does not invalidate the
+driver's recorded session receipts. Protocol stdout transcripts are never
+report content. AGY
 review, extraction, and capability invocations request `--output-format=json`;
 the adapter unwraps the native envelope's `response` as the review content.
 The JSON envelope does not replace process termination or lifecycle validation.
@@ -515,7 +524,10 @@ Diagnostic-only failed runs have no publication authority. `mulgae status
 --run <id> --output json` first resolves the publication namespace and, only
 when that run is absent, returns the bounded `diagnostic_status_read`
 projection from `diagnostics/.../status.json`. The command never exposes raw
-provider streams or the runtime JSONL through this degraded projection.
+provider streams, provider session or turn identifiers, or the runtime JSONL
+through this degraded projection. A terminal protocol or
+observation-invariant event may contribute the bounded `diagnostic_summary`
+described above.
 
 Diagnostic-only status reports `recovery_action: rerun_review`. Runtime
 diagnostics and provider streams are not validated publication material, so an
@@ -528,11 +540,14 @@ store-lock, path-preparation, persistence, installation, and commit failures.
 the diagnostic record itself; it does not replace an earlier publication
 cause.
 
-Runtime event logs and diagnostic-only run status use the v2 role-path
-vocabulary (`role_path_scheduled`, `role_path_started`,
+Runtime event logs and diagnostic-only run status use the role-path vocabulary
+(`role_path_scheduled`, `role_path_started`,
 `role_path_completed`, `role_path_cancelled`, and `role_path_*` status counts).
-Readers reject v1 status documents and old lane-named fields with the typed
-unsupported-contract error; there is no compatibility shim.
+Current writers emit `mulgae-runtime-log.v4`,
+`mulgae-runtime-run-status.v3`, and `mulgae-runtime-invocation-status.v2`.
+Run-status query and cleanup readers retain v2 compatibility but reject v1
+documents and old lane-named fields with the typed unsupported-contract error.
+Run-status resume and write paths require the current v3 contract.
 
 `review`, `followup`, `delta`, `rerun`, and `compose` create distinct runs. They
 respectively start a review, check one prior finding, review a delta, repeat a
@@ -559,7 +574,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v7` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v8` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -568,8 +583,9 @@ can fail before execution. Child selector failures preserve cancellation and
 typed artifact or security exits; only an unclassified resolver failure uses
 exit `10` and `selector_resolution_failed`.
 
-Command-result v5 and v6 remain readable but are never emitted by the current
-command surface. Other commands do not have rejected-request variants in v7.
+Command-result v5, v6, and v7 remain readable but are never emitted by the
+current command surface. Other commands do not have rejected-request variants
+in v8.
 If one of them fails before a contract-valid request can be frozen, it returns the typed exit and human stderr even when
 `--output json` was requested. For example, `export --run latest` with no
 committed run returns artifact exit `7` without fabricating an `export` request
@@ -673,7 +689,7 @@ Provider-authored review and structured follow-up JSON is parsed with duplicate
 key rejection before projection. Unknown additional fields and fields owned by
 Mulgae are removed from the provider-content projection; Mulgae then injects
 trusted identity and verification values. Removed values are never exposed.
-Runtime diagnostics use `mulgae-runtime-log.v3` and the
+Runtime diagnostics use `mulgae-runtime-log.v4` and the
 `provider_output_fields_discarded` event to record only sorted JSON Pointer
 paths and `discarded_path_count`. At most the first 100 sorted paths are retained
 while the count records the complete number. Malformed JSON, duplicate keys,
@@ -809,7 +825,7 @@ A missing, cyclic, foreign, mutated, or over-depth ancestor denies replay.
 An ordinary or recomposed origin ends this traversal after its own scope has
 been verified.
 
-CLI status v7 and MCP `get_run` return `failed_run_recovery` with exactly seven
+CLI status v8 and MCP `get_run` return `failed_run_recovery` with exactly seven
 fields: `available`, nullable `source_kind`, nullable `run_id`, nullable
 `manifest_sha256`, `accepted_roles`, `retry_attempts` (`role`, `attempt_id`),
 and nullable `unavailable_reason`. Available sources use
@@ -854,6 +870,6 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5/v6 schema examples remain available for
-explicit backward validation; current CLI envelopes use v7. MCP retains its v1
+retry loop is introduced. CLI v5/v6/v7 schema examples remain available for
+explicit backward validation; current CLI envelopes use v8. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.

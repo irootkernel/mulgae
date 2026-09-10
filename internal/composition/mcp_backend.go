@@ -328,6 +328,20 @@ func (backend *mcpBackend) GetRun(ctx context.Context, input mcpentry.GetRunInpu
 	if err != nil {
 		return nil, err
 	}
+	if status.PublicationState != domain.PublicationCommitted {
+		diagnosticStatus, diagnosticErr := backend.diagnostics.ReadSessionRunStatus(ctx, backend.artifactRoot, run.SessionID(), run.RunID())
+		switch {
+		case diagnosticErr == nil:
+			if summary, ok := diagnosticStatus.DiagnosticSummary(); ok {
+				status.DiagnosticSummary, status.HasDiagnosticSummary = summary, true
+			}
+		case !solelyWraps(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound):
+			if solelyWraps(diagnosticErr, context.Canceled) || solelyWraps(diagnosticErr, context.DeadlineExceeded) {
+				return nil, diagnosticErr
+			}
+			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is unavailable", diagnosticErr)
+		}
+	}
 	return projectMCPRunStatus(status, run.SessionID(), run.RunID())
 }
 
@@ -454,6 +468,7 @@ func projectMCPRunStatus(status mulgaeentry.RunStatusView, expectedSessionID dom
 		FinalArtifactURI: status.FinalArtifactURI, HasFinalArtifact: status.HasFinalArtifact,
 		ContentVerdict: status.ContentVerdict, CoverageStatus: status.CoverageStatus,
 		CIDecision: status.CIDecision, HasAxes: status.HasAxes,
+		DiagnosticSummary: status.DiagnosticSummary, HasDiagnosticSummary: status.HasDiagnosticSummary,
 		RoleReports: make([]mcpentry.RoleReportProjection, 0, len(status.RoleReportURIs)),
 	}
 	for _, report := range status.RoleReportURIs {

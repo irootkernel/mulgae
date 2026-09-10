@@ -302,7 +302,27 @@ func (store *DiagnosticStore) appendEventLocked(draft domain.RuntimeDiagnosticEv
 	store.sequence = event.Sequence()
 	store.lastElapsed = event.ElapsedMillis()
 	store.logBytes += int64(len(encoded))
+	if summary, ok := runtimeDiagnosticSummaryFromEvent(input); ok {
+		isInvariant := input.Event == domain.DiagnosticInternalInvariantDetected
+		selectedInvariant := store.hasDiagnosticSummary && store.diagnosticSummary.InvariantID() != ""
+		if !store.hasDiagnosticSummary || isInvariant && !selectedInvariant {
+			store.diagnosticSummary, store.hasDiagnosticSummary = summary, true
+		}
+	}
 	return event, nil
+}
+
+func runtimeDiagnosticSummaryFromEvent(input domain.RuntimeDiagnosticEventInput) (ports.RuntimeDiagnosticSummary, bool) {
+	if input.Event != domain.DiagnosticProviderProtocolTerminal && input.Event != domain.DiagnosticInternalInvariantDetected {
+		return ports.RuntimeDiagnosticSummary{}, false
+	}
+	summary, err := ports.NewRuntimeDiagnosticSummary(ports.RuntimeDiagnosticSummaryInput{
+		InvariantID: input.InvariantID, Component: input.Component, Phase: input.ProtocolPhase,
+		Provider: input.Provider, AttemptID: input.AttemptID, InvocationID: input.InvocationID,
+		ProtocolTerminal: input.ProtocolTerminal, ProviderSessionFingerprint: input.ProviderSessionFingerprint,
+		ProviderTurnFingerprint: input.ProviderTurnFingerprint,
+	})
+	return summary, err == nil
 }
 
 func (store *DiagnosticStore) rollbackAppendLocked(detail string, appendErr error) error {
@@ -519,6 +539,13 @@ func (store *DiagnosticStore) Finalize(ctx context.Context, request ports.Runtim
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_event", errors.New("diagnostic store durability is uncertain"))
 	}
 	status := request.Status()
+	if store.hasDiagnosticSummary {
+		var err error
+		status, err = ports.WithRuntimeDiagnosticSummary(status, store.diagnosticSummary)
+		if err != nil {
+			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "diagnostic_summary", err)
+		}
+	}
 	if status.SessionID() != store.request.SessionID() || status.RunID() != store.request.RunID() {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "identity_mismatch", errors.New("final status identity mismatch"))
 	}
@@ -602,7 +629,7 @@ func mandatoryRuntimeDiagnosticEvent(code domain.RuntimeDiagnosticEventCode) boo
 		domain.DiagnosticProcessTimedOut, domain.DiagnosticProcessCancelled, domain.DiagnosticProcessTerminated,
 		domain.DiagnosticOutputParseFailed, domain.DiagnosticValidationFailed, domain.DiagnosticRepairExhausted,
 		domain.DiagnosticProviderQuarantined, domain.DiagnosticRoleNotAttempted,
-		domain.DiagnosticRoleExhausted, domain.DiagnosticPublicationFailed, domain.DiagnosticRunCompleted,
+		domain.DiagnosticRoleExhausted, domain.DiagnosticPublicationFailed, domain.DiagnosticInternalInvariantDetected, domain.DiagnosticRunCompleted,
 		domain.DiagnosticRunStopped, domain.DiagnosticRuntimeClosed:
 		return true
 	default:

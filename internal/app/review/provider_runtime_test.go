@@ -40,6 +40,39 @@ type providerRuntimeDropSink struct {
 	err    error
 }
 
+type providerRuntimeEventSink struct {
+	providerRuntimeRawSink
+	sequence uint64
+	err      error
+	input    domain.RuntimeDiagnosticEventInput
+}
+
+type providerRuntimeInvocationStatusSink struct {
+	providerRuntimeRawSink
+	sequence uint64
+	status   ports.RuntimeDiagnosticInvocationStatus
+	replaced bool
+}
+
+func (sink *providerRuntimeInvocationStatusSink) Emit(_ context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
+	sink.events = append(sink.events, draft.Input().Event)
+	sink.sequence++
+	return domain.StampRuntimeDiagnosticEvent(draft, sink.sequence, time.Date(2026, time.August, 6, 12, 0, 0, 0, time.UTC), sink.sequence)
+}
+
+func (sink *providerRuntimeInvocationStatusSink) ReplaceInvocationStatus(_ context.Context, status ports.RuntimeDiagnosticInvocationStatus) error {
+	sink.status, sink.replaced = status, true
+	return nil
+}
+
+func (sink *providerRuntimeEventSink) Emit(_ context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
+	sink.input = draft.Input()
+	if sink.err != nil {
+		return domain.RuntimeDiagnosticEvent{}, sink.err
+	}
+	return domain.StampRuntimeDiagnosticEvent(draft, sink.sequence, time.Date(2026, time.August, 6, 12, 0, 0, 0, time.UTC), 1)
+}
+
 func (sink *providerRuntimeDropSink) PersistRaw(context.Context, ports.RuntimeDiagnosticRawRequest) (ports.RuntimeDiagnosticRawResult, error) {
 	return sink.result, sink.err
 }
@@ -215,6 +248,128 @@ func providerRuntimeDiagnosticJob(t *testing.T, runID domain.RunID, attemptID do
 		t.Fatal(err)
 	}
 	return job
+}
+
+func TestProviderCorrelationFingerprintIsDomainSeparatedAndDoesNotExposeRawID(t *testing.T) {
+	const raw = "zcode-session-private"
+	session := providerCorrelationFingerprint("zcode_default", "session", raw)
+	turn := providerCorrelationFingerprint("zcode_default", "turn", raw)
+	otherProvider := providerCorrelationFingerprint("zcode_other", "session", raw)
+	for name, value := range map[string]string{"session": session, "turn": turn, "provider": otherProvider} {
+		if !strings.HasPrefix(value, "sha256:") || len(value) != len("sha256:")+64 || strings.Contains(value, raw) {
+			t.Fatalf("%s fingerprint = %q", name, value)
+		}
+	}
+	if session == turn || session == otherProvider || turn == otherProvider {
+		t.Fatalf("fingerprints are not domain separated: %q %q %q", session, turn, otherProvider)
+	}
+}
+
+func TestEmitInvariantDiagnosticPreservesPriorityAndToleratesOrdinaryDrop(t *testing.T) {
+	runID, _ := domain.ParseRunID("r_019f5a09-5eec-7001-8001-000000000011")
+	attemptID := coordinatorTypesAttemptID(t, 12)
+	job := providerRuntimeDiagnosticJob(t, runID, attemptID)
+	packetBytes := []byte("provider packet")
+	packet, err := ports.NewProviderPacket(packetBytes, providerRuntimePacketDigest(packetBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := ports.NewProviderInvocationWithPacket(
+		job.Role(), job.Route().ProviderInstance(), job.AttemptID(), ports.ProviderInvocationInitial, packet,
+		"i_019f5a09-5eec-7001-8001-000000000014", "019f5a09-5eec-7001-8001-000000000015",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := providerRuntimeProcessObservation(t, invocation, []byte("stdout"), []byte("stderr"))
+	protocol, err := ports.NewProviderSessionObservation(ports.ProviderSessionObservationInput{
+		Phase: ports.ProviderSessionPhaseTurn, Terminal: ports.ProviderSessionFailed,
+		ProviderSessionID: "session_private", ProviderTurnID: "turn_private",
+		CreateAccepted: true, SendAccepted: true, TurnObserved: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, err := ports.NewProviderObservationInvariantError(
+		ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseObservationInvalid, process, protocol, errors.New("constructor rejected observation"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := captureKey{attemptID: attemptID, sequence: 1}
+	dropped := &providerRuntimeEventSink{err: ports.ErrRuntimeDiagnosticEventDropped}
+	runtime := providerRuntimeWithDiagnosticInventory(t, runID, attemptID, key, dropped)
+	if err := runtime.emitInvariantDiagnostic(context.Background(), job, failure); err != nil {
+		t.Fatalf("ordinary diagnostic drop escaped invariant path: %v", err)
+	}
+	if runtime.inventory[key].diagnosticLastSequence != 0 {
+		t.Fatal("dropped invariant advanced the diagnostic sequence")
+	}
+	emitted := &providerRuntimeEventSink{sequence: 3}
+	runtime.diagnostics = providerRuntimeDiagnosticResolver{runID: runID, sink: emitted}
+	inventory := runtime.inventory[key]
+	inventory.diagnosticLastSequence = 5
+	runtime.inventory[key] = inventory
+	if err := runtime.emitInvariantDiagnostic(context.Background(), job, failure); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.inventory[key].diagnosticLastSequence != 5 {
+		t.Fatalf("diagnostic sequence regressed to %d", runtime.inventory[key].diagnosticLastSequence)
+	}
+	if emitted.input.Event != domain.DiagnosticInternalInvariantDetected || emitted.input.InvariantID != ports.ProviderObservationInvariantRejected ||
+		emitted.input.ProviderSessionFingerprint == "" || strings.Contains(emitted.input.ProviderSessionFingerprint, "session_private") {
+		t.Fatalf("invariant diagnostic = %#v", emitted.input)
+	}
+}
+
+type invariantObservedProvider struct{ t *testing.T }
+
+func (provider invariantObservedProvider) Observe(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+	provider.t.Helper()
+	process := providerRuntimeProcessObservation(provider.t, invocation, []byte("invariant stdout"), []byte("invariant stderr"))
+	session, err := ports.NewProviderSessionObservation(ports.ProviderSessionObservationInput{
+		Phase: ports.ProviderSessionPhaseTurn, Terminal: ports.ProviderSessionFailed,
+		ProviderSessionID: "session_private", ProviderTurnID: "turn_private",
+		CreateAccepted: true, SendAccepted: true, TurnObserved: true,
+	})
+	if err != nil {
+		provider.t.Fatal(err)
+	}
+	failure, err := ports.NewProviderObservationInvariantError(
+		ports.ProviderExecutionStatusUnavailable,
+		domain.DiagnosticCauseObservationInvalid,
+		process,
+		session,
+		errors.New("constructor rejected observation"),
+	)
+	if err != nil {
+		provider.t.Fatal(err)
+	}
+	return ports.ProviderExecutionObservation{}, failure
+}
+
+func TestInvokePreservesProviderObservationInvariantEvidence(t *testing.T) {
+	runtime, job, _ := providerRuntimeObservedFixture(t, invariantObservedProvider{t: t}, nil)
+	sink := &providerRuntimeInvocationStatusSink{}
+	runtime.diagnostics = providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: sink}
+
+	outcome := runtime.Invoke(context.Background(), job)
+	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInternalInvariant {
+		t.Fatalf("invariant outcome condition = %q, want %q", coordinatorOutcomeCondition(outcome), AttemptConditionInternalInvariant)
+	}
+	if string(sink.streams[domain.DiagnosticStdout]) != "invariant stdout" || string(sink.streams[domain.DiagnosticStderr]) != "invariant stderr" {
+		t.Fatalf("captured invariant streams = stdout %q stderr %q", sink.streams[domain.DiagnosticStdout], sink.streams[domain.DiagnosticStderr])
+	}
+	processState, parseState, validationState := sink.status.States()
+	session, hasSession := sink.status.SessionObservation()
+	stdout, hasStdout := sink.status.Stdout()
+	stderr, hasStderr := sink.status.Stderr()
+	if !sink.replaced || processState != domain.InvocationFailed || parseState != domain.ParseNotStarted || validationState != domain.ValidationNotStarted ||
+		!hasSession || session.ProviderSessionID() != "session_private" || !hasStdout || !stdout.ValidFor(domain.DiagnosticStdout) || !hasStderr || !stderr.ValidFor(domain.DiagnosticStderr) ||
+		sink.status.LastSequence() == 0 || sink.status.LastSequence() != sink.sequence {
+		t.Fatalf("replaced invariant status = replaced=%t states=%q/%q/%q session=%#v stdout=%#v/%t stderr=%#v/%t",
+			sink.replaced, processState, parseState, validationState, session.Input(), stdout, hasStdout, stderr, hasStderr)
+	}
 }
 
 func providerRuntimeWithDiagnosticInventory(t *testing.T, runID domain.RunID, attemptID domain.AttemptID, key captureKey, sink ports.RuntimeDiagnosticSink) *ProviderInvocationRuntime {

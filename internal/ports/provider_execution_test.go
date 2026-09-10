@@ -472,12 +472,126 @@ func TestProtocolConversationCompletedCoversDriverCompletionFacts(t *testing.T) 
 	if exitedProtocol(1).ProtocolConversationCompleted() {
 		t.Fatal("nonzero protocol exit completed a protocol conversation")
 	}
+	failedSession, err := NewProviderSessionObservation(ProviderSessionObservationInput{
+		Phase: ProviderSessionPhaseSend, Terminal: ProviderSessionFailed,
+		ProviderSessionID: "sess_private", CreateAccepted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err := NewFailedProtocolProviderExecutionObservationWithCause(
+		ProviderExecutionStatusUnavailable,
+		invocation,
+		exitedProtocol(1),
+		failedSession,
+		"provider_execution_failed",
+		domain.DiagnosticCauseProviderExecutionFailed,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("natural nonzero protocol failure rejected: %v", err)
+	}
+	if session, ok := failed.SessionObservation(); !ok || session.ProviderSessionID() != "sess_private" {
+		t.Fatalf("failed protocol session = %#v, present = %t", session.Input(), ok)
+	}
+	withoutSession := failed
+	withoutSession.hasSession = false
+	if err := withoutSession.Validate(); err == nil {
+		t.Fatal("non-zero protocol observation was accepted without its presence flag")
+	}
+	if _, err := NewFailedProtocolProviderExecutionObservationWithCause(
+		ProviderExecutionStatusTimedOut, invocation, teardown, failedSession,
+		"provider_timeout", domain.DiagnosticCauseTimedOut, "",
+	); err != nil {
+		t.Fatalf("timeout followed by receipt-proven teardown rejected: %v", err)
+	}
 	cancellation := conversationTeardownTestProcess(t, invocation, ProcessTerminationSignaled, ProcessGroupSignalRequestCancellation)
 	if cancellation.ProtocolConversationCompleted() {
 		t.Fatal("cancellation teardown completed a protocol conversation")
 	}
 	if exitedOneShot(0).ProtocolConversationCompleted() {
 		t.Fatal("one-shot exit without the protocol channel completed a protocol conversation")
+	}
+	for name, process := range map[string]ProcessObservation{
+		"cancellation teardown": cancellation,
+		"non-protocol process":  exitedOneShot(0),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NewFailedProtocolProviderExecutionObservationWithCause(
+				ProviderExecutionStatusUnavailable, invocation, process, failedSession,
+				"provider_execution_failed", domain.DiagnosticCauseProviderExecutionFailed, "",
+			); err == nil {
+				t.Fatal("incoherent protocol failure accepted")
+			}
+		})
+	}
+	completedInput := failedSession.Input()
+	completedInput.Terminal = ProviderSessionCompleted
+	completedSession, err := NewProviderSessionObservation(completedInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFailedProtocolProviderExecutionObservationWithCause(
+		ProviderExecutionStatusUnavailable, invocation, teardown, completedSession,
+		"provider_execution_failed", domain.DiagnosticCauseProviderExecutionFailed, "",
+	); err == nil {
+		t.Fatal("completed protocol session was accepted as a failure")
+	}
+}
+
+func TestProviderSessionObservationRejectsUnsafeIdentifiersAndHiddenErrorCodes(t *testing.T) {
+	base := ProviderSessionObservationInput{Phase: ProviderSessionPhaseTurn, Terminal: ProviderSessionFailed}
+	for name, mutate := range map[string]func(*ProviderSessionObservationInput){
+		"session control": func(input *ProviderSessionObservationInput) { input.ProviderSessionID = "session\x1b[31m" },
+		"turn control":    func(input *ProviderSessionObservationInput) { input.ProviderTurnID = "turn\u0085id" },
+		"hidden code":     func(input *ProviderSessionObservationInput) { input.ProviderErrorCode = -32000 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := base
+			mutate(&input)
+			if _, err := NewProviderSessionObservation(input); err == nil {
+				t.Fatal("unsafe provider session observation accepted")
+			}
+		})
+	}
+	base.ProviderErrorCode, base.HasProviderErrorCode = 0, true
+	if _, err := NewProviderSessionObservation(base); err != nil {
+		t.Fatalf("explicit JSON-RPC error code zero rejected: %v", err)
+	}
+}
+
+func TestProviderObservationInvariantErrorRejectsInvalidFields(t *testing.T) {
+	invocation := newProviderExecutionTestInvocation(t)
+	process := conversationTeardownTestProcess(t, invocation, ProcessTerminationSignaled, ProcessGroupSignalRequestConversationTeardown)
+	session, err := NewProviderSessionObservation(ProviderSessionObservationInput{
+		Phase: ProviderSessionPhaseTurn, Terminal: ProviderSessionFailed,
+		ProviderSessionID: "session_private", ProviderTurnID: "turn_private",
+		CreateAccepted: true, SendAccepted: true, TurnObserved: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	underlying := errors.New("observation construction failed")
+	for _, test := range []struct {
+		name    string
+		status  ProviderExecutionStatus
+		cause   domain.RuntimeDiagnosticCause
+		process ProcessObservation
+		session ProviderSessionObservation
+		err     error
+	}{
+		{name: "unknown status", cause: domain.DiagnosticCauseObservationInvalid, process: process, session: session, err: underlying},
+		{name: "successful status", status: ProviderExecutionStatusSucceeded, cause: domain.DiagnosticCauseObservationInvalid, process: process, session: session, err: underlying},
+		{name: "unknown cause", status: ProviderExecutionStatusUnavailable, process: process, session: session, err: underlying},
+		{name: "invalid process", status: ProviderExecutionStatusUnavailable, cause: domain.DiagnosticCauseObservationInvalid, session: session, err: underlying},
+		{name: "invalid session", status: ProviderExecutionStatusUnavailable, cause: domain.DiagnosticCauseObservationInvalid, process: process, err: underlying},
+		{name: "nil cause error", status: ProviderExecutionStatusUnavailable, cause: domain.DiagnosticCauseObservationInvalid, process: process, session: session},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewProviderObservationInvariantError(test.status, test.cause, test.process, test.session, test.err); err == nil {
+				t.Fatal("invalid provider observation invariant error accepted")
+			}
+		})
 	}
 }
 

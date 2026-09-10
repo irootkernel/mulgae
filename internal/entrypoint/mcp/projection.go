@@ -18,20 +18,22 @@ type RoleReportProjection struct {
 
 // RunStatusProjection is the typed input to the MCP public run-status shape.
 type RunStatusProjection struct {
-	FailedRunRecovery recovery.Status
-	SessionID         string
-	RunID             string
-	RunState          domain.RunState
-	HasRunState       bool
-	PublicationState  domain.PublicationStatus
-	RecoveryAction    domain.RecoveryAction
-	FinalArtifactURI  string
-	HasFinalArtifact  bool
-	ContentVerdict    domain.ContentVerdict
-	CoverageStatus    domain.CoverageStatus
-	CIDecision        domain.CIDecision
-	HasAxes           bool
-	RoleReports       []RoleReportProjection
+	FailedRunRecovery    recovery.Status
+	SessionID            string
+	RunID                string
+	RunState             domain.RunState
+	HasRunState          bool
+	PublicationState     domain.PublicationStatus
+	RecoveryAction       domain.RecoveryAction
+	FinalArtifactURI     string
+	HasFinalArtifact     bool
+	ContentVerdict       domain.ContentVerdict
+	CoverageStatus       domain.CoverageStatus
+	CIDecision           domain.CIDecision
+	HasAxes              bool
+	RoleReports          []RoleReportProjection
+	DiagnosticSummary    ports.RuntimeDiagnosticSummary
+	HasDiagnosticSummary bool
 }
 
 // ProjectRunStatus validates and renders one bounded MCP run-status object.
@@ -55,7 +57,8 @@ func ProjectRunStatus(status RunStatusProjection, expectedSessionID domain.Sessi
 	}
 	if status.HasRunState != (status.RunState != "") || status.HasRunState && !status.RunState.Valid() ||
 		status.HasFinalArtifact != (status.FinalArtifactURI != "") ||
-		status.HasAxes != (status.ContentVerdict != "" && status.CoverageStatus != "" && status.CIDecision != "") {
+		status.HasAxes != (status.ContentVerdict != "" && status.CoverageStatus != "" && status.CIDecision != "") ||
+		status.HasDiagnosticSummary != status.DiagnosticSummary.Valid() {
 		return nil, fmt.Errorf("MCP run status projection is inconsistent")
 	}
 	if status.HasFinalArtifact {
@@ -117,7 +120,25 @@ func ProjectRunStatus(status RunStatusProjection, expectedSessionID domain.Sessi
 		roleReports = append(roleReports, map[string]any{"role": report.Role, "uri": report.URI})
 	}
 	data["role_report_uris"] = roleReports
+	if status.HasDiagnosticSummary {
+		data["diagnostic_summary"] = projectRuntimeDiagnosticSummary(status.DiagnosticSummary)
+	}
 	return data, nil
+}
+
+func projectRuntimeDiagnosticSummary(summary ports.RuntimeDiagnosticSummary) map[string]any {
+	data := map[string]any{"component": summary.Component(), "phase": summary.Phase()}
+	for key, value := range map[string]string{
+		"invariant_id": summary.InvariantID(), "provider_instance": summary.Provider(),
+		"attempt_id": summary.AttemptID().String(), "invocation_id": summary.InvocationID(),
+		"protocol_terminal": summary.ProtocolTerminal(), "provider_session_fingerprint": summary.ProviderSessionFingerprint(),
+		"provider_turn_fingerprint": summary.ProviderTurnFingerprint(),
+	} {
+		if value != "" {
+			data[key] = value
+		}
+	}
+	return data
 }
 
 // ProjectDiagnosticRunStatus validates and renders the bounded status of an
@@ -164,7 +185,7 @@ func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expecte
 		}
 		terminalPhase = string(phase)
 	}
-	return map[string]any{
+	data := map[string]any{
 		"failed_run_recovery": recovery.UnavailableStatus("source_not_retained"),
 		"kind":                "diagnostic_status_read", "session_id": status.SessionID().String(), "run_id": status.RunID().String(),
 		"run_state": string(status.State()), "publication_status": nil, "recovery_action": "rerun_review",
@@ -174,7 +195,11 @@ func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expecte
 		"selected_roles": selectedRoles, "role_path_total": total, "role_path_completed": completed, "role_path_failed": failed,
 		"last_seq": status.LastSequence(), "terminal_cause": terminalCause, "terminal_phase": terminalPhase,
 		"dropped_events": status.DroppedEvents(), "diagnostic_only": true, "publication_authority": false,
-	}, nil
+	}
+	if summary, ok := status.DiagnosticSummary(); ok {
+		data["diagnostic_summary"] = projectRuntimeDiagnosticSummary(summary)
+	}
+	return data, nil
 }
 
 // FindingProjection is one verified finding summary selected by application policy.

@@ -155,7 +155,7 @@ MCP inspection example (replace the ID with the exact returned value):
 
 Read `data.failed_run_recovery`; rerun remains CLI-only. Once every missing role
 is recovered, call the existing `compose_review` tool with the exact root and
-committed recovery run IDs. The MCP v1 envelope and CLI v7 envelope carry their
+committed recovery run IDs. The MCP v1 envelope and CLI v8 envelope carry their
 own documented data shapes; do not infer one from the other's version.
 
 ## Recover the smallest supported unit
@@ -188,7 +188,7 @@ mutation-level retry decision.
   For `attempt_selector_unavailable`, prefer the exact attempt ID or re-read the
   run to obtain the persisted provider instance. Neither failure establishes a
   configuration problem.
-- For `selector_resolution_failed`, preserve the v7 envelope request ID and
+- For `selector_resolution_failed`, preserve the v8 envelope request ID and
   bounded reason, stop mutations, and report the failure. Do not treat the
   generic internal exit as evidence that doctor will find a problem.
 - For selector resolution that returns `request_cancelled`, retain exit `9`

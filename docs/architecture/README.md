@@ -138,11 +138,15 @@ surfaces to the same preflight, review, report, and verified publication-query
 services used by the CLI. `compose_review` and CLI `compose` call the same
 provider-free application mutation, so exact admission, deterministic identity,
 atomic publication, and retry reconciliation cannot drift between transports.
-`get_run` first resolves publication and falls back to the bounded
-runtime-diagnostic query only for the typed publication-not-found case.
-Publication corruption, security failures, and other query failures never enter
-the fallback. It does not duplicate capture, execution, query, or publication
-policy. `run_review` remains a request-owned foreground compatibility path. The
+`get_run` first resolves publication and uses the bounded runtime-diagnostic
+query as a fallback only for the typed publication-not-found case. For a
+resolved non-committed publication state, it also reads the session-bound
+diagnostic status to merge a safe diagnostic summary. Publication corruption,
+security failures, and other publication-query failures never enter the
+fallback. Diagnostic corruption and other non-not-found diagnostic failures
+remain fail-closed. It does not duplicate capture, execution, query, or
+publication policy. `run_review` remains a request-owned foreground
+compatibility path. The
 process-local invocation registry separately gives each `start_review` identity
 one server-owned execution and an event-driven completion channel.
 `await_review` observes that channel under its request context without owning the

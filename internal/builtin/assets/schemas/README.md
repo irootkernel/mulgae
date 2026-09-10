@@ -9,6 +9,7 @@ Draft 2020-12 and a canonical
 
 | Schema | Valid example |
 |---|---|
+| `mulgae-command-result.v8` | `../examples/command-result.v8.valid.json` |
 | `mulgae-command-result.v7` | `../examples/command-result.v7.valid.json` |
 | `mulgae-run-recovery.v1` | `../examples/run-recovery.v1.valid.json` |
 | `mulgae-review-artifact.v2` | `../examples/review-artifact.v2.valid.json` |
@@ -43,7 +44,7 @@ contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a future schema version. Command-result v5 and v6 schemas
-remain available for explicit backward reads while commands emit v7. Published
-review, run-manifest, and composite v1 contracts remain readable alongside the
-v2 contracts for recovery-derived artifacts.
+Breaking changes require a future schema version. Command-result v5, v6, and v7
+schemas remain available for explicit backward reads while commands emit v8.
+Published review, run-manifest, and composite v1 contracts remain readable
+alongside the v2 contracts for recovery-derived artifacts.

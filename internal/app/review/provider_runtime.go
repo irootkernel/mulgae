@@ -683,6 +683,20 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		observation, observeErr := runtime.observed.Observe(providerCtx, providerInvocation)
 		providerElapsed := time.Since(providerStarted)
 		if observeErr != nil {
+			var invariant *ports.ProviderObservationInvariantError
+			if errors.As(observeErr, &invariant) {
+				if err := runtime.emitInvariantDiagnostic(invocationCtx, job, invariant); err != nil {
+					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				}
+				process := invariant.ProcessObservation()
+				if err := runtime.capture(invocationCtx, job, nil, process.Stdout(), process.Stderr(), false); err != nil {
+					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				}
+				if err := runtime.replaceInvariantInvocationDiagnosticStatus(invocationCtx, job, invariant); err != nil {
+					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				}
+				return runtimeProviderCondition(job, AttemptConditionInternalInvariant, providerElapsed)
+			}
 			if observation.Validate() == nil && sameProviderInvocation(observation.Invocation(), providerInvocation) {
 				diagnosticObservation = diagnosticObservationPointer(observation)
 				if err := runtime.emitObservationDiagnostics(invocationCtx, job, observation); err != nil {

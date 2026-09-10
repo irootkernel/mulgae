@@ -2,6 +2,8 @@ package review
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 
@@ -33,7 +35,8 @@ func (runtime *ProviderInvocationRuntime) emitInvocationDiagnostic(
 		Level: level, Component: "provider_runtime", Operation: "invoke", Event: code,
 		SessionID: job.SessionID(), RunID: job.RunID(), AttemptID: job.AttemptID(),
 		InvocationID: runtime.diagnosticInvocationID(job), Role: job.Role(), Provider: job.Route().ProviderInstance(),
-		Cause: cause, State: state, Outcome: outcome, Termination: termination, ExitCode: exitCode, HasExitCode: hasExitCode,
+		ExecutionInvocationID: runtime.diagnosticExecutionInvocationID(job),
+		Cause:                 cause, State: state, Outcome: outcome, Termination: termination, ExitCode: exitCode, HasExitCode: hasExitCode,
 	}
 	if stream.Valid() && length > 0 {
 		input.Stream, input.Offset, input.Length = stream, 0, length
@@ -59,6 +62,126 @@ func (runtime *ProviderInvocationRuntime) emitInvocationDiagnostic(
 	return err
 }
 
+func (runtime *ProviderInvocationRuntime) diagnosticExecutionInvocationID(job InvocationJob) string {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.inventory[captureKey{job.AttemptID(), invocationSequence(job.Purpose())}].executionInvocationID
+}
+
+func providerCorrelationFingerprint(provider, kind, value string) string {
+	if value == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte("mulgae-provider-correlation-v1\x00" + provider + "\x00" + kind + "\x00" + value))
+	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
+func (runtime *ProviderInvocationRuntime) emitProtocolDiagnostic(ctx context.Context, job InvocationJob, observation ports.ProviderExecutionObservation) error {
+	protocol, ok := observation.SessionObservation()
+	if !ok || runtime == nil || runtime.diagnostics == nil {
+		return nil
+	}
+	sink, ok := runtime.diagnostics.RuntimeDiagnosticSink(job.RunID())
+	if !ok || nilInterface(sink) {
+		return errors.New("provider invocation runtime: mandatory diagnostic sink unavailable")
+	}
+	provider := job.Route().ProviderInstance()
+	input := domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticInfo, Component: "provider_runtime", Operation: "protocol",
+		Event: domain.DiagnosticProviderProtocolTerminal, SessionID: job.SessionID(), RunID: job.RunID(), AttemptID: job.AttemptID(),
+		InvocationID: runtime.diagnosticInvocationID(job), ExecutionInvocationID: runtime.diagnosticExecutionInvocationID(job),
+		Role: job.Role(), Provider: provider, Cause: observation.PrimaryCause(), Outcome: string(observation.Status()),
+		ProtocolPhase: string(protocol.Phase()), ProtocolTerminal: string(protocol.Terminal()),
+		ProviderSessionFingerprint: providerCorrelationFingerprint(provider, "session", protocol.ProviderSessionID()),
+		ProviderTurnFingerprint:    providerCorrelationFingerprint(provider, "turn", protocol.ProviderTurnID()),
+	}
+	draft, err := domain.NewRuntimeDiagnosticEventDraft(input)
+	if err != nil {
+		return err
+	}
+	_, err = sink.Emit(context.WithoutCancel(ctx), draft)
+	if errors.Is(err, ports.ErrRuntimeDiagnosticEventDropped) {
+		return nil
+	}
+	return err
+}
+
+func (runtime *ProviderInvocationRuntime) emitInvariantDiagnostic(ctx context.Context, job InvocationJob, failure *ports.ProviderObservationInvariantError) error {
+	if failure == nil || runtime == nil || runtime.diagnostics == nil {
+		return nil
+	}
+	sink, ok := runtime.diagnostics.RuntimeDiagnosticSink(job.RunID())
+	if !ok || nilInterface(sink) {
+		return errors.New("provider invocation runtime: mandatory diagnostic sink unavailable")
+	}
+	protocol := failure.SessionObservation()
+	provider := job.Route().ProviderInstance()
+	input := domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticError, Component: failure.Component(), Operation: "assemble",
+		Event: domain.DiagnosticInternalInvariantDetected, SessionID: job.SessionID(), RunID: job.RunID(), AttemptID: job.AttemptID(),
+		InvocationID: runtime.diagnosticInvocationID(job), ExecutionInvocationID: runtime.diagnosticExecutionInvocationID(job),
+		Role: job.Role(), Provider: provider, Cause: failure.Cause(), Outcome: string(failure.Status()),
+		ProtocolPhase: failure.Phase(), ProtocolTerminal: string(protocol.Terminal()), InvariantID: failure.InvariantID(),
+		ProviderSessionFingerprint: providerCorrelationFingerprint(provider, "session", protocol.ProviderSessionID()),
+		ProviderTurnFingerprint:    providerCorrelationFingerprint(provider, "turn", protocol.ProviderTurnID()),
+	}
+	draft, err := domain.NewRuntimeDiagnosticEventDraft(input)
+	if err != nil {
+		return err
+	}
+	event, err := sink.Emit(context.WithoutCancel(ctx), draft)
+	if errors.Is(err, ports.ErrRuntimeDiagnosticEventDropped) {
+		return nil
+	}
+	if err == nil {
+		runtime.mu.Lock()
+		key := captureKey{job.AttemptID(), invocationSequence(job.Purpose())}
+		inventory := runtime.inventory[key]
+		if event.Sequence() > inventory.diagnosticLastSequence {
+			inventory.diagnosticLastSequence = event.Sequence()
+			runtime.inventory[key] = inventory
+		}
+		runtime.mu.Unlock()
+	}
+	return err
+}
+
+func (runtime *ProviderInvocationRuntime) replaceInvariantInvocationDiagnosticStatus(ctx context.Context, job InvocationJob, failure *ports.ProviderObservationInvariantError) error {
+	if failure == nil || runtime == nil || runtime.diagnostics == nil {
+		return nil
+	}
+	sink, ok := runtime.diagnostics.RuntimeDiagnosticSink(job.RunID())
+	if !ok || nilInterface(sink) {
+		return errors.New("provider invocation runtime: mandatory diagnostic sink unavailable")
+	}
+	process := failure.ProcessObservation()
+	runtime.mu.Lock()
+	inventory := runtime.inventory[captureKey{job.AttemptID(), invocationSequence(job.Purpose())}]
+	runtime.mu.Unlock()
+	input := ports.RuntimeDiagnosticInvocationStatusInput{
+		SessionID: job.SessionID(), RunID: job.RunID(), AttemptID: job.AttemptID(), InvocationID: inventory.sourceInvocationID,
+		ExecutionInvocationID: inventory.executionInvocationID, Ordinal: invocationSequence(job.Purpose()), Purpose: runtimePurpose(job.Purpose()),
+		ProcessState: domain.InvocationFailed, ParseState: domain.ParseNotStarted, ValidationState: domain.ValidationNotStarted,
+		StartedAt: process.StartedAt(), UpdatedAt: process.EndedAt(), CompletedAt: process.EndedAt(), HasCompletedAt: true,
+		Termination: string(process.Termination()), LastSequence: inventory.diagnosticLastSequence,
+		SessionObservation: failure.SessionObservation(), HasSessionObservation: true,
+	}
+	if code, ok := process.ExitCode(); ok {
+		input.ExitCode, input.HasExitCode = code, true
+	}
+	if stdout, ok := inventory.DiagnosticStdout(); ok {
+		input.Stdout, input.HasStdout = stdout, true
+	}
+	if stderr, ok := inventory.DiagnosticStderr(); ok {
+		input.Stderr, input.HasStderr = stderr, true
+	}
+	status, err := ports.NewRuntimeDiagnosticInvocationStatus(input)
+	if err != nil {
+		return err
+	}
+	return sink.ReplaceInvocationStatus(context.WithoutCancel(ctx), status)
+}
+
 func (runtime *ProviderInvocationRuntime) diagnosticInvocationID(job InvocationJob) string {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
@@ -66,6 +189,9 @@ func (runtime *ProviderInvocationRuntime) diagnosticInvocationID(job InvocationJ
 }
 
 func (runtime *ProviderInvocationRuntime) emitObservationDiagnostics(ctx context.Context, job InvocationJob, observation ports.ProviderExecutionObservation) error {
+	if err := runtime.emitProtocolDiagnostic(ctx, job, observation); err != nil {
+		return err
+	}
 	process, hasProcess := observation.AvailableProcessObservation()
 	cause := observation.PrimaryCause()
 	if hasProcess {
@@ -205,9 +331,13 @@ func (runtime *ProviderInvocationRuntime) replaceInvocationDiagnosticStatus(
 	runtime.mu.Unlock()
 	input := ports.RuntimeDiagnosticInvocationStatusInput{
 		SessionID: job.SessionID(), RunID: job.RunID(), AttemptID: job.AttemptID(), InvocationID: inventory.sourceInvocationID,
-		Ordinal: invocationSequence(job.Purpose()), Purpose: runtimePurpose(job.Purpose()), ProcessState: state,
+		ExecutionInvocationID: inventory.executionInvocationID,
+		Ordinal:               invocationSequence(job.Purpose()), Purpose: runtimePurpose(job.Purpose()), ProcessState: state,
 		ParseState: parseState, ValidationState: validationState, StartedAt: started, UpdatedAt: ended, CompletedAt: ended, HasCompletedAt: true,
 		Termination: string(observation.Termination()), LastSequence: inventory.diagnosticLastSequence,
+	}
+	if protocol, ok := observation.SessionObservation(); ok {
+		input.SessionObservation, input.HasSessionObservation = protocol, true
 	}
 	if exitCode, ok := observation.ExitCode(); ok {
 		input.ExitCode, input.HasExitCode = exitCode, true

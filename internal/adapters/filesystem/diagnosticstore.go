@@ -24,24 +24,26 @@ func NewDiagnosticStoreFactory(writer ports.SecureFileWriter, clock ports.Clock)
 }
 
 type DiagnosticStore struct {
-	mu             sync.Mutex
-	request        ports.RuntimeDiagnosticOpenRequest
-	writer         ports.SecureFileWriter
-	clock          ports.Clock
-	logFD          int
-	logIdentity    diagnosticFileIdentity
-	sequence       uint64
-	lastElapsed    uint64
-	logBytes       int64
-	droppedEvents  uint64
-	state          diagnosticStoreState
-	terminalState  domain.RunState
-	terminalCause  domain.RuntimeDiagnosticCause
-	terminalEvent  bool
-	closedEvent    bool
-	terminalStatus bool
-	installed      bool
-	operations     diagnosticStoreOperations
+	mu                   sync.Mutex
+	request              ports.RuntimeDiagnosticOpenRequest
+	writer               ports.SecureFileWriter
+	clock                ports.Clock
+	logFD                int
+	logIdentity          diagnosticFileIdentity
+	sequence             uint64
+	lastElapsed          uint64
+	logBytes             int64
+	droppedEvents        uint64
+	state                diagnosticStoreState
+	terminalState        domain.RunState
+	terminalCause        domain.RuntimeDiagnosticCause
+	terminalEvent        bool
+	closedEvent          bool
+	terminalStatus       bool
+	installed            bool
+	operations           diagnosticStoreOperations
+	diagnosticSummary    ports.RuntimeDiagnosticSummary
+	hasDiagnosticSummary bool
 }
 
 type diagnosticStoreState uint8
@@ -70,39 +72,45 @@ var _ ports.RuntimeDiagnosticSink = (*DiagnosticStore)(nil)
 var _ ports.RuntimeDiagnosticSinkFactory = (*DiagnosticStoreFactory)(nil)
 
 type runtimeDiagnosticEventWire struct {
-	SchemaVersion      string                            `json:"schema_version"`
-	Time               string                            `json:"time"`
-	Level              domain.RuntimeDiagnosticLevel     `json:"level"`
-	Message            string                            `json:"msg"`
-	Sequence           uint64                            `json:"seq"`
-	ElapsedMS          uint64                            `json:"elapsed_ms"`
-	Component          string                            `json:"component"`
-	Operation          string                            `json:"operation"`
-	Event              domain.RuntimeDiagnosticEventCode `json:"event"`
-	SessionID          string                            `json:"session_id"`
-	RunID              string                            `json:"run_id"`
-	AttemptID          string                            `json:"attempt_id,omitempty"`
-	InvocationID       string                            `json:"invocation_id,omitempty"`
-	Role               domain.Role                       `json:"role,omitempty"`
-	Provider           string                            `json:"provider,omitempty"`
-	Cause              domain.RuntimeDiagnosticCause     `json:"cause,omitempty"`
-	Failure            string                            `json:"failure,omitempty"`
-	Mitigation         string                            `json:"mitigation,omitempty"`
-	State              string                            `json:"state,omitempty"`
-	Outcome            string                            `json:"outcome,omitempty"`
-	Stream             domain.RuntimeDiagnosticStream    `json:"stream,omitempty"`
-	Offset             *int64                            `json:"offset,omitempty"`
-	Length             *int64                            `json:"length,omitempty"`
-	Termination        string                            `json:"termination,omitempty"`
-	ExitCode           *int                              `json:"exit_code,omitempty"`
-	ArtifactRef        string                            `json:"artifact_ref,omitempty"`
-	DiscardedPaths     []string                          `json:"discarded_paths,omitempty"`
-	DiscardedPathCount int                               `json:"discarded_path_count,omitempty"`
+	SchemaVersion              string                            `json:"schema_version"`
+	Time                       string                            `json:"time"`
+	Level                      domain.RuntimeDiagnosticLevel     `json:"level"`
+	Message                    string                            `json:"msg"`
+	Sequence                   uint64                            `json:"seq"`
+	ElapsedMS                  uint64                            `json:"elapsed_ms"`
+	Component                  string                            `json:"component"`
+	Operation                  string                            `json:"operation"`
+	Event                      domain.RuntimeDiagnosticEventCode `json:"event"`
+	SessionID                  string                            `json:"session_id"`
+	RunID                      string                            `json:"run_id"`
+	AttemptID                  string                            `json:"attempt_id,omitempty"`
+	InvocationID               string                            `json:"invocation_id,omitempty"`
+	ExecutionInvocationID      string                            `json:"execution_invocation_id,omitempty"`
+	Role                       domain.Role                       `json:"role,omitempty"`
+	Provider                   string                            `json:"provider,omitempty"`
+	Cause                      domain.RuntimeDiagnosticCause     `json:"cause,omitempty"`
+	Failure                    string                            `json:"failure,omitempty"`
+	Mitigation                 string                            `json:"mitigation,omitempty"`
+	State                      string                            `json:"state,omitempty"`
+	Outcome                    string                            `json:"outcome,omitempty"`
+	Stream                     domain.RuntimeDiagnosticStream    `json:"stream,omitempty"`
+	Offset                     *int64                            `json:"offset,omitempty"`
+	Length                     *int64                            `json:"length,omitempty"`
+	Termination                string                            `json:"termination,omitempty"`
+	ProtocolPhase              string                            `json:"protocol_phase,omitempty"`
+	ProtocolTerminal           string                            `json:"protocol_terminal,omitempty"`
+	ProviderSessionFingerprint string                            `json:"provider_session_fingerprint,omitempty"`
+	ProviderTurnFingerprint    string                            `json:"provider_turn_fingerprint,omitempty"`
+	InvariantID                string                            `json:"invariant_id,omitempty"`
+	ExitCode                   *int                              `json:"exit_code,omitempty"`
+	ArtifactRef                string                            `json:"artifact_ref,omitempty"`
+	DiscardedPaths             []string                          `json:"discarded_paths,omitempty"`
+	DiscardedPathCount         int                               `json:"discarded_path_count,omitempty"`
 }
 
 func encodeRuntimeDiagnosticEvent(event domain.RuntimeDiagnosticEvent) ([]byte, error) {
 	input := event.Input()
-	wire := runtimeDiagnosticEventWire{SchemaVersion: event.SchemaVersion(), Time: event.Time().Format(time.RFC3339Nano), Level: event.Level(), Message: event.Message(), Sequence: event.Sequence(), ElapsedMS: event.ElapsedMillis(), Component: input.Component, Operation: input.Operation, Event: input.Event, SessionID: input.SessionID.String(), RunID: input.RunID.String(), AttemptID: input.AttemptID.String(), InvocationID: input.InvocationID, Role: input.Role, Provider: input.Provider, Cause: input.Cause, Failure: input.Failure, Mitigation: input.Mitigation, State: input.State, Outcome: input.Outcome, Stream: input.Stream, Termination: input.Termination, ArtifactRef: input.ArtifactRef, DiscardedPaths: append([]string(nil), input.DiscardedPaths...), DiscardedPathCount: input.DiscardedPathCount}
+	wire := runtimeDiagnosticEventWire{SchemaVersion: event.SchemaVersion(), Time: event.Time().Format(time.RFC3339Nano), Level: event.Level(), Message: event.Message(), Sequence: event.Sequence(), ElapsedMS: event.ElapsedMillis(), Component: input.Component, Operation: input.Operation, Event: input.Event, SessionID: input.SessionID.String(), RunID: input.RunID.String(), AttemptID: input.AttemptID.String(), InvocationID: input.InvocationID, ExecutionInvocationID: input.ExecutionInvocationID, Role: input.Role, Provider: input.Provider, Cause: input.Cause, Failure: input.Failure, Mitigation: input.Mitigation, State: input.State, Outcome: input.Outcome, Stream: input.Stream, Termination: input.Termination, ProtocolPhase: input.ProtocolPhase, ProtocolTerminal: input.ProtocolTerminal, ProviderSessionFingerprint: input.ProviderSessionFingerprint, ProviderTurnFingerprint: input.ProviderTurnFingerprint, InvariantID: input.InvariantID, ArtifactRef: input.ArtifactRef, DiscardedPaths: append([]string(nil), input.DiscardedPaths...), DiscardedPathCount: input.DiscardedPathCount}
 	if input.Stream.Valid() {
 		offset, length := input.Offset, input.Length
 		wire.Offset, wire.Length = &offset, &length
@@ -137,6 +145,23 @@ type runtimeDiagnosticRunStatusWire struct {
 	DroppedEvents        uint64                        `json:"dropped_events"`
 	DiagnosticOnly       bool                          `json:"diagnostic_only"`
 	PublicationAuthority bool                          `json:"publication_authority"`
+	DiagnosticSummary    *runtimeDiagnosticSummaryWire `json:"diagnostic_summary,omitempty"`
+}
+
+type runtimeDiagnosticSummaryWire struct {
+	InvariantID                string `json:"invariant_id,omitempty"`
+	Component                  string `json:"component"`
+	Phase                      string `json:"phase"`
+	Provider                   string `json:"provider_instance,omitempty"`
+	AttemptID                  string `json:"attempt_id,omitempty"`
+	InvocationID               string `json:"invocation_id,omitempty"`
+	ProtocolTerminal           string `json:"protocol_terminal,omitempty"`
+	ProviderSessionFingerprint string `json:"provider_session_fingerprint,omitempty"`
+	ProviderTurnFingerprint    string `json:"provider_turn_fingerprint,omitempty"`
+}
+
+func acceptedDiagnosticRunStatusSchema(version string) bool {
+	return version == ports.RuntimeDiagnosticRunStatusSchema || version == "mulgae-runtime-run-status.v2"
 }
 
 func rejectLegacyDiagnosticStatus(data []byte) error {
@@ -174,7 +199,17 @@ func encodeRuntimeDiagnosticRunStatusAt(status ports.RuntimeDiagnosticRunStatus,
 	if hasP2 {
 		wire.P2URI = p2.String()
 	}
+	if summary, ok := status.DiagnosticSummary(); ok {
+		wire.DiagnosticSummary = encodeRuntimeDiagnosticSummary(summary)
+	}
 	return marshalDiagnosticStatus(wire)
+}
+
+func encodeRuntimeDiagnosticSummary(summary ports.RuntimeDiagnosticSummary) *runtimeDiagnosticSummaryWire {
+	return &runtimeDiagnosticSummaryWire{InvariantID: summary.InvariantID(), Component: summary.Component(), Phase: summary.Phase(),
+		Provider: summary.Provider(), AttemptID: summary.AttemptID().String(), InvocationID: summary.InvocationID(),
+		ProtocolTerminal: summary.ProtocolTerminal(), ProviderSessionFingerprint: summary.ProviderSessionFingerprint(),
+		ProviderTurnFingerprint: summary.ProviderTurnFingerprint()}
 }
 
 type runtimeDiagnosticAttemptStatusWire struct {
@@ -215,31 +250,47 @@ type runtimeDiagnosticRawWire struct {
 	Drop       *runtimeDiagnosticDropWire `json:"drop,omitempty"`
 }
 type runtimeDiagnosticInvocationStatusWire struct {
-	SchemaVersion   string                          `json:"schema_version"`
-	SessionID       string                          `json:"session_id"`
-	RunID           string                          `json:"run_id"`
-	AttemptID       string                          `json:"attempt_id"`
-	InvocationID    string                          `json:"invocation_id"`
-	Ordinal         uint64                          `json:"ordinal"`
-	Purpose         ports.ProviderInvocationPurpose `json:"purpose"`
-	ProcessState    domain.InvocationState          `json:"process_state"`
-	ParseState      domain.ParseState               `json:"parse_state"`
-	ValidationState domain.ValidationState          `json:"validation_state"`
-	StartedAt       string                          `json:"started_at"`
-	UpdatedAt       string                          `json:"updated_at"`
-	CompletedAt     string                          `json:"completed_at,omitempty"`
-	Termination     string                          `json:"termination,omitempty"`
-	ExitCode        *int                            `json:"exit_code,omitempty"`
-	LastSequence    uint64                          `json:"last_seq"`
-	Stdout          *runtimeDiagnosticRawWire       `json:"stdout,omitempty"`
-	Stderr          *runtimeDiagnosticRawWire       `json:"stderr,omitempty"`
+	SchemaVersion         string                          `json:"schema_version"`
+	SessionID             string                          `json:"session_id"`
+	RunID                 string                          `json:"run_id"`
+	AttemptID             string                          `json:"attempt_id"`
+	InvocationID          string                          `json:"invocation_id"`
+	ExecutionInvocationID string                          `json:"execution_invocation_id,omitempty"`
+	Ordinal               uint64                          `json:"ordinal"`
+	Purpose               ports.ProviderInvocationPurpose `json:"purpose"`
+	ProcessState          domain.InvocationState          `json:"process_state"`
+	ParseState            domain.ParseState               `json:"parse_state"`
+	ValidationState       domain.ValidationState          `json:"validation_state"`
+	StartedAt             string                          `json:"started_at"`
+	UpdatedAt             string                          `json:"updated_at"`
+	CompletedAt           string                          `json:"completed_at,omitempty"`
+	Termination           string                          `json:"termination,omitempty"`
+	ExitCode              *int                            `json:"exit_code,omitempty"`
+	LastSequence          uint64                          `json:"last_seq"`
+	Stdout                *runtimeDiagnosticRawWire       `json:"stdout,omitempty"`
+	Stderr                *runtimeDiagnosticRawWire       `json:"stderr,omitempty"`
+	Protocol              *runtimeDiagnosticProtocolWire  `json:"protocol,omitempty"`
+}
+
+type runtimeDiagnosticProtocolWire struct {
+	Phase             ports.ProviderSessionPhase    `json:"phase"`
+	Terminal          ports.ProviderSessionTerminal `json:"terminal"`
+	ProviderSessionID string                        `json:"provider_session_id,omitempty"`
+	ProviderTurnID    string                        `json:"provider_turn_id,omitempty"`
+	CreateAccepted    bool                          `json:"create_accepted"`
+	SendAccepted      bool                          `json:"send_accepted"`
+	TurnObserved      bool                          `json:"turn_observed"`
+	MessagesReceived  bool                          `json:"messages_received"`
+	CloseSent         bool                          `json:"close_sent"`
+	CloseAccepted     bool                          `json:"close_accepted"`
+	ProviderErrorCode *int                          `json:"provider_error_code,omitempty"`
 }
 
 func encodeRuntimeDiagnosticInvocationStatus(status ports.RuntimeDiagnosticInvocationStatus) ([]byte, error) {
 	process, parse, validation := status.States()
 	completedAt, hasCompletedAt := status.CompletedAt()
 	exitCode, hasExitCode := status.ExitCode()
-	wire := runtimeDiagnosticInvocationStatusWire{SchemaVersion: status.SchemaVersion(), SessionID: status.SessionID().String(), RunID: status.RunID().String(), AttemptID: status.AttemptID().String(), InvocationID: status.InvocationID(), Ordinal: status.Ordinal(), Purpose: status.Purpose(), ProcessState: process, ParseState: parse, ValidationState: validation, StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano), Termination: status.Termination(), LastSequence: status.LastSequence()}
+	wire := runtimeDiagnosticInvocationStatusWire{SchemaVersion: status.SchemaVersion(), SessionID: status.SessionID().String(), RunID: status.RunID().String(), AttemptID: status.AttemptID().String(), InvocationID: status.InvocationID(), ExecutionInvocationID: status.ExecutionInvocationID(), Ordinal: status.Ordinal(), Purpose: status.Purpose(), ProcessState: process, ParseState: parse, ValidationState: validation, StartedAt: status.StartedAt().Format(time.RFC3339Nano), UpdatedAt: status.UpdatedAt().Format(time.RFC3339Nano), Termination: status.Termination(), LastSequence: status.LastSequence()}
 	if hasCompletedAt {
 		wire.CompletedAt = completedAt.Format(time.RFC3339Nano)
 	}
@@ -251,6 +302,16 @@ func encodeRuntimeDiagnosticInvocationStatus(status ports.RuntimeDiagnosticInvoc
 	}
 	if stderr, ok := status.Stderr(); ok {
 		wire.Stderr = diagnosticRawWire(stderr)
+	}
+	if protocol, ok := status.SessionObservation(); ok {
+		create, send, turn, messages, closeSent, closeAccepted := protocol.Receipts()
+		wire.Protocol = &runtimeDiagnosticProtocolWire{
+			Phase: protocol.Phase(), Terminal: protocol.Terminal(), ProviderSessionID: protocol.ProviderSessionID(), ProviderTurnID: protocol.ProviderTurnID(),
+			CreateAccepted: create, SendAccepted: send, TurnObserved: turn, MessagesReceived: messages, CloseSent: closeSent, CloseAccepted: closeAccepted,
+		}
+		if code, hasCode := protocol.ProviderErrorCode(); hasCode {
+			wire.Protocol.ProviderErrorCode = &code
+		}
 	}
 	return marshalDiagnosticStatus(wire)
 }

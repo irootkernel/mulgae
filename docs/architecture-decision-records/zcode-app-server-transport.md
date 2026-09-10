@@ -45,7 +45,8 @@ stays adapter-owned.
 The conversation runs on TASK-009's runner contract: one dedicated process
 group, one request timeout across the whole exchange, a tee-spooled protocol
 transcript, and bounded teardown with termination classification. The driver
-owns protocol semantics; the runner owns process facts.
+owns protocol semantics and records its terminal phase, session and turn
+correlation, and accepted-operation receipts. The runner owns process facts.
 
 ## Wire shapes pinned by the live spike
 
@@ -109,6 +110,15 @@ following facts, verified end to end including one real model turn:
 - A protocol conversation succeeds through its driver: the bounded teardown
   that ends a live server classifies the child as signaled, so one-shot exit
   semantics no longer decide provider success for ZCode.
+- A failed conversation keeps the same driver-owned session observation through
+  process teardown. Expected SIGTERM cleanup therefore does not overwrite the
+  typed protocol failure with a process/observation mismatch. Raw provider
+  session and turn identifiers stay in private invocation diagnostics; public
+  status uses provider- and kind-bound SHA-256 fingerprints.
+- If the adapter cannot assemble a coherent provider observation, it returns
+  the stable `provider_execution_observation_rejected` invariant with the
+  available process and protocol facts. The provider runtime records those
+  facts before failing the attempt.
 - Qualification evidence moved from stdout envelope parsing to the
   conversation's captured assistant text, preserving the controlled
   nonce/link/role proof.

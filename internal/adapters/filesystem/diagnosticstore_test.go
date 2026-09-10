@@ -3,6 +3,7 @@
 package filesystem
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -142,9 +143,94 @@ func TestDiagnosticStatusReaderResolvesDiagnosticOnlyRunByRunID(t *testing.T) {
 		status.TerminalCause() != domain.DiagnosticCausePublicationInstallationFailed || status.TerminalPhase() != domain.DiagnosticPhasePublicationInstallation {
 		t.Fatalf("diagnostic status = session %s run %s state %s", status.SessionID(), status.RunID(), status.State())
 	}
+	direct, err := NewDiagnosticStatusReader().ReadSessionRunStatus(context.Background(), root, fixture.request.SessionID(), fixture.request.RunID())
+	if err != nil || direct.SessionID() != fixture.request.SessionID() || direct.RunID() != fixture.request.RunID() {
+		t.Fatalf("direct diagnostic status = %#v, %v", direct, err)
+	}
+	otherSession, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51cce")
+	if _, err := NewDiagnosticStatusReader().ReadSessionRunStatus(context.Background(), root, otherSession, fixture.request.RunID()); !errors.Is(err, ports.ErrRuntimeDiagnosticRunNotFound) {
+		t.Fatalf("mismatched session diagnostic error = %v", err)
+	}
 	missing, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bb")
 	if _, err := NewDiagnosticStatusReader().ReadRunStatus(context.Background(), root, missing); !errors.Is(err, ports.ErrRuntimeDiagnosticRunNotFound) {
 		t.Fatalf("missing diagnostic error = %v", err)
+	}
+}
+
+func TestDiagnosticStatusReaderRejectsDuplicateRunAcrossSessions(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	original := diagnosticStorePath(fixture, "status.json")
+	data, err := os.ReadFile(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSession, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51cce")
+	var wire runtimeDiagnosticRunStatusWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	wire.SessionID = otherSession.String()
+	data, err = json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(fixture.root, "diagnostics", otherSession.String(), fixture.request.RunID().String())
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "status.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := ports.NewAnchoredRoot(fixture.root)
+	if _, err := NewDiagnosticStatusReader().ReadRunStatus(context.Background(), root, fixture.request.RunID()); err == nil || !strings.Contains(err.Error(), "multiple matching runs") {
+		t.Fatalf("duplicate run error = %v", err)
+	}
+}
+
+func TestDiagnosticStatusReaderRejectsStatusWithForeignSessionIdentity(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	path := diagnosticStorePath(fixture, "status.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire runtimeDiagnosticRunStatusWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	wire.SessionID = "s_019f596a-cf80-7c67-b265-f37053d51cce"
+	data, err = json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewDiagnosticStatusReader().ReadSessionRunStatus(context.Background(), root, fixture.request.SessionID(), fixture.request.RunID())
+	if err == nil || errors.Is(err, ports.ErrRuntimeDiagnosticRunNotFound) || !strings.Contains(err.Error(), "status identity or authority mismatch") {
+		t.Fatalf("foreign session status error = %v", err)
+	}
+}
+
+func TestDiagnosticStatusReaderTreatsMissingStatusDocumentAsNotFound(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	if err := os.Remove(diagnosticStorePath(fixture, "status.json")); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := NewDiagnosticStatusReader()
+	if _, err := reader.ReadSessionRunStatus(context.Background(), root, fixture.request.SessionID(), fixture.request.RunID()); !errors.Is(err, ports.ErrRuntimeDiagnosticRunNotFound) {
+		t.Fatalf("direct missing status error = %v", err)
+	}
+	if _, err := reader.ReadRunStatus(context.Background(), root, fixture.request.RunID()); !errors.Is(err, ports.ErrRuntimeDiagnosticRunNotFound) {
+		t.Fatalf("scanned missing status error = %v", err)
 	}
 }
 
@@ -163,6 +249,63 @@ func TestDiagnosticStatusDecoderRejectsLegacyVocabularyWithTypedCause(t *testing
 				t.Fatalf("decode legacy diagnostic status error = %v, want typed unsupported contract", err)
 			}
 		})
+	}
+}
+
+func TestDiagnosticStatusDecoderReadsV2WithSummary(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	data, err := os.ReadFile(diagnosticStorePath(fixture, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire runtimeDiagnosticRunStatusWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	wire.SchemaVersion = "mulgae-runtime-run-status.v2"
+	wire.DiagnosticSummary = &runtimeDiagnosticSummaryWire{
+		InvariantID: ports.ProviderObservationInvariantRejected, Component: "provider_registry", Phase: "provider_observation",
+		ProtocolTerminal: "failed", ProviderSessionFingerprint: "sha256:" + strings.Repeat("a", 64),
+	}
+	data, err = json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := decodeDiagnosticRunStatus(data, fixture.request.SessionID(), fixture.request.RunID())
+	if err != nil {
+		t.Fatalf("v2 status rejected: %v", err)
+	}
+	if summary, ok := status.DiagnosticSummary(); !ok || summary.InvariantID() != ports.ProviderObservationInvariantRejected {
+		t.Fatalf("v2 summary = %#v, present = %t", summary.Input(), ok)
+	}
+}
+
+func TestDiagnosticStoreRetainsInvariantSummaryOverLaterProtocolSummary(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	for _, input := range []domain.RuntimeDiagnosticEventInput{
+		{Level: domain.RuntimeDiagnosticInfo, Component: "provider_runtime", Operation: "protocol", Event: domain.DiagnosticProviderProtocolTerminal,
+			SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), AttemptID: attempt,
+			Provider: "zcode_first", ProtocolPhase: "turn", ProtocolTerminal: "failed"},
+		{Level: domain.RuntimeDiagnosticError, Component: "provider_registry", Operation: "assemble", Event: domain.DiagnosticInternalInvariantDetected,
+			SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), AttemptID: attempt,
+			Provider: "zcode_invariant", Cause: domain.DiagnosticCauseObservationInvalid, ProtocolPhase: "provider_observation",
+			ProtocolTerminal: "failed", InvariantID: ports.ProviderObservationInvariantRejected},
+		{Level: domain.RuntimeDiagnosticInfo, Component: "provider_runtime", Operation: "protocol", Event: domain.DiagnosticProviderProtocolTerminal,
+			SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), AttemptID: attempt,
+			Provider: "zcode_late", ProtocolPhase: "turn", ProtocolTerminal: "failed"},
+	} {
+		draft, err := domain.NewRuntimeDiagnosticEventDraft(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.store.Emit(context.Background(), draft); err != nil {
+			t.Fatal(err)
+		}
+	}
+	concrete := fixture.store.(*DiagnosticStore)
+	if !concrete.hasDiagnosticSummary || concrete.diagnosticSummary.InvariantID() != ports.ProviderObservationInvariantRejected || concrete.diagnosticSummary.Provider() != "zcode_invariant" {
+		t.Fatalf("selected summary = %#v", concrete.diagnosticSummary.Input())
 	}
 }
 
@@ -243,12 +386,32 @@ func TestDiagnosticStoreAtomicallyReplacesAttemptAndInvocationStatus(t *testing.
 	if err := fixture.store.ReplaceAttemptStatus(context.Background(), attemptStatus); err != nil {
 		t.Fatal(err)
 	}
-	invocationStatus, err := ports.NewRuntimeDiagnosticInvocationStatus(ports.RuntimeDiagnosticInvocationStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), AttemptID: attempt, InvocationID: "i_019f596a-d04a-7a7a-8b3c-123456789abc", Ordinal: 1, Purpose: ports.ProviderInvocationInitial, ProcessState: domain.InvocationRunning, ParseState: domain.ParseNotStarted, ValidationState: domain.ValidationNotStarted, StartedAt: fixture.request.StartedAt(), UpdatedAt: now, LastSequence: event.Sequence()})
+	protocol, err := ports.NewProviderSessionObservation(ports.ProviderSessionObservationInput{Phase: ports.ProviderSessionPhaseTurn, Terminal: ports.ProviderSessionFailed, ProviderSessionID: "zcode-session-private", ProviderTurnID: "zcode-turn-private", CreateAccepted: true, SendAccepted: true, TurnObserved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocationStatus, err := ports.NewRuntimeDiagnosticInvocationStatus(ports.RuntimeDiagnosticInvocationStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), AttemptID: attempt, InvocationID: "i_019f596a-d04a-7a7a-8b3c-123456789abc", ExecutionInvocationID: "019f596a-d04b-7a7a-8b3c-123456789abc", Ordinal: 1, Purpose: ports.ProviderInvocationInitial, ProcessState: domain.InvocationRunning, ParseState: domain.ParseNotStarted, ValidationState: domain.ValidationNotStarted, StartedAt: fixture.request.StartedAt(), UpdatedAt: now, LastSequence: event.Sequence(), SessionObservation: protocol, HasSessionObservation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := fixture.store.ReplaceInvocationStatus(context.Background(), invocationStatus); err != nil {
 		t.Fatal(err)
+	}
+	runStatus, err := os.ReadFile(diagnosticStorePath(fixture, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(runStatus, []byte("zcode-session-private")) || bytes.Contains(runStatus, []byte("zcode-turn-private")) {
+		t.Fatalf("public run status leaked private provider correlation: %s", runStatus)
+	}
+	invocationBytes, err := os.ReadFile(diagnosticStorePath(fixture, "attempts/"+attempt.String()+"/invocations/001-initial/status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"zcode-session-private", "zcode-turn-private", "019f596a-d04b-7a7a-8b3c-123456789abc"} {
+		if !bytes.Contains(invocationBytes, []byte(value)) {
+			t.Fatalf("private invocation status omitted %q: %s", value, invocationBytes)
+		}
 	}
 	for _, relative := range []string{"attempts/" + attempt.String() + "/status.json", "attempts/" + attempt.String() + "/invocations/001-initial/status.json"} {
 		info, err := os.Stat(diagnosticStorePath(fixture, relative))
@@ -354,11 +517,25 @@ func TestDiagnosticStoreReservesTerminalTailAndRecordsOrdinaryDrops(t *testing.T
 	if _, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRolePathStarted)); !errors.Is(err, ports.ErrRuntimeDiagnosticEventDropped) {
 		t.Fatalf("ordinary cap error = %v", err)
 	}
+	attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	invariantDraft, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticError, Component: "provider_registry", Operation: "assemble",
+		Event: domain.DiagnosticInternalInvariantDetected, SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(),
+		AttemptID: attempt, InvocationID: "i_019f596a-d04a-7a7a-8b3c-123456789abc", Provider: "zcode-main",
+		Cause: domain.DiagnosticCauseObservationInvalid, ProtocolPhase: "provider_observation", ProtocolTerminal: "failed",
+		InvariantID: ports.ProviderObservationInvariantRejected, ProviderSessionFingerprint: "sha256:" + strings.Repeat("a", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.Emit(context.Background(), invariantDraft); err != nil {
+		t.Fatalf("mandatory invariant did not use tail reserve: %v", err)
+	}
 	event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRunStarted))
 	if err != nil {
 		t.Fatalf("mandatory event did not use tail reserve: %v", err)
 	}
-	if event.Sequence() != 1 {
+	if event.Sequence() != 2 {
 		t.Fatalf("mandatory sequence = %d", event.Sequence())
 	}
 	completed := fixture.request.StartedAt().Add(time.Second)
@@ -374,6 +551,9 @@ func TestDiagnosticStoreReservesTerminalTailAndRecordsOrdinaryDrops(t *testing.T
 	}
 	if wire.DroppedEvents != 1 {
 		t.Fatalf("dropped events = %d", wire.DroppedEvents)
+	}
+	if wire.DiagnosticSummary == nil || wire.DiagnosticSummary.InvariantID != ports.ProviderObservationInvariantRejected {
+		t.Fatalf("terminal diagnostic summary = %#v", wire.DiagnosticSummary)
 	}
 }
 

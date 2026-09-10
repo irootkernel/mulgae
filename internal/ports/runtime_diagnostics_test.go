@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -135,6 +136,40 @@ func TestRuntimeDiagnosticStatusesValidateHierarchyAndDefensivelyCopy(t *testing
 	bad := RuntimeDiagnosticRunStatusInput{SessionID: request.SessionID(), RunID: request.RunID(), State: domain.RunRunning, StartedAt: updated, UpdatedAt: started}
 	if _, err := NewRuntimeDiagnosticRunStatus(bad); err == nil {
 		t.Fatal("backward timestamps accepted")
+	}
+}
+
+func TestRuntimeDiagnosticSummaryRejectsValuesOutsidePublicSchema(t *testing.T) {
+	attemptID, err := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := RuntimeDiagnosticSummaryInput{
+		InvariantID: "provider_execution_observation_rejected", Component: "provider_registry", Phase: "provider_observation",
+		Provider: "zcode_default", AttemptID: attemptID, InvocationID: "i_019f596a-d04a-7a7a-8b3c-123456789abc",
+		ProtocolTerminal: "failed", ProviderSessionFingerprint: "sha256:" + strings.Repeat("a", 64),
+		ProviderTurnFingerprint: "sha256:" + strings.Repeat("b", 64),
+	}
+	if _, err := NewRuntimeDiagnosticSummary(valid); err != nil {
+		t.Fatalf("valid summary rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*RuntimeDiagnosticSummaryInput){
+		"component":           func(input *RuntimeDiagnosticSummaryInput) { input.Component = "Provider Registry" },
+		"phase":               func(input *RuntimeDiagnosticSummaryInput) { input.Phase = "toolCall" },
+		"invariant":           func(input *RuntimeDiagnosticSummaryInput) { input.InvariantID = "bad-invariant" },
+		"terminal":            func(input *RuntimeDiagnosticSummaryInput) { input.ProtocolTerminal = "cancelled" },
+		"session fingerprint": func(input *RuntimeDiagnosticSummaryInput) { input.ProviderSessionFingerprint = "abc" },
+		"turn fingerprint": func(input *RuntimeDiagnosticSummaryInput) {
+			input.ProviderTurnFingerprint = "sha256:" + strings.Repeat("A", 64)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := valid
+			mutate(&input)
+			if _, err := NewRuntimeDiagnosticSummary(input); err == nil {
+				t.Fatal("invalid summary accepted")
+			}
+		})
 	}
 }
 

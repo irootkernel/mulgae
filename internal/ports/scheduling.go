@@ -1664,6 +1664,131 @@ type ProviderSessionExchange interface {
 	SendLine(ctx context.Context, line []byte) error
 }
 
+// ProviderSessionPhase identifies the last protocol operation reached by one
+// provider conversation. It is deliberately provider-neutral and safe for
+// bounded runtime diagnostics.
+type ProviderSessionPhase string
+
+const (
+	ProviderSessionPhaseCreate   ProviderSessionPhase = "create"
+	ProviderSessionPhaseSend     ProviderSessionPhase = "send"
+	ProviderSessionPhaseTurn     ProviderSessionPhase = "turn"
+	ProviderSessionPhaseMessages ProviderSessionPhase = "messages"
+	ProviderSessionPhaseClose    ProviderSessionPhase = "close"
+)
+
+func (phase ProviderSessionPhase) Valid() bool {
+	switch phase {
+	case ProviderSessionPhaseCreate, ProviderSessionPhaseSend, ProviderSessionPhaseTurn,
+		ProviderSessionPhaseMessages, ProviderSessionPhaseClose:
+		return true
+	default:
+		return false
+	}
+}
+
+// ProviderSessionTerminal is the protocol driver's terminal semantic fact.
+type ProviderSessionTerminal string
+
+const (
+	ProviderSessionCompleted ProviderSessionTerminal = "completed"
+	ProviderSessionFailed    ProviderSessionTerminal = "failed"
+)
+
+func (terminal ProviderSessionTerminal) Valid() bool {
+	return terminal == ProviderSessionCompleted || terminal == ProviderSessionFailed
+}
+
+// ProviderSessionObservation is the bounded provider-neutral correlation and
+// progress record returned by a protocol driver on both success and failure.
+// Provider-issued identifiers remain private diagnostic data; public surfaces
+// may expose only their domain-separated fingerprints.
+type ProviderSessionObservation struct {
+	phase                                      ProviderSessionPhase
+	terminal                                   ProviderSessionTerminal
+	providerSessionID, providerTurnID          string
+	createAccepted, sendAccepted, turnObserved bool
+	messagesReceived, closeSent, closeAccepted bool
+	providerErrorCode                          int
+	hasProviderErrorCode                       bool
+}
+
+type ProviderSessionObservationInput struct {
+	Phase                                      ProviderSessionPhase
+	Terminal                                   ProviderSessionTerminal
+	ProviderSessionID, ProviderTurnID          string
+	CreateAccepted, SendAccepted, TurnObserved bool
+	MessagesReceived, CloseSent, CloseAccepted bool
+	ProviderErrorCode                          int
+	HasProviderErrorCode                       bool
+}
+
+func NewProviderSessionObservation(input ProviderSessionObservationInput) (ProviderSessionObservation, error) {
+	if !input.Phase.Valid() || !input.Terminal.Valid() ||
+		!validProviderSessionIdentifier(input.ProviderSessionID) ||
+		!validProviderSessionIdentifier(input.ProviderTurnID) {
+		return ProviderSessionObservation{}, fmt.Errorf("provider session observation: invalid field")
+	}
+	if input.SendAccepted && !input.CreateAccepted || input.TurnObserved && !input.SendAccepted ||
+		input.MessagesReceived && !input.TurnObserved || input.CloseAccepted && !input.CloseSent ||
+		!input.HasProviderErrorCode && input.ProviderErrorCode != 0 {
+		return ProviderSessionObservation{}, fmt.Errorf("provider session observation: inconsistent receipts")
+	}
+	return ProviderSessionObservation{
+		phase: input.Phase, terminal: input.Terminal,
+		providerSessionID: input.ProviderSessionID, providerTurnID: input.ProviderTurnID,
+		createAccepted: input.CreateAccepted, sendAccepted: input.SendAccepted, turnObserved: input.TurnObserved,
+		messagesReceived: input.MessagesReceived, closeSent: input.CloseSent, closeAccepted: input.CloseAccepted,
+		providerErrorCode: input.ProviderErrorCode, hasProviderErrorCode: input.HasProviderErrorCode,
+	}, nil
+}
+
+func validProviderSessionIdentifier(value string) bool {
+	return value == "" || validateAuditToken(value, 512) == nil
+}
+
+func (observation ProviderSessionObservation) Valid() bool {
+	_, err := NewProviderSessionObservation(observation.Input())
+	return err == nil
+}
+func (observation ProviderSessionObservation) Input() ProviderSessionObservationInput {
+	return ProviderSessionObservationInput{
+		Phase: observation.phase, Terminal: observation.terminal,
+		ProviderSessionID: observation.providerSessionID, ProviderTurnID: observation.providerTurnID,
+		CreateAccepted: observation.createAccepted, SendAccepted: observation.sendAccepted, TurnObserved: observation.turnObserved,
+		MessagesReceived: observation.messagesReceived, CloseSent: observation.closeSent, CloseAccepted: observation.closeAccepted,
+		ProviderErrorCode: observation.providerErrorCode, HasProviderErrorCode: observation.hasProviderErrorCode,
+	}
+}
+func (observation ProviderSessionObservation) Phase() ProviderSessionPhase { return observation.phase }
+func (observation ProviderSessionObservation) Terminal() ProviderSessionTerminal {
+	return observation.terminal
+}
+func (observation ProviderSessionObservation) ProviderSessionID() string {
+	return observation.providerSessionID
+}
+func (observation ProviderSessionObservation) ProviderTurnID() string {
+	return observation.providerTurnID
+}
+func (observation ProviderSessionObservation) Receipts() (bool, bool, bool, bool, bool, bool) {
+	return observation.createAccepted, observation.sendAccepted, observation.turnObserved,
+		observation.messagesReceived, observation.closeSent, observation.closeAccepted
+}
+func (observation ProviderSessionObservation) ProviderErrorCode() (int, bool) {
+	return observation.providerErrorCode, observation.hasProviderErrorCode
+}
+
+func validateProviderConversationObservation(process ProcessObservation, session ProviderSessionObservation) error {
+	if !process.Valid() || !session.Valid() {
+		return fmt.Errorf("provider conversation observation: invalid field")
+	}
+	transport, ok := process.ProviderPacketTransportReceipt()
+	if !ok || transport.Channel() != ProviderPacketChannelProtocol {
+		return fmt.Errorf("provider conversation observation: non-protocol process")
+	}
+	return nil
+}
+
 // ProviderSessionDriver conducts one provider protocol conversation. The
 // driver owns protocol semantics such as framing, request correlation, and
 // terminal turn detection; the conversation runner owns the child process,

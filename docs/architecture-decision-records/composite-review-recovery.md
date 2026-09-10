@@ -60,8 +60,10 @@ identities remain unchanged.
 
 ## Consequences
 
-CLI status v7 and MCP `get_run` expose `failed_run_recovery`: availability,
-source identity, accepted roles, retry attempts, and an unavailable reason.
+`failed_run_recovery` first appeared in CLI command-result v7. The contracts
+specification defines the current CLI envelope version. CLI status and MCP
+`get_run` expose recovery availability, source identity, accepted roles, retry
+attempts, and an unavailable reason.
 Publication recovery actions remain separate from role replay admission.
 Findings, report, and export still require a committed final review.
 

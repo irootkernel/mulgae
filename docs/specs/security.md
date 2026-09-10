@@ -60,6 +60,13 @@ with no diagnostic status or only a nonterminal snapshot returns
 cancellation remains cancellation; cancellation joined with diagnostic damage
 retains artifact-failure precedence.
 
+Both ordinary and diagnostic-only status may expose a bounded
+`diagnostic_summary`. It contains only fixed diagnostic tokens, Mulgae-owned
+identities, and domain-separated SHA-256 fingerprints of provider session and
+turn identifiers. Raw provider identifiers remain in the private invocation
+status. An ordinary publication status accepts this summary only when its
+session identity matches the diagnostic run.
+
 Optional `run_review` progress notifications contain only fixed Mulgae
 lifecycle messages, an admitted bounded client token, and a monotonic counter;
 they do not expose paths, source, provider output, run identity, or artifact
@@ -150,7 +157,11 @@ say that no provider ever holds it.
   object, and every other server-initiated interaction request is left
   unanswered. A missing turn completion, a reported turn failure, or an
   unparseable protocol message fails closed through typed classification, with
-  the stderr token classification retained as the fallback. Because the
+  the stderr token classification retained as the fallback. The protocol
+  driver records bounded phase, terminal, correlation, and receipt facts before
+  process teardown. These facts allow a protocol failure followed by expected
+  SIGTERM teardown to keep its provider failure classification instead of
+  becoming an internal invariant failure. Because the
   app-server binds a per-process unix socket under its temp directory, ZCode
   namespaces redirect `TMPDIR`, `TMP`, and `TEMP` to the short shared
   mode-`0700` runtime directory `/tmp/mulgae-zcode`; a namespace-rooted temp
@@ -249,7 +260,10 @@ utilities. Ambient and configured `PATH` values cannot override it. This path
 is part of the effective environment identity used for qualification.
 
 Runtime diagnostics and exports must not disclose secrets or native paths. A
-new diagnostic field is a data-release boundary and requires review.
+new diagnostic field is a data-release boundary and requires review. Provider
+session and turn identifiers are private diagnostic data. Public status may
+expose only their domain-separated SHA-256 fingerprints, which bind the
+provider instance and identifier kind before hashing.
 
 Tracked `.gitignore`, `.mulgaeignore`, and the exact `.mulgae/config.yaml` file
 are trusted capture-policy inputs, not provider evidence. Their presence does

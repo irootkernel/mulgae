@@ -47,7 +47,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v7.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v8.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -503,7 +503,7 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 	}
 }
 
-func TestApplicationComposeUnavailableReturnsV7ReconciliationEnvelope(t *testing.T) {
+func TestApplicationComposeUnavailableReturnsV8ReconciliationEnvelope(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	result := fixture.application.Run(context.Background(), []string{
 		"compose", "--root-run", "r_019f596a-cf80-7c67-b265-f37053d51ccf",
@@ -517,7 +517,7 @@ func TestApplicationComposeUnavailableReturnsV7ReconciliationEnvelope(t *testing
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v7" || envelope.Result["kind"] != "composite_failed" ||
+	if envelope.SchemaVersion != "mulgae-command-result.v8" || envelope.Result["kind"] != "composite_failed" ||
 		envelope.Result["root_run_id"] == nil || envelope.Result["reconciliation_state"] != "not_committed" || envelope.Result["retry_safe"] != true {
 		t.Fatalf("compose failure envelope = %#v", envelope)
 	}
@@ -3588,11 +3588,19 @@ type g006QueryFake struct {
 }
 
 type diagnosticQueryFake struct {
-	status ports.RuntimeDiagnosticRunStatus
-	err    error
+	status      ports.RuntimeDiagnosticRunStatus
+	err         error
+	readSession func(ports.AnchoredRoot, domain.SessionID, domain.RunID) (ports.RuntimeDiagnosticRunStatus, error)
 }
 
 func (fake diagnosticQueryFake) ReadRunStatus(context.Context, ports.AnchoredRoot, domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	return fake.status, fake.err
+}
+
+func (fake diagnosticQueryFake) ReadSessionRunStatus(_ context.Context, root ports.AnchoredRoot, sessionID domain.SessionID, runID domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	if fake.readSession != nil {
+		return fake.readSession(root, sessionID, runID)
+	}
 	return fake.status, fake.err
 }
 
@@ -4009,6 +4017,7 @@ func TestApplicationStatusReadsDiagnosticOnlyRunWhenPublicationIsAbsent(t *testi
 		SessionID: sessionID, RunID: runID, State: domain.RunFailed, StartedAt: now, UpdatedAt: now.Add(time.Second),
 		CompletedAt: now.Add(time.Second), HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleTesting},
 		RolePathTotal: 1, RolePathFailed: 1, LastSequence: 12, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
+		DiagnosticSummary: mustRuntimeDiagnosticSummary(t), HasDiagnosticSummary: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -4021,11 +4030,12 @@ func TestApplicationStatusReadsDiagnosticOnlyRunWhenPublicationIsAbsent(t *testi
 	}
 	var envelope struct {
 		Result struct {
-			DiagnosticOnly       bool    `json:"diagnostic_only"`
-			PublicationAuthority bool    `json:"publication_authority"`
-			TerminalCause        *string `json:"terminal_cause"`
-			TerminalPhase        *string `json:"terminal_phase"`
-			RecoveryAction       string  `json:"recovery_action"`
+			DiagnosticOnly       bool                     `json:"diagnostic_only"`
+			PublicationAuthority bool                     `json:"publication_authority"`
+			TerminalCause        *string                  `json:"terminal_cause"`
+			TerminalPhase        *string                  `json:"terminal_phase"`
+			RecoveryAction       string                   `json:"recovery_action"`
+			DiagnosticSummary    *diagnosticSummaryResult `json:"diagnostic_summary"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
@@ -4033,9 +4043,40 @@ func TestApplicationStatusReadsDiagnosticOnlyRunWhenPublicationIsAbsent(t *testi
 	}
 	if !envelope.Result.DiagnosticOnly || envelope.Result.PublicationAuthority ||
 		envelope.Result.TerminalCause == nil || *envelope.Result.TerminalCause != string(domain.DiagnosticCauseProviderSpawnFailed) ||
-		envelope.Result.TerminalPhase != nil || envelope.Result.RecoveryAction != "rerun_review" {
+		envelope.Result.TerminalPhase != nil || envelope.Result.RecoveryAction != "rerun_review" || envelope.Result.DiagnosticSummary == nil ||
+		envelope.Result.DiagnosticSummary.InvariantID != ports.ProviderObservationInvariantRejected ||
+		envelope.Result.DiagnosticSummary.ProviderSessionFingerprint != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("diagnostic status envelope = %#v", envelope.Result)
 	}
+	human := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID}, testAnchoredRoot(t))
+	if human.ExitCode() != app.ExitCodeSuccess || len(human.Stderr()) != 0 {
+		t.Fatalf("diagnostic human status = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+	for _, want := range []string{
+		"diagnostic_component=provider_registry",
+		"diagnostic_phase=provider_observation",
+		"invariant_id=" + ports.ProviderObservationInvariantRejected,
+		"provider_session_fingerprint=sha256:" + strings.Repeat("a", 64),
+	} {
+		if !strings.Contains(string(human.Stdout()), want) {
+			t.Fatalf("diagnostic human status missing %q: %s", want, human.Stdout())
+		}
+	}
+}
+
+func mustRuntimeDiagnosticSummary(t *testing.T) ports.RuntimeDiagnosticSummary {
+	t.Helper()
+	attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+	summary, err := ports.NewRuntimeDiagnosticSummary(ports.RuntimeDiagnosticSummaryInput{
+		InvariantID: ports.ProviderObservationInvariantRejected, Component: "provider_registry", Phase: "provider_observation",
+		Provider: "zcode_default", AttemptID: attempt, InvocationID: "i_019f596a-d04a-7a7a-8b3c-123456789abc",
+		ProtocolTerminal: "failed", ProviderSessionFingerprint: "sha256:" + strings.Repeat("a", 64),
+		ProviderTurnFingerprint: "sha256:" + strings.Repeat("b", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return summary
 }
 
 func TestApplicationStatusSerializesAvailableFailedRunRecovery(t *testing.T) {
@@ -4053,6 +4094,7 @@ func TestApplicationStatusSerializesAvailableFailedRunRecovery(t *testing.T) {
 	query := newG006QueryFake()
 	query.status = RunStatusView{
 		FailedRunRecovery: want,
+		SessionID:         g006SessionID,
 		RunID:             testRunID,
 		RunState:          domain.RunFailed,
 		HasRunState:       true,
@@ -4060,11 +4102,32 @@ func TestApplicationStatusSerializesAvailableFailedRunRecovery(t *testing.T) {
 		RecoveryAction:    domain.RecoveryActionResumeCollection,
 	}
 	fixture := newG006Fixture(t, query, &g006ReportFake{})
+	sessionID, _ := domain.ParseSessionID(g006SessionID)
+	diagnosticRunID, _ := domain.ParseRunID(testRunID)
+	now := time.Date(2026, time.July, 23, 6, 0, 0, 0, time.UTC)
+	diagnosticStatus, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: diagnosticRunID, State: domain.RunFailed, StartedAt: now, UpdatedAt: now.Add(time.Second),
+		CompletedAt: now.Add(time.Second), HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleLogic},
+		RolePathTotal: 1, RolePathFailed: 1, LastSequence: 12, TerminalCause: domain.DiagnosticCauseProviderTurnFailed,
+		DiagnosticSummary: mustRuntimeDiagnosticSummary(t), HasDiagnosticSummary: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var directSession domain.SessionID
+	fixture.application.diagnosticQueries = diagnosticQueryFake{status: diagnosticStatus, readSession: func(_ ports.AnchoredRoot, sessionID domain.SessionID, runID domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+		directSession = sessionID
+		if runID != diagnosticRunID {
+			return ports.RuntimeDiagnosticRunStatus{}, errors.New("unexpected direct run identity")
+		}
+		return diagnosticStatus, nil
+	}}
 	result := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID, "--output", "json"}, testAnchoredRoot(t))
 	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
 	var envelope struct {
 		Result struct {
-			FailedRunRecovery recovery.Status `json:"failed_run_recovery"`
+			FailedRunRecovery recovery.Status          `json:"failed_run_recovery"`
+			DiagnosticSummary *diagnosticSummaryResult `json:"diagnostic_summary"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
@@ -4073,6 +4136,30 @@ func TestApplicationStatusSerializesAvailableFailedRunRecovery(t *testing.T) {
 	if !reflect.DeepEqual(envelope.Result.FailedRunRecovery, want) {
 		t.Fatalf("status recovery round trip = %#v, want %#v", envelope.Result.FailedRunRecovery, want)
 	}
+	if envelope.Result.DiagnosticSummary == nil ||
+		envelope.Result.DiagnosticSummary.InvariantID != ports.ProviderObservationInvariantRejected {
+		t.Fatalf("status diagnostic summary = %#v", envelope.Result.DiagnosticSummary)
+	}
+	if directSession != sessionID {
+		t.Fatalf("direct diagnostic session = %s, want %s", directSession, sessionID)
+	}
+	human := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID}, testAnchoredRoot(t))
+	if human.ExitCode() != app.ExitCodeSuccess || len(human.Stderr()) != 0 {
+		t.Fatalf("publication human status = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	}
+	for _, want := range []string{
+		"diagnostic_component: provider_registry",
+		"diagnostic_phase: provider_observation",
+		"invariant_id: " + ports.ProviderObservationInvariantRejected,
+		"provider_session_fingerprint: sha256:" + strings.Repeat("a", 64),
+	} {
+		if !strings.Contains(string(human.Stdout()), want) {
+			t.Fatalf("publication human status missing %q: %s", want, human.Stdout())
+		}
+	}
+	fixture.application.diagnosticQueries = diagnosticQueryFake{err: errors.New("diagnostic status corrupt")}
+	failed := fixture.application.Run(context.Background(), []string{"status", "--run", testRunID, "--output", "json"}, testAnchoredRoot(t))
+	assertFoundationEnvelope(t, fixture, failed, app.ExitCodeArtifact)
 }
 
 func TestApplicationG006StatusDoesNotDiscloseNonP2Paths(t *testing.T) {

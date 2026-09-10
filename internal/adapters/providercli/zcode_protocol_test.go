@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // driveScripted runs one driver against scripted server lines and returns the
@@ -164,6 +165,34 @@ func TestZCodeProtocolDriveClassifiesFailureBranches(t *testing.T) {
 			wantText:    "before the conversation was established",
 		},
 		{
+			name:        "send response before create is an envelope failure",
+			review:      true,
+			serverLines: []string{protocolSendAck},
+			wantCause:   domain.DiagnosticCauseOutputEnvelopeInvalid,
+			wantText:    "before the conversation was established",
+		},
+		{
+			name:        "turn failed before establishment is an envelope failure",
+			review:      true,
+			serverLines: []string{`{"method":"computer-use/operation-event","params":{"kind":"turn-failed","turnId":"turn_1","sessionId":"sess_forged"}}`},
+			wantCause:   domain.DiagnosticCauseOutputEnvelopeInvalid,
+			wantText:    "before the conversation was established",
+		},
+		{
+			name:        "completed turn session mismatch is an envelope failure",
+			review:      true,
+			serverLines: []string{protocolCreateResult, protocolSendAck, `{"method":"computer-use/operation-event","params":{"kind":"turn-completed","turnId":"turn_1","sessionId":"sess_other"}}`},
+			wantCause:   domain.DiagnosticCauseOutputEnvelopeInvalid,
+			wantText:    "does not match the established conversation",
+		},
+		{
+			name:        "failed turn session mismatch is an envelope failure",
+			review:      true,
+			serverLines: []string{protocolCreateResult, protocolSendAck, `{"method":"computer-use/operation-event","params":{"kind":"turn-failed","turnId":"turn_1","sessionId":"sess_other"}}`},
+			wantCause:   domain.DiagnosticCauseOutputEnvelopeInvalid,
+			wantText:    "does not match the established conversation",
+		},
+		{
 			name:        "unreadable messages result is an envelope failure",
 			serverLines: []string{protocolCreateResult, protocolSendAck, protocolTurnDone, `{"id":"mulgae-messages","result":{"messages":"not-an-array"}}`},
 			wantCause:   domain.DiagnosticCauseOutputEnvelopeInvalid,
@@ -198,6 +227,75 @@ func TestZCodeProtocolDriveClassifiesFailureBranches(t *testing.T) {
 				t.Fatalf("error %q does not contain %q", err.Error(), test.wantText)
 			}
 		})
+	}
+}
+
+func TestZCodeProtocolFailurePreservesSessionCorrelation(t *testing.T) {
+	session := mustReviewSession(t)
+	err, _ := driveScripted(t, session, protocolCreateResult, protocolSendAck,
+		`{"method":"computer-use/operation-event","params":{"kind":"turn-failed","turnId":"turn_private","sessionId":"sess_script"}}`)
+	if err == nil {
+		t.Fatal("Drive succeeded")
+	}
+	observation, ok := session.SessionObservation()
+	if !ok || observation.ProviderSessionID() != "sess_script" || observation.ProviderTurnID() != "turn_private" ||
+		observation.Phase() != ports.ProviderSessionPhaseTurn || observation.Terminal() != ports.ProviderSessionFailed {
+		t.Fatalf("observation = %#v, present = %t", observation.Input(), ok)
+	}
+	create, send, turn, messages, closeSent, closeAccepted := observation.Receipts()
+	if !create || !send || !turn || messages || closeSent || closeAccepted {
+		t.Fatalf("receipts = %t/%t/%t/%t/%t/%t", create, send, turn, messages, closeSent, closeAccepted)
+	}
+}
+
+func TestSafeZCodeDiagnosticIdentifierMatchesPortAdmission(t *testing.T) {
+	for _, value := range []string{
+		" leading",
+		"trailing ",
+		"embedded\ttab",
+		"embedded\u0085control",
+	} {
+		if got := safeZcodeDiagnosticIdentifier(value); got != "" {
+			t.Fatalf("safe identifier %q = %q, want omitted", value, got)
+		}
+	}
+	if got := safeZcodeDiagnosticIdentifier("session_safe"); got != "session_safe" {
+		t.Fatalf("safe identifier = %q, want session_safe", got)
+	}
+}
+
+func TestZCodeProtocolUnsafeCorrelationDoesNotFailCompletedReview(t *testing.T) {
+	session := mustReviewSession(t)
+	err, _ := driveScripted(t, session,
+		`{"id":"mulgae-create","result":{"session":{"sessionId":" session_private"}}}`,
+		`{"id":"mulgae-send","result":{"accepted":true,"sessionId":" session_private","stateRevision":1}}`,
+		`{"method":"computer-use/operation-event","params":{"kind":"turn-completed","turnId":"turn\tprivate","sessionId":" session_private"}}`,
+		protocolCloseResult,
+	)
+	if err != nil {
+		t.Fatalf("completed review failed on diagnostic-only correlation: %v", err)
+	}
+	observation, ok := session.SessionObservation()
+	if !ok || observation.Terminal() != ports.ProviderSessionCompleted || observation.ProviderSessionID() != "" || observation.ProviderTurnID() != "" {
+		t.Fatalf("sanitized completed observation = %#v, present = %t", observation.Input(), ok)
+	}
+}
+
+func TestZCodeProtocolPreservesFirstTerminalTurnCorrelation(t *testing.T) {
+	session := mustReviewSession(t)
+	err, _ := driveScripted(t, session,
+		protocolCreateResult,
+		protocolSendAck,
+		protocolTurnDone,
+		`{"method":"computer-use/operation-event","params":{"kind":"turn-completed","turnId":"turn_late","sessionId":"sess_script"}}`,
+		protocolCloseResult,
+	)
+	if err != nil {
+		t.Fatalf("Drive failed: %v", err)
+	}
+	observation, ok := session.SessionObservation()
+	if !ok || observation.ProviderTurnID() != "turn_script" {
+		t.Fatalf("terminal turn correlation = %q, present = %t", observation.ProviderTurnID(), ok)
 	}
 }
 

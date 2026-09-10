@@ -65,22 +65,12 @@ func (*DiagnosticStatusReader) ReadRunStatus(ctx context.Context, root ports.Anc
 		if err != nil {
 			continue
 		}
-		parts := []string{"diagnostics", sessionID.String(), runID.String()}
-		directory, err := walkPrivateDirectory(root, parts, false)
-		if errors.Is(err, unix.ENOENT) {
+		status, readErr := readSessionDiagnosticRunStatus(root, sessionID, runID)
+		if errors.Is(readErr, ports.ErrRuntimeDiagnosticRunNotFound) {
 			continue
 		}
-		if err != nil {
-			return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: validate run namespace: %w", err)
-		}
-		data, readErr := readDiagnosticStatusFile(directory)
-		closeFD(directory)
 		if readErr != nil {
 			return ports.RuntimeDiagnosticRunStatus{}, readErr
-		}
-		status, decodeErr := decodeDiagnosticRunStatus(data, sessionID, runID)
-		if decodeErr != nil {
-			return ports.RuntimeDiagnosticRunStatus{}, decodeErr
 		}
 		if found {
 			return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: multiple matching runs")
@@ -93,8 +83,44 @@ func (*DiagnosticStatusReader) ReadRunStatus(ctx context.Context, root ports.Anc
 	return matched, nil
 }
 
+func (*DiagnosticStatusReader) ReadSessionRunStatus(ctx context.Context, root ports.AnchoredRoot, sessionID domain.SessionID, runID domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	if ctx == nil || !root.Valid() {
+		return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: invalid request")
+	}
+	if err := ctx.Err(); err != nil {
+		return ports.RuntimeDiagnosticRunStatus{}, err
+	}
+	if _, err := domain.ParseSessionID(sessionID.String()); err != nil {
+		return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: invalid session ID")
+	}
+	if _, err := domain.ParseRunID(runID.String()); err != nil {
+		return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: invalid run ID")
+	}
+	return readSessionDiagnosticRunStatus(root, sessionID, runID)
+}
+
+func readSessionDiagnosticRunStatus(root ports.AnchoredRoot, sessionID domain.SessionID, runID domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	parts := []string{"diagnostics", sessionID.String(), runID.String()}
+	directory, err := walkPrivateDirectory(root, parts, false)
+	if errors.Is(err, unix.ENOENT) {
+		return ports.RuntimeDiagnosticRunStatus{}, ports.ErrRuntimeDiagnosticRunNotFound
+	}
+	if err != nil {
+		return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: validate run namespace: %w", err)
+	}
+	data, readErr := readDiagnosticStatusFile(directory)
+	closeFD(directory)
+	if readErr != nil {
+		return ports.RuntimeDiagnosticRunStatus{}, readErr
+	}
+	return decodeDiagnosticRunStatus(data, sessionID, runID)
+}
+
 func readDiagnosticStatusFile(directory int) ([]byte, error) {
 	fd, err := unix.Openat(directory, "status.json", unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ENOENT) {
+		return nil, ports.ErrRuntimeDiagnosticRunNotFound
+	}
 	if err != nil {
 		return nil, fmt.Errorf("diagnostic query: open status: %w", err)
 	}
@@ -135,7 +161,7 @@ func decodeDiagnosticRunStatus(data []byte, sessionID domain.SessionID, runID do
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: status has trailing content")
 	}
-	if wire.SchemaVersion != ports.RuntimeDiagnosticRunStatusSchema || wire.SessionID != sessionID.String() || wire.RunID != runID.String() || !wire.DiagnosticOnly || wire.PublicationAuthority {
+	if !acceptedDiagnosticRunStatusSchema(wire.SchemaVersion) || wire.SessionID != sessionID.String() || wire.RunID != runID.String() || !wire.DiagnosticOnly || wire.PublicationAuthority {
 		return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: status identity or authority mismatch")
 	}
 	startedAt, startedErr := time.Parse(time.RFC3339Nano, wire.StartedAt)
@@ -158,13 +184,35 @@ func decodeDiagnosticRunStatus(data []byte, sessionID domain.SessionID, runID do
 			return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: invalid P2 URI")
 		}
 	}
-	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+	input := ports.RuntimeDiagnosticRunStatusInput{
 		SessionID: sessionID, RunID: runID, State: wire.State, StartedAt: startedAt, UpdatedAt: updatedAt,
 		CompletedAt: completedAt, HasCompletedAt: hasCompletedAt, SelectedRoles: wire.SelectedRoles,
 		RolePathTotal: wire.RolePathTotal, RolePathCompleted: wire.RolePathCompleted, RolePathFailed: wire.RolePathFailed,
 		LastSequence: wire.LastSequence, TerminalCause: wire.TerminalCause, TerminalPhase: wire.TerminalPhase, P2URI: p2URI,
 		HasP2URI: hasP2URI, DroppedEvents: wire.DroppedEvents,
-	})
+	}
+	var summaryErr error
+	if wire.DiagnosticSummary != nil {
+		attemptID := domain.AttemptID{}
+		if wire.DiagnosticSummary.AttemptID != "" {
+			attemptID, summaryErr = domain.ParseAttemptID(wire.DiagnosticSummary.AttemptID)
+			if summaryErr != nil {
+				return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: invalid summary attempt ID")
+			}
+		}
+		input.DiagnosticSummary, summaryErr = ports.NewRuntimeDiagnosticSummary(ports.RuntimeDiagnosticSummaryInput{
+			InvariantID: wire.DiagnosticSummary.InvariantID, Component: wire.DiagnosticSummary.Component, Phase: wire.DiagnosticSummary.Phase,
+			Provider: wire.DiagnosticSummary.Provider, AttemptID: attemptID, InvocationID: wire.DiagnosticSummary.InvocationID,
+			ProtocolTerminal:           wire.DiagnosticSummary.ProtocolTerminal,
+			ProviderSessionFingerprint: wire.DiagnosticSummary.ProviderSessionFingerprint,
+			ProviderTurnFingerprint:    wire.DiagnosticSummary.ProviderTurnFingerprint,
+		})
+		if summaryErr != nil {
+			return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: invalid diagnostic summary: %w", summaryErr)
+		}
+		input.HasDiagnosticSummary = true
+	}
+	status, err := ports.NewRuntimeDiagnosticRunStatus(input)
 	if err != nil {
 		return ports.RuntimeDiagnosticRunStatus{}, fmt.Errorf("diagnostic query: invalid status: %w", err)
 	}

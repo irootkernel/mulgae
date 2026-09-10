@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -49,7 +50,14 @@ func TestRuntimeDiagnosticEventRejectsUnsafeOrInconsistentFields(t *testing.T) {
 		{"unsafe provider", func(in *RuntimeDiagnosticEventInput) { in.Provider = "secret\nvalue" }},
 		{"unknown cause", func(in *RuntimeDiagnosticEventInput) { in.Cause = "free_form_error" }},
 		{"noncanonical invocation", func(in *RuntimeDiagnosticEventInput) { in.InvocationID = "i_not-a-uuid" }},
+		{"prefixed execution invocation", func(in *RuntimeDiagnosticEventInput) {
+			in.ExecutionInvocationID = "i_019f596a-d04a-7a7a-8b3c-123456789abc"
+		}},
 		{"uppercase provider", func(in *RuntimeDiagnosticEventInput) { in.Provider = "ZCode" }},
+		{"raw session identifier in fingerprint", func(in *RuntimeDiagnosticEventInput) { in.ProviderSessionFingerprint = "session_private" }},
+		{"uppercase fingerprint", func(in *RuntimeDiagnosticEventInput) {
+			in.ProviderTurnFingerprint = "sha256:" + strings.Repeat("A", 64)
+		}},
 		{"terminal failure at info", func(in *RuntimeDiagnosticEventInput) { in.Event = DiagnosticRunStopped }},
 		{"mitigation at info", func(in *RuntimeDiagnosticEventInput) { in.Event = DiagnosticRepairStarted }},
 		{"range without stream", func(in *RuntimeDiagnosticEventInput) { in.Length = 1 }},

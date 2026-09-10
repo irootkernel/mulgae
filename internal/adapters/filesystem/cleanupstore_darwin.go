@@ -521,7 +521,7 @@ func decodeCleanupDiagnosticStatus(data []byte, sessionID domain.SessionID, runI
 	if err := decoder.Decode(&wire); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		return ports.RuntimeDiagnosticRunStatus{}, errors.New("cleanup store: malformed diagnostic status")
 	}
-	if wire.SchemaVersion != ports.RuntimeDiagnosticRunStatusSchema || wire.SessionID != sessionID.String() || wire.RunID != runID.String() || !wire.DiagnosticOnly || wire.PublicationAuthority {
+	if !acceptedDiagnosticRunStatusSchema(wire.SchemaVersion) || wire.SessionID != sessionID.String() || wire.RunID != runID.String() || !wire.DiagnosticOnly || wire.PublicationAuthority {
 		return ports.RuntimeDiagnosticRunStatus{}, errors.New("cleanup store: invalid diagnostic status authority or identity")
 	}
 	startedAt, startedErr := parseCleanupDiagnosticTime(wire.StartedAt)

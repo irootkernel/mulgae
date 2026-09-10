@@ -667,6 +667,24 @@ func writeCleanupDiagnosticFixture(t *testing.T, root, session, run string, stat
 	return runPath
 }
 
+func TestCleanupDiagnosticStatusReadsV2(t *testing.T) {
+	session, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	run, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	now := time.Date(2026, time.July, 23, 6, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	wire := runtimeDiagnosticRunStatusWire{
+		SchemaVersion: "mulgae-runtime-run-status.v2", SessionID: session.String(), RunID: run.String(), State: domain.RunFailed,
+		StartedAt: now, UpdatedAt: now, CompletedAt: now, SelectedRoles: []domain.Role{}, LastSequence: 1,
+		TerminalCause: domain.DiagnosticCauseProviderExecutionFailed, DiagnosticOnly: true,
+	}
+	data, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeCleanupDiagnosticStatus(data, session, run); err != nil {
+		t.Fatalf("cleanup rejected v2 status: %v", err)
+	}
+}
+
 func cleanupJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := json.Marshal(value)

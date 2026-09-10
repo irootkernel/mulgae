@@ -11,7 +11,7 @@ import (
 func TestRoleReportSchemaBoundsAcceptAndReject(t *testing.T) {
 	t.Parallel()
 
-	for _, versions := range []struct{ command, manifest string }{{"v6", "v1"}, {"v7", "v2"}} {
+	for _, versions := range []struct{ command, manifest string }{{"v6", "v1"}, {"v7", "v2"}, {"v8", "v2"}} {
 		t.Run(versions.command+"/"+versions.manifest, func(t *testing.T) {
 			checkRoleReportSchemaBounds(t, versions.command, versions.manifest)
 		})

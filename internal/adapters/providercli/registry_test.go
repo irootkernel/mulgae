@@ -2034,11 +2034,12 @@ func TestRegistryCloseCancellationWhileObservationIsActiveIsRetryable(t *testing
 // real provider process would: the staging lease already exists, and the
 // process has not terminated yet.
 type stagedOutputRunnerFake struct {
-	observation ports.ProcessObservation
-	err         error
-	stage       func()
-	request     ports.ProcessRequest
-	calls       int
+	observation   ports.ProcessObservation
+	err           error
+	stage         func()
+	protocolLines []string
+	request       ports.ProcessRequest
+	calls         int
 }
 
 func (runner *stagedOutputRunnerFake) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
@@ -2052,8 +2053,13 @@ func (runner *stagedOutputRunnerFake) Run(_ context.Context, request ports.Proce
 
 // Converse lets the fake carry protocol-channel routes so staged zcode tests
 // exercise the conversation dispatch.
-func (runner *stagedOutputRunnerFake) Converse(_ context.Context, request ports.ProcessRequest, _ ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
-	return runner.Run(nil, request)
+func (runner *stagedOutputRunnerFake) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	observation, err := runner.Run(nil, request)
+	if len(runner.protocolLines) == 0 {
+		return observation, err
+	}
+	driveErr := driver.Drive(ctx, newScriptedProtocolExchange(runner.protocolLines...))
+	return observation, errors.Join(err, driveErr)
 }
 
 // stagedZcodeRegistry builds the ZCode registry together with the staged
@@ -2103,6 +2109,10 @@ func requireStagingRemoved(t *testing.T, destination ports.StagedOutputDestinati
 // conversation returns when the app-server outlives the completed turn and
 // the runner's bounded teardown ends it with SIGTERM.
 func protocolTeardownObservation(t *testing.T, stdout []byte) ports.ProcessObservation {
+	return protocolTeardownObservationWithStderr(t, stdout, nil)
+}
+
+func protocolTeardownObservationWithStderr(t *testing.T, stdout, stderr []byte) ports.ProcessObservation {
 	t.Helper()
 	packet := []byte("review bytes")
 	packetIdentity, err := ports.NewProviderPacketIdentity(len(packet), testStdinDigest(packet))
@@ -2133,6 +2143,46 @@ func protocolTeardownObservation(t *testing.T, stdout []byte) ports.ProcessObser
 		t.Fatal(err)
 	}
 	lifecycle, err := ports.NewProcessLifecycleReceipt(final, true, []ports.ProcessGroupSignalRequestReceipt{request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := ports.NewStartedProviderProcessObservation(
+		stdout, stderr, ports.ProcessTerminationSignaled, stdin, transport, lifecycle,
+		time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
+}
+
+func protocolSignaledObservationWithoutTeardownRequest(t *testing.T, stdout []byte) ports.ProcessObservation {
+	t.Helper()
+	packet := []byte("review bytes")
+	packetIdentity, err := ports.NewProviderPacketIdentity(len(packet), testStdinDigest(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := ports.NewProviderPacketTransportReceipt(
+		ports.ProviderPacketChannelProtocol, packetIdentity, "", "",
+		ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signal, err := ports.NewProcessSignal(15, "SIGTERM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewSignaledProcessFinalTermination(signal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := ports.NewProcessLifecycleReceipt(final, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2169,6 +2219,82 @@ func TestRegistryObserveAcceptsSignaledConversationTeardownAsStagedSuccess(t *te
 	result, ok := observed.Result()
 	if !ok || !bytes.Equal(result.Stdout(), content) {
 		t.Fatalf("result = %q, present=%t", result.Stdout(), ok)
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObservePreservesFailedZCodeConversationTeardown(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: protocolTeardownObservation(t, []byte("protocol transcript")),
+		protocolLines: []string{
+			protocolCreateResult,
+			protocolSendAck,
+			`{"method":"computer-use/operation-event","params":{"kind":"turn-failed","turnId":"turn_failure","sessionId":"sess_script"}}`,
+		},
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusUnavailable ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderTurnFailed {
+		t.Fatalf("status = %q, cause = %q", observed.Status(), observed.PrimaryCause())
+	}
+	session, ok := observed.SessionObservation()
+	if !ok || session.ProviderSessionID() != "sess_script" || session.ProviderTurnID() != "turn_failure" ||
+		session.Terminal() != ports.ProviderSessionFailed {
+		t.Fatalf("session = %#v, present = %t", session.Input(), ok)
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObserveReturnsTypedInvariantWhenProtocolFailureCannotMatchProcess(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: protocolSignaledObservationWithoutTeardownRequest(t, []byte("protocol transcript")),
+		protocolLines: []string{
+			protocolCreateResult,
+			protocolSendAck,
+			`{"method":"computer-use/operation-event","params":{"kind":"turn-failed","turnId":"turn_failure","sessionId":"sess_script"}}`,
+		},
+	}
+	registry, invocation, _ := stagedZcodeRegistry(t, runner)
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	var invariant *ports.ProviderObservationInvariantError
+	if !errors.As(err, &invariant) || observed.Validate() == nil {
+		t.Fatalf("registry invariant result = observation %#v, error %v", observed, err)
+	}
+	if invariant.Status() != ports.ProviderExecutionStatusUnavailable ||
+		invariant.Cause() != domain.DiagnosticCauseProviderTurnFailed ||
+		invariant.ProcessObservation().Termination() != ports.ProcessTerminationSignaled ||
+		invariant.SessionObservation().ProviderTurnID() != "turn_failure" {
+		t.Fatalf("registry invariant evidence = status %q cause %q process %q session %#v",
+			invariant.Status(), invariant.Cause(), invariant.ProcessObservation().Termination(), invariant.SessionObservation().Input())
+	}
+}
+
+func TestRegistryObservePreservesTimedOutZCodeConversationTeardown(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: protocolTeardownObservationWithStderr(t, []byte("protocol transcript"), []byte("request timed out")),
+		protocolLines: []string{
+			protocolCreateResult,
+			protocolSendAck,
+			`{"method":"computer-use/operation-event","params":{"kind":"turn-failed","turnId":"turn_failure","sessionId":"sess_script"}}`,
+		},
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusTimedOut || observed.PrimaryCause() != domain.DiagnosticCauseTimedOut {
+		t.Fatalf("status = %q, cause = %q", observed.Status(), observed.PrimaryCause())
+	}
+	if session, ok := observed.SessionObservation(); !ok || session.Terminal() != ports.ProviderSessionFailed {
+		t.Fatalf("session = %#v, present = %t", session.Input(), ok)
 	}
 	requireStagingRemoved(t, destination)
 }

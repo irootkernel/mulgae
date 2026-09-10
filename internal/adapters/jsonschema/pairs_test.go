@@ -70,11 +70,11 @@ func TestInitMutationEnvelopeRequiresExactOutcomeTuple(t *testing.T) {
 	}
 }
 
-func TestCommandResultV7AvailableRecoveryRequiresCoherentStatusTuple(t *testing.T) {
+func TestCommandResultV8AvailableRecoveryRequiresCoherentStatusTuple(t *testing.T) {
 	validator := newBuiltinValidator(t)
-	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v7.schema.json")
+	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v8.schema.json")
 	base := map[string]any{
-		"schema_version": "mulgae-command-result.v7",
+		"schema_version": "mulgae-command-result.v8",
 		"command":        "status",
 		"request": map[string]any{
 			"request_id":    "i_019f596a-cf80-7c67-b265-f37053d51ccf",
@@ -100,6 +100,10 @@ func TestCommandResultV7AvailableRecoveryRequiresCoherentStatusTuple(t *testing.
 				"accepted_roles":     []any{"logic"},
 				"retry_attempts":     []any{map[string]any{"role": "security", "attempt_id": "a_019f596a-d048-79e7-b2b7-59822f012273"}},
 				"unavailable_reason": nil,
+			},
+			"diagnostic_summary": map[string]any{
+				"invariant_id": "provider_execution_observation_rejected", "component": "provider_registry", "phase": "provider_observation",
+				"protocol_terminal": "failed", "provider_session_fingerprint": "sha256:" + string(bytes.Repeat([]byte("a"), 64)),
 			},
 		},
 	}
@@ -150,6 +154,23 @@ func TestCommandResultV7AvailableRecoveryRequiresCoherentStatusTuple(t *testing.
 			}
 		})
 	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "unknown summary field", mutate: func(summary map[string]any) { summary["provider_session_id"] = "private" }},
+		{name: "invalid summary fingerprint", mutate: func(summary map[string]any) { summary["provider_session_fingerprint"] = "sha256:ABC" }},
+		{name: "invalid summary terminal", mutate: func(summary map[string]any) { summary["protocol_terminal"] = "cancelled" }},
+		{name: "invalid summary component", mutate: func(summary map[string]any) { summary["component"] = "Provider Registry" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			envelope := cloneJSONMap(t, base)
+			test.mutate(envelope["result"].(map[string]any)["diagnostic_summary"].(map[string]any))
+			if err := validate(envelope); err == nil {
+				t.Fatal("invalid diagnostic summary was accepted")
+			}
+		})
+	}
 }
 
 func cloneJSONMap(t *testing.T, value map[string]any) map[string]any {
@@ -171,6 +192,7 @@ type schemaExamplePair struct {
 }
 
 var authoritativePairs = []schemaExamplePair{
+	{"https://mulgae.local/schemas/mulgae-command-result.v8.schema.json", "example:command-result.v8.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v7.schema.json", "example:command-result.v7.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json", "example:composite-review-artifact.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v2.schema.json", "example:composite-run-manifest.v2.valid.json"},

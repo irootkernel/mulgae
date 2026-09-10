@@ -477,6 +477,7 @@ func TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus(t *testing.T) {
 		SessionID: sessionID, RunID: runID, State: domain.RunFailed, StartedAt: now, UpdatedAt: now.Add(time.Second),
 		CompletedAt: now.Add(time.Second), HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleTesting},
 		RolePathTotal: 1, RolePathFailed: 1, LastSequence: 3, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
+		DiagnosticSummary: mustMCPBackendDiagnosticSummary(t), HasDiagnosticSummary: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -488,7 +489,8 @@ func TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	projected, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()})
-	if err != nil || projected["kind"] != "diagnostic_status_read" || projected["run_id"] != runID.String() || diagnostics.calls != 1 {
+	if err != nil || projected["kind"] != "diagnostic_status_read" || projected["run_id"] != runID.String() || diagnostics.calls != 1 ||
+		projected["diagnostic_summary"].(map[string]any)["invariant_id"] != ports.ProviderObservationInvariantRejected {
 		t.Fatalf("diagnostic get_run = %#v, %v; calls = %d", projected, err, diagnostics.calls)
 	}
 
@@ -513,6 +515,59 @@ func TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus(t *testing.T) {
 	if err != nil || projected["kind"] != "diagnostic_status_read" || diagnostics.calls != 1 {
 		t.Fatalf("single-joined not-found fallback = %#v, %v; calls = %d", projected, err, diagnostics.calls)
 	}
+}
+
+func TestMCPBackendGetRunMergesSessionBoundDiagnosticSummary(t *testing.T) {
+	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
+	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
+	sessionID := mustMCPSessionID(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID := mustMCPRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	run, err := ports.NewPublicationRun(artifactRoot, sessionID, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries := &mcpQueryFake{run: run, status: mulgaeentry.RunStatusView{
+		FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"), SessionID: sessionID.String(), RunID: runID.String(),
+		RunState: domain.RunFailed, HasRunState: true, PublicationState: domain.PublicationNotPublished,
+		RecoveryAction: domain.RecoveryActionResumeCollection,
+	}}
+	now := time.Date(2026, time.August, 14, 5, 0, 0, 0, time.UTC)
+	diagnosticStatus, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunFailed, StartedAt: now, UpdatedAt: now,
+		CompletedAt: now, HasCompletedAt: true, DiagnosticSummary: mustMCPBackendDiagnosticSummary(t), HasDiagnosticSummary: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := &mcpDiagnosticQueryFake{status: diagnosticStatus}
+	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, diagnostics, &mcpReportFake{}, filesystem.NewRunSelector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()})
+	if err != nil || diagnostics.calls != 0 || diagnostics.sessionCalls != 1 ||
+		diagnostics.sessionID != sessionID || diagnostics.runID != runID ||
+		projected["diagnostic_summary"].(map[string]any)["provider_session_fingerprint"] != "sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("publication get_run = %#v, %v; scan=%d direct=%d session=%s run=%s", projected, err, diagnostics.calls, diagnostics.sessionCalls, diagnostics.sessionID, diagnostics.runID)
+	}
+	diagnostics.err = errors.New("diagnostic status corrupt")
+	if _, err := backend.GetRun(context.Background(), mcpentry.GetRunInput{RunID: runID.String()}); err == nil {
+		t.Fatal("publication get_run swallowed a direct diagnostic error")
+	}
+}
+
+func mustMCPBackendDiagnosticSummary(t *testing.T) ports.RuntimeDiagnosticSummary {
+	t.Helper()
+	summary, err := ports.NewRuntimeDiagnosticSummary(ports.RuntimeDiagnosticSummaryInput{
+		InvariantID: ports.ProviderObservationInvariantRejected, Component: "provider_registry", Phase: "provider_observation",
+		Provider: "zcode_default", ProtocolTerminal: "failed",
+		ProviderSessionFingerprint: "sha256:" + strings.Repeat("a", 64),
+		ProviderTurnFingerprint:    "sha256:" + strings.Repeat("b", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return summary
 }
 
 func TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity(t *testing.T) {
@@ -641,13 +696,22 @@ func (*mcpMultiQueryFake) RenderExcerpt(context.Context, ports.PublicationRun, s
 }
 
 type mcpDiagnosticQueryFake struct {
-	status ports.RuntimeDiagnosticRunStatus
-	err    error
-	calls  int
+	status       ports.RuntimeDiagnosticRunStatus
+	err          error
+	calls        int
+	sessionCalls int
+	sessionID    domain.SessionID
+	runID        domain.RunID
 }
 
 func (fake *mcpDiagnosticQueryFake) ReadRunStatus(context.Context, ports.AnchoredRoot, domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
 	fake.calls++
+	return fake.status, fake.err
+}
+
+func (fake *mcpDiagnosticQueryFake) ReadSessionRunStatus(_ context.Context, _ ports.AnchoredRoot, sessionID domain.SessionID, runID domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	fake.sessionCalls++
+	fake.sessionID, fake.runID = sessionID, runID
 	return fake.status, fake.err
 }
 

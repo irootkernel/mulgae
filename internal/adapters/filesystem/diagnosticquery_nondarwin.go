@@ -13,3 +13,7 @@ import (
 func (*DiagnosticStatusReader) ReadRunStatus(context.Context, ports.AnchoredRoot, domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
 	return ports.RuntimeDiagnosticRunStatus{}, errors.New("diagnostic query requires darwin/arm64 secure filesystem primitives")
 }
+
+func (*DiagnosticStatusReader) ReadSessionRunStatus(context.Context, ports.AnchoredRoot, domain.SessionID, domain.RunID) (ports.RuntimeDiagnosticRunStatus, error) {
+	return ports.RuntimeDiagnosticRunStatus{}, errors.New("diagnostic query requires darwin/arm64 secure filesystem primitives")
+}

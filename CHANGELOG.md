@@ -4,6 +4,25 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.21 - Unreleased
 
+### Added
+
+- Add bounded ZCode protocol correlation diagnostics with private raw session
+  and turn identifiers and safe fingerprints in public run status.
+- Add the `mulgae-command-result.v8` envelope while retaining v5, v6, and v7
+  for explicit backward reads.
+
+### Changed
+
+- Update runtime diagnostics to `mulgae-runtime-log.v4`,
+  `mulgae-runtime-run-status.v3`, and
+  `mulgae-runtime-invocation-status.v2`, while retaining run-status v2 reads.
+
+### Fixed
+
+- Preserve typed ZCode protocol failures when bounded SIGTERM teardown ends the
+  app server, and retain process and protocol evidence if provider observation
+  assembly fails.
+
 ## v0.1.20 - 2026-09-10
 
 ### Added

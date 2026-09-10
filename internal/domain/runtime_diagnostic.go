@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const RuntimeDiagnosticSchemaVersion = "mulgae-runtime-log.v3"
+const RuntimeDiagnosticSchemaVersion = "mulgae-runtime-log.v4"
 
 const MaxRuntimeDiagnosticDiscardedPaths = 100
 
@@ -84,6 +84,8 @@ const (
 	DiagnosticNamespaceDrained              RuntimeDiagnosticEventCode = "provider_namespace_drained"
 	DiagnosticWorkspaceCleanupStarted       RuntimeDiagnosticEventCode = "workspace_cleanup_started"
 	DiagnosticWorkspaceCleanupCompleted     RuntimeDiagnosticEventCode = "workspace_cleanup_completed"
+	DiagnosticProviderProtocolTerminal      RuntimeDiagnosticEventCode = "provider_protocol_terminal"
+	DiagnosticInternalInvariantDetected     RuntimeDiagnosticEventCode = "internal_invariant_detected"
 )
 
 var runtimeDiagnosticMessages = map[RuntimeDiagnosticEventCode]string{
@@ -108,6 +110,7 @@ var runtimeDiagnosticMessages = map[RuntimeDiagnosticEventCode]string{
 	DiagnosticPublicationInstalled: "publication installed", DiagnosticPublicationCommitted: "publication committed", DiagnosticPublicationFailed: "publication failed",
 	DiagnosticNamespaceDrainStarted: "provider namespace drain started", DiagnosticNamespaceDrained: "provider namespace drained",
 	DiagnosticWorkspaceCleanupStarted: "workspace cleanup started", DiagnosticWorkspaceCleanupCompleted: "workspace cleanup completed",
+	DiagnosticProviderProtocolTerminal: "provider protocol conversation terminated", DiagnosticInternalInvariantDetected: "internal invariant detected",
 }
 
 func (code RuntimeDiagnosticEventCode) Valid() bool {
@@ -228,25 +231,29 @@ func (stream RuntimeDiagnosticStream) Valid() bool {
 }
 
 type RuntimeDiagnosticEventInput struct {
-	Level                       RuntimeDiagnosticLevel
-	Component, Operation        string
-	Event                       RuntimeDiagnosticEventCode
-	SessionID                   SessionID
-	RunID                       RunID
-	AttemptID                   AttemptID
-	InvocationID                string
-	Role                        Role
-	Provider                    string
-	Cause                       RuntimeDiagnosticCause
-	Failure, Mitigation         string
-	State, Outcome, Termination string
-	Stream                      RuntimeDiagnosticStream
-	Offset, Length              int64
-	ExitCode                    int
-	HasExitCode                 bool
-	ArtifactRef                 string
-	DiscardedPaths              []string
-	DiscardedPathCount          int
+	Level                                               RuntimeDiagnosticLevel
+	Component, Operation                                string
+	Event                                               RuntimeDiagnosticEventCode
+	SessionID                                           SessionID
+	RunID                                               RunID
+	AttemptID                                           AttemptID
+	InvocationID                                        string
+	ExecutionInvocationID                               string
+	Role                                                Role
+	Provider                                            string
+	Cause                                               RuntimeDiagnosticCause
+	Failure, Mitigation                                 string
+	State, Outcome, Termination                         string
+	ProtocolPhase, ProtocolTerminal                     string
+	ProviderSessionFingerprint, ProviderTurnFingerprint string
+	InvariantID                                         string
+	Stream                                              RuntimeDiagnosticStream
+	Offset, Length                                      int64
+	ExitCode                                            int
+	HasExitCode                                         bool
+	ArtifactRef                                         string
+	DiscardedPaths                                      []string
+	DiscardedPathCount                                  int
 }
 
 type RuntimeDiagnosticEventDraft struct{ input RuntimeDiagnosticEventInput }
@@ -269,10 +276,18 @@ func NewRuntimeDiagnosticEventDraft(input RuntimeDiagnosticEventInput) (RuntimeD
 	if input.InvocationID != "" && !validDiagnosticInvocationID(input.InvocationID) {
 		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid invocation ID")
 	}
+	if input.ExecutionInvocationID != "" && !validDiagnosticExecutionInvocationID(input.ExecutionInvocationID) {
+		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid execution invocation ID")
+	}
 	if input.Provider != "" && !validDiagnosticProvider(input.Provider) {
 		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid provider")
 	}
-	for _, value := range []string{input.Failure, input.Mitigation, input.State, input.Outcome, input.Termination} {
+	if input.ProviderSessionFingerprint != "" && !validDiagnosticFingerprint(input.ProviderSessionFingerprint) ||
+		input.ProviderTurnFingerprint != "" && !validDiagnosticFingerprint(input.ProviderTurnFingerprint) {
+		return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: invalid provider correlation fingerprint")
+	}
+	for _, value := range []string{input.Failure, input.Mitigation, input.State, input.Outcome, input.Termination,
+		input.ProtocolPhase, input.ProtocolTerminal, input.InvariantID} {
 		if value != "" && !validDiagnosticToken(value, 128) {
 			return RuntimeDiagnosticEventDraft{}, fmt.Errorf("runtime diagnostic event: unsafe optional token")
 		}
@@ -383,6 +398,26 @@ func validDiagnosticInvocationID(value string) bool {
 	return err == nil
 }
 
+func validDiagnosticExecutionInvocationID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	_, err := ParseReviewID(value)
+	return err == nil
+}
+
+func validDiagnosticFingerprint(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, character := range value[len("sha256:"):] {
+		if character < '0' || character > '9' && character < 'a' || character > 'f' {
+			return false
+		}
+	}
+	return true
+}
+
 func validDiagnosticProvider(value string) bool {
 	if len(value) == 0 || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
 		return false
@@ -400,7 +435,8 @@ func validDiagnosticLevelForEvent(level RuntimeDiagnosticLevel, event RuntimeDia
 	switch event {
 	case DiagnosticRunStopped, DiagnosticAttemptFailed, DiagnosticProcessTimedOut, DiagnosticProcessTerminated,
 		DiagnosticOutputParseFailed, DiagnosticValidationFailed, DiagnosticRepairExhausted,
-		DiagnosticProviderQuarantined, DiagnosticRoleNotAttempted, DiagnosticRoleExhausted, DiagnosticPublicationFailed:
+		DiagnosticProviderQuarantined, DiagnosticRoleNotAttempted, DiagnosticRoleExhausted, DiagnosticPublicationFailed,
+		DiagnosticInternalInvariantDetected:
 		return level == RuntimeDiagnosticError
 	case DiagnosticRepairScheduled, DiagnosticRepairStarted, DiagnosticRepairCompleted, DiagnosticProviderFieldsDiscarded:
 		return level == RuntimeDiagnosticWarn

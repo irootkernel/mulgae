@@ -156,6 +156,7 @@ func TestProjectDiagnosticRunStatusIsBoundedAndHasNoPublicationAuthority(t *test
 		StartedAt: startedAt, UpdatedAt: completedAt, CompletedAt: completedAt, HasCompletedAt: true,
 		SelectedRoles: []domain.Role{domain.RoleSecurity}, RolePathTotal: 1, RolePathFailed: 1,
 		LastSequence: 7, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed, DroppedEvents: 2,
+		DiagnosticSummary: mustMCPDiagnosticSummary(t), HasDiagnosticSummary: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +165,8 @@ func TestProjectDiagnosticRunStatusIsBoundedAndHasNoPublicationAuthority(t *test
 	if err != nil || projected["kind"] != "diagnostic_status_read" || projected["diagnostic_only"] != true ||
 		projected["publication_authority"] != false || projected["publication_status"] != nil ||
 		projected["final_artifact_uri"] != nil || projected["report_resource_uri"] != nil ||
-		projected["recovery_action"] != "rerun_review" || projected["terminal_cause"] != string(domain.DiagnosticCauseProviderSpawnFailed) {
+		projected["recovery_action"] != "rerun_review" || projected["terminal_cause"] != string(domain.DiagnosticCauseProviderSpawnFailed) ||
+		projected["diagnostic_summary"].(map[string]any)["invariant_id"] != ports.ProviderObservationInvariantRejected {
 		t.Fatalf("diagnostic run status projection = %#v, %v", projected, err)
 	}
 	if _, err := ProjectDiagnosticRunStatus(status, sessionID, mustProjectionRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243bb")); err == nil {
@@ -215,6 +217,20 @@ func TestProjectDiagnosticRunStatusIsBoundedAndHasNoPublicationAuthority(t *test
 	if _, err := ProjectDiagnosticRunStatus(completed, sessionID, runID); err == nil || errors.Is(err, ErrRunStatusUnavailable) {
 		t.Fatalf("unpublished completed diagnostic projection error = %v", err)
 	}
+}
+
+func mustMCPDiagnosticSummary(t *testing.T) ports.RuntimeDiagnosticSummary {
+	t.Helper()
+	summary, err := ports.NewRuntimeDiagnosticSummary(ports.RuntimeDiagnosticSummaryInput{
+		InvariantID: ports.ProviderObservationInvariantRejected, Component: "provider_registry", Phase: "provider_observation",
+		Provider: "zcode_default", ProtocolTerminal: "failed",
+		ProviderSessionFingerprint: "sha256:" + strings.Repeat("a", 64),
+		ProviderTurnFingerprint:    "sha256:" + strings.Repeat("b", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return summary
 }
 
 func mustProjectionRunID(t *testing.T, value string) domain.RunID {

@@ -958,9 +958,21 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			if nativeStatus, nativeDiagnostic, nativeCause, known := nativeProviderOutcome(definition.family, nil, processObservation.Stderr()); known {
 				status, diagnostic, cause = nativeStatus, nativeDiagnostic, nativeCause
 			}
-			return ports.NewFailedProviderExecutionObservationWithCause(
-				status, invocation, processObservation, diagnostic, cause, "",
-			)
+			var conversationFailure *zcodeConversationFailure
+			if errors.As(runErr, &conversationFailure) && conversationFailure.SessionObservation().Valid() {
+				observation, observationErr := ports.NewFailedProtocolProviderExecutionObservationWithCause(
+					status, invocation, processObservation, conversationFailure.SessionObservation(), diagnostic, cause, "",
+				)
+				if observationErr != nil {
+					invariant, invariantErr := ports.NewProviderObservationInvariantError(status, cause, processObservation, conversationFailure.SessionObservation(), observationErr)
+					if invariantErr != nil {
+						return ports.ProviderExecutionObservation{}, invariantErr
+					}
+					return ports.ProviderExecutionObservation{}, invariant
+				}
+				return observation, nil
+			}
+			return ports.NewFailedProviderExecutionObservationWithCause(status, invocation, processObservation, diagnostic, cause, "")
 		}
 		cause, cleanupCause := providerRunCauses(runErr)
 		status, diagnostic := providerFailureProjection(cause)
@@ -1259,6 +1271,9 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 	}
 	observation, err := conversationRunner.Converse(ctx, request, session)
 	if err != nil {
+		if sessionObservation, ok := session.SessionObservation(); ok {
+			err = &zcodeConversationFailure{observation: sessionObservation, err: err}
+		}
 		return observation, nil, fmt.Errorf("provider registry: process runner: %w", err)
 	}
 	return observation, session.assistantEvidenceText(), nil

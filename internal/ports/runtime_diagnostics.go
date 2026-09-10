@@ -16,9 +16,9 @@ const (
 	RuntimeDiagnosticLogMaxBytes            int64 = 8 << 20
 	RuntimeDiagnosticTailReserveBytes       int64 = 256 << 10
 	RuntimeDiagnosticStatusMaxBytes         int64 = 256 << 10
-	RuntimeDiagnosticRunStatusSchema              = "mulgae-runtime-run-status.v2"
+	RuntimeDiagnosticRunStatusSchema              = "mulgae-runtime-run-status.v3"
 	RuntimeDiagnosticAttemptStatusSchema          = "mulgae-runtime-attempt-status.v1"
-	RuntimeDiagnosticInvocationStatusSchema       = "mulgae-runtime-invocation-status.v1"
+	RuntimeDiagnosticInvocationStatusSchema       = "mulgae-runtime-invocation-status.v2"
 )
 
 var (
@@ -28,9 +28,12 @@ var (
 )
 
 // RuntimeDiagnosticQuery reads only the bounded safe run-status projection.
-// It never exposes the runtime event stream or raw provider transcripts.
+// ReadRunStatus performs the bounded diagnostic-only fallback scan;
+// ReadSessionRunStatus binds an ordinary publication lookup to its session.
+// Neither method exposes the runtime event stream or raw provider transcripts.
 type RuntimeDiagnosticQuery interface {
 	ReadRunStatus(context.Context, AnchoredRoot, domain.RunID) (RuntimeDiagnosticRunStatus, error)
+	ReadSessionRunStatus(context.Context, AnchoredRoot, domain.SessionID, domain.RunID) (RuntimeDiagnosticRunStatus, error)
 }
 
 type RuntimeDiagnosticOpenRequest struct {
@@ -82,6 +85,81 @@ type RuntimeDiagnosticRunStatus struct {
 	p2URI                                            SafeRelativePath
 	hasP2URI                                         bool
 	droppedEvents                                    uint64
+	diagnosticSummary                                RuntimeDiagnosticSummary
+	hasDiagnosticSummary                             bool
+}
+
+// RuntimeDiagnosticSummary is the bounded safe projection that status/get_run
+// may expose. Raw provider correlation identifiers remain confined to private
+// invocation status; only their fingerprints cross this boundary.
+type RuntimeDiagnosticSummary struct {
+	invariantID, component, phase, provider             string
+	attemptID                                           domain.AttemptID
+	invocationID, protocolTerminal                      string
+	providerSessionFingerprint, providerTurnFingerprint string
+}
+
+type RuntimeDiagnosticSummaryInput struct {
+	InvariantID, Component, Phase, Provider             string
+	AttemptID                                           domain.AttemptID
+	InvocationID, ProtocolTerminal                      string
+	ProviderSessionFingerprint, ProviderTurnFingerprint string
+}
+
+func NewRuntimeDiagnosticSummary(input RuntimeDiagnosticSummaryInput) (RuntimeDiagnosticSummary, error) {
+	if !validRuntimeDiagnosticSummaryToken(input.Component, 64) || !validRuntimeDiagnosticSummaryToken(input.Phase, 128) ||
+		input.Provider != "" && !validProviderInstanceID(input.Provider) ||
+		input.AttemptID.String() != "" && !validAttemptID(input.AttemptID) ||
+		input.InvocationID != "" && validateProviderInvocationID(input.InvocationID, "i_") != nil {
+		return RuntimeDiagnosticSummary{}, fmt.Errorf("runtime diagnostic summary: invalid identity")
+	}
+	if input.InvariantID != "" && !validRuntimeDiagnosticSummaryToken(input.InvariantID, 128) ||
+		input.ProtocolTerminal != "" && input.ProtocolTerminal != string(ProviderSessionCompleted) && input.ProtocolTerminal != string(ProviderSessionFailed) ||
+		input.ProviderSessionFingerprint != "" && validateSHA256(input.ProviderSessionFingerprint) != nil ||
+		input.ProviderTurnFingerprint != "" && validateSHA256(input.ProviderTurnFingerprint) != nil {
+		return RuntimeDiagnosticSummary{}, fmt.Errorf("runtime diagnostic summary: invalid token")
+	}
+	return RuntimeDiagnosticSummary{invariantID: input.InvariantID, component: input.Component, phase: input.Phase,
+		provider: input.Provider, attemptID: input.AttemptID, invocationID: input.InvocationID,
+		protocolTerminal: input.ProtocolTerminal, providerSessionFingerprint: input.ProviderSessionFingerprint,
+		providerTurnFingerprint: input.ProviderTurnFingerprint}, nil
+}
+
+func validRuntimeDiagnosticSummaryToken(value string, maximumLength int) bool {
+	if value == "" || len(value) > maximumLength {
+		return false
+	}
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func (summary RuntimeDiagnosticSummary) Valid() bool {
+	_, err := NewRuntimeDiagnosticSummary(summary.Input())
+	return err == nil
+}
+func (summary RuntimeDiagnosticSummary) Input() RuntimeDiagnosticSummaryInput {
+	return RuntimeDiagnosticSummaryInput{InvariantID: summary.invariantID, Component: summary.component, Phase: summary.phase,
+		Provider: summary.provider, AttemptID: summary.attemptID, InvocationID: summary.invocationID,
+		ProtocolTerminal: summary.protocolTerminal, ProviderSessionFingerprint: summary.providerSessionFingerprint,
+		ProviderTurnFingerprint: summary.providerTurnFingerprint}
+}
+func (summary RuntimeDiagnosticSummary) InvariantID() string         { return summary.invariantID }
+func (summary RuntimeDiagnosticSummary) Component() string           { return summary.component }
+func (summary RuntimeDiagnosticSummary) Phase() string               { return summary.phase }
+func (summary RuntimeDiagnosticSummary) Provider() string            { return summary.provider }
+func (summary RuntimeDiagnosticSummary) AttemptID() domain.AttemptID { return summary.attemptID }
+func (summary RuntimeDiagnosticSummary) InvocationID() string        { return summary.invocationID }
+func (summary RuntimeDiagnosticSummary) ProtocolTerminal() string    { return summary.protocolTerminal }
+func (summary RuntimeDiagnosticSummary) ProviderSessionFingerprint() string {
+	return summary.providerSessionFingerprint
+}
+func (summary RuntimeDiagnosticSummary) ProviderTurnFingerprint() string {
+	return summary.providerTurnFingerprint
 }
 
 type RuntimeDiagnosticRunStatusInput struct {
@@ -98,6 +176,8 @@ type RuntimeDiagnosticRunStatusInput struct {
 	P2URI                                            SafeRelativePath
 	HasP2URI                                         bool
 	DroppedEvents                                    uint64
+	DiagnosticSummary                                RuntimeDiagnosticSummary
+	HasDiagnosticSummary                             bool
 }
 
 func NewRuntimeDiagnosticRunStatus(input RuntimeDiagnosticRunStatusInput) (RuntimeDiagnosticRunStatus, error) {
@@ -123,10 +203,14 @@ func NewRuntimeDiagnosticRunStatus(input RuntimeDiagnosticRunStatusInput) (Runti
 	if input.HasP2URI != input.P2URI.Valid() {
 		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: inconsistent P2 URI")
 	}
+	if input.HasDiagnosticSummary != input.DiagnosticSummary.Valid() {
+		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: inconsistent diagnostic summary")
+	}
 	return RuntimeDiagnosticRunStatus{sessionID: input.SessionID, runID: input.RunID, state: input.State, startedAt: input.StartedAt, updatedAt: input.UpdatedAt,
 		completedAt: input.CompletedAt, hasCompletedAt: input.HasCompletedAt, selectedRoles: roles, rolePathTotal: input.RolePathTotal, rolePathCompleted: input.RolePathCompleted,
 		rolePathFailed: input.RolePathFailed, lastSequence: input.LastSequence, terminalCause: input.TerminalCause, terminalPhase: input.TerminalPhase,
-		p2URI: input.P2URI, hasP2URI: input.HasP2URI, droppedEvents: input.DroppedEvents}, nil
+		p2URI: input.P2URI, hasP2URI: input.HasP2URI, droppedEvents: input.DroppedEvents,
+		diagnosticSummary: input.DiagnosticSummary, hasDiagnosticSummary: input.HasDiagnosticSummary}, nil
 }
 
 func (status RuntimeDiagnosticRunStatus) SchemaVersion() string {
@@ -157,6 +241,23 @@ func (status RuntimeDiagnosticRunStatus) P2URI() (SafeRelativePath, bool) {
 	return status.p2URI, status.hasP2URI
 }
 func (status RuntimeDiagnosticRunStatus) DroppedEvents() uint64 { return status.droppedEvents }
+func (status RuntimeDiagnosticRunStatus) DiagnosticSummary() (RuntimeDiagnosticSummary, bool) {
+	return status.diagnosticSummary, status.hasDiagnosticSummary && status.diagnosticSummary.Valid()
+}
+
+func WithRuntimeDiagnosticSummary(status RuntimeDiagnosticRunStatus, summary RuntimeDiagnosticSummary) (RuntimeDiagnosticRunStatus, error) {
+	if !summary.Valid() {
+		return RuntimeDiagnosticRunStatus{}, fmt.Errorf("runtime diagnostic run status: invalid diagnostic summary")
+	}
+	input := RuntimeDiagnosticRunStatusInput{SessionID: status.SessionID(), RunID: status.RunID(), State: status.State(),
+		StartedAt: status.StartedAt(), UpdatedAt: status.UpdatedAt(), SelectedRoles: status.SelectedRoles(),
+		LastSequence: status.LastSequence(), TerminalCause: status.TerminalCause(), TerminalPhase: status.TerminalPhase(),
+		DroppedEvents: status.DroppedEvents(), DiagnosticSummary: summary, HasDiagnosticSummary: true}
+	input.RolePathTotal, input.RolePathCompleted, input.RolePathFailed = status.RolePathCounts()
+	input.CompletedAt, input.HasCompletedAt = status.CompletedAt()
+	input.P2URI, input.HasP2URI = status.P2URI()
+	return NewRuntimeDiagnosticRunStatus(input)
+}
 
 type RuntimeDiagnosticAttemptStatus struct {
 	sessionID                         domain.SessionID
@@ -225,6 +326,7 @@ type RuntimeDiagnosticInvocationStatus struct {
 	runID                             domain.RunID
 	attemptID                         domain.AttemptID
 	invocationID                      string
+	executionInvocationID             string
 	ordinal                           uint64
 	purpose                           ProviderInvocationPurpose
 	processState                      domain.InvocationState
@@ -238,6 +340,8 @@ type RuntimeDiagnosticInvocationStatus struct {
 	lastSequence                      uint64
 	stdout, stderr                    RuntimeDiagnosticRawResult
 	hasStdout, hasStderr              bool
+	sessionObservation                ProviderSessionObservation
+	hasSessionObservation             bool
 }
 
 type RuntimeDiagnosticInvocationStatusInput struct {
@@ -245,6 +349,7 @@ type RuntimeDiagnosticInvocationStatusInput struct {
 	RunID                             domain.RunID
 	AttemptID                         domain.AttemptID
 	InvocationID                      string
+	ExecutionInvocationID             string
 	Ordinal                           uint64
 	Purpose                           ProviderInvocationPurpose
 	ProcessState                      domain.InvocationState
@@ -258,10 +363,12 @@ type RuntimeDiagnosticInvocationStatusInput struct {
 	LastSequence                      uint64
 	Stdout, Stderr                    RuntimeDiagnosticRawResult
 	HasStdout, HasStderr              bool
+	SessionObservation                ProviderSessionObservation
+	HasSessionObservation             bool
 }
 
 func NewRuntimeDiagnosticInvocationStatus(input RuntimeDiagnosticInvocationStatusInput) (RuntimeDiagnosticInvocationStatus, error) {
-	if !validDiagnosticRunIdentity(input.SessionID, input.RunID) || !validAttemptID(input.AttemptID) || validateProviderInvocationID(input.InvocationID, "i_") != nil || input.Ordinal == 0 || !input.Purpose.Valid() || !input.ProcessState.Valid() || !input.ParseState.Valid() || !input.ValidationState.Valid() || !validDiagnosticTimes(input.StartedAt, input.UpdatedAt, input.CompletedAt, input.HasCompletedAt) {
+	if !validDiagnosticRunIdentity(input.SessionID, input.RunID) || !validAttemptID(input.AttemptID) || validateProviderInvocationID(input.InvocationID, "i_") != nil || input.ExecutionInvocationID != "" && validateProviderInvocationID(input.ExecutionInvocationID, "") != nil || input.Ordinal == 0 || !input.Purpose.Valid() || !input.ProcessState.Valid() || !input.ParseState.Valid() || !input.ValidationState.Valid() || !validDiagnosticTimes(input.StartedAt, input.UpdatedAt, input.CompletedAt, input.HasCompletedAt) {
 		return RuntimeDiagnosticInvocationStatus{}, fmt.Errorf("runtime diagnostic invocation status: invalid field")
 	}
 	if input.Termination != "" && validateAuditToken(input.Termination, 128) != nil {
@@ -270,11 +377,16 @@ func NewRuntimeDiagnosticInvocationStatus(input RuntimeDiagnosticInvocationStatu
 	if input.HasStdout != input.Stdout.ValidFor(domain.DiagnosticStdout) || input.HasStderr != input.Stderr.ValidFor(domain.DiagnosticStderr) {
 		return RuntimeDiagnosticInvocationStatus{}, fmt.Errorf("runtime diagnostic invocation status: inconsistent stream result")
 	}
+	if input.HasSessionObservation != input.SessionObservation.Valid() {
+		return RuntimeDiagnosticInvocationStatus{}, fmt.Errorf("runtime diagnostic invocation status: inconsistent protocol observation")
+	}
 	return RuntimeDiagnosticInvocationStatus{sessionID: input.SessionID, runID: input.RunID, attemptID: input.AttemptID, invocationID: input.InvocationID,
-		ordinal: input.Ordinal, purpose: input.Purpose, processState: input.ProcessState, parseState: input.ParseState, validationState: input.ValidationState,
+		executionInvocationID: input.ExecutionInvocationID,
+		ordinal:               input.Ordinal, purpose: input.Purpose, processState: input.ProcessState, parseState: input.ParseState, validationState: input.ValidationState,
 		startedAt: input.StartedAt, updatedAt: input.UpdatedAt, completedAt: input.CompletedAt, hasCompletedAt: input.HasCompletedAt,
 		termination: input.Termination, exitCode: input.ExitCode, hasExitCode: input.HasExitCode, lastSequence: input.LastSequence,
-		stdout: input.Stdout, stderr: input.Stderr, hasStdout: input.HasStdout, hasStderr: input.HasStderr}, nil
+		stdout: input.Stdout, stderr: input.Stderr, hasStdout: input.HasStdout, hasStderr: input.HasStderr,
+		sessionObservation: input.SessionObservation, hasSessionObservation: input.HasSessionObservation}, nil
 }
 
 func (status RuntimeDiagnosticInvocationStatus) SchemaVersion() string {
@@ -284,7 +396,10 @@ func (status RuntimeDiagnosticInvocationStatus) SessionID() domain.SessionID { r
 func (status RuntimeDiagnosticInvocationStatus) RunID() domain.RunID         { return status.runID }
 func (status RuntimeDiagnosticInvocationStatus) AttemptID() domain.AttemptID { return status.attemptID }
 func (status RuntimeDiagnosticInvocationStatus) InvocationID() string        { return status.invocationID }
-func (status RuntimeDiagnosticInvocationStatus) Ordinal() uint64             { return status.ordinal }
+func (status RuntimeDiagnosticInvocationStatus) ExecutionInvocationID() string {
+	return status.executionInvocationID
+}
+func (status RuntimeDiagnosticInvocationStatus) Ordinal() uint64 { return status.ordinal }
 func (status RuntimeDiagnosticInvocationStatus) Purpose() ProviderInvocationPurpose {
 	return status.purpose
 }
@@ -306,6 +421,9 @@ func (status RuntimeDiagnosticInvocationStatus) Stdout() (RuntimeDiagnosticRawRe
 }
 func (status RuntimeDiagnosticInvocationStatus) Stderr() (RuntimeDiagnosticRawResult, bool) {
 	return status.stderr, status.hasStderr
+}
+func (status RuntimeDiagnosticInvocationStatus) SessionObservation() (ProviderSessionObservation, bool) {
+	return status.sessionObservation, status.hasSessionObservation && status.sessionObservation.Valid()
 }
 
 type RuntimeDiagnosticRawRequest struct {

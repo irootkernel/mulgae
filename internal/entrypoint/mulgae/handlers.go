@@ -1936,6 +1936,21 @@ func (application *Application) handleStatus(ctx context.Context, invocation Inv
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
 	}
+	if status.PublicationState != domain.PublicationCommitted && !nilApplicationDependency(application.diagnosticQueries) {
+		_, artifactRoot, rootErr := publicationRoots(canonicalProjectRoot)
+		if rootErr != nil {
+			return execution{failure: executionFailureFor(invocation.Command(), rootErr, domain.FailureArtifact)}
+		}
+		diagnosticStatus, diagnosticErr := application.diagnosticQueries.ReadSessionRunStatus(ctx, artifactRoot, run.SessionID(), run.RunID())
+		switch {
+		case diagnosticErr == nil:
+			if summary, ok := diagnosticStatus.DiagnosticSummary(); ok {
+				status.DiagnosticSummary, status.HasDiagnosticSummary = summary, true
+			}
+		case !errors.Is(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound):
+			return execution{failure: executionFailureFor(invocation.Command(), diagnosticErr, domain.FailureArtifact)}
+		}
+	}
 	data, err := statusResultData(request, status)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
@@ -2199,21 +2214,22 @@ func statusResultData(request StatusRequest, status RunStatusView) ([]byte, erro
 			return nil, errors.New("non-P2 status exposed role report URIs")
 		}
 		return json.Marshal(struct {
-			FailedRunRecovery recovery.Status `json:"failed_run_recovery"`
-			Kind              string          `json:"kind"`
-			RunID             string          `json:"run_id"`
-			RunState          *string         `json:"run_state"`
-			PublicationStatus string          `json:"publication_status"`
-			RecoveryAction    string          `json:"recovery_action"`
-			FinalArtifactURI  *string         `json:"final_artifact_uri"`
-			ContentVerdict    *string         `json:"content_verdict,omitempty"`
-			CoverageStatus    *string         `json:"coverage_status,omitempty"`
-			CIDecision        *string         `json:"ci_decision,omitempty"`
+			FailedRunRecovery recovery.Status          `json:"failed_run_recovery"`
+			Kind              string                   `json:"kind"`
+			RunID             string                   `json:"run_id"`
+			RunState          *string                  `json:"run_state"`
+			PublicationStatus string                   `json:"publication_status"`
+			RecoveryAction    string                   `json:"recovery_action"`
+			FinalArtifactURI  *string                  `json:"final_artifact_uri"`
+			ContentVerdict    *string                  `json:"content_verdict,omitempty"`
+			CoverageStatus    *string                  `json:"coverage_status,omitempty"`
+			CIDecision        *string                  `json:"ci_decision,omitempty"`
+			DiagnosticSummary *diagnosticSummaryResult `json:"diagnostic_summary,omitempty"`
 		}{
 			FailedRunRecovery: status.FailedRunRecovery, Kind: "status_read", RunID: status.RunID, RunState: runState,
 			PublicationStatus: string(status.PublicationState), RecoveryAction: recoveryAction,
 			FinalArtifactURI: finalArtifactURI, ContentVerdict: contentVerdict,
-			CoverageStatus: coverageStatus, CIDecision: ciDecision,
+			CoverageStatus: coverageStatus, CIDecision: ciDecision, DiagnosticSummary: projectDiagnosticSummary(status.DiagnosticSummary, status.HasDiagnosticSummary),
 		})
 	}
 	roleReportURIs, err := commandRoleReportURIs(status.SessionID, status.RunID, status.RoleReportURIs)
@@ -2235,12 +2251,36 @@ func statusResultData(request StatusRequest, status RunStatusView) ([]byte, erro
 			Role string `json:"role"`
 			URI  string `json:"uri"`
 		} `json:"role_report_uris"`
+		DiagnosticSummary *diagnosticSummaryResult `json:"diagnostic_summary,omitempty"`
 	}{
 		FailedRunRecovery: status.FailedRunRecovery, Kind: "status_read", RunID: status.RunID, RunState: runState,
 		PublicationStatus: string(status.PublicationState), RecoveryAction: recoveryAction,
 		FinalArtifactURI: finalArtifactURI, ContentVerdict: contentVerdict,
 		CoverageStatus: coverageStatus, CIDecision: ciDecision, RoleReportURIs: roleReportURIs,
+		DiagnosticSummary: projectDiagnosticSummary(status.DiagnosticSummary, status.HasDiagnosticSummary),
 	})
+}
+
+type diagnosticSummaryResult struct {
+	InvariantID                string `json:"invariant_id,omitempty"`
+	Component                  string `json:"component"`
+	Phase                      string `json:"phase"`
+	ProviderInstance           string `json:"provider_instance,omitempty"`
+	AttemptID                  string `json:"attempt_id,omitempty"`
+	InvocationID               string `json:"invocation_id,omitempty"`
+	ProtocolTerminal           string `json:"protocol_terminal,omitempty"`
+	ProviderSessionFingerprint string `json:"provider_session_fingerprint,omitempty"`
+	ProviderTurnFingerprint    string `json:"provider_turn_fingerprint,omitempty"`
+}
+
+func projectDiagnosticSummary(summary ports.RuntimeDiagnosticSummary, present bool) *diagnosticSummaryResult {
+	if !present || !summary.Valid() {
+		return nil
+	}
+	return &diagnosticSummaryResult{InvariantID: summary.InvariantID(), Component: summary.Component(), Phase: summary.Phase(),
+		ProviderInstance: summary.Provider(), AttemptID: summary.AttemptID().String(), InvocationID: summary.InvocationID(),
+		ProtocolTerminal: summary.ProtocolTerminal(), ProviderSessionFingerprint: summary.ProviderSessionFingerprint(),
+		ProviderTurnFingerprint: summary.ProviderTurnFingerprint()}
 }
 
 func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagnosticRunStatus) ([]byte, error) {
@@ -2265,28 +2305,30 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 		terminalPhaseValue = &terminalPhase
 	}
 	recoveryAction := "rerun_review"
+	diagnosticSummary, hasDiagnosticSummary := status.DiagnosticSummary()
 	return json.Marshal(struct {
-		FailedRunRecovery    recovery.Status `json:"failed_run_recovery"`
-		Kind                 string          `json:"kind"`
-		SessionID            string          `json:"session_id"`
-		RunID                string          `json:"run_id"`
-		RunState             string          `json:"run_state"`
-		PublicationStatus    *string         `json:"publication_status"`
-		RecoveryAction       *string         `json:"recovery_action"`
-		FinalArtifactURI     *string         `json:"final_artifact_uri"`
-		StartedAt            string          `json:"started_at"`
-		UpdatedAt            string          `json:"updated_at"`
-		CompletedAt          *string         `json:"completed_at"`
-		SelectedRoles        []string        `json:"selected_roles"`
-		RolePathTotal        int             `json:"role_path_total"`
-		RolePathCompleted    int             `json:"role_path_completed"`
-		RolePathFailed       int             `json:"role_path_failed"`
-		LastSequence         uint64          `json:"last_seq"`
-		TerminalCause        *string         `json:"terminal_cause"`
-		TerminalPhase        *string         `json:"terminal_phase"`
-		DroppedEvents        uint64          `json:"dropped_events"`
-		DiagnosticOnly       bool            `json:"diagnostic_only"`
-		PublicationAuthority bool            `json:"publication_authority"`
+		FailedRunRecovery    recovery.Status          `json:"failed_run_recovery"`
+		Kind                 string                   `json:"kind"`
+		SessionID            string                   `json:"session_id"`
+		RunID                string                   `json:"run_id"`
+		RunState             string                   `json:"run_state"`
+		PublicationStatus    *string                  `json:"publication_status"`
+		RecoveryAction       *string                  `json:"recovery_action"`
+		FinalArtifactURI     *string                  `json:"final_artifact_uri"`
+		StartedAt            string                   `json:"started_at"`
+		UpdatedAt            string                   `json:"updated_at"`
+		CompletedAt          *string                  `json:"completed_at"`
+		SelectedRoles        []string                 `json:"selected_roles"`
+		RolePathTotal        int                      `json:"role_path_total"`
+		RolePathCompleted    int                      `json:"role_path_completed"`
+		RolePathFailed       int                      `json:"role_path_failed"`
+		LastSequence         uint64                   `json:"last_seq"`
+		TerminalCause        *string                  `json:"terminal_cause"`
+		TerminalPhase        *string                  `json:"terminal_phase"`
+		DroppedEvents        uint64                   `json:"dropped_events"`
+		DiagnosticOnly       bool                     `json:"diagnostic_only"`
+		PublicationAuthority bool                     `json:"publication_authority"`
+		DiagnosticSummary    *diagnosticSummaryResult `json:"diagnostic_summary,omitempty"`
 	}{
 		FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"), Kind: "diagnostic_status_read", SessionID: status.SessionID().String(), RunID: status.RunID().String(),
 		RecoveryAction: &recoveryAction,
@@ -2295,16 +2337,27 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 		RolePathCompleted: completed, RolePathFailed: failed, LastSequence: status.LastSequence(), TerminalCause: terminalCauseValue,
 		TerminalPhase: terminalPhaseValue,
 		DroppedEvents: status.DroppedEvents(), DiagnosticOnly: true, PublicationAuthority: false,
+		DiagnosticSummary: projectDiagnosticSummary(diagnosticSummary, hasDiagnosticSummary),
 	})
 }
 
 func diagnosticStatusHumanOutput(status ports.RuntimeDiagnosticRunStatus) []byte {
 	total, completed, failed := status.RolePathCounts()
 	phase := status.TerminalPhase()
-	if phase.Valid() {
-		return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d terminal_phase=%s recovery_action=rerun_review publication_authority=false", status.RunID().String(), status.State(), completed, total, failed, phase))
+	suffix := ""
+	if summary, ok := status.DiagnosticSummary(); ok {
+		suffix = fmt.Sprintf(" diagnostic_component=%s diagnostic_phase=%s", summary.Component(), summary.Phase())
+		if summary.InvariantID() != "" {
+			suffix += " invariant_id=" + summary.InvariantID()
+		}
+		if summary.ProviderSessionFingerprint() != "" {
+			suffix += " provider_session_fingerprint=" + summary.ProviderSessionFingerprint()
+		}
 	}
-	return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d recovery_action=rerun_review publication_authority=false", status.RunID().String(), status.State(), completed, total, failed))
+	if phase.Valid() {
+		return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d terminal_phase=%s recovery_action=rerun_review publication_authority=false%s", status.RunID().String(), status.State(), completed, total, failed, phase, suffix))
+	}
+	return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d recovery_action=rerun_review publication_authority=false%s", status.RunID().String(), status.State(), completed, total, failed, suffix))
 }
 
 func roleStrings(roles []domain.Role) []string {
@@ -2350,6 +2403,20 @@ func statusHumanOutput(status RunStatusView) []byte {
 		output.WriteString("\nfailed_run_recovery: unavailable (")
 		output.WriteString(*status.FailedRunRecovery.UnavailableReason)
 		output.WriteString(")")
+	}
+	if summary, ok := status.DiagnosticSummary, status.HasDiagnosticSummary; ok && summary.Valid() {
+		output.WriteString("\ndiagnostic_component: ")
+		output.WriteString(summary.Component())
+		output.WriteString("\ndiagnostic_phase: ")
+		output.WriteString(summary.Phase())
+		if summary.InvariantID() != "" {
+			output.WriteString("\ninvariant_id: ")
+			output.WriteString(summary.InvariantID())
+		}
+		if summary.ProviderSessionFingerprint() != "" {
+			output.WriteString("\nprovider_session_fingerprint: ")
+			output.WriteString(summary.ProviderSessionFingerprint())
+		}
 	}
 	return []byte(output.String())
 }

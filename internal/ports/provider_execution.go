@@ -35,6 +35,65 @@ type ProviderRuntimeError struct {
 	err   error
 }
 
+const ProviderObservationInvariantRejected = "provider_execution_observation_rejected"
+
+// ProviderObservationInvariantError preserves coherent partial evidence when
+// the provider boundary cannot assemble its final immutable observation. Its
+// Error projection is closed and safe; the wrapped constructor error remains
+// available only to local causal inspection.
+type ProviderObservationInvariantError struct {
+	status  ProviderExecutionStatus
+	cause   domain.RuntimeDiagnosticCause
+	process ProcessObservation
+	session ProviderSessionObservation
+	err     error
+}
+
+func NewProviderObservationInvariantError(status ProviderExecutionStatus, cause domain.RuntimeDiagnosticCause, process ProcessObservation, session ProviderSessionObservation, err error) (*ProviderObservationInvariantError, error) {
+	if !status.Valid() || status == ProviderExecutionStatusSucceeded || !cause.Valid() || !process.Valid() || !session.Valid() || err == nil {
+		return nil, fmt.Errorf("provider observation invariant error: invalid field")
+	}
+	return &ProviderObservationInvariantError{status: status, cause: cause, process: process, session: session, err: err}, nil
+}
+func (failure *ProviderObservationInvariantError) Error() string {
+	return "provider observation invariant failed: " + ProviderObservationInvariantRejected
+}
+func (failure *ProviderObservationInvariantError) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.err
+}
+func (failure *ProviderObservationInvariantError) InvariantID() string {
+	return ProviderObservationInvariantRejected
+}
+func (failure *ProviderObservationInvariantError) Component() string { return "provider_registry" }
+func (failure *ProviderObservationInvariantError) Phase() string     { return "provider_observation" }
+func (failure *ProviderObservationInvariantError) Status() ProviderExecutionStatus {
+	if failure == nil {
+		return ""
+	}
+	return failure.status
+}
+func (failure *ProviderObservationInvariantError) Cause() domain.RuntimeDiagnosticCause {
+	if failure == nil {
+		return ""
+	}
+	return failure.cause
+}
+func (failure *ProviderObservationInvariantError) ProcessObservation() ProcessObservation {
+	if failure == nil {
+		return ProcessObservation{}
+	}
+	return cloneProcessObservation(failure.process)
+}
+func (failure *ProviderObservationInvariantError) SessionObservation() ProviderSessionObservation {
+	if failure == nil {
+		return ProviderSessionObservation{}
+	}
+	return failure.session
+}
+
 func NewProviderRuntimeError(cause domain.RuntimeDiagnosticCause, err error) (*ProviderRuntimeError, error) {
 	if !cause.Valid() {
 		return nil, fmt.Errorf("provider runtime error: invalid cause")
@@ -221,6 +280,8 @@ type ProviderExecutionObservation struct {
 	outputTransport    ProviderOutputTransport
 	stagedOutput       StagedOutputReceipt
 	hasStagedOutput    bool
+	sessionObservation ProviderSessionObservation
+	hasSession         bool
 }
 
 // NewSuccessfulProviderExecutionObservation records a successful provider
@@ -335,6 +396,39 @@ func NewFailedProviderExecutionObservationWithCause(
 	diagnosticCode string,
 	cause, cleanupCause domain.RuntimeDiagnosticCause,
 ) (ProviderExecutionObservation, error) {
+	return newFailedProviderExecutionObservationWithCause(
+		status, invocation, processObservation, ProviderSessionObservation{}, false,
+		diagnosticCode, cause, cleanupCause,
+	)
+}
+
+// NewFailedProtocolProviderExecutionObservationWithCause records a protocol
+// driver's terminal failure together with the process teardown it caused.
+// Receipt-proven conversation teardown is compatible with provider-native and
+// artifact failure statuses without weakening one-shot signal handling.
+func NewFailedProtocolProviderExecutionObservationWithCause(
+	status ProviderExecutionStatus,
+	invocation ProviderInvocation,
+	processObservation ProcessObservation,
+	sessionObservation ProviderSessionObservation,
+	diagnosticCode string,
+	cause, cleanupCause domain.RuntimeDiagnosticCause,
+) (ProviderExecutionObservation, error) {
+	return newFailedProviderExecutionObservationWithCause(
+		status, invocation, processObservation, sessionObservation, true,
+		diagnosticCode, cause, cleanupCause,
+	)
+}
+
+func newFailedProviderExecutionObservationWithCause(
+	status ProviderExecutionStatus,
+	invocation ProviderInvocation,
+	processObservation ProcessObservation,
+	sessionObservation ProviderSessionObservation,
+	hasSession bool,
+	diagnosticCode string,
+	cause, cleanupCause domain.RuntimeDiagnosticCause,
+) (ProviderExecutionObservation, error) {
 	canonicalInvocation, err := canonicalProviderInvocation(invocation)
 	if err != nil {
 		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid invocation: %w", err)
@@ -354,6 +448,8 @@ func NewFailedProviderExecutionObservationWithCause(
 		cleanupCause:       cleanupCause,
 		stdout:             canonicalProcess.Stdout(),
 		stderr:             canonicalProcess.Stderr(),
+		sessionObservation: sessionObservation,
+		hasSession:         hasSession,
 	}
 	if err := observation.Validate(); err != nil {
 		return ProviderExecutionObservation{}, err
@@ -416,6 +512,12 @@ func (observation ProviderExecutionObservation) AvailableProcessObservation() (P
 		return ProcessObservation{}, false
 	}
 	return cloneProcessObservation(observation.processObservation), true
+}
+
+// SessionObservation returns bounded protocol correlation and progress facts
+// retained for a failed protocol conversation.
+func (observation ProviderExecutionObservation) SessionObservation() (ProviderSessionObservation, bool) {
+	return observation.sessionObservation, observation.hasSession && observation.sessionObservation.Valid()
 }
 
 // Termination returns the exact neutral process termination fact.
@@ -618,9 +720,47 @@ func (observation ProviderExecutionObservation) Validate() error {
 		return fmt.Errorf("provider execution observation: failed status has no failure class")
 	}
 	if observation.hasProcess && !providerExecutionStatusMatchesProcessObservation(observation.status, canonicalProcess) {
-		return fmt.Errorf("provider execution observation: status does not match process termination")
+		if !observation.failedProtocolConversationMatches(canonicalProcess) {
+			return fmt.Errorf("provider execution observation: status does not match process termination")
+		}
+	}
+	if observation.hasSession && !observation.failedProtocolConversationMatches(canonicalProcess) {
+		return fmt.Errorf("provider execution observation: invalid protocol failure observation")
+	}
+	if !observation.hasSession && observation.sessionObservation != (ProviderSessionObservation{}) {
+		return fmt.Errorf("provider execution observation: unexpected protocol observation")
 	}
 	return nil
+}
+
+func (observation ProviderExecutionObservation) failedProtocolConversationMatches(process ProcessObservation) bool {
+	if !observation.hasSession ||
+		observation.sessionObservation.Terminal() != ProviderSessionFailed {
+		return false
+	}
+	if err := validateProviderConversationObservation(process, observation.sessionObservation); err != nil {
+		return false
+	}
+	// A protocol driver can fail because the app-server exits nonzero while a
+	// request is in flight. In that case the ordinary process/status mapping is
+	// already authoritative; the session observation adds progress evidence but
+	// must not require a successful conversation teardown. The completed-
+	// conversation branch below is the narrow exception that admits a provider
+	// semantic failure followed by the runner's intentional teardown.
+	if providerExecutionStatusMatchesProcessObservation(observation.status, process) {
+		return true
+	}
+	if !process.ProtocolConversationCompleted() {
+		return false
+	}
+	switch observation.status {
+	case ProviderExecutionStatusUnavailable, ProviderExecutionStatusAuthentication,
+		ProviderExecutionStatusQuota, ProviderExecutionStatusRateLimit,
+		ProviderExecutionStatusTimedOut, ProviderExecutionStatusArtifactFailure:
+		return true
+	default:
+		return false
+	}
 }
 
 // validateOutputTransport enforces the invariants of the transport that carried
