@@ -3178,6 +3178,43 @@ func TestApplicationReviewReportsAttributedQualificationFailures(t *testing.T) {
 	}
 }
 
+func TestApplicationReviewReportsRateLimitedQualificationFailure(t *testing.T) {
+	rateLimited, err := domain.NewFailure("capability", domain.FailureRateLimit, "provider rate limited", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zcode, err := reviewrun.NewProviderQualificationFailure(
+		"zcode-default", reviewrun.FamilyZCode, string(domain.FailureRateLimit), rateLimited,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{
+		err: reviewrun.NewProviderQualificationFailuresError([]reviewrun.ProviderQualificationFailure{zcode}),
+	}
+	machine := fixture.application.Run(
+		context.Background(),
+		[]string{"review", "--dirty", "--output", "json"},
+		testAnchoredRoot(t),
+	)
+	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
+	var envelope struct {
+		Reasons []struct {
+			Code      string `json:"code"`
+			Retryable bool   `json:"retryable"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_qualification_failed" ||
+		!envelope.Reasons[0].Retryable {
+		t.Fatalf("rate-limited qualification failure envelope = %#v", envelope)
+	}
+}
+
 func TestApplicationReviewReportsQualificationPermissionDenialByActualCause(t *testing.T) {
 	permissionCause, err := ports.NewProviderRuntimeError(
 		domain.DiagnosticCausePermissionDenied,
@@ -3420,6 +3457,7 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 		{name: "capture manifest too large", code: "capture_manifest_too_large", stage: "review.capture", exit: app.ExitCodeArtifact, err: manifestLarge},
 		{name: "content policy blocked", code: "content_policy_blocked", stage: "review.capture", exit: app.ExitCodeSecurity, err: policyBlocked, policyConfig: true},
 		{name: "provider timeout", code: "provider_timeout", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderTimeout, domain.FailureTimeout), provider: true},
+		{name: "provider rate limited", code: "provider_rate_limited", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionRateLimit, domain.FailureRateLimit), provider: true},
 		{name: "provider permission denied", code: "provider_permission_denied", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderPermissionDenied, domain.FailureAuthentication), provider: true},
 		{name: "provider output missing", code: "provider_output_missing", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderOutputMissing, domain.FailureInvalidOutput), provider: true},
 		{name: "provider output decode failed", code: "provider_output_decode_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderOutputDecodeFailed, domain.FailureInvalidOutput), provider: true},
@@ -3469,14 +3507,22 @@ func TestCommittedProviderFailureReasonsPreserveEveryTerminalRole(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	reasons, err := committedProviderFailureReasons([]reviewrun.ProviderExecutionFailure{logic, security})
+	testing, err := reviewrun.NewProviderExecutionFailure(
+		"zcode-testing", domain.RoleTesting, string(review.AttemptConditionRateLimit), domain.FailureRateLimit,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reasons) != 2 || reasons[0].Code() != "provider_output_missing" ||
+	reasons, err := committedProviderFailureReasons([]reviewrun.ProviderExecutionFailure{logic, security, testing})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reasons) != 3 || reasons[0].Code() != "provider_output_missing" ||
 		!strings.Contains(reasons[0].Message(), "role logic; provider zcode-logic") ||
 		reasons[1].Code() != "provider_permission_denied" ||
-		!strings.Contains(reasons[1].Message(), "role security; provider agy-security") {
+		!strings.Contains(reasons[1].Message(), "role security; provider agy-security") ||
+		reasons[2].Code() != "provider_rate_limited" ||
+		!strings.Contains(reasons[2].Message(), "role testing; provider zcode-testing") {
 		t.Fatalf("committed provider reasons = %#v", reasons)
 	}
 }
@@ -5234,6 +5280,13 @@ func TestApplicationG008ProviderExecutionFailuresAreNonSuccess(t *testing.T) {
 			condition: review.AttemptConditionAuthentication,
 			set:       func(fakes g008WorkflowFakes, err error) { fakes.rerun.err = err },
 		},
+		{
+			name:      "rerun exact rate limited",
+			argv:      []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
+			class:     domain.FailureRateLimit,
+			condition: review.AttemptConditionRateLimit,
+			set:       func(fakes g008WorkflowFakes, err error) { fakes.rerun.err = err },
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -5267,11 +5320,13 @@ func TestApplicationG008ProviderExecutionFailuresAreNonSuccess(t *testing.T) {
 				wantCode = "candidate_validation_failed"
 			case review.AttemptConditionTimeout:
 				wantCode = "execution_timeout"
+			case review.AttemptConditionRateLimit:
+				wantCode = "provider_rate_limited"
 			}
 			if envelope.OK || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != wantCode || envelope.Reasons[0].Retryable {
 				t.Fatalf("provider execution envelope = %#v", envelope)
 			}
-			if test.name == "rerun exact timeout" {
+			if test.name == "rerun exact timeout" || test.name == "rerun exact rate limited" {
 				if len(fakes.rerun.requests) != 1 || fakes.rerun.requests[0].ReplayMode != appreplay.ExactReplay {
 					t.Fatalf("exact rerun requests = %#v", fakes.rerun.requests)
 				}

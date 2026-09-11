@@ -199,6 +199,26 @@ non-retryable `invocation_registry_closed` rather than observer-only
 `await_cancelled`. Empty stdin EOF ends the transport itself, so pending calls
 may receive no response even though shutdown still cancels and drains their
 server-owned reviews. Invocation state is never recovered after server exit.
+When provider qualification prevents `run_review` from producing a review
+result, the planner preserves every qualification failure recorded for the
+selected roles. If every such failure has reason `rate_limit` and operational
+precedence does not select a higher failure class, the tool returns the
+readiness error code `provider_rate_limited` at stage `execution`; terminal
+`await_review` preserves the same error. A mixture with another provider-class
+qualification failure remains `review_unavailable`, so the narrower code does
+not hide another prerequisite. A higher-precedence failure retains its normal
+projection. On these mutating tools the rate-limit error is non-retryable:
+another `run_review` would create a distinct run, while terminal await already
+describes the completed invocation. This flag does not claim that the provider
+condition is permanent. An allocated failure retains its exact session and run
+identities, and terminal await also retains its invocation identity.
+
+A rate limit observed during provider execution rather than qualification
+completes the tool invocation with `outcome: success`, `terminal_exit_code: 4`,
+and a `rate_limit` reason. Its run may commit with incomplete coverage and must
+be inspected before recovering the failed role. Tool success in this case
+describes transport and run completion, not a successful review verdict.
+
 The tool grammar comprises `preflight_review`, `run_review`,
 `start_review`, `await_review`, `cancel_review`, `compose_review`, `list_runs`,
 `get_run`, and `list_findings`. An uncertain `compose_review` publication
@@ -428,6 +448,10 @@ is never the primary report URI.
 
 `transport` is adapter-owned per provider family, not configurable. ZCode
 review invocations are granted `staged_file`; AGY and Kimi remain `stdout`.
+For a failed review invocation, model-authored stdout remains private process
+evidence but never classifies a native provider condition; stderr has that
+authority. Qualification may classify native failures from both stdout and
+stderr after a process failure or failed capability-proof validation.
 ZCode review and qualification invocations speak the ZCode app-server protocol:
 the adapter launches `[node, launcher, app-server]` and delivers every packet
 inside one newline-delimited protocol conversation over the child's stdin and
@@ -436,8 +460,15 @@ conversation's turn completion, not child exit, is the provider's terminal
 review fact. A protocol failure remains a provider failure when bounded process
 teardown ends the app server with SIGTERM; that signal does not invalidate the
 driver's recorded session receipts. Protocol stdout transcripts are never
-report content. AGY
-review, extraction, and capability invocations request `--output-format=json`;
+report content. When ZCode emits a quota marker with the generic
+`Turn execution failed` diagnostic, quota determines the typed outcome. When it
+emits the native `rate_limit_error` token or the recognized provider
+business-error marker with that generic diagnostic, the explicit marker
+determines the typed rate-limit outcome while the protocol session and process
+evidence remain attached. Other rate-limit prose does not override the generic
+turn-failure classification.
+
+AGY review, extraction, and capability invocations request `--output-format=json`;
 the adapter unwraps the native envelope's `response` as the review content.
 The JSON envelope does not replace process termination or lifecycle validation.
 AGY native JSON envelopes must contain a nonempty string `response`; when
@@ -586,11 +617,22 @@ exit `10` and `selector_resolution_failed`.
 Command-result v5, v6, and v7 remain readable but are never emitted by the
 current command surface. Other commands do not have rejected-request variants
 in v8.
-If one of them fails before a contract-valid request can be frozen, it returns the typed exit and human stderr even when
-`--output json` was requested. For example, `export --run latest` with no
-committed run returns artifact exit `7` without fabricating an `export` request
-envelope. `compose` accepts only exact run IDs and returns the exact mapping,
-deterministic composite identity, outcome axes, and reconciliation state.
+For the top-level `review` command, attributed provider execution details in v8
+preserve the assigned role and provider in the reason message. A rate-limited
+attempt adds the stable code `provider_rate_limited`, readiness exit `4`,
+`retryable: false`, and the `mulgae rerun` next-action hint. A committed
+incomplete review also retains the coordinator's `rate_limit` reason. The
+`retryable: false` flag describes the non-idempotent command mutation, not the
+duration of the provider-side rate limit. Qualification-stage rate limits
+instead use `provider_qualification_failed` with `retryable: true`.
+
+If one of the commands without a rejected-request variant fails before a
+contract-valid request can be frozen, it returns the typed exit and human stderr
+even when `--output json` was requested. For example, `export --run latest` with
+no committed run returns artifact exit `7` without fabricating an `export`
+request envelope. `compose` accepts only exact run IDs and returns the exact
+mapping, deterministic composite identity, outcome axes, and reconciliation
+state.
 `status_required` directs the caller to inspect that run ID instead of blindly
 retrying. `retry_safe` is the mutation-level signal: it is `true` when repeating
 the same exact mapping is known to be safe because it was not committed or its
@@ -701,8 +743,9 @@ invocation receives exactly one automatic retry on the same configured provider,
 attempt, role, and immutable target. The retry has a fresh execution identity
 and separate runtime evidence. Timeout, rate-limit, quota, authentication,
 configuration, artifact, security, malformed-output, and semantic failures are
-not automatically retried. A retry consumes the second invocation slot, so its
-output cannot also schedule repair.
+not automatically retried. A rate limit does not cancel or serialize peer-role
+invocations and does not mark the provider unusable. A retry consumes the second
+invocation slot, so its output cannot also schedule repair.
 
 ## Codex MCP configuration observability
 

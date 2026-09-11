@@ -576,13 +576,17 @@ func TestComposeFailureReasonCodesProjectStableClassification(t *testing.T) {
 }
 
 func TestComposeFailureNeverAuthorizesGenericReadinessRetry(t *testing.T) {
-	cause, err := domain.NewFailure("compose.unreachable", domain.FailureQuota, "private", errors.New("private"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	failure := publicToolError(cause, toolComposeReview)
-	if failure.Class != "readiness" || failure.Code != "review_unavailable" || failure.Retryable {
-		t.Fatalf("generic compose readiness failure = %#v", failure)
+	for _, class := range []domain.FailureClass{domain.FailureQuota, domain.FailureRateLimit} {
+		t.Run(string(class), func(t *testing.T) {
+			cause, err := domain.NewFailure("compose.unreachable", class, "private", errors.New("private"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			failure := publicToolError(cause, toolComposeReview)
+			if failure.Class != "readiness" || failure.Code != "review_unavailable" || failure.Retryable {
+				t.Fatalf("generic compose readiness failure = %#v", failure)
+			}
+		})
 	}
 }
 
@@ -646,6 +650,172 @@ func TestServeAwaitReviewPreservesTerminalFailureIdentity(t *testing.T) {
 	if strings.Contains(string(response["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)), "private") {
 		t.Fatalf("terminal await leaked private details: %#v", structured)
 	}
+}
+
+func TestServeQualificationRateLimitUsesStablePublicCode(t *testing.T) {
+	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualificationFailure := func(t *testing.T, provider string, family reviewrun.Family, class domain.FailureClass) reviewrun.ProviderQualificationFailure {
+		t.Helper()
+		cause, err := domain.NewFailure("provider.qualify", class, "private provider response", errors.New("private provider output"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		failure, err := reviewrun.NewProviderQualificationFailure(provider, family, string(class), cause)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return failure
+	}
+	readinessError := func(t *testing.T, failures ...reviewrun.ProviderQualificationFailure) error {
+		t.Helper()
+		aggregate := reviewrun.NewProviderQualificationFailuresError(failures)
+		failure, err := domain.NewFailure(
+			"reviewrun.qualification",
+			domain.FailureProviderUnavailable,
+			"configured provider qualification failed",
+			aggregate,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return failure
+	}
+	rateLimit := readinessError(
+		t,
+		qualificationFailure(t, "zcode-default", reviewrun.FamilyZCode, domain.FailureRateLimit),
+		qualificationFailure(t, "agy-default", reviewrun.FamilyAGY, domain.FailureRateLimit),
+	)
+	allocated := reviewrun.NewAllocatedRunIdentityError(sessionID, runID, rateLimit)
+	assertFailure := func(t *testing.T, response map[string]any, wantInvocationID string) {
+		t.Helper()
+		result := response["result"].(map[string]any)
+		structured := result["structuredContent"].(map[string]any)
+		failure := structured["error"].(map[string]any)
+		if failure["class"] != "readiness" || failure["code"] != "provider_rate_limited" ||
+			failure["stage"] != "execution" || failure["retryable"] != false ||
+			failure["session_id"] != sessionID.String() || failure["run_id"] != runID.String() {
+			t.Fatalf("rate-limit error = %#v", structured)
+		}
+		if wantInvocationID == "" {
+			if _, ok := failure["invocation_id"]; ok {
+				t.Fatalf("run_review rate-limit error has invocation identity = %#v", structured)
+			}
+		} else if failure["invocation_id"] != wantInvocationID {
+			t.Fatalf("await rate-limit invocation identity = %#v", structured)
+		}
+		content := result["content"].([]any)[0].(map[string]any)["text"].(string)
+		if strings.Contains(content, "private") {
+			t.Fatalf("rate-limit response leaked private details: %q", content)
+		}
+	}
+
+	t.Run(toolRunReview, func(t *testing.T) {
+		backend := &toolBackendFake{runReviewErr: allocated}
+		discover := latestRequest(1, "server/discover", `{}`)
+		call := latestRequest(2, "tools/call", `{"name":"run_review","arguments":{"target":{"kind":"workspace"}}}`)
+		response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), discover, call)[1])
+		assertFailure(t, response, "")
+		if backend.runReviewCalls != 1 {
+			t.Fatalf("run_review calls = %d, want 1", backend.runReviewCalls)
+		}
+	})
+
+	t.Run(toolAwaitReview, func(t *testing.T) {
+		const invocationID = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
+		backend := &toolBackendFake{runReviewErr: allocated}
+		config := toolTestConfigWithIDs(t, backend, invocationID)
+		discover := latestRequest(1, "server/discover", `{}`)
+		start := latestRequest(2, "tools/call", `{"name":"start_review","arguments":{"target":{"kind":"workspace"}}}`)
+		await := latestRequest(3, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"`+invocationID+`"}}`)
+		response := decodeResponse(t, serveRequestsWithConfig(t, config, discover, start, await)[2])
+		assertFailure(t, response, invocationID)
+		if backend.runReviewCalls != 1 {
+			t.Fatalf("start_review calls = %d, want 1", backend.runReviewCalls)
+		}
+	})
+
+	t.Run("mixed qualification failure", func(t *testing.T) {
+		mixed := readinessError(
+			t,
+			qualificationFailure(t, "zcode-default", reviewrun.FamilyZCode, domain.FailureRateLimit),
+			qualificationFailure(t, "agy-default", reviewrun.FamilyAGY, domain.FailureTimeout),
+		)
+		failure := publicToolError(reviewrun.NewAllocatedRunIdentityError(sessionID, runID, mixed), toolRunReview)
+		if failure.Class != "readiness" || failure.Code != "review_unavailable" || failure.Retryable ||
+			failure.SessionID == nil || *failure.SessionID != sessionID.String() ||
+			failure.RunID == nil || *failure.RunID != runID.String() || failure.InvocationID != nil {
+			t.Fatalf("mixed qualification error = %#v", failure)
+		}
+	})
+
+	t.Run("operational precedence", func(t *testing.T) {
+		tests := []struct {
+			class     domain.FailureClass
+			wantClass string
+			wantCode  string
+		}{
+			{domain.FailureInternal, "internal", "internal_failure"},
+			{domain.FailureArtifact, "artifact", "artifact_unavailable"},
+			{domain.FailureSecurityPolicy, "security", "security_rejected"},
+			{domain.FailureCancelled, "cancellation", "request_cancelled"},
+			{domain.FailureConfiguration, "usage", "configuration_rejected"},
+		}
+		for _, test := range tests {
+			t.Run(string(test.class), func(t *testing.T) {
+				competing, err := domain.NewFailure("reviewrun.cleanup", test.class, "private competing failure", errors.New("private competing cause"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				failure := publicToolError(errors.Join(allocated, competing), toolRunReview)
+				if failure.Class != test.wantClass || failure.Code != test.wantCode || failure.Retryable ||
+					failure.SessionID == nil || *failure.SessionID != sessionID.String() ||
+					failure.RunID == nil || *failure.RunID != runID.String() {
+					t.Fatalf("precedence failure = %#v", failure)
+				}
+			})
+		}
+	})
+
+	t.Run("equal operational precedence", func(t *testing.T) {
+		for _, class := range []domain.FailureClass{
+			domain.FailureProviderUnavailable,
+			domain.FailureTimeout,
+			domain.FailureAuthentication,
+			domain.FailureQuota,
+		} {
+			t.Run(string(class), func(t *testing.T) {
+				competing, err := domain.NewFailure("reviewrun.cleanup", class, "private competing failure", errors.New("private competing cause"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				failure := publicToolError(errors.Join(allocated, competing), toolRunReview)
+				if failure.Class != "readiness" || failure.Code != "provider_rate_limited" || failure.Retryable ||
+					failure.SessionID == nil || *failure.SessionID != sessionID.String() ||
+					failure.RunID == nil || *failure.RunID != runID.String() {
+					t.Fatalf("equal-precedence failure = %#v", failure)
+				}
+			})
+		}
+	})
+
+	t.Run("unattributed rate limit", func(t *testing.T) {
+		direct, err := domain.NewFailure("provider.execute", domain.FailureRateLimit, "private provider response", errors.New("private provider output"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		failure := publicToolError(direct, toolRunReview)
+		if failure.Class != "readiness" || failure.Code != "review_unavailable" || failure.Retryable ||
+			failure.SessionID != nil || failure.RunID != nil || failure.InvocationID != nil {
+			t.Fatalf("unattributed rate-limit error = %#v", failure)
+		}
+	})
 }
 
 func TestServeRunReviewSendsProgressOnlyWhenRequested(t *testing.T) {

@@ -2125,6 +2125,8 @@ func providerExecutionFailureCode(failure reviewrun.ProviderExecutionFailure) st
 		return "provider_spawn_failed"
 	case string(review.AttemptConditionTimeout):
 		return "execution_timeout"
+	case string(review.AttemptConditionRateLimit):
+		return "provider_rate_limited"
 	case string(review.AttemptConditionProviderOutputMissing):
 		return "provider_output_missing"
 	case string(review.AttemptConditionProviderOutputDecodeFailed):

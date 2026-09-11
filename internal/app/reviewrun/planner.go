@@ -273,14 +273,11 @@ func (planner *qualifiedPlanner) configuredRoute(role domain.Role, assignment Ro
 		matched = &copy
 	}
 	if matched == nil {
-		failures := make([]ProviderQualificationFailure, 0, 1)
-		for _, failure := range planner.qualificationFailures {
-			if failure.Family() == family {
-				failures = append(failures, failure)
-			}
-		}
-		if len(failures) != 0 {
-			return QualifiedRoute{}, providerQualificationReadinessError(failures)
+		// Production qualification is already restricted to candidates assigned
+		// to the selected roles. Preserve every rejection from that selection so
+		// one unroutable family cannot hide another required prerequisite.
+		if len(planner.qualificationFailures) != 0 {
+			return QualifiedRoute{}, providerQualificationReadinessError(planner.qualificationFailures)
 		}
 		return QualifiedRoute{}, fmt.Errorf("review run: configured %s route is not qualified for role %q", family, role)
 	}

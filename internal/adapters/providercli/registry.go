@@ -1076,7 +1076,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		}
 		return ports.NewSuccessfulProviderExecutionObservation(invocation, result, processObservation)
 	}
-	status, diagnostic, cause := classifyProviderFailure(definition.family, processObservation)
+	status, diagnostic, cause := classifyReviewProviderFailure(definition.family, processObservation)
 	return ports.NewFailedProviderExecutionObservationWithCause(
 		status, invocation, processObservation, diagnostic, cause, "",
 	)
@@ -1922,16 +1922,31 @@ func classifyProviderFailure(
 	family string,
 	observation ports.ProcessObservation,
 ) (ports.ProviderExecutionStatus, string, domain.RuntimeDiagnosticCause) {
+	return classifyProviderFailureWithNativeStdout(family, observation.Stdout(), observation)
+}
+
+func classifyReviewProviderFailure(
+	family string,
+	observation ports.ProcessObservation,
+) (ports.ProviderExecutionStatus, string, domain.RuntimeDiagnosticCause) {
+	return classifyProviderFailureWithNativeStdout(family, nil, observation)
+}
+
+func classifyProviderFailureWithNativeStdout(
+	family string,
+	nativeStdout []byte,
+	observation ports.ProcessObservation,
+) (ports.ProviderExecutionStatus, string, domain.RuntimeDiagnosticCause) {
 	if hasPostOutputTrailingBytes(observation) {
 		return ports.ProviderExecutionStatusArtifactFailure, "post_output_trailing_bytes", domain.DiagnosticCauseOutputEnvelopeInvalid
 	}
 	if observation.Termination() == ports.ProcessTerminationExited {
-		if status, diagnostic, cause, ok := nativeProviderOutcome(family, observation.Stdout(), observation.Stderr()); ok {
+		if status, diagnostic, cause, ok := nativeProviderOutcome(family, nativeStdout, observation.Stderr()); ok {
 			return status, diagnostic, cause
 		}
 	}
-	status := classify(observation)
-	diagnostic := diagnosticCode(observation)
+	status := classify(nativeStdout, observation)
+	diagnostic := diagnosticCode(nativeStdout, observation)
 	switch observation.Termination() {
 	case ports.ProcessTerminationTimedOut:
 		return status, diagnostic, domain.DiagnosticCauseTimedOut
@@ -1948,17 +1963,19 @@ func classifyProviderFailure(
 }
 
 // nativeProviderOutcome maps a native provider diagnostic to a typed execution
-// outcome. Two constraints bound the token tables and must be preserved:
+// outcome. Three constraints bound the token tables and must be preserved:
 //
 //   - No branch may ever match a bare "timeout" token. AGY argv carries
 //     --print-timeout, and an argv echo in stderr must not read as a native
 //     provider timeout. Timeout evidence is either the exact native phrase or a
 //     transport-level phrase such as "timed out".
 //   - Short/numeric tokens (429, 503) and prose tokens (overloaded, try again
-//     later) are matched on stderr only. This function is also reached from
-//     classifyProviderFailure for REVIEW invocations whose stdout is
-//     model-authored review text, so a review discussing capacity planning or
-//     HTTP 503 handling must never classify as a transient provider condition.
+//     later) are matched on stderr only.
+//   - Review execution callers withhold stdout because it is model-authored
+//     content. Qualification callers retain both streams for failed processes
+//     and after native proof validation fails. A review discussing capacity
+//     planning or HTTP 503 handling must never classify as a transient provider
+//     condition.
 func nativeProviderOutcome(
 	family string,
 	stdout, stderr []byte,
@@ -1989,6 +2006,9 @@ func nativeProviderOutcome(
 		}
 		return false
 	}
+	errorContainsIdentifier := func(value string) bool {
+		return containsStandaloneASCIIIdentifier(errorOutput, value)
+	}
 	loginRequired := providerLoginRequired(output)
 	switch family {
 	case FamilyKimi:
@@ -2006,22 +2026,32 @@ func nativeProviderOutcome(
 	default:
 		return "", "", "", false
 	}
+	rateLimitMarkers := []string{"rate_limit", "rate limit", "too many requests", "rate-limited", "ratelimit"}
+	quotaExceeded := containsAny("quota_exceeded", "insufficient_quota", "quota exceeded",
+		"insufficient_credits", "insufficient credits", "usage limit", "usage_limit_reached")
+	rateLimited := containsAny(rateLimitMarkers...) ||
+		errorContainsAny("slow down", "try again later", "please try again", "retry after", "retry-after") ||
+		errorContainsStatus("429")
+	zcodeExplicitRateLimit := errorContainsIdentifier("rate_limit_error") ||
+		errorContainsAny("providerbusinesserror [1302][rate limit reached for requests]")
+	zcodeTurnFailed := errorContainsAny("turn execution failed")
 	switch {
 	case loginRequired:
 		return ports.ProviderExecutionStatusAuthentication, "login_required", domain.DiagnosticCauseLoginRequired, true
-	case family == FamilyZcode && errorContainsAny("turn execution failed"):
+	case family == FamilyZcode && quotaExceeded && zcodeTurnFailed:
+		return ports.ProviderExecutionStatusQuota, "provider_quota", domain.DiagnosticCauseQuotaExceeded, true
+	case family == FamilyZcode && zcodeExplicitRateLimit && zcodeTurnFailed:
+		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit", domain.DiagnosticCauseRateLimited, true
+	case family == FamilyZcode && zcodeTurnFailed:
 		return ports.ProviderExecutionStatusUnavailable, "provider_turn_failed", domain.DiagnosticCauseProviderTurnFailed, true
 	case family == FamilyAgy && agyPermissionDenied(stderr):
 		return ports.ProviderExecutionStatusAuthentication, "provider_permission_denied", domain.DiagnosticCausePermissionDenied, true
 	case providerNativeTimeout(output) ||
 		errorContainsAny("timed out", "deadline exceeded", "etimedout", "request timeout", "read timeout", "connection timed out"):
 		return ports.ProviderExecutionStatusTimedOut, "provider_timeout", domain.DiagnosticCauseTimedOut, true
-	case containsAny("quota_exceeded", "insufficient_quota", "quota exceeded",
-		"insufficient_credits", "insufficient credits", "usage limit", "usage_limit_reached"):
+	case quotaExceeded:
 		return ports.ProviderExecutionStatusQuota, "provider_quota", domain.DiagnosticCauseQuotaExceeded, true
-	case containsAny("rate_limit", "rate limit", "too many requests", "rate-limited", "ratelimit") ||
-		errorContainsAny("slow down", "try again later", "please try again", "retry after", "retry-after") ||
-		errorContainsStatus("429"):
+	case rateLimited:
 		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit", domain.DiagnosticCauseRateLimited, true
 	case containsAny("service unavailable", "bad gateway", "gateway timeout", "internal server error") ||
 		errorContainsAny("overloaded", "over capacity", "at capacity", "server is busy", "temporarily unavailable") ||
@@ -2056,6 +2086,27 @@ func isASCIIStatusTokenContinuation(value byte) bool {
 		value == '.' || value == ':' || value == '/' || value == '-' || value == '_'
 }
 
+func containsStandaloneASCIIIdentifier(output []byte, value string) bool {
+	for offset := 0; offset+len(value) <= len(output); offset++ {
+		if string(output[offset:offset+len(value)]) != value {
+			continue
+		}
+		if offset > 0 && isASCIIIdentifierContinuation(output[offset-1]) {
+			continue
+		}
+		end := offset + len(value)
+		if end < len(output) && isASCIIIdentifierContinuation(output[end]) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isASCIIIdentifierContinuation(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value == '_'
+}
+
 func agyPermissionDenied(stderr []byte) bool {
 	output := bytes.ToLower(stderr)
 	for _, signal := range [][]byte{
@@ -2074,16 +2125,16 @@ func agyPermissionDenied(stderr []byte) bool {
 	return false
 }
 
-func classify(observation ports.ProcessObservation) ports.ProviderExecutionStatus {
+func classify(nativeStdout []byte, observation ports.ProcessObservation) ports.ProviderExecutionStatus {
 	if hasPostOutputTrailingBytes(observation) {
 		return ports.ProviderExecutionStatusArtifactFailure
 	}
 	if observation.Termination() == ports.ProcessTerminationExited &&
-		(providerLoginRequired(observation.Stderr()) || providerLoginRequired(observation.Stdout())) {
+		(providerLoginRequired(observation.Stderr()) || providerLoginRequired(nativeStdout)) {
 		return ports.ProviderExecutionStatusAuthentication
 	}
 	if observation.Termination() == ports.ProcessTerminationExited &&
-		(providerNativeTimeout(observation.Stderr()) || providerNativeTimeout(observation.Stdout())) {
+		(providerNativeTimeout(observation.Stderr()) || providerNativeTimeout(nativeStdout)) {
 		return ports.ProviderExecutionStatusTimedOut
 	}
 	switch observation.Termination() {
@@ -2115,16 +2166,16 @@ func hasPostOutputTrailingBytes(observation ports.ProcessObservation) bool {
 		ports.ValidateProcessOutputFrame(frame.Framing(), observation.Stdout()) != nil)
 }
 
-func diagnosticCode(observation ports.ProcessObservation) string {
+func diagnosticCode(nativeStdout []byte, observation ports.ProcessObservation) string {
 	if hasPostOutputTrailingBytes(observation) {
 		return "post_output_trailing_bytes"
 	}
 	if observation.Termination() == ports.ProcessTerminationExited &&
-		(providerLoginRequired(observation.Stderr()) || providerLoginRequired(observation.Stdout())) {
+		(providerLoginRequired(observation.Stderr()) || providerLoginRequired(nativeStdout)) {
 		return "login_required"
 	}
 	if observation.Termination() == ports.ProcessTerminationExited &&
-		(providerNativeTimeout(observation.Stderr()) || providerNativeTimeout(observation.Stdout())) {
+		(providerNativeTimeout(observation.Stderr()) || providerNativeTimeout(nativeStdout)) {
 		return "provider_timeout"
 	}
 	for _, request := range observation.SignalRequests() {

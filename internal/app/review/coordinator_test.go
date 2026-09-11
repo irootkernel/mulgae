@@ -808,6 +808,7 @@ func TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerInvoca
 		AttemptConditionLoginRequired,
 		AttemptConditionAuthentication,
 		AttemptConditionQuota,
+		AttemptConditionRateLimit,
 		AttemptConditionProviderUnavailable,
 	} {
 		t.Run(string(condition), func(t *testing.T) {
@@ -891,7 +892,8 @@ func TestIntegrationCoordinatorProviderFailureDoesNotSerializeOrCancelPeerInvoca
 			if invocations != wantInvocations {
 				t.Fatalf("invocations = %d, want %d", invocations, wantInvocations)
 			}
-			if execution.result.ProviderUnusable() != (condition != AttemptConditionProviderUnavailable) {
+			wantProviderUnusable := condition != AttemptConditionProviderUnavailable && condition != AttemptConditionRateLimit
+			if execution.result.ProviderUnusable() != wantProviderUnusable {
 				t.Fatalf("%q provider unusable = %t", condition, execution.result.ProviderUnusable())
 			}
 		})

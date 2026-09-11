@@ -16,12 +16,20 @@ This file records concise shipped outcomes and the planned next stable release.
 - Update runtime diagnostics to `mulgae-runtime-log.v4`,
   `mulgae-runtime-run-status.v3`, and
   `mulgae-runtime-invocation-status.v2`, while retaining run-status v2 reads.
+- Expose `provider_rate_limited` for attributed CLI provider failures and for
+  MCP qualification failures only when every selected-role failure is a rate
+  limit and no higher failure class takes precedence.
 
 ### Fixed
 
 - Preserve typed ZCode protocol failures when bounded SIGTERM teardown ends the
   app server, and retain process and protocol evidence if provider observation
   assembly fails.
+- Keep model-authored review stdout out of native failure classification while
+  retaining stdout authority for provider qualification failures.
+- Classify ZCode quota failures ahead of generic turn failures. Verified native
+  stderr rate-limit markers also take precedence over that generic fallback;
+  Mulgae does not retry them, cancel peer roles, or mark the provider unusable.
 
 ## v0.1.20 - 2026-09-10
 

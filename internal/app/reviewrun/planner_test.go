@@ -289,6 +289,59 @@ func TestQualifiedPlannerAttributesRejectedConfiguredFamily(t *testing.T) {
 	}
 }
 
+func TestQualifiedPlannerAttributesAllSelectedProviderFailures(t *testing.T) {
+	roles := domain.CoreRoleOrder()
+	routes := []QualifiedRoute{
+		plannerTestRoute(t, FamilyKimi, "kimi.one", roles),
+	}
+	qualificationFailure := func(provider string, family Family, class domain.FailureClass) ProviderQualificationFailure {
+		t.Helper()
+		cause, err := domain.NewFailure("capability", class, "provider qualification failed", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		failure, err := NewProviderQualificationFailure(provider, family, string(class), cause)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return failure
+	}
+	planner, err := newQualifiedPlanner(
+		routes,
+		plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY}),
+		[]ProviderQualificationFailure{
+			qualificationFailure("zcode.one", FamilyZCode, domain.FailureRateLimit),
+			qualificationFailure("agy.one", FamilyAGY, domain.FailureAuthentication),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = planner.Plan(context.Background(), plannerTestRequest(t, []domain.Role{
+		domain.RoleLogic,
+		domain.RoleSecurity,
+		domain.RoleDocumentation,
+	}))
+	failures, ok := ProviderQualificationFailuresFromError(err)
+	if !ok || len(failures) != 2 {
+		t.Fatalf("qualification failures = %#v present=%t error=%v", failures, ok, err)
+	}
+	want := map[string]string{
+		"zcode.one": string(domain.FailureRateLimit),
+		"agy.one":   string(domain.FailureAuthentication),
+	}
+	for _, failure := range failures {
+		if want[failure.ProviderInstance()] != failure.ReasonCode() {
+			t.Fatalf("qualification failure = provider:%q reason:%q, want %#v", failure.ProviderInstance(), failure.ReasonCode(), want)
+		}
+		delete(want, failure.ProviderInstance())
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing qualification failures = %#v", want)
+	}
+}
+
 func TestQualifiedPlannerPreservesRequestedRoleOrder(t *testing.T) {
 	roles := []domain.Role{domain.RoleTesting, domain.RoleSecurity, domain.RoleLogic, domain.RoleProduct, domain.RoleDocumentation, domain.RoleMaintainability}
 	route := plannerTestRoute(t, FamilyKimi, "kimi.one", domain.CoreRoleOrder())

@@ -1040,6 +1040,33 @@ func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
 	}
 }
 
+func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *testing.T) {
+	invocation := testInvocation(t, "kimi_default")
+	runner := &observationRunner{
+		observation: testProcessObservation(
+			t,
+			[]byte("The review discusses auth.login_required and rate_limit handling."),
+			[]byte("provider execution failed"),
+			ports.ProcessTerminationExited,
+			1,
+		),
+	}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusUnavailable ||
+		observed.DiagnosticCode() != "provider_execution_failed" ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderExecutionFailed {
+		t.Fatalf("status = %q, diagnostic = %q, cause = %q", observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause())
+	}
+}
+
 func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
 	invocation := testInvocation(t, "agy_default")
 	runner := &observationRunner{
@@ -1079,6 +1106,8 @@ func TestRegistryObserveNormalizesFamilyNativeFailureSignals(t *testing.T) {
 		{"kimi login", FamilyKimi, "kimi_default", []byte("kimi.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
 		{"zcode login", FamilyZcode, "zcode_default", []byte("zcode login required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
 		{"zcode turn failure", FamilyZcode, "zcode_default", []byte("Error: Turn execution failed (traceId: private)"), ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderTurnFailed, "provider_turn_failed"},
+		{"zcode rate limit", FamilyZcode, "zcode_default", []byte("ProviderBusinessError [1302][Rate limit reached for requests] rate_limit_error"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
+		{"zcode rate limit before generic turn failure", FamilyZcode, "zcode_default", []byte("ProviderBusinessError [1302][Rate limit reached for requests] rate_limit_error\nError: Turn execution failed"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
 		{"agy login", FamilyAgy, "agy_default", []byte("agy.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
 		{"agy permission", FamilyAgy, "agy_default", []byte("tool permission was denied"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCausePermissionDenied, "provider_permission_denied"},
 		{"authentication", FamilyKimi, "kimi_default", []byte("authentication_failed"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseAuthenticationFailed, "provider_auth"},
@@ -1142,6 +1171,90 @@ func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T
 	}
 }
 
+func TestClassifyProviderFailureKeepsNativeSignalAuthorityByCaller(t *testing.T) {
+	tests := []struct {
+		name              string
+		stdout            []byte
+		stderr            []byte
+		allowNativeStdout bool
+		wantStatus        ports.ProviderExecutionStatus
+		wantDiagnostic    string
+		wantCause         domain.RuntimeDiagnosticCause
+	}{
+		{
+			name:           "review model authored stdout",
+			stdout:         []byte("The review discusses rate limit handling."),
+			stderr:         []byte("Error: Turn execution failed"),
+			wantStatus:     ports.ProviderExecutionStatusUnavailable,
+			wantDiagnostic: "provider_turn_failed",
+			wantCause:      domain.DiagnosticCauseProviderTurnFailed,
+		},
+		{
+			name:           "review model authored login marker",
+			stdout:         []byte("The review discusses auth.login_required handling."),
+			stderr:         []byte("Provider exited"),
+			wantStatus:     ports.ProviderExecutionStatusUnavailable,
+			wantDiagnostic: "provider_execution_failed",
+			wantCause:      domain.DiagnosticCauseProviderExecutionFailed,
+		},
+		{
+			name:           "review generic retry prose",
+			stderr:         []byte("Please try again later.\nError: Turn execution failed"),
+			wantStatus:     ports.ProviderExecutionStatusUnavailable,
+			wantDiagnostic: "provider_turn_failed",
+			wantCause:      domain.DiagnosticCauseProviderTurnFailed,
+		},
+		{
+			name:           "review unrelated rate limit prose",
+			stderr:         []byte("Loaded rate limit policy from configuration.\nError: Turn execution failed"),
+			wantStatus:     ports.ProviderExecutionStatusUnavailable,
+			wantDiagnostic: "provider_turn_failed",
+			wantCause:      domain.DiagnosticCauseProviderTurnFailed,
+		},
+		{
+			name:           "review unrelated standalone 429",
+			stderr:         []byte("Elapsed 429 ms.\nError: Turn execution failed"),
+			wantStatus:     ports.ProviderExecutionStatusUnavailable,
+			wantDiagnostic: "provider_turn_failed",
+			wantCause:      domain.DiagnosticCauseProviderTurnFailed,
+		},
+		{
+			name:              "qualification native stdout",
+			stdout:            []byte("rate_limit"),
+			stderr:            []byte("Provider exited"),
+			allowNativeStdout: true,
+			wantStatus:        ports.ProviderExecutionStatusRateLimit,
+			wantDiagnostic:    "provider_rate_limit",
+			wantCause:         domain.DiagnosticCauseRateLimited,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			observation := testProcessObservation(t, test.stdout, test.stderr, ports.ProcessTerminationExited, 1)
+			classifier := classifyReviewProviderFailure
+			if test.allowNativeStdout {
+				classifier = classifyProviderFailure
+			}
+			status, diagnostic, cause := classifier(FamilyZcode, observation)
+			if status != test.wantStatus || diagnostic != test.wantDiagnostic || cause != test.wantCause {
+				t.Fatalf("status = %q, diagnostic = %q, cause = %q; want %q, %q, %q", status, diagnostic, cause, test.wantStatus, test.wantDiagnostic, test.wantCause)
+			}
+		})
+	}
+}
+
+func TestNativeProviderOutcomePrefersZCodeQuotaOverRateLimitAndTurnFailure(t *testing.T) {
+	for _, stderr := range [][]byte{
+		[]byte("quota_exceeded\nError: Turn execution failed"),
+		[]byte("quota_exceeded\nrate_limit_error\nError: Turn execution failed"),
+	} {
+		status, diagnostic, cause, ok := nativeProviderOutcome(FamilyZcode, nil, stderr)
+		if !ok || status != ports.ProviderExecutionStatusQuota || diagnostic != "provider_quota" || cause != domain.DiagnosticCauseQuotaExceeded {
+			t.Fatalf("stderr = %q: status = %q, diagnostic = %q, cause = %q, ok = %t", stderr, status, diagnostic, cause, ok)
+		}
+	}
+}
+
 func TestNativeProviderOutcomeRequiresExactHTTPStatusToken(t *testing.T) {
 	for _, family := range []string{FamilyCodex, FamilyAgy, FamilyZcode, FamilyKimi} {
 		t.Run(family, func(t *testing.T) {
@@ -1153,6 +1266,29 @@ func TestNativeProviderOutcomeRequiresExactHTTPStatusToken(t *testing.T) {
 			status, _, _, ok := nativeProviderOutcome(family, nil, []byte("HTTP 429"))
 			if !ok || status != ports.ProviderExecutionStatusRateLimit {
 				t.Fatal("did not classify exact HTTP 429")
+			}
+		})
+	}
+}
+
+func TestNativeProviderOutcomeRecognizesZCodeRateLimitErrorIdentifier(t *testing.T) {
+	tests := []struct {
+		name       string
+		marker     string
+		wantStatus ports.ProviderExecutionStatus
+		wantCause  domain.RuntimeDiagnosticCause
+	}{
+		{"colon suffix", "rate_limit_error:", ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited},
+		{"period suffix", "rate_limit_error.", ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited},
+		{"quoted", `"rate_limit_error"`, ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited},
+		{"embedded identifier", "x_rate_limit_error_y", ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderTurnFailed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stderr := []byte(test.marker + "\nError: Turn execution failed")
+			status, _, cause, ok := nativeProviderOutcome(FamilyZcode, nil, stderr)
+			if !ok || status != test.wantStatus || cause != test.wantCause {
+				t.Fatalf("stderr = %q: status = %q, cause = %q, ok = %t; want %q, %q", stderr, status, cause, ok, test.wantStatus, test.wantCause)
 			}
 		})
 	}
@@ -2241,6 +2377,34 @@ func TestRegistryObservePreservesFailedZCodeConversationTeardown(t *testing.T) {
 	if observed.Status() != ports.ProviderExecutionStatusUnavailable ||
 		observed.PrimaryCause() != domain.DiagnosticCauseProviderTurnFailed {
 		t.Fatalf("status = %q, cause = %q", observed.Status(), observed.PrimaryCause())
+	}
+	session, ok := observed.SessionObservation()
+	if !ok || session.ProviderSessionID() != "sess_script" || session.ProviderTurnID() != "turn_failure" ||
+		session.Terminal() != ports.ProviderSessionFailed {
+		t.Fatalf("session = %#v, present = %t", session.Input(), ok)
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObservePreservesRateLimitedZCodeConversationTeardown(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: protocolTeardownObservationWithStderr(t, []byte("protocol transcript"), []byte("ProviderBusinessError [1302][Rate limit reached for requests] rate_limit_error\nError: Turn execution failed")),
+		protocolLines: []string{
+			protocolCreateResult,
+			protocolSendAck,
+			`{"method":"computer-use/operation-event","params":{"kind":"turn-failed","turnId":"turn_failure","sessionId":"sess_script"}}`,
+		},
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusRateLimit ||
+		observed.DiagnosticCode() != "provider_rate_limit" ||
+		observed.PrimaryCause() != domain.DiagnosticCauseRateLimited {
+		t.Fatalf("status = %q, diagnostic = %q, cause = %q", observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause())
 	}
 	session, ok := observed.SessionObservation()
 	if !ok || session.ProviderSessionID() != "sess_script" || session.ProviderTurnID() != "turn_failure" ||

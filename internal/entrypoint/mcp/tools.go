@@ -441,10 +441,27 @@ func publicToolError(err error, tool string) ToolError {
 			return finalizePublicToolError(err, tool, ToolError{Class: "cancellation", Code: "request_cancelled", Stage: stage, Message: "The tool request was cancelled.", Retryable: false})
 		case domain.FailureProviderUnavailable, domain.FailureInvalidOutput, domain.FailureTimeout,
 			domain.FailureAuthentication, domain.FailureQuota, domain.FailureRateLimit:
+			if (tool == toolRunReview || tool == toolAwaitReview) &&
+				allQualificationFailuresHaveReason(err, string(domain.FailureRateLimit)) {
+				return finalizePublicToolError(err, tool, ToolError{Class: "readiness", Code: "provider_rate_limited", Stage: "execution", Message: "The configured provider rate-limited the review.", Retryable: false})
+			}
 			return finalizePublicToolError(err, tool, ToolError{Class: "readiness", Code: "review_unavailable", Stage: "execution", Message: "The review could not complete with the configured provider.", Retryable: true})
 		}
 	}
 	return finalizePublicToolError(err, tool, ToolError{Class: "internal", Code: "internal_failure", Stage: stage, Message: "Mulgae could not complete the tool request.", Retryable: false})
+}
+
+func allQualificationFailuresHaveReason(err error, reason string) bool {
+	failures, ok := reviewrun.ProviderQualificationFailuresFromError(err)
+	if !ok || len(failures) == 0 {
+		return false
+	}
+	for _, failure := range failures {
+		if failure.ReasonCode() != reason {
+			return false
+		}
+	}
+	return true
 }
 
 func publicToolFailureClass(class domain.FailureClass) string {

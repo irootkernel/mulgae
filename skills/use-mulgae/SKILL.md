@@ -140,6 +140,24 @@ Only after terminal completion,
 call `get_run` for that ID. If no run ID was returned, report the terminal outcome
 without inventing one.
 
+When `run_review` or terminal `await_review` returns the error code
+`provider_rate_limited`, every qualification failure recorded for the selected
+roles was a provider rate limit, and no higher failure class took precedence.
+Inspect the exact returned run once. Qualification ended before provider
+execution, so the diagnostic-only run has no accepted role, failed attempt, or
+exact rerun source. Do not call doctor or heartbeat to test the limit, call
+`mulgae rerun`, start a replacement review, or substitute another provider.
+Report that a new review may be needed after the rate limit clears and requires
+user authority. The error's `retryable: false` protects the non-idempotent
+review mutation from blind repetition; it does not mean the provider failure is
+permanent.
+
+A rate limit observed during provider execution rather than qualification
+completes `run_review` or terminal `await_review` with `outcome: success`,
+`terminal_exit_code: 4`, and a `rate_limit` reason. This is a committed
+incomplete review, not a successful review verdict. Inspect the exact run once,
+then follow partial-failure recovery without repeating accepted roles.
+
 Call `list_findings` only when the status has publication authority;
 diagnostic-only status has no findings. Treat `run_status_unavailable` as an
 allocated identity without durable status and stop rather than retrying the

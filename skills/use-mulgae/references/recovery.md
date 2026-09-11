@@ -197,10 +197,12 @@ mutation-level retry decision.
   internal failures.
 - For a stale child-run source, re-read the source run. Do not bypass immutable
   target or lineage checks.
-- For configuration or readiness failure, use current effective config,
+- For configuration or readiness failures, use current effective config,
   `mulgae doctor --output json`, and
   `mulgae providers --include-unverified --output json`; fix only the reported
-  prerequisite with explicit authorization.
+  prerequisite with explicit authorization. Do not use this path for
+  `provider_rate_limited` or for a CLI `provider_qualification_failed` whose
+  listed reasons are all `rate_limit`.
 - For doctor v2, diagnose `binary_available` and `cli_compatible` reason codes
   per configured provider. Do not treat absent static evidence, an unobserved
   field from an older schema, heartbeat state, or prior review evidence as an
@@ -227,6 +229,33 @@ Provider authentication, quota, rate-limit, timeout, and permission failures
 are typed provider outcomes; preserve the assigned provider and apply only the
 smallest documented remediation. Never weaken sandbox, locality, evidence,
 validation, integrity, or publication fences to make recovery pass.
+
+When MCP `run_review` or terminal `await_review` returns
+`provider_rate_limited` as an error, every qualification failure recorded for
+the selected roles was a provider rate limit, and no higher failure class took
+precedence. Inspect the exact returned run once. Qualification ended before
+provider execution, so the diagnostic-only run has no accepted role, failed
+attempt, or exact rerun source. Do not use doctor or heartbeat to test the
+limit, call `mulgae rerun`, immediately start a replacement review, or
+substitute another provider. Report that a new review may be needed after the
+rate limit clears and requires user authority. Public `retryable: false`
+protects the non-idempotent review mutation from blind repetition; it does not
+classify the provider condition as permanent.
+
+In a CLI command-result envelope, `provider_rate_limited` instead identifies an
+attributed provider-execution failure. Preserve its exact role and provider,
+then reconcile the returned run before choosing partial-failure recovery.
+
+When CLI `provider_qualification_failed` lists only `rate_limit` reasons, apply
+the same no-probe and new-review guidance as the MCP qualification failure.
+Its `retryable: true` value describes provider readiness; it does not authorize
+an immediate repeat of the review command.
+
+A rate limit observed during provider execution rather than qualification
+completes `run_review` or terminal `await_review` with `outcome: success`,
+`terminal_exit_code: 4`, and a `rate_limit` reason. This is a committed
+incomplete review, not a successful review verdict. Inspect the exact run once,
+then recover only its failed roles through the partial-failure flow above.
 
 Mulgae itself may consume the second invocation slot for exactly one
 same-provider retry after `provider_unavailable` or `provider_turn_failed`.
