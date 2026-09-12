@@ -1617,7 +1617,7 @@ func TestLiveTerminalProcessStateAcceptsCompletedProcesses(t *testing.T) {
 
 func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	t.Helper()
-	families := []string{"zcode", "agy"}
+	families := []string{"zcode"}
 	var doctor struct {
 		ConfiguredProviderIDs []string `json:"configured_provider_ids"`
 		Readiness             struct {
