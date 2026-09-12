@@ -118,15 +118,16 @@ the untracked `.mulgae/local.yaml` authority.
 server. Composition resolves the selected path to a canonical anchored root
 before constructing the server; the root cannot change during the process.
 `internal/entrypoint/mcp` owns newline-delimited JSON-RPC. It advertises
-`2026-07-28`, `2025-11-25`, and `2025-06-18` in newest-first order, negotiates
-those exact versions, rejects older or session-incoherent requests with the
-structured unsupported-version code, and keeps the latest protocol as its
-preferred contract. The two legacy versions are a bounded compatibility floor
-for current Codex and Claude Code stdio clients, not a generic compatibility
-shim. Empty EOF is a normal attached-client shutdown. A nonempty record that
-reaches EOF without LF termination is rejected before dispatch as malformed
-transport. Cancellation uses Mulgae exit 9, malformed or failed transport uses
-exit 10, and invalid command grammar uses exit 2.
+`2026-07-28`, `2025-11-25`, and `2025-06-18` in newest-first order and keeps the
+latest discovery protocol as its preferred contract. Legacy `initialize`
+negotiates `2025-11-25` or `2025-06-18`; naming `2026-07-28` without discovery
+falls back to `2025-11-25`. Older or session-incoherent requests fail with the
+structured unsupported-version code. The two legacy versions are a bounded
+compatibility floor for current Codex and Claude Code stdio clients, not a
+generic compatibility shim. Empty EOF is a normal attached-client shutdown. A
+nonempty record that reaches EOF without LF termination is rejected before
+dispatch as malformed transport. Cancellation uses Mulgae exit 9, malformed or
+failed transport uses exit 10, and invalid command grammar uses exit 2.
 
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,

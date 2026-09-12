@@ -308,7 +308,7 @@ queries, file existence, or OS process scans as substitutes.
   subdirectory.
 - Before requesting a rerun, inspect whether Mulgae already consumed its single
   same-provider retry for `provider_unavailable` or `provider_turn_failed`.
-  Runtime-log v3 field-discard events contain paths and counts only, never the
+  Runtime-log v4 field-discard events contain paths and counts only, never the
   discarded provider values.
 - Require explicit user intent for initialization, imported-session use,
   cancellation, cleanup, provider or role changes, or any requested reset,

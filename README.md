@@ -309,9 +309,11 @@ mulgae mcp
 mulgae mcp --project-root /absolute/path/to/repository
 ```
 
-The server speaks newline-delimited JSON-RPC on stdout. It prefers MCP protocol
-`2026-07-28` and accepts `2025-11-25` and `2025-06-18` for current stdio client
-compatibility; older versions fail with a structured unsupported-version error.
+The server speaks newline-delimited JSON-RPC on stdout. Its `server/discover`
+flow prefers MCP protocol `2026-07-28`. Legacy `initialize` negotiates
+`2025-11-25` or `2025-06-18`; a legacy request naming the newer protocol falls
+back to `2025-11-25`. Older versions fail with a structured unsupported-version
+error.
 Diagnostics use stderr. The process fixes the canonical project root at startup
 and exits when its client closes stdin. It exposes nine bounded tools:
 

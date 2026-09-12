@@ -264,7 +264,7 @@ the role, provider, attempt, and immutable target fixed, records separate runtim
 evidence, and prevents a later repair invocation. Other provider failure classes
 are not automatically retried.
 
-Runtime log v3 may report `provider_output_fields_discarded` with only bounded,
+Runtime log v4 may report `provider_output_fields_discarded` with only bounded,
 sorted JSON Pointer paths and `discarded_path_count`; it never exposes removed
 values. This is successful provider-content normalization, not a security-policy
 failure. Malformed JSON, duplicate keys, invalid evidence, and semantic

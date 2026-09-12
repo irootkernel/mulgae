@@ -58,6 +58,15 @@ func TestServeNegotiatesSupportedLegacyInitialize(t *testing.T) {
 	}
 }
 
+func TestServeFallsBackWhenLegacyInitializeNamesDiscoveryProtocol(t *testing.T) {
+	request := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}` + "\n"
+	response := decodeResponse(t, serveRequest(t, request))
+	result := response["result"].(map[string]any)
+	if result["protocolVersion"] != "2025-11-25" {
+		t.Fatalf("legacy initialize result = %#v, want protocol %q", result, "2025-11-25")
+	}
+}
+
 func TestServeAcceptsInitializedNotificationWithoutParams(t *testing.T) {
 	reader, input := io.Pipe()
 	output := make(chan []byte, 2)

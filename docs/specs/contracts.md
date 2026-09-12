@@ -243,10 +243,12 @@ most 1,000 summaries, and no tool result embeds report or source bodies.
 `request_changes` means the review completed with a policy rejection; it is not
 an MCP call failure.
 
-The attached transport prefers MCP `2026-07-28` and admits only that version,
-`2025-11-25`, or `2025-06-18`. Discovery lists all three newest first. A legacy
-`initialize` fixes its negotiated version for the session; a later request
-cannot claim a different version. Older versions receive the structured
+The attached transport prefers MCP `2026-07-28` through `server/discover` and
+admits only that version, `2025-11-25`, or `2025-06-18`. Discovery lists all
+three newest first. Legacy `initialize` negotiates `2025-11-25` or `2025-06-18`;
+a request naming `2026-07-28` without discovery falls back to `2025-11-25`. The
+legacy handshake fixes its negotiated version for the session, so a later
+request cannot claim a different version. Older versions receive the structured
 unsupported-version error and the supported-version list. Each input record
 must end with LF and remain within the transport frame bound. Empty EOF is a
 clean client shutdown; EOF after any nonempty unterminated record is a malformed

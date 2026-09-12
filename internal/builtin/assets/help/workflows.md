@@ -114,11 +114,13 @@ mulgae mcp
 mulgae mcp --project-root /absolute/path/to/repository
 ```
 
-The process prefers MCP `2026-07-28` and accepts `2025-11-25` and `2025-06-18`
-for current client compatibility. It writes newline-delimited JSON-RPC to
-stdout, writes bounded diagnostics to stderr, and stops when the client closes
-stdin. Every nonempty input record must end with LF; a partial final record is
-rejected without dispatch. The project root is fixed at startup. It provides
+The process prefers MCP `2026-07-28` through `server/discover`. Legacy
+`initialize` negotiates `2025-11-25` or `2025-06-18`; naming the newer protocol
+without discovery falls back to `2025-11-25`. It writes newline-delimited
+JSON-RPC to stdout, writes bounded diagnostics to stderr, and stops when the
+client closes stdin. Every nonempty input record must end with LF; a partial
+final record is rejected without dispatch. The project root is fixed at startup.
+It provides
 `preflight_review`, `run_review`, `start_review`, `await_review`,
 `cancel_review`, `compose_review`, `list_runs`, `get_run`, and `list_findings`.
 Preflight is execution-free and returns a bounded plan summary. `run_review`
