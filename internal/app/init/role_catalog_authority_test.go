@@ -110,8 +110,8 @@ func TestInitOutputFollowsEditedRoleProviderPreferences(t *testing.T) {
 	if config.Roles.Security.PrimaryProvider != "zcode" {
 		t.Fatalf("untouched security role = %s, want zcode", config.Roles.Security.PrimaryProvider)
 	}
-	if config.Roles.Logic.PrimaryProvider != "kimi" {
-		t.Fatalf("untouched logic role = %s, want kimi", config.Roles.Logic.PrimaryProvider)
+	if config.Roles.Logic.PrimaryProvider != "zcode" {
+		t.Fatalf("untouched logic role = %s, want zcode", config.Roles.Logic.PrimaryProvider)
 	}
 }
 

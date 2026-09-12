@@ -388,11 +388,11 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 	// Every core role is pinned end to end, so a change to any one of them in
 	// assets/roles.yaml is visible here rather than silently shipping.
 	for _, expected := range []string{
-		`logic: {enabled: true, primary_provider: "kimi"}`,
+		`logic: {enabled: true, primary_provider: "zcode"}`,
 		`security: {enabled: true, primary_provider: "zcode"}`,
 		`maintainability: {enabled: true, primary_provider: "zcode"}`,
 		`product: {enabled: true, primary_provider: "zcode"}`,
-		`documentation: {enabled: true, primary_provider: "agy"}`,
+		`documentation: {enabled: true, primary_provider: "zcode"}`,
 		`testing: {enabled: true, primary_provider: "zcode"}`,
 	} {
 		if !strings.Contains(string(encoded), expected) {

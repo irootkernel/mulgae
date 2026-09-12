@@ -153,9 +153,9 @@ func TestConfiguredQualificationRolesFollowTheProviderMatrix(t *testing.T) {
 		roles  []domain.Role
 		base   domain.Role
 	}{
-		{reviewrun.FamilyKimi, []domain.Role{domain.RoleLogic}, domain.RoleLogic},
-		{reviewrun.FamilyZCode, []domain.Role{domain.RoleSecurity, domain.RoleMaintainability, domain.RoleProduct, domain.RoleTesting}, domain.RoleSecurity},
-		{reviewrun.FamilyAGY, []domain.Role{domain.RoleDocumentation}, domain.RoleDocumentation},
+		{reviewrun.FamilyKimi, nil, ""},
+		{reviewrun.FamilyZCode, domain.CoreRoleOrder(), domain.RoleLogic},
+		{reviewrun.FamilyAGY, nil, ""},
 	}
 	for _, test := range tests {
 		roles, base := configuredQualificationRoles(config, domain.CoreRoleOrder(), test.family)

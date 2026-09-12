@@ -226,7 +226,7 @@ func TestParseCatalogReturnsCallerOwnedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("re-parse catalog: %v", err)
 	}
-	if second[0].ProviderPreferences[0] != "kimi" {
+	if second[0].ProviderPreferences[0] != "zcode" {
 		t.Fatalf("re-parsed logic preferences = %v, want an unmutated document", second[0].ProviderPreferences)
 	}
 	if second[len(second)-1].DefaultInputs.DesignSpecGlobs[0] != "design-specs/**/*.png" {
