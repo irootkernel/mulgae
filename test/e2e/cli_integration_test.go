@@ -938,18 +938,11 @@ func TestIntegrationMulgaeProductionSixRoleReviewPublishesAndReopens(t *testing.
 		}
 	}
 	assertCommandRoleReportInventory(t, project, envelope)
-	// Documentation prefers AGY and keeps the stdout transport; every other role
-	// runs on ZCode and publishes exactly the body that launch staged. The
-	// deliberately different stdout envelope each ZCode launch printed is never
+	// Every role prefers ZCode and publishes exactly the body that launch staged.
+	// The deliberately different stdout envelope each launch printed is never
 	// accepted.
-	wantReports := map[string]publishedRoleReport{
-		"documentation": {
-			transport:        "stdout",
-			providerInstance: "agy-documentation",
-			content:          fakeAGYDefaultReviewOutput,
-		},
-	}
-	for _, role := range []string{"logic", "security", "maintainability", "product", "testing"} {
+	wantReports := map[string]publishedRoleReport{}
+	for _, role := range []string{"logic", "security", "maintainability", "product", "documentation", "testing"} {
 		wantReports[role] = publishedRoleReport{
 			transport:        "staged_file",
 			providerInstance: "zcode-" + role,
@@ -958,8 +951,8 @@ func TestIntegrationMulgaeProductionSixRoleReviewPublishesAndReopens(t *testing.
 	}
 	assertPublishedRoleReports(t, project, envelope, wantReports)
 	stagedLaunches := fakeZCodeReviewObservations(t, filepath.Join(logDirectory, "zcode.jsonl"))
-	if len(stagedLaunches) != 5 {
-		t.Fatalf("six-role ZCode review launches = %d, want one per ZCode-primary role", len(stagedLaunches))
+	if len(stagedLaunches) != 6 {
+		t.Fatalf("six-role ZCode review launches = %d, want one per role", len(stagedLaunches))
 	}
 	destinations := make(map[string]bool, len(stagedLaunches))
 	for _, launch := range stagedLaunches {
@@ -1220,9 +1213,8 @@ func TestIntegrationPublicationLockCancellationPreservesTypedFailureAndArtifacts
 	}
 }
 
-// ZCode roles deliver their report through the staged file Mulgae granted them
-// while the AGY-primary role keeps the stdout transport. The manifest records
-// which transport carried each published report.
+// ZCode roles deliver their report through the staged file Mulgae granted them.
+// The manifest records which transport carried each published report.
 func TestIntegrationStagedFileTransportPublishesRoleReports(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, root)
@@ -1277,12 +1269,12 @@ func TestIntegrationStagedFileTransportPublishesRoleReports(t *testing.T) {
 	assertPublishedRoleReports(t, project, envelope, map[string]publishedRoleReport{
 		"logic":    {transport: "staged_file", providerInstance: "zcode-logic", content: fakeZCodeStagedReport("logic")},
 		"security": {transport: "staged_file", providerInstance: "zcode-security", content: fakeZCodeStagedReport("security")},
-		"artist":   {transport: "stdout", providerInstance: "agy-artist", content: fakeAGYDefaultReviewOutput},
+		"artist":   {transport: "staged_file", providerInstance: "zcode-artist", content: fakeZCodeStagedReport("artist")},
 	})
 
 	launches := fakeZCodeReviewObservations(t, zcodeLog)
-	if len(launches) != 2 {
-		t.Fatalf("staged ZCode review launches = %d, want logic and security: %#v", len(launches), launches)
+	if len(launches) != 3 {
+		t.Fatalf("staged ZCode review launches = %d, want logic, security, and artist: %#v", len(launches), launches)
 	}
 	destinations := make(map[string]bool, len(launches))
 	for _, launch := range launches {
@@ -1732,7 +1724,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	wantRoutes := []string{
 		"logic/primary/zcode/zcode-logic/30m/not_applicable/prompt",
 		"security/primary/zcode/zcode-security/30m/not_applicable/prompt",
-		"artist/primary/agy/agy-artist/60m/safe/prompt",
+		"artist/primary/zcode/zcode-artist/30m/not_applicable/prompt",
 	}
 	gotRoutes := make([]string, 0, len(firstResult.Transmissions))
 	if len(firstResult.FileSets) != 1 || firstResult.FileSets[0].ID == "" {
@@ -1752,12 +1744,12 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	wantRolePaths := []mulgaeentry.ReviewPreflightRolePath{
 		{Role: "logic", ProviderInstance: "zcode-logic", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
 		{Role: "security", ProviderInstance: "zcode-security", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
-		{Role: "artist", ProviderInstance: "agy-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "2h0m0s", Deadline: "2h0m2s"},
+		{Role: "artist", ProviderInstance: "zcode-artist", InvocationCount: 2, TransitionCount: 1, InvocationTimeouts: "1h0m0s", Deadline: "1h0m2s"},
 	}
 	// Three roles at two invocations each: six invocations and three role paths. The
 	// critical path is one role's provider call plus its repair and transition.
 	if budget := firstResult.Budget; budget.ReasonCode != "eligible" || budget.MaxActiveLanes != 3 || budget.TotalInvocations != 6 ||
-		budget.CriticalPathDeadline != "2h0m2s" || budget.RunDeadline != "2h0m7s" ||
+		budget.CriticalPathDeadline != "1h0m2s" || budget.RunDeadline != "1h0m7s" ||
 		budget.Ceilings.ProviderTimeout != "60m" || budget.Ceilings.RolePathDeadline != "14h0m14s" || budget.Ceilings.RunDeadline != "14h0m19s" ||
 		budget.Ceilings.MaxInvocationsPerRole != 2 || budget.Ceilings.MaxInvocationsPerRun != 6 ||
 		!reflect.DeepEqual(budget.RolePaths, wantRolePaths) {
@@ -1837,33 +1829,13 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 			zcodeReviews++
 		}
 	}
-	if zcodeQualification != 1 || zcodeReviews != 2 {
-		t.Fatalf("ZCode launches = qualification:%d reviews:%d, want 1/2", zcodeQualification, zcodeReviews)
+	if zcodeQualification != 1 || zcodeReviews != 3 {
+		t.Fatalf("ZCode launches = qualification:%d reviews:%d, want 1/3", zcodeQualification, zcodeReviews)
 	}
-	agyObservations := readFakeAGYObservations(t, agyLog)
-	var agyQualification, agyReviews int
-	for _, observation := range agyObservations {
-		if len(observation.Argv) == 1 && observation.Argv[0] == "--version" {
-			continue
-		}
-		if observation.CWD != observation.Snapshot || observation.CWD == project || !strings.HasPrefix(observation.CWD, tempRoot+string(filepath.Separator)) {
-			t.Fatalf("AGY bounded snapshot contract = %#v", observation)
-		}
-		if strings.Contains(observation.Prompt, "Prove readiness") {
-			agyQualification++
-			continue
-		}
-		agyReviews++
-		if observation.Fixture != string(credentialFixtures) || observation.PNG != wantPNG ||
-			!slices.Contains(observation.Argv, "--sandbox") || slices.Contains(observation.Argv, "--dangerously-skip-permissions") ||
-			!slices.Contains(observation.Argv, "--add-dir") {
-			t.Fatalf("AGY did not read the exact captured fixture and raster evidence: %#v", observation)
-		}
-	}
-	// AGY owns only the artist role, so it is probed and executed exactly once.
-	// Qualification no longer probes a family for roles it does not own.
-	if agyQualification != 1 || agyReviews != 1 {
-		t.Fatalf("AGY launches = qualification:%d reviews:%d, want 1/1: %#v", agyQualification, agyReviews, agyObservations)
+	if observed, readErr := os.ReadFile(agyLog); readErr == nil && len(bytes.TrimSpace(observed)) != 0 {
+		t.Fatalf("unused AGY provider was invoked: %s", observed)
+	} else if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatal(readErr)
 	}
 	archive := restoreTestCapturedReviewArchive(t, project, *actualEnvelope.Result.SessionID, *actualEnvelope.Result.RunID)
 	restoredWorkspace, err := archive.ProviderWorkspace()
@@ -1899,11 +1871,7 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 	if observed, err := os.ReadFile(filepath.Join(project, "screenshots", "staged.png")); err != nil || !bytes.Equal(observed, worktreePNG) {
 		t.Fatalf("actual review mutated the divergent worktree PNG: err=%v bytes=%x", err, observed)
 	}
-	agyBytes, err := os.ReadFile(agyLog)
-	if err != nil {
-		t.Fatal(err)
-	}
-	providerLogBaseline := map[string][]byte{zcodeLog: append([]byte(nil), zcodeBytes...), agyLog: append([]byte(nil), agyBytes...)}
+	providerLogBaseline := map[string][]byte{zcodeLog: append([]byte(nil), zcodeBytes...)}
 	assertProviderLogsUnchanged := func(stage string) {
 		t.Helper()
 		for path, baseline := range providerLogBaseline {
@@ -1911,6 +1879,9 @@ func TestIntegrationMulgaeProductionReviewPreflightIsExecutionFreeAndPreservesPN
 			if err != nil || !bytes.Equal(observed, baseline) {
 				t.Fatalf("%s preflight invoked a provider: path=%s err=%v\nbefore=%s\nafter=%s", stage, path, err, baseline, observed)
 			}
+		}
+		if observed, err := os.ReadFile(agyLog); err == nil || !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s invoked unused AGY provider: err=%v output=%s", stage, err, observed)
 		}
 	}
 

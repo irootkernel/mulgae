@@ -87,19 +87,15 @@ func TestIntegrationArtistHomepageWorkspaceReview(t *testing.T) {
 	}
 	providerDirectory := canonicalTestTempDir(t)
 	agyLog := filepath.Join(canonicalTestTempDir(t), "agy-artist.jsonl")
-	zcodeLog := filepath.Join(canonicalTestTempDir(t), "zcode-artist.jsonl")
 	agyExecutable := filepath.Join(providerDirectory, "agy")
-	zcodeNode := filepath.Join(providerDirectory, "node")
-	zcodeLauncher := filepath.Join(providerDirectory, "zcode.mjs")
 	buildFakeAGYWithReviewOutput(t, repository, agyExecutable, agyLog, string(providerOutput))
-	buildFakeZCode(t, repository, zcodeNode, zcodeLauncher, zcodeLog, "success")
 	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
 	environment = append(environment, "MULGAE_FAKE_AGY_LOG="+agyLog)
 
 	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"init", "--providers", "agy,zcode", "--project-kind", "ui", "--roles", "artist",
+		"init", "--providers", "agy", "--project-kind", "ui", "--roles", "artist",
 		"--agy-executable", agyExecutable,
-		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher, "--output", "json")
+		"--output", "json")
 	if initialized.exitCode != 0 || len(initialized.stderr) != 0 {
 		t.Fatalf("initialize UI fixture: exit=%d stdout=%s stderr=%s", initialized.exitCode, initialized.stdout, initialized.stderr)
 	}
