@@ -3,10 +3,9 @@
 Mulgae supports the `kimi`, `zcode`, `agy`, and `codex` provider families. Provider
 executables must be installed and authenticated before review.
 
-Automatic initialization selects ZCode and AGY and requires both to be
-available. Kimi is retained for explicit `mulgae init --providers kimi`
-compatibility; it is not part of auto selection.
-Codex is also explicit-only and does not change the ZCode/AGY auto topology.
+Automatic initialization selects ZCode and requires it to be available. AGY,
+Kimi, and Codex remain explicit-only providers and do not change the ZCode auto
+topology.
 
 ```bash
 mulgae providers

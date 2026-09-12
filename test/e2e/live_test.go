@@ -37,7 +37,6 @@ type liveE2EEnvironment struct {
 	nativeHome    string
 	zcodeNode     string
 	zcodeLauncher string
-	agy           string
 }
 
 type liveRoleReportURI struct {
@@ -214,7 +213,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	initResult := runLiveMulgae(t, validator, environment, project, 0, liveInitArguments(environment, "auto")...)
+	initResult := runLiveMulgae(t, validator, environment, project, 0, liveAutoInitArguments(environment)...)
 	if initResult.Result.Kind != "initialized" {
 		t.Fatalf("init result kind = %q", initResult.Result.Kind)
 	}
@@ -227,7 +226,7 @@ func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
 	expected := map[string]string{
 		"logic": "zcode-logic", "security": "zcode-security",
 		"maintainability": "zcode-maintainability", "product": "zcode-product",
-		"documentation": "agy-documentation", "testing": "zcode-testing",
+		"documentation": "zcode-documentation", "testing": "zcode-testing",
 	}
 	run := runLiveRecoverableWorkflow(t, validator, environment, project, expected,
 		"review", "--dirty",
@@ -268,10 +267,7 @@ func runLiveChildProductionWorkflows(
 	root livePublishedRun,
 ) {
 	t.Helper()
-	// Exact/recompose replay the already-successful selected zcode-logic
-	// attempt. Root six-role still requires AGY documentation completion under
-	// safe workspace access; replaying that AGY attempt can stochastically hit
-	// a forbidden command-tool request and yield provider_output_missing.
+	// Exact/recompose replay the already-successful selected zcode-logic attempt.
 	sourceAttempt := requireLiveSelectedAttempt(t, root, "logic")
 
 	writeLiveFixedReportPath(t, project)
@@ -294,7 +290,7 @@ func runLiveChildProductionWorkflows(
 	assertLiveRoleReportTransports(t, followup, "followup", false)
 
 	delta := runLiveChildWorkflowWithAssignments(t, validator, environment, project,
-		map[string]string{"logic": "zcode-logic", "security": "zcode-security", "documentation": "agy-documentation"},
+		map[string]string{"logic": "zcode-logic", "security": "zcode-security", "documentation": "zcode-documentation"},
 		"delta", "--since-run", root.manifest.RunID, "--dirty",
 		"--roles", "logic,security,documentation", "--output", "json",
 	)
@@ -318,32 +314,13 @@ func runLiveChildProductionWorkflows(
 	assertLiveRoleReportTransports(t, recompose, "recompose", false)
 }
 
-func liveInitArguments(environment liveE2EEnvironment, providers string) []string {
+func liveAutoInitArguments(environment liveE2EEnvironment) []string {
 	arguments := []string{
-		"init", "--providers", providers,
+		"init", "--providers", "auto",
 		"--roles", "logic,security,maintainability,product,documentation,testing",
-	}
-	if providers == "auto" || strings.Contains(providers, "zcode") {
-		arguments = append(arguments, "--zcode-node-executable", environment.zcodeNode, "--zcode-launcher", environment.zcodeLauncher)
-	}
-	if providers == "auto" || strings.Contains(providers, "agy") {
-		arguments = append(arguments, "--agy-executable", environment.agy)
+		"--zcode-node-executable", environment.zcodeNode, "--zcode-launcher", environment.zcodeLauncher,
 	}
 	return append(arguments, "--output", "json")
-}
-
-func TestLiveInitArgumentsAuthorizeAgyInIsolatedFixture(t *testing.T) {
-	t.Parallel()
-	environment := liveE2EEnvironment{agy: "/private/bin/agy"}
-	want := []string{
-		"init", "--providers", "agy",
-		"--roles", "logic,security,maintainability,product,documentation,testing",
-		"--agy-executable", environment.agy,
-		"--output", "json",
-	}
-	if got := liveInitArguments(environment, "agy"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("live init arguments = %v, want %v", got, want)
-	}
 }
 
 func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
@@ -355,12 +332,7 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 	binary := requireLiveExecutable(t, "MULGAE_E2E_BINARY", "")
 	zcodeNode := requireLiveExecutable(t, "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", lookupLiveExecutable(t, "node"))
 	zcodeLauncher := requireLiveExecutable(t, "MULGAE_E2E_ZCODE_LAUNCHER", "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs")
-	agyDefault := filepath.Join(installed.HomeDir, ".local", "bin", "agy")
-	if found, lookupErr := exec.LookPath("agy"); lookupErr == nil {
-		agyDefault = found
-	}
-	agy := requireLiveExecutable(t, "MULGAE_E2E_AGY_EXECUTABLE", agyDefault)
-	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeNode: zcodeNode, zcodeLauncher: zcodeLauncher, agy: agy}
+	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeNode: zcodeNode, zcodeLauncher: zcodeLauncher}
 }
 
 func requireLiveExecutable(t *testing.T, environmentName, fallback string) string {
@@ -1499,14 +1471,14 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &redacted); err != nil {
 		t.Fatalf("decode redacted config: %v", err)
 	}
-	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode", "agy"}) {
+	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode"}) {
 		t.Fatalf("configured providers = %v", redacted.ConfiguredProviderIDs)
 	}
 	// Each role names exactly one provider: the first configured family from its
 	// own preference order. The projection carries no second route.
 	want := map[string]string{
 		"logic": "zcode", "security": "zcode", "maintainability": "zcode",
-		"product": "zcode", "documentation": "agy", "testing": "zcode",
+		"product": "zcode", "documentation": "zcode", "testing": "zcode",
 		"artist": "",
 	}
 	if len(redacted.Policy.RoleAssignments) != len(want) {
@@ -2305,7 +2277,7 @@ func assertLiveSourceLineage(t *testing.T, child, source livePublishedRun, findi
 }
 
 func (environment liveE2EEnvironment) String() string {
-	return fmt.Sprintf("Mulgae=%s HOME=%s ZCode=%s/%s AGY=%s", environment.binary, environment.nativeHome, environment.zcodeNode, environment.zcodeLauncher, environment.agy)
+	return fmt.Sprintf("Mulgae=%s HOME=%s ZCode=%s/%s", environment.binary, environment.nativeHome, environment.zcodeNode, environment.zcodeLauncher)
 }
 
 func TestLiveChildProviderNondeterminismRequiresRecordedOutcome(t *testing.T) {

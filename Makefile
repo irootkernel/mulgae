@@ -1,6 +1,6 @@
 GO ?= go
 TEST_TIMEOUT ?= 90m
-RELEASE_VERSION := v0.1.20
+RELEASE_VERSION := v0.1.21
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
 .PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-kimi test-mcp-clients
@@ -68,9 +68,6 @@ test-e2e:
 	zcode_launcher="$${MULGAE_E2E_ZCODE_LAUNCHER:-/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs}"; \
 	test -f "$$zcode_launcher" && test -r "$$zcode_launcher" || { echo "test-e2e requires the ZCode launcher" >&2; exit 1; }; \
 	case "$$zcode_launcher" in /*) ;; *) echo "test-e2e requires an absolute ZCode launcher" >&2; exit 1;; esac; \
-	agy_bin="$${MULGAE_E2E_AGY_EXECUTABLE:-$$(command -v agy)}"; \
-	test -n "$$agy_bin" && test -x "$$agy_bin" || { echo "test-e2e requires the AGY executable" >&2; exit 1; }; \
-	case "$$agy_bin" in /*) ;; *) echo "test-e2e requires an absolute AGY executable" >&2; exit 1;; esac; \
 	codex_bin="$${MULGAE_E2E_CODEX_EXECUTABLE:-$$(command -v codex)}"; \
 	test -n "$$codex_bin" && test -x "$$codex_bin" || { echo "test-e2e requires the Codex executable" >&2; exit 1; }; \
 	case "$$codex_bin" in /*) ;; *) echo "test-e2e requires an absolute Codex executable" >&2; exit 1;; esac; \
@@ -96,7 +93,7 @@ test-e2e:
 	printf '%s\n' "[test-e2e] Codex credential homes: primary=$$codex_home_label quota_fallback=$$codex_fallback_home_label"; \
 	if MULGAE_E2E_BINARY="$$MULGAE_E2E_BINARY" MULGAE_E2E_PROJECT_ROOT="$$e2e_project" \
 		MULGAE_E2E_ZCODE_NODE_EXECUTABLE="$$zcode_node" MULGAE_E2E_ZCODE_LAUNCHER="$$zcode_launcher" \
-		MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" $(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
+		$(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^Test(E2E|Live)' ./test/e2e; then \
 		:; \
 	else \
@@ -105,10 +102,10 @@ test-e2e:
 		exit $$status; \
 	fi; \
 	MULGAE_LIVE_ZCODE_NODE_BIN="$$zcode_node" MULGAE_LIVE_ZCODE_LAUNCHER="$$zcode_launcher" \
-	MULGAE_LIVE_AGY_BIN="$$agy_bin" MULGAE_LIVE_CODEX_BIN="$$codex_bin" MULGAE_LIVE_CODEX_HOME="$$codex_home" \
+	MULGAE_LIVE_CODEX_BIN="$$codex_bin" MULGAE_LIVE_CODEX_HOME="$$codex_home" \
 		MULGAE_LIVE_CODEX_FALLBACK_HOME="$$codex_fallback_home" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLive(ZCode|Agy|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
+		-run '^TestLive(ZCode|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \

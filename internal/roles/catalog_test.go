@@ -24,13 +24,13 @@ const artistDefaultInputs = "    default_inputs:\n      task_path: ux-ui-info.md
 // individual roles so each test varies exactly one thing.
 func catalogFixture(overrides map[string]string) string {
 	defaults := map[string]string{
-		"logic":           roleEntry("logic", 1, "always", "[kimi, zcode, agy, codex]", ""),
+		"logic":           roleEntry("logic", 1, "always", "[zcode, kimi, agy, codex]", ""),
 		"security":        roleEntry("security", 2, "always", "[zcode, agy, kimi, codex]", ""),
 		"maintainability": roleEntry("maintainability", 3, "always", "[zcode, agy, kimi, codex]", ""),
 		"product":         roleEntry("product", 4, "always", "[zcode, agy, kimi, codex]", ""),
-		"documentation":   roleEntry("documentation", 5, "always", "[agy, zcode, kimi, codex]", ""),
+		"documentation":   roleEntry("documentation", 5, "always", "[zcode, agy, kimi, codex]", ""),
 		"testing":         roleEntry("testing", 6, "always", "[zcode, agy, kimi, codex]", ""),
-		"artist":          roleEntry("artist", 7, "project_kind_ui", "[agy, zcode, codex]", artistDefaultInputs),
+		"artist":          roleEntry("artist", 7, "project_kind_ui", "[zcode, agy, codex]", artistDefaultInputs),
 	}
 	document := "schema_version: " + SchemaVersion + "\nroles:\n"
 	for _, role := range domain.FixedRoleOrder() {

@@ -330,7 +330,7 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
 - Run `make test` before claiming complete development or release readiness. It is
   the complete required gate and includes generation/static checks, serialized
   race-instrumented unit and integration tests, exact release-binary checks, and
-  mandatory live ZCode/AGY certification.
+  mandatory live ZCode/Codex certification.
 - A patch-only release may use a reduced exact-commit gate when master explicitly
   states that `make test` has already passed, accepts responsibility for relying
   on that result, and explicitly requests release after only a patch-version
@@ -358,7 +358,7 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
 - `make test-kimi` is an opt-in compatibility check and is not part of `make test`.
   Report it as skipped unless it was explicitly run; do not imply Kimi was live
   verified when it was not.
-- Do not call a change release-ready when mandatory ZCode/AGY live checks were
+- Do not call a change release-ready when mandatory ZCode/Codex live checks were
   skipped, except under the explicit patch-only release rule above with the
   user's full-gate waiver recorded. Distinguish test success from commit, tag,
   push, release, installation, and runtime activation.
@@ -385,7 +385,7 @@ running it through Gaori from the repository root:
 - unit tests: `gaori run unit`
 - integration tests: `gaori run integration`
 - release-binary checks: `gaori run release`
-- mandatory ZCode/AGY live E2E checks: `gaori run e2e`
+- mandatory ZCode/Codex live E2E checks: `gaori run e2e`
 - opt-in Kimi/two-profile Codex E2E: `gaori run e2e-opt-in`
 - opt-in Kimi compatibility check: `gaori run kimi`
 - complete release gate: `gaori run full`

@@ -21,13 +21,12 @@ provider families:
 - AGY
 - Codex CLI
 
-The default `mulgae init` topology requires authenticated ZCode and AGY
-installations. Kimi remains available only when selected explicitly with
-`--providers kimi`; Codex is likewise selected explicitly with
-`--providers codex`. Mulgae records provider identity and capabilities at runtime
-and fails closed when a required capability is unavailable. Other operating
-systems, architectures, and provider families are not supported by the initial
-release.
+The default `mulgae init` topology requires an authenticated ZCode installation.
+AGY, Kimi, and Codex remain available when selected explicitly with
+`--providers agy`, `--providers kimi`, or `--providers codex`. Mulgae records
+provider identity and capabilities at runtime and fails closed when a required
+capability is unavailable. Other operating systems, architectures, and provider
+families are not supported by the initial release.
 
 ### Use Codex from Mulgae
 
@@ -218,8 +217,7 @@ AGY's permission mode, and enclosing role-path/run budgets. The generated worksp
 manifest is declared separately as `generated_at_execution`. AGY safe mode is
 explicitly warned because headless permission requests may be denied.
 
-Automatic initialization configures ZCode as the reviewer for logic, security,
-maintainability, product, and testing, and AGY for documentation.
+Automatic initialization configures ZCode as the reviewer for every enabled role.
 
 These defaults are declared in one place: `assets/roles.yaml` at the repository
 root, which also holds each role's review guidance. Every role lists an ordered

@@ -238,8 +238,8 @@ func TestMakefileContract(t *testing.T) {
 	if integrationEnd <= integrationStart || !strings.Contains(text[integrationStart:integrationEnd], "test -p 1 ") {
 		t.Fatal("test-int does not serialize race-instrumented package execution")
 	}
-	if !strings.Contains(text, "RELEASE_VERSION := v0.1.20") {
-		t.Fatal("Makefile does not declare the v0.1.20 release version")
+	if !strings.Contains(text, "RELEASE_VERSION := v0.1.21") {
+		t.Fatal("Makefile does not declare the v0.1.21 release version")
 	}
 	releaseStart := integrationEnd
 	releaseEnd := strings.Index(text, "\ntest-e2e:")
@@ -272,22 +272,22 @@ func TestMakefileContract(t *testing.T) {
 	e2eTarget := text[releaseEnd:optInStart]
 	for _, required := range []string{
 		"zcode_node=", `test -n "$$zcode_node"`,
-		"zcode_launcher=", `test -f "$$zcode_launcher"`, "agy_bin=", `test -n "$$agy_bin"`, "codex_bin=", `test -n "$$codex_bin"`,
+		"zcode_launcher=", `test -f "$$zcode_launcher"`, "codex_bin=", `test -n "$$codex_bin"`,
 		"codex_home=", "MULGAE_E2E_CODEX_HOME", `test -n "$$codex_home"`,
 		"codex_fallback_home=", "MULGAE_E2E_CODEX_FALLBACK_HOME", `test -d "$${HOME}/.codex-hsy"`, `test -d "$$codex_fallback_home"`,
 		"codex_home_label=", "codex_fallback_home_label=", "~/.codex", "~/.codex-hsy", "<unset>", "<custom>", "[test-e2e] Codex credential homes:",
-		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_AGY_BIN", "MULGAE_LIVE_CODEX_BIN", "MULGAE_LIVE_CODEX_HOME", "MULGAE_LIVE_CODEX_FALLBACK_HOME",
-		"-tags=liveprovider", "-run '^TestLive(ZCode|Agy|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
-		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
+		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_CODEX_BIN", "MULGAE_LIVE_CODEX_HOME", "MULGAE_LIVE_CODEX_FALLBACK_HOME",
+		"-tags=liveprovider", "-run '^TestLive(ZCode|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
 		if !strings.Contains(e2eTarget, required) {
 			t.Errorf("test-e2e missing fail-closed family-capability token %q", required)
 		}
 	}
-	for _, forbidden := range []string{"kimi_bin=", "MULGAE_LIVE_KIMI_BIN", "MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_KIMI_DATA_HOME"} {
+	for _, forbidden := range []string{"agy_bin=", "MULGAE_LIVE_AGY_BIN", "MULGAE_E2E_AGY_EXECUTABLE", "kimi_bin=", "MULGAE_LIVE_KIMI_BIN", "MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_KIMI_DATA_HOME"} {
 		if strings.Contains(e2eTarget, forbidden) {
-			t.Errorf("mandatory test-e2e still requires Kimi token %q", forbidden)
+			t.Errorf("mandatory test-e2e still requires AGY or Kimi token %q", forbidden)
 		}
 	}
 	optInTarget := text[optInStart:kimiStart]
@@ -345,14 +345,14 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	for _, required := range []string{
 		"func TestE2EActualProvidersProductionWorkflow", "runLiveChildProductionWorkflows", `"followup"`, `"delta"`, `"exact"`, `"recompose"`,
 		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "validateLivePrimaryProcessTerminals",
-		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_AGY_EXECUTABLE",
+		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER",
 	} {
 		if !strings.Contains(workflowText, required) {
 			t.Errorf("exact-binary live workflow contract missing %q", required)
 		}
 	}
-	if strings.Contains(workflowText, "MULGAE_E2E_KIMI_EXECUTABLE") || strings.Contains(workflowText, "MULGAE_E2E_KIMI_DATA_HOME") {
-		t.Fatal("mandatory exact-binary workflow still requires Kimi")
+	if strings.Contains(workflowText, "MULGAE_E2E_AGY_EXECUTABLE") || strings.Contains(workflowText, "MULGAE_E2E_KIMI_EXECUTABLE") || strings.Contains(workflowText, "MULGAE_E2E_KIMI_DATA_HOME") {
+		t.Fatal("mandatory exact-binary workflow still requires AGY or Kimi")
 	}
 	if strings.Contains(workflowText, "validateLivePrimaryProcessOverlap") || strings.Contains(workflowText, "maxAttempts = 3") {
 		t.Fatal("exact-binary live workflow restored an obsolete overlap or three-attempt predicate")

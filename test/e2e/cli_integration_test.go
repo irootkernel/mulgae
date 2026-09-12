@@ -240,7 +240,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		}
 	})
 
-	t.Run("auto discovery requires zcode and agy while ignoring ambient kimi", func(t *testing.T) {
+	t.Run("auto discovery requires zcode while ignoring ambient agy and kimi", func(t *testing.T) {
 		installed, err := user.Current()
 		if err != nil || installed == nil {
 			t.Fatalf("current native account unavailable: %#v %v", installed, err)
@@ -251,7 +251,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			"kimi":     filepath.Join(emptyPATH, "kimi"),
 			"node":     filepath.Join(overrideDirectory, "node-override"),
 			"launcher": filepath.Join(overrideDirectory, "zcode-launcher.cjs"),
-			"agy":      filepath.Join(overrideDirectory, "agy-override"),
+			"agy":      filepath.Join(emptyPATH, "agy"),
 		}
 		for _, path := range []string{paths["kimi"], paths["node"], paths["agy"]} {
 			mustWriteTestFile(t, path, []byte("#!/bin/sh\nexit 0\n"))
@@ -268,9 +268,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 			candidates []string
 		}{
 			{name: "neither", candidates: []string{}},
-			{name: "zcode only", arguments: []string{"--zcode-node-executable", paths["node"], "--zcode-launcher", paths["launcher"]}, candidates: []string{"zcode"}},
-			{name: "agy only", arguments: []string{"--agy-executable", paths["agy"]}, candidates: []string{"agy"}},
-			{name: "zcode and agy", arguments: []string{"--zcode-node-executable", paths["node"], "--zcode-launcher", paths["launcher"], "--agy-executable", paths["agy"], "--agy-permission-mode", "safe", "--native-home", installed.HomeDir}, shouldPass: true, candidates: []string{"zcode", "agy"}},
+			{name: "zcode only", arguments: []string{"--zcode-node-executable", paths["node"], "--zcode-launcher", paths["launcher"]}, shouldPass: true, candidates: []string{"zcode"}},
 		} {
 			for _, format := range []string{"human", "json"} {
 				t.Run(fmt.Sprintf("%s_%s", test.name, format), func(t *testing.T) {

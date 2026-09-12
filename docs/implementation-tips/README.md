@@ -5,7 +5,7 @@
 - macOS on Apple silicon for the complete release gate
 - Go 1.26.6 or newer
 - Git
-- authenticated ZCode, AGY, and Codex installations for the mandatory live tests
+- authenticated ZCode and Codex installations for the mandatory live tests
 - an authenticated Kimi installation only for the opt-in compatibility test
 - two distinct authenticated Codex homes plus an authenticated Kimi data home
   only for the opt-in mixed-profile E2E
@@ -20,8 +20,8 @@ make test
 
 It runs generators and static checks, serialized race-instrumented unit tests,
 serialized race-instrumented integration tests, an exact-binary production
-workflow, and independent live capability certification for ZCode, AGY, and
-Codex. It then invokes the opt-in mixed-profile target, which reports a stable
+workflow, and independent live capability certification for ZCode and Codex. It
+then invokes the opt-in mixed-profile target, which reports a stable
 skip unless `MULGAE_E2E_OPT_IN=1` is present.
 The mandatory workflow also requires the documentation role report to reproduce
 a fresh marker stored only in the captured README, never in the objective.
@@ -51,8 +51,8 @@ make test-mcp-clients
 ```
 
 `make test-kimi` is an opt-in compatibility check and is not part of
-`make test`. Do not call a change release-ready when the mandatory
-ZCode/AGY/Codex live gate was skipped.
+`make test`. Do not call a change release-ready when the mandatory ZCode/Codex
+live gate was skipped.
 
 The mandatory Codex capability check first uses `MULGAE_E2E_CODEX_HOME`, which
 defaults to `~/.codex`. If and only if that account returns a typed quota
@@ -90,7 +90,7 @@ Override executable discovery with `MULGAE_E2E_CODEX_EXECUTABLE` and
 `MULGAE_E2E_KIMI_EXECUTABLE`. Once enabled, missing credentials, qualification
 failure, invalid provider output, wrong role routing, publication failure, or
 credential mutation fails the target; the Go test never converts these states
-to a skip. This optional result does not replace mandatory ZCode/AGY/Codex
+to a skip. This optional result does not replace mandatory ZCode/Codex
 certification or the separate `make test-kimi` capability check.
 
 `make test-mcp-clients` is an opt-in local compatibility check and is not part

@@ -504,7 +504,7 @@ type candidates struct {
 }
 
 func (service *Service) discover(ctx context.Context, request InitializeProjectRequest) (candidates, []DiscoveryRow, error) {
-	wanted := map[string]bool{"zcode": request.Selection.Mode == SelectionAuto, "agy": request.Selection.Mode == SelectionAuto}
+	wanted := map[string]bool{"zcode": request.Selection.Mode == SelectionAuto}
 	for _, id := range request.Selection.ProviderIDs {
 		wanted[id] = true
 	}
@@ -657,8 +657,8 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 	if len(securityErrors) != 0 {
 		return found, rows, errors.Join(append([]error{errUnsafeDiscovery}, securityErrors...)...)
 	}
-	if request.Selection.Mode == SelectionAuto && (!contains(ids, "zcode") || !contains(ids, "agy")) {
-		return found, rows, errors.Join(append([]error{errors.New("auto selection requires both zcode and agy")}, discoveryErrors...)...)
+	if request.Selection.Mode == SelectionAuto && !contains(ids, "zcode") {
+		return found, rows, errors.Join(append([]error{errors.New("auto selection requires zcode")}, discoveryErrors...)...)
 	}
 	if request.Selection.Mode == SelectionSelected {
 		for _, id := range request.Selection.ProviderIDs {
@@ -777,7 +777,7 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 		return nil, fmt.Errorf("mode")
 	}
 	if selection.Mode == SelectionAuto {
-		if len(selection.ProviderIDs) != 0 || overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "" || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" {
+		if len(selection.ProviderIDs) != 0 || overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "" || overrides.AGYExecutable != "" || overrides.AGYPermissionMode != "" || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" {
 			return nil, fmt.Errorf("auto members")
 		}
 		return []string{}, nil
@@ -826,7 +826,7 @@ func contains(values []string, value string) bool {
 	return false
 }
 func discoveryReason(selection Selection, ids []string) string {
-	if selection.Mode == SelectionAuto && (!contains(ids, "zcode") || !contains(ids, "agy")) {
+	if selection.Mode == SelectionAuto && !contains(ids, "zcode") {
 		return "init_auto_provider_topology_unavailable"
 	}
 	return "init_provider_unavailable"
@@ -848,7 +848,7 @@ func initFailureMessage(code string) string {
 	case "init_discovery_empty":
 		return "No supported provider was discovered."
 	case "init_auto_provider_topology_unavailable":
-		return "Automatic initialization requires both ZCode and AGY."
+		return "Automatic initialization requires ZCode."
 	case "init_provider_unavailable":
 		return "A selected provider is unavailable."
 	case "init_private_dir_raced":

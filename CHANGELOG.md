@@ -13,6 +13,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Changed
 
+- Make ZCode the sole automatic-init provider and the first preference for every
+  role while retaining explicit AGY, Kimi, and Codex selection.
 - Update runtime diagnostics to `mulgae-runtime-log.v4`,
   `mulgae-runtime-run-status.v3`, and
   `mulgae-runtime-invocation-status.v2`, while retaining run-status v2 reads.

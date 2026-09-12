@@ -32,10 +32,9 @@ mulgae init [--project-root PATH] [--name NAME]
 
 `FAMILY := kimi | zcode | agy | codex`
 
-`--providers auto` discovers exactly ZCode and AGY and fails closed unless both
-are available. Select Kimi explicitly to create a Kimi-backed compatibility
-configuration. Select Codex explicitly with `--providers codex`; auto selection
-remains unchanged.
+`--providers auto` discovers exactly ZCode and fails closed unless it is
+available. Select AGY, Kimi, or Codex explicitly to create a configuration backed
+by that provider; auto selection remains unchanged.
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.

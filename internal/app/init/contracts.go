@@ -127,7 +127,7 @@ func (result InitializeProjectResult) Validate() error {
 		auto := len(result.SelectedProviderIDs) == 0
 		for index, family := range familyOrder {
 			row := result.Discovery[index]
-			autoSelected := auto && (family == "zcode" || family == "agy")
+			autoSelected := auto && family == "zcode"
 			if row.Family != family || row.Status == "" || !validDiscoverySources(row) || row.Selected != (autoSelected || contains(result.SelectedProviderIDs, family)) || row.Candidate != contains(result.CandidateProviderIDs, family) || row.Configured != contains(result.ConfiguredProviderIDs, family) {
 				return fmt.Errorf("init result: inconsistent discovery row")
 			}

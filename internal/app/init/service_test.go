@@ -744,7 +744,7 @@ func TestInitializeProjectDiscoveryFailureStillReturnsFourRows(t *testing.T) {
 	}
 }
 
-func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing.T) {
+func TestInitializeProjectAutoRequiresZCodeWithoutObservingOtherProviders(t *testing.T) {
 	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -753,29 +753,31 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	newInspector := func(withAgy bool) *scopedDiscoveryInspector {
-		observations := map[string]ports.ExecutableObservation{
-			"/bin/node": availableDiscoveryObservation(t, "/bin/node", "/bin/node"),
-		}
-		if withAgy {
-			observations["/bin/agy"] = availableDiscoveryObservation(t, "/bin/agy", "/bin/agy")
+	newInspector := func(withZCode bool) *scopedDiscoveryInspector {
+		observations := map[string]ports.ExecutableObservation{}
+		if withZCode {
+			observations["/bin/node"] = availableDiscoveryObservation(t, "/bin/node", "/bin/node")
 		}
 		return &scopedDiscoveryInspector{
 			observations: observations,
 			fileObservations: map[string]ports.FileIdentityObservation{
 				launcher: availableFileObservation(t, launcher, launcher),
 			},
-			errors: map[string]error{"kimi": errors.New("auto must not inspect Kimi")},
+			errors: map[string]error{
+				"kimi":  errors.New("auto must not inspect Kimi"),
+				"agy":   errors.New("auto must not inspect AGY"),
+				"codex": errors.New("auto must not inspect Codex"),
+			},
 		}
 	}
 	request := func(root ports.AnchoredRoot) InitializeProjectRequest {
 		return InitializeProjectRequest{
 			ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto},
-			Overrides: Overrides{ZCodeNodeExecutable: "/bin/node", ZCodeLauncher: launcher, AGYExecutable: "/bin/agy"},
+			Overrides: Overrides{ZCodeNodeExecutable: "/bin/node", ZCodeLauncher: launcher},
 		}
 	}
 
-	t.Run("both providers form the default topology", func(t *testing.T) {
+	t.Run("zcode forms the default topology", func(t *testing.T) {
 		rootPath := t.TempDir()
 		_ = os.Chmod(rootPath, 0o700)
 		root, _ := ports.NewAnchoredRoot(rootPath)
@@ -785,11 +787,11 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		if initErr != nil {
 			t.Fatal(initErr)
 		}
-		if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"zcode", "agy"}) || len(result.Discovery) != 4 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "candidate" || result.Discovery[2].Status != "candidate" || result.Discovery[3].Status != "not_selected" {
+		if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"zcode"}) || len(result.Discovery) != 4 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "candidate" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" {
 			t.Fatalf("result=%#v", result)
 		}
-		if contains(inspector.calls, "kimi") || len(inspector.legacyCalls) != 0 {
-			t.Fatalf("auto discovery observed Kimi or launched a provider: calls=%v legacy=%v", inspector.calls, inspector.legacyCalls)
+		if contains(inspector.calls, "kimi") || contains(inspector.calls, "agy") || contains(inspector.calls, "codex") || len(inspector.legacyCalls) != 0 {
+			t.Fatalf("auto discovery observed a non-ZCode provider or launched a provider: calls=%v legacy=%v", inspector.calls, inspector.legacyCalls)
 		}
 		config, decodeErr := readInstalledConfig(rootPath)
 		if decodeErr != nil {
@@ -798,12 +800,12 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		if config.Roles.Logic.PrimaryProvider != "zcode" {
 			t.Fatalf("logic assignment = %#v", config.Roles.Logic)
 		}
-		if config.Providers.ZCode.Timeout != "60m" || config.Providers.AGY.Timeout != "60m" {
-			t.Fatalf("auto provider timeouts = zcode:%q agy:%q", config.Providers.ZCode.Timeout, config.Providers.AGY.Timeout)
+		if config.Providers.ZCode.Timeout != "60m" || config.Providers.AGY != nil {
+			t.Fatalf("auto providers = zcode:%q agy:%#v", config.Providers.ZCode.Timeout, config.Providers.AGY)
 		}
 	})
 
-	t.Run("missing AGY fails closed", func(t *testing.T) {
+	t.Run("missing zcode fails closed", func(t *testing.T) {
 		rootPath := t.TempDir()
 		_ = os.Chmod(rootPath, 0o700)
 		root, _ := ports.NewAnchoredRoot(rootPath)
@@ -814,11 +816,11 @@ func TestInitializeProjectAutoRequiresZCodeAndAgyWithoutObservingKimi(t *testing
 		if !errors.As(initErr, &failure) || failure.Code() != "init_auto_provider_topology_unavailable" {
 			t.Fatalf("failure = %T %v", initErr, initErr)
 		}
-		if result.Committed || !reflect.DeepEqual(result.CandidateProviderIDs, []string{"zcode"}) {
+		if result.Committed || len(result.CandidateProviderIDs) != 0 {
 			t.Fatalf("result=%#v", result)
 		}
-		if contains(inspector.calls, "kimi") {
-			t.Fatalf("auto discovery observed Kimi: %v", inspector.calls)
+		if contains(inspector.calls, "kimi") || contains(inspector.calls, "agy") || contains(inspector.calls, "codex") {
+			t.Fatalf("auto discovery observed a non-ZCode provider: %v", inspector.calls)
 		}
 	})
 }
@@ -891,14 +893,19 @@ func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T)
 	}
 }
 
-func TestValidateSelectionRejectsKimiOverridesInAutoMode(t *testing.T) {
+func TestValidateSelectionRejectsNonZCodeOverridesInAutoMode(t *testing.T) {
 	for _, overrides := range []Overrides{
 		{KimiExecutable: "/bin/kimi"},
 		{KimiModel: "k3"},
 		{KimiDataHome: "/Users/test/.kimi-code"},
+		{AGYExecutable: "/bin/agy"},
+		{AGYPermissionMode: "safe"},
+		{CodexExecutable: "/bin/codex"},
+		{CodexModel: "gpt"},
+		{CodexReasoningEffort: "high"},
 	} {
 		if _, err := validateSelection(Selection{Mode: SelectionAuto}, overrides); err == nil {
-			t.Fatalf("auto selection accepted Kimi override %#v", overrides)
+			t.Fatalf("auto selection accepted non-ZCode override %#v", overrides)
 		}
 	}
 }

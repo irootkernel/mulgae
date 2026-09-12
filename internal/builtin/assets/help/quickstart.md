@@ -1,7 +1,7 @@
 # Mulgae
 
 Mulgae is a local, multi-provider AI code review CLI. It captures an immutable
-target, runs role-specific reviews through ZCode and AGY by default, validates the
+target, runs role-specific reviews through ZCode by default, validates the
 results, verifies evidence, and publishes durable artifacts under `.mulgae/`.
 
 Mulgae roles are functional review lenses.
@@ -10,10 +10,9 @@ Mulgae reports findings and recommendations only.
 
 ## Start
 
-Automatic initialization requires both ZCode and AGY. Kimi compatibility is
-available only through an explicit `--providers kimi` selection. Codex is
-available through an explicit `--providers codex` selection and does not alter
-the automatic topology.
+Automatic initialization requires ZCode. AGY, Kimi, and Codex remain available
+through explicit `--providers agy`, `--providers kimi`, or `--providers codex`
+selection and do not alter the automatic topology.
 
 ```bash
 mulgae init
