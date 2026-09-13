@@ -10,7 +10,7 @@ None.
 
 ## Adopted active dossiers
 
-None.
+- [EPIC-004: ZCode-first review with Grok recovery](TODO-zcode-grok-provider-strategy.md)
 
 When a candidate is adopted with tasks, identify its epic here and link the
 dossier from the roadmap as `Detailed SOT`. Epic closeout promotes durable
