@@ -46,16 +46,58 @@ type stagedOutputLease struct {
 	// ownerUID is the effective UID Mulgae requires to own the staging
 	// directory and the staged file. It is recorded once at creation so
 	// validation compares against the identity that created the lease.
-	ownerUID uint32
-	path     string
-	name     string
-	filename string
+	ownerUID        uint32
+	path            string
+	name            string
+	filename        string
+	writeAuthorized bool
 	// released records a completed cleanup. The later wiring attempts cleanup
 	// on every path, so a repeated call must be a no-op success.
 	released bool
 	// pendingDescriptors retains descriptors whose close failed so a later
 	// cleanup retries them instead of leaking them silently.
 	pendingDescriptors []*os.File
+}
+
+// AuthorizeWriteOnce proves that the provider-visible path still resolves to
+// this lease's exact empty directory and consumes its sole write grant.
+func (lease *stagedOutputLease) AuthorizeWriteOnce(candidate string) error {
+	if lease == nil || lease.directory == nil || lease.released || lease.writeAuthorized {
+		return stagedOutputViolation("staged output write authority is unavailable")
+	}
+	destination, err := lease.Destination()
+	if err != nil || candidate != destination.AbsolutePath() || !validCanonicalAbsolute(candidate) {
+		return stagedOutputViolation("staged output write destination mismatch")
+	}
+	directoryFD := int(lease.directory.Fd())
+	if err := lease.verifyDirectoryIdentity(directoryFD); err != nil {
+		return err
+	}
+	resolvedFD, err := unix.Open(lease.path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return stagedOutputViolation("resolve staged output directory: %w", err)
+	}
+	var resolved unix.Stat_t
+	statErr := unix.Fstat(resolvedFD, &resolved)
+	closeErr := unix.Close(resolvedFD)
+	if statErr != nil {
+		return stagedOutputViolation("inspect resolved staged output directory: %w", statErr)
+	}
+	if closeErr != nil {
+		return stagedOutputViolation("close resolved staged output directory: %w", closeErr)
+	}
+	if resolved.Dev != lease.identity.device || resolved.Ino != lease.identity.inode {
+		return stagedOutputViolation("staged output directory path identity drift")
+	}
+	names, err := lease.entryNames()
+	if err != nil {
+		return err
+	}
+	if len(names) != 0 {
+		return stagedOutputViolation("staged output destination was pre-populated")
+	}
+	lease.writeAuthorized = true
+	return nil
 }
 
 // createStagedOutputDirectory creates one fresh per-invocation staging

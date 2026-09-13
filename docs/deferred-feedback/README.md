@@ -3,14 +3,6 @@
 This index owns small actionable findings intentionally postponed from current
 work.
 
-- `DF-001` Protocol-channel routing uses two dispatch bases: the registry
-  decides conversation dispatch on the transport channel and then rejects
-  non-ZCode families by family, while the qualification probe decides on the
-  family alone. A second family adopting the protocol channel must find and
-  edit both dispatch sites; the registry guard fails closed today, so the
-  asymmetry is bounded. Re-entry: before adding a second protocol-channel
-  provider family, derive both dispatch decisions from one channel-plus-driver
-  authority so the driver constructor owns which protocol it speaks.
 - `DF-002` Live review runs intermittently lost every role to an unconditioned
   `internal_invariant` after invocation preparation and before process spawn.
   Spawn-path revalidation refusals are now typed: a proven environment change

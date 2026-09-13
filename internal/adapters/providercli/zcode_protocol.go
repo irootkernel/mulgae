@@ -52,21 +52,21 @@ type zcodeProtocolError struct {
 	err   error
 }
 
-// zcodeConversationFailure keeps the driver's bounded session facts attached
+// protocolConversationFailure keeps the driver's bounded session facts attached
 // while the process observation travels through workspace revalidation.
-type zcodeConversationFailure struct {
+type protocolConversationFailure struct {
 	observation ports.ProviderSessionObservation
 	err         error
 }
 
-func (failure *zcodeConversationFailure) Error() string { return "zcode conversation failed" }
-func (failure *zcodeConversationFailure) Unwrap() error {
+func (failure *protocolConversationFailure) Error() string { return "provider conversation failed" }
+func (failure *protocolConversationFailure) Unwrap() error {
 	if failure == nil {
 		return nil
 	}
 	return failure.err
 }
-func (failure *zcodeConversationFailure) SessionObservation() ports.ProviderSessionObservation {
+func (failure *protocolConversationFailure) SessionObservation() ports.ProviderSessionObservation {
 	if failure == nil {
 		return ports.ProviderSessionObservation{}
 	}
@@ -96,6 +96,9 @@ func (failure *zcodeProtocolError) Cause() domain.RuntimeDiagnosticCause {
 		return ""
 	}
 	return failure.cause
+}
+func (failure *zcodeProtocolError) ProtocolFailureCause() domain.RuntimeDiagnosticCause {
+	return failure.Cause()
 }
 
 // zcodeProtocolSession drives one ZCode review or qualification conversation:
@@ -160,6 +163,10 @@ func (session *zcodeProtocolSession) assistantEvidenceText() []byte {
 		return nil
 	}
 	return []byte(strings.Join(session.assistantEvidence, "\n"))
+}
+
+func (session *zcodeProtocolSession) AssistantEvidenceText() []byte {
+	return session.assistantEvidenceText()
 }
 
 func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) (driveErr error) {

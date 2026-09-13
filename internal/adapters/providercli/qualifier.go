@@ -489,9 +489,9 @@ func qualificationFamilyOutputCause(family string, err error) domain.RuntimeDiag
 
 // runBound makes exactly one descriptor-bound launch. Every return path validates
 // the namespace and fixture before launch and the fixture guard after launch.
-// A ZCode capability probe converses the packet through the app-server protocol
+// A protocol capability probe converses the packet through its bound driver
 // and returns the captured assistant evidence text alongside the observation.
-func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket, executionPolicy *AGYExecutionPolicy) (observation ports.ProcessObservation, zcodeEvidence []byte, err error) {
+func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket, executionPolicy *AGYExecutionPolicy) (observation ports.ProcessObservation, protocolEvidence []byte, err error) {
 	if err := namespace.ValidateForSpawn(); err != nil {
 		return ports.ProcessObservation{}, nil, securityProbeFailure("namespace", "namespace validation failed", err)
 	}
@@ -519,10 +519,14 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	}
 	var request ports.ProcessRequest
 	var requestErr error
-	var zcodeSession *zcodeProtocolSession
+	var protocolSession providerProtocolSession
+	authority, authorityErr := adapterAuthorityForFamily(definition.Family())
+	if authorityErr != nil {
+		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "protocol authority unavailable", authorityErr)
+	}
 	if packet == nil {
 		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, root.Path(), nil, timeout)
-	} else if definition.Family() == FamilyZcode {
+	} else if authority.qualificationChannel == ports.ProviderPacketChannelProtocol && authority.protocolDriver != nil {
 		binding, bindingErr := ports.NewProtocolProviderPacketBinding(*packet)
 		if bindingErr != nil {
 			requestErr = bindingErr
@@ -530,7 +534,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, root.Path(), binding, timeout)
 		}
 		if requestErr == nil {
-			zcodeSession, requestErr = newZcodeCapabilityProtocolSession(root.Path(), packet.Bytes())
+			protocolSession, requestErr = authority.protocolDriver.NewSession(root.Path(), packet.Bytes(), protocolPurposeQualification, nil)
 		}
 	} else {
 		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, root.Path(), timeout)
@@ -563,12 +567,12 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		}
 		return ports.ProcessObservation{}, nil, securityProbeFailure("spawn", "spawn verification failed", err)
 	}
-	if zcodeSession != nil {
+	if protocolSession != nil {
 		conversationRunner, ok := probe.runner.(ports.ProviderConversationRunner)
 		if !ok {
 			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "process runner cannot converse", nil)
 		}
-		observation, err = conversationRunner.Converse(ctx, request, zcodeSession)
+		observation, err = conversationRunner.Converse(ctx, request, protocolSession)
 	} else {
 		observation, err = probe.runner.Run(ctx, request)
 	}
@@ -578,7 +582,10 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	if err != nil {
 		return observation, nil, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
 	}
-	return observation, zcodeSession.assistantEvidenceText(), nil
+	if protocolSession != nil {
+		protocolEvidence = protocolSession.AssistantEvidenceText()
+	}
+	return observation, protocolEvidence, nil
 }
 
 func qualificationProcessFailure(family string, observation ports.ProcessObservation, err error) error {
@@ -748,7 +755,11 @@ func currentProbeAuthorityID(proofAuthorityID, runtimeDefinitionIdentity string)
 
 func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet ports.ProviderPacket, observation ports.ProcessObservation) error {
 	transport, ok := observation.ProviderPacketTransportReceipt()
-	expectedChannel := qualificationTransportChannel(definition.Family())
+	authority, err := adapterAuthorityForFamily(definition.Family())
+	if err != nil {
+		return probeEvidenceFailure(domain.DiagnosticCauseTransportReceiptMismatch, "provider protocol authority unavailable")
+	}
+	expectedChannel := authority.qualificationChannel
 	if !ok || !transport.Valid() || transport.Channel() != expectedChannel || transport.PacketIdentity() != packet.Identity() {
 		return probeEvidenceFailure(domain.DiagnosticCauseTransportReceiptMismatch, "missing or mismatched provider packet transport receipt")
 	}
@@ -844,7 +855,11 @@ func probeEvidenceFailure(cause domain.RuntimeDiagnosticCause, message string) e
 	return newProviderOutputFailure(cause, errors.New(message))
 }
 func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacket, argv []string, reference string, environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration) (ports.ProcessRequest, error) {
-	channel := qualificationTransportChannel(def.Family())
+	authority, err := adapterAuthorityForFamily(def.Family())
+	if err != nil {
+		return ports.ProcessRequest{}, err
+	}
+	channel := authority.qualificationChannel
 	needle := string(packet.Bytes())
 	if channel == ports.ProviderPacketChannelPromptFile {
 		needle = reference
@@ -864,7 +879,6 @@ func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacke
 		}
 	}
 	var binding ports.ProviderPacketBinding
-	var err error
 	switch channel {
 	case ports.ProviderPacketChannelPromptFile:
 		binding, err = ports.NewPromptFileProviderPacketBinding(packet, index, reference, workingDirectory)
@@ -882,19 +896,6 @@ func boundProbeProviderRequest(def RuntimeDefinition, packet ports.ProviderPacke
 		return ports.NewProviderProcessRequestWithPostOutputLifecycle(def.Executable(), argv, environment, workingDirectory, binding, lifecycle, timeout)
 	}
 	return ports.NewProviderProcessRequest(def.Executable(), argv, environment, workingDirectory, binding, timeout)
-}
-
-func qualificationTransportChannel(family string) ports.ProviderPacketChannel {
-	switch family {
-	case FamilyZcode:
-		return ports.ProviderPacketChannelProtocol
-	case FamilyAgy:
-		return ports.ProviderPacketChannelArgvLiteral
-	case FamilyCodex:
-		return ports.ProviderPacketChannelStdin
-	default:
-		return ports.ProviderPacketChannelArgvLiteral
-	}
 }
 
 func safeProbeDefinition(definition RuntimeDefinition) error {

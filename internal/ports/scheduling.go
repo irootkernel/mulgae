@@ -86,12 +86,13 @@ const (
 	CredentialProjectionKimiConfig      CredentialProjectionDestination = "kimi_config"
 	CredentialProjectionKimiCredentials CredentialProjectionDestination = "kimi_credentials"
 	CredentialProjectionZCodeConfig     CredentialProjectionDestination = "zcode_config"
+	CredentialProjectionGrokAuth        CredentialProjectionDestination = "grok_auth"
 	CredentialProjectionCodexAuth       CredentialProjectionDestination = "codex_auth"
 )
 
 func (destination CredentialProjectionDestination) Valid() bool {
 	switch destination {
-	case CredentialProjectionKimiConfig, CredentialProjectionKimiCredentials, CredentialProjectionZCodeConfig, CredentialProjectionCodexAuth:
+	case CredentialProjectionKimiConfig, CredentialProjectionKimiCredentials, CredentialProjectionZCodeConfig, CredentialProjectionGrokAuth, CredentialProjectionCodexAuth:
 		return true
 	default:
 		return false

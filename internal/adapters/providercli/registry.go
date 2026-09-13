@@ -102,6 +102,7 @@ type RuntimeDefinition struct {
 	profileID                                               string
 	baseArgv                                                []string
 	transport                                               RuntimeTransport
+	protocolDriver                                          providerProtocolDriverConstructor
 	environment                                             []ports.EnvironmentVariable
 	workingDirectory                                        string
 	timeout                                                 time.Duration
@@ -143,11 +144,16 @@ func NewRuntimeDefinitionWithTransport(
 	workingDirectory string,
 	timeout time.Duration,
 ) (RuntimeDefinition, error) {
+	authority, err := adapterAuthorityForFamily(family)
+	if err != nil {
+		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
+	}
 	definition := RuntimeDefinition{
 		family: family, instance: instance, version: version, executable: executable,
 		executableSHA256: executableSHA256, profileID: profileID,
 		baseArgv:         append([]string(nil), baseArgv...),
 		transport:        transport,
+		protocolDriver:   authority.protocolDriver,
 		environment:      append([]ports.EnvironmentVariable(nil), environment...),
 		workingDirectory: workingDirectory, timeout: timeout,
 	}
@@ -427,6 +433,15 @@ func (d RuntimeDefinition) validate() error {
 	}
 	if d.codexReasoningEffort != "" && !validCodexReasoningEffort(d.codexReasoningEffort) {
 		return fmt.Errorf("invalid Codex reasoning effort")
+	}
+	authority, authorityErr := adapterAuthorityForFamily(d.family)
+	if authorityErr != nil {
+		return authorityErr
+	}
+	if (d.transport.channel == ports.ProviderPacketChannelProtocol) != (d.protocolDriver != nil) ||
+		(d.transport.channel == ports.ProviderPacketChannelProtocol && authority.protocolDriver == nil) ||
+		reflect.TypeOf(d.protocolDriver) != reflect.TypeOf(authority.protocolDriver) {
+		return fmt.Errorf("protocol transport and driver authority must be paired")
 	}
 	return nil
 }
@@ -933,12 +948,12 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	var conversationEvidence []byte
 	var runErr error
 	if workspace, ok := invocation.ExecutionWorkspace(); ok {
-		processObservation, conversationEvidence, runErr = r.runInWorkspace(ctx, definition, invocation, workspace, packet, namespace, namespace.Environment())
+		processObservation, conversationEvidence, runErr = r.runInWorkspace(ctx, definition, invocation, workspace, packet, namespace, namespace.Environment(), staging)
 	} else {
 		if definition.requiresWorkspaceAuthority {
 			return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: production definition requires workspace authority"))
 		}
-		processObservation, conversationEvidence, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment(), invocation.Purpose())
+		processObservation, conversationEvidence, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment(), invocation.Purpose(), staging)
 	}
 	if runErr != nil {
 		if errors.Is(runErr, context.Canceled) && processObservation.Valid() &&
@@ -948,17 +963,19 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 				"process_cancelled", domain.DiagnosticCauseProviderExecutionFailed, "",
 			)
 		}
-		var protocolFailure *zcodeProtocolError
+		var protocolFailure protocolDiagnosticFailure
 		if errors.As(runErr, &protocolFailure) && processObservation.Valid() {
-			status, diagnostic := providerFailureProjection(protocolFailure.Cause())
-			cause := protocolFailure.Cause()
+			status, diagnostic := providerFailureProjection(protocolFailure.ProtocolFailureCause())
+			cause := protocolFailure.ProtocolFailureCause()
 			// Stderr token classification remains the fallback for native
 			// conditions the protocol does not represent on the wire, notably
 			// login-required and capacity states.
 			if nativeStatus, nativeDiagnostic, nativeCause, known := nativeProviderOutcome(definition.family, nil, processObservation.Stderr()); known {
 				status, diagnostic, cause = nativeStatus, nativeDiagnostic, nativeCause
 			}
-			var conversationFailure *zcodeConversationFailure
+			var conversationFailure interface {
+				SessionObservation() ports.ProviderSessionObservation
+			}
 			if errors.As(runErr, &conversationFailure) && conversationFailure.SessionObservation().Valid() {
 				observation, observationErr := ports.NewFailedProtocolProviderExecutionObservationWithCause(
 					status, invocation, processObservation, conversationFailure.SessionObservation(), diagnostic, cause, "",
@@ -1239,48 +1256,40 @@ func spawnRevalidationFailure(operation string, err error) error {
 }
 
 // executeProviderProcess runs one provider process request. Protocol-channel
-// routes converse the packet through a ZCode session driver instead of
+// routes converse the packet through the definition's bound session driver instead of
 // delivering it upfront; every other channel keeps the one-shot run path. The
 // returned evidence is the conversation's captured assistant text for
 // extraction conversations and nil otherwise.
-func (r *Registry) executeProviderProcess(ctx context.Context, definition definition, packet ports.ProviderPacket, request ports.ProcessRequest, purpose ports.ProviderInvocationPurpose) (ports.ProcessObservation, []byte, error) {
+func (r *Registry) executeProviderProcess(ctx context.Context, definition definition, packet ports.ProviderPacket, request ports.ProcessRequest, purpose ports.ProviderInvocationPurpose, writeAuthority protocolWriteAuthority) (ports.ProcessObservation, []byte, error) {
 	if definition.transport.channel != ports.ProviderPacketChannelProtocol {
 		observation, err := r.runner.Run(ctx, request)
 		return observation, nil, err
 	}
-	if definition.family != FamilyZcode {
+	if definition.protocolDriver == nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
-			fmt.Errorf("provider registry: protocol transport is unsupported for %s", definition.family))
+			fmt.Errorf("provider registry: protocol driver is unavailable"))
 	}
 	conversationRunner, ok := r.runner.(ports.ProviderConversationRunner)
 	if !ok {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("provider registry: process runner cannot converse"))
 	}
-	var session *zcodeProtocolSession
-	var err error
-	if purpose == ports.ProviderInvocationExtract {
-		// The structured extraction trailer returns exact JSON as the
-		// assistant text, so extraction conversations capture it.
-		session, err = newZcodeExtractionProtocolSession(request.WorkingDirectory(), packet.Bytes())
-	} else {
-		session, err = newZcodeReviewProtocolSession(request.WorkingDirectory(), packet.Bytes())
-	}
+	session, err := definition.protocolDriver.NewSession(request.WorkingDirectory(), packet.Bytes(), protocolPurposeForReview(purpose), writeAuthority)
 	if err != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}
 	observation, err := conversationRunner.Converse(ctx, request, session)
 	if err != nil {
 		if sessionObservation, ok := session.SessionObservation(); ok {
-			err = &zcodeConversationFailure{observation: sessionObservation, err: err}
+			err = &protocolConversationFailure{observation: sessionObservation, err: err}
 		}
 		return observation, nil, fmt.Errorf("provider registry: process runner: %w", err)
 	}
-	return observation, session.assistantEvidenceText(), nil
+	return observation, session.AssistantEvidenceText(), nil
 }
 
 func (r *Registry) runLegacy(
-	ctx context.Context, definition definition, packet ports.ProviderPacket, environment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose,
+	ctx context.Context, definition definition, packet ports.ProviderPacket, environment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose, staging *stagedOutputLease,
 ) (ports.ProcessObservation, []byte, error) {
 	request, err := processRequest(definition, packet, definition.workingDirectory, environment)
 	if err != nil {
@@ -1294,7 +1303,7 @@ func (r *Registry) runLegacy(
 			return ports.ProcessObservation{}, nil, spawnRevalidationFailure("spawn revalidation", err)
 		}
 	}
-	observation, evidence, err := r.executeProviderProcess(ctx, definition, packet, request, purpose)
+	observation, evidence, err := r.executeProviderProcess(ctx, definition, packet, request, purpose, staging)
 	if err != nil {
 		return observation, nil, fmt.Errorf("provider registry: process runner: %w", err)
 	}
@@ -1304,7 +1313,7 @@ func (r *Registry) runLegacy(
 func (r *Registry) runInWorkspace(
 	ctx context.Context, definition definition, invocation ports.ProviderInvocation,
 	workspace ports.WorkspaceExecutionAuthority, packet ports.ProviderPacket,
-	namespace ports.ProviderNamespaceLease, environment []ports.EnvironmentVariable,
+	namespace ports.ProviderNamespaceLease, environment []ports.EnvironmentVariable, staging *stagedOutputLease,
 ) (observation ports.ProcessObservation, conversationEvidence []byte, err error) {
 	expected, ok := invocation.WorkspaceSnapshotIdentity()
 	if !ok || !expected.Valid() || workspace.WorkspaceSnapshotIdentity() != expected {
@@ -1371,7 +1380,7 @@ func (r *Registry) runInWorkspace(
 		}
 	}
 
-	observation, conversationEvidence, err = r.executeProviderProcess(ctx, definition, packet, request, invocation.Purpose())
+	observation, conversationEvidence, err = r.executeProviderProcess(ctx, definition, packet, request, invocation.Purpose(), staging)
 	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
 		return observation, nil, workspaceGuardError("post-execution revalidation", postErr)
 	}
@@ -1586,6 +1595,20 @@ func isolatedProcessEnvironment(
 		}
 		environment = append(environment, codexHome)
 	}
+	if family == grokCandidateFamily {
+		home := ""
+		for _, variable := range namespace {
+			if variable.Name() == "HOME" {
+				home = variable.Value()
+				break
+			}
+		}
+		grokHome, err := ports.NewEnvironmentVariable("GROK_HOME", filepath.Join(home, ".grok"))
+		if err != nil {
+			return nil, fmt.Errorf("provider registry: invalid Grok home")
+		}
+		environment = append(environment, grokHome)
+	}
 	return environment, nil
 }
 
@@ -1601,7 +1624,7 @@ func namespaceEnvironmentName(name string) bool {
 
 func unsafeNamespaceEnvironmentName(name string) bool {
 	return name == "HOME" || name == "TMPDIR" || name == "TMP" || name == "TEMP" ||
-		strings.HasPrefix(name, "XDG_") || name == "MULGAE_PROVIDER_SCRATCH" || name == "CODEX_HOME"
+		strings.HasPrefix(name, "XDG_") || name == "MULGAE_PROVIDER_SCRATCH" || name == "CODEX_HOME" || name == "GROK_HOME"
 }
 
 func workspaceGuardError(operation string, cause error) error {
@@ -2217,10 +2240,17 @@ func cloneDefinition(definition definition) definition {
 	return definition
 }
 func defaultRuntimeTransport(family string, baseArgvLength int) (RuntimeTransport, error) {
-	if family == FamilyZcode {
+	authority, err := adapterAuthorityForFamily(family)
+	if err != nil {
+		return RuntimeTransport{}, err
+	}
+	if authority.defaultChannel == ports.ProviderPacketChannelProtocol {
 		// ZCode speaks only the app-server protocol; the print transport is
 		// gone without a fallback.
 		return NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
+	}
+	if authority.defaultChannel == ports.ProviderPacketChannelStdin {
+		return NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
 	}
 	index, err := runtimeTransportArgvIndex(family, baseArgvLength)
 	if err != nil {

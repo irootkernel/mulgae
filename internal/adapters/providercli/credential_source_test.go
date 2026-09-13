@@ -25,6 +25,7 @@ func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 		{"kimi_config", CredentialSourceKimi, ".kimi-code/config.toml", ports.CredentialProjectionKimiConfig},
 		{"kimi_credentials", CredentialSourceKimi, ".kimi-code/credentials/kimi-code.json", ports.CredentialProjectionKimiCredentials},
 		{"zcode_config", CredentialSourceZCode, ".zcode/cli/config.json", ports.CredentialProjectionZCodeConfig},
+		{"grok_auth", CredentialSourceGrok, ".grok/auth.json", ports.CredentialProjectionGrokAuth},
 		{"codex_auth", CredentialSourceCodex, ".codex/auth.json", ports.CredentialProjectionCodexAuth},
 	}
 	for _, test := range cases {
@@ -59,6 +60,34 @@ func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 				t.Fatalf("projected %d files, want exactly one", len(concrete.seeds))
 			}
 		})
+	}
+}
+
+func TestGrokCredentialProjectionRejectsNonPrivateAuth(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin descriptor traversal is required")
+	}
+	home := credentialSourceTempDir(t)
+	writeCredentialSource(t, home, ".grok/auth.json", "credential")
+	if err := os.Chmod(filepath.Join(home, ".grok", "auth.json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	base, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := mustCredentialSourcePolicy(t, CredentialSourceGrok)
+	factory, err := NewCredentialProjectingNamespaceFactoryWithPolicies(
+		base,
+		home,
+		map[string]CredentialSourceFamily{"grok": CredentialSourceGrok},
+		map[string]RuntimeSafetyPolicy{"grok": policy},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := factory.AcquireProviderNamespace(context.Background(), "grok", string(grokCandidateFamily)); err == nil {
+		t.Fatalf("non-private Grok auth error = %v", err)
 	}
 }
 

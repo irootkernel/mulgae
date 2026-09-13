@@ -23,6 +23,7 @@ const (
 	CredentialSourceKimi  CredentialSourceFamily = "kimi"
 	CredentialSourceZCode CredentialSourceFamily = "zcode"
 	CredentialSourceAGY   CredentialSourceFamily = "agy"
+	CredentialSourceGrok  CredentialSourceFamily = "grok"
 	CredentialSourceCodex CredentialSourceFamily = "codex"
 )
 
@@ -78,6 +79,9 @@ var credentialSources = map[CredentialSourceFamily][]credentialSource{
 		{ports.CredentialProjectionZCodeConfig, []string{".zcode", "cli", "config.json"}},
 	},
 	CredentialSourceAGY: {},
+	CredentialSourceGrok: {
+		{ports.CredentialProjectionGrokAuth, []string{".grok", "auth.json"}},
+	},
 	CredentialSourceCodex: {
 		{ports.CredentialProjectionCodexAuth, []string{".codex", "auth.json"}},
 	},
@@ -346,7 +350,8 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 		}
 	}()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxProjectedCredentialBytes || family == CredentialSourceCodex && info.Mode().Perm() != 0600 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxProjectedCredentialBytes ||
+		(family == CredentialSourceCodex || family == CredentialSourceGrok) && info.Mode().Perm() != 0600 {
 		return fmt.Errorf("unsafe credential source")
 	}
 	digest, err := digestCredentialSource(file, info.Size())

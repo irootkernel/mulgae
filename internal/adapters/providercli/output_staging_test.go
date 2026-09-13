@@ -313,3 +313,42 @@ func TestStagedOutputLeaseDestinationMatchesPortsContract(t *testing.T) {
 		t.Fatal("Destination() served a released lease")
 	}
 }
+
+func TestStagedOutputLeaseAuthorizesOnlyOneEmptyDescriptorBoundDestination(t *testing.T) {
+	lease, err := createStagedOutputDirectory(t.TempDir(), "invocation-authority")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Cleanup() })
+	destination, err := lease.Destination()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.AuthorizeWriteOnce(filepath.Join(destination.Directory(), "sibling.md")); err == nil {
+		t.Fatal("write authority accepted a sibling destination")
+	}
+	if err := lease.AuthorizeWriteOnce(destination.AbsolutePath()); err != nil {
+		t.Fatalf("exact write authority rejected: %v", err)
+	}
+	if err := lease.AuthorizeWriteOnce(destination.AbsolutePath()); err == nil {
+		t.Fatal("write authority granted a second write")
+	}
+}
+
+func TestStagedOutputLeaseRejectsPreplantedSymlinkBeforeAuthorization(t *testing.T) {
+	lease, err := createStagedOutputDirectory(t.TempDir(), "invocation-symlink")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Cleanup() })
+	destination, err := lease.Destination()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), destination.AbsolutePath()); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.AuthorizeWriteOnce(destination.AbsolutePath()); err == nil {
+		t.Fatal("write authority accepted a preplanted symlink")
+	}
+}

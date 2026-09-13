@@ -23,7 +23,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-001](#epic-001-token-efficient-review-waiting) | Completed | Let attached agents await long reviews without repeated model turns while preserving exact lifecycle and publication authority. |
 | [EPIC-002](#epic-002-composite-recovery-for-incomplete-multi-role-reviews) | Completed | Recover missing required-role coverage by composing exact same-target rerun results into one authoritative immutable review. |
 | [EPIC-003](#epic-003-zcode-app-server-provider-transport) | Completed | Drive ZCode review and qualification through the ZCode app-server wire protocol instead of one-shot print invocations. |
-| [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | Planned | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
+| [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | In Progress | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
 
 ## EPIC-001: Token-efficient review waiting
 
@@ -117,7 +117,7 @@ concrete blocker instead of forcing the migration.
 
 ## EPIC-004: ZCode-first review with Grok recovery
 
-Status: Planned
+Status: In Progress
 
 Detailed SOT: [ZCode-first review with Grok recovery](../todo/TODO-zcode-grok-provider-strategy.md)
 
@@ -128,7 +128,7 @@ provider substitution.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-011 | Planned | Unify every protocol invocation purpose behind one channel-plus-driver authority, resolve `DF-001`, and turn the verified Grok CLI 1.0.30 and ACP v1 planning baseline into deterministic protocol, permission, isolation, and lifecycle contracts. | Preserve the named ZCode protocol regressions; prove exact ACP correlation and write authorization, project-policy suppression, cancellation and process-tree cleanup, and the remaining isolated live matrix; run `make test-prepare`, `make test-unit`, and `make test-int`. |
+| TASK-011 | Completed | Unify every protocol invocation purpose behind one channel-plus-driver authority, resolve `DF-001`, and turn the verified Grok CLI 1.0.30 and ACP v1 planning baseline into deterministic protocol, permission, isolation, and lifecycle contracts. | Preserved the named ZCode protocol regressions and proved exact ACP correlation and write authorization, project-policy suppression, cancellation, timeout, process-tree cleanup, and the isolated live matrix. |
 | TASK-012 | Planned | Add Grok as an explicitly selectable text-role provider beside Kimi, ZCode, AGY, and Codex, reusing Mulgae's workspace, namespace, credential, and staged-output authorities. Reject Grok artist assignments before execution. | Prove five-provider configuration and schemas, CLI/MCP and release-binary behavior, exact staged-file permission, typed ACP failures, text-role recovery, artist preflight rejection, and an authorized live Grok review; run `make test-prepare`, `make test-unit`, `make test-int`, `make test-release`, and `make test-grok`. |
 | TASK-013 | Planned | Atomically publish the final ZCode/Grok/Codex portfolio with typed transitive retirement, cleanup-only structural inspection, ZCode-first defaults, mandatory ZCode/Grok live certification, and opt-in Codex live certification. | Prove retirement and historical-read boundaries, safe cleanup, retained deterministic Codex coverage, schema and documentation conformance, generator idempotence, and the complete `make test` gate; run authorized Codex `make test-e2e-opt-in` or report its stable skip. |
 
