@@ -36,7 +36,7 @@ mulgae review --stage --preflight --output json
 Preflight performs complete immutable capture, directory-view admission, and
 capture-manifest construction, then reports
 the exact source file set transmitted to every selected role, each role's
-provider route, effective provider timeouts, AGY permission mode, and enclosing
+provider route, effective provider timeouts, and enclosing
 role-path/run budgets. `qualification` is `not_run`: preflight does not discover,
 qualify, repair, or invoke a provider, and it creates no session, run,
 diagnostics, publication, or durable review artifact. The workspace manifest is
@@ -52,8 +52,7 @@ Both include a safe stage and next-action hint without creating diagnostics or
 printing captured paths. Human failures from every command include a stable
 code, public stage, and minimum remediation hint.
 
-An explicit AGY `safe` mode produces a warning because headless tool requests
-may be denied. A no-change target reports `status: no_change` with no
+A no-change target reports `status: no_change` with no
 transmissions or execution budget. `--preflight` cannot be combined with
 `--session`.
 

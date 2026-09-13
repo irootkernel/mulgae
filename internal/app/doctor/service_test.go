@@ -61,7 +61,7 @@ func TestDiagnoseEnvironmentBinaryPresenceDoesNotPromoteProvider(t *testing.T) {
 func TestDiagnoseEnvironmentStaticEvidenceDoesNotObserveProviderExecutables(t *testing.T) {
 	service, inspector, _ := readyFixture(t, readyEvidence())
 	inspector.executables = make(map[string]ports.ExecutableObservation)
-	inspector.execErr["kimi"] = errors.New("must not be observed")
+	inspector.execErr["zcode"] = errors.New("must not be observed")
 	result := diagnose(t, service)
 	if result.Readiness.State != ReadinessReady {
 		t.Fatalf("static evidence readiness = %#v", result.Readiness)
@@ -95,22 +95,22 @@ func TestDiagnoseEnvironmentErrorsAndNotRunEvidenceRemainUnverified(t *testing.T
 		{
 			name: "provider error",
 			mutate: func(evidence *fakeEvidence) {
-				evidence.providerErr["kimi"] = errors.New("evidence unavailable")
+				evidence.providerErr["zcode"] = errors.New("evidence unavailable")
 			},
 			row: func(t *testing.T, result DoctorResult) EvidenceState {
-				return providerRow(t, result, "kimi").EvidenceState
+				return providerRow(t, result, "zcode").EvidenceState
 			},
 			reason: "provider_evidence_unavailable",
 		},
 		{
 			name: "provider not run",
 			mutate: func(evidence *fakeEvidence) {
-				record := evidence.providers["kimi"]
+				record := evidence.providers["zcode"]
 				record.Probes[0].Status = EvidenceStatusNotRun
-				evidence.providers["kimi"] = record
+				evidence.providers["zcode"] = record
 			},
 			row: func(t *testing.T, result DoctorResult) EvidenceState {
-				return providerRow(t, result, "kimi").EvidenceState
+				return providerRow(t, result, "zcode").EvidenceState
 			},
 			reason: "provider_evidence_not_run",
 		},
@@ -159,12 +159,12 @@ func TestDiagnoseEnvironmentUnsupportedEvidenceSchemasAreUnverified(t *testing.T
 		{
 			name: "provider",
 			mutate: func(evidence *fakeEvidence) {
-				record := evidence.providers["kimi"]
+				record := evidence.providers["zcode"]
 				record.SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
-				evidence.providers["kimi"] = record
+				evidence.providers["zcode"] = record
 			},
 			row: func(t *testing.T, result DoctorResult) EvidenceState {
-				return providerRow(t, result, "kimi").EvidenceState
+				return providerRow(t, result, "zcode").EvidenceState
 			},
 			reason: "provider_evidence_unsupported_schema",
 		},
@@ -221,12 +221,12 @@ func TestDiagnoseEnvironmentFailedAndInconclusiveEvidenceRemainUnverified(t *tes
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			evidence := readyEvidence()
-			record := evidence.providers["kimi"]
+			record := evidence.providers["zcode"]
 			record.Probes[0].Status = test.state
-			evidence.providers["kimi"] = record
+			evidence.providers["zcode"] = record
 			service, _, _ := readyFixture(t, evidence)
 			result := diagnose(t, service)
-			row := providerRow(t, result, "kimi")
+			row := providerRow(t, result, "zcode")
 			if result.Readiness.State != ReadinessUnverified || row.EvidenceState != test.want || row.AssignmentState != AssignmentIneligible {
 				t.Fatalf("%s record = readiness %#v provider %#v", test.name, result.Readiness, row)
 			}

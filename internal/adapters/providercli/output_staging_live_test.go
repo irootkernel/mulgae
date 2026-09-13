@@ -2,10 +2,7 @@
 
 // This file is a bounded, test-only capability spike for Goal 4
 // (provider-written output files). Nothing here is production code and nothing
-// here participates in the mandatory family capability gate: the Makefile runs
-// '^TestLive(ZCode|Agy)Capability$' anchored, and every function in this file is
-// named TestLive(ZCode|Agy)StagedOutput..., which that anchored regexp cannot
-// match.
+// here participates in the mandatory family capability gate.
 
 package providercli_test
 
@@ -37,14 +34,6 @@ const (
 	// probe drives the provider's print surface directly; production speaks
 	// the app-server protocol with the same tool policy.
 	stagedOutputZcodeReviewDenylist = "Bash,Edit,NotebookEdit,WebSearch,WebFetch,EnterPlanMode,ExitPlanMode"
-)
-
-// stagedOutputAgyWriteMode records which AGY permission mode actually produced
-// a staged file so the sandbox-denial probe attributes any denial to the
-// sandbox rather than to the mode.
-var (
-	stagedOutputAgyWriteMode      string
-	stagedOutputAgyWriteModeKnown bool
 )
 
 // stagedOutputNonce returns a fresh per-run token so a verified file cannot be
@@ -295,8 +284,6 @@ func stagedOutputPreview(payload []byte) string {
 	return strings.ReplaceAll(strings.ReplaceAll(trimmed, "\n", "\\n"), "\r", "")
 }
 
-// stagedOutputDenialMarkers reports which AGY permission-denied tokens
-// (registry.go agyPermissionDenied) appear in captured output.
 func stagedOutputDenialMarkers(payload []byte) []string {
 	lowered := strings.ToLower(string(payload))
 	var seen []string
@@ -425,19 +412,6 @@ func stagedOutputZcodeBinaries(t *testing.T) (string, string) {
 		t.Skipf("SKIP: ZCode launcher is unavailable: %v", err)
 	}
 	return node, launcher
-}
-
-func stagedOutputAgyBinary(t *testing.T) string {
-	t.Helper()
-	binary := strings.TrimSpace(os.Getenv("MULGAE_LIVE_AGY_BIN"))
-	if binary == "" {
-		t.Skip("SKIP: MULGAE_LIVE_AGY_BIN is unset")
-	}
-	info, err := os.Stat(binary)
-	if err != nil || info.Mode()&0o111 == 0 {
-		t.Skipf("SKIP: AGY executable is unavailable: %v", err)
-	}
-	return binary
 }
 
 // stagedOutputDualWritePrompt asks for one staged report plus one write to a
@@ -619,198 +593,4 @@ func TestLiveZCodeStagedOutputScoping(t *testing.T) {
 	default:
 		t.Logf("[zcode-scoping] VERDICT path_scoping=INVERTED (staged blocked, forbidden written)")
 	}
-}
-
-// stagedOutputAgyArgv mirrors the production AGY review argv (buildArgv) without
-// --mode plan and with a second --add-dir for the staging directory.
-func stagedOutputAgyArgv(binary, snapshot, staging, mode, prompt string) []string {
-	argv := []string{binary, "--new-project", "--sandbox", "--add-dir", snapshot, "--add-dir", staging}
-	if mode != "" {
-		argv = append(argv, "--mode", mode)
-	}
-	return append(argv, "--effort", "low", "--print-timeout", stagedOutputPrintTimeout.String(), "--output-format=json", "--print", prompt)
-}
-
-// stagedOutputAgyProjectedHome builds a disposable HOME holding only a read-only
-// copy of the AGY authentication material plus a settings.json carrying the
-// permission allow-rules under test. The user's real ~/.gemini tree is only ever
-// read; nothing there is created, modified or removed.
-func stagedOutputAgyProjectedHome(t *testing.T, allow []string, trusted []string) string {
-	t.Helper()
-	realHome, err := os.UserHomeDir()
-	if err != nil {
-		t.Skipf("SKIP: resolve real home for AGY credential projection: %v", err)
-	}
-	home := stagedOutputTempDir(t, "agy-home")
-	for _, relative := range []string{
-		filepath.Join(".gemini"),
-		filepath.Join(".gemini", "config"),
-		filepath.Join(".gemini", "antigravity-cli"),
-	} {
-		if err := os.MkdirAll(filepath.Join(home, relative), 0o700); err != nil {
-			t.Fatalf("create projected AGY directory: %v", err)
-		}
-	}
-	for _, relative := range []string{
-		filepath.Join(".gemini", "oauth_creds.json"),
-		filepath.Join(".gemini", "google_accounts.json"),
-		filepath.Join(".gemini", "installation_id"),
-		filepath.Join(".gemini", "state.json"),
-		filepath.Join(".gemini", "settings.json"),
-		filepath.Join(".gemini", "trustedFolders.json"),
-		filepath.Join(".gemini", "extension_integrity.json"),
-		filepath.Join(".gemini", "config", "config.json"),
-		filepath.Join(".gemini", "antigravity-cli", "installation_id"),
-	} {
-		payload, readErr := os.ReadFile(filepath.Join(realHome, relative))
-		if readErr != nil {
-			t.Logf("[agy-projection] optional credential component absent: %s", relative)
-			continue
-		}
-		if err := os.WriteFile(filepath.Join(home, relative), payload, 0o600); err != nil {
-			t.Fatalf("project AGY credential component: %v", err)
-		}
-	}
-
-	settings := map[string]any{}
-	if payload, readErr := os.ReadFile(filepath.Join(realHome, ".gemini", "antigravity-cli", "settings.json")); readErr == nil {
-		if err := json.Unmarshal(payload, &settings); err != nil {
-			settings = map[string]any{}
-		}
-	}
-	delete(settings, "statusLine")
-	settings["permissions"] = map[string]any{"allow": allow}
-	settings["trustedWorkspaces"] = trusted
-	encoded, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		t.Fatalf("encode projected AGY settings: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".gemini", "antigravity-cli", "settings.json"), encoded, 0o600); err != nil {
-		t.Fatalf("write projected AGY settings: %v", err)
-	}
-	return home
-}
-
-// stagedOutputAgyAllowRules returns the candidate permission allow-rule spellings
-// for writes under root. Invalid entries are ignored by AGY, so several forms are
-// offered at once; none of them can match a directory outside root.
-func stagedOutputAgyAllowRules(root string) []string {
-	return []string{
-		"write_file(" + root + ")",
-		"write_file(" + root + "/)",
-		"write_file(" + root + "/*)",
-		"write_file(" + root + "/**)",
-	}
-}
-
-type stagedOutputAgyProbe struct {
-	label      string
-	home       string
-	mode       string
-	targetRoot string
-	target     string
-}
-
-func stagedOutputAgyProbeRun(t *testing.T, binary, snapshot, staging string, probe stagedOutputAgyProbe) bool {
-	t.Helper()
-	nonce := stagedOutputNonce(t)
-	before := stagedOutputFingerprint(t, snapshot)
-	argv := stagedOutputAgyArgv(binary, snapshot, staging, probe.mode, stagedOutputSingleWritePrompt(probe.target, nonce))
-	stagedOutputLogArgv(t, probe.label, argv)
-
-	result := stagedOutputRun(t, binary, argv, snapshot, stagedOutputBaseEnvironment(t, probe.home))
-	after := stagedOutputFingerprint(t, snapshot)
-	drifted, detail := stagedOutputDrift(before, after)
-	observation := stagedOutputInspect(t, probe.target, "REPORT-TOKEN-"+nonce)
-	combined := append(append([]byte(nil), result.stdout...), result.stderr...)
-
-	t.Logf("[%s] exit=%d timed_out=%t elapsed=%s", probe.label, result.exitCode, result.timedOut, result.elapsed.Round(time.Second))
-	t.Logf("[%s] target %s", probe.label, observation)
-	t.Logf("[%s] snapshot_drift=%t %s", probe.label, drifted, detail)
-	t.Logf("[%s] denial_markers=%v", probe.label, stagedOutputDenialMarkers(combined))
-	t.Logf("[%s] diagnostic_hint=%q", probe.label, stagedOutputRedact(stagedOutputDiagnosticHint(combined)))
-	t.Logf("[%s] stdout_preview=%q", probe.label, stagedOutputPreview(result.stdout))
-	t.Logf("[%s] stderr_preview=%q", probe.label, stagedOutputPreview(result.stderr))
-	return observation.created && observation.matched
-}
-
-// TestLiveAgyStagedOutputCapability answers: with --new-project --sandbox, a safe
-// permission mode and a second --add-dir, can AGY write a Markdown report into
-// the staging directory? Probe A reproduces production exactly (real installed
-// HOME, untouched settings). Probe B follows AGY's own headless remediation
-// advice inside a disposable projected HOME.
-func TestLiveAgyStagedOutputCapability(t *testing.T) {
-	binary := stagedOutputAgyBinary(t)
-	realHome, err := os.UserHomeDir()
-	if err != nil {
-		t.Skipf("SKIP: resolve real home for AGY authentication: %v", err)
-	}
-	snapshot := stagedOutputSnapshot(t, "agy-capability", nil)
-
-	staging := stagedOutputTempDir(t, "agy-staging-native")
-	if stagedOutputAgyProbeRun(t, binary, snapshot, staging, stagedOutputAgyProbe{
-		label:  "agy-capability-native-home",
-		home:   realHome,
-		target: filepath.Join(staging, stagedOutputReportName),
-	}) {
-		stagedOutputAgyWriteMode = "native-home"
-		stagedOutputAgyWriteModeKnown = true
-		t.Logf("[agy-capability-native-home] VERDICT staged_write=true")
-		return
-	}
-	t.Logf("[agy-capability-native-home] VERDICT staged_write=false")
-
-	scopedStaging := stagedOutputTempDir(t, "agy-staging-scoped")
-	allow := stagedOutputAgyAllowRules(scopedStaging)
-	t.Logf("[agy-capability-projected-home] settings=<HOME>/.gemini/antigravity-cli/settings.json permissions.allow=%v", stagedOutputRedact(fmt.Sprintf("%v", allow)))
-	projected := stagedOutputAgyProjectedHome(t, allow, []string{snapshot, scopedStaging})
-	if stagedOutputAgyProbeRun(t, binary, snapshot, scopedStaging, stagedOutputAgyProbe{
-		label:  "agy-capability-projected-home",
-		home:   projected,
-		target: filepath.Join(scopedStaging, stagedOutputReportName),
-	}) {
-		stagedOutputAgyWriteMode = "projected-home-allow-rule"
-		stagedOutputAgyWriteModeKnown = true
-		t.Logf("[agy-capability-projected-home] VERDICT staged_write=true")
-		return
-	}
-	t.Logf("[agy-capability-projected-home] VERDICT staged_write=false")
-}
-
-// TestLiveAgyStagedOutputSandboxDenial answers: does AGY block a write to a path
-// outside every --add-dir? The allow-rule covers only the staging directory, so
-// any denial for the outside path is attributable to confinement rather than to
-// the headless permission broker alone.
-func TestLiveAgyStagedOutputSandboxDenial(t *testing.T) {
-	binary := stagedOutputAgyBinary(t)
-	snapshot := stagedOutputSnapshot(t, "agy-denial", nil)
-	staging := stagedOutputTempDir(t, "agy-denial-staging")
-	outside := stagedOutputTempDir(t, "agy-outside")
-	allow := stagedOutputAgyAllowRules(staging)
-	projected := stagedOutputAgyProjectedHome(t, allow, []string{snapshot, staging})
-	t.Logf("[agy-denial] settings=<HOME>/.gemini/antigravity-cli/settings.json permissions.allow=%v (staging only)", stagedOutputRedact(fmt.Sprintf("%v", allow)))
-
-	written := stagedOutputAgyProbeRun(t, binary, snapshot, staging, stagedOutputAgyProbe{
-		label:  "agy-denial-projected-home",
-		home:   projected,
-		target: filepath.Join(outside, stagedOutputEscapeName),
-	})
-	t.Logf("[agy-denial-projected-home] VERDICT outside_write_blocked=%t", !written)
-
-	if stagedOutputAgyWriteModeKnown && stagedOutputAgyWriteMode == "projected-home-allow-rule" {
-		return
-	}
-	// The projected home could not carry AGY's authentication, so record the
-	// production-identical native-home behaviour for an outside-path write.
-	realHome, err := os.UserHomeDir()
-	if err != nil {
-		t.Skipf("SKIP: resolve real home for AGY authentication: %v", err)
-	}
-	nativeOutside := stagedOutputTempDir(t, "agy-outside-native")
-	nativeWritten := stagedOutputAgyProbeRun(t, binary, snapshot, staging, stagedOutputAgyProbe{
-		label:  "agy-denial-native-home",
-		home:   realHome,
-		target: filepath.Join(nativeOutside, stagedOutputEscapeName),
-	})
-	t.Logf("[agy-denial-native-home] VERDICT outside_write_blocked=%t", !nativeWritten)
 }

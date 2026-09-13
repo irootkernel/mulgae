@@ -24,8 +24,6 @@ type optInLiveEnvironment struct {
 	codexExecutable    string
 	codexPrimaryHome   string
 	codexSecondaryHome string
-	kimiExecutable     string
-	kimiDataHome       string
 }
 
 type optInProtectedFile struct {
@@ -35,8 +33,8 @@ type optInProtectedFile struct {
 	digest [sha256.Size]byte
 }
 
-func TestE2EOptInMixedCredentialProfiles(t *testing.T) {
-	scenario := beginLiveE2ELogScope(t, "scenario", "name=opt-in-mixed-credential-profiles")
+func TestE2EOptInCodexCredentialProfiles(t *testing.T) {
+	scenario := beginLiveE2ELogScope(t, "scenario", "name=opt-in-codex-credential-profiles")
 	defer scenario.end()
 	environment := requireOptInLiveEnvironment(t)
 	protected := captureOptInProtectedFiles(t, environment)
@@ -46,8 +44,7 @@ func TestE2EOptInMixedCredentialProfiles(t *testing.T) {
 	project := initializeLiveE2ERepository(t)
 	runtimeEnvironment := liveE2EEnvironment{binary: environment.binary}
 	initialized := runLiveMulgae(t, validator, runtimeEnvironment, project, 0,
-		"init", "--providers", "kimi,codex", "--roles", "logic,security,documentation",
-		"--kimi-executable", environment.kimiExecutable, "--kimi-data-home", environment.kimiDataHome,
+		"init", "--providers", "codex", "--roles", "logic,security,documentation",
 		"--codex-executable", environment.codexExecutable, "--output", "json",
 	)
 	if initialized.Result.Kind != "initialized" {
@@ -61,17 +58,17 @@ func TestE2EOptInMixedCredentialProfiles(t *testing.T) {
 	assertOptInPrivatePathsRedacted(t, provenance.Result.Policy, environment)
 
 	expected := map[string]string{
-		"logic":         "kimi-logic",
+		"logic":         "codex-primary-logic",
 		"security":      "codex-primary-security",
 		"documentation": "codex-secondary-documentation",
 	}
-	run := runLiveRecoverableWorkflowWithGate(t, validator, runtimeEnvironment, project, "opt-in-mixed-credential-profiles", expected, validateOptInLiveGate,
+	run := runLiveRecoverableWorkflowWithGate(t, validator, runtimeEnvironment, project, "opt-in-codex-credential-profiles", expected, validateOptInLiveGate,
 		"review", "--dirty",
 		"--objective", "This is a provider-route compatibility check. Do not report findings or evidence claims. Return exactly this single Markdown sentence and nothing else: Route compatibility completed with no findings.",
 		"--roles", "logic,security,documentation", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
-	assertLiveRoleReportTransports(t, run, "opt-in mixed-profile review", false)
+	assertLiveRoleReportTransports(t, run, "opt-in Codex profile review", false)
 	assertNoProjectProviderLocks(t, project)
 	scenario.status = "passed"
 }
@@ -93,8 +90,6 @@ func requireOptInLiveEnvironment(t *testing.T) optInLiveEnvironment {
 		codexExecutable:    requireLiveExecutable(t, "MULGAE_E2E_CODEX_EXECUTABLE", ""),
 		codexPrimaryHome:   requireCanonicalOptInDirectory(t, "MULGAE_E2E_CODEX_PRIMARY_HOME"),
 		codexSecondaryHome: requireCanonicalOptInDirectory(t, "MULGAE_E2E_CODEX_SECONDARY_HOME"),
-		kimiExecutable:     requireLiveExecutable(t, "MULGAE_E2E_KIMI_EXECUTABLE", ""),
-		kimiDataHome:       requireCanonicalOptInDirectory(t, "MULGAE_E2E_KIMI_DATA_HOME"),
 	}
 	primaryInfo, err := os.Stat(environment.codexPrimaryHome)
 	if err != nil {
@@ -126,7 +121,7 @@ func requireCanonicalOptInDirectory(t *testing.T, name string) string {
 func configureOptInCredentialProfiles(t *testing.T, project string, environment optInLiveEnvironment) {
 	t.Helper()
 	config := readE2EConfig(t, project)
-	if config.Providers.Kimi == nil || config.Providers.Codex == nil {
+	if config.Providers.Codex == nil {
 		t.Fatalf("opt-in init omitted required providers: %#v", config.Providers)
 	}
 	config.Providers.Codex.DefaultCredentialProfile = optInCodexPrimaryProfile
@@ -134,8 +129,8 @@ func configureOptInCredentialProfiles(t *testing.T, project string, environment 
 		{Profile: optInCodexPrimaryProfile, Home: environment.codexPrimaryHome},
 		{Profile: optInCodexSecondaryProfile, Home: environment.codexSecondaryHome},
 	}
-	config.Roles.Logic.PrimaryProvider = "kimi"
-	config.Roles.Logic.CredentialProfile = ""
+	config.Roles.Logic.PrimaryProvider = "codex"
+	config.Roles.Logic.CredentialProfile = optInCodexPrimaryProfile
 	config.Roles.Security.PrimaryProvider = "codex"
 	config.Roles.Security.CredentialProfile = optInCodexPrimaryProfile
 	config.Roles.Documentation.PrimaryProvider = "codex"
@@ -187,11 +182,11 @@ func assertOptInConfigMatrix(t *testing.T, raw []byte, environment optInLiveEnvi
 	if err := json.Unmarshal(raw, &redacted); err != nil {
 		t.Fatalf("decode opt-in redacted config: %v", err)
 	}
-	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"kimi", "codex"}) {
+	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"codex"}) {
 		t.Fatalf("opt-in configured providers = %v", redacted.ConfiguredProviderIDs)
 	}
 	want := map[string][2]string{
-		"logic":         {"kimi", ""},
+		"logic":         {"codex", optInCodexPrimaryProfile},
 		"security":      {"codex", optInCodexPrimaryProfile},
 		"documentation": {"codex", optInCodexSecondaryProfile},
 	}
@@ -212,7 +207,7 @@ func assertOptInConfigMatrix(t *testing.T, raw []byte, environment optInLiveEnvi
 
 func assertOptInPrivatePathsRedacted(t *testing.T, raw []byte, environment optInLiveEnvironment) {
 	t.Helper()
-	for _, path := range []string{environment.codexPrimaryHome, environment.codexSecondaryHome, environment.kimiDataHome} {
+	for _, path := range []string{environment.codexPrimaryHome, environment.codexSecondaryHome} {
 		if bytes.Contains(raw, []byte(path)) {
 			t.Fatal("opt-in config output exposed a private provider home")
 		}
@@ -227,8 +222,6 @@ func captureOptInProtectedFiles(t *testing.T, environment optInLiveEnvironment) 
 	}{
 		{label: "Codex primary auth", path: filepath.Join(environment.codexPrimaryHome, "auth.json")},
 		{label: "Codex secondary auth", path: filepath.Join(environment.codexSecondaryHome, "auth.json")},
-		{label: "Kimi config", path: filepath.Join(environment.kimiDataHome, "config.toml")},
-		{label: "Kimi credentials", path: filepath.Join(environment.kimiDataHome, "credentials", "kimi-code.json")},
 	}
 	protected := make([]optInProtectedFile, 0, len(specs))
 	for _, spec := range specs {

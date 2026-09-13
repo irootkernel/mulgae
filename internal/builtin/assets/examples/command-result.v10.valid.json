@@ -1,0 +1,50 @@
+{
+  "schema_version": "mulgae-command-result.v10",
+  "command": "compose",
+  "request": {
+    "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e",
+    "command": "compose",
+    "root_run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+    "recovery_run_ids": [
+      "r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e"
+    ],
+    "output_format": "json"
+  },
+  "completed_at": "2026-09-04T06:00:00Z",
+  "exit": {
+    "code": 0,
+    "kind": "success"
+  },
+  "reasons": [],
+  "result": {
+    "kind": "composite_published",
+    "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+    "run_id": "r_019f596a-f101-7aae-8eb5-a94ba65b3e58",
+    "review_id": "019f596a-f102-7aae-8eb5-a94ba65b3e58",
+    "root_run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+    "recovery_run_ids": [
+      "r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e"
+    ],
+    "run_type": "composite",
+    "run_manifest_uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-f101-7aae-8eb5-a94ba65b3e58/manifest.json",
+    "review_artifact_uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-f101-7aae-8eb5-a94ba65b3e58/review_019f596a-f102-7aae-8eb5-a94ba65b3e58.json",
+    "role_report_uris": [
+      {
+        "role": "logic",
+        "uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-f101-7aae-8eb5-a94ba65b3e58/role-reports/logic.md"
+      }
+    ],
+    "publication_status": "committed",
+    "target_sha256": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "recovered_roles": [
+      "logic"
+    ],
+    "coverage_status": "complete",
+    "content_verdict": "no_findings",
+    "structured_extraction_status": "structured",
+    "ci_decision": "pass",
+    "reconciliation_state": "created",
+    "recovery_action": "reconstruct_completed_status",
+    "retry_safe": true
+  }
+}

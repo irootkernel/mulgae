@@ -49,7 +49,7 @@ func (testInspector) ObservePlatform(context.Context) (ports.PlatformObservation
 	return ports.NewPlatformObservation("darwin", "arm64")
 }
 func (inspector testInspector) ObserveExecutable(_ context.Context, name string) (ports.ExecutableObservation, error) {
-	if inspector.absent || name == "kimi" || name == "node" || name == "agy" || !filepath.IsAbs(name) {
+	if inspector.absent || name == "kimi" || name == "node" || name == "grok" || !filepath.IsAbs(name) {
 		return ports.NewExecutableObservation(name, false, "", "", "")
 	}
 	return ports.NewExecutableObservation(name, true, name, "", "")
@@ -398,7 +398,7 @@ func TestInitializeProjectReportsAndRecoversSharedOnlyPartialInstall(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, initErr := service.InitializeProject(context.Background(), agyInitRequest(root))
+	result, initErr := service.InitializeProject(context.Background(), grokInitRequest(root))
 	var failure *Failure
 	if initErr == nil || !errors.As(initErr, &failure) || failure.Code() != "init_local_write_failed" || failure.Class() != domain.FailureArtifact || !failure.Retryable() {
 		t.Fatalf("failure = %#v, %v", failure, initErr)
@@ -415,7 +415,7 @@ func TestInitializeProjectReportsAndRecoversSharedOnlyPartialInstall(t *testing.
 
 	installer.localInstallError = nil
 	installer.existing = true
-	recovered, recoverErr := service.InitializeProject(context.Background(), agyInitRequest(root))
+	recovered, recoverErr := service.InitializeProject(context.Background(), grokInitRequest(root))
 	if recoverErr != nil || !recovered.Committed || recovered.WriteState != "committed" {
 		t.Fatalf("shared-only recovery = %#v, %v", recovered, recoverErr)
 	}
@@ -442,8 +442,8 @@ func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing
 		ProjectRoot: root,
 		ProjectName: "project",
 		NativeHome:  "/Users/test",
-		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
-		Overrides:   Overrides{AGYExecutable: "/bin/agy"},
+		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}},
+		Overrides:   Overrides{GrokExecutable: "/bin/grok"},
 	})
 	if initErr == nil {
 		t.Fatal("prevalidation failure was accepted")
@@ -463,7 +463,7 @@ func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing
 	}
 }
 
-func TestInitializeProjectSupportsAllThirtyOneSelectedSubsets(t *testing.T) {
+func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -472,30 +472,22 @@ func TestInitializeProjectSupportsAllThirtyOneSelectedSubsets(t *testing.T) {
 	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for mask := 1; mask < 32; mask++ {
+	for mask := 1; mask < 8; mask++ {
 		rootPath := t.TempDir()
 		_ = os.Chmod(rootPath, 0o700)
 		root, _ := ports.NewAnchoredRoot(rootPath)
 		ids := []string{}
 		overrides := Overrides{}
 		if mask&1 != 0 {
-			ids = append(ids, "kimi")
-			overrides.KimiExecutable = "/bin/kimi"
-		}
-		if mask&2 != 0 {
 			ids = append(ids, "zcode")
 			overrides.ZCodeNodeExecutable = "/bin/node"
 			overrides.ZCodeLauncher = launcher
 		}
-		if mask&4 != 0 {
-			ids = append(ids, "agy")
-			overrides.AGYExecutable = "/bin/agy"
-		}
-		if mask&8 != 0 {
+		if mask&2 != 0 {
 			ids = append(ids, "grok")
 			overrides.GrokExecutable = "/bin/grok"
 		}
-		if mask&16 != 0 {
+		if mask&4 != 0 {
 			ids = append(ids, "codex")
 			overrides.CodexExecutable = "/bin/codex"
 		}
@@ -521,12 +513,8 @@ func TestInitializeProjectSupportsAllThirtyOneSelectedSubsets(t *testing.T) {
 		for _, family := range ids {
 			var timeout string
 			switch family {
-			case "kimi":
-				timeout = decoded.Providers.Kimi.Timeout
 			case "zcode":
 				timeout = decoded.Providers.ZCode.Timeout
-			case "agy":
-				timeout = decoded.Providers.AGY.Timeout
 			case "grok":
 				timeout = decoded.Providers.Grok.Timeout
 			case "codex":
@@ -564,8 +552,8 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 			}
 			result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
 				ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", RoleIDs: selected,
-				Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
-				Overrides: Overrides{AGYExecutable: "/bin/agy"},
+				Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}},
+				Overrides: Overrides{GrokExecutable: "/bin/grok"},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -595,7 +583,7 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 
 func TestCandidateUIConfigUsesArtistBriefDefaultAndExplicitPath(t *testing.T) {
 	selectedRoles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
-	providers := candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}}
+	providers := candidates{zcode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}}
 	defaults := testRoleDefaults()
 	artistDefault, ok := defaults.Role(domain.RoleArtist)
 	if !ok {
@@ -621,7 +609,7 @@ func TestCandidateUIConfigUsesArtistBriefDefaultAndExplicitPath(t *testing.T) {
 }
 
 func TestCandidateUIConfigDoesNotConfigureUnselectedArtist(t *testing.T) {
-	providers := candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}}
+	providers := candidates{zcode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}}
 	configured, err := candidateConfig(InitializeProjectRequest{
 		ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI,
 		RoleIDs: []string{"logic"},
@@ -634,36 +622,6 @@ func TestCandidateUIConfigDoesNotConfigureUnselectedArtist(t *testing.T) {
 	}
 	if _, err := RenderConfigYAML(adapterconfig.YAMLCodec{}, configured); err != nil {
 		t.Fatalf("render UI config without artist: %v", err)
-	}
-}
-
-func TestInitializeProjectNeverObservesUnselectedFamiliesOrExecutesProviders(t *testing.T) {
-	rootPath := t.TempDir()
-	_ = os.Chmod(rootPath, 0o700)
-	root, _ := ports.NewAnchoredRoot(rootPath)
-	inspector := &scopedDiscoveryInspector{
-		observations: map[string]ports.ExecutableObservation{
-			"/bin/agy": availableDiscoveryObservation(t, "/bin/agy", "/bin/agy"),
-		},
-		errors: map[string]error{"kimi": errors.New("poisoned unselected Kimi"), "node": errors.New("poisoned unselected ZCode")},
-	}
-	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
-		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
-		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
-		Overrides: Overrides{AGYExecutable: "/bin/agy"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(inspector.calls, []string{"/bin/agy"}) || len(inspector.legacyCalls) != 0 {
-		t.Fatalf("observations=%v legacy=%v", inspector.calls, inspector.legacyCalls)
-	}
-	if len(result.Discovery) != 5 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "candidate" || result.Discovery[3].Status != "not_selected" || result.Discovery[4].Status != "not_selected" {
-		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
 
@@ -724,7 +682,7 @@ func TestInitializeProjectZCodePartialOverridesObserveOnlyMissingComponent(t *te
 			if err != nil {
 				t.Fatal(err)
 			}
-			row := result.Discovery[1]
+			row := result.Discovery[0]
 			if !result.Committed || !reflect.DeepEqual(inspector.calls, []string{test.wantExecutableCall}) || !reflect.DeepEqual(inspector.readableCalls, []string{test.wantReadableCall}) || row.NodeExecutableSource != test.wantNodeSource || row.LauncherSource != test.wantLauncherSource {
 				t.Fatalf("result=%#v calls=%v readable=%v", result, inspector.calls, inspector.readableCalls)
 			}
@@ -732,104 +690,22 @@ func TestInitializeProjectZCodePartialOverridesObserveOnlyMissingComponent(t *te
 	}
 }
 
-func TestInitializeProjectDiscoveryFailureStillReturnsFiveRows(t *testing.T) {
+func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
-	inspector := &scopedDiscoveryInspector{errors: map[string]error{"agy": errors.New("injected AGY discovery failure")}}
+	inspector := &scopedDiscoveryInspector{errors: map[string]error{"grok": errors.New("injected Grok discovery failure")}}
 	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
 		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
-		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}},
+		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}},
 	})
 	if err == nil {
 		t.Fatal("selected provider discovery failure accepted")
 	}
-	if len(result.Discovery) != 5 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "unavailable" || result.Discovery[3].Status != "not_selected" || result.Discovery[4].Status != "not_selected" {
+	if len(result.Discovery) != 3 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "unavailable" || result.Discovery[2].Status != "not_selected" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
-}
-
-func TestInitializeProjectAutoRequiresZCodeWithoutObservingOtherProviders(t *testing.T) {
-	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	launcher := filepath.Join(launcherRoot, "zcode.cjs")
-	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	newInspector := func(withZCode bool) *scopedDiscoveryInspector {
-		observations := map[string]ports.ExecutableObservation{}
-		if withZCode {
-			observations["/bin/node"] = availableDiscoveryObservation(t, "/bin/node", "/bin/node")
-		}
-		return &scopedDiscoveryInspector{
-			observations: observations,
-			fileObservations: map[string]ports.FileIdentityObservation{
-				launcher: availableFileObservation(t, launcher, launcher),
-			},
-			errors: map[string]error{
-				"kimi":  errors.New("auto must not inspect Kimi"),
-				"agy":   errors.New("auto must not inspect AGY"),
-				"grok":  errors.New("auto must not inspect Grok"),
-				"codex": errors.New("auto must not inspect Codex"),
-			},
-		}
-	}
-	request := func(root ports.AnchoredRoot) InitializeProjectRequest {
-		return InitializeProjectRequest{
-			ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto},
-			Overrides: Overrides{ZCodeNodeExecutable: "/bin/node", ZCodeLauncher: launcher},
-		}
-	}
-
-	t.Run("zcode forms the default topology", func(t *testing.T) {
-		rootPath := t.TempDir()
-		_ = os.Chmod(rootPath, 0o700)
-		root, _ := ports.NewAnchoredRoot(rootPath)
-		inspector := newInspector(true)
-		service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-		result, initErr := service.InitializeProject(context.Background(), request(root))
-		if initErr != nil {
-			t.Fatal(initErr)
-		}
-		if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"zcode"}) || len(result.Discovery) != 5 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "candidate" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" || result.Discovery[4].Status != "not_selected" {
-			t.Fatalf("result=%#v", result)
-		}
-		if contains(inspector.calls, "kimi") || contains(inspector.calls, "agy") || contains(inspector.calls, "grok") || contains(inspector.calls, "codex") || len(inspector.legacyCalls) != 0 {
-			t.Fatalf("auto discovery observed a non-ZCode provider or launched a provider: calls=%v legacy=%v", inspector.calls, inspector.legacyCalls)
-		}
-		config, decodeErr := readInstalledConfig(rootPath)
-		if decodeErr != nil {
-			t.Fatal(decodeErr)
-		}
-		if config.Roles.Logic.PrimaryProvider != "zcode" {
-			t.Fatalf("logic assignment = %#v", config.Roles.Logic)
-		}
-		if config.Providers.ZCode.Timeout != "60m" || config.Providers.AGY != nil {
-			t.Fatalf("auto providers = zcode:%q agy:%#v", config.Providers.ZCode.Timeout, config.Providers.AGY)
-		}
-	})
-
-	t.Run("missing zcode fails closed", func(t *testing.T) {
-		rootPath := t.TempDir()
-		_ = os.Chmod(rootPath, 0o700)
-		root, _ := ports.NewAnchoredRoot(rootPath)
-		inspector := newInspector(false)
-		service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-		result, initErr := service.InitializeProject(context.Background(), request(root))
-		var failure *Failure
-		if !errors.As(initErr, &failure) || failure.Code() != "init_auto_provider_topology_unavailable" {
-			t.Fatalf("failure = %T %v", initErr, initErr)
-		}
-		if result.Committed || len(result.CandidateProviderIDs) != 0 {
-			t.Fatalf("result=%#v", result)
-		}
-		if contains(inspector.calls, "kimi") || contains(inspector.calls, "agy") || contains(inspector.calls, "codex") {
-			t.Fatalf("auto discovery observed a non-ZCode provider: %v", inspector.calls)
-		}
-	})
 }
 
 func readInstalledConfig(root string) (adapterconfig.Config, error) {
@@ -848,8 +724,8 @@ func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T)
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o755)
-	baseRequest := InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}}, Overrides: Overrides{AGYExecutable: "/bin/agy"}}
-	config, err := candidateConfig(baseRequest, testRoleDefaults(), candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe", Timeout: "60m"}})
+	baseRequest := InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}}, Overrides: Overrides{GrokExecutable: "/bin/grok"}}
+	config, err := candidateConfig(baseRequest, testRoleDefaults(), candidates{grok: &adapterconfig.GrokProviderConfig{Executable: "/bin/grok", Timeout: "60m"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -866,7 +742,7 @@ func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto}, Overrides: Overrides{AGYExecutable: "/bin/agy"}}
+	request := InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionAuto}, Overrides: Overrides{GrokExecutable: "/bin/grok"}}
 	request.ProjectPolicyOptions = true
 	if result, err := service.InitializeProject(context.Background(), request); err == nil || result.Committed {
 		t.Fatalf("bootstrap with project-policy options = %#v, %v", result, err)
@@ -886,63 +762,17 @@ func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T)
 		t.Fatal("bootstrap changed project policy")
 	}
 	request.RefreshLocal = true
-	request.Overrides.AGYExecutable = "/opt/agy"
+	request.Overrides.GrokExecutable = "/opt/grok"
 	result, err = service.InitializeProject(context.Background(), request)
 	if err != nil || !result.Committed {
 		t.Fatalf("refresh = %#v, %v", result, err)
 	}
 	resolved, err := readInstalledConfig(rootPath)
-	if err != nil || resolved.Providers.AGY.Executable != "/opt/agy" {
+	if err != nil || resolved.Providers.Grok.Executable != "/opt/grok" {
 		t.Fatalf("refreshed config = %#v, %v", resolved, err)
 	}
 	if current, _ := os.ReadFile(projectPath); !bytes.Equal(current, project) {
 		t.Fatal("refresh changed project policy")
-	}
-}
-
-func TestValidateSelectionRejectsNonZCodeOverridesInAutoMode(t *testing.T) {
-	for _, overrides := range []Overrides{
-		{KimiExecutable: "/bin/kimi"},
-		{KimiModel: "k3"},
-		{KimiDataHome: "/Users/test/.kimi-code"},
-		{AGYExecutable: "/bin/agy"},
-		{AGYPermissionMode: "safe"},
-		{GrokExecutable: "/bin/grok"},
-		{CodexExecutable: "/bin/codex"},
-		{CodexModel: "gpt"},
-		{CodexReasoningEffort: "high"},
-	} {
-		if _, err := validateSelection(Selection{Mode: SelectionAuto}, overrides); err == nil {
-			t.Fatalf("auto selection accepted non-ZCode override %#v", overrides)
-		}
-	}
-}
-
-func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsFiveRows(t *testing.T) {
-	rootPath := t.TempDir()
-	_ = os.Chmod(rootPath, 0o700)
-	root, _ := ports.NewAnchoredRoot(rootPath)
-	inspector := &scopedDiscoveryInspector{
-		observations: map[string]ports.ExecutableObservation{
-			"/bin/kimi": availableDiscoveryObservation(t, "/bin/kimi", "/bin/kimi"),
-		},
-		kimiHomeErr: errors.New("invalid startup KIMI_CODE_HOME"),
-	}
-	service, _ := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
-		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
-		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"kimi"}},
-		Overrides: Overrides{KimiExecutable: "/bin/kimi"},
-	})
-	if err == nil {
-		t.Fatal("unsafe startup KIMI_CODE_HOME accepted")
-	}
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy {
-		t.Fatalf("failure=%T %v", err, err)
-	}
-	if len(result.Discovery) != 5 || result.Discovery[0].Status != "unavailable" || result.Discovery[0].DataHomeSource != "startup_environment" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" || result.Discovery[4].Status != "not_selected" {
-		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
 
@@ -958,27 +788,25 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
-	inspector := kimiHomeInspector{testInspector: testInspector{}, home: "/Users/test/custom-kimi"}
+	inspector := testInspector{}
 	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	if err != nil {
 		t.Fatal(err)
 	}
 	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
 		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", NativeHomeAsserted: true,
-		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"kimi", "zcode", "agy"}},
+		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode", "grok"}},
 		Overrides: Overrides{
-			KimiExecutable: "/bin/kimi", ZCodeNodeExecutable: "/bin/node", ZCodeLauncher: launcher,
-			AGYExecutable: "/bin/agy", AGYPermissionMode: "dangerously-skip-permissions",
+			ZCodeNodeExecutable: "/bin/node", ZCodeLauncher: launcher,
+			GrokExecutable: "/bin/grok",
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []DiscoveryRow{
-		{Family: "kimi", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "default_k3", DataHomeSource: "startup_environment"},
 		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", NodeExecutableSource: "override", LauncherSource: "override"},
-		{Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", NativeHomeSource: "verified_equal_input", PermissionModeSource: "explicit"},
-		{Family: "grok", Status: "not_selected", ExecutableSource: "not_selected"},
+		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override"},
 		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}
 	if !reflect.DeepEqual(result.Discovery, want) {
@@ -1001,7 +829,7 @@ func TestInitializeProjectReportsCreatedAndExistingRootBarrierTruthfully(t *test
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			installer := &testInstaller{rootError: true, existing: test.existing}
 			service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-			result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}}, Overrides: Overrides{AGYExecutable: "/bin/agy"}})
+			result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}}, Overrides: Overrides{GrokExecutable: "/bin/grok"}})
 			if err == nil || result.WriteState != test.want || result.Committed {
 				t.Fatalf("result=%#v err=%v", result, err)
 			}
@@ -1056,8 +884,8 @@ func TestInitializeProjectRejectsExistingConfigBeforeDiscovery(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	_ = os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700)
-	roles, _ := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"agy"})
-	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{AGY: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", Timeout: "60m"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 1, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
+	roles, _ := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"grok"})
+	config := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "project"}, NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"}, Providers: adapterconfig.ProvidersConfig{Grok: &adapterconfig.GrokProviderConfig{Executable: "/bin/grok", Timeout: "60m"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic"}, RequestChangesOn: []string{"high", "critical", "blocker"}}, Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}}, Resources: adapterconfig.ResourcesConfig{MaxActiveLanes: 1, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 12}, CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true}}
 	project, local, _ := adapterconfig.EncodeSplit(config)
 	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), project, 0o600)
 	_ = os.WriteFile(filepath.Join(rootPath, ".mulgae", "local.yaml"), local, 0o600)
@@ -1083,7 +911,7 @@ func TestInitializeProjectReportsPostBarrierLocalityFailureByDirectoryOwnership(
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			attestor := &scriptedAttestor{failAttestAt: 2}
 			service, _ := NewService(&testInstaller{existing: test.existing}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-			result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+			result, err := service.InitializeProject(context.Background(), grokInitRequest(root))
 			if err == nil || result.WriteState != test.want || result.DestinationState != ports.ConfigDestinationAbsent || result.Committed {
 				t.Fatalf("result=%#v err=%v", result, err)
 			}
@@ -1106,7 +934,7 @@ func TestInitializeProjectReportsPreparedIdentityDriftByDirectoryOwnership(t *te
 			root, _ := ports.NewAnchoredRoot(rootPath)
 			installError := ports.NewConfigInstallError(ports.ConfigInstallStagePreparedIdentity, test.destination, errors.New("injected identity drift"))
 			service, _ := NewService(&testInstaller{existing: test.existing, installError: installError}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-			result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+			result, err := service.InitializeProject(context.Background(), grokInitRequest(root))
 			var failure *Failure
 			if !errors.As(err, &failure) || failure.Class() != "security_policy_violation" || failure.Code() != "config_locality_drifted" || failure.Retryable() ||
 				result.WriteState != test.want || result.DestinationState != test.destination || result.Committed {
@@ -1131,7 +959,7 @@ func TestInitializeProjectClassifiesReplacementConfigAsLocalityDrift(t *testing.
 		return os.WriteFile(filepath.Join(original, "config.yaml"), []byte("replacement\n"), 0o600)
 	}}
 	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	result, err := service.InitializeProject(context.Background(), grokInitRequest(root))
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Code() != "config_locality_drifted" || failure.Retryable() ||
 		result.WriteState != "private_dir_created_unconfirmed" || result.DestinationState != ports.ConfigDestinationAbsent || installer.delegate.installCalls != 0 {
@@ -1151,7 +979,7 @@ func TestInitializeProjectRejectsSameByteConfigIdentitySubstitution(t *testing.T
 		return os.WriteFile(path, data, 0o600)
 	}}
 	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	result, err := service.InitializeProject(context.Background(), grokInitRequest(root))
 	var failure *Failure
 	if err == nil || !errors.As(err, &failure) || failure.Code() != "config_locality_drifted" || failure.Class() != "security_policy_violation" || failure.Retryable() || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
 		t.Fatalf("result=%#v err=%v", result, err)
@@ -1166,7 +994,7 @@ func TestInitializeProjectNormalizesInstalledGenericErrorToCommitUnconfirmed(t *
 		return errors.New("injected post-install confirmation failure")
 	}}
 	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	result, err := service.InitializeProject(context.Background(), grokInitRequest(root))
 	var failure *Failure
 	if err == nil || !errors.As(err, &failure) || failure.Code() != "init_commit_unconfirmed" || failure.Class() != "artifact_failure" || !failure.Retryable() || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationNotObserved || result.Committed {
 		t.Fatalf("result=%#v err=%v", result, err)
@@ -1179,7 +1007,7 @@ func TestInitializeProjectRequiresTerminalLocalityRevalidation(t *testing.T) {
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	attestor := &scriptedAttestor{failRevalidateAt: 5}
 	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	result, err := service.InitializeProject(context.Background(), grokInitRequest(root))
 	_, statErr := os.Lstat(filepath.Join(rootPath, ".mulgae", "config.yaml"))
 	if err == nil || result.WriteState != "installed_unconfirmed" || statErr != nil || result.Committed {
 		t.Fatalf("result=%#v err=%v", result, err)
@@ -1192,7 +1020,7 @@ func TestInitializeProjectRejectsConfigMutationAfterTerminalAttestation(t *testi
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	attestor := &finalConfigMutatingAttestor{path: filepath.Join(rootPath, ".mulgae", "config.yaml")}
 	service, _ := NewService(&testInstaller{}, testInspector{}, attestor, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	result, err := service.InitializeProject(context.Background(), grokInitRequest(root))
 	if err == nil || !attestor.mutated || result.WriteState != "installed_unconfirmed" || result.DestinationState != ports.ConfigDestinationPresent || result.Committed {
 		t.Fatalf("result=%#v mutated=%t err=%v", result, attestor.mutated, err)
 	}
@@ -1208,7 +1036,7 @@ func TestInitializeProjectNormalizesUninstalledPresentFailureToCollision(t *test
 	root, _ := ports.NewAnchoredRoot(rootPath)
 	installer := &testInstaller{installError: ports.NewConfigInstallError(ports.ConfigInstallStagePreinstall, ports.ConfigDestinationPresent, context.Canceled)}
 	service, _ := NewService(installer, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
-	result, err := service.InitializeProject(context.Background(), agyInitRequest(root))
+	result, err := service.InitializeProject(context.Background(), grokInitRequest(root))
 	var failure *Failure
 	if err == nil || !errors.As(err, &failure) || failure.Class() != "configuration_violation" || failure.Code() != "init_destination_exists" || failure.Retryable() {
 		t.Fatalf("failure=%#v err=%v", failure, err)
@@ -1225,12 +1053,12 @@ func (validator *recordingPrevalidator) PrevalidateInitOutcome(_ context.Context
 	return outcome.Result.Validate()
 }
 
-func admittedAGYDiscoveryRows() []DiscoveryRow {
-	agy := DiscoveryRow{
-		Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate",
-		ExecutableSource: "override", NativeHomeSource: "os_account", PermissionModeSource: "safe_default",
+func admittedGrokDiscoveryRows() []DiscoveryRow {
+	grok := DiscoveryRow{
+		Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate",
+		ExecutableSource: "override",
 	}
-	return []DiscoveryRow{notSelectedDiscoveryRow("kimi"), notSelectedDiscoveryRow("zcode"), agy, notSelectedDiscoveryRow("grok"), notSelectedDiscoveryRow("codex")}
+	return []DiscoveryRow{notSelectedDiscoveryRow("zcode"), grok, notSelectedDiscoveryRow("codex")}
 }
 
 func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
@@ -1238,10 +1066,10 @@ func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
 	service := &Service{prevalidator: validator}
 	base := InitializeProjectResult{
 		Kind: "initialization_failed", ConfigURI: ".mulgae/config.yaml", ConfigSHA256: appconfig.BundleSHA256([]byte("config"), nil),
-		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
+		SelectedProviderIDs: []string{"grok"}, CandidateProviderIDs: []string{"grok"}, ConfiguredProviderIDs: []string{"grok"},
 		ConfiguredRoleIDs: []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
 		WriteState:        "not_attempted", DestinationState: ports.ConfigDestinationAbsent,
-		Discovery: admittedAGYDiscoveryRows(),
+		Discovery: admittedGrokDiscoveryRows(),
 	}
 	if err := service.prevalidateMutationResults(context.Background(), base); err != nil {
 		t.Fatal(err)
@@ -1278,10 +1106,10 @@ func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
 func TestPrevalidatedOutcomeRejectsContradictoryFailureTuple(t *testing.T) {
 	result := InitializeProjectResult{
 		Kind: "initialization_failed", ConfigURI: ".mulgae/config.yaml", ConfigSHA256: appconfig.BundleSHA256([]byte("config"), nil),
-		SelectedProviderIDs: []string{"agy"}, CandidateProviderIDs: []string{"agy"}, ConfiguredProviderIDs: []string{"agy"},
+		SelectedProviderIDs: []string{"grok"}, CandidateProviderIDs: []string{"grok"}, ConfiguredProviderIDs: []string{"grok"},
 		ConfiguredRoleIDs: []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
 		WriteState:        "installed_unconfirmed", DestinationState: ports.ConfigDestinationPresent,
-		Discovery: admittedAGYDiscoveryRows(),
+		Discovery: admittedGrokDiscoveryRows(),
 	}
 	contradictory := PrevalidatedOutcome{
 		Result:  result,
@@ -1323,6 +1151,6 @@ func TestMutationOutcomeGoldenMatchesContractTable(t *testing.T) {
 	}
 }
 
-func agyInitRequest(root ports.AnchoredRoot) InitializeProjectRequest {
-	return InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"agy"}}, Overrides: Overrides{AGYExecutable: "/bin/agy"}}
+func grokInitRequest(root ports.AnchoredRoot) InitializeProjectRequest {
+	return InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}}, Overrides: Overrides{GrokExecutable: "/bin/grok"}}
 }

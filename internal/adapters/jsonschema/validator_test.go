@@ -52,7 +52,8 @@ func TestValidatorReadinessAuthorityUsesLatestProviderContract(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v1.schema.json", false},
 		{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", true},
 		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", false},
-		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json", true},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json", false},
+		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v4.schema.json", true},
 	} {
 		if got := ReadinessAuthority(mustAssetID(t, test.id)); got != test.want {
 			t.Errorf("ReadinessAuthority(%q) = %t, want %t", test.id, got, test.want)

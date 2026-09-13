@@ -4,16 +4,16 @@ import "testing"
 
 func TestProviderTimeoutProvenanceDistinguishesConfiguredAndDefaulted(t *testing.T) {
 	config := Config{Providers: ProvidersConfig{
-		Kimi:  &KimiProviderConfig{Timeout: ProviderTimeoutText(DefaultProviderTimeout)},
 		ZCode: &ZCodeProviderConfig{Timeout: "30m"},
+		Grok:  &GrokProviderConfig{Timeout: ProviderTimeoutText(DefaultProviderTimeout)},
 	}}
 	rows := provenanceRows(config)
 	want := map[string]struct {
 		source      string
 		disposition string
 	}{
-		"providers.kimi.timeout":  {source: "default", disposition: "defaulted"},
 		"providers.zcode.timeout": {source: "project", disposition: "configured"},
+		"providers.grok.timeout":  {source: "default", disposition: "defaulted"},
 	}
 	for _, row := range rows {
 		expected, ok := want[row.Field]

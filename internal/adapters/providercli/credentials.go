@@ -116,10 +116,6 @@ func (lease *namespaceLease) ProjectCredential(ctx context.Context, request port
 
 func credentialDestination(destination ports.CredentialProjectionDestination) (string, bool) {
 	switch destination {
-	case ports.CredentialProjectionKimiConfig:
-		return "home/.kimi-code/config.toml", true
-	case ports.CredentialProjectionKimiCredentials:
-		return "home/.kimi-code/credentials/kimi-code.json", true
 	case ports.CredentialProjectionZCodeConfig:
 		return "home/.zcode/cli/config.json", true
 	case ports.CredentialProjectionGrokAuth:

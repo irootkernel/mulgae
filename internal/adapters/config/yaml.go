@@ -53,6 +53,9 @@ func Decode(data []byte) (Config, error) {
 	if reason := scanCredentials(root); reason != "" {
 		return zero, reject(reason)
 	}
+	if containsRetiredProviderSemantics(root) {
+		return zero, reject(ReasonProviderRetired)
+	}
 	if !knownProviderIdentities(root) {
 		return zero, reject(ReasonProviderIdentityInvalid)
 	}
@@ -67,9 +70,6 @@ func Decode(data []byte) (Config, error) {
 	var decoded Config
 	if err := decoder.Decode(&decoded); err != nil {
 		return zero, reject(ReasonYAMLInvalid)
-	}
-	if decoded.Providers.AGY != nil {
-		decoded.Providers.AGY.PermissionModeExplicit = mappingHasPath(root, "providers", "agy", "permission_mode")
 	}
 	decoded.Validation.Extraction.EnabledExplicit = mappingHasPath(root, "validation", "extraction", "enabled")
 	if err := validate(&decoded); err != nil {
@@ -89,13 +89,35 @@ func knownProviderIdentities(root *yaml.Node) bool {
 	if providers == nil || providers.Kind != yaml.MappingNode {
 		return true
 	}
-	known := map[string]struct{}{"kimi": {}, "zcode": {}, "agy": {}, "grok": {}, "codex": {}}
+	known := map[string]struct{}{"zcode": {}, "grok": {}, "codex": {}}
 	for index := 0; index < len(providers.Content); index += 2 {
 		if _, ok := known[providers.Content[index].Value]; !ok {
 			return false
 		}
 	}
 	return true
+}
+
+func containsRetiredProviderSemantics(root *yaml.Node) bool {
+	providers := mappingValue(root, "providers")
+	if providers != nil && providers.Kind == yaml.MappingNode {
+		for index := 0; index < len(providers.Content); index += 2 {
+			if provider := providers.Content[index].Value; provider == "kimi" || provider == "agy" {
+				return true
+			}
+		}
+	}
+	roles := mappingValue(root, "roles")
+	if roles == nil || roles.Kind != yaml.MappingNode {
+		return false
+	}
+	for index := 0; index < len(roles.Content); index += 2 {
+		provider := mappingValue(roles.Content[index+1], "primary_provider")
+		if provider != nil && (provider.Value == "kimi" || provider.Value == "agy") {
+			return true
+		}
+	}
+	return false
 }
 
 func mappingValue(root *yaml.Node, key string) *yaml.Node {
@@ -438,28 +460,6 @@ func validate(config *Config) error {
 	if config.Providers.Count() == 0 {
 		return fmt.Errorf("providers")
 	}
-	if config.Providers.Kimi != nil {
-		if !canonicalAbsolute(config.Providers.Kimi.Executable) {
-			return fmt.Errorf("kimi executable")
-		}
-		if config.Providers.Kimi.Model == "" {
-			config.Providers.Kimi.Model = DefaultKimiModel
-		}
-		if !validModel(config.Providers.Kimi.Model) {
-			return fmt.Errorf("kimi model")
-		}
-		if config.Providers.Kimi.DataHome == "" {
-			config.Providers.Kimi.DataHome = DefaultKimiDataHome(config.NativeUser.Home)
-		}
-		if !canonicalAbsolute(config.Providers.Kimi.DataHome) {
-			return fmt.Errorf("kimi data home")
-		}
-		timeout, err := ParseProviderTimeout(config.Providers.Kimi.Timeout)
-		if err != nil {
-			return fmt.Errorf("kimi timeout: %w: %v", errProviderTimeoutInvalid, err)
-		}
-		config.Providers.Kimi.Timeout = ProviderTimeoutText(timeout)
-	}
 	if config.Providers.ZCode != nil {
 		if !canonicalAbsolute(config.Providers.ZCode.NodeExecutable) || !canonicalAbsolute(config.Providers.ZCode.Launcher) {
 			return fmt.Errorf("zcode paths")
@@ -469,22 +469,6 @@ func validate(config *Config) error {
 			return fmt.Errorf("zcode timeout: %w: %v", errProviderTimeoutInvalid, err)
 		}
 		config.Providers.ZCode.Timeout = ProviderTimeoutText(timeout)
-	}
-	if config.Providers.AGY != nil {
-		if !canonicalAbsolute(config.Providers.AGY.Executable) {
-			return fmt.Errorf("agy executable")
-		}
-		if config.Providers.AGY.PermissionMode == "" {
-			config.Providers.AGY.PermissionMode = DefaultAGYPermissionMode
-		}
-		if config.Providers.AGY.PermissionMode != "safe" && config.Providers.AGY.PermissionMode != "dangerously-skip-permissions" {
-			return fmt.Errorf("agy permission")
-		}
-		timeout, err := ParseProviderTimeout(config.Providers.AGY.Timeout)
-		if err != nil {
-			return fmt.Errorf("agy timeout: %w: %v", errProviderTimeoutInvalid, err)
-		}
-		config.Providers.AGY.Timeout = ProviderTimeoutText(timeout)
 	}
 	if config.Providers.Grok != nil {
 		if !canonicalAbsolute(config.Providers.Grok.Executable) {
@@ -615,7 +599,7 @@ func validateArtistRole(config *Config, role RoleConfig) error {
 		}
 		return nil
 	}
-	if (role.PrimaryProvider != "agy" && role.PrimaryProvider != "zcode" && role.PrimaryProvider != "codex") || role.Inputs == nil {
+	if (role.PrimaryProvider != "zcode" && role.PrimaryProvider != "codex") || role.Inputs == nil {
 		return fmt.Errorf("UI project artist role")
 	}
 	if !safeContext(role.Inputs.TaskPath) || len(role.Inputs.DesignSpecGlobs) == 0 || len(role.Inputs.DesignSpecGlobs) > 16 {
@@ -728,29 +712,8 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		out.WriteString("  kind: \"ui\"\n")
 	}
 	out.WriteString("native_user:\n  home: " + q(config.NativeUser.Home) + "\nproviders:\n")
-	if provider := config.Providers.Kimi; provider != nil {
-		out.WriteString("  kimi:\n    executable: " + q(provider.Executable) + "\n")
-		if provider.Model != DefaultKimiModel {
-			out.WriteString("    model: " + q(provider.Model) + "\n")
-		}
-		if provider.DataHome != DefaultKimiDataHome(config.NativeUser.Home) {
-			out.WriteString("    data_home: " + q(provider.DataHome) + "\n")
-		}
-		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
-			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
-		}
-	}
 	if provider := config.Providers.ZCode; provider != nil {
 		out.WriteString("  zcode:\n    node_executable: " + q(provider.NodeExecutable) + "\n    launcher: " + q(provider.Launcher) + "\n")
-		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
-			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
-		}
-	}
-	if provider := config.Providers.AGY; provider != nil {
-		out.WriteString("  agy:\n    executable: " + q(provider.Executable) + "\n")
-		if provider.PermissionMode != DefaultAGYPermissionMode || provider.PermissionModeExplicit {
-			out.WriteString("    permission_mode: " + q(provider.PermissionMode) + "\n")
-		}
 		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}

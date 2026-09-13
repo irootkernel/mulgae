@@ -13,15 +13,13 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	documentation, err := NewRoleProviderAssignment(domain.RoleDocumentation, FamilyAGY)
+	documentation, err := NewRoleProviderAssignment(domain.RoleDocumentation, FamilyGrok)
 	if err != nil {
 		t.Fatal(err)
 	}
 	policy.Assignments = []RoleProviderAssignment{logic, documentation}
 	timeouts := map[Family]time.Duration{
-		FamilyKimi:  10 * time.Minute,
 		FamilyZCode: 30 * time.Minute,
-		FamilyAGY:   15 * time.Minute,
 		FamilyGrok:  25 * time.Minute,
 		FamilyCodex: 20 * time.Minute,
 	}
@@ -41,7 +39,7 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	}
 	// One route per role, each carrying its own family's configured timeout.
 	assertPreflightRoute(0, "zcode-logic", 30*time.Minute)
-	assertPreflightRoute(1, "agy-documentation", 15*time.Minute)
+	assertPreflightRoute(1, "grok-documentation", 25*time.Minute)
 	if receipt.TotalInvocations() != 4 {
 		t.Fatalf("budget total invocations = %d", receipt.TotalInvocations())
 	}
@@ -54,7 +52,7 @@ func TestPreflightConfiguredPlanBindsCodexCredentialProfileToInstance(t *testing
 		t.Fatal(err)
 	}
 	policy.Assignments = []RoleProviderAssignment{logic}
-	timeouts := map[Family]time.Duration{FamilyKimi: 15 * time.Minute, FamilyZCode: 15 * time.Minute, FamilyAGY: 15 * time.Minute, FamilyGrok: 15 * time.Minute, FamilyCodex: 20 * time.Minute}
+	timeouts := map[Family]time.Duration{FamilyZCode: 15 * time.Minute, FamilyGrok: 15 * time.Minute, FamilyCodex: 20 * time.Minute}
 	plan, _, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic})
 	if err != nil {
 		t.Fatal(err)

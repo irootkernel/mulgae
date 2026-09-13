@@ -10,10 +10,8 @@ Mulgae reports findings and recommendations only.
 
 ## Start
 
-Automatic initialization requires ZCode. AGY, Kimi, Grok, and Codex remain
-available through explicit `--providers agy`, `--providers kimi`,
-`--providers grok`, or `--providers codex` selection and do not alter the
-automatic topology.
+Automatic initialization requires ZCode and Grok and assigns every default role
+to ZCode. Codex remains available through explicit `--providers codex` selection.
 
 ```bash
 mulgae init

@@ -7,9 +7,9 @@ import "github.com/irootkernel/mulgae/internal/app/doctor"
 type Family string
 
 const (
-	FamilyKimi  Family = "kimi"
+	// Retired family constants are retained only for negative and historical
+	// compatibility tests. They are absent from the trusted profile inventory.
 	FamilyZCode Family = "zcode"
-	FamilyAGY   Family = "agy"
 	FamilyGrok  Family = "grok"
 	FamilyCodex Family = "codex"
 )
@@ -18,9 +18,10 @@ const (
 type SupportState string
 
 const (
-	SupportSupported   SupportState = "supported"
-	SupportUnsupported SupportState = "unsupported"
-	SupportUnverified  SupportState = "unverified"
+	ResultTransportStrictJSON ResultTransport = "strict_json"
+	SupportSupported          SupportState    = "supported"
+	SupportUnsupported        SupportState    = "unsupported"
+	SupportUnverified         SupportState    = "unverified"
 )
 
 // PromptTransport identifies the fixed provider prompt transport.
@@ -36,10 +37,8 @@ const (
 type ResultTransport string
 
 const (
-	ResultTransportKimiStreamJSONAssistantContent ResultTransport = "kimi_stream_json_assistant_content"
-	ResultTransportStrictJSON                     ResultTransport = "strict_json"
-	ResultTransportStdout                         ResultTransport = "stdout"
-	ResultTransportStagedFile                     ResultTransport = "staged_file"
+	ResultTransportStdout     ResultTransport = "stdout"
+	ResultTransportStagedFile ResultTransport = "staged_file"
 )
 
 // Profile is the immutable application view of a trusted provider profile.

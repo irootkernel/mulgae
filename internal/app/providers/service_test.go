@@ -22,9 +22,7 @@ func (fake fakeDiagnoser) DiagnoseEnvironment(context.Context) (doctor.DoctorRes
 
 func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 	service := newTestService(t, fakeDiagnoser{result: diagnosis(
-		evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 		evidence("zcode", doctor.EvidenceStateFail, doctor.AssignmentIneligible),
-		evidence("agy", doctor.EvidenceStateInconclusive, doctor.AssignmentIneligible),
 		evidence("grok", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
 		evidence("codex", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
 	)})
@@ -34,7 +32,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := len(profiles), 5; got != want {
+	if got, want := len(profiles), 3; got != want {
 		t.Fatalf("profiles length = %d, want %d", got, want)
 	}
 	want := []struct {
@@ -44,9 +42,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		output  ResultTransport
 		support SupportState
 	}{
-		{FamilyKimi, "kimi-default", PromptTransportArgv, ResultTransportKimiStreamJSONAssistantContent, SupportSupported},
 		{FamilyZCode, "zcode-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnsupported},
-		{FamilyAGY, "agy-default", PromptTransportArgv, ResultTransportStrictJSON, SupportUnsupported},
 		{FamilyGrok, "grok-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnverified},
 		{FamilyCodex, "codex-default", PromptTransportStdin, ResultTransportStdout, SupportUnverified},
 	}
@@ -60,9 +56,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 
 func TestListProviderProfilesEvidenceProjectionAndFiltering(t *testing.T) {
 	service := newTestService(t, fakeDiagnoser{result: diagnosis(
-		evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 		evidence("zcode", doctor.EvidenceStateFail, doctor.AssignmentIneligible),
-		evidence("agy", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
 		evidence("grok", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 		evidence("codex", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 	)})
@@ -71,21 +65,21 @@ func TestListProviderProfilesEvidenceProjectionAndFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("all profiles error = %v", err)
 	}
-	if got, want := profileSupports(all.Profiles()), []SupportState{SupportSupported, SupportUnsupported, SupportUnverified, SupportSupported, SupportSupported}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(all.Profiles()), []SupportState{SupportUnsupported, SupportSupported, SupportSupported}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	filtered, err := service.ListProviderProfiles(context.Background(), false)
 	if err != nil {
 		t.Fatalf("filtered profiles error = %v", err)
 	}
-	if got, want := profileFamilies(filtered.Profiles()), []Family{FamilyKimi, FamilyZCode, FamilyGrok, FamilyCodex}; !reflect.DeepEqual(got, want) {
+	if got, want := profileFamilies(filtered.Profiles()), []Family{FamilyZCode, FamilyGrok, FamilyCodex}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered families = %v, want %v", got, want)
 	}
 }
 
 func TestListProviderProfilesDoesNotPromoteInvalidEvidence(t *testing.T) {
 	service := newTestService(t, fakeDiagnoser{result: diagnosis(
-		evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentIneligible),
+		evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentIneligible),
 	)})
 	if _, err := service.ListProviderProfiles(context.Background(), true); err == nil {
 		t.Fatal("ListProviderProfiles() error = nil, want fail-closed error")
@@ -93,13 +87,13 @@ func TestListProviderProfilesDoesNotPromoteInvalidEvidence(t *testing.T) {
 }
 
 func TestListProviderProfilesAbsentEvidenceIsUnverified(t *testing.T) {
-	service := newTestService(t, fakeDiagnoser{result: diagnosis(evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible))})
+	service := newTestService(t, fakeDiagnoser{result: diagnosis(evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible))})
 	result, err := service.ListProviderProfiles(context.Background(), true)
 	if err != nil {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	if got := profiles[1].AssignmentState(); got != doctor.AssignmentIntendedButUnverified {
@@ -112,12 +106,12 @@ func TestListProviderProfilesRejectsMalformedProviderInventories(t *testing.T) {
 		name   string
 		result doctor.DoctorResult
 	}{
-		{"duplicate evidence", diagnosis(evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible), evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
+		{"duplicate evidence", diagnosis(evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible), evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
 		{"unknown evidence", diagnosis(evidence("claude", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
-		{"out of order evidence", diagnosis(evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible), evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
-		{"duplicate intended", doctor.DoctorResult{IntendedProviderIDs: []string{"kimi", "kimi"}}},
+		{"out of order evidence", diagnosis(evidence("grok", doctor.EvidenceStatePass, doctor.AssignmentEligible), evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible))},
+		{"duplicate intended", doctor.DoctorResult{IntendedProviderIDs: []string{"zcode", "zcode"}}},
 		{"unknown unverified", doctor.DoctorResult{UnverifiedProviderIDs: []string{"claude"}}},
-		{"out of order intended", doctor.DoctorResult{IntendedProviderIDs: []string{"zcode", "kimi"}}},
+		{"out of order intended", doctor.DoctorResult{IntendedProviderIDs: []string{"grok", "zcode"}}},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -130,7 +124,7 @@ func TestListProviderProfilesRejectsMalformedProviderInventories(t *testing.T) {
 }
 func TestListProviderProfilesRejectsInvalidDoctorResultsBeforeProjection(t *testing.T) {
 	newPassDiagnosis := func() doctor.DoctorResult {
-		return diagnosis(evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible))
+		return diagnosis(evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible))
 	}
 	tests := []struct {
 		name   string
@@ -164,8 +158,8 @@ func TestListProviderProfilesRejectsInvalidDoctorResultsBeforeProjection(t *test
 			name: "out of order evidence",
 			mutate: func(result *doctor.DoctorResult) {
 				*result = diagnosis(
+					evidence("grok", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 					evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible),
-					evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 				)
 			},
 		},
@@ -197,9 +191,9 @@ func TestListProviderProfilesPropagatesDiagnosticError(t *testing.T) {
 }
 
 func TestResultJSONAndRenderAreDefensiveAndRedacted(t *testing.T) {
-	uri := "https://evidence.example/providers/kimi"
+	uri := "https://evidence.example/providers/zcode"
 	digest := "sha256:" + strings.Repeat("a", 64)
-	row := evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible)
+	row := evidence("zcode", doctor.EvidenceStatePass, doctor.AssignmentEligible)
 	row.EvidenceURI = &uri
 	row.EvidenceSHA256 = &digest
 	doctorResult := diagnosis(row)
@@ -212,7 +206,7 @@ func TestResultJSONAndRenderAreDefensiveAndRedacted(t *testing.T) {
 
 	first := result.Profiles()
 	first[0] = Profile{}
-	if got := result.Profiles()[0].Family(); got != FamilyKimi {
+	if got := result.Profiles()[0].Family(); got != FamilyZCode {
 		t.Fatalf("Profiles leaked mutable backing storage: %q", got)
 	}
 	projection := result.JSON()

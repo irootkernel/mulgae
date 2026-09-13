@@ -84,7 +84,7 @@ func terminalReceipt(t *testing.T) ports.ProviderNamespaceTerminalReceipt {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "workspace-test", providercli.FamilyKimi)
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "workspace-test", providercli.FamilyZcode)
 	if err != nil {
 		t.Fatal(err)
 	}

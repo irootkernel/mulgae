@@ -175,6 +175,21 @@ func (service *Service) ResolveRun(
 // ReadCommitted returns a defensive view only when the observed P2 epoch binds
 // the snapshot and remains unchanged under P2 re-observation.
 func (service *Service) ReadCommitted(ctx context.Context, run ports.PublicationRun) (CommittedReview, error) {
+	review, err := service.readCommittedUnfiltered(ctx, run)
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	retired, err := service.committedArtifactRetired(ctx, run, review, make(map[string]struct{}))
+	if err != nil {
+		return CommittedReview{}, err
+	}
+	if retired {
+		return CommittedReview{}, typedFailure(readCommittedStage, domain.FailureArtifact, retiredProviderArtifactReason, nil)
+	}
+	return review, nil
+}
+
+func (service *Service) readCommittedUnfiltered(ctx context.Context, run ports.PublicationRun) (CommittedReview, error) {
 	if err := service.preflight(ctx, readCommittedStage); err != nil {
 		return CommittedReview{}, err
 	}
@@ -1278,6 +1293,9 @@ func (service *Service) readCommittedSnapshot(
 	manifestRecord, err := decodeManifestDTO(manifestBytes)
 	if err != nil {
 		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "run manifest strict JSON decoding failed", err)
+	}
+	if finalRecordRetired(finalRecord, manifestRecord) {
+		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, retiredProviderArtifactReason, nil)
 	}
 	review, err := buildCommittedReview(run, observation.decision, snapshot, finalRecord, manifestRecord)
 	if err != nil {

@@ -11,9 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime/debug"
-	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -23,7 +21,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
-	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -143,79 +140,6 @@ func (writer mcpCompositionWriter) Write(value []byte) (int, error) {
 // probes only the roles a family actually owns. Each role takes the first
 // configured family from its own preference order, so the families partition the
 // roles rather than overlapping on a primary/fallback pair.
-func TestConfiguredQualificationRolesFollowTheProviderMatrix(t *testing.T) {
-	config, err := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"kimi", "zcode", "agy"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests := []struct {
-		family reviewrun.Family
-		roles  []domain.Role
-		base   domain.Role
-	}{
-		{reviewrun.FamilyKimi, nil, ""},
-		{reviewrun.FamilyZCode, domain.CoreRoleOrder(), domain.RoleLogic},
-		{reviewrun.FamilyAGY, nil, ""},
-	}
-	for _, test := range tests {
-		roles, base := configuredQualificationRoles(config, domain.CoreRoleOrder(), test.family)
-		if !slices.Equal(roles, test.roles) || base != test.base {
-			t.Fatalf("%s qualification roles/base = %v/%s, want %v/%s", test.family, roles, base, test.roles, test.base)
-		}
-	}
-}
-
-func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
-	roles, err := adapterconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"zcode", "agy"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := adapterconfig.Config{
-		Version:    adapterconfig.ConfigVersion,
-		Project:    adapterconfig.ProjectConfig{Name: "timeout-policy"},
-		NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"},
-		Providers: adapterconfig.ProvidersConfig{
-			ZCode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/opt/zcode/launcher.cjs", Timeout: "30m"},
-			AGY:   &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"},
-		},
-		Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "readonly_snapshot"},
-		Roles:     roles,
-		Review: adapterconfig.ReviewConfig{
-			RequiredRoles:    []string{"logic", "security", "maintainability", "product", "documentation", "testing"},
-			RequestChangesOn: []string{"high", "critical", "blocker"},
-		},
-		Validation: adapterconfig.ValidationConfig{
-			Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}},
-			Repair:   adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true},
-		},
-		Resources: adapterconfig.ResourcesConfig{
-			MaxActiveLanes: 3, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 14,
-		},
-		CI: adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
-	}
-	resolved, err := appconfig.ResolveConfiguration(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy, err := deriveProductionRunPolicy(resolved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[reviewrun.Family]time.Duration{
-		reviewrun.FamilyKimi:  appconfig.DefaultProviderTimeout,
-		reviewrun.FamilyZCode: 30 * time.Minute,
-		reviewrun.FamilyAGY:   appconfig.DefaultProviderTimeout,
-		reviewrun.FamilyGrok:  appconfig.DefaultProviderTimeout,
-		reviewrun.FamilyCodex: appconfig.DefaultProviderTimeout,
-	}
-	if !reflect.DeepEqual(policy.providerTimeouts, want) {
-		t.Fatalf("production provider timeouts = %#v, want %#v", policy.providerTimeouts, want)
-	}
-	if policy.agyPermissionMode != adapterconfig.SafeAGYPermissionMode {
-		t.Fatalf("production AGY permission mode = %q, want explicit safe", policy.agyPermissionMode)
-	}
-}
-
 func TestProductionRunPolicyRejectsGrokArtistBeforeRuntimeConstruction(t *testing.T) {
 	roles, err := adapterconfig.CanonicalRolesConfigForUI(testRoleDefaults(), []string{"zcode", "grok"})
 	if err != nil {

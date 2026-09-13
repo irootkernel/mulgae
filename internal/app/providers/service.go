@@ -77,9 +77,7 @@ type profileDefinition struct {
 }
 
 var trustedProfiles = []profileDefinition{
-	{family: FamilyKimi, id: "kimi-default", promptTransport: PromptTransportArgv, resultTransport: ResultTransportKimiStreamJSONAssistantContent},
 	{family: FamilyZCode, id: "zcode-default", promptTransport: PromptTransportProtocol, resultTransport: ResultTransportStagedFile},
-	{family: FamilyAGY, id: "agy-default", promptTransport: PromptTransportArgv, resultTransport: ResultTransportStrictJSON},
 	{family: FamilyGrok, id: "grok-default", promptTransport: PromptTransportProtocol, resultTransport: ResultTransportStagedFile},
 	{family: FamilyCodex, id: "codex-default", promptTransport: PromptTransportStdin, resultTransport: ResultTransportStdout},
 }

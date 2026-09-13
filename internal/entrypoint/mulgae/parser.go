@@ -459,9 +459,9 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	positionals, options, err := parseOptions(arguments, map[string]bool{
 		"--project-root": true, "--name": true, "--context": true, "--providers": true, "--roles": true,
 		"--project-kind": true, "--artist-brief": true, "--artist-design-specs": true,
-		"--native-home": true, "--kimi-executable": true, "--kimi-model": true, "--kimi-data-home": true,
+		"--native-home":           true,
 		"--zcode-node-executable": true, "--zcode-launcher": true,
-		"--agy-executable": true, "--agy-permission-mode": true, "--output": true,
+		"--output":           true,
 		"--grok-executable":  true,
 		"--codex-executable": true, "--codex-model": true, "--codex-reasoning-effort": true,
 		"--refresh-local": false,
@@ -487,7 +487,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	request := InitRequest{
 		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto", roleIDs: []string{"logic"},
 	}
-	for _, flag := range []string{"--name", "--context", "--providers", "--roles", "--project-kind", "--artist-brief", "--artist-design-specs", "--kimi-model", "--agy-permission-mode", "--codex-model", "--codex-reasoning-effort"} {
+	for _, flag := range []string{"--name", "--context", "--providers", "--roles", "--project-kind", "--artist-brief", "--artist-design-specs", "--codex-model", "--codex-reasoning-effort"} {
 		if _, present := options[flag]; present {
 			request.projectPolicyOptions = true
 			break
@@ -552,7 +552,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 			request.providerIDs = canonicalProviderOrder(providers)
 		}
 	}
-	for flag, destination := range map[string]*string{"--kimi-executable": &request.kimiExecutable, "--kimi-model": &request.kimiModel, "--kimi-data-home": &request.kimiDataHome, "--zcode-node-executable": &request.zcodeNodeExecutable, "--zcode-launcher": &request.zcodeLauncher, "--agy-executable": &request.agyExecutable, "--agy-permission-mode": &request.agyPermissionMode, "--grok-executable": &request.grokExecutable, "--codex-executable": &request.codexExecutable, "--codex-model": &request.codexModel, "--codex-reasoning-effort": &request.codexReasoningEffort} {
+	for flag, destination := range map[string]*string{"--zcode-node-executable": &request.zcodeNodeExecutable, "--zcode-launcher": &request.zcodeLauncher, "--grok-executable": &request.grokExecutable, "--codex-executable": &request.codexExecutable, "--codex-model": &request.codexModel, "--codex-reasoning-effort": &request.codexReasoningEffort} {
 		if value, present := options[flag]; present {
 			*destination = value
 		}
@@ -564,36 +564,21 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		request.nativeHome = value
 		request.hasNativeHome = true
 	}
-	for _, value := range []string{request.kimiExecutable, request.kimiDataHome, request.zcodeNodeExecutable, request.zcodeLauncher, request.agyExecutable, request.grokExecutable, request.codexExecutable} {
+	for _, value := range []string{request.zcodeNodeExecutable, request.zcodeLauncher, request.grokExecutable, request.codexExecutable} {
 		if value != "" && !validAbsoluteRoot(value) {
 			return Invocation{}, usageError("provider path is not canonical")
 		}
 	}
-	if request.agyPermissionMode != "" && request.agyPermissionMode != "safe" && request.agyPermissionMode != "dangerously-skip-permissions" {
-		return Invocation{}, usageError("unsupported AGY permission mode")
-	}
 	if request.codexReasoningEffort != "" && !containsString([]string{"minimal", "low", "medium", "high", "xhigh"}, request.codexReasoningEffort) {
 		return Invocation{}, usageError("unsupported Codex reasoning effort")
-	}
-	if !request.refreshLocal && request.selectionMode == "auto" && (request.kimiExecutable != "" || request.kimiModel != "" || request.kimiDataHome != "") {
-		return Invocation{}, usageError("Kimi override requires explicit Kimi selection")
 	}
 	if !request.refreshLocal && request.selectionMode == "auto" && (request.codexExecutable != "" || request.codexModel != "" || request.codexReasoningEffort != "") {
 		return Invocation{}, usageError("Codex override requires explicit Codex selection")
 	}
-	if !request.refreshLocal && request.selectionMode == "auto" && request.grokExecutable != "" {
-		return Invocation{}, usageError("Grok override requires explicit Grok selection")
-	}
 	if request.selectionMode == "selected" {
 		selected := request.providerIDs
-		if !containsString(selected, "kimi") && (request.kimiExecutable != "" || request.kimiModel != "" || request.kimiDataHome != "") {
-			return Invocation{}, usageError("Kimi override requires Kimi selection")
-		}
 		if !containsString(selected, "zcode") && (request.zcodeNodeExecutable != "" || request.zcodeLauncher != "") {
 			return Invocation{}, usageError("ZCode override requires ZCode selection")
-		}
-		if !containsString(selected, "agy") && (request.agyExecutable != "" || request.agyPermissionMode != "") {
-			return Invocation{}, usageError("AGY override requires AGY selection")
 		}
 		if !containsString(selected, "grok") && request.grokExecutable != "" {
 			return Invocation{}, usageError("Grok override requires Grok selection")
@@ -611,13 +596,8 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		ProviderIDs []string `json:"provider_ids,omitempty"`
 	}
 	type overridesJSON struct {
-		KimiExecutable       string `json:"kimi_executable,omitempty"`
-		KimiModel            string `json:"kimi_model,omitempty"`
-		KimiDataHome         string `json:"kimi_data_home,omitempty"`
 		ZCodeNodeExecutable  string `json:"zcode_node_executable,omitempty"`
 		ZCodeLauncher        string `json:"zcode_launcher,omitempty"`
-		AGYExecutable        string `json:"agy_executable,omitempty"`
-		AGYPermissionMode    string `json:"agy_permission_mode,omitempty"`
 		GrokExecutable       string `json:"grok_executable,omitempty"`
 		CodexExecutable      string `json:"codex_executable,omitempty"`
 		CodexModel           string `json:"codex_model,omitempty"`
@@ -639,7 +619,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		RefreshLocal *bool         `json:"refresh_local,omitempty"`
 		OutputFormat OutputFormat  `json:"output_format"`
 	}{
-		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{KimiExecutable: request.kimiExecutable, KimiModel: request.kimiModel, KimiDataHome: request.kimiDataHome, ZCodeNodeExecutable: request.zcodeNodeExecutable, ZCodeLauncher: request.zcodeLauncher, AGYExecutable: request.agyExecutable, AGYPermissionMode: request.agyPermissionMode, GrokExecutable: request.grokExecutable, CodexExecutable: request.codexExecutable, CodexModel: request.codexModel, CodexReasoningEffort: request.codexReasoningEffort}, Overwrite: false, RefreshLocal: optionalBool(request.refreshLocal), OutputFormat: outputFormat,
+		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{ZCodeNodeExecutable: request.zcodeNodeExecutable, ZCodeLauncher: request.zcodeLauncher, GrokExecutable: request.grokExecutable, CodexExecutable: request.codexExecutable, CodexModel: request.codexModel, CodexReasoningEffort: request.codexReasoningEffort}, Overwrite: false, RefreshLocal: optionalBool(request.refreshLocal), OutputFormat: outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -783,7 +763,7 @@ func parseHeartbeat(arguments []string, defaultProjectRoot, requestID string) (I
 		return Invocation{}, usageError("heartbeat requires --provider and accepts no positional arguments")
 	}
 	provider := options["--provider"]
-	if provider != "kimi" && provider != "zcode" && provider != "agy" && provider != "grok" && provider != "codex" {
+	if provider != "zcode" && provider != "grok" && provider != "codex" {
 		return Invocation{}, usageError("heartbeat provider is invalid")
 	}
 	if provider != "codex" && options["--credential-profile"] != "" {
@@ -2009,7 +1989,7 @@ func parseProviderCSV(value string, allowed func(string) bool) ([]string, error)
 
 func canonicalProviderOrder(values []string) []string {
 	result := make([]string, 0, len(values))
-	for _, family := range []string{"kimi", "zcode", "agy", "grok", "codex"} {
+	for _, family := range []string{"zcode", "grok", "codex"} {
 		if containsString(values, family) {
 			result = append(result, family)
 		}
@@ -2041,7 +2021,7 @@ func optionalBool(value bool) *bool {
 
 func intendedProvider(value string) bool {
 	switch value {
-	case "kimi", "zcode", "agy", "grok", "codex":
+	case "zcode", "grok", "codex":
 		return true
 	default:
 		return false

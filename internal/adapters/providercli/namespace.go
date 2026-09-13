@@ -44,7 +44,7 @@ var _ ports.ProviderNamespaceFactory = (*NamespaceFactory)(nil)
 // family-specific namespace environment shaping.
 func validNamespaceFamily(family string) bool {
 	switch family {
-	case FamilyKimi, FamilyZcode, FamilyAgy, FamilyGrok, FamilyCodex:
+	case FamilyZcode, FamilyGrok, FamilyCodex:
 		return true
 	default:
 		return false
@@ -305,7 +305,7 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 		closeRootDirectory: closeNamespaceDescriptor, closeParentDirectory: closeNamespaceDescriptor,
 	}
 	directories := []string{
-		"home", "home/.kimi-code", "home/.kimi-code/credentials",
+		"home",
 		"home/.zcode", "home/.zcode/cli", "home/.gemini", "home/.gemini/antigravity-cli",
 		"home/.codex", "home/.grok",
 		"settings", "auth", "cache", "tmp", "scratch",

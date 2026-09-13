@@ -1046,7 +1046,7 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 		{
 			role: domain.RoleLogic, required: true, state: domain.RoleTaskSucceeded, valid: true, outcome: "completed",
 			attempts: []preparedAttempt{{
-				id: logicAttempt, kind: review.AttemptKindPrimary, provider: "kimi-logic", state: domain.AttemptSucceeded,
+				id: logicAttempt, kind: review.AttemptKindPrimary, provider: "zcode-logic", state: domain.AttemptSucceeded,
 				parseState: domain.ParseValid, validationState: domain.ValidationValid,
 				invocations: []preparedInvocation{{sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded}},
 			}},
@@ -1057,7 +1057,7 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 		{
 			role: domain.RoleSecurity, required: true, state: domain.RoleTaskSucceeded, valid: true, outcome: "completed",
 			attempts: []preparedAttempt{{
-				id: securityAttempt, kind: review.AttemptKindPrimary, provider: "agy-security", state: domain.AttemptSucceeded,
+				id: securityAttempt, kind: review.AttemptKindPrimary, provider: "grok-security", state: domain.AttemptSucceeded,
 				parseState: domain.ParseValid, validationState: domain.ValidationValid,
 				invocations: []preparedInvocation{{sequence: 1, purpose: domain.InvocationInitial, state: domain.InvocationSucceeded}},
 			}},
@@ -1081,8 +1081,8 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 			SnapshotManifestSHA256:   sha256Identifier([]byte("snapshot")),
 			WorkspaceTerminalReceipt: sha256Identifier([]byte("workspace-terminal")),
 			Providers: []ProductionProviderProvenance{
-				{Family: "agy", Instance: "agy-security", Version: "1.1.4", Executable: "/private/bin/agy", ExecutableSHA256: sha256Identifier([]byte("agy")), Launcher: "/private/bin/agy", LauncherSHA256: sha256Identifier([]byte("agy")), ProfileGeneration: "generation-1", AdapterProfile: "agy-default", QualificationReceiptIDs: []string{sha256Identifier([]byte("agy-qualification"))}, PacketTransportReceiptIDs: []string{sha256Identifier([]byte("agy-transport"))}, NamespaceTerminalReceipt: sha256Identifier([]byte("agy-terminal"))},
-				{Family: "kimi", Instance: "kimi-logic", Version: "0.23.6", Executable: "/private/bin/kimi", ExecutableSHA256: sha256Identifier([]byte("kimi")), Launcher: "/private/bin/kimi", LauncherSHA256: sha256Identifier([]byte("kimi")), ProfileGeneration: "generation-1", AdapterProfile: "kimi-default", QualificationReceiptIDs: []string{sha256Identifier([]byte("kimi-qualification"))}, PacketTransportReceiptIDs: []string{sha256Identifier([]byte("kimi-transport"))}, NamespaceTerminalReceipt: sha256Identifier([]byte("kimi-terminal"))},
+				{Family: "grok", Instance: "grok-security", Version: "1.0.30", Executable: "/private/bin/grok", ExecutableSHA256: sha256Identifier([]byte("grok")), Launcher: "/private/bin/grok", LauncherSHA256: sha256Identifier([]byte("grok")), ProfileGeneration: "generation-1", AdapterProfile: "grok-default", QualificationReceiptIDs: []string{sha256Identifier([]byte("grok-qualification"))}, PacketTransportReceiptIDs: []string{sha256Identifier([]byte("grok-transport"))}, NamespaceTerminalReceipt: sha256Identifier([]byte("grok-terminal"))},
+				{Family: "zcode", Instance: "zcode-logic", Version: "0.16.5", Executable: "/usr/bin/node", ExecutableSHA256: sha256Identifier([]byte("node")), Launcher: "/private/bin/zcode.cjs", LauncherSHA256: sha256Identifier([]byte("zcode")), ProfileGeneration: "generation-1", AdapterProfile: "zcode-default", QualificationReceiptIDs: []string{sha256Identifier([]byte("zcode-qualification"))}, PacketTransportReceiptIDs: []string{sha256Identifier([]byte("zcode-transport"))}, NamespaceTerminalReceipt: sha256Identifier([]byte("zcode-terminal"))},
 			},
 		},
 		axes: preparedAxes{
@@ -1105,7 +1105,7 @@ func publicationTestCandidate(t *testing.T, withFinding bool) PreparedCandidate 
 		candidate.exitCode = int(domain.ExitCommittedCIRejected)
 		candidate.roles[0].validFindingIDs = []string{"F001"}
 		candidate.findings = []preparedFinding{{
-			id: "F001", fingerprint: "sha256:" + strings.Repeat("b", 64), role: domain.RoleLogic, provider: "kimi-logic",
+			id: "F001", fingerprint: "sha256:" + strings.Repeat("b", 64), role: domain.RoleLogic, provider: "zcode-logic",
 			severity: domain.SeverityHigh, title: "Trusted finding", description: "The verifier accepted this evidence.",
 			recommendation: "Correct the reviewed implementation.", confidence: domain.ConfidenceHigh, lifecycle: domain.FindingOpen,
 			evidence: []preparedEvidence{{

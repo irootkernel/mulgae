@@ -61,7 +61,7 @@ func TestProviderExecutionFailuresAreSafeAndCanonical(t *testing.T) {
 		t.Fatal(err)
 	}
 	logic, err := NewProviderExecutionFailure(
-		"kimi-default",
+		"zcode-default",
 		domain.RoleLogic,
 		string(review.AttemptConditionInternalInvariant),
 		domain.FailureInternal,
@@ -71,14 +71,14 @@ func TestProviderExecutionFailuresAreSafeAndCanonical(t *testing.T) {
 	}
 	aggregate := NewProviderExecutionFailuresError([]ProviderExecutionFailure{security, logic})
 	failures, ok := ProviderExecutionFailuresFromError(aggregate)
-	if !ok || len(failures) != 2 || failures[0].ProviderInstance() != "kimi-default" ||
+	if !ok || len(failures) != 2 || failures[0].ProviderInstance() != "zcode-default" ||
 		failures[0].Role() != domain.RoleLogic || failures[0].FailureClass() != domain.FailureInternal ||
 		failures[1].ProviderInstance() != "zcode-default" ||
 		failures[1].Role() != domain.RoleSecurity || failures[1].FailureClass() != domain.FailureInvalidOutput {
 		t.Fatalf("provider execution failures = %#v, present=%t", failures, ok)
 	}
 	if _, err := NewProviderExecutionFailure(
-		"kimi-default",
+		"zcode-default",
 		domain.RoleLogic,
 		"provider-supplied free form text",
 		domain.FailureSecurityPolicy,
@@ -684,14 +684,14 @@ func TestServiceExecuteFinalizesLoginRequiredAfterCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loginErr := newProviderLoginRequiredError([]string{"agy"}, failure)
+	loginErr := newProviderLoginRequiredError([]string{"grok"}, failure)
 	service := serviceForLifecycle(t, &calls, capture, &serviceAuthorityFactory{calls: &calls, authority: authority, err: loginErr})
 	diagnostics := &serviceDiagnosticFactory{calls: &calls}
 	service.dependencies.Diagnostics = diagnostics
 
 	_, err = service.Execute(context.Background(), serviceRequest(t, capture))
 	providers, loginRequired := ProviderLoginRequiredProvidersFromError(err)
-	if !loginRequired || len(providers) != 1 || providers[0] != "agy" {
+	if !loginRequired || len(providers) != 1 || providers[0] != "grok" {
 		t.Fatalf("login-required failure = %v, providers %v", err, providers)
 	}
 	if uri, ok := RuntimeDiagnosticURIFromError(err); !ok || uri.String() != ".mulgae/diagnostics/s_019f5a09-5eec-7001-8001-000000000001/r_019f5a09-5eec-7001-8001-000000000002" {
@@ -1079,7 +1079,7 @@ func serviceQualifiedTerminal(t *testing.T) QualifiedRunTerminalReceipt {
 	namespace := acquiredProviderNamespaceTerminalReceipt(t, "provider", "generation")
 	aggregate := mustProviderRunTerminalReceipt(t, namespace)
 	terminal, err := newQualifiedRunTerminalReceipt([]qualifiedProviderEvidence{{identity: Identity{
-		Family: FamilyKimi, Instance: "provider", ProfileGeneration: "profile", AdapterProfile: "adapter", Version: "1.0.0",
+		Family: FamilyZCode, Instance: "provider", ProfileGeneration: "profile", AdapterProfile: "adapter", Version: "0.16.5",
 		Executable: "/private/bin/provider", ExecutableSHA256: "sha256", Launcher: "/private/bin/provider", LauncherSHA256: "sha256",
 		SnapshotManifest: "manifest", NamespaceLease: "lease", NamespaceGeneration: "generation",
 	}, qualificationReceiptIDs: []string{"qualification"}, packetTransportReceiptIDs: []string{"transport"}}}, aggregate)
@@ -1218,7 +1218,7 @@ func TestPromptSourceStatesEachStagedLaunchDestination(t *testing.T) {
 
 	// A provider instance the registry keeps on stdout, and a provider without
 	// staging authority at all, both leave the template untouched.
-	stdoutJob := reviewRunStagedJob(t, "agy-logic", domain.InvocationInitial, 1)
+	stdoutJob := reviewRunStagedJob(t, "grok-logic", domain.InvocationInitial, 1)
 	untouched, err := staged.composeOutputDestination(base, stdoutJob)
 	if err != nil {
 		t.Fatal(err)

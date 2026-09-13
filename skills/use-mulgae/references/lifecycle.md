@@ -15,7 +15,7 @@ mulgae config --mode effective --output json
 mulgae providers --include-unverified --output json
 ```
 
-`mulgae-doctor-result.v3` is an offline contract. Read its independent config,
+`mulgae-doctor-result.v4` is an offline contract. Read its independent config,
 local-security, provider-identity, binary-availability, and CLI-compatibility
 dimensions. A configured provider can be offline-ready while static evidence is
 unavailable; `static_evidence_ready_provider_count` is separate from
@@ -48,7 +48,7 @@ providers and roles before running one of the supported forms:
 
 ```bash
 mulgae init --output json
-mulgae init --providers zcode,agy --roles logic,security --output json
+mulgae init --providers zcode,grok --roles logic,security --output json
 ```
 
 In a new project, `mulgae init` creates shared `.mulgae/config.yaml` and private
@@ -98,7 +98,7 @@ provider family such as `zcode`.
 Run child workflows from the canonical Git worktree root. They do not discover
 an enclosing root automatically and have no common `--repo` override. A
 rejected child command with `--output json` still returns a
-`mulgae-command-result.v9` envelope. Interpret the pre-execution failures as
+`mulgae-command-result.v10` envelope. Interpret the pre-execution failures as
 follows:
 
 | Reason code | Exit | `request_state` | Next action |

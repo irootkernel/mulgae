@@ -162,10 +162,6 @@ func (qualifier *ProviderCurrentQualifier) DeriveEquivalentFamilyRoute(
 	if roleErr != nil {
 		return CurrentQualificationResult{}, fmt.Errorf("review run: invalid destination family roles: %w", roleErr)
 	}
-	if Family(request.SourceDefinition.Family()) == FamilyAGY &&
-		request.SourceDefinition.Instance() != request.Destination.Definition.Instance() {
-		return CurrentQualificationResult{}, fmt.Errorf("review run: AGY cross-instance family derivation is not permitted")
-	}
 	derivedAuthority, err := qualifier.deriver.DeriveEquivalentRouteDirectExecutionAuthority(
 		request.Source.familyAuthority,
 		request.SourceDefinition,
@@ -452,21 +448,7 @@ func appReceiptsFromDirectExecutionAuthority(
 		Kind: ReceiptCapability, State: ReceiptPass, ExpiresAt: authority.ExpiresAt(), Identity: identity,
 		AuthorityID: authority.AuthorityID(), AuthorityScope: AuthorityScopeDirectExecution, authority: proof,
 	}}
-	if authorityID, ok := authority.AGYControlAuthorityID(); ok {
-		if identity.Family != FamilyAGY || authorityID == "" {
-			return nil, fmt.Errorf("review run: invalid AGY current probe control authority")
-		}
-		proof.agyControlID = authorityID
-		mapped = append(mapped, Receipt{
-			Kind: ReceiptSecurityPolicy, State: ReceiptPass, ExpiresAt: authority.ExpiresAt(), Identity: identity,
-			AuthorityID: authorityID, AuthorityScope: AuthorityScopeAGYCanonicalPlanControls, authority: proof,
-		})
-		return mapped, nil
-	}
-	if identity.Family == FamilyAGY {
-		return nil, fmt.Errorf("review run: missing AGY current probe control authority")
-	}
-	if identity.Family != FamilyKimi && identity.Family != FamilyZCode && identity.Family != FamilyGrok && identity.Family != FamilyCodex {
+	if !identity.Family.Valid() {
 		return nil, fmt.Errorf("review run: unsupported current probe authority family")
 	}
 	mapped = append(mapped, Receipt{

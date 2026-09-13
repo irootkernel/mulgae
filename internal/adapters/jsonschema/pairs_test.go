@@ -192,6 +192,7 @@ type schemaExamplePair struct {
 }
 
 var authoritativePairs = []schemaExamplePair{
+	{"https://mulgae.local/schemas/mulgae-command-result.v10.schema.json", "example:command-result.v10.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v9.schema.json", "example:command-result.v9.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v8.schema.json", "example:command-result.v8.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v7.schema.json", "example:command-result.v7.valid.json"},
@@ -206,14 +207,17 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json", "example:composite-run-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json", "example:command-result.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v6.schema.json", "example:command-result.v6.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-doctor-result.v4.schema.json", "example:doctor-result.v4.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v3.schema.json", "example:doctor-result.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "example:doctor-result.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-file-catalog.v1.schema.json", "example:file-catalog.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json", "example:mcp-tool-result.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json", "example:platform-contract-evidence.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v4.schema.json", "example:provider-contract-evidence.v4.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json", "example:provider-contract-evidence.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", "example:provider-contract-evidence.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v3.schema.json", "example:provider-heartbeat-result.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v2.schema.json", "example:provider-heartbeat-result.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json", "example:provider-heartbeat-result.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json", "example:provider-followup-output.v1.valid.json"},
@@ -222,6 +226,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-repair-patch.v1.schema.json", "example:repair-patch.json"},
 	{"https://mulgae.local/schemas/mulgae-repair-request.v1.schema.json", "example:repair-request.json"},
 	{"https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", "example:review-artifact.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-review-preflight.v5.schema.json", "example:review-preflight.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v4.schema.json", "example:review-preflight.v4.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json", "example:review-preflight.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "example:run-manifest.v1.valid.json"},

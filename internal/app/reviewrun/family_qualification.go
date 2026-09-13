@@ -55,7 +55,6 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		definition.LauncherSHA256(),
 		definition.ProfileGeneration(),
 		definition.RuntimeSafetyPolicyIdentity(),
-		definition.KimiModel(),
 		strings.Join(definition.BaseArgv(), "\x1e"),
 		string(definition.TransportChannel()),
 		definition.TransportReference(),
@@ -66,11 +65,6 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		lifecycleFraming,
 		strconv.FormatInt(lifecycleStability, 10),
 		strconv.FormatInt(lifecycleTermination, 10),
-	}
-	// AGY native-home/control evidence is instance-bound, so AGY instances never
-	// share one family probe across provider instances.
-	if definition.Family() == string(FamilyAGY) {
-		parts = append(parts, definition.Instance())
 	}
 	if definition.Family() == string(FamilyCodex) && definition.ProfileID() != definition.Instance() {
 		parts = append(parts, definition.ProfileID())
@@ -263,34 +257,8 @@ func scheduleFamilyQualificationGroups(groups []familyQualificationGroup) [][]fa
 	if len(groups) == 0 {
 		return nil
 	}
-	zcode := make([]familyQualificationGroup, 0, len(groups))
-	agy := make([]familyQualificationGroup, 0, len(groups))
-	remainder := make([]familyQualificationGroup, 0, len(groups))
-	for _, group := range groups {
-		switch group.family {
-		case FamilyZCode:
-			zcode = append(zcode, group)
-		case FamilyAGY:
-			agy = append(agy, group)
-		default:
-			remainder = append(remainder, group)
-		}
-	}
 	batches := make([][]familyQualificationGroup, 0, len(groups))
-	pairCount := len(zcode)
-	if len(agy) < pairCount {
-		pairCount = len(agy)
-	}
-	for index := 0; index < pairCount; index++ {
-		batches = append(batches, []familyQualificationGroup{zcode[index], agy[index]})
-	}
-	for index := pairCount; index < len(zcode); index++ {
-		batches = append(batches, []familyQualificationGroup{zcode[index]})
-	}
-	for index := pairCount; index < len(agy); index++ {
-		batches = append(batches, []familyQualificationGroup{agy[index]})
-	}
-	for _, group := range remainder {
+	for _, group := range groups {
 		batches = append(batches, []familyQualificationGroup{group})
 	}
 	return batches

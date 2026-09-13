@@ -99,7 +99,7 @@ func summarizeMCPPreflight(result mulgaeentry.ReviewPreflightResult) (map[string
 	}
 	return map[string]any{
 		"status": result.Status, "qualification": result.Qualification, "target": result.Target,
-		"agy_permission_mode": result.AGYPermissionMode, "warnings": result.Warnings,
+		"warnings":  result.Warnings,
 		"file_sets": fileSets, "generated_files": result.GeneratedFiles,
 		"transmissions": result.Transmissions, "budget": result.Budget,
 	}, nil

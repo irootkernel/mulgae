@@ -38,22 +38,8 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	if err != nil {
 		return nil, err
 	}
-	if spec.HasPostOutputLifecycle {
-		return NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
-			spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
-			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
-			append([]string(nil), spec.BaseArgv...), transport, spec.PostOutputLifecycle,
-			append([]ports.EnvironmentVariable(nil), spec.Environment...), spec.WorkingDirectory,
-			spec.Timeout,
-		)
-	}
-	if spec.Family == FamilyKimi {
-		return NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
-			spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
-			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity, spec.KimiModel,
-			append([]string(nil), spec.BaseArgv...), transport, append([]ports.EnvironmentVariable(nil), spec.Environment...),
-			spec.WorkingDirectory, spec.Timeout,
-		)
+	if spec.HasPostOutputLifecycle || spec.PostOutputLifecycle.Valid() {
+		return nil, fmt.Errorf("provider runtime builder: post-output lifecycle is unsupported")
 	}
 	if spec.Family == FamilyCodex {
 		return NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
@@ -73,12 +59,8 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 
 func credentialFamilyForRuntime(family string) (CredentialSourceFamily, error) {
 	switch family {
-	case FamilyKimi:
-		return CredentialSourceKimi, nil
 	case FamilyZcode:
 		return CredentialSourceZCode, nil
-	case FamilyAgy:
-		return CredentialSourceAGY, nil
 	case FamilyGrok:
 		return CredentialSourceGrok, nil
 	case FamilyCodex:

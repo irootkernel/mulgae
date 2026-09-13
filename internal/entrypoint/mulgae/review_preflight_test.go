@@ -14,7 +14,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v4.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v5.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +56,9 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 	}
 }
 
-func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
+func TestReviewPreflightValidateWarningsAndNoChange(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v4.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v5.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,34 +66,11 @@ func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
 	if err := json.Unmarshal(bytes, &result); err != nil {
 		t.Fatal(err)
 	}
-	result.AGYPermissionMode = "safe"
+	result.Warnings = []string{"unexpected warning"}
+	if err := result.Validate(); err == nil {
+		t.Fatal("unexpected warning was accepted")
+	}
 	result.Warnings = nil
-	for index := range result.Transmissions {
-		if result.Transmissions[index].ProviderFamily == "agy" {
-			result.Transmissions[index].PermissionMode = "safe"
-		}
-	}
-	if err := result.Validate(); err != nil {
-		t.Fatalf("safe mode result: %v", err)
-	}
-
-	result.AGYPermissionMode = "dangerously-skip-permissions"
-	result.Warnings = []string{"AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary."}
-	for index := range result.Transmissions {
-		if result.Transmissions[index].ProviderFamily == "agy" {
-			result.Transmissions[index].PermissionMode = "dangerously-skip-permissions"
-		}
-	}
-	if err := result.Validate(); err != nil {
-		t.Fatalf("headless mode result: %v", err)
-	}
-	result.AGYPermissionMode = "safe"
-	result.Warnings = nil
-	for index := range result.Transmissions {
-		if result.Transmissions[index].ProviderFamily == "agy" {
-			result.Transmissions[index].PermissionMode = "safe"
-		}
-	}
 
 	result.Status = "no_change"
 	result.Transmissions = nil
@@ -197,7 +174,7 @@ func loadReviewPreflightExample(t *testing.T) ReviewPreflightResult {
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v4.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v5.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

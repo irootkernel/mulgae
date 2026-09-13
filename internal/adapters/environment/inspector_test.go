@@ -80,140 +80,6 @@ func TestObserveExecutableReturnsAbsentWithoutPATHSubstitution(t *testing.T) {
 	}
 }
 
-func TestObserveExecutableResolvesSymlinkAndHashesExactBytes(t *testing.T) {
-	directory := t.TempDir()
-	target := filepath.Join(directory, "kimi")
-	contents := []byte("provider executable\n")
-	writeExecutable(t, target, contents)
-	link := filepath.Join(directory, "kimi-link")
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatalf("Symlink() error = %v", err)
-	}
-	resolvedTarget, err := filepath.EvalSymlinks(target)
-	if err != nil {
-		t.Fatalf("EvalSymlinks() error = %v", err)
-	}
-
-	inspector := newInspector(inspectorDependencies{
-		lookup: func(name string) (string, error) {
-			if name != "kimi" {
-				t.Fatalf("lookup name = %q, want kimi", name)
-			}
-			return link, nil
-		},
-		version: func(ctx context.Context, path string) ([]byte, error) {
-			if path != resolvedTarget {
-				t.Fatalf("version path = %q, want %q", path, resolvedTarget)
-			}
-			if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-				t.Fatal("version observation context has no deadline")
-			}
-			return []byte("  kimi 0.23.6  \n"), nil
-		},
-	})
-
-	observation, err := inspector.ObserveExecutable(context.Background(), "kimi")
-	if err != nil {
-		t.Fatalf("ObserveExecutable() error = %v", err)
-	}
-	sum := sha256.Sum256(contents)
-	if !observation.Found() || observation.ResolvedPath() != resolvedTarget || observation.SHA256() != "sha256:"+hex.EncodeToString(sum[:]) || observation.Version() != "0.23.6" {
-		t.Fatalf("observation = found=%t path=%q hash=%q version=%q", observation.Found(), observation.ResolvedPath(), observation.SHA256(), observation.Version())
-	}
-}
-func TestObserveExecutableVersionFailureLeavesExecutableAvailable(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		version func(context.Context, string) ([]byte, error)
-	}{
-		{
-			name: "timeout",
-			version: func(context.Context, string) ([]byte, error) {
-				return nil, context.DeadlineExceeded
-			},
-		},
-		{
-			name: "failure",
-			version: func(context.Context, string) ([]byte, error) {
-				return nil, errors.New("version failed")
-			},
-		},
-		{
-			name: "malformed output",
-			version: func(_ context.Context, _ string) ([]byte, error) {
-				return []byte("kimi\n0.23.6"), nil
-			},
-		},
-		{
-			name: "ANSI output",
-			version: func(_ context.Context, _ string) ([]byte, error) {
-				return []byte("\x1b[31m0.23.6\x1b[0m"), nil
-			},
-		},
-		{
-			name: "ambiguous versions",
-			version: func(_ context.Context, _ string) ([]byte, error) {
-				return []byte("kimi 0.23.6 runtime 1.2.3"), nil
-			},
-		},
-		{
-			name: "adjacent ambiguous versions",
-			version: func(_ context.Context, _ string) ([]byte, error) {
-				return []byte("0.23.6 9.9.9"), nil
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			descriptor := &testExecutableDescriptor{
-				snapshots:  []executableSnapshot{regularSnapshot(0)},
-				executable: true,
-			}
-			inspector := injectedExecutableInspector(t, descriptor)
-			inspector.version = test.version
-
-			observation, err := inspector.ObserveExecutable(context.Background(), "kimi")
-			if err != nil {
-				t.Fatalf("ObserveExecutable() error = %v", err)
-			}
-			if !observation.Found() || observation.Version() != "" {
-				t.Fatalf("observation = found=%t version=%q, want found with empty version", observation.Found(), observation.Version())
-			}
-		})
-	}
-}
-
-func TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes(t *testing.T) {
-	tests := []struct {
-		name    string
-		script  string
-		state   ports.ProviderVersionState
-		version string
-	}{
-		{"supported", "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf 'agy 1.1.4\\n'\n", ports.ProviderVersionObserved, "1.1.4"},
-		{"malformed", "#!/bin/sh\nprintf 'agy unknown\\n'\n", ports.ProviderVersionMalformed, ""},
-		{"execution failure", "#!/bin/sh\nexit 7\n", ports.ProviderVersionExecutionFailed, ""},
-		{"timeout", "#!/bin/sh\nsleep 30\n", ports.ProviderVersionTimedOut, ""},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			directory, err := filepath.EvalSymlinks(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			path := filepath.Join(directory, "agy")
-			contents := []byte(test.script)
-			writeExecutable(t, path, contents)
-			observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "agy", []string{path, "--version"}, testDigest(contents), testDigest(contents))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if observation.State() != test.state || observation.Version() != test.version {
-				t.Fatalf("observation = %q/%q, want %q/%q", observation.State(), observation.Version(), test.state, test.version)
-			}
-		})
-	}
-}
-
 func TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher(t *testing.T) {
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -236,247 +102,9 @@ func TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher(t *tes
 	}
 }
 
-func TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution(t *testing.T) {
-	directory, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(directory, "agy")
-	contents := []byte("#!/bin/sh\nprintf '1.1.4\\n'\n")
-	writeExecutable(t, path, contents)
-	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "agy", []string{path, "--version"}, "sha256:"+strings.Repeat("0", 64), testDigest(contents))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observation.State() != ports.ProviderVersionUnsafeIdentity {
-		t.Fatalf("observation state = %q, want unsafe_identity", observation.State())
-	}
-}
-
 func testDigest(contents []byte) string {
 	digest := sha256.Sum256(contents)
 	return "sha256:" + hex.EncodeToString(digest[:])
-}
-
-func TestObserveExecutableAcceptsLargeVersionOutput(t *testing.T) {
-	descriptor := &testExecutableDescriptor{
-		snapshots:  []executableSnapshot{regularSnapshot(0)},
-		executable: true,
-	}
-	inspector := injectedExecutableInspector(t, descriptor)
-	inspector.version = func(context.Context, string) ([]byte, error) {
-		return append(bytes.Repeat([]byte("x"), 1<<20), []byte(" 0.23.6")...), nil
-	}
-
-	observation, err := inspector.ObserveExecutable(context.Background(), "kimi")
-	if err != nil {
-		t.Fatalf("ObserveExecutable() error = %v", err)
-	}
-	if !observation.Found() || observation.Version() != "0.23.6" {
-		t.Fatalf("observation = found=%t version=%q", observation.Found(), observation.Version())
-	}
-}
-
-func TestObserveExecutableRejectsNonRegularAndNonEffectiveTargets(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		descriptor *testExecutableDescriptor
-	}{
-		{
-			name: "directory",
-			descriptor: &testExecutableDescriptor{
-				snapshots: []executableSnapshot{directorySnapshot()},
-			},
-		},
-		{
-			name: "non-effective executable",
-			descriptor: &testExecutableDescriptor{
-				snapshots:  []executableSnapshot{regularSnapshot(0)},
-				executable: false,
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			inspector := injectedExecutableInspector(t, test.descriptor)
-
-			if _, err := inspector.ObserveExecutable(context.Background(), "agy"); err == nil {
-				t.Fatal("ObserveExecutable() succeeded for rejected target")
-			}
-			if test.descriptor.reads != 0 {
-				t.Fatal("ObserveExecutable() hashed a rejected target")
-			}
-		})
-	}
-}
-func TestObserveExecutableDoesNotObserveVersionBeforeSafetyChecks(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		descriptor *testExecutableDescriptor
-	}{
-		{
-			name: "non-regular",
-			descriptor: &testExecutableDescriptor{
-				snapshots: []executableSnapshot{directorySnapshot()},
-			},
-		},
-		{
-			name: "not executable",
-			descriptor: &testExecutableDescriptor{
-				snapshots:  []executableSnapshot{regularSnapshot(0)},
-				executable: false,
-			},
-		},
-		{
-			name: "oversized",
-			descriptor: &testExecutableDescriptor{
-				snapshots:  []executableSnapshot{regularSnapshot(maximumExecutableSize + 1)},
-				executable: true,
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			versionCalls := 0
-			inspector := injectedExecutableInspector(t, test.descriptor)
-			inspector.version = func(context.Context, string) ([]byte, error) {
-				versionCalls++
-				return []byte("kimi 0.23.6"), nil
-			}
-
-			if _, err := inspector.ObserveExecutable(context.Background(), "kimi"); err == nil {
-				t.Fatal("ObserveExecutable() accepted an unsafe executable")
-			}
-			if versionCalls != 0 {
-				t.Fatalf("version observations = %d, want none before safety checks", versionCalls)
-			}
-		})
-	}
-}
-
-func TestObserveExecutableRejectsOversizedTarget(t *testing.T) {
-	descriptor := &testExecutableDescriptor{
-		snapshots:  []executableSnapshot{regularSnapshot(maximumExecutableSize + 1)},
-		executable: true,
-	}
-	inspector := injectedExecutableInspector(t, descriptor)
-
-	if _, err := inspector.ObserveExecutable(context.Background(), "kimi"); err == nil {
-		t.Fatal("ObserveExecutable() accepted an oversized target")
-	}
-	if descriptor.reads != 0 {
-		t.Fatal("ObserveExecutable() hashed an oversized target")
-	}
-}
-
-func TestObserveExecutableRejectsSymlinkResolutionFailures(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		resolved string
-		err      error
-	}{
-		{name: "cycle", err: errors.New("symlink cycle")},
-		{name: "uncanonical target", resolved: "/approved/../provider"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			versionCalls := 0
-			inspector := newInspector(inspectorDependencies{
-				lookup:        func(string) (string, error) { return "/approved/provider", nil },
-				evaluateLinks: func(string) (string, error) { return test.resolved, test.err },
-				version: func(context.Context, string) ([]byte, error) {
-					versionCalls++
-					return nil, nil
-				},
-			})
-			if _, err := inspector.ObserveExecutable(context.Background(), "kimi"); err == nil {
-				t.Fatal("ObserveExecutable() succeeded for unsafe resolution")
-			}
-			if versionCalls != 0 {
-				t.Fatalf("version observations = %d, want none before resolution safety checks", versionCalls)
-			}
-		})
-	}
-}
-
-func TestObserveExecutablePreservesCancellationDuringHash(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	descriptor := &testExecutableDescriptor{
-		snapshots:  []executableSnapshot{regularSnapshot(3), regularSnapshot(3)},
-		executable: true,
-		reader: readFunc(func(buffer []byte) (int, error) {
-			cancel()
-			copy(buffer, "abc")
-			return 3, io.EOF
-		}),
-	}
-	inspector := injectedExecutableInspector(t, descriptor)
-
-	_, err := inspector.ObserveExecutable(ctx, "kimi")
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("ObserveExecutable() error = %v, want context.Canceled", err)
-	}
-	if descriptor.reads != 1 {
-		t.Fatalf("hash reads = %d, want one chunk before cancellation", descriptor.reads)
-	}
-}
-
-func TestObserveExecutableRejectsDescriptorMutationDuringHash(t *testing.T) {
-	before := regularSnapshot(3)
-	after := before
-	after.mtimeNsec++
-	descriptor := &testExecutableDescriptor{
-		snapshots:  []executableSnapshot{before, after},
-		executable: true,
-		reader:     bytes.NewReader([]byte("abc")),
-	}
-	inspector := injectedExecutableInspector(t, descriptor)
-
-	if _, err := inspector.ObserveExecutable(context.Background(), "kimi"); err == nil {
-		t.Fatal("ObserveExecutable() accepted a descriptor whose mtime changed during hashing")
-	}
-}
-func TestObserveExecutableRejectsEarlyEOF(t *testing.T) {
-	descriptor := &testExecutableDescriptor{
-		snapshots:  []executableSnapshot{regularSnapshot(3)},
-		executable: true,
-		reader:     bytes.NewReader([]byte("ab")),
-	}
-	inspector := injectedExecutableInspector(t, descriptor)
-
-	if _, err := inspector.ObserveExecutable(context.Background(), "kimi"); err == nil {
-		t.Fatal("ObserveExecutable() accepted a truncated executable")
-	}
-	if descriptor.reads != 2 {
-		t.Fatalf("hash reads = %d, want reads bounded by the snapshotted size", descriptor.reads)
-	}
-}
-
-func TestObserveExecutableRejectsGrowingReaderWithOneOverflowRead(t *testing.T) {
-	var readSizes []int
-	descriptor := &testExecutableDescriptor{
-		snapshots:  []executableSnapshot{regularSnapshot(3)},
-		executable: true,
-		reader: readFunc(func(buffer []byte) (int, error) {
-			readSizes = append(readSizes, len(buffer))
-			switch len(readSizes) {
-			case 1:
-				copy(buffer, "abc")
-				return 3, nil
-			case 2:
-				buffer[0] = 'd'
-				return 1, io.EOF
-			default:
-				t.Fatalf("Read() called %d times, want exactly two reads", len(readSizes))
-				return 0, io.EOF
-			}
-		}),
-	}
-	inspector := injectedExecutableInspector(t, descriptor)
-
-	if _, err := inspector.ObserveExecutable(context.Background(), "kimi"); err == nil {
-		t.Fatal("ObserveExecutable() accepted a growing executable")
-	}
-	if len(readSizes) != 2 || readSizes[0] != 3 || readSizes[1] != 1 {
-		t.Fatalf("read sizes = %v, want [3 1]", readSizes)
-	}
 }
 
 func TestDarwinExecutableDescriptorRejectsRenameAndSymlinkSwaps(t *testing.T) {
@@ -537,64 +165,6 @@ func TestDarwinExecutableDescriptorRejectsRenameAndSymlinkSwaps(t *testing.T) {
 		})
 	}
 }
-func TestObserveExecutableRejectsAncestorRenameAndPathReplacement(t *testing.T) {
-	directory, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	ancestor := filepath.Join(directory, "ancestor")
-	replacement := filepath.Join(directory, "replacement")
-	moved := filepath.Join(directory, "moved")
-	if err := os.Mkdir(ancestor, 0o700); err != nil {
-		t.Fatalf("Mkdir() error = %v", err)
-	}
-	if err := os.Mkdir(replacement, 0o700); err != nil {
-		t.Fatalf("Mkdir() error = %v", err)
-	}
-	target := filepath.Join(ancestor, "provider")
-	writeExecutable(t, target, []byte("original"))
-	writeExecutable(t, filepath.Join(replacement, "provider"), []byte("original"))
-
-	descriptor, err := openCanonicalExecutable(target)
-	if err != nil {
-		t.Fatalf("openCanonicalExecutable() error = %v", err)
-	}
-	wrapped := &synchronizedExecutableDescriptor{
-		executableDescriptor: descriptor,
-		afterFirstRead: func() {
-			if err := os.Rename(ancestor, moved); err != nil {
-				t.Fatalf("Rename() error = %v", err)
-			}
-			if err := os.Rename(replacement, ancestor); err != nil {
-				t.Fatalf("Rename() error = %v", err)
-			}
-		},
-	}
-
-	opens := 0
-	inspector := newInspector(inspectorDependencies{
-		lookup:        func(string) (string, error) { return target, nil },
-		evaluateLinks: func(path string) (string, error) { return path, nil },
-		executable: func(path string) (executableDescriptor, error) {
-			if path != target {
-				t.Fatalf("executable path = %q, want %q", path, target)
-			}
-			opens++
-			if opens == 1 {
-				return wrapped, nil
-			}
-			return openCanonicalExecutable(path)
-		},
-	})
-
-	if _, err := inspector.ObserveExecutable(context.Background(), "kimi"); err == nil {
-		t.Fatal("ObserveExecutable() accepted an executable replaced through an ancestor rename")
-	}
-	if opens != 2 {
-		t.Fatalf("executable opens = %d, want initial open and canonical re-open", opens)
-	}
-}
-
 func TestReadableFileIdentityAcceptsNonExecutableCJSAndSpawnRevalidatesHash(t *testing.T) {
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -1091,96 +661,6 @@ func TestBootstrapEnvironmentDefensiveValuesAndDeterministicDigest(t *testing.T)
 	}
 }
 
-func TestBootstrapEnvironmentFreezesKimiCodeHome(t *testing.T) {
-	root := canonicalBootstrapTempDir(t)
-	home, temp, bin := filepath.Join(root, "home"), filepath.Join(root, "tmp"), filepath.Join(root, "bin")
-	for _, path := range []string{home, temp, bin} {
-		if err := os.Mkdir(path, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	kimiHome := filepath.Join(home, ".kimi-code")
-	environment, err := NewBootstrapEnvironmentWithKimiCodeHome(home, "", kimiHome, bin, temp, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	inspectorHome, inspectorErr := environment.Inspector().KimiCodeHome()
-	if environment.KimiCodeHome() != kimiHome || inspectorErr != nil || inspectorHome != kimiHome {
-		t.Fatalf("frozen KIMI_CODE_HOME=%q/%q err=%v", environment.KimiCodeHome(), inspectorHome, inspectorErr)
-	}
-	without, err := NewBootstrapEnvironment(home, "", bin, temp, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if environment.Digest() == without.Digest() {
-		t.Fatal("KIMI_CODE_HOME was not bound into the bootstrap digest")
-	}
-	if _, err := NewBootstrapEnvironmentWithKimiCodeHome(home, "", "relative", bin, temp, nil); err == nil {
-		t.Fatal("relative KIMI_CODE_HOME accepted")
-	}
-	inspector := NewStartupDiscoveryInspector(bin, "relative")
-	if _, err := inspector.KimiCodeHome(); err == nil {
-		t.Fatal("invalid startup KIMI_CODE_HOME was not retained fail-closed")
-	}
-}
-
-func TestStartupDiscoveryInspectorFreezesPATHAndDefersKimiError(t *testing.T) {
-	root := canonicalBootstrapTempDir(t)
-	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
-	for _, directory := range []string{first, second} {
-		if err := os.Mkdir(directory, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	firstTarget := filepath.Join(root, "provider-kimi")
-	for _, executable := range []string{firstTarget, filepath.Join(second, "kimi")} {
-		if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Symlink(firstTarget, filepath.Join(first, "kimi")); err != nil {
-		t.Fatal(err)
-	}
-	inspector := NewStartupDiscoveryInspector(first, "relative-kimi-home")
-	t.Setenv("PATH", second)
-	observation, err := inspector.ObserveExecutableIdentity(context.Background(), "kimi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observation.ResolvedPath() != firstTarget {
-		t.Fatalf("resolved path=%q", observation.ResolvedPath())
-	}
-	if _, err := inspector.KimiCodeHome(); err == nil {
-		t.Fatal("invalid startup KIMI_CODE_HOME was not deferred")
-	}
-}
-
-func TestStartupDiscoveryInspectorRejectsPathSymlinkIntoProject(t *testing.T) {
-	root := canonicalBootstrapTempDir(t)
-	pathDirectory := filepath.Join(root, "path")
-	projectDirectory := filepath.Join(root, "project")
-	for _, directory := range []string{pathDirectory, projectDirectory} {
-		if err := os.Mkdir(directory, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	target := filepath.Join(projectDirectory, "kimi")
-	if err := os.WriteFile(target, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, filepath.Join(pathDirectory, "kimi")); err != nil {
-		t.Fatal(err)
-	}
-	project, err := ports.NewAnchoredRoot(projectDirectory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	inspector := NewStartupDiscoveryInspector(pathDirectory, "", project)
-	if _, err := inspector.ObserveExecutableIdentity(context.Background(), "kimi"); err == nil {
-		t.Fatal("PATH symlink into project accepted")
-	}
-}
-
 func TestBootstrapEnvironmentRejectsUnsafePathEntries(t *testing.T) {
 	root := canonicalBootstrapTempDir(t)
 	for _, path := range []string{"home", "tmp", "bin"} {
@@ -1276,5 +756,464 @@ func TestObserveNativeHomeIdentityRejectsSymlinkTraversal(t *testing.T) {
 		t.Fatal("symlinked native home accepted")
 	} else if kind, ok := ports.IdentityObservationFailure(err); !ok || kind != ports.IdentityObservationSecurity {
 		t.Fatalf("native home error class = %q, %v", kind, err)
+	}
+}
+
+func TestObserveExecutableResolvesSymlinkAndHashesExactBytes(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "grok")
+	contents := []byte("provider executable\n")
+	writeExecutable(t, target, contents)
+	link := filepath.Join(directory, "grok-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	resolvedTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("EvalSymlinks() error = %v", err)
+	}
+
+	inspector := newInspector(inspectorDependencies{
+		lookup: func(name string) (string, error) {
+			if name != "grok" {
+				t.Fatalf("lookup name = %q, want grok", name)
+			}
+			return link, nil
+		},
+		version: func(ctx context.Context, path string) ([]byte, error) {
+			if path != resolvedTarget {
+				t.Fatalf("version path = %q, want %q", path, resolvedTarget)
+			}
+			if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+				t.Fatal("version observation context has no deadline")
+			}
+			return []byte("  grok 0.23.6  \n"), nil
+		},
+	})
+
+	observation, err := inspector.ObserveExecutable(context.Background(), "grok")
+	if err != nil {
+		t.Fatalf("ObserveExecutable() error = %v", err)
+	}
+	sum := sha256.Sum256(contents)
+	if !observation.Found() || observation.ResolvedPath() != resolvedTarget || observation.SHA256() != "sha256:"+hex.EncodeToString(sum[:]) || observation.Version() != "0.23.6" {
+		t.Fatalf("observation = found=%t path=%q hash=%q version=%q", observation.Found(), observation.ResolvedPath(), observation.SHA256(), observation.Version())
+	}
+}
+
+func TestObserveExecutableVersionFailureLeavesExecutableAvailable(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version func(context.Context, string) ([]byte, error)
+	}{
+		{
+			name: "timeout",
+			version: func(context.Context, string) ([]byte, error) {
+				return nil, context.DeadlineExceeded
+			},
+		},
+		{
+			name: "failure",
+			version: func(context.Context, string) ([]byte, error) {
+				return nil, errors.New("version failed")
+			},
+		},
+		{
+			name: "malformed output",
+			version: func(_ context.Context, _ string) ([]byte, error) {
+				return []byte("grok\n0.23.6"), nil
+			},
+		},
+		{
+			name: "ANSI output",
+			version: func(_ context.Context, _ string) ([]byte, error) {
+				return []byte("\x1b[31m0.23.6\x1b[0m"), nil
+			},
+		},
+		{
+			name: "ambiguous versions",
+			version: func(_ context.Context, _ string) ([]byte, error) {
+				return []byte("grok 0.23.6 runtime 1.2.3"), nil
+			},
+		},
+		{
+			name: "adjacent ambiguous versions",
+			version: func(_ context.Context, _ string) ([]byte, error) {
+				return []byte("0.23.6 9.9.9"), nil
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			descriptor := &testExecutableDescriptor{
+				snapshots:  []executableSnapshot{regularSnapshot(0)},
+				executable: true,
+			}
+			inspector := injectedExecutableInspector(t, descriptor)
+			inspector.version = test.version
+
+			observation, err := inspector.ObserveExecutable(context.Background(), "grok")
+			if err != nil {
+				t.Fatalf("ObserveExecutable() error = %v", err)
+			}
+			if !observation.Found() || observation.Version() != "" {
+				t.Fatalf("observation = found=%t version=%q, want found with empty version", observation.Found(), observation.Version())
+			}
+		})
+	}
+}
+
+func TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes(t *testing.T) {
+	tests := []struct {
+		name    string
+		script  string
+		state   ports.ProviderVersionState
+		version string
+	}{
+		{"supported", "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf 'grok 1.1.4\\n'\n", ports.ProviderVersionObserved, "1.1.4"},
+		{"malformed", "#!/bin/sh\nprintf 'grok unknown\\n'\n", ports.ProviderVersionMalformed, ""},
+		{"execution failure", "#!/bin/sh\nexit 7\n", ports.ProviderVersionExecutionFailed, ""},
+		{"timeout", "#!/bin/sh\nsleep 30\n", ports.ProviderVersionTimedOut, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, "grok")
+			contents := []byte(test.script)
+			writeExecutable(t, path, contents)
+			observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "grok", []string{path, "--version"}, testDigest(contents), testDigest(contents))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observation.State() != test.state || observation.Version() != test.version {
+				t.Fatalf("observation = %q/%q, want %q/%q", observation.State(), observation.Version(), test.state, test.version)
+			}
+		})
+	}
+}
+
+func TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "grok")
+	contents := []byte("#!/bin/sh\nprintf '1.1.4\\n'\n")
+	writeExecutable(t, path, contents)
+	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "grok", []string{path, "--version"}, "sha256:"+strings.Repeat("0", 64), testDigest(contents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.State() != ports.ProviderVersionUnsafeIdentity {
+		t.Fatalf("observation state = %q, want unsafe_identity", observation.State())
+	}
+}
+
+func TestObserveExecutableAcceptsLargeVersionOutput(t *testing.T) {
+	descriptor := &testExecutableDescriptor{
+		snapshots:  []executableSnapshot{regularSnapshot(0)},
+		executable: true,
+	}
+	inspector := injectedExecutableInspector(t, descriptor)
+	inspector.version = func(context.Context, string) ([]byte, error) {
+		return append(bytes.Repeat([]byte("x"), 1<<20), []byte(" 0.23.6")...), nil
+	}
+
+	observation, err := inspector.ObserveExecutable(context.Background(), "grok")
+	if err != nil {
+		t.Fatalf("ObserveExecutable() error = %v", err)
+	}
+	if !observation.Found() || observation.Version() != "0.23.6" {
+		t.Fatalf("observation = found=%t version=%q", observation.Found(), observation.Version())
+	}
+}
+
+func TestObserveExecutableRejectsNonRegularAndNonEffectiveTargets(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		descriptor *testExecutableDescriptor
+	}{
+		{
+			name: "directory",
+			descriptor: &testExecutableDescriptor{
+				snapshots: []executableSnapshot{directorySnapshot()},
+			},
+		},
+		{
+			name: "non-effective executable",
+			descriptor: &testExecutableDescriptor{
+				snapshots:  []executableSnapshot{regularSnapshot(0)},
+				executable: false,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inspector := injectedExecutableInspector(t, test.descriptor)
+
+			if _, err := inspector.ObserveExecutable(context.Background(), "grok"); err == nil {
+				t.Fatal("ObserveExecutable() succeeded for rejected target")
+			}
+			if test.descriptor.reads != 0 {
+				t.Fatal("ObserveExecutable() hashed a rejected target")
+			}
+		})
+	}
+}
+
+func TestObserveExecutableDoesNotObserveVersionBeforeSafetyChecks(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		descriptor *testExecutableDescriptor
+	}{
+		{
+			name: "non-regular",
+			descriptor: &testExecutableDescriptor{
+				snapshots: []executableSnapshot{directorySnapshot()},
+			},
+		},
+		{
+			name: "not executable",
+			descriptor: &testExecutableDescriptor{
+				snapshots:  []executableSnapshot{regularSnapshot(0)},
+				executable: false,
+			},
+		},
+		{
+			name: "oversized",
+			descriptor: &testExecutableDescriptor{
+				snapshots:  []executableSnapshot{regularSnapshot(maximumExecutableSize + 1)},
+				executable: true,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			versionCalls := 0
+			inspector := injectedExecutableInspector(t, test.descriptor)
+			inspector.version = func(context.Context, string) ([]byte, error) {
+				versionCalls++
+				return []byte("grok 0.23.6"), nil
+			}
+
+			if _, err := inspector.ObserveExecutable(context.Background(), "grok"); err == nil {
+				t.Fatal("ObserveExecutable() accepted an unsafe executable")
+			}
+			if versionCalls != 0 {
+				t.Fatalf("version observations = %d, want none before safety checks", versionCalls)
+			}
+		})
+	}
+}
+
+func TestObserveExecutableRejectsOversizedTarget(t *testing.T) {
+	descriptor := &testExecutableDescriptor{
+		snapshots:  []executableSnapshot{regularSnapshot(maximumExecutableSize + 1)},
+		executable: true,
+	}
+	inspector := injectedExecutableInspector(t, descriptor)
+
+	if _, err := inspector.ObserveExecutable(context.Background(), "grok"); err == nil {
+		t.Fatal("ObserveExecutable() accepted an oversized target")
+	}
+	if descriptor.reads != 0 {
+		t.Fatal("ObserveExecutable() hashed an oversized target")
+	}
+}
+
+func TestObserveExecutableRejectsSymlinkResolutionFailures(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		resolved string
+		err      error
+	}{
+		{name: "cycle", err: errors.New("symlink cycle")},
+		{name: "uncanonical target", resolved: "/approved/../provider"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			versionCalls := 0
+			inspector := newInspector(inspectorDependencies{
+				lookup:        func(string) (string, error) { return "/approved/provider", nil },
+				evaluateLinks: func(string) (string, error) { return test.resolved, test.err },
+				version: func(context.Context, string) ([]byte, error) {
+					versionCalls++
+					return nil, nil
+				},
+			})
+			if _, err := inspector.ObserveExecutable(context.Background(), "grok"); err == nil {
+				t.Fatal("ObserveExecutable() succeeded for unsafe resolution")
+			}
+			if versionCalls != 0 {
+				t.Fatalf("version observations = %d, want none before resolution safety checks", versionCalls)
+			}
+		})
+	}
+}
+
+func TestObserveExecutablePreservesCancellationDuringHash(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	descriptor := &testExecutableDescriptor{
+		snapshots:  []executableSnapshot{regularSnapshot(3), regularSnapshot(3)},
+		executable: true,
+		reader: readFunc(func(buffer []byte) (int, error) {
+			cancel()
+			copy(buffer, "abc")
+			return 3, io.EOF
+		}),
+	}
+	inspector := injectedExecutableInspector(t, descriptor)
+
+	_, err := inspector.ObserveExecutable(ctx, "grok")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ObserveExecutable() error = %v, want context.Canceled", err)
+	}
+	if descriptor.reads != 1 {
+		t.Fatalf("hash reads = %d, want one chunk before cancellation", descriptor.reads)
+	}
+}
+
+func TestObserveExecutableRejectsDescriptorMutationDuringHash(t *testing.T) {
+	before := regularSnapshot(3)
+	after := before
+	after.mtimeNsec++
+	descriptor := &testExecutableDescriptor{
+		snapshots:  []executableSnapshot{before, after},
+		executable: true,
+		reader:     bytes.NewReader([]byte("abc")),
+	}
+	inspector := injectedExecutableInspector(t, descriptor)
+
+	if _, err := inspector.ObserveExecutable(context.Background(), "grok"); err == nil {
+		t.Fatal("ObserveExecutable() accepted a descriptor whose mtime changed during hashing")
+	}
+}
+
+func TestObserveExecutableRejectsEarlyEOF(t *testing.T) {
+	descriptor := &testExecutableDescriptor{
+		snapshots:  []executableSnapshot{regularSnapshot(3)},
+		executable: true,
+		reader:     bytes.NewReader([]byte("ab")),
+	}
+	inspector := injectedExecutableInspector(t, descriptor)
+
+	if _, err := inspector.ObserveExecutable(context.Background(), "grok"); err == nil {
+		t.Fatal("ObserveExecutable() accepted a truncated executable")
+	}
+	if descriptor.reads != 2 {
+		t.Fatalf("hash reads = %d, want reads bounded by the snapshotted size", descriptor.reads)
+	}
+}
+
+func TestObserveExecutableRejectsGrowingReaderWithOneOverflowRead(t *testing.T) {
+	var readSizes []int
+	descriptor := &testExecutableDescriptor{
+		snapshots:  []executableSnapshot{regularSnapshot(3)},
+		executable: true,
+		reader: readFunc(func(buffer []byte) (int, error) {
+			readSizes = append(readSizes, len(buffer))
+			switch len(readSizes) {
+			case 1:
+				copy(buffer, "abc")
+				return 3, nil
+			case 2:
+				buffer[0] = 'd'
+				return 1, io.EOF
+			default:
+				t.Fatalf("Read() called %d times, want exactly two reads", len(readSizes))
+				return 0, io.EOF
+			}
+		}),
+	}
+	inspector := injectedExecutableInspector(t, descriptor)
+
+	if _, err := inspector.ObserveExecutable(context.Background(), "grok"); err == nil {
+		t.Fatal("ObserveExecutable() accepted a growing executable")
+	}
+	if len(readSizes) != 2 || readSizes[0] != 3 || readSizes[1] != 1 {
+		t.Fatalf("read sizes = %v, want [3 1]", readSizes)
+	}
+}
+
+func TestObserveExecutableRejectsAncestorRenameAndPathReplacement(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ancestor := filepath.Join(directory, "ancestor")
+	replacement := filepath.Join(directory, "replacement")
+	moved := filepath.Join(directory, "moved")
+	if err := os.Mkdir(ancestor, 0o700); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	if err := os.Mkdir(replacement, 0o700); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	target := filepath.Join(ancestor, "provider")
+	writeExecutable(t, target, []byte("original"))
+	writeExecutable(t, filepath.Join(replacement, "provider"), []byte("original"))
+
+	descriptor, err := openCanonicalExecutable(target)
+	if err != nil {
+		t.Fatalf("openCanonicalExecutable() error = %v", err)
+	}
+	wrapped := &synchronizedExecutableDescriptor{
+		executableDescriptor: descriptor,
+		afterFirstRead: func() {
+			if err := os.Rename(ancestor, moved); err != nil {
+				t.Fatalf("Rename() error = %v", err)
+			}
+			if err := os.Rename(replacement, ancestor); err != nil {
+				t.Fatalf("Rename() error = %v", err)
+			}
+		},
+	}
+
+	opens := 0
+	inspector := newInspector(inspectorDependencies{
+		lookup:        func(string) (string, error) { return target, nil },
+		evaluateLinks: func(path string) (string, error) { return path, nil },
+		executable: func(path string) (executableDescriptor, error) {
+			if path != target {
+				t.Fatalf("executable path = %q, want %q", path, target)
+			}
+			opens++
+			if opens == 1 {
+				return wrapped, nil
+			}
+			return openCanonicalExecutable(path)
+		},
+	})
+
+	if _, err := inspector.ObserveExecutable(context.Background(), "grok"); err == nil {
+		t.Fatal("ObserveExecutable() accepted an executable replaced through an ancestor rename")
+	}
+	if opens != 2 {
+		t.Fatalf("executable opens = %d, want initial open and canonical re-open", opens)
+	}
+}
+
+func TestStartupDiscoveryInspectorRejectsPathSymlinkIntoProject(t *testing.T) {
+	root := canonicalBootstrapTempDir(t)
+	pathDirectory := filepath.Join(root, "path")
+	projectDirectory := filepath.Join(root, "project")
+	for _, directory := range []string{pathDirectory, projectDirectory} {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := filepath.Join(projectDirectory, "grok")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(pathDirectory, "grok")); err != nil {
+		t.Fatal(err)
+	}
+	project, err := ports.NewAnchoredRoot(projectDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspector := NewStartupDiscoveryInspector(pathDirectory, project)
+	if _, err := inspector.ObserveExecutableIdentity(context.Background(), "grok"); err == nil {
+		t.Fatal("PATH symlink into project accepted")
 	}
 }

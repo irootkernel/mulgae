@@ -47,7 +47,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v9.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v10.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -96,7 +96,7 @@ type doctorIdentityInspector struct {
 type doctorVersionObserver struct{}
 
 func (doctorVersionObserver) ObserveProviderVersion(_ context.Context, family string, _ []string, _, _ string) (ports.ProviderVersionObservation, error) {
-	versions := map[string]string{"kimi": "0.38.0", "zcode": "0.16.3", "agy": "1.1.19", "codex": "0.149.0"}
+	versions := map[string]string{"zcode": "0.16.3", "grok": "1.0.30", "codex": "0.149.0"}
 	return ports.NewProviderVersionObservation(ports.ProviderVersionObserved, versions[family])
 }
 
@@ -257,7 +257,7 @@ func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, prov
 		probes[0].Status = configuredStatus
 	}
 	return doctor.ProviderEvidenceRecord{
-		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json",
+		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v4.schema.json",
 		ProviderID:              providerID,
 		URI:                     uri,
 		SHA256:                  strings.Repeat("a", 64),
@@ -517,7 +517,7 @@ func TestApplicationComposeUnavailableReturnsV8ReconciliationEnvelope(t *testing
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v9" || envelope.Result["kind"] != "composite_failed" ||
+	if envelope.SchemaVersion != "mulgae-command-result.v10" || envelope.Result["kind"] != "composite_failed" ||
 		envelope.Result["root_run_id"] == nil || envelope.Result["reconciliation_state"] != "not_committed" || envelope.Result["retry_safe"] != true {
 		t.Fatalf("compose failure envelope = %#v", envelope)
 	}
@@ -857,73 +857,6 @@ func TestApplicationRolesListsStaticInventory(t *testing.T) {
 	}
 }
 
-func TestApplicationRejectedInitJSONUsesInvalidRequestContract(t *testing.T) {
-	fixture := newFoundationFixture(t)
-	root := testAnchoredRoot(t)
-	for _, test := range []struct {
-		name string
-		argv []string
-	}{
-		{name: "unknown provider", argv: []string{"init", "--providers", "other", "--output", "json"}},
-		{name: "empty provider", argv: []string{"init", "--providers", "", "--output", "json"}},
-		{name: "duplicate provider", argv: []string{"init", "--providers", "kimi,kimi", "--output", "json"}},
-		{name: "mixed auto", argv: []string{"init", "--providers", "auto,kimi", "--output", "json"}},
-		{name: "Kimi override in auto mode", argv: []string{"init", "--kimi-model", "k3", "--output", "json"}},
-		{name: "absent override", argv: []string{"init", "--providers", "agy", "--kimi-model", "k3", "--output", "json"}},
-		{name: "duplicate JSON output", argv: []string{"init", "--providers", "agy", "--output", "json", "--output", "json"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			result := fixture.application.Run(context.Background(), test.argv, root)
-			assertFoundationEnvelope(t, fixture, result, app.ExitCodeUsage)
-			if len(result.Stderr()) != 0 {
-				t.Fatalf("rejected JSON stderr = %q, want empty", result.Stderr())
-			}
-			var envelope struct {
-				Request struct {
-					RequestID    string `json:"request_id"`
-					Command      string `json:"command"`
-					RequestState string `json:"request_state"`
-					OutputFormat string `json:"output_format"`
-				} `json:"request"`
-				Reasons []struct {
-					Category  string `json:"category"`
-					Code      string `json:"code"`
-					Message   string `json:"message"`
-					Retryable bool   `json:"retryable"`
-				} `json:"reasons"`
-				Result appinit.InitializeProjectResult `json:"result"`
-			}
-			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-				t.Fatal(err)
-			}
-			if envelope.Request.RequestID != foundationRequestID || envelope.Request.Command != "init" || envelope.Request.RequestState != "invalid" || envelope.Request.OutputFormat != "json" {
-				t.Fatalf("rejected request = %#v", envelope.Request)
-			}
-			if len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "usage" || envelope.Reasons[0].Code != "init_selection_invalid" || envelope.Reasons[0].Message != "The init selection is invalid." || envelope.Reasons[0].Retryable {
-				t.Fatalf("rejected reasons = %#v", envelope.Reasons)
-			}
-			if err := envelope.Result.Validate(); err != nil || envelope.Result.WriteState != "not_attempted" || envelope.Result.Committed || envelope.Result.DestinationState != ports.ConfigDestinationNotObserved || len(envelope.Result.SelectedProviderIDs) != 0 || len(envelope.Result.CandidateProviderIDs) != 0 || len(envelope.Result.ConfiguredProviderIDs) != 0 || len(envelope.Result.Discovery) != 0 {
-				t.Fatalf("rejected result = %#v, validation = %v", envelope.Result, err)
-			}
-			wantRequest := `"request":{"request_id":"` + foundationRequestID + `","command":"init","request_state":"invalid","output_format":"json"}`
-			if !bytes.Contains(result.Stdout(), []byte(wantRequest)) || !bytes.HasSuffix(result.Stdout(), []byte("\n")) {
-				t.Fatalf("rejected envelope bytes = %q", result.Stdout())
-			}
-		})
-	}
-
-	for _, argv := range [][]string{
-		{"init", "--providers", "other", "--output", "human"},
-		{"init", "--providers", "other", "--output"},
-		{"init", "--providers", "other", "--output", "json", "--output", "human"},
-	} {
-		result := fixture.application.Run(context.Background(), argv, root)
-		if result.ExitCode() != app.ExitCodeUsage || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
-			t.Fatalf("ambiguous rejected usage = %#v", result)
-		}
-	}
-}
-
 func TestApplicationRejectedChildWorkflowJSONPreservesFailureContract(t *testing.T) {
 	for _, test := range []struct {
 		name          string
@@ -1117,7 +1050,7 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
 	ctx := context.Background()
-	argv := []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}
+	argv := []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}
 	if _, ok := fixture.application.writer.(ports.ConfigInstaller); !ok {
 		t.Fatal("fixture writer does not implement ConfigInstaller")
 	}
@@ -1165,7 +1098,7 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 func TestApplicationInitRefreshLocalPreservesSharedPolicy(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	projectPath := filepath.Join(root, ".mulgae", "config.yaml")
 	localPath := filepath.Join(root, ".mulgae", "local.yaml")
@@ -1177,7 +1110,7 @@ func TestApplicationInitRefreshLocalPreservesSharedPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refreshed := fixture.application.Run(context.Background(), []string{"init", "--refresh-local", "--agy-executable", "/bin/bash", "--output", "json"}, root)
+	refreshed := fixture.application.Run(context.Background(), []string{"init", "--refresh-local", "--grok-executable", "/bin/bash", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, refreshed, app.ExitCodeSuccess)
 	projectAfter, err := os.ReadFile(projectPath)
 	if err != nil {
@@ -1198,7 +1131,7 @@ func TestApplicationInitRefreshLocalPreservesSharedPolicy(t *testing.T) {
 func TestApplicationInitRefreshRequiresExistingLocalConfig(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
-	result := fixture.application.Run(context.Background(), []string{"init", "--refresh-local", "--agy-executable", "/bin/bash", "--output", "json"}, root)
+	result := fixture.application.Run(context.Background(), []string{"init", "--refresh-local", "--grok-executable", "/bin/bash", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, result, app.ExitCodeUsage)
 	var envelope struct {
 		Reasons []struct {
@@ -1234,7 +1167,7 @@ func TestIntegrationApplicationInitRootBarrierFailureRetryAndDirectorySync(t *te
 					t.Fatal(err)
 				}
 			}
-			argv := []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}
+			argv := []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}
 			failed := fixture.application.Run(context.Background(), argv, root)
 			assertFoundationEnvelope(t, fixture, failed, app.ExitCodeArtifact)
 			var envelope struct {
@@ -1270,7 +1203,7 @@ func TestIntegrationApplicationInitRootBarrierFailureRetryAndDirectorySync(t *te
 		writer.failInstall = true
 		fixture := newFoundationFixtureWithWriter(t, writer)
 		root := testAnchoredRoot(t)
-		result := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+		result := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 		assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
 		var envelope struct {
 			Reasons []struct {
@@ -1294,7 +1227,7 @@ func TestIntegrationApplicationInitRootBarrierFailureRetryAndDirectorySync(t *te
 		writer.failLocalInstall = true
 		fixture := newFoundationFixtureWithWriter(t, writer)
 		root := testAnchoredRoot(t)
-		argv := []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}
+		argv := []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}
 		result := fixture.application.Run(context.Background(), argv, root)
 		assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
 		var envelope struct {
@@ -1316,7 +1249,7 @@ func TestIntegrationApplicationInitRootBarrierFailureRetryAndDirectorySync(t *te
 			t.Fatalf("partial install created local config: %v", err)
 		}
 
-		retried := fixture.application.Run(context.Background(), []string{"init", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+		retried := fixture.application.Run(context.Background(), []string{"init", "--refresh-local", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 		assertFoundationEnvelope(t, fixture, retried, app.ExitCodeSuccess)
 		if _, err := os.Stat(filepath.Join(root, ".mulgae", "local.yaml")); err != nil {
 			t.Fatalf("retry did not create local config: %v", err)
@@ -1334,7 +1267,7 @@ func TestApplicationInitAndDoctorRejectPrivateRuntimeNamespace(t *testing.T) {
 			name:   "private namespace",
 			reason: string(ports.ConfigLocalityTargetPrivateNamespaceForbidden),
 			setup: func(t *testing.T, fixture foundationFixture, root string) {
-				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 				assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 				cache := filepath.Join(root, ".mulgae", "cache")
 				if err := os.Mkdir(cache, 0o700); err != nil {
@@ -1352,7 +1285,7 @@ func TestApplicationInitAndDoctorRejectPrivateRuntimeNamespace(t *testing.T) {
 			root := testAnchoredRoot(t)
 			test.setup(t, fixture, root)
 
-			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSecurity)
 			var initEnvelope struct {
 				Reasons []struct {
@@ -1392,7 +1325,7 @@ func TestApplicationPreservesCommittedSuccessWhenContextCancelsAfterWrite(t *tes
 	ctx, cancel := context.WithCancel(context.Background())
 	fixture.writer.afterWrite = cancel
 
-	result := fixture.application.Run(ctx, []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	result := fixture.application.Run(ctx, []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSecurity)
 	if _, err := os.Stat(filepath.Join(root, ".mulgae", "config.yaml")); err != nil {
 		t.Fatalf("committed config is absent: %v", err)
@@ -1403,7 +1336,7 @@ func TestApplicationConfigNoProjectAndCommittedProject(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	ctx := context.Background()
 	projectRoot := testAnchoredRoot(t)
-	initialized := fixture.application.Run(ctx, []string{"init", "--name", "project", "--providers", "agy", "--agy-executable", "/bin/sh"}, projectRoot)
+	initialized := fixture.application.Run(ctx, []string{"init", "--name", "project", "--providers", "grok", "--grok-executable", "/bin/sh"}, projectRoot)
 	if initialized.ExitCode() != app.ExitCodeSuccess {
 		t.Fatalf("initialization = exit %d stdout %q stderr %q", initialized.ExitCode(), initialized.Stdout(), initialized.Stderr())
 	}
@@ -1457,7 +1390,7 @@ func TestApplicationConfigRejectsNativeAccountAndIdentityMismatch(t *testing.T) 
 	fixture := newFoundationFixture(t)
 	ctx := context.Background()
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(ctx, []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(ctx, []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 
 	projectPath := filepath.Join(root, ".mulgae", "config.yaml")
@@ -1538,7 +1471,7 @@ func TestApplicationNativeHomeCancellationUsesExitNine(t *testing.T) {
 			fixture := newFoundationFixture(t)
 			root := testAnchoredRoot(t)
 			if test.command != "init" {
-				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 				assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 			}
 			errorsByCall := make([]error, test.failAt)
@@ -1546,7 +1479,7 @@ func TestApplicationNativeHomeCancellationUsesExitNine(t *testing.T) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, nativeHomeErrors: errorsByCall}
 			argv := []string{test.command, "--output", "json"}
 			if test.command == "init" {
-				argv = []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}
+				argv = []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}
 			}
 			result := fixture.application.Run(context.Background(), argv, root)
 			assertFoundationEnvelope(t, fixture, result, app.ExitCodeCancellation)
@@ -1583,7 +1516,7 @@ func TestApplicationNativeHomeCancellationUsesExitNine(t *testing.T) {
 			switch test.command {
 			case "init":
 				var projection appinit.InitializeProjectResult
-				if err := json.Unmarshal(envelope.Result, &projection); err != nil || projection.WriteState != "not_attempted" || projection.DestinationState != ports.ConfigDestinationAbsent || projection.Committed || projection.ConfigSHA256 != "" || !reflect.DeepEqual(projection.SelectedProviderIDs, []string{"agy"}) || len(projection.CandidateProviderIDs) != 0 || len(projection.ConfiguredProviderIDs) != 0 || len(projection.Discovery) != 0 {
+				if err := json.Unmarshal(envelope.Result, &projection); err != nil || projection.WriteState != "not_attempted" || projection.DestinationState != ports.ConfigDestinationAbsent || projection.Committed || projection.ConfigSHA256 != "" || !reflect.DeepEqual(projection.SelectedProviderIDs, []string{"grok"}) || len(projection.CandidateProviderIDs) != 0 || len(projection.ConfiguredProviderIDs) != 0 || len(projection.Discovery) != 0 {
 					t.Fatalf("cancelled init projection = %#v err=%v", projection, err)
 				}
 				if _, err := os.Lstat(filepath.Join(root, ".mulgae")); !errors.Is(err, os.ErrNotExist) {
@@ -1616,13 +1549,13 @@ func TestApplicationNativeHomeCancellationHumanOutput(t *testing.T) {
 			fixture := newFoundationFixture(t)
 			root := testAnchoredRoot(t)
 			if command != "init" {
-				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+				initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 				assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 			}
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, nativeHomeErr: context.Canceled}
 			argv := []string{command}
 			if command == "init" {
-				argv = []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh"}
+				argv = []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh"}
 			}
 			result := fixture.application.Run(context.Background(), argv, root)
 			want := "mulgae: request was cancelled\ncode: request_cancelled\nstage: cli." + command + "\nhint: retry the command when ready\n"
@@ -1791,34 +1724,34 @@ func TestLocalDoctorHumanOutputIsANSIFreeAndUsesFixedInventory(t *testing.T) {
 	diagnosis := doctor.LocalDoctorResult{
 		Readiness: doctor.LocalReadiness{State: "degraded", ExitCode: 0},
 		ProviderInventory: []doctor.LocalProviderInventoryRow{
-			{Family: "kimi", State: "eligible", Reason: "provider_cli_version_supported"},
-			{Family: "zcode", State: "not_configured", Reason: "not_configured"},
-			{Family: "agy", State: "not_configured", Reason: "not_configured"},
+			{Family: "zcode", State: "eligible", Reason: "provider_cli_version_supported"},
+			{Family: "grok", State: "not_configured", Reason: "not_configured"},
+			{Family: "codex", State: "not_configured", Reason: "not_configured"},
 		},
 	}
 	output := string(localDoctorHumanOutput(diagnosis))
 	if strings.Contains(output, "\x1b[") || strings.Count(output, "- ") != 3 ||
-		!strings.Contains(output, "- kimi: eligible (provider_cli_version_supported)") {
+		!strings.Contains(output, "- zcode: eligible (provider_cli_version_supported)") {
 		t.Fatalf("doctor human output = %q, want ANSI-free fixed inventory", output)
 	}
 }
 
 func TestLocalProviderAdmissionRequiresCompletePassAndFlagsSecurityFailure(t *testing.T) {
 	reader := &foundationEvidenceReader{}
-	evidence, err := reader.ProviderEvidence(context.Background(), "kimi")
+	evidence, err := reader.ProviderEvidence(context.Background(), "zcode")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if admitted, unsafe := localProviderAdmission(evidence, "kimi"); !admitted || unsafe {
+	if admitted, unsafe := localProviderAdmission(evidence, "zcode"); !admitted || unsafe {
 		t.Fatalf("complete provider evidence = admitted %t unsafe %t", admitted, unsafe)
 	}
 	evidence.Probes[3].Status = doctor.EvidenceStatusNotRun
-	if admitted, unsafe := localProviderAdmission(evidence, "kimi"); admitted || unsafe {
+	if admitted, unsafe := localProviderAdmission(evidence, "zcode"); admitted || unsafe {
 		t.Fatalf("incomplete provider evidence = admitted %t unsafe %t", admitted, unsafe)
 	}
 	evidence.Probes[3].Status = doctor.EvidenceStatusPass
 	evidence.Probes[9].Status = doctor.EvidenceStatusFail
-	if admitted, unsafe := localProviderAdmission(evidence, "kimi"); admitted || !unsafe {
+	if admitted, unsafe := localProviderAdmission(evidence, "zcode"); admitted || !unsafe {
 		t.Fatalf("security-failed provider evidence = admitted %t unsafe %t", admitted, unsafe)
 	}
 }
@@ -1877,7 +1810,7 @@ func TestApplicationDoctorReturnsInlineValidatedUnverifiedResult(t *testing.T) {
 func TestApplicationDoctorDistinguishesMissingMachineConfig(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	if initialized.ExitCode() != app.ExitCodeSuccess {
 		t.Fatalf("init exit = %d: %s", initialized.ExitCode(), initialized.Stdout())
 	}
@@ -1926,21 +1859,21 @@ func TestApplicationDoctorClassifiesProviderIdentityAndRoleMappingConfigurationF
 		{
 			name: "invalid provider identity",
 			mutate: func(contents []byte) []byte {
-				return bytes.Replace(contents, []byte("agy:"), []byte("unknown_provider:"), 1)
+				return bytes.Replace(contents, []byte("grok:"), []byte("unknown_provider:"), 1)
 			},
 			reason: "config_provider_identity_invalid",
 		},
 		{
 			name: "invalid role mapping",
 			mutate: func(contents []byte) []byte {
-				return bytes.Replace(contents, []byte(`primary_provider: "agy"`), []byte(`primary_provider: "zcode"`), 1)
+				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "zcode"`), 1)
 			},
 			reason: "config_role_mapping_invalid",
 		},
 		{
 			name: "incomplete role mapping",
 			mutate: func(contents []byte) []byte {
-				return bytes.Replace(contents, []byte(`primary_provider: "agy"`), []byte(`primary_provider: ""`), 1)
+				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: ""`), 1)
 			},
 			reason: "config_role_mapping_invalid",
 		},
@@ -1949,7 +1882,7 @@ func TestApplicationDoctorClassifiesProviderIdentityAndRoleMappingConfigurationF
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFoundationFixture(t)
 			root := testAnchoredRoot(t)
-			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 			path := filepath.Join(root, ".mulgae", "config.yaml")
 			contents, err := os.ReadFile(path)
@@ -1991,7 +1924,7 @@ func TestApplicationDoctorClassifiesCredentialAdmissionAsSecurity(t *testing.T) 
 			evidence := &foundationEvidenceReader{}
 			fixture := newFoundationFixtureWithEvidence(t, evidence)
 			root := testAnchoredRoot(t)
-			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 
 			configPath := filepath.Join(root, ".mulgae", "config.yaml")
@@ -2046,17 +1979,17 @@ func TestApplicationDoctorUsesConfiguredFamiliesWithoutStaticAuthorityEvidence(t
 			// Every role runs on exactly one provider, so a single eligible
 			// family is a complete configuration rather than a degraded one.
 			name:          "one configured family is ready",
-			initArguments: []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"},
+			initArguments: []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"},
 			wantState:     "ready",
-			wantProviders: []string{"agy"},
+			wantProviders: []string{"grok"},
 		},
 		{
 			name: "two configured families are ready",
 			initArguments: []string{
-				"init", "--providers", "kimi,agy", "--kimi-executable", "/bin/sh", "--agy-executable", "/bin/sh", "--output", "json",
+				"init", "--providers", "grok,codex", "--grok-executable", "/bin/sh", "--codex-executable", "/bin/sh", "--output", "json",
 			},
 			wantState:     "ready",
-			wantProviders: []string{"kimi", "agy"},
+			wantProviders: []string{"grok", "codex"},
 		},
 	}
 	for _, test := range tests {
@@ -2105,7 +2038,7 @@ func TestApplicationDoctorFailsWhenOneConfiguredProviderIdentityIsUnavailable(t 
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
 	initialized := fixture.application.Run(context.Background(), []string{
-		"init", "--providers", "kimi,agy", "--kimi-executable", "/bin/sh", "--agy-executable", "/bin/bash", "--output", "json",
+		"init", "--providers", "grok,codex", "--grok-executable", "/bin/sh", "--codex-executable", "/bin/bash", "--output", "json",
 	}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	fixture.application.inspector = &doctorIdentityInspector{
@@ -2126,7 +2059,7 @@ func TestApplicationDoctorFailsWhenOneConfiguredProviderIdentityIsUnavailable(t 
 		t.Fatal(err)
 	}
 	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "unverified" || envelope.Result.Doctor.Readiness.ExitCode != 4 ||
-		envelope.Result.Doctor.ProviderInventory[0].State != "unavailable" || envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
+		envelope.Result.Doctor.ProviderInventory[1].State != "unavailable" || envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
 		len(evidence.providerCalls) != 0 {
 		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
 	}
@@ -2141,30 +2074,30 @@ func TestApplicationDoctorReportsStableBinaryAvailabilityReasons(t *testing.T) {
 		reason        string
 		exit          app.ExitCode
 	}{
-		{"missing executable", []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+		{"missing executable", []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableMissing: map[string]bool{"/bin/sh": true}}
-		}, 2, "provider_executable_missing", app.ExitCodeReadiness},
-		{"non executable", []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+		}, 1, "provider_executable_missing", app.ExitCodeReadiness},
+		{"non executable", []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationErrorWithReason(ports.IdentityObservationUnavailable, ports.IdentityObservationReasonNonExecutable, "executable permission unavailable")}}
-		}, 2, "provider_executable_not_executable", app.ExitCodeReadiness},
-		{"executable observation failure", []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+		}, 1, "provider_executable_not_executable", app.ExitCodeReadiness},
+		{"executable observation failure", []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "executable observation failed")}}
-		}, 2, "provider_binary_observation_failed", app.ExitCodeReadiness},
+		}, 1, "provider_binary_observation_failed", app.ExitCodeReadiness},
 		{"missing zcode launcher", []string{"init", "--providers", "zcode", "--zcode-node-executable", "/bin/sh", "--zcode-launcher", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileMissing: map[string]bool{"/bin/sh": true}}
-		}, 1, "zcode_launcher_missing", app.ExitCodeReadiness},
+		}, 0, "zcode_launcher_missing", app.ExitCodeReadiness},
 		{"unreadable zcode launcher", []string{"init", "--providers", "zcode", "--zcode-node-executable", "/bin/sh", "--zcode-launcher", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationErrorWithReason(ports.IdentityObservationUnavailable, ports.IdentityObservationReasonUnreadable, "launcher unreadable")}}
-		}, 1, "zcode_launcher_unreadable", app.ExitCodeReadiness},
+		}, 0, "zcode_launcher_unreadable", app.ExitCodeReadiness},
 		{"zcode launcher observation failure", []string{"init", "--providers", "zcode", "--zcode-node-executable", "/bin/sh", "--zcode-launcher", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "launcher observation failed")}}
-		}, 1, "zcode_launcher_observation_failed", app.ExitCodeReadiness},
-		{"unsafe executable identity", []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
+		}, 0, "zcode_launcher_observation_failed", app.ExitCodeReadiness},
+		{"unsafe executable identity", []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "executable identity changed")}}
-		}, 2, "provider_executable_unsafe_identity", app.ExitCodeSecurity},
+		}, 1, "provider_executable_unsafe_identity", app.ExitCodeSecurity},
 		{"unsafe zcode launcher identity", []string{"init", "--providers", "zcode", "--zcode-node-executable", "/bin/sh", "--zcode-launcher", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "launcher identity changed")}}
-		}, 1, "zcode_launcher_unsafe_identity", app.ExitCodeSecurity},
+		}, 0, "zcode_launcher_unsafe_identity", app.ExitCodeSecurity},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -2196,7 +2129,7 @@ func TestApplicationDoctorRejectsNativeHomeIdentityFailureBeforeProviderObservat
 	evidence := &foundationEvidenceReader{}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	fixture.application.inspector = &doctorIdentityInspector{
 		delegate:      fixture.application.inspector,
@@ -2224,7 +2157,7 @@ func TestApplicationDoctorScopesProviderIdentitySecurityFailureToAffectedFamily(
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
 	initialized := fixture.application.Run(context.Background(), []string{
-		"init", "--providers", "kimi,agy", "--kimi-executable", "/bin/sh", "--agy-executable", "/bin/bash", "--output", "json",
+		"init", "--providers", "grok,codex", "--grok-executable", "/bin/sh", "--codex-executable", "/bin/bash", "--output", "json",
 	}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	fixture.application.inspector = &doctorIdentityInspector{
@@ -2244,7 +2177,7 @@ func TestApplicationDoctorScopesProviderIdentitySecurityFailureToAffectedFamily(
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.Doctor == nil || envelope.Result.Doctor.ProviderInventory[0].Reason != "provider_executable_unsafe_identity" ||
+	if envelope.Result.Doctor == nil || envelope.Result.Doctor.ProviderInventory[1].Reason != "provider_executable_unsafe_identity" ||
 		envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
 		len(evidence.providerCalls) != 0 {
 		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
@@ -2254,7 +2187,7 @@ func TestApplicationDoctorScopesProviderIdentitySecurityFailureToAffectedFamily(
 func TestApplicationDoctorKeepsConfiguredProvidersReadyWithoutStaticAuthorityEvidence(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
@@ -2268,8 +2201,8 @@ func TestApplicationDoctorKeepsConfiguredProvidersReadyWithoutStaticAuthorityEvi
 	}
 	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "ready" ||
 		envelope.Result.Doctor.Readiness.ExitCode != int(app.ExitCodeSuccess) ||
-		envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
-		envelope.Result.Doctor.ProviderInventory[2].Reason != "provider_cli_version_supported" {
+		envelope.Result.Doctor.ProviderInventory[1].State != "eligible" ||
+		envelope.Result.Doctor.ProviderInventory[1].Reason != "provider_cli_version_supported" {
 		t.Fatalf("doctor result = %#v, want offline-compatible provider", envelope.Result.Doctor)
 	}
 }
@@ -2279,7 +2212,7 @@ func TestApplicationDoctorNeverInvokesLiveHeartbeatService(t *testing.T) {
 	service := &heartbeatServiceStub{}
 	fixture.application.heartbeats = service
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	diagnosed := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, diagnosed, app.ExitCodeSuccess)
@@ -2299,7 +2232,7 @@ func TestApplicationDoctorClassifiesProviderCLIVersionOutcomes(t *testing.T) {
 		compatibility string
 		reason        string
 	}{
-		{"supported", ports.ProviderVersionObserved, "1.1.19", app.ExitCodeSuccess, "verified", "eligible", "verified", "provider_cli_version_supported"},
+		{"supported", ports.ProviderVersionObserved, "1.0.30", app.ExitCodeSuccess, "verified", "eligible", "verified", "provider_cli_version_supported"},
 		{"newer than verified", ports.ProviderVersionObserved, "9.9.9", app.ExitCodeSuccess, "verified", "eligible", "newer_than_verified", "provider_cli_version_newer_than_verified"},
 		{"below minimum", ports.ProviderVersionObserved, "0.1.0", app.ExitCodeReadiness, "failed", "ineligible", "below_minimum", "provider_cli_version_below_minimum"},
 		{"malformed", ports.ProviderVersionMalformed, "", app.ExitCodeReadiness, "failed", "ineligible", "malformed", "provider_cli_version_malformed"},
@@ -2310,7 +2243,7 @@ func TestApplicationDoctorClassifiesProviderCLIVersionOutcomes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFoundationFixture(t)
 			root := testAnchoredRoot(t)
-			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 			fixture.application.versionObserver = doctorVersionObserverFunc(func(context.Context, string, []string, string, string) (ports.ProviderVersionObservation, error) {
 				return ports.NewProviderVersionObservation(test.state, test.version)
@@ -2325,7 +2258,7 @@ func TestApplicationDoctorClassifiesProviderCLIVersionOutcomes(t *testing.T) {
 			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 				t.Fatal(err)
 			}
-			row := envelope.Result.Doctor.ProviderInventory[2]
+			row := envelope.Result.Doctor.ProviderInventory[1]
 			if row.CLICompatible.Status != test.status || row.CLICompatible.Eligibility != test.eligibility || row.CLICompatible.Compatibility != test.compatibility || row.Reason != test.reason {
 				t.Fatalf("CLI compatibility = %#v", row.CLICompatible)
 			}
@@ -2336,7 +2269,7 @@ func TestApplicationDoctorClassifiesProviderCLIVersionOutcomes(t *testing.T) {
 func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 
 	human := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified"}, root)
@@ -2344,7 +2277,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 		t.Fatalf("providers human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
-	wantFamilies := []string{"kimi", "zcode", "agy", "grok", "codex"}
+	wantFamilies := []string{"zcode", "grok", "codex"}
 	if len(lines) != len(wantFamilies) {
 		t.Fatalf("providers human rows = %q, want provider rows without failure details", human.Stdout())
 	}
@@ -2388,12 +2321,11 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 
 func TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile(t *testing.T) {
 	evidence := &foundationEvidenceReader{providerEvidenceStatuses: map[string]doctor.EvidenceStatus{
-		"kimi": doctor.EvidenceStatusFail, "zcode": doctor.EvidenceStatusFail,
-		"agy": doctor.EvidenceStatusFail, "grok": doctor.EvidenceStatusFail, "codex": doctor.EvidenceStatusFail,
+		"zcode": doctor.EvidenceStatusFail, "grok": doctor.EvidenceStatusFail, "codex": doctor.EvidenceStatusFail,
 	}}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	result := fixture.application.Run(context.Background(), []string{"providers", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
@@ -2403,7 +2335,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	evidence := &foundationEvidenceReader{}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	anchoredRoot, err := ports.NewAnchoredRoot(root)
 	if err != nil {
@@ -2417,7 +2349,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err != nil {
 		t.Fatal(err)
 	}
-	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v3.schema.json")
+	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v4.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2437,10 +2369,10 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err := json.Unmarshal(providersResult.Stdout(), &providersEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 5 ||
+	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 3 ||
 		providersEnvelope.Result.ProviderEvidenceURI == nil ||
 		*providersEnvelope.Result.ProviderEvidenceURI != foundationProviderEvidenceURI {
-		t.Fatalf("providers result = %#v, want 5 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
+		t.Fatalf("providers result = %#v, want 3 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
 	}
 
 	doctorResult := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
@@ -2461,7 +2393,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 		t.Fatalf("doctor config status = %q, want ready", got)
 	}
 
-	wantCalls := []string{"kimi", "zcode", "agy", "grok", "codex"}
+	wantCalls := []string{"zcode", "grok", "codex"}
 	if !reflect.DeepEqual(evidence.providerCalls, wantCalls) ||
 		len(evidence.platformCalls) != 1 || evidence.toolsCalls != 1 {
 		t.Fatalf("evidence reader calls = providers %#v platforms %#v tools %d, want only shared reader observations", evidence.providerCalls, evidence.platformCalls, evidence.toolsCalls)
@@ -2509,7 +2441,7 @@ func TestApplicationAbsentAndTypedNilEvidenceReadersRemainInformational(t *testi
 				t.Fatalf("application evidence reader = %#v, want nil", fixture.application.evidenceReader)
 			}
 			root := testAnchoredRoot(t)
-			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
+			initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 			assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 			result := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified"}, root)
 			if result.ExitCode() != app.ExitCodeSuccess ||
@@ -2524,7 +2456,7 @@ func TestApplicationHeartbeatRejectsBeforeServiceWithoutAuthorization(t *testing
 	fixture := newFoundationFixture(t)
 	service := &heartbeatServiceStub{}
 	fixture.application.heartbeats = service
-	result := fixture.application.Run(context.Background(), []string{"heartbeat", "--provider", "agy", "--output", "json"}, testAnchoredRoot(t))
+	result := fixture.application.Run(context.Background(), []string{"heartbeat", "--provider", "grok", "--output", "json"}, testAnchoredRoot(t))
 	assertFoundationEnvelope(t, fixture, result, app.ExitCodeUsage)
 	if service.calls != 0 {
 		t.Fatalf("heartbeat service calls = %d, want zero before authorization", service.calls)
@@ -2560,11 +2492,11 @@ func TestApplicationHeartbeatProjectsStableLiveOutcomes(t *testing.T) {
 			fixture := newFoundationFixture(t)
 			service := &heartbeatServiceStub{result: appheartbeat.Result{
 				SchemaVersion: appheartbeat.SchemaVersion, CheckedAt: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC),
-				ProviderID: "agy", Attempted: true, Status: test.status, ReasonCode: test.reason,
+				ProviderID: "grok", Attempted: true, Status: test.status, ReasonCode: test.reason,
 				AuthenticationMayOccur: true, NetworkMayOccur: true, CostMayOccur: true, RemoteLoggingMayOccur: true,
 			}}
 			fixture.application.heartbeats = service
-			result := fixture.application.Run(context.Background(), []string{"heartbeat", "--provider", "agy", "--authorize-live-request", "--output", "json"}, testAnchoredRoot(t))
+			result := fixture.application.Run(context.Background(), []string{"heartbeat", "--provider", "grok", "--authorize-live-request", "--output", "json"}, testAnchoredRoot(t))
 			assertFoundationEnvelope(t, fixture, result, test.exit)
 			if service.calls != 1 {
 				t.Fatalf("heartbeat service calls = %d, want one", service.calls)
@@ -3005,74 +2937,6 @@ func TestApplicationHumanFailuresAlwaysIncludeSafeCodeStageAndHint(t *testing.T)
 	}
 }
 
-func TestApplicationReviewReportsProviderLoginRequiredFailClosed(t *testing.T) {
-	cause, err := domain.NewFailure(
-		"reviewrun.current.capability",
-		domain.FailureAuthentication,
-		"provider login required",
-		ports.ErrProviderLoginRequired,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loginErr := reviewrun.NewProviderLoginRequiredError([]string{"zcode-default", "kimi-default", "kimi-default"}, cause)
-	diagnosticURI, err := ports.NewSafeRelativePath(".mulgae/diagnostics/s_test/r_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	loginErr = reviewrun.NewRuntimeDiagnosticReferenceError(diagnosticURI, loginErr)
-
-	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{err: loginErr}
-	machine := fixture.application.Run(
-		context.Background(),
-		[]string{"review", "--dirty", "--output", "json"},
-		testAnchoredRoot(t),
-	)
-	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
-	if len(machine.Stderr()) != 0 {
-		t.Fatalf("machine stderr = %q", machine.Stderr())
-	}
-	var envelope struct {
-		Exit struct {
-			Code int `json:"code"`
-		} `json:"exit"`
-		Reasons []struct {
-			Code        string  `json:"code"`
-			Message     string  `json:"message"`
-			Retryable   bool    `json:"retryable"`
-			ArtifactURI *string `json:"artifact_uri"`
-		} `json:"reasons"`
-		Result struct {
-			Kind              string  `json:"kind"`
-			SessionID         *string `json:"session_id"`
-			RunID             *string `json:"run_id"`
-			RunManifestURI    *string `json:"run_manifest_uri"`
-			ReviewArtifactURI *string `json:"review_artifact_uri"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_login_required" ||
-		envelope.Reasons[0].Retryable ||
-		envelope.Reasons[0].ArtifactURI == nil || *envelope.Reasons[0].ArtifactURI != diagnosticURI.String() ||
-		envelope.Reasons[0].Message != "Login is required for provider kimi-default, zcode-default. Authenticate outside Mulgae, then rerun the command." ||
-		envelope.Result.Kind != "review_started" || envelope.Result.SessionID != nil || envelope.Result.RunID != nil ||
-		envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil {
-		t.Fatalf("login-required envelope = %#v", envelope)
-	}
-
-	humanFixture := newFoundationFixture(t)
-	humanFixture.application.reviewRuns = &reviewRunFake{err: loginErr}
-	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
-	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
-		!strings.Contains(string(human.Stderr()), "code: provider_login_required\nstage: cli.review\nhint: run mulgae doctor") ||
-		!strings.Contains(string(human.Stderr()), "diagnostic_uri: "+diagnosticURI.String()) {
-		t.Fatalf("human login-required result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
-	}
-}
-
 func TestApplicationReviewFailurePreservesAllocatedRunIdentity(t *testing.T) {
 	cause, err := domain.NewFailure(
 		"publication.install",
@@ -3117,86 +2981,6 @@ func TestApplicationReviewFailurePreservesAllocatedRunIdentity(t *testing.T) {
 	}
 }
 
-func TestApplicationReviewDoesNotProjectUninstalledRuntimeDiagnosticURI(t *testing.T) {
-	cause, err := domain.NewFailure("reviewrun.current.capability", domain.FailureAuthentication, "provider login required", ports.ErrProviderLoginRequired)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loginErr := reviewrun.NewProviderLoginRequiredError([]string{"kimi-default"}, cause)
-	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{err: loginErr}
-	result := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
-	var envelope struct {
-		Reasons []struct {
-			ArtifactURI *string `json:"artifact_uri"`
-		} `json:"reasons"`
-	}
-	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if len(envelope.Reasons) != 1 || envelope.Reasons[0].ArtifactURI != nil {
-		t.Fatalf("uninstalled diagnostic projection = %#v", envelope.Reasons)
-	}
-}
-
-func TestApplicationReviewReportsAttributedQualificationFailures(t *testing.T) {
-	invalid, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid capability output", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	timedOut, err := domain.NewFailure("capability", domain.FailureTimeout, "capability timed out", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	zcode, err := reviewrun.NewProviderQualificationFailure("zcode-default", reviewrun.FamilyZCode, string(domain.FailureTimeout), timedOut)
-	if err != nil {
-		t.Fatal(err)
-	}
-	kimi, err := reviewrun.NewProviderQualificationFailure("kimi-default", reviewrun.FamilyKimi, string(domain.FailureInvalidOutput), invalid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	qualificationErr := reviewrun.NewProviderQualificationFailuresError([]reviewrun.ProviderQualificationFailure{zcode, kimi})
-
-	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
-	machine := fixture.application.Run(
-		context.Background(),
-		[]string{"review", "--dirty", "--output", "json"},
-		testAnchoredRoot(t),
-	)
-	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
-	var envelope struct {
-		Reasons []struct {
-			Code      string `json:"code"`
-			Message   string `json:"message"`
-			Retryable bool   `json:"retryable"`
-		} `json:"reasons"`
-		Result struct {
-			RunID             *string `json:"run_id"`
-			RunManifestURI    *string `json:"run_manifest_uri"`
-			ReviewArtifactURI *string `json:"review_artifact_uri"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	wantMessage := "Provider qualification failed: kimi-default=invalid_provider_output, zcode-default=timeout. Retry the command after resolving provider readiness."
-	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_qualification_failed" ||
-		!envelope.Reasons[0].Retryable || envelope.Reasons[0].Message != wantMessage ||
-		envelope.Result.RunID != nil || envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil {
-		t.Fatalf("qualification failure envelope = %#v", envelope)
-	}
-
-	humanFixture := newFoundationFixture(t)
-	humanFixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
-	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
-	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
-		!strings.Contains(string(human.Stderr()), "code: provider_qualification_failed\nstage: cli.review\nhint: run mulgae doctor") {
-		t.Fatalf("human qualification failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
-	}
-}
-
 func TestApplicationReviewReportsRateLimitedQualificationFailure(t *testing.T) {
 	rateLimited, err := domain.NewFailure("capability", domain.FailureRateLimit, "provider rate limited", nil)
 	if err != nil {
@@ -3231,110 +3015,6 @@ func TestApplicationReviewReportsRateLimitedQualificationFailure(t *testing.T) {
 	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_qualification_failed" ||
 		!envelope.Reasons[0].Retryable {
 		t.Fatalf("rate-limited qualification failure envelope = %#v", envelope)
-	}
-}
-
-func TestApplicationReviewReportsQualificationPermissionDenialByActualCause(t *testing.T) {
-	permissionCause, err := ports.NewProviderRuntimeError(
-		domain.DiagnosticCausePermissionDenied,
-		errors.New("closed provider permission detail"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	agy, err := reviewrun.NewProviderQualificationFailure(
-		"agy-security", reviewrun.FamilyAGY, string(domain.FailureAuthentication), permissionCause,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	qualificationErr := reviewrun.NewProviderQualificationFailuresError([]reviewrun.ProviderQualificationFailure{agy})
-
-	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
-	machine := fixture.application.Run(
-		context.Background(),
-		[]string{"review", "--dirty", "--output", "json"},
-		testAnchoredRoot(t),
-	)
-	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
-	var envelope struct {
-		Reasons []struct {
-			Code      string `json:"code"`
-			Message   string `json:"message"`
-			Retryable bool   `json:"retryable"`
-		} `json:"reasons"`
-	}
-	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_permission_denied" ||
-		envelope.Reasons[0].Retryable ||
-		!strings.Contains(envelope.Reasons[0].Message, "Provider permission denied during qualification for agy-security") ||
-		strings.Contains(envelope.Reasons[0].Message, "provider_output_decode_failed") {
-		t.Fatalf("qualification permission envelope = %#v", envelope.Reasons)
-	}
-}
-
-func TestApplicationReviewPreservesQualificationPermissionDenialInMixedAggregate(t *testing.T) {
-	permissionCause, err := ports.NewProviderRuntimeError(
-		domain.DiagnosticCausePermissionDenied,
-		errors.New("closed provider permission detail"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	permission, err := reviewrun.NewProviderQualificationFailure(
-		"agy-security", reviewrun.FamilyAGY, string(domain.FailureAuthentication), permissionCause,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	timeoutCause, err := ports.NewProviderRuntimeError(
-		domain.DiagnosticCauseTimedOut,
-		errors.New("closed provider timeout detail"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	timeout, err := reviewrun.NewProviderQualificationFailure(
-		"zcode-logic", reviewrun.FamilyZCode, string(domain.FailureTimeout), timeoutCause,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	qualificationErr := reviewrun.NewProviderQualificationFailuresError([]reviewrun.ProviderQualificationFailure{permission, timeout})
-
-	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
-	machine := fixture.application.Run(
-		context.Background(),
-		[]string{"review", "--dirty", "--output", "json"},
-		testAnchoredRoot(t),
-	)
-	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
-	var envelope struct {
-		Reasons []struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"reasons"`
-	}
-	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "provider_permission_denied" ||
-		!strings.Contains(envelope.Reasons[0].Message, "agy-security") ||
-		!strings.Contains(envelope.Reasons[0].Message, "Other qualification failures: zcode-logic=timeout") ||
-		strings.Contains(envelope.Reasons[0].Message, "agy-security=auth") {
-		t.Fatalf("mixed qualification envelope = %#v", envelope.Reasons)
-	}
-
-	humanFixture := newFoundationFixture(t)
-	humanFixture.application.reviewRuns = &reviewRunFake{err: qualificationErr}
-	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
-	if human.ExitCode() != app.ExitCodeReadiness || len(human.Stdout()) != 0 ||
-		!strings.Contains(string(human.Stderr()), "code: provider_permission_denied\nstage: provider.qualify\nhint: run mulgae config --mode effective") {
-		t.Fatalf("mixed human qualification failure = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 }
 
@@ -3513,39 +3193,6 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 	}
 }
 
-func TestCommittedProviderFailureReasonsPreserveEveryTerminalRole(t *testing.T) {
-	logic, err := reviewrun.NewProviderExecutionFailure(
-		"zcode-logic", domain.RoleLogic, string(review.AttemptConditionProviderOutputMissing), domain.FailureInvalidOutput,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	security, err := reviewrun.NewProviderExecutionFailure(
-		"agy-security", domain.RoleSecurity, string(review.AttemptConditionProviderPermissionDenied), domain.FailureAuthentication,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	testing, err := reviewrun.NewProviderExecutionFailure(
-		"zcode-testing", domain.RoleTesting, string(review.AttemptConditionRateLimit), domain.FailureRateLimit,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reasons, err := committedProviderFailureReasons([]reviewrun.ProviderExecutionFailure{logic, security, testing})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(reasons) != 3 || reasons[0].Code() != "provider_output_missing" ||
-		!strings.Contains(reasons[0].Message(), "role logic; provider zcode-logic") ||
-		reasons[1].Code() != "provider_permission_denied" ||
-		!strings.Contains(reasons[1].Message(), "role security; provider agy-security") ||
-		reasons[2].Code() != "provider_rate_limited" ||
-		!strings.Contains(reasons[2].Message(), "role testing; provider zcode-testing") {
-		t.Fatalf("committed provider reasons = %#v", reasons)
-	}
-}
-
 func TestCommittedProviderTimeoutReasonIncludesConfiguredAndElapsedFacts(t *testing.T) {
 	facts, err := review.NewProviderTimeoutFacts(30*time.Minute, 30*time.Minute+125*time.Millisecond)
 	if err != nil {
@@ -3589,50 +3236,6 @@ func TestMergeCommittedReasonDetailsPreservesPolicyAndDuplicateProviderFailures(
 		merged[1].Code() != "request_changes_threshold" || merged[1].Message() != "" ||
 		merged[2].Message() != second.Message() {
 		t.Fatalf("merged committed reasons = %#v", merged)
-	}
-}
-
-func TestApplicationReviewCommittedIncompleteCoveragePreservesEveryTerminalProviderFailure(t *testing.T) {
-	logic, err := reviewrun.NewProviderExecutionFailure(
-		"zcode-logic", domain.RoleLogic, string(review.AttemptConditionProviderOutputMissing), domain.FailureInvalidOutput,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	security, err := reviewrun.NewProviderExecutionFailure(
-		"agy-security", domain.RoleSecurity, string(review.AttemptConditionProviderPermissionDenied), domain.FailureAuthentication,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result := newReviewRunResultWithFailures(
-		g006SessionID,
-		"r_019f596a-d050-79e7-b2b7-59822f012273",
-		".mulgae/runs/manifest.json",
-		g006ReviewArtifactURI,
-		g008CommittedTerminalExit(t, domain.ExitIncompleteCoverage),
-		[]reviewrun.ProviderExecutionFailure{logic, security},
-		nil,
-	)
-	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{result: result}
-	command := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
-	assertFoundationEnvelope(t, fixture, command, app.ExitCodeReadiness)
-	var envelope struct {
-		Reasons []struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"reasons"`
-	}
-	if err := json.Unmarshal(command.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if len(envelope.Reasons) != 3 || envelope.Reasons[0].Code != "required_role_incomplete" ||
-		envelope.Reasons[1].Code != "provider_output_missing" ||
-		!strings.Contains(envelope.Reasons[1].Message, "role logic; provider zcode-logic") ||
-		envelope.Reasons[2].Code != "provider_permission_denied" ||
-		!strings.Contains(envelope.Reasons[2].Message, "role security; provider agy-security") {
-		t.Fatalf("committed incomplete reasons = %#v", envelope.Reasons)
 	}
 }
 

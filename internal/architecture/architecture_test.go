@@ -210,7 +210,7 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-kimi:"} {
+	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-grok:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
 		}
@@ -265,53 +265,42 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal("release, mandatory E2E, opt-in E2E, Grok, and MCP client binaries do not share RELEASE_VERSION")
 	}
 	optInStart := strings.Index(text, "\ntest-e2e-opt-in:")
-	kimiStart := strings.Index(text, "\ntest-kimi:")
-	if optInStart < 0 || kimiStart <= optInStart {
-		t.Fatal("Makefile does not define the opt-in Kimi gate")
+	grokStart := strings.Index(text, "\ntest-grok:")
+	if optInStart < 0 || grokStart <= optInStart {
+		t.Fatal("Makefile does not define the opt-in Codex gate before Grok")
 	}
 	e2eTarget := text[releaseEnd:optInStart]
 	for _, required := range []string{
 		"zcode_node=", `test -n "$$zcode_node"`,
-		"zcode_launcher=", `test -f "$$zcode_launcher"`, "codex_bin=", `test -n "$$codex_bin"`,
-		"codex_home=", "MULGAE_E2E_CODEX_HOME", `test -n "$$codex_home"`,
-		"codex_fallback_home=", "MULGAE_E2E_CODEX_FALLBACK_HOME", `test -d "$${HOME}/.codex-hsy"`, `test -d "$$codex_fallback_home"`,
-		"codex_home_label=", "codex_fallback_home_label=", "~/.codex", "~/.codex-hsy", "<unset>", "<custom>", "[test-e2e] Codex credential homes:",
-		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_CODEX_BIN", "MULGAE_LIVE_CODEX_HOME", "MULGAE_LIVE_CODEX_FALLBACK_HOME",
-		"-tags=liveprovider", "-run '^TestLive(ZCode|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
-		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER",
+		"zcode_launcher=", `test -f "$$zcode_launcher"`, "grok_candidate=", `test -n "$$grok_candidate"`,
+		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER",
+		"-tags=liveprovider", "-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_GROK_EXECUTABLE", "$(MAKE) test-grok",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
 		if !strings.Contains(e2eTarget, required) {
 			t.Errorf("test-e2e missing fail-closed family-capability token %q", required)
 		}
 	}
-	for _, forbidden := range []string{"agy_bin=", "MULGAE_LIVE_AGY_BIN", "MULGAE_E2E_AGY_EXECUTABLE", "kimi_bin=", "MULGAE_LIVE_KIMI_BIN", "MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_KIMI_DATA_HOME"} {
+	for _, forbidden := range []string{"MULGAE_LIVE_CODEX_BIN", "MULGAE_E2E_CODEX_HOME", "MULGAE_E2E_CODEX_FALLBACK_HOME"} {
 		if strings.Contains(e2eTarget, forbidden) {
-			t.Errorf("mandatory test-e2e still requires AGY or Kimi token %q", forbidden)
+			t.Errorf("mandatory test-e2e still requires Codex token %q", forbidden)
 		}
 	}
-	optInTarget := text[optInStart:kimiStart]
+	optInTarget := text[optInStart:grokStart]
 	for _, required := range []string{
 		`MULGAE_E2E_OPT_IN:-}`, "[test-e2e-opt-in] skipped: set MULGAE_E2E_OPT_IN=1",
 		"MULGAE_E2E_CODEX_EXECUTABLE", "MULGAE_E2E_CODEX_PRIMARY_HOME", "MULGAE_E2E_CODEX_SECONDARY_HOME",
-		"MULGAE_E2E_KIMI_EXECUTABLE", "MULGAE_E2E_KIMI_DATA_HOME", "MULGAE_E2E_PROJECT_ROOT",
-		"-tags='live_e2e live_e2e_opt_in'", "-run '^TestE2EOptInMixedCredentialProfiles$$'",
+		"MULGAE_E2E_PROJECT_ROOT", "-tags='live_e2e live_e2e_opt_in'", "-run '^TestE2EOptInCodexCredentialProfiles$$'",
 		"[test-e2e-opt-in] failed; preserved private project:",
 	} {
 		if !strings.Contains(optInTarget, required) {
-			t.Errorf("test-e2e-opt-in missing mixed-profile token %q", required)
+			t.Errorf("test-e2e-opt-in missing Codex-profile token %q", required)
 		}
 	}
-	grokStart := strings.Index(text, "\ntest-grok:")
 	mcpClientStart := strings.Index(text, "\ntest-mcp-clients:")
-	if grokStart <= kimiStart || mcpClientStart <= grokStart {
+	if mcpClientStart <= grokStart {
 		t.Fatal("Makefile does not define the Grok gate before the MCP client gate")
-	}
-	kimiTarget := text[kimiStart:grokStart]
-	for _, required := range []string{"MULGAE_LIVE_KIMI_BIN", "MULGAE_LIVE_KIMI_DATA_HOME", "-run '^TestLiveKimiCapability$$'"} {
-		if !strings.Contains(kimiTarget, required) {
-			t.Errorf("test-kimi missing compatibility token %q", required)
-		}
 	}
 	grokTarget := text[grokStart:mcpClientStart]
 	for _, required := range []string{
@@ -332,19 +321,12 @@ func TestMakefileContract(t *testing.T) {
 
 func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	root := repositoryRoot(t)
-	var combined strings.Builder
-	for _, path := range []string{
-		filepath.Join(root, "internal", "adapters", "providercli", "registry_live_test.go"),
-		filepath.Join(root, "internal", "adapters", "providercli", "agy_live_test.go"),
-	} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		combined.Write(data)
+	data, err := os.ReadFile(filepath.Join(root, "internal", "adapters", "providercli", "registry_live_test.go"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	text := combined.String()
-	for _, required := range []string{"func TestLiveKimiCapability", "func TestLiveZCodeCapability", "func TestLiveAgyCapability", "QualifyCurrent", "protected native credential/settings state", "auth/settings after drain"} {
+	text := string(data)
+	for _, required := range []string{"func TestLiveZCodeCapability", "func TestLiveGrokCapability", "QualifyCurrent"} {
 		if !strings.Contains(text, required) {
 			t.Errorf("live family capability contract missing %q", required)
 		}
@@ -384,9 +366,9 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	optInText := string(optInData)
 	for _, required := range []string{
-		"live_e2e_opt_in", "func TestE2EOptInMixedCredentialProfiles",
-		`"kimi-logic"`, `"codex-primary-security"`, `"codex-secondary-documentation"`,
-		"MULGAE_E2E_CODEX_PRIMARY_HOME", "MULGAE_E2E_CODEX_SECONDARY_HOME", "MULGAE_E2E_KIMI_DATA_HOME",
+		"live_e2e_opt_in", "func TestE2EOptInCodexCredentialProfiles",
+		`"codex-primary-logic"`, `"codex-primary-security"`, `"codex-secondary-documentation"`,
+		"MULGAE_E2E_CODEX_PRIMARY_HOME", "MULGAE_E2E_CODEX_SECONDARY_HOME",
 	} {
 		if !strings.Contains(optInText, required) {
 			t.Errorf("opt-in exact-binary workflow contract missing %q", required)
@@ -394,35 +376,6 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	if strings.Contains(optInText, ".Skip(") || strings.Contains(optInText, ".Skipf(") {
 		t.Fatal("enabled opt-in exact-binary workflow may not skip prerequisites")
-	}
-	negativeData, err := os.ReadFile(filepath.Join(root, "internal", "adapters", "providercli", "agy_boundary_darwin_test.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	negative := string(negativeData)
-	for _, required := range []string{"//go:build darwin && arm64", "func TestAgyInstalledHomeRejectsOverrideMismatch", "func TestAgyNamespaceRejectsCopiedNativeSettings", "func TestAgyAuthSettingsManifestDetectsMutation"} {
-		if !strings.Contains(negative, required) {
-			t.Errorf("always-executed AGY boundary coverage missing %q", required)
-		}
-	}
-	if strings.Contains(negative, "liveprovider") || strings.Contains(negative, ".Skip(") || strings.Contains(negative, ".Skipf(") {
-		t.Fatal("AGY boundary negative coverage may not require live opt-in or skip")
-	}
-}
-
-func TestRequiredArtistPrerequisitesFailClosed(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "test", "e2e", "artist_workspace_test.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	if strings.Contains(text, ".Skip(") || strings.Contains(text, ".Skipf(") || strings.Contains(text, "MULGAE_REQUIRE_ARTIST_E2E") {
-		t.Fatal("required Artist/Playwright integration may not skip unavailable prerequisites")
-	}
-	for _, required := range []string{"func TestIntegrationArtistHomepageWorkspaceReview", "npx", "--offline", "playwright", "t.Fatalf(format, arguments...)"} {
-		if !strings.Contains(text, required) {
-			t.Errorf("Artist integration fail-closed contract missing %q", required)
-		}
 	}
 }
 

@@ -194,9 +194,6 @@ func DeriveEquivalentRouteDirectExecutionAuthority(
 	if !sourceReceipt.Matches(sourceRuntime, observedVersion, sourceNamespaceGeneration, sourceProvedRoles) {
 		return nil, fmt.Errorf("equivalent route authority: source authority does not match source runtime")
 	}
-	if sourceRuntime.Family() == FamilyAgy && sourceRuntime.Instance() != destinationRuntime.Instance() {
-		return nil, fmt.Errorf("equivalent route authority: AGY cross-instance derivation is not permitted")
-	}
 	if !equivalentFamilyRuntimeProfiles(sourceRuntime, destinationRuntime) {
 		return nil, fmt.Errorf("equivalent route authority: family runtime profiles are not shareable")
 	}
@@ -269,7 +266,6 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.LauncherSHA256() != right.LauncherSHA256() ||
 		left.ProfileGeneration() != right.ProfileGeneration() ||
 		left.RuntimeSafetyPolicyIdentity() != right.RuntimeSafetyPolicyIdentity() ||
-		left.KimiModel() != right.KimiModel() ||
 		left.WorkingDirectory() != right.WorkingDirectory() ||
 		left.TransportChannel() != right.TransportChannel() ||
 		left.TransportArgvIndex() != right.TransportArgvIndex() ||
@@ -372,7 +368,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe version invocation unavailable", err)
 	}
-	versionObservation, _, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil, nil)
+	versionObservation, _, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil)
 	if versionError != nil {
 		return CurrentProbeResult{}, versionError
 	}
@@ -395,30 +391,13 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if invokeErr := request.Invocation.Validate(definition, roleFixture, argv); invokeErr != nil {
 		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe invocation rejected", invokeErr)
 	}
-	var executionPolicy *AGYExecutionPolicy
-	if definition.Family() == FamilyAgy {
-		policy, policyErr := NewAGYExecutionPolicy(definition, roleFixture.WorkspaceSnapshotIdentity(), argv, packet)
-		if policyErr != nil {
-			return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "AGY execution policy unavailable", policyErr)
-		}
-		executionPolicy = &policy
-	}
 	var capabilityEvidence []byte
-	capabilityObservation, capabilityEvidence, capabilityError = probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet, executionPolicy)
+	capabilityObservation, capabilityEvidence, capabilityError = probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet)
 	if capabilityError != nil {
 		return CurrentProbeResult{}, capabilityError
 	}
 	if evidenceErr := validateProbeTransportAndLifecycle(definition, packet, capabilityObservation); evidenceErr != nil {
 		return CurrentProbeResult{}, securityProbeFailure("capability", "provider transport or lifecycle evidence mismatch", evidenceErr)
-	}
-	if definition.Family() == FamilyAgy && agyPermissionDenied(capabilityObservation.Stderr()) {
-		return CurrentProbeResult{}, classifyProbeFailure(
-			ctx,
-			definition.Family(),
-			errors.New("AGY capability probe permission denied"),
-			capabilityObservation.Stderr(),
-			capabilityObservation.Stdout(),
-		)
 	}
 	// A protocol conversation succeeds through its driver: the bounded
 	// teardown that ends a live app-server classifies as signaled, so the
@@ -445,7 +424,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		transport.Channel(), transport.PromptFileReference(), transport.SnapshotCWD(),
 		transportIdentity.CompleteSHA256(), transportIdentity.ByteLength(),
 		preStart.CompleteSHA256(), preStart.ByteLength(), postEnd.CompleteSHA256(), postEnd.ByteLength())}
-	proof, proofErr := newCurrentProbeDirectExecutionRoleProof(definition, version, namespace.Generation(), namespace, namespaceEnvironment, environment, roleFixture, argv, packet, capabilityObservation, executionPolicy)
+	proof, proofErr := newCurrentProbeDirectExecutionRoleProof(definition, version, namespace.Generation(), namespace, namespaceEnvironment, environment, roleFixture, argv, capabilityObservation)
 	if proofErr != nil {
 		return CurrentProbeResult{}, securityProbeFailure("direct-execution-authority", "direct role execution proof invalid", proofErr)
 	}
@@ -470,18 +449,8 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 
 func qualificationFamilyOutputCause(family string, err error) domain.RuntimeDiagnosticCause {
 	switch family {
-	case FamilyKimi:
-		if errors.Is(err, errProviderOutputFrameMissing) {
-			return domain.DiagnosticCauseOutputFrameMissing
-		}
-		return domain.DiagnosticCauseOutputDecodeFailed
 	case FamilyZcode:
 		return domain.DiagnosticCauseOutputEnvelopeInvalid
-	case FamilyAgy:
-		if errors.Is(err, errInvalidAGYEnvelope) {
-			return domain.DiagnosticCauseOutputEnvelopeInvalid
-		}
-		return domain.DiagnosticCauseOutputFrameMissing
 	default:
 		return domain.DiagnosticCauseObservationInvalid
 	}
@@ -491,7 +460,7 @@ func qualificationFamilyOutputCause(family string, err error) domain.RuntimeDiag
 // the namespace and fixture before launch and the fixture guard after launch.
 // A protocol capability probe converses the packet through its bound driver
 // and returns the captured assistant evidence text alongside the observation.
-func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket, executionPolicy *AGYExecutionPolicy) (observation ports.ProcessObservation, protocolEvidence []byte, err error) {
+func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket) (observation ports.ProcessObservation, protocolEvidence []byte, err error) {
 	if err := namespace.ValidateForSpawn(); err != nil {
 		return ports.ProcessObservation{}, nil, securityProbeFailure("namespace", "namespace validation failed", err)
 	}
@@ -507,15 +476,6 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	root := guard.WorkspaceRoot()
 	if !root.Valid() || guard.WorkspaceSnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() || root.SnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() {
 		return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "fixture descriptor binding drift", nil)
-	}
-	if definition.Family() == FamilyAgy && packet != nil {
-		if executionPolicy == nil || executionPolicy.Validate() != nil ||
-			executionPolicy.SnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() ||
-			!reflect.DeepEqual(executionPolicy.Argv(), argv) || executionPolicy.PacketIdentity() != packet.Identity() {
-			return ports.ProcessObservation{}, nil, securityProbeFailure("direct-execution-authority", "AGY execution policy drift", nil)
-		}
-	} else if executionPolicy != nil {
-		return ports.ProcessObservation{}, nil, securityProbeFailure("direct-execution-authority", "unexpected execution policy", nil)
 	}
 	var request ports.ProcessRequest
 	var requestErr error
@@ -546,16 +506,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	if duplicateErr != nil {
 		return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "launch descriptor unavailable", duplicateErr)
 	}
-	if definition.Family() == FamilyAgy {
-		authority, ok := namespace.NativeHomeLaunchAuthority()
-		if !ok || !authority.Valid() {
-			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, securityProbeFailure("namespace", "AGY native home authority unavailable", nil)
-		}
-		request, requestErr = ports.NewBoundProcessRequestWithNativeHomeAuthority(request, root, launchDirectory, authority)
-	} else {
-		request, requestErr = ports.NewBoundProcessRequest(request, root, launchDirectory)
-	}
+	request, requestErr = ports.NewBoundProcessRequest(request, root, launchDirectory)
 	if requestErr != nil {
 		_ = launchDirectory.Close()
 		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "bound process descriptor rejected", requestErr)
@@ -773,7 +724,6 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 		return probeEvidenceFailure(domain.DiagnosticCauseLifecycleReceiptInvalid, "missing post-output lifecycle receipt")
 	}
 	frame, frameOK := lifecycle.OutputFrame()
-	permissionDeniedWithoutOutput := definition.Family() == FamilyAgy && observation.Succeeded() && agyPermissionDenied(observation.Stderr())
 	requests := lifecycle.SignalRequests()
 	if !frameOK {
 		// A terminal JSON frame is optional metadata, not the result transport.
@@ -818,7 +768,7 @@ func validateProbeTransportAndLifecycle(definition RuntimeDefinition, packet por
 	// retain a valid frame observed before their internal teardown signal. That
 	// signal is not a post-output success claim; leave its typed process cause to
 	// qualificationProcessFailure instead of relabeling it as a receipt mismatch.
-	if hasNonPostOutput || ((!observation.Succeeded() || permissionDeniedWithoutOutput) && !hasPostOutput) {
+	if hasNonPostOutput || (!observation.Succeeded() && !hasPostOutput) {
 		return nil
 	}
 	if len(requests) == 0 {
@@ -1006,37 +956,6 @@ func plainSemver(family string, observation ports.ProcessObservation) (string, e
 	return version, nil
 }
 
-func strictKimiProbeContent(stdout []byte) ([]byte, error) {
-	var content string
-	found := false
-	for _, line := range bytes.Split(stdout, []byte{'\n'}) {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			continue
-		}
-		var event struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		}
-		decoder := json.NewDecoder(bytes.NewReader(line))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&event); err != nil {
-			return nil, err
-		}
-		if err := decoder.Decode(&struct{}{}); err != io.EOF {
-			return nil, fmt.Errorf("trailing Kimi stream JSON")
-		}
-		if event.Role != "assistant" || found {
-			return nil, fmt.Errorf("expected exactly one assistant content event")
-		}
-		content, found = event.Content, true
-	}
-	if !found {
-		return nil, fmt.Errorf("expected exactly one assistant content event")
-	}
-	return []byte(content), nil
-}
-
 func acceptCapabilityResponse(ctx context.Context, family string, output, stderr []byte, fixture ProbeFixtureLease) error {
 	err := acceptCapabilityEvidence(family, output, fixture)
 	if err == nil {
@@ -1077,25 +996,7 @@ func capabilityEvidenceCandidates(family string, output []byte) ([][]byte, error
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("empty capability output")
 	}
-	candidates := make([][]byte, 0, 4)
-	switch family {
-	case FamilyKimi:
-		if content, err := kimiContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
-			candidates = append(candidates, content)
-		}
-	case FamilyAgy:
-		if frame, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, trimmed); err == nil {
-			if err := validateAGYNativeEnvelope(frame); err != nil {
-				return nil, err
-			}
-			if structured := agyQualificationStructuredOutput(frame); len(bytes.TrimSpace(structured)) > 0 {
-				candidates = append(candidates, structured)
-			}
-		}
-		if content, err := agyContent(trimmed); err == nil && len(bytes.TrimSpace(content)) > 0 {
-			candidates = append(candidates, content)
-		}
-	}
+	candidates := make([][]byte, 0, 2)
 	// ZCode capability evidence arrives as the conversation's captured
 	// assistant text, so its candidates are the controlled probe JSON and the
 	// trimmed text itself.
@@ -1113,61 +1014,6 @@ func capabilityEvidencePayload(family string, output []byte) ([]byte, error) {
 		return nil, err
 	}
 	return bytes.Join(candidates, []byte{'\n'}), nil
-}
-
-func agyReviewResultText(frame []byte) []byte {
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(bytes.TrimSpace(frame), &envelope); err != nil {
-		return nil
-	}
-	for _, key := range []string{"result", "message", "content", "text", "response", "output"} {
-		raw, present := envelope[key]
-		if !present {
-			continue
-		}
-		var text string
-		if err := json.Unmarshal(raw, &text); err == nil && strings.TrimSpace(text) != "" {
-			return []byte(text)
-		}
-		if nested := bytes.TrimSpace(raw); looksLikeJSONObject(nested) || looksLikeJSONArray(nested) {
-			if text := agyReviewResultText(nested); len(bytes.TrimSpace(text)) > 0 {
-				return text
-			}
-			return append([]byte(nil), nested...)
-		}
-	}
-	return nil
-}
-
-func agyQualificationStructuredOutput(frame []byte) []byte {
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(bytes.TrimSpace(frame), &envelope); err != nil {
-		return nil
-	}
-	if raw, present := envelope["structured_output"]; present {
-		var text string
-		if err := json.Unmarshal(raw, &text); err == nil && strings.TrimSpace(text) != "" {
-			return []byte(text)
-		}
-		trimmed := bytes.TrimSpace(raw)
-		if looksLikeJSONObject(trimmed) || looksLikeJSONArray(trimmed) {
-			return append([]byte(nil), trimmed...)
-		}
-	}
-	for _, key := range []string{"result", "message", "content", "text", "response", "output"} {
-		raw, present := envelope[key]
-		if !present {
-			continue
-		}
-		var text string
-		if err := json.Unmarshal(raw, &text); err == nil {
-			raw = []byte(text)
-		}
-		if nested := agyQualificationStructuredOutput(raw); len(bytes.TrimSpace(nested)) > 0 {
-			return nested
-		}
-	}
-	return nil
 }
 
 func validateProbeEvidence(output []byte, fixture ProbeFixtureLease) error {
@@ -1355,13 +1201,6 @@ func classifyProbeFailure(ctx context.Context, family string, err error, stderr 
 			domain.DiagnosticCauseProviderTurnFailed, domain.DiagnosticCauseProviderProcessWaitFailed:
 			return probeFailure("capability", domain.FailureProviderUnavailable, "provider unavailable", err)
 		}
-	}
-	if family == FamilyAgy && agyPermissionDenied(stderr) {
-		runtimeErr, runtimeErrConstruction := ports.NewProviderRuntimeError(domain.DiagnosticCausePermissionDenied, err)
-		if runtimeErrConstruction != nil {
-			return probeFailure("capability", domain.FailureInternal, "provider permission failure unavailable", runtimeErrConstruction)
-		}
-		return probeFailure("capability", domain.FailureAuthentication, "provider permission denied", runtimeErr)
 	}
 	stdout := bytes.Join(additionalDiagnostics, []byte{'\n'})
 	if status, _, _, ok := nativeProviderOutcome(family, stdout, stderr); ok {

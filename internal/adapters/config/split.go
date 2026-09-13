@@ -23,26 +23,15 @@ type projectConfig struct {
 }
 
 type projectProvidersConfig struct {
-	Kimi  *projectKimiConfig  `yaml:"kimi,omitempty"`
 	ZCode *projectZCodeConfig `yaml:"zcode,omitempty"`
-	AGY   *projectAGYConfig   `yaml:"agy,omitempty"`
 	Grok  *projectGrokConfig  `yaml:"grok,omitempty"`
 	Codex *projectCodexConfig `yaml:"codex,omitempty"`
-}
-
-type projectKimiConfig struct {
-	Model   string `yaml:"model,omitempty"`
-	Timeout string `yaml:"timeout,omitempty"`
 }
 
 type projectZCodeConfig struct {
 	Timeout string `yaml:"timeout,omitempty"`
 }
 
-type projectAGYConfig struct {
-	PermissionMode string `yaml:"permission_mode,omitempty"`
-	Timeout        string `yaml:"timeout,omitempty"`
-}
 type projectGrokConfig struct {
 	Timeout string `yaml:"timeout,omitempty"`
 }
@@ -61,16 +50,9 @@ type machineConfig struct {
 }
 
 type machineProvidersConfig struct {
-	Kimi  *machineKimiConfig  `yaml:"kimi,omitempty"`
 	ZCode *machineZCodeConfig `yaml:"zcode,omitempty"`
-	AGY   *machineAGYConfig   `yaml:"agy,omitempty"`
 	Grok  *machineGrokConfig  `yaml:"grok,omitempty"`
 	Codex *machineCodexConfig `yaml:"codex,omitempty"`
-}
-
-type machineKimiConfig struct {
-	Executable string `yaml:"executable"`
-	DataHome   string `yaml:"data_home,omitempty"`
 }
 
 type machineZCodeConfig struct {
@@ -78,9 +60,6 @@ type machineZCodeConfig struct {
 	Launcher       string `yaml:"launcher"`
 }
 
-type machineAGYConfig struct {
-	Executable string `yaml:"executable"`
-}
 type machineGrokConfig struct {
 	Executable string `yaml:"executable"`
 }
@@ -118,9 +97,6 @@ func DecodeSplit(projectData, localData []byte) (Config, error) {
 	if err != nil {
 		return Config{}, reject(ReasonYAMLInvalid)
 	}
-	if config.Providers.AGY != nil {
-		config.Providers.AGY.PermissionModeExplicit = mappingHasPath(projectRoot, "providers", "agy", "permission_mode")
-	}
 	config.Validation.Extraction.EnabledExplicit = mappingHasPath(projectRoot, "validation", "extraction", "enabled")
 	if err := validate(&config); err != nil {
 		if errors.Is(err, errProviderTimeoutInvalid) {
@@ -143,14 +119,8 @@ func ProjectProviderIDs(projectData []byte) ([]string, error) {
 		return nil, reject(ReasonYAMLInvalid)
 	}
 	var families []string
-	if project.Providers.Kimi != nil {
-		families = append(families, "kimi")
-	}
 	if project.Providers.ZCode != nil {
 		families = append(families, "zcode")
-	}
-	if project.Providers.AGY != nil {
-		families = append(families, "agy")
 	}
 	if project.Providers.Grok != nil {
 		families = append(families, "grok")
@@ -175,6 +145,9 @@ func admittedConfigDocument(data []byte) (*yaml.Node, error) {
 	}
 	if reason := scanCredentials(root); reason != "" {
 		return nil, reject(reason)
+	}
+	if containsRetiredProviderSemantics(root) {
+		return nil, reject(ReasonProviderRetired)
 	}
 	if !knownProviderIdentities(root) {
 		return nil, reject(ReasonProviderIdentityInvalid)
@@ -203,21 +176,13 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 		Execution: project.Execution, Roles: project.Roles, Review: project.Review,
 		Validation: project.Validation, Resources: project.Resources, CI: project.CI,
 	}
-	if (project.Providers.Kimi == nil) != (local.Providers.Kimi == nil) ||
-		(project.Providers.ZCode == nil) != (local.Providers.ZCode == nil) ||
-		(project.Providers.AGY == nil) != (local.Providers.AGY == nil) ||
+	if (project.Providers.ZCode == nil) != (local.Providers.ZCode == nil) ||
 		(project.Providers.Grok == nil) != (local.Providers.Grok == nil) ||
 		(project.Providers.Codex == nil) != (local.Providers.Codex == nil) {
 		return Config{}, fmt.Errorf("provider sets differ")
 	}
-	if project.Providers.Kimi != nil {
-		config.Providers.Kimi = &KimiProviderConfig{Executable: local.Providers.Kimi.Executable, Model: project.Providers.Kimi.Model, DataHome: local.Providers.Kimi.DataHome, Timeout: project.Providers.Kimi.Timeout}
-	}
 	if project.Providers.ZCode != nil {
 		config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: local.Providers.ZCode.NodeExecutable, Launcher: local.Providers.ZCode.Launcher, Timeout: project.Providers.ZCode.Timeout}
-	}
-	if project.Providers.AGY != nil {
-		config.Providers.AGY = &AGYProviderConfig{Executable: local.Providers.AGY.Executable, PermissionMode: project.Providers.AGY.PermissionMode, Timeout: project.Providers.AGY.Timeout}
 	}
 	if project.Providers.Grok != nil {
 		config.Providers.Grok = &GrokProviderConfig{Executable: local.Providers.Grok.Executable, Timeout: project.Providers.Grok.Timeout}
@@ -264,40 +229,12 @@ func encodeProjectConfig(config Config) []byte {
 		out.WriteString("  kind: \"ui\"\n")
 	}
 	out.WriteString("providers:\n")
-	if provider := config.Providers.Kimi; provider != nil {
-		out.WriteString("  kimi:")
-		if provider.Model == DefaultKimiModel && provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
-			out.WriteString(" {}\n")
-		} else {
-			out.WriteString("\n")
-			if provider.Model != DefaultKimiModel {
-				out.WriteString("    model: " + q(provider.Model) + "\n")
-			}
-			if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
-				out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
-			}
-		}
-	}
 	if provider := config.Providers.ZCode; provider != nil {
 		out.WriteString("  zcode:")
 		if provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString(" {}\n")
 		} else {
 			out.WriteString("\n    timeout: " + q(provider.Timeout) + "\n")
-		}
-	}
-	if provider := config.Providers.AGY; provider != nil {
-		out.WriteString("  agy:")
-		if provider.PermissionMode == DefaultAGYPermissionMode && !provider.PermissionModeExplicit && provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
-			out.WriteString(" {}\n")
-		} else {
-			out.WriteString("\n")
-			if provider.PermissionMode != DefaultAGYPermissionMode || provider.PermissionModeExplicit {
-				out.WriteString("    permission_mode: " + q(provider.PermissionMode) + "\n")
-			}
-			if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
-				out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
-			}
 		}
 	}
 	if provider := config.Providers.Grok; provider != nil {
@@ -367,17 +304,8 @@ func encodeMachineConfig(config Config) []byte {
 	q := strconv.Quote
 	var out strings.Builder
 	out.WriteString("version: " + strconv.Itoa(ConfigVersion) + "\nnative_user:\n  home: " + q(config.NativeUser.Home) + "\nproviders:\n")
-	if provider := config.Providers.Kimi; provider != nil {
-		out.WriteString("  kimi:\n    executable: " + q(provider.Executable) + "\n")
-		if provider.DataHome != DefaultKimiDataHome(config.NativeUser.Home) {
-			out.WriteString("    data_home: " + q(provider.DataHome) + "\n")
-		}
-	}
 	if provider := config.Providers.ZCode; provider != nil {
 		out.WriteString("  zcode:\n    node_executable: " + q(provider.NodeExecutable) + "\n    launcher: " + q(provider.Launcher) + "\n")
-	}
-	if provider := config.Providers.AGY; provider != nil {
-		out.WriteString("  agy:\n    executable: " + q(provider.Executable) + "\n")
 	}
 	if provider := config.Providers.Grok; provider != nil {
 		out.WriteString("  grok:\n    executable: " + q(provider.Executable) + "\n")

@@ -33,28 +33,14 @@ type NativeUserConfig struct {
 	Home string `yaml:"home" json:"home"`
 }
 type ProvidersConfig struct {
-	Kimi  *KimiProviderConfig  `yaml:"kimi,omitempty" json:"kimi,omitempty"`
 	ZCode *ZCodeProviderConfig `yaml:"zcode,omitempty" json:"zcode,omitempty"`
-	AGY   *AGYProviderConfig   `yaml:"agy,omitempty" json:"agy,omitempty"`
 	Grok  *GrokProviderConfig  `yaml:"grok,omitempty" json:"grok,omitempty"`
 	Codex *CodexProviderConfig `yaml:"codex,omitempty" json:"codex,omitempty"`
-}
-type KimiProviderConfig struct {
-	Executable string `yaml:"executable" json:"executable"`
-	Model      string `yaml:"model,omitempty" json:"model"`
-	DataHome   string `yaml:"data_home,omitempty" json:"data_home"`
-	Timeout    string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type ZCodeProviderConfig struct {
 	NodeExecutable string `yaml:"node_executable" json:"node_executable"`
 	Launcher       string `yaml:"launcher" json:"launcher"`
 	Timeout        string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-}
-type AGYProviderConfig struct {
-	Executable             string `yaml:"executable" json:"executable"`
-	PermissionMode         string `yaml:"permission_mode,omitempty" json:"permission_mode"`
-	Timeout                string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	PermissionModeExplicit bool   `yaml:"-" json:"-"`
 }
 type GrokProviderConfig struct {
 	Executable string `yaml:"executable" json:"executable"`
@@ -141,23 +127,15 @@ type CIConfig struct {
 }
 
 const (
-	ConfigVersion    = 3
-	DefaultKimiModel = "kimi-code/kimi-for-coding"
-	// DefaultAGYPermissionMode keeps AGY headless reviews inside Mulgae's
-	// read-oriented permission boundary. The immutable snapshot and --sandbox
-	// remain the workspace authority; write/shell requests stay soft-denied.
-	// Explicit permission_mode: "dangerously-skip-permissions" remains opt-in.
-	DefaultAGYPermissionMode  = "safe"
-	SafeAGYPermissionMode     = "safe"
-	HeadlessAGYPermissionMode = "dangerously-skip-permissions"
-	DefaultProviderTimeout    = 60 * time.Minute
-	MinimumProviderTimeout    = time.Minute
-	MaximumProviderTimeout    = 60 * time.Minute
-	ConfigRelativePath        = ".mulgae/config.yaml"
-	LocalConfigRelativePath   = ".mulgae/local.yaml"
-	MaximumConfigBytes        = 1 << 20
-	ProjectKindNonUI          = "non_ui"
-	ProjectKindUI             = "ui"
+	ConfigVersion           = 3
+	DefaultProviderTimeout  = 60 * time.Minute
+	MinimumProviderTimeout  = time.Minute
+	MaximumProviderTimeout  = 60 * time.Minute
+	ConfigRelativePath      = ".mulgae/config.yaml"
+	LocalConfigRelativePath = ".mulgae/local.yaml"
+	MaximumConfigBytes      = 1 << 20
+	ProjectKindNonUI        = "non_ui"
+	ProjectKindUI           = "ui"
 )
 
 // ParseProviderTimeout resolves an optional Config v3 provider timeout. An
@@ -244,7 +222,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 	lastOrdinal := -1
 	for _, family := range families {
 		ordinal := -1
-		for index, candidate := range []string{"kimi", "zcode", "agy", "grok", "codex"} {
+		for index, candidate := range []string{"zcode", "grok", "codex"} {
 			if family == candidate {
 				ordinal = index
 				break
@@ -314,7 +292,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 			return RolesConfig{}, err
 		}
 		if assignment.PrimaryProvider == "" {
-			return RolesConfig{}, fmt.Errorf("canonical role assignments: artist requires agy, zcode, or codex")
+			return RolesConfig{}, fmt.Errorf("canonical role assignments: artist requires zcode or codex")
 		}
 		artist = assignment
 		artist.Enabled = true
@@ -334,17 +312,10 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 	}, nil
 }
 
-func DefaultKimiDataHome(nativeHome string) string { return nativeHome + "/.kimi-code" }
 func (providers ProvidersConfig) Families() []string {
-	result := make([]string, 0, 5)
-	if providers.Kimi != nil {
-		result = append(result, "kimi")
-	}
+	result := make([]string, 0, 3)
 	if providers.ZCode != nil {
 		result = append(result, "zcode")
-	}
-	if providers.AGY != nil {
-		result = append(result, "agy")
 	}
 	if providers.Grok != nil {
 		result = append(result, "grok")
@@ -363,6 +334,7 @@ const (
 	ReasonSizeInvalid             ReasonCode = "config_size_invalid"
 	ReasonProviderTimeoutInvalid  ReasonCode = "config_provider_timeout_invalid"
 	ReasonProviderIdentityInvalid ReasonCode = "config_provider_identity_invalid"
+	ReasonProviderRetired         ReasonCode = "config_provider_retired"
 	ReasonRoleMappingInvalid      ReasonCode = "config_role_mapping_invalid"
 	ReasonCredentialKeyDetected   ReasonCode = "config_credential_key_detected"
 	ReasonCredentialValueDetected ReasonCode = "config_credential_value_detected"

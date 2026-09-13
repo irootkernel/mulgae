@@ -13,9 +13,7 @@ import (
 type CredentialSourceFamily string
 
 const (
-	CredentialSourceKimi  CredentialSourceFamily = "kimi"
 	CredentialSourceZCode CredentialSourceFamily = "zcode"
-	CredentialSourceAGY   CredentialSourceFamily = "agy"
 	CredentialSourceGrok  CredentialSourceFamily = "grok"
 	CredentialSourceCodex CredentialSourceFamily = "codex"
 )

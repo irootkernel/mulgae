@@ -167,13 +167,6 @@ say that no provider ever holds it.
   mode-`0700` runtime directory `/tmp/mulgae-zcode`; a namespace-rooted temp
   path exceeds the kernel socket path limit. Socket names carry process-unique
   random identifiers, and the directory is never used for review content.
-- AGY review invocations are unchanged: `--new-project --sandbox --add-dir
-  <workspace> --mode plan` in the default safe permission mode. Headless AGY
-  auto-denies `write_file` in safe mode, so AGY role reports stay on the stdout
-  transport. The dangerous permission bypass remains an explicit opt-in and is
-  not used for role output.
-- Kimi is unchanged and has no adapter-owned workspace tools; its process
-  working directory is still the immutable workspace view.
 - Grok speaks ACP v1 with no MCP servers. Mulgae projects only the native
   authentication file and an adapter-owned workspace policy into a disposable
   Grok home. Review may approve one correlated `Write` request to the exact
@@ -253,17 +246,6 @@ environment variable, and Codex model tools cannot read the projected credential
 directory. Only `auth.json` is copied; user config, rules, skills, and plugins are
 not projected. The copy is mode `0600`, remains bound to its namespace
 generation, and is removed during terminal namespace cleanup.
-
-AGY is the exception to disposable `HOME`: its authenticated runtime is bound
-to the verified installed-user home while its workspace and staging remain
-Mulgae-owned and disposable. Separate AGY runs may therefore access the same
-provider-owned authentication state concurrently. Mulgae neither serializes
-that access nor treats it as publication authority; operators must account for
-provider-side concurrency and account limits.
-AGY qualification and review invocations receive the adapter-owned system
-`PATH=/usr/bin:/bin:/usr/sbin:/sbin` so tool hooks can resolve `sh` and standard
-utilities. Ambient and configured `PATH` values cannot override it. This path
-is part of the effective environment identity used for qualification.
 
 Runtime diagnostics and exports must not disclose secrets or native paths. A
 new diagnostic field is a data-release boundary and requires review. Provider

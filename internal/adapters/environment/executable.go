@@ -84,7 +84,7 @@ func (ProviderVersionObserver) ObserveProviderVersion(
 		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid request")
 	}
 	switch family {
-	case providercli.FamilyKimi, providercli.FamilyZcode, providercli.FamilyAgy, providercli.FamilyCodex:
+	case providercli.FamilyZcode, providercli.FamilyGrok, providercli.FamilyCodex:
 	default:
 		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: unsupported family")
 	}

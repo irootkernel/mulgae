@@ -52,7 +52,7 @@ func TestRunAuthorityAdapterMapsQualifiedRunToServiceAuthority(t *testing.T) {
 	adapter, err := NewRunAuthorityAdapter(
 		qualified,
 		authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}},
-		plannerTestCanonicalPolicy(t, []Family{FamilyAGY}),
+		plannerTestCanonicalPolicy(t, []Family{FamilyGrok}),
 		BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"},
 	)
 	if err != nil {
@@ -70,11 +70,11 @@ func TestRunAuthorityAdapterMapsQualifiedRunToServiceAuthority(t *testing.T) {
 	if err != nil || !first.Drained() {
 		t.Fatalf("terminal = %#v, %v", first, err)
 	}
-	if receipts := first.NamespaceReceipts(); len(receipts) != 1 || receipts[0].ProviderInstance() != "agy-main" || receipts[0].Generation() != "generation-1" {
+	if receipts := first.NamespaceReceipts(); len(receipts) != 1 || receipts[0].ProviderInstance() != "grok-main" || receipts[0].Generation() != "generation-1" {
 		t.Fatalf("aggregate terminal = %#v", first)
 	}
 	retained := authority.(*runAuthority).terminal
-	if !retained.Drained() || len(retained.Instances()) != 1 || retained.Instances()[0] != "agy-main" {
+	if !retained.Drained() || len(retained.Instances()) != 1 || retained.Instances()[0] != "grok-main" {
 		t.Fatalf("retained terminal = %#v", retained)
 	}
 	second, err := authority.DrainTerminal(context.Background())
@@ -90,7 +90,7 @@ func TestRunAuthorityAdapterDrainsOnPlannerConstructionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := plannerTestCanonicalPolicy(t, []Family{FamilyAGY})
+	policy := plannerTestCanonicalPolicy(t, []Family{FamilyGrok})
 	policy.MaxWorkers = -1
 	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestRunAuthorityAdapterPlannerCleanupRetainsRetryOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := plannerTestCanonicalPolicy(t, []Family{FamilyAGY})
+	policy := plannerTestCanonicalPolicy(t, []Family{FamilyGrok})
 	policy.MaxWorkers = -1
 	adapter, err := NewRunAuthorityAdapter(qualified, authorityCandidateSource{candidates: []QualifiedRunCandidate{authorityCandidate(t)}}, policy, BuildIdentity{Product: "mulgae", Version: "1.2.3", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"})
 	if err != nil {
@@ -157,23 +157,23 @@ func TestQualificationCandidatesAreRestrictedToSelectedAssignments(t *testing.T)
 		t.Fatal(err)
 	}
 	candidates := []QualifiedRunCandidate{
-		authorityCandidateForRoles(t, FamilyKimi, "kimi-main", selected),
 		authorityCandidateForRoles(t, FamilyZCode, "zcode-main", selected),
-		authorityCandidateForRoles(t, FamilyAGY, "agy-main", selected),
+		authorityCandidateForRoles(t, FamilyGrok, "grok-main", selected),
+		authorityCandidateForRoles(t, FamilyCodex, "codex-main", selected),
 	}
 	restricted, err := restrictCandidatesToSelectedAssignments(
 		candidates,
 		selection,
-		plannerTestCanonicalPolicy(t, []Family{FamilyKimi, FamilyZCode, FamilyAGY}),
+		plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex}),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Each role names exactly one family, so the families partition the roles.
 	want := map[Family][]domain.Role{
-		FamilyKimi:  {domain.RoleLogic},
-		FamilyZCode: {domain.RoleSecurity},
-		FamilyAGY:   {domain.RoleDocumentation},
+		FamilyZCode: {domain.RoleLogic},
+		FamilyGrok:  {domain.RoleSecurity},
+		FamilyCodex: {domain.RoleDocumentation},
 	}
 	if len(restricted) != len(want) {
 		t.Fatalf("restricted candidate count = %d, want %d", len(restricted), len(want))
@@ -215,14 +215,14 @@ func TestImmutableReviewInputRetainsObjectivePresence(t *testing.T) {
 }
 func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 	t.Helper()
-	definition, _ := authorityProbeDefinition(t, FamilyAGY, "agy-main", "1.1.19", t.TempDir())
+	definition, _ := authorityProbeDefinition(t, FamilyGrok, "grok-main", "1.0.30", t.TempDir())
 	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return QualifiedRunCandidate{
 		Profile: DiscoveredProviderProfile{
-			family: FamilyAGY, executable: definition.Executable(), launcher: definition.Launcher(),
+			family: FamilyGrok, executable: definition.Executable(), launcher: definition.Launcher(),
 			argv: definition.BaseArgv(), sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
 			reason: "unqualified_discovery",
 		},
@@ -236,7 +236,7 @@ func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 
 func authorityCandidateForRoles(t *testing.T, family Family, instance string, roles []domain.Role) QualifiedRunCandidate {
 	t.Helper()
-	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.19", t.TempDir())
+	definition, _ := authorityProbeDefinition(t, family, instance, "1.0.30", t.TempDir())
 	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -258,9 +258,9 @@ func authorityCandidateForRoles(t *testing.T, family Family, instance string, ro
 func authorityQualifier(t *testing.T, now time.Time) CurrentQualifier {
 	t.Helper()
 	return CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
-		input := currentProbeAuthorityInputForInstance(t, request.Identity.Family, request.Identity.Instance, "1.1.19")
+		input := currentProbeAuthorityInputForInstance(t, request.Identity.Family, request.Identity.Instance, "1.0.30")
 		return CurrentQualificationResult{
-			VersionArgv: []string{request.Identity.Executable, "--version"}, Version: "1.1.19", Receipts: input.Receipts,
+			VersionArgv: []string{request.Identity.Executable, "--version"}, Version: "1.0.30", Receipts: input.Receipts,
 			SupportedRoles: []domain.Role{domain.RoleLogic}, RoleReceipts: []CurrentRoleReceipt{{Role: domain.RoleLogic, State: ReceiptPass, Identity: input.Identity}},
 			BaseRole: domain.RoleLogic,
 		}, nil
@@ -269,7 +269,7 @@ func authorityQualifier(t *testing.T, now time.Time) CurrentQualifier {
 
 func newAuthorityRegistry(t *testing.T) *qualifierRegistry {
 	t.Helper()
-	namespace := acquiredProviderNamespaceTerminalReceipt(t, "agy-main", "generation-1")
+	namespace := acquiredProviderNamespaceTerminalReceipt(t, "grok-main", "generation-1")
 	aggregate := mustProviderRunTerminalReceipt(t, namespace)
 	return &qualifierRegistry{
 		namespaces: make(map[string]ports.ProviderQualificationNamespace),

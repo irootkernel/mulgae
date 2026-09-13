@@ -12,7 +12,7 @@ func TestLocalDoctorResultValidateEnforcesOfflineReadiness(t *testing.T) {
 	}
 
 	tests := map[string]func(*LocalDoctorResult){
-		"noncanonical configured IDs":     func(result *LocalDoctorResult) { result.ConfiguredProviderIDs = []string{"agy", "kimi"} },
+		"noncanonical configured IDs":     func(result *LocalDoctorResult) { result.ConfiguredProviderIDs = []string{"grok", "zcode"} },
 		"configured identity mismatch":    func(result *LocalDoctorResult) { result.ProviderInventory[0].Configured = false },
 		"eligible without compatible CLI": func(result *LocalDoctorResult) { result.ProviderInventory[0].CLICompatible.Eligibility = "ineligible" },
 		"assignment readiness mismatch": func(result *LocalDoctorResult) {
@@ -39,9 +39,9 @@ func TestLocalDoctorResultValidateEnforcesOfflineReadiness(t *testing.T) {
 
 func TestLocalDoctorResultRequiresEveryConfiguredProvider(t *testing.T) {
 	result := validLocalDoctorResult()
-	result.ConfiguredProviderIDs = []string{"kimi", "agy"}
-	result.ProviderInventory[2] = LocalProviderInventoryRow{
-		Family: "agy", Configured: true, ReferencedByRoles: []string{}, State: "unavailable", Reason: "provider_cli_version_below_minimum",
+	result.ConfiguredProviderIDs = []string{"zcode", "grok"}
+	result.ProviderInventory[1] = LocalProviderInventoryRow{
+		Family: "grok", Configured: true, ReferencedByRoles: []string{}, State: "unavailable", Reason: "provider_cli_version_below_minimum",
 		BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}},
 		CLICompatible:   LocalCLICompatibility{Status: "failed", ObservedVersion: "1.1.18", Eligibility: "ineligible", Compatibility: "below_minimum", MinimumVersion: "1.1.19", VerifiedLatest: "1.1.19", ReasonCode: "provider_cli_version_below_minimum"},
 	}
@@ -62,10 +62,10 @@ func validLocalDoctorResult() LocalDoctorResult {
 		SchemaVersion: LocalSchemaVersion, CheckedAt: time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), ProjectRootURI: ".",
 		Config:   LocalConfigProjection{Status: "ready", URI: ".mulgae/config.yaml", SHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Authority: "project_local", Locality: "verified", CheckoutHeadOID: "head", IndexEntriesSHA256: "sha256:index", TargetCommitOIDs: []string{"head"}, NativeHomeIdentity: "verified", ProvenanceState: "accepted", ReasonCodes: []string{}},
 		ConfigV3: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, LocalConfiguration: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, ProviderIdentity: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}},
-		ConfiguredProviderIDs: []string{"kimi"},
+		ConfiguredProviderIDs: []string{"zcode"},
 		ProviderInventory: []LocalProviderInventoryRow{
-			{Family: "kimi", Configured: true, ReferencedByRoles: []string{"logic"}, State: "eligible", Reason: "provider_cli_version_supported", BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "0.38.0", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "0.38.0", VerifiedLatest: "0.38.0", ReasonCode: "provider_cli_version_supported"}},
-			notConfigured("zcode"), notConfigured("agy"), notConfigured("grok"), notConfigured("codex"),
+			{Family: "zcode", Configured: true, ReferencedByRoles: []string{"logic"}, State: "eligible", Reason: "provider_cli_version_supported", BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "0.16.5", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "0.16.5", VerifiedLatest: "0.16.5", ReasonCode: "provider_cli_version_supported"}},
+			notConfigured("grok"), notConfigured("codex"),
 		},
 		Assignment: LocalAssignmentProjection{State: "ready", Resilience: "ready"}, PlatformEvidence: []LocalPlatformEvidence{{Cell: "darwin-arm64", Native: true}}, ToolsLock: LocalToolsLock{State: "not_observed"},
 		Readiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, ConfiguredReadiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, RoleRouteReadiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, Diagnostics: []LocalDiagnostic{},

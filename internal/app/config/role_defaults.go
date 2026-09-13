@@ -75,11 +75,11 @@ func (defaults RoleDefaults) Role(role domain.Role) (RoleDefault, bool) {
 }
 
 func validateRoleDefault(role domain.Role, entry RoleDefault) error {
-	allowed := []string{"kimi", "zcode", "agy", "grok", "codex"}
-	required := len(allowed)
+	allowed := []string{"zcode", "grok", "codex"}
+	required := 3
 	if role == domain.RoleArtist {
-		allowed = []string{"agy", "zcode", "codex"}
-		required = 1
+		allowed = []string{"zcode", "codex"}
+		required = 2
 	}
 	if len(entry.ProviderPreferences) < required || len(entry.ProviderPreferences) > len(allowed) {
 		return fmt.Errorf("role defaults: invalid provider preferences for %q", role)

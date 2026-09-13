@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const LocalSchemaVersion = "mulgae-doctor-result.v3"
+const LocalSchemaVersion = "mulgae-doctor-result.v4"
 
 type LocalConfigProjection struct {
 	Status             string   `json:"status"`
@@ -99,7 +99,7 @@ func (result LocalDoctorResult) Validate() error {
 	if result.SchemaVersion != LocalSchemaVersion || result.CheckedAt.IsZero() || result.ProjectRootURI != "." || result.Config.URI != ".mulgae/config.yaml" || result.Config.Authority != "project_local" {
 		return fmt.Errorf("local doctor result: invalid identity")
 	}
-	if len(result.ProviderInventory) != 5 || result.ProviderInventory[0].Family != "kimi" || result.ProviderInventory[1].Family != "zcode" || result.ProviderInventory[2].Family != "agy" || result.ProviderInventory[3].Family != "grok" || result.ProviderInventory[4].Family != "codex" {
+	if len(result.ProviderInventory) != 3 || result.ProviderInventory[0].Family != "zcode" || result.ProviderInventory[1].Family != "grok" || result.ProviderInventory[2].Family != "codex" {
 		return fmt.Errorf("local doctor result: invalid provider inventory")
 	}
 	for _, check := range []LocalDiagnosticCheck{result.ConfigV3, result.LocalConfiguration, result.ProviderIdentity} {
@@ -182,7 +182,7 @@ func validateConfigProjection(config LocalConfigProjection) error {
 
 func validConfigFailureReason(reason string) bool {
 	switch reason {
-	case "config_yaml_invalid", "config_size_invalid", "config_provider_timeout_invalid", "config_provider_identity_invalid", "config_role_mapping_invalid":
+	case "config_yaml_invalid", "config_size_invalid", "config_provider_timeout_invalid", "config_provider_identity_invalid", "config_provider_retired", "config_role_mapping_invalid":
 		return true
 	default:
 		return false
@@ -260,7 +260,7 @@ func validateDiagnostics(readiness LocalReadiness, diagnostics []LocalDiagnostic
 
 func canonicalProviderIDs(ids []string) bool {
 	position := -1
-	order := []string{"kimi", "zcode", "agy", "grok", "codex"}
+	order := []string{"zcode", "grok", "codex"}
 	for _, id := range ids {
 		found := -1
 		for index, family := range order {

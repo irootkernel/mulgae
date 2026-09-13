@@ -9,7 +9,7 @@ import (
 )
 
 func validConfig() Config {
-	roles, err := CanonicalRolesConfig(testRoleDefaults(), []string{"kimi"})
+	roles, err := CanonicalRolesConfig(testRoleDefaults(), []string{"zcode"})
 	if err != nil {
 		panic(err)
 	}
@@ -17,7 +17,7 @@ func validConfig() Config {
 		Version:    ConfigVersion,
 		Project:    ProjectConfig{Name: "project", Context: ".mulgae-context.md"},
 		NativeUser: NativeUserConfig{Home: "/Users/test"},
-		Providers:  ProvidersConfig{Kimi: &KimiProviderConfig{Executable: "/usr/local/bin/kimi", Model: DefaultKimiModel, DataHome: "/Users/test/.kimi-code"}},
+		Providers:  ProvidersConfig{ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"}},
 		Execution:  ExecutionConfig{WorkspaceAccess: "none"},
 		Roles:      roles,
 		Review:     ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
@@ -40,8 +40,8 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Providers.Kimi.Timeout != "60m" {
-		t.Fatalf("omitted timeout resolved to %q", decoded.Providers.Kimi.Timeout)
+	if decoded.Providers.ZCode.Timeout != "60m" {
+		t.Fatalf("omitted timeout resolved to %q", decoded.Providers.ZCode.Timeout)
 	}
 	rendered, err := EncodeCanonical(decoded)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 		t.Fatalf("legacy canonical bytes changed:\n%s", rendered)
 	}
 
-	config.Providers.Kimi.Timeout = "60m"
+	config.Providers.ZCode.Timeout = "60m"
 	rendered, err = EncodeCanonical(config)
 	if err != nil {
 		t.Fatal(err)
@@ -61,62 +61,14 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 	}
 }
 
-func TestAGYHeadlessDefaultPreservesOmittedConfigV1CanonicalBytes(t *testing.T) {
-	config := validConfig()
-	config.Providers = ProvidersConfig{AGY: &AGYProviderConfig{Executable: "/usr/local/bin/agy"}}
-	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
-
-	canonical, err := EncodeCanonical(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(canonical, []byte("permission_mode:")) {
-		t.Fatalf("headless default was emitted:\n%s", canonical)
-	}
-	decoded, err := Decode(canonical)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded.Providers.AGY.PermissionMode != DefaultAGYPermissionMode {
-		t.Fatalf("omitted AGY permission mode resolved to %q", decoded.Providers.AGY.PermissionMode)
-	}
-	rendered, err := EncodeCanonical(decoded)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(rendered, canonical) {
-		t.Fatalf("omitted Config v3 bytes changed:\n%s", rendered)
-	}
-
-	legacyExplicit := bytes.Replace(
-		canonical,
-		[]byte("    executable: \"/usr/local/bin/agy\"\n"),
-		[]byte("    executable: \"/usr/local/bin/agy\"\n    permission_mode: \"dangerously-skip-permissions\"\n"),
-		1,
-	)
-	decodedLegacy, err := Decode(legacyExplicit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !decodedLegacy.Providers.AGY.PermissionModeExplicit {
-		t.Fatal("legacy explicit headless mode lost its presence marker")
-	}
-	renderedLegacy, err := EncodeCanonical(decodedLegacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(renderedLegacy, legacyExplicit) {
-		t.Fatalf("explicit Config v3 bytes changed:\n%s", renderedLegacy)
-	}
-
-	config.Providers.AGY.PermissionMode = SafeAGYPermissionMode
-	config.Providers.AGY.PermissionModeExplicit = true
-	safe, err := EncodeCanonical(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(safe, []byte(`permission_mode: "safe"`)) {
-		t.Fatalf("explicit safe mode was omitted:\n%s", safe)
+func TestDecodeRejectsRetiredProviderBlocks(t *testing.T) {
+	for _, family := range []string{"kimi", "agy"} {
+		document := []byte("version: 3\nproject:\n  name: project\nproviders:\n  " + family + ":\n    executable: /bin/provider\n")
+		_, err := Decode(document)
+		admission, ok := AsAdmissionError(err)
+		if !ok || admission.Reason() != ReasonProviderRetired {
+			t.Fatalf("Decode(%s) error = %v, want %s", family, err, ReasonProviderRetired)
+		}
 	}
 }
 
@@ -159,9 +111,7 @@ func TestDecodeTracksStructuredExtractionPresence(t *testing.T) {
 func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{
-		Kimi:  &KimiProviderConfig{Executable: "/usr/local/bin/kimi", Model: DefaultKimiModel, DataHome: DefaultKimiDataHome(config.NativeUser.Home), Timeout: "1m"},
 		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs", Timeout: "30m"},
-		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode, Timeout: "45m"},
 		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok", Timeout: "25m"},
 		Codex: &CodexProviderConfig{Executable: "/usr/local/bin/codex", Model: "gpt-5.3-codex", ReasoningEffort: "high", Timeout: "20m"},
 	}
@@ -172,7 +122,7 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`timeout: "1m"`, `timeout: "30m"`, `timeout: "45m"`, `timeout: "25m"`, `timeout: "20m"`, `model: "gpt-5.3-codex"`, `reasoning_effort: "high"`} {
+	for _, field := range []string{`timeout: "30m"`, `timeout: "25m"`, `timeout: "20m"`, `model: "gpt-5.3-codex"`, `reasoning_effort: "high"`} {
 		if !bytes.Contains(canonical, []byte(field)) {
 			t.Fatalf("canonical config omitted %s:\n%s", field, canonical)
 		}
@@ -262,7 +212,7 @@ func TestProviderTimeoutRejectsInvalidZeroAndOutOfRangeValues(t *testing.T) {
 	for _, value := range []string{"invalid", "0s", "-1m", "59s", "60m1s", "61m"} {
 		t.Run(value, func(t *testing.T) {
 			config := validConfig()
-			config.Providers.Kimi.Timeout = value
+			config.Providers.ZCode.Timeout = value
 			if _, err := EncodeCanonical(config); err == nil || !strings.Contains(err.Error(), "provider timeout must be a duration from 1m through 60m") {
 				t.Fatalf("timeout %q err=%v", value, err)
 			}
@@ -273,7 +223,7 @@ func TestProviderTimeoutRejectsInvalidZeroAndOutOfRangeValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	invalid := strings.Replace(string(canonical), "providers:\n", "providers:\n", 1)
-	invalid = strings.Replace(invalid, "    executable: \"/usr/local/bin/kimi\"\n", "    executable: \"/usr/local/bin/kimi\"\n    timeout: \"0s\"\n", 1)
+	invalid = strings.Replace(invalid, "    node_executable: \"/usr/local/bin/node\"\n", "    node_executable: \"/usr/local/bin/node\"\n    timeout: \"0s\"\n", 1)
 	_, err = Decode([]byte(invalid))
 	admission, ok := AsAdmissionError(err)
 	if !ok || admission.Reason() != ReasonProviderTimeoutInvalid {
@@ -283,7 +233,7 @@ func TestProviderTimeoutRejectsInvalidZeroAndOutOfRangeValues(t *testing.T) {
 
 func TestProviderTimeoutCanonicalizesEquivalentDurationSpellings(t *testing.T) {
 	config := validConfig()
-	config.Providers.Kimi.Timeout = "1800s"
+	config.Providers.ZCode.Timeout = "1800s"
 	canonical, err := EncodeCanonical(config)
 	if err != nil {
 		t.Fatal(err)
@@ -298,13 +248,13 @@ func TestCanonicalRoundTripSupportsEveryProviderSubset(t *testing.T) {
 		config := validConfig()
 		config.Providers = ProvidersConfig{}
 		if mask&1 != 0 {
-			config.Providers.Kimi = &KimiProviderConfig{Executable: "/usr/local/bin/kimi", Model: DefaultKimiModel, DataHome: DefaultKimiDataHome(config.NativeUser.Home)}
-		}
-		if mask&2 != 0 {
 			config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}
 		}
+		if mask&2 != 0 {
+			config.Providers.Grok = &GrokProviderConfig{Executable: "/usr/local/bin/grok"}
+		}
 		if mask&4 != 0 {
-			config.Providers.AGY = &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}
+			config.Providers.Codex = &CodexProviderConfig{Executable: "/usr/local/bin/codex", CredentialHomes: []CodexCredentialHomeConfig{{Profile: "codex", Home: "/Users/test/.codex"}}, DefaultCredentialProfile: "codex"}
 		}
 		config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 		if config.Providers.Count() >= 2 {
@@ -336,7 +286,7 @@ func TestConfigRejectsRemovedFallbackKeys(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{
 		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"},
-		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode},
+		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok"},
 	}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 	encoded, err := EncodeCanonical(config)
@@ -378,7 +328,6 @@ func TestConfigRejectsRemovedFallbackKeys(t *testing.T) {
 func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 	config := validConfig()
 	config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}
-	config.Providers.AGY = &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 	config.Resources.RoleMaxInvocations = 2
 	config.Resources.RunMaxInvocations = 12
@@ -414,7 +363,7 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 func TestConfigV1RoundTripsArtistBriefPath(t *testing.T) {
 	config := validConfig()
 	config.Project.Kind = ProjectKindUI
-	config.Providers = ProvidersConfig{AGY: &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: "safe"}}
+	config.Providers = ProvidersConfig{ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}}
 	roles, err := CanonicalRolesConfigForUI(testRoleDefaults(), config.Providers.Families())
 	if err != nil {
 		t.Fatal(err)
@@ -454,7 +403,7 @@ func TestConfigV1AllowsUIWithoutArtist(t *testing.T) {
 
 func TestConfigSupportsProjectRoleSubsetButKeepsRequiredFloorEnabled(t *testing.T) {
 	config := validConfig()
-	roles, err := CanonicalRolesConfigForSelection(testRoleDefaults(), []string{"kimi"}, []string{"logic", "security", "documentation"})
+	roles, err := CanonicalRolesConfigForSelection(testRoleDefaults(), []string{"zcode"}, []string{"logic", "security", "documentation"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,13 +548,12 @@ func TestDecodeRejectsExplicitEmptyControlPlaceholderAndNoncanonicalUnknownKey(t
 
 func TestDecodeRejectsBudgetAndPermissionContradictions(t *testing.T) {
 	config := validConfig()
-	config.Providers.AGY = &AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "inferred"}
 	config.Resources.RoleMaxInvocations = 2
 	config.Resources.RunMaxInvocations = 12
 	encoded, _ := EncodeCanonical(validConfig())
-	invalid := strings.Replace(string(encoded), "providers:\n", "providers:\n  agy:\n    executable: \"/bin/agy\"\n    permission_mode: \"inferred\"\n", 1)
-	if _, err := Decode([]byte(invalid)); err == nil {
-		t.Fatal("inferred permission accepted")
+	retired := strings.Replace(string(encoded), "providers:\n", "providers:\n  agy: {}\n", 1)
+	if _, err := Decode([]byte(retired)); err == nil {
+		t.Fatal("retired provider was accepted")
 	}
 	config = validConfig()
 	config.Resources.RoleMaxInvocations = 1

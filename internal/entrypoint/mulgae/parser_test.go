@@ -101,7 +101,7 @@ func TestParseInitForms(t *testing.T) {
 
 	invocation := mustParse(t, []string{
 		"init", "--project-root", "/work/other", "--name", "other-project",
-		"--context", "src/review", "--providers", "zcode,kimi", "--output", "human",
+		"--context", "src/review", "--providers", "zcode,grok", "--output", "human",
 	})
 	request, ok = invocation.Init()
 	if !ok {
@@ -117,10 +117,10 @@ func TestParseInitForms(t *testing.T) {
 		t.Fatalf("init context = %q, %t; want src/review, true", got, present)
 	}
 	_, got := request.Selection()
-	if want := []string{"kimi", "zcode"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"zcode", "grok"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("init intended providers = %v, want %v", got, want)
 	}
-	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","project_name":"other-project","context":"src/review","selection":{"mode":"selected","provider_ids":["kimi","zcode"]},"roles":["logic"],"overrides":{},"overwrite":false,"output_format":"human"}`)
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","project_name":"other-project","context":"src/review","selection":{"mode":"selected","provider_ids":["zcode","grok"]},"roles":["logic"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
 	codex := mustParse(t, []string{"init", "--providers", "codex", "--codex-executable", "/opt/homebrew/bin/codex", "--codex-model", "gpt-5.3-codex", "--codex-reasoning-effort", "xhigh"})
 	codexRequest, ok := codex.Init()
@@ -143,6 +143,13 @@ func TestParseInitForms(t *testing.T) {
 	}
 	assertRequestJSON(t, grok, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["grok"]},"roles":["logic"],"overrides":{"grok_executable":"/opt/homebrew/bin/grok"},"overwrite":false,"output_format":"human"}`)
 
+	automatic := mustParse(t, []string{"init", "--providers", "auto", "--grok-executable", "/opt/homebrew/bin/grok"})
+	automaticRequest, ok := automatic.Init()
+	if !ok || automaticRequest.GrokExecutable() != "/opt/homebrew/bin/grok" {
+		t.Fatalf("automatic init request = %#v, %t", automaticRequest, ok)
+	}
+	assertRequestJSON(t, automatic, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic"],"overrides":{"grok_executable":"/opt/homebrew/bin/grok"},"overwrite":false,"output_format":"human"}`)
+
 	subset := mustParse(t, []string{"init", "--roles", "testing,security,logic"})
 	subsetRequest, ok := subset.Init()
 	if !ok || !reflect.DeepEqual(subsetRequest.Roles(), []string{"logic", "security", "testing"}) {
@@ -157,7 +164,7 @@ func TestParseInitForms(t *testing.T) {
 	}
 	assertRequestJSON(t, ui, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"project_kind":"ui","artist_brief":"docs/ux-ui-info.md","artist_design_specs":["design-specs/**/*.png","design-specs/**/*.webp"],"selection":{"mode":"auto"},"roles":["logic","artist"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
-	refresh := mustParse(t, []string{"init", "--refresh-local", "--agy-executable", "/opt/homebrew/bin/agy", "--output", "json"})
+	refresh := mustParse(t, []string{"init", "--refresh-local", "--grok-executable", "/opt/homebrew/bin/grok", "--output", "json"})
 	refreshRequest, ok := refresh.Init()
 	if !ok || !refreshRequest.RefreshLocal() {
 		t.Fatalf("refresh init request = %#v, %t", refreshRequest, ok)
@@ -165,7 +172,7 @@ func TestParseInitForms(t *testing.T) {
 	if refreshRequest.ProjectPolicyOptions() {
 		t.Fatal("local refresh unexpectedly records project-policy options")
 	}
-	assertRequestJSON(t, refresh, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic"],"overrides":{"agy_executable":"/opt/homebrew/bin/agy"},"overwrite":false,"refresh_local":true,"output_format":"json"}`)
+	assertRequestJSON(t, refresh, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"auto"},"roles":["logic"],"overrides":{"grok_executable":"/opt/homebrew/bin/grok"},"overwrite":false,"refresh_local":true,"output_format":"json"}`)
 	for _, arguments := range [][]string{
 		{"init", "--refresh-local", "--name", "other"},
 		{"init", "--refresh-local", "--providers", "agy"},
@@ -220,7 +227,7 @@ func TestParseHeartbeatRequiresExplicitProviderAndPreservesAuthorization(t *test
 	}
 	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"heartbeat","project_root":"/work/project","provider_id":"codex","credential_profile":"primary","authorize_live_request":true,"output_format":"json"}`)
 
-	unauthorized := mustParse(t, []string{"heartbeat", "--provider", "agy"})
+	unauthorized := mustParse(t, []string{"heartbeat", "--provider", "grok"})
 	request, ok = unauthorized.Heartbeat()
 	if !ok || request.Authorized() {
 		t.Fatalf("unauthorized heartbeat request = %#v, %t", request, ok)
@@ -762,7 +769,7 @@ func TestParseRecognizesExactExecutableCommandSurface(t *testing.T) {
 		app.CommandFindings:  {"findings", "--run", testRunID, "--severity", "low"},
 		app.CommandExcerpt:   {"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256},
 		app.CommandProviders: {"providers"},
-		app.CommandHeartbeat: {"heartbeat", "--provider", "agy"},
+		app.CommandHeartbeat: {"heartbeat", "--provider", "grok"},
 		app.CommandRoles:     {"roles"},
 		app.CommandConfig:    {"config"},
 		app.CommandSchema:    {"schema", "list"},
@@ -895,7 +902,7 @@ func TestParseAcceptsSafeRelativePathsAndLocalConfigMode(t *testing.T) {
 }
 
 func TestParseReturnsDefensiveCopies(t *testing.T) {
-	invocation := mustParse(t, []string{"init", "--providers", "kimi,zcode"})
+	invocation := mustParse(t, []string{"init", "--providers", "zcode,grok"})
 	first, ok := invocation.Init()
 	if !ok {
 		t.Fatal("init has no typed request")
@@ -907,7 +914,7 @@ func TestParseReturnsDefensiveCopies(t *testing.T) {
 		t.Fatal("init request disappeared")
 	}
 	_, got := second.Selection()
-	if want := []string{"kimi", "zcode"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"zcode", "grok"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("intended providers mutated through getter = %v, want %v", got, want)
 	}
 
@@ -961,7 +968,7 @@ func TestParseCLIExamplesAndCommandSurfaceGoldens(t *testing.T) {
 		{name: "excerpt error", arguments: []string{"excerpt", "--run", testRunID, "--finding", "F001"}, wantError: true},
 		{name: "providers success", arguments: []string{"providers"}, command: app.CommandProviders},
 		{name: "providers error", arguments: []string{"providers", "--unknown"}, wantError: true},
-		{name: "heartbeat success", arguments: []string{"heartbeat", "--provider", "agy", "--authorize-live-request", "--output", "json"}, command: app.CommandHeartbeat},
+		{name: "heartbeat success", arguments: []string{"heartbeat", "--provider", "grok", "--authorize-live-request", "--output", "json"}, command: app.CommandHeartbeat},
 		{name: "heartbeat error", arguments: []string{"heartbeat", "--provider", "unknown"}, wantError: true},
 		{name: "roles success", arguments: []string{"roles"}, command: app.CommandRoles},
 		{name: "roles error", arguments: []string{"roles", "logic"}, wantError: true},

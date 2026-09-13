@@ -69,8 +69,6 @@ type providerAdapterAuthority struct {
 
 func adapterAuthorityForFamily(family string) (providerAdapterAuthority, error) {
 	switch family {
-	case FamilyKimi, FamilyAgy:
-		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelArgvLiteral, qualificationChannel: ports.ProviderPacketChannelArgvLiteral}, nil
 	case FamilyZcode:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: zcodeProtocolDriverConstructor{}}, nil
 	case FamilyGrok:

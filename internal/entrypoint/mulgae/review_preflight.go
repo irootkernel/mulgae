@@ -17,7 +17,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v4"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v5"
 
 // ReviewPreflightService projects the exact capture and configured execution
 // envelope without provider discovery, qualification, invocation, or durable
@@ -29,16 +29,15 @@ type ReviewPreflightService interface {
 // ReviewPreflightResult is the schema-facing, deterministic execution-free
 // review projection. Every slice is owned by the result.
 type ReviewPreflightResult struct {
-	SchemaVersion     string                         `json:"schema_version"`
-	Status            string                         `json:"status"`
-	Qualification     string                         `json:"qualification"`
-	Target            ReviewPreflightTarget          `json:"target"`
-	AGYPermissionMode string                         `json:"agy_permission_mode"`
-	Warnings          []string                       `json:"warnings"`
-	FileSets          []ReviewPreflightFileSet       `json:"file_sets"`
-	GeneratedFiles    []ReviewPreflightGeneratedFile `json:"generated_files"`
-	Transmissions     []ReviewPreflightTransmission  `json:"transmissions"`
-	Budget            ReviewPreflightBudget          `json:"budget"`
+	SchemaVersion  string                         `json:"schema_version"`
+	Status         string                         `json:"status"`
+	Qualification  string                         `json:"qualification"`
+	Target         ReviewPreflightTarget          `json:"target"`
+	Warnings       []string                       `json:"warnings"`
+	FileSets       []ReviewPreflightFileSet       `json:"file_sets"`
+	GeneratedFiles []ReviewPreflightGeneratedFile `json:"generated_files"`
+	Transmissions  []ReviewPreflightTransmission  `json:"transmissions"`
+	Budget         ReviewPreflightBudget          `json:"budget"`
 }
 
 type ReviewPreflightTarget struct {
@@ -150,7 +149,6 @@ func NewReviewPreflightResult(
 	requestedKind string,
 	plan reviewrun.ExecutionPlan,
 	budgetReceipt review.RunBudgetReceipt,
-	agyPermissionMode string,
 ) (ReviewPreflightResult, error) {
 	if !material.Valid() || !workspaceReceipt.Valid() || !budgetReceipt.Eligible() || requestedKind == "" || len(plan.Assignments) == 0 || len(plan.Budgets) != len(plan.Assignments) {
 		return ReviewPreflightResult{}, fmt.Errorf("review preflight: invalid captured plan")
@@ -161,9 +159,6 @@ func NewReviewPreflightResult(
 	}
 	if err := validatePreflightSnapshotBinding(providerWorkspace, workspaceReceipt); err != nil {
 		return ReviewPreflightResult{}, err
-	}
-	if agyPermissionMode != appconfig.SafeAGYPermissionMode && agyPermissionMode != appconfig.HeadlessAGYPermissionMode {
-		return ReviewPreflightResult{}, fmt.Errorf("review preflight: invalid AGY permission mode")
 	}
 	files := workspaceReceipt.Files()
 	fileRows := make([]ReviewPreflightFile, 0, len(files))
@@ -185,7 +180,7 @@ func NewReviewPreflightResult(
 	if !material.Target().NoChange() {
 		for index, assignment := range plan.Assignments {
 			transmissions = append(transmissions, preflightTransmission(
-				assignment.Role(), "primary", plan.Budgets[index].Primary(), agyPermissionMode, fileSetID,
+				assignment.Role(), "primary", plan.Budgets[index].Primary(), fileSetID,
 			))
 		}
 	}
@@ -198,10 +193,6 @@ func NewReviewPreflightResult(
 			TransitionCount: path.TransitionCount(), InvocationTimeouts: path.InvocationTimeouts().String(),
 			Deadline: path.Deadline().String(),
 		}
-	}
-	warnings := []string{}
-	if agyPermissionMode == appconfig.HeadlessAGYPermissionMode {
-		warnings = append(warnings, "AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary.")
 	}
 	targetBytes := material.Target().Bytes()
 	status := "eligible"
@@ -221,8 +212,7 @@ func NewReviewPreflightResult(
 			RequestedKind: requestedKind, CapturedKind: string(material.Target().Kind()), GitMode: string(material.Target().Identity().GitMode()),
 			SHA256: "sha256:" + material.Target().Identity().SHA256(), Size: int64(len(targetBytes)),
 		},
-		AGYPermissionMode: agyPermissionMode,
-		Warnings:          warnings,
+		Warnings: []string{},
 		FileSets: []ReviewPreflightFileSet{{
 			ID: fileSetID, PolicyIdentity: workspaceReceipt.PolicyIdentity(), Files: fileRows,
 		}},
@@ -275,15 +265,10 @@ func (result ReviewPreflightResult) Validate() (err error) {
 	}()
 	if result.SchemaVersion != reviewPreflightSchemaVersion || result.Qualification != "not_run" ||
 		(result.Status != "eligible" && result.Status != "no_change") || !validPreflightTarget(result.Target) ||
-		(result.AGYPermissionMode != appconfig.SafeAGYPermissionMode && result.AGYPermissionMode != appconfig.HeadlessAGYPermissionMode) ||
 		len(result.FileSets) != 1 || len(result.GeneratedFiles) != 1 || !result.Budget.Eligible {
 		return fmt.Errorf("review preflight: invalid result")
 	}
-	wantWarnings := 0
-	if result.AGYPermissionMode == appconfig.HeadlessAGYPermissionMode {
-		wantWarnings = 1
-	}
-	if len(result.Warnings) != wantWarnings || wantWarnings == 1 && result.Warnings[0] != "AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary." {
+	if len(result.Warnings) != 0 {
 		return fmt.Errorf("review preflight: invalid warnings")
 	}
 	fileSet := result.FileSets[0]
@@ -335,11 +320,7 @@ func (result ReviewPreflightResult) Validate() (err error) {
 		if _, err := appconfig.ParseProviderTimeout(transmission.ConfiguredTimeout); err != nil {
 			return fmt.Errorf("review preflight: invalid transmission timeout")
 		}
-		wantPermission := "not_applicable"
-		if transmission.ProviderFamily == string(reviewrun.FamilyAGY) {
-			wantPermission = result.AGYPermissionMode
-		}
-		if !reviewrun.Family(transmission.ProviderFamily).Valid() || transmission.PermissionMode != wantPermission {
+		if !activePreflightFamily(reviewrun.Family(transmission.ProviderFamily)) || transmission.PermissionMode != "not_applicable" {
 			return fmt.Errorf("review preflight: invalid transmission provider")
 		}
 		lastRole = ordinal
@@ -498,18 +479,23 @@ func preflightRoleOrdinal(role domain.Role) int {
 	return -1
 }
 
-func preflightTransmission(role domain.Role, routeKind string, budget review.RouteBudget, agyPermissionMode, fileSetID string) ReviewPreflightTransmission {
+func preflightTransmission(role domain.Role, routeKind string, budget review.RouteBudget, fileSetID string) ReviewPreflightTransmission {
 	instance := budget.Route().ProviderInstance()
 	family := strings.SplitN(instance, "-", 2)[0]
-	permissionMode := "not_applicable"
-	if family == string(reviewrun.FamilyAGY) {
-		permissionMode = agyPermissionMode
-	}
 	return ReviewPreflightTransmission{
 		Role: string(role), RouteKind: routeKind, ProviderInstance: instance, ProviderFamily: family,
-		ConfiguredTimeout: appconfig.ProviderTimeoutText(budget.Limits().Timeout()), PermissionMode: permissionMode,
+		ConfiguredTimeout: appconfig.ProviderTimeoutText(budget.Limits().Timeout()), PermissionMode: "not_applicable",
 		TargetChannel: "prompt", FileSetID: fileSetID,
 	}
+}
+
+func activePreflightFamily(family reviewrun.Family) bool {
+	for _, candidate := range reviewrun.Families() {
+		if family == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func reviewPreflightFileSetID(policy string, files []ReviewPreflightFile) (string, error) {
@@ -526,7 +512,7 @@ func reviewPreflightFileSetID(policy string, files []ReviewPreflightFile) (strin
 
 func renderReviewPreflightHuman(result ReviewPreflightResult) []byte {
 	var output strings.Builder
-	fmt.Fprintf(&output, "review preflight: %s\nqualification: %s\nagy permission mode: %s\n", result.Status, result.Qualification, result.AGYPermissionMode)
+	fmt.Fprintf(&output, "review preflight: %s\nqualification: %s\n", result.Status, result.Qualification)
 	for _, warning := range result.Warnings {
 		fmt.Fprintf(&output, "warning: %s\n", warning)
 	}

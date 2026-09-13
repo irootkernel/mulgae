@@ -30,7 +30,7 @@ func TestIntegrationReleaseBinaryRecoversCancelledRunThroughExactReruns(t *testi
 	node, launcher := filepath.Join(providers, "node"), filepath.Join(providers, "zcode.cjs")
 	buildFakeZCode(t, root, node, launcher, logPath, "wait_twice_documentation")
 	environment := isolatedMulgaeEnvWith(t, account.HomeDir, providers)
-	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic,documentation", node, launcher, "")
+	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic,documentation", node, launcher)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	running := startMulgaeBinaryWithEnv(t, ctx, binary, project, environment, "review", "--dirty", "--roles", "logic,documentation", "--output", "json")

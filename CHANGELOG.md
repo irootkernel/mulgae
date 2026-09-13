@@ -9,6 +9,22 @@ This file records concise shipped outcomes and the planned next stable release.
 - Add Grok as an explicitly selected text-role provider with ACP v1 isolation,
   staged review output, typed capability failures, and an exact-binary live
   review target while rejecting artist assignments before provider execution.
+- Add typed retirement for configuration and direct or transitive artifact
+  references to removed provider families.
+
+### Changed
+
+- Set the supported provider order to ZCode, Grok, and Codex. Automatic init now
+  configures ZCode and Grok and assigns every default role to ZCode.
+- Require live ZCode and Grok certification in `make test`; keep the two-profile
+  Codex live scenario behind `MULGAE_E2E_OPT_IN=1`.
+- Publish command-result v10, doctor-result v4, provider-contract-evidence v4,
+  provider-heartbeat-result v3, and review-preflight v5.
+
+### Removed
+
+- Remove the Kimi and AGY runtime, configuration, discovery, credential,
+  transport, help, and release-test paths.
 
 ## v0.1.21 - 2026-09-12
 

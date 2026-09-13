@@ -3,7 +3,7 @@ TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.22
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-kimi test-mcp-clients
+.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-mcp-clients
 
 test:
 	@$(MAKE) test-prepare
@@ -68,31 +68,13 @@ test-e2e:
 	zcode_launcher="$${MULGAE_E2E_ZCODE_LAUNCHER:-/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs}"; \
 	test -f "$$zcode_launcher" && test -r "$$zcode_launcher" || { echo "test-e2e requires the ZCode launcher" >&2; exit 1; }; \
 	case "$$zcode_launcher" in /*) ;; *) echo "test-e2e requires an absolute ZCode launcher" >&2; exit 1;; esac; \
-	codex_bin="$${MULGAE_E2E_CODEX_EXECUTABLE:-$$(command -v codex)}"; \
-	test -n "$$codex_bin" && test -x "$$codex_bin" || { echo "test-e2e requires the Codex executable" >&2; exit 1; }; \
-	case "$$codex_bin" in /*) ;; *) echo "test-e2e requires an absolute Codex executable" >&2; exit 1;; esac; \
-	codex_home="$${MULGAE_E2E_CODEX_HOME:-$${HOME}/.codex}"; \
-	codex_fallback_home="$${MULGAE_E2E_CODEX_FALLBACK_HOME:-}"; \
-	if test -z "$$codex_fallback_home" && test -d "$${HOME}/.codex-hsy"; then codex_fallback_home="$${HOME}/.codex-hsy"; fi; \
-	test -n "$$codex_home" && test -d "$$codex_home" || { echo "test-e2e requires the Codex home" >&2; exit 1; }; \
-	case "$$codex_home" in /*) ;; *) echo "test-e2e requires an absolute Codex home" >&2; exit 1;; esac; \
-	if test -n "$$codex_fallback_home"; then \
-		case "$$codex_fallback_home" in /*) ;; *) echo "test-e2e requires an absolute Codex fallback home when configured" >&2; exit 1;; esac; \
-		test -d "$$codex_fallback_home" || { echo "test-e2e requires an existing Codex fallback home when configured" >&2; exit 1; }; \
-	fi; \
-	case "$${codex_home%/}" in \
-		"$${HOME}/.codex") codex_home_label='~/.codex' ;; \
-		*) codex_home_label='<custom>' ;; \
-	esac; \
-	case "$${codex_fallback_home%/}" in \
-		"") codex_fallback_home_label='<unset>' ;; \
-		"$${HOME}/.codex") codex_fallback_home_label='~/.codex' ;; \
-		"$${HOME}/.codex-hsy") codex_fallback_home_label='~/.codex-hsy' ;; \
-		*) codex_fallback_home_label='<custom>' ;; \
-	esac; \
-	printf '%s\n' "[test-e2e] Codex credential homes: primary=$$codex_home_label quota_fallback=$$codex_fallback_home_label"; \
+	grok_candidate="$${MULGAE_E2E_GROK_EXECUTABLE:-$$(command -v grok)}"; \
+	test -n "$$grok_candidate" && test -x "$$grok_candidate" || { echo "test-e2e requires the Grok executable" >&2; exit 1; }; \
+	grok_bin="$$(realpath "$$grok_candidate")"; \
+	case "$$grok_bin" in /*) ;; *) echo "test-e2e requires an absolute Grok executable" >&2; exit 1;; esac; \
 	if MULGAE_E2E_BINARY="$$MULGAE_E2E_BINARY" MULGAE_E2E_PROJECT_ROOT="$$e2e_project" \
 		MULGAE_E2E_ZCODE_NODE_EXECUTABLE="$$zcode_node" MULGAE_E2E_ZCODE_LAUNCHER="$$zcode_launcher" \
+		MULGAE_E2E_GROK_EXECUTABLE="$$grok_bin" \
 		$(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^Test(E2E|Live)' ./test/e2e; then \
 		:; \
@@ -102,15 +84,14 @@ test-e2e:
 		exit $$status; \
 	fi; \
 	MULGAE_LIVE_ZCODE_NODE_BIN="$$zcode_node" MULGAE_LIVE_ZCODE_LAUNCHER="$$zcode_launcher" \
-	MULGAE_LIVE_CODEX_BIN="$$codex_bin" MULGAE_LIVE_CODEX_HOME="$$codex_home" \
-		MULGAE_LIVE_CODEX_FALLBACK_HOME="$$codex_fallback_home" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLive(ZCode|Codex)Capability$$|^TestLiveCodexCredential(HomeLabel|PathDiagnosticsRedactNativePaths)$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
+		-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \
 	}; \
 	rm -rf "$$e2e_project"
+	@$(MAKE) test-grok
 	@printf '%s\n' '[test-e2e] completed'
 
 test-e2e-opt-in:
@@ -132,25 +113,16 @@ test-e2e-opt-in:
 	codex_bin="$$(realpath "$$codex_candidate")"; \
 	test -n "$$codex_bin" && test -x "$$codex_bin" || { echo "test-e2e-opt-in cannot resolve the Codex executable" >&2; exit 1; }; \
 	case "$$codex_bin" in /*) ;; *) echo "test-e2e-opt-in requires an absolute Codex executable" >&2; exit 1;; esac; \
-	kimi_candidate="$${MULGAE_E2E_KIMI_EXECUTABLE:-$$(command -v kimi)}"; \
-	test -n "$$kimi_candidate" && test -x "$$kimi_candidate" || { echo "test-e2e-opt-in requires the Kimi executable" >&2; exit 1; }; \
-	kimi_bin="$$(realpath "$$kimi_candidate")"; \
-	test -n "$$kimi_bin" && test -x "$$kimi_bin" || { echo "test-e2e-opt-in cannot resolve the Kimi executable" >&2; exit 1; }; \
-	case "$$kimi_bin" in /*) ;; *) echo "test-e2e-opt-in requires an absolute Kimi executable" >&2; exit 1;; esac; \
 	codex_primary_home="$${MULGAE_E2E_CODEX_PRIMARY_HOME:-}"; \
 	test -n "$$codex_primary_home" && test -d "$$codex_primary_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_CODEX_PRIMARY_HOME" >&2; exit 1; }; \
 	case "$$codex_primary_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_CODEX_PRIMARY_HOME" >&2; exit 1;; esac; \
 	codex_secondary_home="$${MULGAE_E2E_CODEX_SECONDARY_HOME:-}"; \
 	test -n "$$codex_secondary_home" && test -d "$$codex_secondary_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_CODEX_SECONDARY_HOME" >&2; exit 1; }; \
 	case "$$codex_secondary_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_CODEX_SECONDARY_HOME" >&2; exit 1;; esac; \
-	kimi_data_home="$${MULGAE_E2E_KIMI_DATA_HOME:-}"; \
-	test -n "$$kimi_data_home" && test -d "$$kimi_data_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_KIMI_DATA_HOME" >&2; exit 1; }; \
-	case "$$kimi_data_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_KIMI_DATA_HOME" >&2; exit 1;; esac; \
 	if MULGAE_E2E_BINARY="$$opt_in_binary" MULGAE_E2E_PROJECT_ROOT="$$opt_in_project" \
 		MULGAE_E2E_CODEX_EXECUTABLE="$$codex_bin" MULGAE_E2E_CODEX_PRIMARY_HOME="$$codex_primary_home" \
-		MULGAE_E2E_CODEX_SECONDARY_HOME="$$codex_secondary_home" MULGAE_E2E_KIMI_EXECUTABLE="$$kimi_bin" \
-		MULGAE_E2E_KIMI_DATA_HOME="$$kimi_data_home" $(GO) test -v -tags='live_e2e live_e2e_opt_in' \
-		-timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2EOptInMixedCredentialProfiles$$' ./test/e2e; then \
+		MULGAE_E2E_CODEX_SECONDARY_HOME="$$codex_secondary_home" $(GO) test -v -tags='live_e2e live_e2e_opt_in' \
+		-timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2EOptInCodexCredentialProfiles$$' ./test/e2e; then \
 		:; \
 	else \
 		status=$$?; \
@@ -159,18 +131,6 @@ test-e2e-opt-in:
 	fi; \
 	rm -rf "$$opt_in_project"; \
 	printf '%s\n' '[test-e2e-opt-in] completed'
-
-test-kimi:
-	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-kimi requires darwin/arm64" >&2; exit 1; }
-	@kimi_bin="$${MULGAE_LIVE_KIMI_BIN:-$$(command -v kimi)}"; \
-	test -n "$$kimi_bin" && test -x "$$kimi_bin" || { echo "test-kimi requires the Kimi executable" >&2; exit 1; }; \
-	case "$$kimi_bin" in /*) ;; *) echo "test-kimi requires an absolute Kimi executable" >&2; exit 1;; esac; \
-	kimi_data_home="$${MULGAE_LIVE_KIMI_DATA_HOME:-$${HOME}/.kimi-code}"; \
-	test -d "$$kimi_data_home" || { echo "test-kimi requires the Kimi data home" >&2; exit 1; }; \
-	MULGAE_LIVE_KIMI_BIN="$$kimi_bin" MULGAE_LIVE_KIMI_DATA_HOME="$$kimi_data_home" \
-		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLiveKimiCapability$$' ./internal/adapters/providercli
-	@printf '%s\n' '[test-kimi] completed'
 
 test-grok:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-grok requires darwin/arm64" >&2; exit 1; }

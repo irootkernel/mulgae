@@ -118,7 +118,7 @@ func composeProductionRuntimeGraph(
 	for _, item := range []struct {
 		family     reviewrun.Family
 		credential providercli.CredentialSourceFamily
-	}{{reviewrun.FamilyKimi, providercli.CredentialSourceKimi}, {reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyAGY, providercli.CredentialSourceAGY}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}} {
+	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}} {
 		value, policyErr := providercli.RuntimeSafetyPolicyForFamily(item.credential)
 		if policyErr != nil {
 			return nil, fmt.Errorf("production graph: %s runtime safety policy: %w", item.family, policyErr)
@@ -131,7 +131,7 @@ func composeProductionRuntimeGraph(
 	}
 	candidates := &configuredProductionCandidateSource{
 		inspector: environment.NewInspector(), config: policy.config, policyIdentities: identities,
-		agyPermissionMode: policy.agyPermissionMode, providerTimeouts: cloneProviderTimeouts(policy.providerTimeouts), source: policy.source, attestor: policy.attestor,
+		providerTimeouts: cloneProviderTimeouts(policy.providerTimeouts), source: policy.source, attestor: policy.attestor,
 		staticRequest: policy.localityRequest, staticContext: policy.locality,
 	}
 	detector := filesystem.NewContentDetector()
@@ -177,13 +177,8 @@ func composeProductionRuntimeGraph(
 			instance = familyName + "-" + credentialProfile + "-" + string(role)
 		}
 		switch family {
-		case reviewrun.FamilyKimi:
-			provider := policy.config.Providers.Kimi
-			instanceFamilies[instance], instancePolicies[instance], sourceRoots[instance] = providercli.CredentialSourceKimi, policies[family], provider.DataHome
 		case reviewrun.FamilyZCode:
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
-		case reviewrun.FamilyAGY:
-			instanceFamilies[instance], instancePolicies[instance], nativeHomes[instance] = providercli.CredentialSourceAGY, policies[family], installedUser.HomeDir
 		case reviewrun.FamilyGrok:
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceGrok, policies[family]
 		case reviewrun.FamilyCodex:
@@ -226,16 +221,7 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: registry factory: %w", err)
 	}
-	var qualified *reviewrun.QualifiedRunFactory
-	if provider := policy.config.Providers.Kimi; provider != nil {
-		login, loginErr := providercli.NewKimiLoginAuthenticator(runner, baseSpawnVerifier, installedUser.HomeDir, provider.DataHome)
-		if loginErr != nil {
-			return nil, fmt.Errorf("production graph: Kimi login authenticator: %w", loginErr)
-		}
-		qualified, err = reviewrun.NewQualifiedRunFactoryWithLoginAuthenticator(current, registries, clock, login)
-	} else {
-		qualified, err = reviewrun.NewQualifiedRunFactory(current, registries, clock)
-	}
+	qualified, err := reviewrun.NewQualifiedRunFactory(current, registries, clock)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: qualified run factory: %w", err)
 	}
@@ -308,12 +294,8 @@ func (graph *productionRuntimeGraph) sourceBoundAuthority(role domain.Role, prov
 
 func legacyProviderInstanceFamily(instance string) reviewrun.Family {
 	switch instance {
-	case "kimi-default":
-		return reviewrun.FamilyKimi
 	case "zcode-default", "zcode-secondary", "zcode-third", "zcode-fourth":
 		return reviewrun.FamilyZCode
-	case "agy-default":
-		return reviewrun.FamilyAGY
 	case "grok-default":
 		return reviewrun.FamilyGrok
 	case "codex-default":

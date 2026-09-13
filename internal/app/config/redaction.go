@@ -9,7 +9,6 @@ type RedactedConfig struct {
 type RedactedPolicy struct {
 	RoleAssignments     []RedactedRoleAssignment  `json:"role_assignments" yaml:"role_assignments"`
 	ProviderTimeouts    []RedactedProviderTimeout `json:"provider_timeouts" yaml:"provider_timeouts"`
-	AGYPermissionMode   string                    `json:"agy_permission_mode,omitempty" yaml:"agy_permission_mode,omitempty"`
 	Warnings            []string                  `json:"warnings" yaml:"warnings"`
 	RequiredRoles       []domain.Role             `json:"required_roles" yaml:"required_roles"`
 	WorkspaceAccess     WorkspaceAccess           `json:"workspace_access" yaml:"workspace_access"`
@@ -46,14 +45,7 @@ func Redact(resolved ResolvedConfig) RedactedConfig {
 			timeouts = append(timeouts, RedactedProviderTimeout{Family: family, Timeout: ProviderTimeoutText(timeout)})
 		}
 	}
-	agyPermissionMode := ""
 	warnings := []string{}
-	if resolved.raw.Providers.AGY != nil {
-		agyPermissionMode = resolved.raw.Providers.AGY.PermissionMode
-		if agyPermissionMode == HeadlessAGYPermissionMode {
-			warnings = append(warnings, "AGY dangerously-skip-permissions is opt-in and may approve write or shell tool requests outside Mulgae's read-oriented boundary")
-		}
-	}
-	return RedactedConfig{ConfiguredProviderIDs: resolved.raw.Providers.Families(), Policy: RedactedPolicy{RoleAssignments: assignments, ProviderTimeouts: timeouts, AGYPermissionMode: agyPermissionMode, Warnings: warnings, RequiredRoles: resolved.RequiredRoles(), WorkspaceAccess: resolved.WorkspaceAccess(), RequestChangesOn: resolved.RequestChangesOn(), RequireVerifiedFor: resolved.RequireVerifiedFor(), RoleMaxInvocations: resolved.RoleMaxInvocations(), RunMaxInvocations: resolved.RunMaxInvocations(), ExtractionEnabled: resolved.ExtractionEnabled(), CIFailOnSeverity: resolved.CIFailOnSeverity(), DegradedReviewFails: resolved.DegradedReviewFails()}}
+	return RedactedConfig{ConfiguredProviderIDs: resolved.raw.Providers.Families(), Policy: RedactedPolicy{RoleAssignments: assignments, ProviderTimeouts: timeouts, Warnings: warnings, RequiredRoles: resolved.RequiredRoles(), WorkspaceAccess: resolved.WorkspaceAccess(), RequestChangesOn: resolved.RequestChangesOn(), RequireVerifiedFor: resolved.RequireVerifiedFor(), RoleMaxInvocations: resolved.RoleMaxInvocations(), RunMaxInvocations: resolved.RunMaxInvocations(), ExtractionEnabled: resolved.ExtractionEnabled(), CIFailOnSeverity: resolved.CIFailOnSeverity(), DegradedReviewFails: resolved.DegradedReviewFails()}}
 }
 func (resolved ResolvedConfig) Redacted() RedactedConfig { return Redact(resolved) }

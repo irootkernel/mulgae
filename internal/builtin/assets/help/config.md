@@ -30,11 +30,11 @@ mulgae init [--project-root PATH] [--name NAME]
   [--output human|json]
 ```
 
-`FAMILY := kimi | zcode | agy | grok | codex`
+`FAMILY := zcode | grok | codex`
 
-`--providers auto` discovers exactly ZCode and fails closed unless it is
-available. Select AGY, Kimi, Grok, or Codex explicitly to create a configuration
-backed by that provider; auto selection remains unchanged. Grok accepts a
+`--providers auto` discovers ZCode and Grok and fails closed unless both are
+available. It assigns every default role to ZCode. Select any supported family
+explicitly to choose a different portfolio. Grok accepts a
 machine-local `--grok-executable` override and an optional shared-policy
 `providers.grok.timeout`; its model and reasoning settings are provider defaults
 and are not configurable through Mulgae.
@@ -136,24 +136,6 @@ effective timeout. Provenance reports the field as `defaulted` when omitted and
 `mulgae review --stage --preflight --output json` reports the same effective
 timeout on each projected role transmission and proves that the derived role-path and
 run budgets can accommodate them, without launching providers.
-
-AGY's effective `permission_mode` defaults to `safe` for workspace-first
-reviews. Mulgae still launches AGY with `--sandbox` and `--add-dir` limited to
-the immutable captured workspace view. Headless write/shell requests remain denied
-under the default. To opt into AGY's permission bypass, set:
-
-```yaml
-providers:
-  agy:
-    permission_mode: "dangerously-skip-permissions"
-```
-
-Effective configuration reports both the selected mode and a warning when
-`dangerously-skip-permissions` is selected, because that mode may approve write
-or shell tool requests outside Mulgae's read-oriented boundary. Provenance
-marks an omitted safe mode as `defaulted` and an explicit mode as `configured`.
-
-Config v3 files that omit the mode select the safe default.
 
 For UI projects, `roles.artist.inputs.design_spec_globs` are discovery hints,
 not file-access rules. Default Git reviews always retain the configured artist;

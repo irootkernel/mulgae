@@ -43,19 +43,124 @@ func generate() error {
 		return err
 	}
 	assets := filepath.Join(root, "internal", "builtin", "assets")
-	if err := replaceSchemaMatrix(filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json"), specs); err != nil {
+	commandSchema := filepath.Join(assets, "schemas", "mulgae-command-result.v10.schema.json")
+	if err := seedCommandSchema(assets, commandSchema); err != nil {
 		return err
 	}
-	if err := replaceSchemaOutcomeContract(filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json"), specs); err != nil {
+	for _, update := range []func(string) error{
+		func(filename string) error { return replaceSchemaMatrix(filename, specs) },
+		func(filename string) error { return replaceSchemaOutcomeContract(filename, specs) },
+		func(filename string) error { return replaceSchemaDiscoveryContract(filename, discoverySpecs) },
+		replaceSchemaProviderContract,
+	} {
+		if err := update(commandSchema); err != nil {
+			return err
+		}
+	}
+	if err := sanitizeCommandJSON(commandSchema); err != nil {
 		return err
 	}
-	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json"), discoverySpecs); err != nil {
+	return writeCommandExample(assets)
+}
+
+func seedCommandSchema(assets, target string) error {
+	source := filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json")
+	contents, err := os.ReadFile(source)
+	if err != nil {
 		return err
 	}
-	if err := replaceSchemaProviderContract(filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json")); err != nil {
+	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v10"))
+	contents = bytes.ReplaceAll(contents, []byte("Mulgae Command Result v9"), []byte("Mulgae Command Result v10"))
+	return writeIfChanged(target, contents)
+}
+
+func writeCommandExample(assets string) error {
+	source := filepath.Join(assets, "examples", "command-result.v9.valid.json")
+	target := filepath.Join(assets, "examples", "command-result.v10.valid.json")
+	contents, err := os.ReadFile(source)
+	if err != nil {
 		return err
 	}
-	return nil
+	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v10"))
+	return writeIfChanged(target, contents)
+}
+
+func sanitizeCommandJSON(filename string) error {
+	contents, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	var document any
+	if err := json.Unmarshal(contents, &document); err != nil {
+		return err
+	}
+	document = sanitizeCommandValue(document)
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeIfChanged(filename, append(encoded, '\n'))
+}
+
+func sanitizeCommandValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(typed))
+		for key, child := range typed {
+			lower := strings.ToLower(key)
+			if strings.Contains(lower, "kimi") || strings.Contains(lower, "agy") {
+				continue
+			}
+			result[key] = sanitizeCommandValue(child)
+		}
+		before, beforeOK := typed["prefixItems"].([]any)
+		after, afterOK := result["prefixItems"].([]any)
+		if beforeOK && afterOK && len(before) != len(after) {
+			if minimum, ok := typed["minItems"].(float64); ok && int(minimum) == len(before) {
+				result["minItems"] = float64(len(after))
+			}
+			if maximum, ok := typed["maxItems"].(float64); ok && int(maximum) == len(before) {
+				result["maxItems"] = float64(len(after))
+			}
+		}
+		return result
+	case []any:
+		result := make([]any, 0, len(typed))
+		for _, child := range typed {
+			if text, ok := child.(string); ok && (text == "kimi" || text == "agy" || text == "agy_permission_mode") {
+				continue
+			}
+			if directRetiredProviderBranch(child) {
+				continue
+			}
+			result = append(result, sanitizeCommandValue(child))
+		}
+		return result
+	case string:
+		for old, next := range map[string]string{
+			"mulgae-doctor-result.v3":             "mulgae-doctor-result.v4",
+			"mulgae-provider-heartbeat-result.v2": "mulgae-provider-heartbeat-result.v3",
+			"mulgae-review-preflight.v4":          "mulgae-review-preflight.v5",
+			"(?:kimi|zcode|agy|grok|codex)":       "(?:zcode|grok|codex)",
+		} {
+			typed = strings.ReplaceAll(typed, old, next)
+		}
+		return typed
+	default:
+		return value
+	}
+}
+
+func directRetiredProviderBranch(value any) bool {
+	typed, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	if reference, ok := typed["$ref"].(string); ok {
+		return strings.Contains(reference, "init_discovery_kimi") || strings.Contains(reference, "init_discovery_agy")
+	}
+	constant, ok := typed["const"].(string)
+	return ok && (constant == "kimi" || constant == "agy")
 }
 
 func replaceSchemaProviderContract(filename string) error {
@@ -69,7 +174,7 @@ func replaceSchemaProviderContract(filename string) error {
 	if start < 0 || end <= start {
 		return fmt.Errorf("init contract generator: provider schema anchors are missing")
 	}
-	families := []string{"kimi", "zcode", "agy", "grok", "codex"}
+	families := []string{"zcode", "grok", "codex"}
 	branches := make([]any, 0, 1<<len(families))
 	for mask := 0; mask < 1<<len(families); mask++ {
 		selected := make([]any, 0, len(families))

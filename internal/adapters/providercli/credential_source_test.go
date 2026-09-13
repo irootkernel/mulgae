@@ -22,8 +22,6 @@ func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 		source      string
 		destination ports.CredentialProjectionDestination
 	}{
-		{"kimi_config", CredentialSourceKimi, ".kimi-code/config.toml", ports.CredentialProjectionKimiConfig},
-		{"kimi_credentials", CredentialSourceKimi, ".kimi-code/credentials/kimi-code.json", ports.CredentialProjectionKimiCredentials},
 		{"zcode_config", CredentialSourceZCode, ".zcode/cli/config.json", ports.CredentialProjectionZCodeConfig},
 		{"grok_auth", CredentialSourceGrok, ".grok/auth.json", ports.CredentialProjectionGrokAuth},
 		{"codex_auth", CredentialSourceCodex, ".codex/auth.json", ports.CredentialProjectionCodexAuth},
@@ -91,39 +89,6 @@ func TestGrokCredentialProjectionRejectsNonPrivateAuth(t *testing.T) {
 	}
 }
 
-func TestKimiCredentialProjectionUsesConfiguredDataHome(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	runtimeHome := credentialSourceTempDir(t)
-	configuredDataHome := credentialSourceTempDir(t)
-	writeCredentialSource(t, runtimeHome, ".kimi-code/config.toml", "ambient")
-	writeCredentialSource(t, configuredDataHome, "config.toml", "configured")
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(
-		base, runtimeHome,
-		map[string]CredentialSourceFamily{"kimi": CredentialSourceKimi},
-		map[string]RuntimeSafetyPolicy{"kimi": mustCredentialSourcePolicy(t, CredentialSourceKimi)},
-		nil, map[string]string{"kimi": configuredDataHome},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "kimi", FamilyKimi)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lease.DrainTerminal(context.Background())
-	concrete := lease.(*namespaceLease)
-	data, err := os.ReadFile(filepath.Join(concrete.root, "home", ".kimi-code", "config.toml"))
-	if err != nil || string(data) != "configured" {
-		t.Fatalf("configured Kimi data home was not authoritative: %q, %v", data, err)
-	}
-}
-
 func TestCodexCredentialProjectionUsesConfiguredCodexHome(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Darwin descriptor traversal is required")
@@ -160,140 +125,6 @@ func TestCodexCredentialProjectionUsesConfiguredCodexHome(t *testing.T) {
 		t.Fatalf("Codex config was projected: %v", err)
 	}
 }
-func TestAGYUsesInstalledHomeWithoutCredentialProjection(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	bootstrapHome := credentialSourceTempDir(t)
-	nativeHome := credentialSourceTempDir(t)
-	writeCredentialSource(t, nativeHome, ".gemini/antigravity-cli/antigravity-oauth-token", "oauth")
-	writeCredentialSource(t, nativeHome, ".gemini/antigravity-cli/installation_id", "installation")
-	writeCredentialSource(t, nativeHome, "sentinel", "unchanged")
-	workspace := credentialSourceTempDir(t)
-	policy, err := RuntimeSafetyPolicyForFamilyAndWorkspaceRoot(CredentialSourceAGY, workspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes(base, bootstrapHome,
-		map[string]CredentialSourceFamily{"agy": CredentialSourceAGY},
-		map[string]RuntimeSafetyPolicy{"agy": policy},
-		map[string]string{"agy": nativeHome})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "agy", FamilyAgy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	concrete := lease.(*namespaceLease)
-	environment := credentialSourceEnvironment(lease.Environment())
-	if environment["HOME"] != nativeHome {
-		t.Fatalf("AGY HOME = %q, want verified native home %q", environment["HOME"], nativeHome)
-	}
-	for _, name := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "MULGAE_PROVIDER_SCRATCH"} {
-		if !strings.HasPrefix(environment[name], concrete.root+string(filepath.Separator)) {
-			t.Fatalf("%s escaped namespace: %q", name, environment[name])
-		}
-	}
-	if len(concrete.seeds) != 0 {
-		t.Fatalf("AGY projected %d credentials", len(concrete.seeds))
-	}
-	for _, relative := range []string{
-		".gemini/antigravity-cli/antigravity-oauth-token",
-		".gemini/antigravity-cli/installation_id",
-	} {
-		if _, err := os.Lstat(filepath.Join(concrete.root, "home", relative)); !os.IsNotExist(err) {
-			t.Fatalf("AGY credential was copied to namespace: %s: %v", relative, err)
-		}
-	}
-	for relative, want := range map[string]string{
-		".gemini/antigravity-cli/antigravity-oauth-token": "oauth",
-		".gemini/antigravity-cli/installation_id":         "installation",
-		"sentinel": "unchanged",
-	} {
-		bytes, err := os.ReadFile(filepath.Join(nativeHome, relative))
-		if err != nil || string(bytes) != want {
-			t.Fatalf("installed HOME %q changed: %q, %v", relative, bytes, err)
-		}
-	}
-	originalHome := nativeHome + "-original"
-	if err := os.Rename(nativeHome, originalHome); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(nativeHome, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(nativeHome, "sentinel"), []byte("replacement"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := lease.ValidateForSpawn(); err == nil {
-		t.Fatal("AGY spawn accepted installed HOME identity drift")
-	}
-	if _, err := lease.DrainTerminal(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	bytes, err := os.ReadFile(filepath.Join(nativeHome, "sentinel"))
-	if err != nil || string(bytes) != "replacement" {
-		t.Fatalf("drain changed replacement installed HOME: %q, %v", bytes, err)
-	}
-	bytes, err = os.ReadFile(filepath.Join(originalHome, "sentinel"))
-	if err != nil || string(bytes) != "unchanged" {
-		t.Fatalf("drain changed captured installed HOME: %q, %v", bytes, err)
-	}
-}
-func TestNativeHomeMappingsFailClosed(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	bootstrapHome := credentialSourceTempDir(t)
-	nativeHome := credentialSourceTempDir(t)
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	workspace := credentialSourceTempDir(t)
-	agyPolicy, err := RuntimeSafetyPolicyForFamilyAndWorkspaceRoot(CredentialSourceAGY, workspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	families := map[string]CredentialSourceFamily{
-		"agy":  CredentialSourceAGY,
-		"kimi": CredentialSourceKimi,
-	}
-	policies := map[string]RuntimeSafetyPolicy{
-		"agy":  agyPolicy,
-		"kimi": mustCredentialSourcePolicy(t, CredentialSourceKimi),
-	}
-	for _, mappings := range []map[string]string{
-		nil,
-		{"kimi": nativeHome},
-		{"agy": nativeHome, "kimi": nativeHome},
-		{"agy": nativeHome + "/."},
-	} {
-		if _, err := NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes(base, bootstrapHome, families, policies, mappings); err == nil {
-			t.Fatalf("accepted invalid native home mappings %#v", mappings)
-		}
-	}
-	factory, err := NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes(base, bootstrapHome, families, policies, map[string]string{"agy": nativeHome})
-	if err != nil {
-		t.Fatal(err)
-	}
-	originalHome := nativeHome + "-original"
-	if err := os.Rename(nativeHome, originalHome); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(nativeHome, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := factory.AcquireProviderNamespace(context.Background(), "agy", FamilyAgy); err == nil {
-		t.Fatal("AGY acquisition accepted native home identity drift")
-	}
-}
-
 func mustCredentialSourcePolicy(t *testing.T, family CredentialSourceFamily) RuntimeSafetyPolicy {
 	t.Helper()
 	policy, err := RuntimeSafetyPolicyForFamily(family)
@@ -442,11 +273,11 @@ func TestCredentialProjectingNamespaceFactoryWithPoliciesRejectsPolicyDrift(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	agyPolicy, err := RuntimeSafetyPolicyForFamilyAndWorkspaceRoot(CredentialSourceAGY, credentialSourceTempDir(t))
+	zcodePolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceZCode)
 	if err != nil {
 		t.Fatal(err)
 	}
-	kimiPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceKimi)
+	codexPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceCodex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,18 +288,18 @@ func TestCredentialProjectingNamespaceFactoryWithPoliciesRejectsPolicyDrift(t *t
 	}{
 		{
 			name:     "missing_policy",
-			families: map[string]CredentialSourceFamily{"provider": CredentialSourceAGY},
+			families: map[string]CredentialSourceFamily{"provider": CredentialSourceZCode},
 			policies: map[string]RuntimeSafetyPolicy{},
 		},
 		{
 			name:     "family_mismatch",
-			families: map[string]CredentialSourceFamily{"provider": CredentialSourceAGY},
-			policies: map[string]RuntimeSafetyPolicy{"provider": kimiPolicy},
+			families: map[string]CredentialSourceFamily{"provider": CredentialSourceZCode},
+			policies: map[string]RuntimeSafetyPolicy{"provider": codexPolicy},
 		},
 		{
 			name:     "empty_identity",
-			families: map[string]CredentialSourceFamily{"provider": CredentialSourceAGY},
-			policies: map[string]RuntimeSafetyPolicy{"provider": {family: CredentialSourceAGY, bytes: agyPolicy.bytes}},
+			families: map[string]CredentialSourceFamily{"provider": CredentialSourceZCode},
+			policies: map[string]RuntimeSafetyPolicy{"provider": {family: CredentialSourceZCode, bytes: zcodePolicy.bytes}},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -478,68 +309,6 @@ func TestCredentialProjectingNamespaceFactoryWithPoliciesRejectsPolicyDrift(t *t
 		})
 	}
 }
-func TestCredentialProjectingNamespaceFactoryWithPoliciesClonesPolicy(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	home := credentialSourceTempDir(t)
-	nativeHome := credentialSourceTempDir(t)
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy, err := RuntimeSafetyPolicyForFamilyAndWorkspaceRoot(CredentialSourceAGY, credentialSourceTempDir(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	policies := map[string]RuntimeSafetyPolicy{"provider": policy}
-	factory, err := NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes(base, home, map[string]CredentialSourceFamily{"provider": CredentialSourceAGY}, policies, map[string]string{"provider": nativeHome})
-	if err != nil {
-		t.Fatal(err)
-	}
-	policies["provider"] = RuntimeSafetyPolicy{}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lease.DrainTerminal(context.Background())
-	if got := lease.(*namespaceLease).RuntimeSafetyPolicyIdentity(); got != policy.Identity() {
-		t.Fatalf("installed policy identity = %q, want %q", got, policy.Identity())
-	}
-}
-
-func TestCredentialProjectingNamespaceFactoryLegacyConstructorsRejectAGY(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	home := credentialSourceTempDir(t)
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy, err := RuntimeSafetyPolicyForFamilyAndWorkspaceRoot(CredentialSourceAGY, credentialSourceTempDir(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	families := map[string]CredentialSourceFamily{"agy": CredentialSourceAGY}
-	if _, err := NewCredentialProjectingNamespaceFactory(base, home, families); err == nil {
-		t.Fatal("legacy constructor accepted AGY without a native home")
-	}
-	if _, err := NewCredentialProjectingNamespaceFactoryWithPolicies(base, home, families, map[string]RuntimeSafetyPolicy{"agy": policy}); err == nil {
-		t.Fatal("legacy policy constructor accepted AGY without a native home")
-	}
-	kimiPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceKimi)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := NewCredentialProjectingNamespaceFactory(base, home, map[string]CredentialSourceFamily{"zcode": CredentialSourceZCode}); err != nil {
-		t.Fatalf("legacy constructor rejected ZCode: %v", err)
-	}
-	if _, err := NewCredentialProjectingNamespaceFactoryWithPolicies(base, home, map[string]CredentialSourceFamily{"kimi": CredentialSourceKimi}, map[string]RuntimeSafetyPolicy{"kimi": kimiPolicy}); err != nil {
-		t.Fatalf("legacy policy constructor rejected Kimi: %v", err)
-	}
-}
-
 func writeCredentialSource(t *testing.T, home, relative, contents string) {
 	t.Helper()
 	path := filepath.Join(home, relative)

@@ -106,32 +106,18 @@ type QualifiedRunRegistryFactory = ports.ProviderQualificationRegistryFactory
 // QualifiedRunFactory turns identity-only discovery into immutable routes and a
 // run-owned registry. It has no fallback to live process state.
 type QualifiedRunFactory struct {
-	qualifier     CurrentQualifier
-	registries    QualifiedRunRegistryFactory
-	clock         ports.Clock
-	authenticator ports.ProviderLoginAuthenticator
+	qualifier  CurrentQualifier
+	registries QualifiedRunRegistryFactory
+	clock      ports.Clock
 }
 
 // NewQualifiedRunFactory validates the injected current probe and production
 // registry authorities. Clock is required so all receipts share one expiry basis.
 func NewQualifiedRunFactory(qualifier CurrentQualifier, registries QualifiedRunRegistryFactory, clock ports.Clock) (*QualifiedRunFactory, error) {
-	return newQualifiedRunFactory(qualifier, registries, clock, nil)
-}
-
-// NewQualifiedRunFactoryWithLoginAuthenticator enables one bounded Kimi login
-// recovery after a typed qualification-stage login-required response.
-func NewQualifiedRunFactoryWithLoginAuthenticator(qualifier CurrentQualifier, registries QualifiedRunRegistryFactory, clock ports.Clock, authenticator ports.ProviderLoginAuthenticator) (*QualifiedRunFactory, error) {
-	if nilInterface(authenticator) {
-		return nil, fmt.Errorf("review run: provider login authenticator unavailable")
-	}
-	return newQualifiedRunFactory(qualifier, registries, clock, authenticator)
-}
-
-func newQualifiedRunFactory(qualifier CurrentQualifier, registries QualifiedRunRegistryFactory, clock ports.Clock, authenticator ports.ProviderLoginAuthenticator) (*QualifiedRunFactory, error) {
 	if nilInterface(qualifier) || nilInterface(registries) || nilInterface(clock) {
 		return nil, fmt.Errorf("review run: current qualifier dependencies unavailable")
 	}
-	return &QualifiedRunFactory{qualifier: qualifier, registries: registries, clock: clock, authenticator: authenticator}, nil
+	return &QualifiedRunFactory{qualifier: qualifier, registries: registries, clock: clock}, nil
 }
 
 // QualifiedRun owns immutable routes and an admitted-only composite registry.
@@ -196,46 +182,7 @@ type qualifiedRunRegistryComposite struct {
 // Operational unavailability skips only that candidate; all other failures
 // drain every acquired namespace and fail closed.
 func (factory *QualifiedRunFactory) NewQualifiedRun(ctx context.Context, candidates []QualifiedRunCandidate) (*QualifiedRun, error) {
-	run, err := factory.newQualifiedRunAttempt(ctx, candidates)
-	if err == nil || nilInterface(factory.authenticator) {
-		return run, err
-	}
-	candidate, ok := kimiLoginRecoveryCandidate(err, candidates)
-	if !ok {
-		return nil, err
-	}
-	receipt, drained := ProviderRunTerminalReceiptFromError(err)
-	if !drained {
-		return nil, err
-	}
-	firstObservations := loginMitigatedQualificationObservations(qualificationObservationsFromError(err))
-	if loginErr := factory.authenticator.LoginProvider(ctx, candidate.Definition); loginErr != nil {
-		cause, causeErr := domain.NewFailure("reviewrun.login", domain.FailureAuthentication, "provider login failed", loginErr)
-		if causeErr != nil {
-			return nil, newQualifiedRunConstructionError(causeErr, receipt)
-		}
-		return nil, newQualifiedRunConstructionError(withQualificationObservations(NewProviderLoginRequiredError([]string{candidate.Definition.Instance()}, cause), firstObservations), receipt)
-	}
-	run, retryErr := factory.newQualifiedRunAttempt(ctx, candidates)
-	if retryErr != nil {
-		observations := append(firstObservations, qualificationObservationsFromError(retryErr)...)
-		return nil, withQualificationObservations(retryErr, observations)
-	}
-	run.qualificationObservations = append(firstObservations, run.qualificationObservations...)
-	return run, nil
-}
-
-func kimiLoginRecoveryCandidate(err error, candidates []QualifiedRunCandidate) (QualifiedRunCandidate, bool) {
-	providers, loginRequired := ProviderLoginRequiredProvidersFromError(err)
-	if !loginRequired || len(providers) != 1 {
-		return QualifiedRunCandidate{}, false
-	}
-	for _, candidate := range candidates {
-		if candidate.Definition != nil && candidate.Definition.Instance() == providers[0] && Family(candidate.Definition.Family()) == FamilyKimi {
-			return candidate, true
-		}
-	}
-	return QualifiedRunCandidate{}, false
+	return factory.newQualifiedRunAttempt(ctx, candidates)
 }
 
 func (factory *QualifiedRunFactory) newQualifiedRunAttempt(ctx context.Context, candidates []QualifiedRunCandidate) (*QualifiedRun, error) {

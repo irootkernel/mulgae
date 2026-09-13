@@ -32,7 +32,6 @@ type productionCandidateTemplate struct {
 	transportReference          string
 	limits                      review.InvocationLimits
 	lifecycle                   *ports.BoundedPostOutputLifecycle
-	kimiModel                   string
 	codexModel                  string
 	codexReasoningEffort        string
 	supportedRoles              []domain.Role
@@ -65,48 +64,20 @@ func NewProductionQualifiedRunCandidateSource(builder ports.ProviderRuntimeBuild
 // production candidate source using the exact policies installed into provider
 // credential namespaces for this composition.
 func NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(builder, profiles, identities, "safe")
+	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndCodexSettingsAndTimeouts(builder, profiles, identities, "", "", nil, defaultProductionProviderTimeouts())
 }
 
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAGYPermissionMode(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode string) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(builder, profiles, identities, agyPermissionMode, "kimi-code/kimi-for-coding")
-}
-
-// NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings
-// binds operator-admitted family settings to every probe and production
-// invocation. Kimi's model is explicit here; callers pass the canonical
-// default only when the configuration omitted the field.
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettings(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel string) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts(
-		builder, profiles, identities, agyPermissionMode, kimiModel, defaultProductionProviderTimeouts(),
-	)
-}
-
-// NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts
-// binds a complete family timeout policy to every role-specific production
-// candidate and its adapter-built runtime definition.
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndTimeouts(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel string, providerTimeouts map[Family]time.Duration) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexAndTimeouts(builder, profiles, identities, agyPermissionMode, kimiModel, "", "", providerTimeouts)
-}
-
-// NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexAndTimeouts
-// binds optional Codex model settings without replacing the provider's defaults
-// when either value is omitted.
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexAndTimeouts(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel, codexModel, codexReasoningEffort string, providerTimeouts map[Family]time.Duration) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexCredentialProfilesAndTimeouts(builder, profiles, identities, agyPermissionMode, kimiModel, codexModel, codexReasoningEffort, nil, providerTimeouts)
-}
-
-// NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexCredentialProfilesAndTimeouts
+// NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndCodexSettingsAndTimeouts
 // binds role-specific Codex credential profiles into provider instance and
 // adapter-profile identity without changing shared Codex model policy.
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexCredentialProfilesAndTimeouts(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, agyPermissionMode, kimiModel, codexModel, codexReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration) (*ProductionQualifiedRunCandidateSource, error) {
+func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndCodexSettingsAndTimeouts(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, codexModel, codexReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration) (*ProductionQualifiedRunCandidateSource, error) {
 	if nilInterface(builder) {
 		return nil, fmt.Errorf("review run: provider runtime builder is required")
 	}
 	if err := validateProductionPolicyIdentities(identities); err != nil {
 		return nil, fmt.Errorf("review run: invalid production policy identities: %w", err)
 	}
-	templates, err := productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTimeouts(identities, agyPermissionMode, kimiModel, codexModel, codexReasoningEffort, codexCredentialProfiles, providerTimeouts)
+	templates, err := productionCandidateTemplatesWithCodexSettingsAndTimeouts(identities, codexModel, codexReasoningEffort, codexCredentialProfiles, providerTimeouts)
 	if err != nil {
 		return nil, fmt.Errorf("review run: construct production candidate templates: %w", err)
 	}
@@ -215,7 +186,7 @@ func (template productionCandidateTemplate) definition(builder ports.ProviderRun
 		Family: string(template.family), Instance: template.instance, Executable: profile.Executable(), ExecutableSHA256: profile.SHA256(),
 		Launcher: profile.Launcher(), LauncherSHA256: profile.LauncherSHA256(),
 		ProfileID: template.profileID, ProfileGeneration: productionProfileGeneration, RuntimeSafetyPolicyIdentity: template.runtimeSafetyPolicyIdentity,
-		KimiModel: template.kimiModel, CodexModel: template.codexModel, CodexReasoningEffort: template.codexReasoningEffort, BaseArgv: baseArgv, TransportChannel: template.transportChannel,
+		CodexModel: template.codexModel, CodexReasoningEffort: template.codexReasoningEffort, BaseArgv: baseArgv, TransportChannel: template.transportChannel,
 		TransportArgvIndex: template.transportArgvIndex, TransportReference: template.transportReference,
 		Environment: append([]ports.EnvironmentVariable(nil), template.environment...), WorkingDirectory: productionWorkingDirectory,
 		Timeout:             template.limits.Timeout(),
@@ -247,37 +218,15 @@ func defaultProductionPolicyIdentities(builder ports.ProviderRuntimeBuilder) (ma
 }
 
 func productionCandidateTemplates(identities map[Family]string) ([]productionCandidateTemplate, error) {
-	return productionCandidateTemplatesWithAGYPermissionMode(identities, "safe")
+	return productionCandidateTemplatesWithCodexSettingsAndTimeouts(identities, "", "", nil, defaultProductionProviderTimeouts())
 }
 
-func productionCandidateTemplatesWithAGYPermissionMode(identities map[Family]string, agyPermissionMode string) ([]productionCandidateTemplate, error) {
-	return productionCandidateTemplatesWithRuntimeSettings(identities, agyPermissionMode, "kimi-code/kimi-for-coding")
-}
-
-func productionCandidateTemplatesWithRuntimeSettings(identities map[Family]string, agyPermissionMode, kimiModel string) ([]productionCandidateTemplate, error) {
-	return productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities, agyPermissionMode, kimiModel, defaultProductionProviderTimeouts())
-}
-
-func productionCandidateTemplatesWithRuntimeSettingsAndTimeouts(identities map[Family]string, agyPermissionMode, kimiModel string, providerTimeouts map[Family]time.Duration) ([]productionCandidateTemplate, error) {
-	return productionCandidateTemplatesWithRuntimeSettingsCodexAndTimeouts(identities, agyPermissionMode, kimiModel, "", "", providerTimeouts)
-}
-
-func productionCandidateTemplatesWithRuntimeSettingsCodexAndTimeouts(identities map[Family]string, agyPermissionMode, kimiModel, codexModel, codexReasoningEffort string, providerTimeouts map[Family]time.Duration) ([]productionCandidateTemplate, error) {
-	return productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTimeouts(identities, agyPermissionMode, kimiModel, codexModel, codexReasoningEffort, nil, providerTimeouts)
-}
-
-func productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTimeouts(identities map[Family]string, agyPermissionMode, kimiModel, codexModel, codexReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration) ([]productionCandidateTemplate, error) {
+func productionCandidateTemplatesWithCodexSettingsAndTimeouts(identities map[Family]string, codexModel, codexReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration) ([]productionCandidateTemplate, error) {
 	if err := validateProductionPolicyIdentities(identities); err != nil {
 		return nil, err
 	}
 	if err := validateProductionProviderTimeouts(providerTimeouts); err != nil {
 		return nil, err
-	}
-	if agyPermissionMode != "safe" && agyPermissionMode != "dangerously-skip-permissions" {
-		return nil, fmt.Errorf("invalid AGY permission mode")
-	}
-	if kimiModel == "" {
-		return nil, fmt.Errorf("invalid Kimi model")
 	}
 	if codexReasoningEffort != "" && !validCodexReasoningEffort(codexReasoningEffort) {
 		return nil, fmt.Errorf("invalid Codex reasoning effort")
@@ -287,19 +236,7 @@ func productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTi
 			return nil, fmt.Errorf("invalid Codex credential profile")
 		}
 	}
-	agyArgvIndex := 13
-	if agyPermissionMode == "dangerously-skip-permissions" {
-		agyArgvIndex = 14
-	}
-	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
-	if err != nil {
-		return nil, err
-	}
-	agyEnvironment, err := ports.NewEnvironmentVariable("AGY_CLI_DISABLE_AUTO_UPDATE", "true")
-	if err != nil {
-		return nil, err
-	}
-	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder())-2)
+	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder())-1)
 	for _, family := range Families() {
 		for _, role := range productionRolesForFamily(family) {
 			instance := string(family) + "-" + string(role)
@@ -317,17 +254,12 @@ func productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTi
 				limits: limits, supportedRoles: []domain.Role{role},
 			}
 			switch family {
-			case FamilyKimi:
-				template.kimiModel, template.transportArgvIndex = kimiModel, 4
 			case FamilyZCode:
 				// The app-server conversation owns the packet; the argv never
 				// carries the prompt or tool policy.
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
 			case FamilyGrok:
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
-			case FamilyAGY:
-				template.transportArgvIndex, template.lifecycle = agyArgvIndex, &lifecycle
-				template.environment = []ports.EnvironmentVariable{agyEnvironment}
 			case FamilyCodex:
 				template.codexModel, template.codexReasoningEffort = codexModel, codexReasoningEffort
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelStdin, -1
@@ -399,7 +331,7 @@ func validateProductionProviderTimeouts(timeouts map[Family]time.Duration) error
 }
 
 func validateProductionCandidateTemplates(templates []productionCandidateTemplate) error {
-	if len(templates) != len(Families())*len(domain.FixedRoleOrder())-2 {
+	if len(templates) != len(Families())*len(domain.FixedRoleOrder())-1 {
 		return fmt.Errorf("template count")
 	}
 	seenInstances := make(map[string]struct{}, len(templates))
@@ -442,17 +374,14 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 			}
 			roleCoverage[template.family][role]++
 		}
-		if template.family == FamilyAGY && (template.lifecycle == nil || !template.lifecycle.Valid()) {
-			return fmt.Errorf("invalid agy lifecycle")
-		}
-		if template.family != FamilyAGY && template.lifecycle != nil {
+		if template.lifecycle != nil {
 			return fmt.Errorf("unexpected lifecycle")
 		}
 	}
 	for _, family := range Families() {
 		for _, role := range domain.FixedRoleOrder() {
 			want := 1
-			if (family == FamilyKimi || family == FamilyGrok) && role == domain.RoleArtist {
+			if family == FamilyGrok && role == domain.RoleArtist {
 				want = 0
 			}
 			if roleCoverage[family][role] != want {
@@ -478,7 +407,7 @@ func codexCredentialProfileFromInstance(instance string, role domain.Role) (stri
 
 func productionRolesForFamily(family Family) []domain.Role {
 	roles := domain.FixedRoleOrder()
-	if family != FamilyKimi && family != FamilyGrok {
+	if family != FamilyGrok {
 		return roles
 	}
 	return append([]domain.Role(nil), roles[:len(roles)-1]...)

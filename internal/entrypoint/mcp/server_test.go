@@ -699,7 +699,7 @@ func TestServeQualificationRateLimitUsesStablePublicCode(t *testing.T) {
 	rateLimit := readinessError(
 		t,
 		qualificationFailure(t, "zcode-default", reviewrun.FamilyZCode, domain.FailureRateLimit),
-		qualificationFailure(t, "agy-default", reviewrun.FamilyAGY, domain.FailureRateLimit),
+		qualificationFailure(t, "grok-default", reviewrun.FamilyGrok, domain.FailureRateLimit),
 	)
 	allocated := reviewrun.NewAllocatedRunIdentityError(sessionID, runID, rateLimit)
 	assertFailure := func(t *testing.T, response map[string]any, wantInvocationID string) {
@@ -754,7 +754,7 @@ func TestServeQualificationRateLimitUsesStablePublicCode(t *testing.T) {
 		mixed := readinessError(
 			t,
 			qualificationFailure(t, "zcode-default", reviewrun.FamilyZCode, domain.FailureRateLimit),
-			qualificationFailure(t, "agy-default", reviewrun.FamilyAGY, domain.FailureTimeout),
+			qualificationFailure(t, "codex-default", reviewrun.FamilyCodex, domain.FailureTimeout),
 		)
 		failure := publicToolError(reviewrun.NewAllocatedRunIdentityError(sessionID, runID, mixed), toolRunReview)
 		if failure.Class != "readiness" || failure.Code != "review_unavailable" || failure.Retryable ||

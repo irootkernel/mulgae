@@ -5,11 +5,8 @@
 - macOS on Apple silicon for the complete release gate
 - Go 1.26.6 or newer
 - Git
-- authenticated ZCode and Codex installations for the mandatory live tests
-- an authenticated Grok installation for the dedicated live Grok review target
-- an authenticated Kimi installation only for the opt-in compatibility test
-- two distinct authenticated Codex homes plus an authenticated Kimi data home
-  only for the opt-in mixed-profile E2E
+- authenticated ZCode and Grok installations for the mandatory live tests
+- two distinct authenticated Codex homes only for the opt-in profile E2E
 
 ## Local checks
 
@@ -21,8 +18,8 @@ make test
 
 It runs generators and static checks, serialized race-instrumented unit tests,
 serialized race-instrumented integration tests, an exact-binary production
-workflow, and independent live capability certification for ZCode and Codex. It
-then invokes the opt-in mixed-profile target, which reports a stable
+workflow, and independent live capability certification for ZCode and Grok. It
+then invokes the opt-in Codex profile target, which reports a stable
 skip unless `MULGAE_E2E_OPT_IN=1` is present.
 The mandatory workflow also requires the documentation role report to reproduce
 a fresh marker stored only in the captured README, never in the objective.
@@ -49,7 +46,6 @@ make test-release
 make test-e2e
 make test-e2e-opt-in
 make test-grok
-make test-kimi
 make test-mcp-clients
 ```
 
@@ -57,50 +53,28 @@ make test-mcp-clients
 Grok review through ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and
 otherwise discovers `grok` on `PATH`. The target requires an already
 authenticated installation, does not modify native Grok configuration, and is
-not part of `make test` until the final provider-portfolio transition.
-
-`make test-kimi` is an opt-in compatibility check and is not part of
-`make test`. Do not call a change release-ready when the mandatory ZCode/Codex
-live gate was skipped.
-
-The mandatory Codex capability check first uses `MULGAE_E2E_CODEX_HOME`, which
-defaults to `~/.codex`. If and only if that account returns a typed quota
-failure, the check retries once with `MULGAE_E2E_CODEX_FALLBACK_HOME`. When that
-variable is unset and `~/.codex-hsy` exists, the target uses that directory as
-the fallback; otherwise no fallback is configured. Each selected directory
-must be absolute and contain the authenticated `auth.json`; the check projects
-only that file into its disposable provider namespace. Primary quota exhaustion
-without an available fallback remains an inconclusive gate failure.
-Authentication, rate-limit, timeout, invalid output, and other failures do not
-authorize credential fallback.
-
-Before provider execution, the target logs credential-home labels such as
-`primary=~/.codex quota_fallback=<unset>`. After certification it also logs the
-selected `primary` or `quota_fallback` profile. The conventional fallback is
-reported as `~/.codex-hsy`; an arbitrary absolute override is reported as
-`<custom>` so test logs do not disclose a native path.
+part of the mandatory `make test-e2e` gate.
 
 `make test-e2e-opt-in` is called after `make test-e2e`, but performs no provider
 discovery or execution unless `MULGAE_E2E_OPT_IN=1`. When enabled it runs one
-three-role exact-binary review: Kimi owns `logic`, Codex profile `primary` owns
-`security`, and Codex profile `secondary` owns `documentation`. Supply the two
-distinct credential roots and Kimi data root explicitly; profile names are test
-aliases and do not prescribe directory names:
+three-role exact-binary review: Codex profile `primary` owns `logic` and
+`security`, while profile `secondary` owns `documentation`. Supply the two
+distinct credential roots explicitly; profile names are test aliases and do
+not prescribe directory names:
 
 ```bash
 MULGAE_E2E_OPT_IN=1 \
 MULGAE_E2E_CODEX_PRIMARY_HOME=/absolute/path/to/primary-codex-home \
 MULGAE_E2E_CODEX_SECONDARY_HOME=/absolute/path/to/secondary-codex-home \
-MULGAE_E2E_KIMI_DATA_HOME=/absolute/path/to/kimi-data-home \
 make test-e2e-opt-in
 ```
 
-Override executable discovery with `MULGAE_E2E_CODEX_EXECUTABLE` and
-`MULGAE_E2E_KIMI_EXECUTABLE`. Once enabled, missing credentials, qualification
+Override executable discovery with `MULGAE_E2E_CODEX_EXECUTABLE`. Once enabled,
+missing credentials, qualification
 failure, invalid provider output, wrong role routing, publication failure, or
 credential mutation fails the target; the Go test never converts these states
-to a skip. This optional result does not replace mandatory ZCode/Codex
-certification or the separate `make test-kimi` capability check.
+to a skip. This optional result does not replace mandatory ZCode/Grok
+certification.
 
 `make test-mcp-clients` is an opt-in local compatibility check and is not part
 of `make test`. It builds the exact current Mulgae binary, isolates client
@@ -144,8 +118,7 @@ defines these commands:
 | `integration` | `make test-int` | `go-test` | `go`, `integration` | 6,000s |
 | `release` | `make test-release` | `generic` | `go`, `release` | 1,800s |
 | `e2e` | `make test-e2e` | `go-test` | `go`, `e2e`, `live` | 11,400s |
-| `e2e-opt-in` | `make test-e2e-opt-in` | `go-test` | `go`, `e2e`, `live`, `kimi`, `codex`, `multi-profile` | 7,200s |
-| `kimi` | `make test-kimi` | `go-test` | `go`, `e2e`, `live`, `kimi` | 6,000s |
+| `e2e-opt-in` | `make test-e2e-opt-in` | `go-test` | `go`, `e2e`, `live`, `codex`, `multi-profile` | 7,200s |
 | `full` | `make test` | `generic` | `go`, `full`, `live` | 28,800s |
 
 Use argv arrays for the wrapped commands and configure these RE2 redaction

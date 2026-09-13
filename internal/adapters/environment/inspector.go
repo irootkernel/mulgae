@@ -327,13 +327,12 @@ func observationContext(ctx context.Context, operation string) error {
 
 // BootstrapEnvironment freezes production environment authority at startup.
 type BootstrapEnvironment struct {
-	home, xdgConfigHome, kimiCodeHome, path, tempRoot string
-	pathEntries                                       []frozenPathEntry
-	locales                                           map[string]string
-	digest                                            string
-	pathErr                                           error
-	kimiCodeHomeErr                                   error
-	projectRoot                                       string
+	home, xdgConfigHome, path, tempRoot string
+	pathEntries                         []frozenPathEntry
+	locales                             map[string]string
+	digest                              string
+	pathErr                             error
+	projectRoot                         string
 }
 
 type frozenPathEntry struct {
@@ -349,12 +348,6 @@ var allowedLocaleNames = map[string]struct{}{
 // NewBootstrapEnvironment captures explicit startup values. At most one project
 // root is accepted; PATH directories beneath it are rejected.
 func NewBootstrapEnvironment(home, xdgConfigHome, path, tempRoot string, locales map[string]string, projectRoots ...ports.AnchoredRoot) (*BootstrapEnvironment, error) {
-	return NewBootstrapEnvironmentWithKimiCodeHome(home, xdgConfigHome, "", path, tempRoot, locales, projectRoots...)
-}
-
-// NewBootstrapEnvironmentWithKimiCodeHome captures the optional startup
-// KIMI_CODE_HOME used only as local init discovery input.
-func NewBootstrapEnvironmentWithKimiCodeHome(home, xdgConfigHome, kimiCodeHome, path, tempRoot string, locales map[string]string, projectRoots ...ports.AnchoredRoot) (*BootstrapEnvironment, error) {
 	if len(projectRoots) > 1 {
 		return nil, errors.New("environment bootstrap: multiple project roots")
 	}
@@ -367,9 +360,6 @@ func NewBootstrapEnvironmentWithKimiCodeHome(home, xdgConfigHome, kimiCodeHome, 
 		if _, err := canonicalDirectoryIdentity(xdgConfigHome); err != nil {
 			return nil, errors.New("environment bootstrap: invalid XDG_CONFIG_HOME")
 		}
-	}
-	if kimiCodeHome != "" && (!filepath.IsAbs(kimiCodeHome) || filepath.Clean(kimiCodeHome) != kimiCodeHome || strings.ContainsRune(kimiCodeHome, 0)) {
-		return nil, errors.New("environment bootstrap: invalid KIMI_CODE_HOME")
 	}
 	if path == "" {
 		return nil, errors.New("environment bootstrap: empty PATH")
@@ -409,25 +399,21 @@ func NewBootstrapEnvironmentWithKimiCodeHome(home, xdgConfigHome, kimiCodeHome, 
 		frozenLocales[name] = value
 	}
 	environment := &BootstrapEnvironment{
-		home: home, xdgConfigHome: xdgConfigHome, kimiCodeHome: kimiCodeHome, path: path, tempRoot: tempRoot,
+		home: home, xdgConfigHome: xdgConfigHome, path: path, tempRoot: tempRoot,
 		pathEntries: frozen, locales: frozenLocales,
 	}
-	environment.digest = environmentDigest(home, xdgConfigHome, kimiCodeHome, path, tempRoot, frozenLocales)
+	environment.digest = environmentDigest(home, xdgConfigHome, path, tempRoot, frozenLocales)
 	return environment, nil
 }
 
-// NewStartupDiscoveryInspector captures PATH and KIMI_CODE_HOME once for init
-// discovery. Invalid startup values are retained as deferred discovery errors
-// so commands such as help do not become unavailable merely because discovery
-// state is malformed. Relative executable lookup revalidates every captured
+// NewStartupDiscoveryInspector captures PATH once for init discovery. Invalid
+// startup values are retained as deferred discovery errors so commands such as
+// help do not become unavailable merely because discovery state is malformed.
+// Relative executable lookup revalidates every captured
 // PATH directory identity and never consults the ambient environment again.
-func NewStartupDiscoveryInspector(pathValue, kimiCodeHome string, projectRoots ...ports.AnchoredRoot) *FrozenInspector {
+func NewStartupDiscoveryInspector(pathValue string, projectRoots ...ports.AnchoredRoot) *FrozenInspector {
 	environment := &BootstrapEnvironment{
-		path: pathValue, kimiCodeHome: kimiCodeHome, locales: map[string]string{},
-	}
-	if kimiCodeHome != "" && (!filepath.IsAbs(kimiCodeHome) || filepath.Clean(kimiCodeHome) != kimiCodeHome || strings.ContainsRune(kimiCodeHome, 0)) {
-		environment.kimiCodeHome = ""
-		environment.kimiCodeHomeErr = errors.New("environment bootstrap: invalid KIMI_CODE_HOME")
+		path: pathValue, locales: map[string]string{},
 	}
 	root := ""
 	if len(projectRoots) > 1 || len(projectRoots) == 1 && !projectRoots[0].Valid() {
@@ -459,7 +445,7 @@ func NewStartupDiscoveryInspector(pathValue, kimiCodeHome string, projectRoots .
 			environment.pathEntries = append(environment.pathEntries, frozenPathEntry{path: entry, identity: identity})
 		}
 	}
-	environment.digest = environmentDigest("", "", environment.kimiCodeHome, pathValue, "", nil)
+	environment.digest = environmentDigest("", "", pathValue, "", nil)
 	return &FrozenInspector{environment: environment}
 }
 
@@ -474,12 +460,6 @@ func (environment *BootstrapEnvironment) XDGConfigHome() string {
 		return ""
 	}
 	return environment.xdgConfigHome
-}
-func (environment *BootstrapEnvironment) KimiCodeHome() string {
-	if environment == nil {
-		return ""
-	}
-	return environment.kimiCodeHome
 }
 func (environment *BootstrapEnvironment) Path() string {
 	if environment == nil {
@@ -512,9 +492,9 @@ func (environment *BootstrapEnvironment) Locales() map[string]string {
 	return values
 }
 
-func environmentDigest(home, xdgConfigHome, kimiCodeHome, path, tempRoot string, locales map[string]string) string {
+func environmentDigest(home, xdgConfigHome, path, tempRoot string, locales map[string]string) string {
 	hash := sha256.New()
-	for _, value := range []string{"HOME", home, "XDG_CONFIG_HOME", xdgConfigHome, "KIMI_CODE_HOME", kimiCodeHome, "PATH", path, "TEMP_ROOT", tempRoot} {
+	for _, value := range []string{"HOME", home, "XDG_CONFIG_HOME", xdgConfigHome, "PATH", path, "TEMP_ROOT", tempRoot} {
 		_, _ = hash.Write([]byte(value))
 		_, _ = hash.Write([]byte{0})
 	}
@@ -656,14 +636,6 @@ func (inspector *FrozenInspector) ObserveReadableFileIdentity(ctx context.Contex
 		return ports.FileIdentityObservation{}, errors.New("frozen readable file observation unavailable")
 	}
 	return observeReadableFileIdentity(ctx, name)
-}
-
-// KimiCodeHome returns the startup-frozen optional KIMI_CODE_HOME authority.
-func (inspector *FrozenInspector) KimiCodeHome() (string, error) {
-	if inspector == nil || inspector.environment == nil {
-		return "", errors.New("frozen environment unavailable")
-	}
-	return inspector.environment.KimiCodeHome(), inspector.environment.kimiCodeHomeErr
 }
 
 func (inspector *FrozenInspector) ObserveExecutableIdentity(ctx context.Context, name string) (ports.ExecutableObservation, error) {

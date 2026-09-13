@@ -7,7 +7,7 @@ import (
 )
 
 func TestRenderConfigYAMLIsCanonicalAndRoundTrips(t *testing.T) {
-	config, err := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test"}, testRoleDefaults(), candidates{agy: &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: "safe"}})
+	config, err := candidateConfig(InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test"}, testRoleDefaults(), candidates{grok: &adapterconfig.GrokProviderConfig{Executable: "/bin/grok"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestCandidateConfigDefaultsAutoProviderTimeouts(t *testing.T) {
 		testRoleDefaults(),
 		candidates{
 			zcode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"},
-			agy:   &adapterconfig.AGYProviderConfig{Executable: "/bin/agy", PermissionMode: adapterconfig.DefaultAGYPermissionMode},
+			grok:  &adapterconfig.GrokProviderConfig{Executable: "/bin/grok"},
 		},
 	)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestCandidateConfigDefaultsAutoProviderTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Providers.ZCode.Timeout != "60m" || decoded.Providers.AGY.Timeout != "60m" {
-		t.Fatalf("init defaults = zcode:%q agy:%q", decoded.Providers.ZCode.Timeout, decoded.Providers.AGY.Timeout)
+	if decoded.Providers.ZCode.Timeout != "60m" || decoded.Providers.Grok.Timeout != "60m" {
+		t.Fatalf("init defaults = zcode:%q grok:%q", decoded.Providers.ZCode.Timeout, decoded.Providers.Grok.Timeout)
 	}
 }

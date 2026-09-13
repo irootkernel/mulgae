@@ -15,7 +15,7 @@ func TestConfigV2SplitKeepsMachinePathsOutOfProjectPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{config.NativeUser.Home, config.Providers.Kimi.Executable, config.Providers.Kimi.DataHome} {
+	for _, forbidden := range []string{config.NativeUser.Home, config.Providers.ZCode.NodeExecutable, config.Providers.ZCode.Launcher} {
 		if bytes.Contains(project, []byte(forbidden)) {
 			t.Fatalf("project config contains machine-local value %q", forbidden)
 		}
@@ -67,8 +67,8 @@ func TestConfigV2SplitRejectsLegacyAndProviderSetMismatch(t *testing.T) {
 		t.Fatal("Config v1 was accepted")
 	}
 	mismatchConfig := validConfig()
-	mismatchConfig.Providers.Kimi = nil
-	mismatchConfig.Providers.AGY = &AGYProviderConfig{Executable: "/bin/agy"}
+	mismatchConfig.Providers.ZCode = nil
+	mismatchConfig.Providers.Grok = &GrokProviderConfig{Executable: "/bin/grok"}
 	mismatch := encodeMachineConfig(mismatchConfig)
 	if _, err := DecodeSplit(project, mismatch); err == nil {
 		t.Fatal("provider mismatch was accepted")
@@ -90,7 +90,7 @@ func TestRepositoryProjectConfigIsCanonicalSharedPolicy(t *testing.T) {
 			t.Fatalf("repository project config contains machine-local field %q", forbidden)
 		}
 	}
-	local := []byte("version: 3\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    node_executable: \"/usr/bin/node\"\n    launcher: \"/opt/mulgae/zcode.cjs\"\n  agy:\n    executable: \"/usr/bin/agy\"\n")
+	local := []byte("version: 3\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    node_executable: \"/usr/bin/node\"\n    launcher: \"/opt/mulgae/zcode.cjs\"\n  grok:\n    executable: \"/usr/bin/grok\"\n")
 	config, err := DecodeSplit(project, local)
 	if err != nil {
 		t.Fatalf("decode repository project config: %v", err)

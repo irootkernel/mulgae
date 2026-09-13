@@ -27,16 +27,17 @@ import (
 )
 
 const (
-	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v9.schema.json"
+	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v10.schema.json"
 	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 )
 
 type liveE2EEnvironment struct {
-	binary        string
-	nativeHome    string
-	zcodeNode     string
-	zcodeLauncher string
+	binary         string
+	nativeHome     string
+	zcodeNode      string
+	zcodeLauncher  string
+	grokExecutable string
 }
 
 type liveRoleReportURI struct {
@@ -319,6 +320,7 @@ func liveAutoInitArguments(environment liveE2EEnvironment) []string {
 		"init", "--providers", "auto",
 		"--roles", "logic,security,maintainability,product,documentation,testing",
 		"--zcode-node-executable", environment.zcodeNode, "--zcode-launcher", environment.zcodeLauncher,
+		"--grok-executable", environment.grokExecutable,
 	}
 	return append(arguments, "--output", "json")
 }
@@ -332,7 +334,8 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 	binary := requireLiveExecutable(t, "MULGAE_E2E_BINARY", "")
 	zcodeNode := requireLiveExecutable(t, "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", lookupLiveExecutable(t, "node"))
 	zcodeLauncher := requireLiveExecutable(t, "MULGAE_E2E_ZCODE_LAUNCHER", "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs")
-	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeNode: zcodeNode, zcodeLauncher: zcodeLauncher}
+	grokExecutable := requireLiveExecutable(t, "MULGAE_E2E_GROK_EXECUTABLE", lookupLiveExecutable(t, "grok"))
+	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeNode: zcodeNode, zcodeLauncher: zcodeLauncher, grokExecutable: grokExecutable}
 }
 
 func requireLiveExecutable(t *testing.T, environmentName, fallback string) string {
@@ -813,328 +816,10 @@ func TestLiveUnavailableWorkflowStagesDoNotGainRetryAuthority(t *testing.T) {
 	}
 }
 
-func TestLiveRoleReportInventoryRequiresCanonicalEquality(t *testing.T) {
-	t.Parallel()
-	project := t.TempDir()
-	sessionID := "s_019f5a09-5eec-7001-8001-0000000000aa"
-	runID := "r_019f5a09-5eec-7001-8001-0000000000ab"
-	logicAttempt := "a_019f5a09-5eec-7001-8001-0000000000ac"
-	securityAttempt := "a_019f5a09-5eec-7001-8001-0000000000ad"
-	logicBody := []byte("# logic review\n\nLooks fine.\n")
-	securityBody := []byte("# security review\n\nLooks fine.\n")
-	writeLiveRoleReport(t, project, sessionID, runID, "logic", logicBody)
-	writeLiveRoleReport(t, project, sessionID, runID, "security", securityBody)
-	logicURI := ".mulgae/" + sessionID + "/" + runID + "/role-reports/logic.md"
-	securityURI := ".mulgae/" + sessionID + "/" + runID + "/role-reports/security.md"
-	run := livePublishedRun{
-		manifest: liveManifest{
-			SessionID: sessionID,
-			RunID:     runID,
-			RoleReports: []liveRoleReport{
-				{Role: "logic", Path: "role-reports/logic.md", SHA256: liveArtifactSHA256(logicBody), ByteLength: len(logicBody), ProviderInstance: "zcode-logic", AttemptID: logicAttempt, ContentType: "text/markdown", Transport: "staged_file"},
-				{Role: "security", Path: "role-reports/security.md", SHA256: liveArtifactSHA256(securityBody), ByteLength: len(securityBody), ProviderInstance: "agy-security", AttemptID: securityAttempt, ContentType: "text/markdown", Transport: "stdout"},
-			},
-		},
-		review: liveReview{
-			RoleOutcomes: []liveRoleOutcome{
-				{Role: "logic", Outcome: "completed", AttemptID: &logicAttempt, ProviderInstance: strPtr("zcode-logic"), SelectedVia: strPtr("primary")},
-				{Role: "security", Outcome: "completed", AttemptID: &securityAttempt, ProviderInstance: strPtr("agy-security"), SelectedVia: strPtr("primary")},
-			},
-		},
-	}
-	run.envelope.Result.SessionID = &sessionID
-	run.envelope.Result.RunID = &runID
-	run.envelope.Result.RoleReportURIs = []liveRoleReportURI{
-		{Role: "logic", URI: logicURI},
-		{Role: "security", URI: securityURI},
-	}
-	assertLiveRoleReportInventory(t, project, run)
-	assertLiveRoleReportURIEquality(t, run.envelope.Result.RoleReportURIs, []liveRoleReportURI{
-		{Role: "logic", URI: logicURI},
-		{Role: "security", URI: securityURI},
-	})
-	if err := validateLiveRoleReportTransports(run, true); err != nil {
-		t.Fatalf("canonical staged_file/stdout transport inventory was rejected: %v", err)
-	}
-	for _, test := range []struct {
-		name          string
-		requireStaged bool
-		mutate        func(*livePublishedRun)
-	}{
-		{name: "missing transport", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[0].Transport = "" }},
-		{name: "unknown transport", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[0].Transport = "carrier_pigeon" }},
-		{name: "non-canonical case", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[1].Transport = "STDOUT" }},
-		{name: "staged family downgraded", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[0].Transport = "stdout" }},
-		{name: "stdout family upgraded", mutate: func(value *livePublishedRun) { value.manifest.RoleReports[1].Transport = "staged_file" }},
-		{name: "exact replay staged family downgraded", mutate: func(value *livePublishedRun) {
-			value.manifest.ImmutableLineage.ReplayMode = strPtr("exact")
-			value.manifest.RoleReports[0].Transport = "stdout"
-		}},
-		{name: "no staged certification", requireStaged: true, mutate: func(value *livePublishedRun) {
-			value.manifest.RoleReports[0].ProviderInstance = "agy-logic"
-			value.manifest.RoleReports[0].Transport = "stdout"
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			candidate := copyLiveRoleReportInventory(run)
-			test.mutate(&candidate)
-			if err := validateLiveRoleReportTransports(candidate, test.requireStaged); err == nil {
-				t.Fatalf("invalid role-report transport inventory was accepted: %#v", candidate.manifest.RoleReports)
-			}
-		})
-	}
-}
-
 func copyLiveRoleReportInventory(run livePublishedRun) livePublishedRun {
 	copied := run
 	copied.manifest.RoleReports = append([]liveRoleReport(nil), run.manifest.RoleReports...)
 	return copied
-}
-
-func TestLiveSecurityDefectAcceptance(t *testing.T) {
-	t.Parallel()
-
-	const (
-		sessionID = "s_019f5a09-5eec-7001-8001-0000000000ba"
-		runID     = "r_019f5a09-5eec-7001-8001-0000000000bb"
-		attemptID = "a_019f5a09-5eec-7001-8001-0000000000bc"
-		provider  = "zcode-security"
-	)
-	defectBody := []byte("# security review\n\nDirectory traversal in ReadReport (`report.go`) via unsanitized name.\n")
-	praiseBody := []byte("# security review\n\nLooks secure overall. No actionable defects found.\n")
-
-	newSecurityRun := func(t *testing.T, body []byte, mutate func(*livePublishedRun)) (string, livePublishedRun) {
-		t.Helper()
-		project := t.TempDir()
-		writeLiveRoleReport(t, project, sessionID, runID, "security", body)
-		uri := ".mulgae/" + sessionID + "/" + runID + "/role-reports/security.md"
-		run := livePublishedRun{
-			manifest: liveManifest{
-				SessionID: sessionID,
-				RunID:     runID,
-				RoleReports: []liveRoleReport{{
-					Role:             "security",
-					Path:             "role-reports/security.md",
-					SHA256:           liveArtifactSHA256(body),
-					ByteLength:       len(body),
-					ProviderInstance: provider,
-					AttemptID:        attemptID,
-					ContentType:      "text/markdown",
-					Transport:        "staged_file",
-				}},
-			},
-			review: liveReview{
-				RoleOutcomes: []liveRoleOutcome{{
-					Role:             "security",
-					Outcome:          "completed",
-					AttemptID:        strPtr(attemptID),
-					ProviderInstance: strPtr(provider),
-					SelectedVia:      strPtr("primary"),
-				}},
-			},
-		}
-		run.envelope.Result.SessionID = strPtr(sessionID)
-		run.envelope.Result.RunID = strPtr(runID)
-		run.envelope.Result.RoleReportURIs = []liveRoleReportURI{{Role: "security", URI: uri}}
-		if mutate != nil {
-			mutate(&run)
-		}
-		return project, run
-	}
-
-	t.Run("structured finding accepts", func(t *testing.T) {
-		t.Parallel()
-		project, run := newSecurityRun(t, praiseBody, func(run *livePublishedRun) {
-			run.review.Findings = []liveFinding{{ID: "F001", Role: "security", ProviderInstance: provider}}
-		})
-		if !liveSecurityDefectPresent(project, run, provider) {
-			t.Fatal("structured security finding was rejected")
-		}
-	})
-
-	t.Run("verified role report markers accept", func(t *testing.T) {
-		t.Parallel()
-		project, run := newSecurityRun(t, defectBody, nil)
-		if liveRoleFindingPresent(run, "security", provider) {
-			t.Fatal("reports-only fixture unexpectedly included structured findings")
-		}
-		if !liveSecurityDefectPresent(project, run, provider) {
-			t.Fatalf("verified security role-report markers were rejected: %v", liveSecurityRoleReportDefectPresent(project, run, provider))
-		}
-	})
-
-	t.Run("wrong role rejects", func(t *testing.T) {
-		t.Parallel()
-		project := t.TempDir()
-		writeLiveRoleReport(t, project, sessionID, runID, "logic", defectBody)
-		logicURI := ".mulgae/" + sessionID + "/" + runID + "/role-reports/logic.md"
-		run := livePublishedRun{
-			manifest: liveManifest{
-				SessionID: sessionID,
-				RunID:     runID,
-				RoleReports: []liveRoleReport{{
-					Role:             "logic",
-					Path:             "role-reports/logic.md",
-					SHA256:           liveArtifactSHA256(defectBody),
-					ByteLength:       len(defectBody),
-					ProviderInstance: "zcode-logic",
-					AttemptID:        attemptID,
-					ContentType:      "text/markdown",
-					Transport:        "staged_file",
-				}},
-			},
-			review: liveReview{
-				RoleOutcomes: []liveRoleOutcome{{
-					Role:             "security",
-					Outcome:          "completed",
-					AttemptID:        strPtr(attemptID),
-					ProviderInstance: strPtr(provider),
-					SelectedVia:      strPtr("primary"),
-				}},
-			},
-		}
-		run.envelope.Result.SessionID = strPtr(sessionID)
-		run.envelope.Result.RunID = strPtr(runID)
-		run.envelope.Result.RoleReportURIs = []liveRoleReportURI{{Role: "logic", URI: logicURI}}
-		if liveSecurityDefectPresent(project, run, provider) {
-			t.Fatal("defect markers under a non-security role report were accepted")
-		}
-	})
-
-	t.Run("wrong provider rejects", func(t *testing.T) {
-		t.Parallel()
-		project, run := newSecurityRun(t, defectBody, func(run *livePublishedRun) {
-			run.manifest.RoleReports[0].ProviderInstance = "agy-security"
-			run.manifest.RoleReports[0].Transport = "stdout"
-		})
-		if liveSecurityDefectPresent(project, run, provider) {
-			t.Fatal("security role report bound to a different provider was accepted")
-		}
-	})
-
-	t.Run("wrong path rejects", func(t *testing.T) {
-		t.Parallel()
-		project, run := newSecurityRun(t, defectBody, func(run *livePublishedRun) {
-			run.manifest.RoleReports[0].Path = "role-reports/other.md"
-			run.envelope.Result.RoleReportURIs[0].URI = ".mulgae/" + sessionID + "/" + runID + "/role-reports/other.md"
-		})
-		writeLiveRoleReport(t, project, sessionID, runID, "other", defectBody)
-		if liveSecurityDefectPresent(project, run, provider) {
-			t.Fatal("non-canonical security role-report path was accepted")
-		}
-	})
-
-	t.Run("wrong digest rejects", func(t *testing.T) {
-		t.Parallel()
-		project, run := newSecurityRun(t, defectBody, func(run *livePublishedRun) {
-			run.manifest.RoleReports[0].SHA256 = "sha256:" + strings.Repeat("ab", 32)
-		})
-		if liveSecurityDefectPresent(project, run, provider) {
-			t.Fatal("security role report with inventory digest mismatch was accepted")
-		}
-	})
-
-	t.Run("missing marker rejects", func(t *testing.T) {
-		t.Parallel()
-		project, run := newSecurityRun(t, praiseBody, nil)
-		if liveSecurityDefectPresent(project, run, provider) {
-			t.Fatal("security role report without fixture defect markers was accepted")
-		}
-	})
-}
-
-func TestLiveFollowupSourceFindingSelection(t *testing.T) {
-	t.Parallel()
-
-	outcome := func(role, provider, attemptID string) liveRoleOutcome {
-		return liveRoleOutcome{
-			Role:             role,
-			Outcome:          "completed",
-			AttemptID:        strPtr(attemptID),
-			ProviderInstance: strPtr(provider),
-			SelectedVia:      strPtr("primary"),
-		}
-	}
-	runWith := func(outcomes []liveRoleOutcome, findings []liveFinding) livePublishedRun {
-		return livePublishedRun{review: liveReview{RoleOutcomes: outcomes, Findings: findings}}
-	}
-
-	t.Run("security preferred", func(t *testing.T) {
-		t.Parallel()
-		run := runWith(
-			[]liveRoleOutcome{
-				outcome("logic", "zcode-logic", "a_logic"),
-				outcome("security", "zcode-security", "a_security"),
-			},
-			[]liveFinding{
-				{ID: "F010", Role: "logic", ProviderInstance: "zcode-logic"},
-				{ID: "F001", Role: "security", ProviderInstance: "zcode-security"},
-			},
-		)
-		got, ok := selectLiveFollowupSourceFinding(run)
-		if !ok || got.ID != "F001" || got.Role != "security" || got.ProviderInstance != "zcode-security" {
-			t.Fatalf("selectLiveFollowupSourceFinding() = %#v present=%t, want security F001", got, ok)
-		}
-	})
-
-	t.Run("deterministic alternate", func(t *testing.T) {
-		t.Parallel()
-		run := runWith(
-			[]liveRoleOutcome{
-				outcome("security", "zcode-security", "a_security"),
-				outcome("documentation", "agy-documentation", "a_docs"),
-				outcome("logic", "zcode-logic", "a_logic"),
-			},
-			[]liveFinding{
-				{ID: "F020", Role: "documentation", ProviderInstance: "agy-documentation"},
-				{ID: "F002", Role: "logic", ProviderInstance: "zcode-logic"},
-				{ID: "F001", Role: "logic", ProviderInstance: "zcode-logic"},
-			},
-		)
-		got, ok := selectLiveFollowupSourceFinding(run)
-		if !ok || got.ID != "F002" || got.Role != "logic" || got.ProviderInstance != "zcode-logic" {
-			t.Fatalf("selectLiveFollowupSourceFinding() = %#v present=%t, want first committed logic finding F002", got, ok)
-		}
-	})
-
-	t.Run("wrong unselected provider excluded", func(t *testing.T) {
-		t.Parallel()
-		run := runWith(
-			[]liveRoleOutcome{
-				outcome("security", "zcode-security", "a_security"),
-				outcome("logic", "zcode-logic", "a_logic"),
-			},
-			[]liveFinding{
-				{ID: "F001", Role: "security", ProviderInstance: "agy-security"},
-				{ID: "F002", Role: "logic", ProviderInstance: "agy-logic"},
-				{ID: "F003", Role: "logic", ProviderInstance: "zcode-logic"},
-			},
-		)
-		got, ok := selectLiveFollowupSourceFinding(run)
-		if !ok || got.ID != "F003" || got.Role != "logic" || got.ProviderInstance != "zcode-logic" {
-			t.Fatalf("selectLiveFollowupSourceFinding() = %#v present=%t, want selected-provider logic F003", got, ok)
-		}
-	})
-
-	t.Run("none", func(t *testing.T) {
-		t.Parallel()
-		run := runWith(
-			[]liveRoleOutcome{
-				outcome("security", "zcode-security", "a_security"),
-				outcome("logic", "zcode-logic", "a_logic"),
-			},
-			[]liveFinding{
-				{ID: "F001", Role: "security", ProviderInstance: "agy-security"},
-				{ID: "F002", Role: "logic", ProviderInstance: "agy-logic"},
-			},
-		)
-		if got, ok := selectLiveFollowupSourceFinding(run); ok {
-			t.Fatalf("selectLiveFollowupSourceFinding() = %#v, want none", got)
-		}
-		if got, ok := selectLiveFollowupSourceFinding(runWith(nil, nil)); ok {
-			t.Fatalf("empty review selected %#v", got)
-		}
-	})
 }
 
 func writeLiveRoleReport(t *testing.T, project, sessionID, runID, role string, body []byte) {
@@ -1473,7 +1158,7 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &redacted); err != nil {
 		t.Fatalf("decode redacted config: %v", err)
 	}
-	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode"}) {
+	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode", "grok"}) {
 		t.Fatalf("configured providers = %v", redacted.ConfiguredProviderIDs)
 	}
 	// Each role names exactly one provider: the first configured family from its
@@ -1619,7 +1304,7 @@ func TestLiveTerminalProcessStateAcceptsCompletedProcesses(t *testing.T) {
 
 func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	t.Helper()
-	families := []string{"zcode"}
+	families := []string{"zcode", "grok"}
 	var doctor struct {
 		ConfiguredProviderIDs []string `json:"configured_provider_ids"`
 		Readiness             struct {
@@ -1889,83 +1574,6 @@ func logLiveRecoverySelections(t *testing.T, run livePublishedRun) {
 			continue
 		}
 		t.Logf("[test-e2e] role=%s provider=%s selected_via=%s outcome=%s", outcome.Role, *outcome.ProviderInstance, *outcome.SelectedVia, outcome.Outcome)
-	}
-}
-
-func TestLiveRecoverableAssignmentGate(t *testing.T) {
-	t.Parallel()
-	expected := map[string]string{"logic": "kimi-logic"}
-	primaryRun := func(invocations int) livePublishedRun {
-		attemptID, provider, selectedVia := "a_primary", "kimi-logic", "primary"
-		return livePublishedRun{
-			manifest: liveManifest{SelectedRoles: []string{"logic"}, Attempts: []liveAttempt{{
-				AttemptID: attemptID, Role: "logic", ProviderInstance: provider, SelectedAs: "primary", State: "succeeded", InvocationCount: invocations,
-			}}},
-			review: liveReview{RoleOutcomes: []liveRoleOutcome{{
-				Role: "logic", Outcome: "completed", AttemptID: &attemptID, ProviderInstance: &provider, SelectedVia: &selectedVia,
-			}}},
-		}
-	}
-	// A second attempt on any provider is now impossible: nothing writes it, and
-	// a published run that claims one is not a run this build could have produced.
-	secondAttemptRun := func(primaryState, secondProvider string, secondInvocations int) livePublishedRun {
-		attemptID, provider, selectedVia := "a_second", secondProvider, "fallback"
-		return livePublishedRun{
-			manifest: liveManifest{SelectedRoles: []string{"logic"}, Attempts: []liveAttempt{
-				{AttemptID: "a_primary", Role: "logic", ProviderInstance: "kimi-logic", SelectedAs: "primary", State: primaryState, InvocationCount: 2},
-				{AttemptID: attemptID, Role: "logic", ProviderInstance: provider, SelectedAs: "fallback", State: "succeeded", InvocationCount: secondInvocations},
-			}},
-			review: liveReview{RoleOutcomes: []liveRoleOutcome{{
-				Role: "logic", Outcome: "degraded", AttemptID: &attemptID, ProviderInstance: &provider, SelectedVia: &selectedVia,
-			}}},
-		}
-	}
-	for _, test := range []struct {
-		name string
-		run  livePublishedRun
-		want bool
-	}{
-		{name: "initial primary", run: primaryRun(1), want: true},
-		{name: "primary repair", run: primaryRun(2), want: true},
-		{name: "second attempt on another provider", run: secondAttemptRun("failed", "zcode-logic", 1)},
-		{name: "second attempt after successful primary", run: secondAttemptRun("succeeded", "zcode-logic", 1)},
-		{name: "primary invocation overflow", run: primaryRun(3)},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if err := validateLiveRecoverableAssignments(test.run, expected); (err == nil) != test.want {
-				t.Fatalf("validateLiveRecoverableAssignments() error = %v, want success=%t", err, test.want)
-			}
-		})
-	}
-}
-
-func TestLiveQualificationHealthGate(t *testing.T) {
-	t.Parallel()
-	expected := map[string]string{"logic": "kimi-logic"}
-	qualified := func(provider string) liveRuntimeEvent {
-		return liveRuntimeEvent{Event: "qualification_candidate_checked", Provider: provider, Outcome: "qualified"}
-	}
-	rejected := func(provider string) liveRuntimeEvent {
-		return liveRuntimeEvent{Event: "qualification_candidate_checked", Provider: provider, Outcome: "rejected"}
-	}
-	succeeded := liveRuntimeEvent{Event: "qualification_succeeded"}
-	for _, test := range []struct {
-		name   string
-		events []liveRuntimeEvent
-		want   bool
-	}{
-		{name: "all qualified", events: []liveRuntimeEvent{qualified("kimi-logic"), succeeded}, want: true},
-		{name: "retry then qualified", events: []liveRuntimeEvent{rejected("kimi-logic"), qualified("kimi-logic"), succeeded}, want: true},
-		{name: "candidate missing", events: []liveRuntimeEvent{succeeded}},
-		{name: "terminal rejection", events: []liveRuntimeEvent{qualified("kimi-logic"), rejected("kimi-logic"), succeeded}},
-		{name: "unexpected candidate", events: []liveRuntimeEvent{qualified("kimi-logic"), qualified("zcode-logic"), succeeded}},
-		{name: "overall success missing", events: []liveRuntimeEvent{qualified("kimi-logic")}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if err := validateLiveQualificationEvents(test.events, expected); (err == nil) != test.want {
-				t.Fatalf("validateLiveQualificationEvents() error = %v, want success=%t", err, test.want)
-			}
-		})
 	}
 }
 

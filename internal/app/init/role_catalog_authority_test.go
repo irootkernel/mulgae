@@ -58,10 +58,9 @@ func initServiceWithCatalog(t *testing.T, catalog ports.ContractCatalog) (*Servi
 		t.Fatalf("build init service: %v", err)
 	}
 	overrides := Overrides{
-		KimiExecutable:      "/bin/kimi",
 		ZCodeNodeExecutable: "/bin/node",
 		ZCodeLauncher:       launcher,
-		AGYExecutable:       "/bin/agy",
+		GrokExecutable:      "/bin/grok",
 	}
 	return service, root, overrides
 }
@@ -73,11 +72,11 @@ func TestInitOutputFollowsEditedRoleProviderPreferences(t *testing.T) {
 	edited := rewrittenRoleCatalog{
 		inner: builtin.NewCatalog(),
 		replace: func(raw []byte) []byte {
-			original := []byte("  - id: testing\n    order: 6\n    activation: always\n    provider_preferences: [zcode, agy, kimi, grok, codex]\n")
+			original := []byte("  - id: testing\n    order: 6\n    activation: always\n    provider_preferences: [zcode, grok, codex]\n")
 			if !bytes.Contains(raw, original) {
 				t.Fatalf("role document does not carry the expected testing entry")
 			}
-			return bytes.Replace(raw, original, []byte("  - id: testing\n    order: 6\n    activation: always\n    provider_preferences: [kimi, agy, zcode, grok, codex]\n"), 1)
+			return bytes.Replace(raw, original, []byte("  - id: testing\n    order: 6\n    activation: always\n    provider_preferences: [grok, zcode, codex]\n"), 1)
 		},
 	}
 	service, root, overrides := initServiceWithCatalog(t, edited)
@@ -85,7 +84,7 @@ func TestInitOutputFollowsEditedRoleProviderPreferences(t *testing.T) {
 		ProjectRoot: root,
 		ProjectName: "project",
 		NativeHome:  "/Users/test",
-		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"kimi", "zcode", "agy"}},
+		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode", "grok"}},
 		RoleIDs:     []string{"logic", "security", "testing"},
 		Overrides:   overrides,
 	})
@@ -104,8 +103,8 @@ func TestInitOutputFollowsEditedRoleProviderPreferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode installed config: %v", err)
 	}
-	if config.Roles.Testing.PrimaryProvider != "kimi" {
-		t.Fatalf("edited testing role = %s, want kimi", config.Roles.Testing.PrimaryProvider)
+	if config.Roles.Testing.PrimaryProvider != "grok" {
+		t.Fatalf("edited testing role = %s, want grok", config.Roles.Testing.PrimaryProvider)
 	}
 	if config.Roles.Security.PrimaryProvider != "zcode" {
 		t.Fatalf("untouched security role = %s, want zcode", config.Roles.Security.PrimaryProvider)
@@ -122,7 +121,7 @@ func TestInitializeProjectFailsClosedWhenRoleCatalogIsUnreadable(t *testing.T) {
 		ProjectRoot: root,
 		ProjectName: "project",
 		NativeHome:  "/Users/test",
-		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"kimi", "zcode", "agy"}},
+		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode", "grok"}},
 		RoleIDs:     []string{"logic"},
 		Overrides:   overrides,
 	})
@@ -171,7 +170,7 @@ func TestInitializeProjectRejectsRoleCatalogMissingArtistDefaults(t *testing.T) 
 		ProjectRoot: root,
 		ProjectName: "project",
 		NativeHome:  "/Users/test",
-		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"kimi", "zcode", "agy"}},
+		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode", "grok"}},
 		RoleIDs:     []string{"logic"},
 		Overrides:   overrides,
 	})

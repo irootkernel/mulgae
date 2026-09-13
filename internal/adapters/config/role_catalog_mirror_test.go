@@ -16,7 +16,7 @@ func TestRoleCatalogDefaultsSurviveThisPackagesValidator(t *testing.T) {
 	config.Project.Kind = ProjectKindUI
 	config.Providers = ProvidersConfig{
 		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"},
-		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode},
+		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok"},
 	}
 	roles, err := CanonicalRolesConfigForUI(testRoleDefaults(), config.Providers.Families())
 	if err != nil {

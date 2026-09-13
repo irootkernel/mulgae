@@ -1,0 +1,198 @@
+{
+  "candidate_oid": "0123456789abcdef0123456789abcdef01234567",
+  "gate_a2": {
+    "candidate_oid": "0123456789abcdef0123456789abcdef01234567",
+    "file_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "nonce": "provider-contract-evidence-v2-example",
+    "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/gates/gate-a2.json",
+    "schema_version": "mulgae-gate-a2.v1"
+  },
+  "generated_at": "2026-07-13T00:00:00Z",
+  "provider": {
+    "family": "zcode",
+    "probe_runner": {
+      "argv": [
+        "/usr/bin/env",
+        "python3",
+        ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/tools/provider_probe.py",
+        "run",
+        "--family",
+        "zcode",
+        "--probe-manifest",
+        ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/provider-probes.json",
+        "--runtime-contract",
+        ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/provider-runtime-contract.v1.json",
+        "--gate-receipt",
+        ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/gates/gate-a2.json"
+      ],
+      "argv_sha256": "724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e",
+      "cwd": "REPOSITORY_ROOT"
+    },
+    "probes": [
+      {
+        "probe_id": "PV-VERSION",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-NONINTERACTIVE",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-PROMPT-TRANSPORT",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-JSON-ONLY",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-STDOUT-STDERR",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-CANCELLATION",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-OUTPUT-PRESERVATION",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-AUTH-CACHE-CONCURRENCY",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-EXIT-CLASSIFICATION",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-CWD-ISOLATION",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-logic",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-security",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-maintainability",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-product",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-documentation",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      },
+      {
+        "probe_id": "PV-ROLE-FIT-testing",
+        "raw_evidence_sha256": null,
+        "raw_evidence_uri": null,
+        "reason": "not_run",
+        "secure_writer_receipt_sha256": null,
+        "secure_writer_receipt_uri": null,
+        "status": "NOT_RUN"
+      }
+    ],
+    "secure_writer_index": {
+      "contract": "mulgae-secure-writer/v1",
+      "file_sha256": null,
+      "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/evidence/g0/candidates/0123456789abcdef0123456789abcdef01234567/providers/zcode/secure-writer-index.json",
+      "root_sha256": null
+    },
+    "tuple_key": [
+      "zcode",
+      "local-default",
+      "initial-contract",
+      "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "zcode-default"
+    ],
+    "wrapper_argv_sha256": "724db2f4e04f01ca6240eae1f5a747ecaf9881696b18ad06cd98c53dd2f5458e"
+  },
+  "runtime_contract": {
+    "file_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "path": ".gjc/_session-019f5a09-5eec-7000-84df-094fcc21b1ce/g0/fixtures/provider-runtime-contract.v1.json",
+    "schema_version": "mulgae-provider-runtime-contract.v1"
+  },
+  "schema_version": "mulgae-provider-contract-evidence.v4"
+}

@@ -449,8 +449,7 @@ manifest inventory. Attempt `stdout.raw` remains private capture evidence and
 is never the primary report URI.
 
 `transport` is adapter-owned per provider family, not configurable. ZCode and
-Grok review invocations are granted `staged_file`; AGY, Kimi, and Codex remain
-`stdout`.
+Grok review invocations use `staged_file`; Codex uses `stdout`.
 For a failed review invocation, model-authored stdout remains private process
 evidence but never classifies a native provider condition; stderr has that
 authority. Qualification may classify native failures from both stdout and
@@ -479,15 +478,6 @@ Qualification and extraction use only correlated assistant-message chunks.
 Protocol negotiation, authentication, session completion, permission denial,
 and teardown failures retain typed provider causes. Grok uses its own model and
 reasoning defaults; the public configuration exposes no setting for either.
-
-AGY review, extraction, and capability invocations request `--output-format=json`;
-the adapter unwraps the native envelope's `response` as the review content.
-The JSON envelope does not replace process termination or lifecycle validation.
-AGY native JSON envelopes must contain a nonempty string `response`; when
-`status` is present it must be `SUCCESS` (case insensitive). Empty, missing,
-non-string responses and unsuccessful statuses are rejected before free-form
-report acceptance. Mulgae extracts the exact response bytes, not other envelope
-metadata. Direct review JSON without native envelope fields remains supported.
 
 Exact replay (`rerun --replay exact`) preserves the source attempt's framed review
 input and provider route. On a `staged_file` route Mulgae replaces only the
@@ -617,7 +607,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v9` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v10` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -672,7 +662,7 @@ exits:
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 
-`mulgae doctor --output json` returns `mulgae-doctor-result.v3`. Capability
+`mulgae doctor --output json` returns `mulgae-doctor-result.v4`. Capability
 detection starts with `schema_version`; consumers of an older result must treat
 an absent v2 dimension as unsupported, never as failed. The result reports
 `config_v3`, `local_configuration`, and `provider_identity` independently, and
@@ -718,7 +708,7 @@ owned by the filesystem/Git admission boundary.
 `mulgae heartbeat --provider FAMILY --authorize-live-request` is the only
 standalone live diagnostic. For named Codex configurations it also accepts the
 explicit `--credential-profile`. Omitting the authorization returns a versioned
-`mulgae-provider-heartbeat-result.v2` with `attempted: false` before provider
+`mulgae-provider-heartbeat-result.v3` with `attempted: false` before provider
 composition, credential access, or process execution. An authorized heartbeat
 discloses that authentication, network, cost, and remote logging may occur,
 uses a bounded provider timeout, and sends only Mulgae's immutable synthetic
@@ -776,10 +766,7 @@ rejects an observed false value when the configuration requested true.
 Review and child-run qualification preserve private request packets and nonempty
 version/capability stdout and stderr under the diagnostic run before fixture
 cleanup. Runtime events retain process exit/termination facts and typed rejection
-causes, including empty responses. A decoded AGY native envelope with an
-unsuccessful status or a missing, empty, or non-string response is classified as
-`provider_output_envelope_invalid` in both review and qualification, separately
-from JSON decoding failures. The existing secure writer screens these
+causes, including empty responses. The existing secure writer screens these
 streams; rejected content is dropped with metadata, never copied into public
 command output or exports. Each retry has its own qualification attempt directory.
 A child command allocates its diagnostic run identity before qualification and
@@ -799,10 +786,8 @@ qualification probes use the app-server protocol conversation in plan mode
 with every tool denied; their capability evidence is the conversation's
 captured assistant response text, read back through the protocol after the
 turn completes, and the protocol transcript on stdout is never evidence.
-ZCode may
-share one probe across sibling role instances only when that full shareable
-profile matches; AGY profiles also include provider instance because AGY control
-evidence is instance-bound. Direct-execution authority construction and Matches
+ZCode may share one probe across sibling role instances only when that full
+shareable profile matches. Direct-execution authority construction and Matches
 bind currentProbeRuntimeDefinitionIdentity for the exact destination runtime,
 including instance. Sibling routes receive a new authority only through an
 adapter-owned derivation that revalidates shareable equivalence and exact
@@ -828,10 +813,8 @@ Packet-transport, lifecycle, signal-receipt, and
 frame-integrity violations remain security-policy violations, while missing
 fixture binding or prompt echo is instead an operational invalid-provider-output
 capability rejection, not a security-policy violation. Capability packets embed
-those root/link/role bindings and must not induce workspace or tool reads;
-AGY's adapter-owned structured-output schema requires those three bindings but
-permits additional provider fields, which Mulgae discards before validating the
-required evidence. Malformed JSON, duplicate keys, missing bindings, wrong
+those root/link/role bindings and must not induce workspace or tool reads.
+Malformed JSON, duplicate keys, missing bindings, wrong
 binding types, and binding mismatches remain rejected. Review prompts own
 workspace-selective guidance. Invalid capability formatting,
 unbound fixture evidence, security-policy violations, and login-required
@@ -848,7 +831,7 @@ Every acquired fixture is still drained exactly once, sibling role routes still
 derive from a single successful family probe, and the retried attempt is
 recorded as a rejected qualification observation carrying a retry mitigation.
 There is no durable project-local qualification cache and no path that mints
-direct-execution or AGY-control authority from project-local JSON; durable
+direct-execution authority from project-local JSON; durable
 cross-process reuse is intentionally deferred because a forgeable self-hashed
 cache would weaken trust boundaries. Structured review JSON extraction remains
 optional: Mulgae may apply one constrained repair, then accept free-form primary

@@ -5,13 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,42 +17,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
-
-func TestBuildArgvUsesFamilyCapabilityProfiles(t *testing.T) {
-	tests := []struct {
-		family string
-		want   []string
-	}{
-		{FamilyKimi, []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"}},
-		{FamilyZcode, []string{"/private/bin/zcode", "app-server"}},
-		{FamilyAgy, []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--output-format=json", "--print", "review bytes"}},
-	}
-	for _, test := range tests {
-		t.Run(test.family, func(t *testing.T) {
-			transport, err := defaultRuntimeTransport(test.family, 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			got, err := buildArgv(definition{
-				family:    test.family,
-				baseArgv:  []string{"/private/bin/" + test.family},
-				transport: transport,
-				timeout:   30 * time.Minute,
-			}, "/private/work", []byte("review bytes"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(got) != len(test.want) {
-				t.Fatalf("argv = %q, want %q", got, test.want)
-			}
-			for index := range got {
-				if got[index] != test.want[index] {
-					t.Fatalf("argv = %q, want %q", got, test.want)
-				}
-			}
-		})
-	}
-}
 
 func TestBuildArgvUsesIsolatedCodexExecProfile(t *testing.T) {
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
@@ -85,23 +47,6 @@ func TestBuildArgvUsesIsolatedCodexExecProfile(t *testing.T) {
 	}
 }
 
-func TestBuildArgvIncludesAGYPermissionBypassOnlyForExplicitHeadlessTransport(t *testing.T) {
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 14, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := buildArgv(definition{
-		family: FamilyAgy, baseArgv: []string{"/private/bin/agy"}, transport: transport, timeout: 30 * time.Minute,
-	}, "/private/work", []byte("review bytes"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"/private/bin/agy", "--new-project", "--sandbox", "--dangerously-skip-permissions", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--output-format=json", "--print", "review bytes"}
-	if !equalStrings(got, want) {
-		t.Fatalf("headless AGY argv = %q, want %q", got, want)
-	}
-}
-
 // TestZCodeReviewArgvIsTheBareAppServer pins the exact review argv of the
 // protocol transport: the write grant and read-only denylist travel inside the
 // session conversation, never on the argv.
@@ -129,542 +74,6 @@ func TestZCodeReviewArgvIsTheBareAppServer(t *testing.T) {
 	if _, err := runtimeTransportArgvIndex(FamilyZcode, 1); err == nil {
 		t.Fatal("zcode print transport index is still admitted")
 	}
-}
-
-// TestAGYReviewArgvKeepsPlanModeAndSandbox guards the AGY review argv against
-// the ZCode grant: headless AGY auto-denies write tools, so it keeps plan mode,
-// the sandbox and its single --add-dir.
-func TestAGYReviewArgvKeepsPlanModeAndSandbox(t *testing.T) {
-	transport, err := defaultRuntimeTransport(FamilyAgy, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	argv, err := buildArgv(definition{
-		family: FamilyAgy, baseArgv: []string{"/private/bin/agy"}, transport: transport, timeout: 30 * time.Minute,
-	}, "/private/work", []byte("review bytes"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{
-		"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work",
-		"--mode", "plan", "--effort", "low", "--print-timeout", "29m55s", "--output-format=json", "--print", "review bytes",
-	}
-	if !equalStrings(argv, want) {
-		t.Fatalf("AGY review argv = %q, want %q", argv, want)
-	}
-	if occurrences := packetOccurrences(argv, "--add-dir"); occurrences != 1 {
-		t.Fatalf("AGY review argv carries %d --add-dir arguments, want 1", occurrences)
-	}
-	index, err := runtimeTransportArgvIndex(FamilyAgy, 1)
-	if err != nil || index != transport.ArgvIndex() || argv[index] != "review bytes" {
-		t.Fatalf("agy transport index = %d (err %v), argv = %q", index, err, argv)
-	}
-}
-
-func TestProviderResultStrictness(t *testing.T) {
-	content, isolated, err := providerResult(FamilyKimi, []byte("{\"role\":\"system\"}\n{\"role\":\"assistant\",\"content\":\"answer\"}\n"))
-	if err != nil || !isolated || !bytes.Equal(content, []byte("answer")) {
-		t.Fatalf("Kimi result = %q, isolated=%t, err=%v", content, isolated, err)
-	}
-	invalidKimi := [][]byte{
-		[]byte("{\"role\":\"assistant\",\"content\":[]}"),
-		[]byte("{\"role\":\"assistant\"}"),
-		[]byte("{bad}"),
-		[]byte("{\"type\":\"assistant\",\"content\":\"wrong field\"}"),
-		[]byte("[]"),
-	}
-	for index, stdout := range invalidKimi {
-		if _, _, err := providerResult(FamilyKimi, stdout); err == nil {
-			t.Fatalf("Kimi accepted malformed fixture %d", index)
-		} else {
-			var failure *providerOutputFailure
-			if !errors.As(err, &failure) || !failure.Cause().Valid() || strings.Contains(err.Error(), string(stdout)) {
-				t.Fatalf("Kimi fixture %d did not return a safe typed cause", index)
-			}
-		}
-	}
-	content, isolated, err = providerResult(FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":\"draft\"}\n{\"role\":\"assistant\",\"content\":\"final answer\"}"))
-	if err != nil || !isolated || !bytes.Equal(content, []byte("final answer")) {
-		t.Fatalf("Kimi terminal assistant result = %q, isolated=%t, err=%v", content, isolated, err)
-	}
-	kimiToolStream := []byte("{\"role\":\"assistant\",\"tool_calls\":[{\"type\":\"function\"}]}\n" +
-		"{\"role\":\"tool\",\"content\":\"tool output\"}\n" +
-		"{\"role\":\"assistant\",\"content\":\"final answer\"}\n" +
-		"{\"role\":\"meta\",\"content\":\"resume hint\"}\n")
-	content, isolated, err = providerResult(FamilyKimi, kimiToolStream)
-	if err != nil || !isolated || !bytes.Equal(content, []byte("final answer")) {
-		t.Fatalf("Kimi tool stream result = %q, isolated=%t, err=%v", content, isolated, err)
-	}
-	want := []byte("{\"findings\":[]}")
-	codexRaw := []byte("Codex review result\n")
-	got, isolated, err := providerResult(FamilyCodex, codexRaw)
-	if err != nil || !isolated || !bytes.Equal(got, codexRaw) {
-		t.Fatalf("Codex result = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	// The protocol transport never delivers report content on stdout: the
-	// review report arrives through the staged file and qualification evidence
-	// through the conversation, so every stdout shape fails closed.
-	for index, stdout := range [][]byte{
-		[]byte("```json\n{\"findings\":[]}\n```"),
-		[]byte(`{"findings":[]}`),
-		[]byte(`{"sessionId":"session","response":"{\"findings\":[]}","usage":{"inputTokens":1}}`),
-		[]byte(`{"response":"narration without terminal JSON"}`),
-		[]byte(`{"response":""}`),
-	} {
-		if _, _, err := providerResult(FamilyZcode, stdout); err == nil {
-			t.Fatalf("ZCode accepted protocol-era stdout fixture %d", index)
-		} else {
-			var failure *providerOutputFailure
-			if !errors.As(err, &failure) || failure.Cause() != domain.DiagnosticCauseOutputMissing {
-				t.Fatalf("ZCode stdout fixture %d = %v, want the missing-output cause", index, err)
-			}
-		}
-	}
-	agyStdout := []byte("I inspected the immutable snapshot.\n{\"findings\":[]}\n")
-	got, isolated, err = providerResult(FamilyAgy, agyStdout)
-	if err != nil || !isolated || !bytes.Equal(got, want) {
-		t.Fatalf("AGY result = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	agyProse := []byte("  # AGY prose review\n\nLooks fine.\n  ")
-	got, isolated, err = providerResult(FamilyAgy, agyProse)
-	if err != nil || !isolated || !bytes.Equal(got, agyProse) {
-		t.Fatalf("AGY pure Markdown = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	agyStructured := []byte(`{"status":"success","response":"completed","structured_output":{"root":"nonce","link":"linked","role":"logic"}}`)
-	got, isolated, err = providerResult(FamilyAgy, agyStructured)
-	if err != nil || !isolated || string(got) != "completed" {
-		t.Fatalf("AGY structured output = %q, isolated=%t, err=%v", got, isolated, err)
-	}
-	if _, _, err := providerResult(FamilyAgy, []byte("{\"findings\":[]}\ntrailing")); err == nil {
-		t.Fatal("AGY accepted trailing malformed JSON envelope")
-	}
-}
-
-func TestAGYJSONEnvelopeRejectsMissingOrFailedResponse(t *testing.T) {
-	for _, output := range []string{
-		`{"status":"SUCCESS","response":""}`,
-		`{"status":"SUCCESS","response":"  "}`,
-		`{"conversation_id":"c","status":"SUCCESS"}`,
-		`{"status":"SUCCESS","response":null}`,
-		`{"status":"SUCCESS","response":{"findings":[]}}`,
-		`{"status":"ERROR","response":"No findings."}`,
-		`{"status":42,"response":"No findings."}`,
-	} {
-		if body, _, err := providerResult(FamilyAgy, []byte(output)); err == nil {
-			t.Errorf("accepted invalid envelope %s as %q", output, body)
-		}
-	}
-}
-
-func TestAGYJSONEnvelopePreservesResponseContent(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		response string
-	}{
-		{"review", "  # Documentation review\n\nNo findings.\n"},
-		{"extraction", `{"schema_version":"provider-review.v1","summary":"No findings.","findings":[]}`},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			stdout, err := json.Marshal(map[string]any{
-				"conversation_id": "native-conversation",
-				"message":         "Native transport metadata must not replace the response.",
-				"status":          "SUCCESS",
-				"response":        test.response,
-				"usage":           map[string]int{"total_tokens": 100},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			got, isolated, err := providerResult(FamilyAgy, stdout)
-			if err != nil || !isolated || string(got) != test.response {
-				t.Fatalf("AGY JSON response = %q, isolated=%t, err=%v", got, isolated, err)
-			}
-		})
-	}
-}
-
-func TestProviderResultFailuresExposeExactTypedCausesWithoutRawText(t *testing.T) {
-	tests := []struct {
-		name      string
-		family    string
-		fixture   []byte
-		wantCause domain.RuntimeDiagnosticCause
-	}{
-		{"Kimi missing output", FamilyKimi, nil, domain.DiagnosticCauseOutputMissing},
-		{"Kimi missing frame", FamilyKimi, []byte(`{"role":"system"}`), domain.DiagnosticCauseOutputFrameMissing},
-		{"Kimi decode failure", FamilyKimi, []byte(`{"role":"assistant","content":[]}`), domain.DiagnosticCauseOutputDecodeFailed},
-		{"ZCode missing output", FamilyZcode, nil, domain.DiagnosticCauseOutputMissing},
-		{"ZCode protocol stdout", FamilyZcode, []byte(`{"response":""}`), domain.DiagnosticCauseOutputMissing},
-		{"AGY missing output", FamilyAgy, nil, domain.DiagnosticCauseOutputMissing},
-		{"AGY unsuccessful status", FamilyAgy, []byte(`{"status":"ERROR","response":"unavailable"}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
-		{"AGY empty response", FamilyAgy, []byte(`{"status":"SUCCESS","response":""}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
-		{"AGY missing response", FamilyAgy, []byte(`{"status":"SUCCESS"}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
-		{"AGY non-string response", FamilyAgy, []byte(`{"status":"SUCCESS","response":[]}`), domain.DiagnosticCauseOutputEnvelopeInvalid},
-		{"AGY malformed envelope", FamilyAgy, []byte(`{"status":"SUCCESS","response":`), domain.DiagnosticCauseOutputDecodeFailed},
-		{"AGY malformed stream", FamilyAgy, []byte(`{"findings":[]} trailing`), domain.DiagnosticCauseOutputDecodeFailed},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, _, err := providerResult(test.family, test.fixture)
-			var failure *providerOutputFailure
-			if !errors.As(err, &failure) {
-				t.Fatal("provider result did not return a typed output failure")
-			}
-			if failure.Cause() != test.wantCause {
-				t.Fatalf("typed cause = %q, want %q", failure.Cause(), test.wantCause)
-			}
-			if len(test.fixture) != 0 && strings.Contains(err.Error(), string(test.fixture)) {
-				t.Fatal("safe provider output error exposed fixture bytes")
-			}
-		})
-	}
-}
-
-func TestRegistryObserveClassifiesSuccessfulAgyPermissionDenialBeforeMissingOutput(t *testing.T) {
-	invocation := testInvocation(t, "agy_default")
-	runner := &observationRunner{observation: testProcessObservation(
-		t, nil, []byte("tool permission was denied"), ports.ProcessTerminationExited, 0,
-	)}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyAgy, "agy_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed, err := registry.Observe(context.Background(), invocation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observed.Status() != ports.ProviderExecutionStatusAuthentication ||
-		observed.PrimaryCause() != domain.DiagnosticCausePermissionDenied ||
-		observed.DiagnosticCode() != "provider_permission_denied" {
-		t.Fatalf("permission observation = status %q cause %q diagnostic %q", observed.Status(), observed.PrimaryCause(), observed.DiagnosticCode())
-	}
-}
-
-func TestAgyPermissionDeniedUsesOnlyBoundedStderrSignals(t *testing.T) {
-	for _, denial := range [][]byte{
-		[]byte("permission_denied"),
-		[]byte("tool permission was denied"),
-		[]byte("tool permission denied"),
-		[]byte("request denied by permission policy"),
-		// Headless AGY refuses write_file with its own auto-deny wording, which
-		// none of the phrases above match.
-		[]byte("Tool call write_file was auto-denied by the permission policy"),
-	} {
-		if !agyPermissionDenied(denial) {
-			t.Fatalf("known AGY permission denial %q was not recognized", denial)
-		}
-	}
-	if agyPermissionDenied([]byte("review finding: application returned permission denied")) {
-		t.Fatal("generic review prose was classified as an AGY permission denial")
-	}
-}
-
-func TestNewRuntimeDefinitionAllowsOptionalProvenance(t *testing.T) {
-	for _, provenance := range []struct {
-		name      string
-		version   string
-		hash      string
-		profileID string
-	}{
-		{"empty", "", "", ""},
-		{"arbitrary", "future-build+unknown", "not-a-sha", "vendor profile 2030.4"},
-		{"different hash", "0.23.6", "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "kimi.default"},
-	} {
-		for _, family := range []string{FamilyKimi, FamilyZcode, FamilyAgy} {
-			t.Run(family+"/"+provenance.name, func(t *testing.T) {
-				profile := testProfile(t, family, family+"_default", provenance.version, provenance.hash)
-				profile.profileID = provenance.profileID
-				registry, err := NewRegistry(&countingRunner{}, profile)
-				if err != nil || registry == nil {
-					t.Fatalf("registry=%v err=%v", registry, err)
-				}
-			})
-		}
-	}
-}
-func TestNewRuntimeDefinitionWithTransportValidatesRuntimeShape(t *testing.T) {
-	baseArgv := []string{"/private/bin/kimi"}
-	argvTransport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 4, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdinTransport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	promptFileTransport, err := NewRuntimeTransport(ports.ProviderPacketChannelPromptFile, 4, "@prompt/request.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, transport := range []RuntimeTransport{argvTransport, stdinTransport, promptFileTransport} {
-		profile, err := newTestProfileWithTransport(t, FamilyKimi, "kimi_default", baseArgv, transport)
-		if err != nil {
-			t.Fatalf("transport %q: %v", transport.Channel(), err)
-		}
-		if profile.Transport() != transport {
-			t.Fatalf("transport = %#v, want %#v", profile.Transport(), transport)
-		}
-	}
-	for _, transport := range []RuntimeTransport{
-		{channel: ports.ProviderPacketChannelArgvLiteral, argvIndex: -1},
-		{channel: ports.ProviderPacketChannelStdin, argvIndex: 0},
-		{channel: ports.ProviderPacketChannelPromptFile, argvIndex: 2, reference: "@/absolute"},
-		{channel: ports.ProviderPacketChannelArgvLiteral, argvIndex: 1},
-	} {
-		if _, err := newTestProfileWithTransport(t, FamilyKimi, "kimi_default", baseArgv, transport); err == nil {
-			t.Fatalf("transport %#v was accepted", transport)
-		}
-	}
-}
-
-func TestNewRegistryRejectsMalformedProfilesAndUnlistedFamilies(t *testing.T) {
-	profile := testProfile(t, FamilyKimi, "kimi_default", "", "")
-	tests := map[string]func(*RuntimeDefinition){
-		"unlisted family": func(p *RuntimeDefinition) { p.family = "other" },
-		"relative executable": func(p *RuntimeDefinition) {
-			p.executable, p.baseArgv[0] = "kimi", "kimi"
-		},
-		"unclean executable": func(p *RuntimeDefinition) {
-			p.executable, p.baseArgv[0] = "/private/bin/../kimi", "/private/bin/../kimi"
-		},
-		"invalid argv": func(p *RuntimeDefinition) { p.baseArgv = []string{p.executable, ""} },
-	}
-	for name, mutate := range tests {
-		t.Run(name, func(t *testing.T) {
-			invalid := cloneRuntimeDefinition(profile)
-			mutate(&invalid)
-			if registry, err := NewRegistry(&countingRunner{}, invalid); err == nil || registry != nil {
-				t.Fatalf("registry=%v err=%v", registry, err)
-			}
-		})
-	}
-}
-
-func TestNewRegistryPreservesProfileAndDefensiveCopies(t *testing.T) {
-	argv := []string{"/private/bin/kimi", "--safe"}
-	environment := []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/private/home")}
-	profile, err := NewRuntimeDefinition(FamilyKimi, "kimi_default", "", argv[0], "", "kimi_default", argv, environment, "/private/work", time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	argv[1] = "--mutated"
-	environment[0] = mustEnvironment(t, "HOME", "/mutated")
-	registry, err := NewRegistry(&countingRunner{}, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := registry.definitions["kimi_default"].baseArgv; !equalStrings(got, []string{"/private/bin/kimi", "--safe"}) {
-		t.Fatalf("runnable argv = %q", got)
-	}
-	if got := registry.definitions["kimi_default"].environment[0].Value(); got != "/private/home" {
-		t.Fatalf("runnable environment value = %q", got)
-	}
-}
-
-func TestNewRegistryRejectsDuplicateInstancesAndNoncanonicalOrder(t *testing.T) {
-	kimiPrimary := testProfile(t, FamilyKimi, "kimi_primary", "", "")
-	kimiSecondary := testProfile(t, FamilyKimi, "kimi_secondary", "", "")
-	kimiDuplicate := testProfile(t, FamilyKimi, "kimi_primary", "", "")
-	zcode := testProfile(t, FamilyZcode, "zcode_default", "", "")
-	for name, profiles := range map[string][]RuntimeDefinition{
-		"duplicate instance":        {kimiPrimary, kimiDuplicate},
-		"out of order same family":  {kimiSecondary, kimiPrimary},
-		"out of order cross family": {zcode, kimiPrimary},
-	} {
-		t.Run(name, func(t *testing.T) {
-			registry, err := NewRegistry(&countingRunner{}, profiles...)
-			if err == nil || registry != nil {
-				t.Fatalf("registry=%v err=%v", registry, err)
-			}
-		})
-	}
-}
-func TestRegistryAcceptsDistinctInstancesOfSameFamilyAndRejectsDuplicateInstance(t *testing.T) {
-	runner := newBarrierRunner()
-	first := testDefinition(t, FamilyKimi, "kimi_primary")
-	second := testDefinition(t, FamilyKimi, "kimi_secondary")
-	registry, err := newRegistry(context.Background(), runner, first, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := registry.definitions["kimi_primary"]; !ok {
-		t.Fatal("primary Kimi instance was not registered")
-	}
-	if _, ok := registry.definitions["kimi_secondary"]; !ok {
-		t.Fatal("secondary Kimi instance was not registered")
-	}
-	observed := make(chan error, 1)
-	secondaryInvocation := testInvocation(t, "kimi_secondary")
-	go func() {
-		_, observeErr := registry.Observe(context.Background(), secondaryInvocation)
-		observed <- observeErr
-	}()
-	<-runner.started
-	close(runner.release)
-	if observeErr := <-observed; observeErr != nil {
-		t.Fatalf("secondary Kimi dispatch failed: %v", observeErr)
-	}
-	if _, err := newRegistry(context.Background(), runner, first, first); err == nil {
-		t.Fatal("duplicate provider instance accepted")
-	}
-}
-func TestRegistryRejectsUnregisteredProviderBeforeRunnerCall(t *testing.T) {
-	runner := newBarrierRunner()
-	kimi := testDefinition(t, FamilyKimi, "kimi_default")
-	registry, err := newRegistry(context.Background(), runner, kimi)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "codex_default")); err == nil {
-		t.Fatal("unregistered provider was accepted")
-	}
-	select {
-	case <-runner.started:
-		t.Fatal("runner called for unregistered provider")
-	default:
-	}
-}
-
-func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
-	runner := newBarrierRunner()
-	kimi := testDefinition(t, FamilyKimi, "kimi_default")
-	zcode := testDefinition(t, FamilyZcode, "zcode_default")
-	registry, err := newRegistry(context.Background(), runner, kimi, zcode)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var calls sync.WaitGroup
-	calls.Add(2)
-	go func() {
-		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	}()
-	go func() {
-		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
-	}()
-	for range 2 {
-		select {
-		case <-runner.started:
-		case <-time.After(time.Second):
-			t.Fatal("distinct provider instances did not overlap")
-		}
-	}
-	if active := runner.activeCount(); active != 2 {
-		t.Fatalf("distinct-instance active count = %d, want 2", active)
-	}
-	close(runner.release)
-	calls.Wait()
-}
-
-func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *testing.T) {
-	runner := newBarrierRunner()
-	definition := testDefinition(t, FamilyKimi, "kimi_default")
-	first, err := newRegistry(context.Background(), runner, definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := newRegistry(context.Background(), runner, definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.namespaceGenerations[definition.instance] == second.namespaceGenerations[definition.instance] ||
-		first.namespaces[definition.instance] == second.namespaces[definition.instance] {
-		t.Fatal("independent registries shared one provider namespace generation")
-	}
-	var calls sync.WaitGroup
-	calls.Add(2)
-	for _, registry := range []*Registry{first, second} {
-		registry := registry
-		go func() {
-			defer calls.Done()
-			_, _ = registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-		}()
-	}
-	for range 2 {
-		select {
-		case <-runner.started:
-		case <-time.After(time.Second):
-			t.Fatal("independent registries serialized the same provider instance")
-		}
-	}
-	close(runner.release)
-	calls.Wait()
-}
-
-func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
-	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstDone := make(chan error, 1)
-	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-		firstDone <- observeErr
-	}()
-	<-runner.started
-
-	refused := make(chan error, 1)
-	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-		refused <- observeErr
-	}()
-	select {
-	case observeErr := <-refused:
-		if !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
-			t.Fatalf("duplicate active instance error = %v, want typed internal invariant", observeErr)
-		}
-		if got := providerRuntimeCause(observeErr); got.Valid() {
-			t.Fatalf("duplicate active instance exposed provider diagnostic cause %q", got)
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("duplicate active instance waited instead of failing closed")
-	}
-	if active := runner.activeCount(); active != 1 {
-		t.Fatalf("active count after invariant refusal = %d, want 1", active)
-	}
-	close(runner.release)
-	if observeErr := <-firstDone; observeErr != nil {
-		t.Fatalf("first observe failed: %v", observeErr)
-	}
-
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	if err != nil {
-		t.Fatalf("instance remained active after completion: %v", err)
-	}
-	if err := observed.Validate(); err != nil {
-		t.Fatalf("observation after completion is invalid: %v", err)
-	}
-}
-
-func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
-	runner := newBarrierRunner()
-	kimi := testDefinition(t, FamilyKimi, "kimi_default")
-	agy := testDefinition(t, FamilyAgy, "agy_default")
-	registry, err := newRegistry(context.Background(), runner, kimi, agy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var calls sync.WaitGroup
-	calls.Add(2)
-	go func() {
-		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	}()
-	go func() {
-		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "agy_default"))
-	}()
-	<-runner.started
-	select {
-	case <-runner.started:
-	case <-time.After(time.Second):
-		t.Fatal("distinct concurrency keys did not overlap")
-	}
-	close(runner.release)
-	calls.Wait()
 }
 
 func TestRegistryRunsSixZCodeRoleInstancesConcurrentlyInSameGuardedCWD(t *testing.T) {
@@ -711,466 +120,6 @@ func TestRegistryRunsSixZCodeRoleInstancesConcurrentlyInSameGuardedCWD(t *testin
 	close(runner.release)
 	calls.Wait()
 }
-func TestRegistryConcurrentSameInstanceRefusalDoesNotLeakActiveState(t *testing.T) {
-	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	firstDone := make(chan error, 1)
-	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-		firstDone <- observeErr
-	}()
-	<-runner.started
-
-	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
-		t.Fatalf("duplicate active invocation error = %v", observeErr)
-	}
-	select {
-	case <-runner.started:
-		t.Fatal("refused duplicate call reached runner")
-	default:
-	}
-	if active := runner.activeCount(); active != 1 {
-		t.Fatalf("active count after refusal = %d, want 1", active)
-	}
-
-	close(runner.release)
-	if observeErr := <-firstDone; observeErr != nil {
-		t.Fatalf("first observe failed: %v", observeErr)
-	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	if err != nil {
-		t.Fatalf("active instance was not released after completion: %v", err)
-	}
-	if err := observed.Validate(); err != nil {
-		t.Fatalf("observation after refusal is invalid: %v", err)
-	}
-}
-
-func TestRegistryObservePreservesRunnerErrorWithObservation(t *testing.T) {
-	process := testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0)
-	runnerFailure, err := ports.NewProcessExecutionError(
-		domain.DiagnosticCauseProviderProcessWaitFailed, "", process.Stdout(), process.Stderr(), errors.New("runner failed"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner := &observationRunner{observation: process, err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := observed.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if observed.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed ||
-		string(observed.Stdout()) != string(process.Stdout()) {
-		t.Fatalf("cause = %q, stdout was preserved = %t", observed.PrimaryCause(), bytes.Equal(observed.Stdout(), process.Stdout()))
-	}
-}
-
-func TestRegistryObservePreservesCoherentCancellationFromRunnerError(t *testing.T) {
-	process := testProcessObservation(t, nil, nil, ports.ProcessTerminationCancelled, 0)
-	runner := &observationRunner{observation: process, err: context.Canceled}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observed.Status() != ports.ProviderExecutionStatusCancelled ||
-		observed.PrimaryCause() != domain.DiagnosticCauseProviderExecutionFailed ||
-		observed.DiagnosticCode() != "process_cancelled" {
-		t.Fatalf("cancellation observation = status:%q cause:%q diagnostic:%q", observed.Status(), observed.PrimaryCause(), observed.DiagnosticCode())
-	}
-}
-
-func TestRegistryObservePreservesPartialStreamsAndCleanupCause(t *testing.T) {
-	runnerFailure, err := ports.NewProcessExecutionError(
-		domain.DiagnosticCauseProviderProcessWaitFailed,
-		domain.DiagnosticCauseProcessGroupCleanupFailed,
-		[]byte("partial stdout"),
-		[]byte("partial stderr"),
-		errors.New("private runner detail"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner := &observationRunner{err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := observed.AvailableProcessObservation(); ok {
-		t.Fatal("partial execution claimed a coherent process observation")
-	}
-	cleanup, ok := observed.CleanupCause()
-	if observed.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed ||
-		!ok || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
-		t.Fatalf("primary = %q, cleanup = %q, present = %t", observed.PrimaryCause(), cleanup, ok)
-	}
-	if string(observed.Stdout()) != "partial stdout" || string(observed.Stderr()) != "partial stderr" {
-		t.Fatal("partial runner streams were lost")
-	}
-}
-
-func TestRegistryObservePreservesTransportVerificationCause(t *testing.T) {
-	runnerFailure, err := ports.NewProcessExecutionError(
-		domain.DiagnosticCauseTransportVerificationFailed, "", []byte("partial stdout"), nil,
-		errors.New("private prompt-file identity detail"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner := &observationRunner{err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
-		observed.PrimaryCause() != domain.DiagnosticCauseTransportVerificationFailed ||
-		string(observed.Stdout()) != "partial stdout" {
-		t.Fatalf("status = %q, cause = %q, stdout preserved = %t", observed.Status(), observed.PrimaryCause(), string(observed.Stdout()) == "partial stdout")
-	}
-}
-func TestRegistryObservePreservesSuccessfulProcessEvidenceAndRequest(t *testing.T) {
-	tests := []struct {
-		family       string
-		stdout       []byte
-		wantResult   []byte
-		wantIsolated bool
-		wantArgv     []string
-	}{
-		{
-			family:       FamilyKimi,
-			stdout:       []byte("{\"role\":\"system\",\"content\":\"ignored\"}\n{\"role\":\"assistant\",\"content\":\"answer\"}\n"),
-			wantResult:   []byte("answer"),
-			wantIsolated: true,
-			wantArgv:     []string{"/private/bin/kimi", "--model", "kimi-code/kimi-for-coding", "--prompt", "review bytes", "--output-format", "stream-json"},
-		},
-		{
-			family:     FamilyAgy,
-			stdout:     []byte("{\"findings\":[]}"),
-			wantResult: []byte("{\"findings\":[]}"),
-			wantArgv:   []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", "/private/work", "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--output-format=json", "--print", "review bytes"},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.family, func(t *testing.T) {
-			invocation := testInvocation(t, test.family+"_default")
-			process := testProcessObservation(t, test.stdout, []byte("provider diagnostics"), ports.ProcessTerminationExited, 0)
-			runner := &observationRunner{observation: process}
-			definition := testDefinition(t, test.family, test.family+"_default")
-			registry, err := newRegistry(context.Background(), runner, definition)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			observed, err := registry.Observe(context.Background(), invocation)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if observed.Status() != ports.ProviderExecutionStatusSucceeded {
-				t.Fatalf("status = %q", observed.Status())
-			}
-			result, ok := observed.Result()
-			if !ok || !bytes.Equal(result.Stdout(), test.wantResult) {
-				t.Fatalf("result = %q, present=%t", result.Stdout(), ok)
-			}
-			if !bytes.Equal(observed.Stdout(), test.stdout) || !bytes.Equal(observed.Stderr(), []byte("provider diagnostics")) {
-				t.Fatalf("raw process evidence = stdout %q stderr %q", observed.Stdout(), observed.Stderr())
-			}
-			if test.wantIsolated == bytes.Equal(result.Stdout(), observed.Stdout()) {
-				t.Fatalf("result isolation = %t", test.wantIsolated)
-			}
-			request := runner.request
-			binding, ok := request.ProviderPacketBinding()
-			if !ok ||
-				binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
-				binding.PacketIdentity() != invocation.InputIdentity() ||
-				binding.ArgvIndex() < 0 ||
-				!equalStrings(request.Argv(), test.wantArgv) ||
-				len(request.Stdin()) != 0 ||
-				packetOccurrences(request.Argv(), string(invocation.PacketBytes())) != 1 ||
-				request.Timeout() != definition.timeout {
-				t.Fatalf("request = argv %q stdin %q binding %#v timeout %s",
-					request.Argv(), request.Stdin(), binding, request.Timeout())
-			}
-			transport, ok := process.ProviderPacketTransportReceipt()
-			if !ok || transport.Channel() != ports.ProviderPacketChannelArgvLiteral ||
-				transport.PacketIdentity() != invocation.InputIdentity() {
-				t.Fatalf("transport receipt = %#v, present=%t", transport, ok)
-			}
-			if result.InputIdentity() != invocation.InputIdentity() {
-				t.Fatalf("result input identity = %#v, want %#v", result.InputIdentity(), invocation.InputIdentity())
-			}
-		})
-	}
-}
-
-func TestRegistryObserveMalformedSuccessfulOutputIsArtifactFailure(t *testing.T) {
-	tests := []struct {
-		family         string
-		stdout         []byte
-		wantCause      domain.RuntimeDiagnosticCause
-		wantDiagnostic string
-	}{
-		{FamilyKimi, []byte("{\"role\":\"assistant\",\"content\":[]}"), domain.DiagnosticCauseOutputDecodeFailed, "invalid_provider_output"},
-		{FamilyAgy, nil, domain.DiagnosticCauseOutputMissing, "provider_output_missing"},
-		{FamilyAgy, []byte("{\"findings\":[]} trailing"), domain.DiagnosticCauseOutputDecodeFailed, "invalid_provider_output"},
-	}
-	for _, test := range tests {
-		t.Run(test.family, func(t *testing.T) {
-			instance := test.family + "_default"
-			invocation := testInvocation(t, instance)
-			process := testProcessObservation(t, test.stdout, []byte("provider diagnostics"), ports.ProcessTerminationExited, 0)
-			runner := &observationRunner{observation: process}
-			registry, err := newRegistry(context.Background(), runner, testDefinition(t, test.family, instance))
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			observed, err := registry.Observe(context.Background(), invocation)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if observed.Status() != ports.ProviderExecutionStatusArtifactFailure || observed.DiagnosticCode() != test.wantDiagnostic {
-				t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
-			}
-			if observed.PrimaryCause() != test.wantCause {
-				t.Fatalf("cause = %q, want %q", observed.PrimaryCause(), test.wantCause)
-			}
-			if _, ok := observed.Result(); ok {
-				t.Fatal("malformed output produced a result")
-			}
-			if !bytes.Equal(observed.Stdout(), process.Stdout()) || !bytes.Equal(observed.Stderr(), process.Stderr()) {
-				t.Fatal("malformed output did not preserve raw process evidence")
-			}
-		})
-	}
-}
-
-func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
-	tests := []struct {
-		name        string
-		termination ports.ProcessTermination
-		exitCode    int
-		wantStatus  ports.ProviderExecutionStatus
-		wantCode    string
-		wantCause   domain.RuntimeDiagnosticCause
-	}{
-		{"timeout", ports.ProcessTerminationTimedOut, 0, ports.ProviderExecutionStatusTimedOut, "process_timeout", domain.DiagnosticCauseTimedOut},
-		{"cancelled", ports.ProcessTerminationCancelled, 0, ports.ProviderExecutionStatusCancelled, "process_cancelled", domain.DiagnosticCauseProviderExecutionFailed},
-		{"start unavailable", ports.ProcessTerminationStartUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable", domain.DiagnosticCauseProviderSpawnFailed},
-		{"start configuration", ports.ProcessTerminationStartConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration", domain.DiagnosticCauseProviderSpawnFailed},
-		{"start security", ports.ProcessTerminationStartSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProviderSpawnFailed},
-		{"residual process group", ports.ProcessTerminationResidualProcessGroup, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProcessGroupCleanupFailed},
-		{"nonzero exit", ports.ProcessTerminationExited, 1, ports.ProviderExecutionStatusUnavailable, "provider_execution_failed", domain.DiagnosticCauseProviderExecutionFailed},
-		{"signaled", ports.ProcessTerminationSignaled, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderExecutionFailed},
-		{"start failed", ports.ProcessTerminationStartFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderSpawnFailed},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			invocation := testInvocation(t, "kimi_default")
-			runner := &observationRunner{
-				observation: testProcessObservation(t, []byte("raw stdout"), []byte("raw stderr"), test.termination, test.exitCode),
-			}
-			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			observed, err := registry.Observe(context.Background(), invocation)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if observed.Status() != test.wantStatus || observed.DiagnosticCode() != test.wantCode {
-				t.Fatalf("status = %q, diagnostic = %q; want %q, %q",
-					observed.Status(), observed.DiagnosticCode(), test.wantStatus, test.wantCode)
-			}
-			if observed.PrimaryCause() != test.wantCause {
-				t.Fatalf("cause = %q, want %q", observed.PrimaryCause(), test.wantCause)
-			}
-		})
-	}
-}
-
-func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
-	invocation := testInvocation(t, "kimi_default")
-	runner := &observationRunner{
-		observation: testProcessObservation(
-			t,
-			nil,
-			[]byte(`{"code":"auth.login_required","message":"login first"}`),
-			ports.ProcessTerminationExited,
-			1,
-		),
-	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	observed, err := registry.Observe(context.Background(), invocation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observed.Status() != ports.ProviderExecutionStatusAuthentication || observed.DiagnosticCode() != "login_required" {
-		t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
-	}
-	if observed.PrimaryCause() != domain.DiagnosticCauseLoginRequired {
-		t.Fatalf("cause = %q", observed.PrimaryCause())
-	}
-}
-
-func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *testing.T) {
-	invocation := testInvocation(t, "kimi_default")
-	runner := &observationRunner{
-		observation: testProcessObservation(
-			t,
-			[]byte("The review discusses auth.login_required and rate_limit handling."),
-			[]byte("provider execution failed"),
-			ports.ProcessTerminationExited,
-			1,
-		),
-	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	observed, err := registry.Observe(context.Background(), invocation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observed.Status() != ports.ProviderExecutionStatusUnavailable ||
-		observed.DiagnosticCode() != "provider_execution_failed" ||
-		observed.PrimaryCause() != domain.DiagnosticCauseProviderExecutionFailed {
-		t.Fatalf("status = %q, diagnostic = %q, cause = %q", observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause())
-	}
-}
-
-func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
-	invocation := testInvocation(t, "agy_default")
-	runner := &observationRunner{
-		observation: testProcessObservation(
-			t,
-			nil,
-			[]byte("Error: timeout waiting for response\n"),
-			ports.ProcessTerminationExited,
-			1,
-		),
-	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyAgy, "agy_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	observed, err := registry.Observe(context.Background(), invocation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observed.Status() != ports.ProviderExecutionStatusTimedOut || observed.DiagnosticCode() != "provider_timeout" {
-		t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
-	}
-	if observed.PrimaryCause() != domain.DiagnosticCauseTimedOut {
-		t.Fatalf("cause = %q", observed.PrimaryCause())
-	}
-}
-
-func TestRegistryObserveNormalizesFamilyNativeFailureSignals(t *testing.T) {
-	tests := []struct {
-		name, family, instance string
-		stderr                 []byte
-		wantStatus             ports.ProviderExecutionStatus
-		wantCause              domain.RuntimeDiagnosticCause
-		wantDiagnostic         string
-	}{
-		{"kimi login", FamilyKimi, "kimi_default", []byte("kimi.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
-		{"zcode login", FamilyZcode, "zcode_default", []byte("zcode login required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
-		{"zcode turn failure", FamilyZcode, "zcode_default", []byte("Error: Turn execution failed (traceId: private)"), ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderTurnFailed, "provider_turn_failed"},
-		{"zcode rate limit", FamilyZcode, "zcode_default", []byte("ProviderBusinessError [1302][Rate limit reached for requests] rate_limit_error"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
-		{"zcode rate limit before generic turn failure", FamilyZcode, "zcode_default", []byte("ProviderBusinessError [1302][Rate limit reached for requests] rate_limit_error\nError: Turn execution failed"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
-		{"agy login", FamilyAgy, "agy_default", []byte("agy.login_required"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseLoginRequired, "login_required"},
-		{"agy permission", FamilyAgy, "agy_default", []byte("tool permission was denied"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCausePermissionDenied, "provider_permission_denied"},
-		{"authentication", FamilyKimi, "kimi_default", []byte("authentication_failed"), ports.ProviderExecutionStatusAuthentication, domain.DiagnosticCauseAuthenticationFailed, "provider_auth"},
-		{"quota", FamilyZcode, "zcode_default", []byte("quota_exceeded"), ports.ProviderExecutionStatusQuota, domain.DiagnosticCauseQuotaExceeded, "provider_quota"},
-		{"rate limit", FamilyAgy, "agy_default", []byte("too many requests"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
-		{"agy overloaded", FamilyAgy, "agy_default", []byte("Error: model is overloaded"), ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderExecutionFailed, "provider_overloaded"},
-		{"agy http rate limit", FamilyAgy, "agy_default", []byte("HTTP 429 Too Many Requests"), ports.ProviderExecutionStatusRateLimit, domain.DiagnosticCauseRateLimited, "provider_rate_limit"},
-		{"agy service unavailable", FamilyAgy, "agy_default", []byte("503 Service Unavailable"), ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderExecutionFailed, "provider_overloaded"},
-		{"agy usage limit", FamilyAgy, "agy_default", []byte("usage limit reached for this billing cycle"), ports.ProviderExecutionStatusQuota, domain.DiagnosticCauseQuotaExceeded, "provider_quota"},
-		{"agy request timed out", FamilyAgy, "agy_default", []byte("Error: request timed out"), ports.ProviderExecutionStatusTimedOut, domain.DiagnosticCauseTimedOut, "provider_timeout"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			invocation := testInvocation(t, test.instance)
-			runner := &observationRunner{observation: testProcessObservation(t, nil, test.stderr, ports.ProcessTerminationExited, 1)}
-			registry, err := newRegistry(context.Background(), runner, testDefinition(t, test.family, test.instance))
-			if err != nil {
-				t.Fatal(err)
-			}
-			observed, err := registry.Observe(context.Background(), invocation)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if observed.Status() != test.wantStatus || observed.PrimaryCause() != test.wantCause || observed.DiagnosticCode() != test.wantDiagnostic {
-				t.Fatalf("status = %q, cause = %q, diagnostic = %q; want %q, %q, %q", observed.Status(), observed.PrimaryCause(), observed.DiagnosticCode(), test.wantStatus, test.wantCause, test.wantDiagnostic)
-			}
-		})
-	}
-}
-
-func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T) {
-	reviewProse := []byte("the service is overloaded and running at capacity, returning 503 to callers")
-	if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyAgy, reviewProse, nil); ok {
-		t.Fatalf("review prose classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
-	}
-	argvEcho := []byte("Error: unknown flag --print-timeout\n")
-	status, diagnostic, _, ok := nativeProviderOutcome(FamilyAgy, nil, argvEcho)
-	if ok || status == ports.ProviderExecutionStatusTimedOut || diagnostic == "provider_timeout" {
-		t.Fatalf("argv echo classified as native timeout: status = %q, diagnostic = %q, ok = %t", status, diagnostic, ok)
-	}
-	codexProse := []byte(`{"type":"item.completed","item":{"text":"The usage limit handling is correct."}}`)
-	if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, codexProse, nil); ok {
-		t.Fatalf("Codex review prose classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
-	}
-	for _, stderr := range [][]byte{
-		[]byte("request completed in 1502ms"),
-		[]byte("trace a429b503c504d"),
-		[]byte("panic at src/session.rs:429:12"),
-		[]byte("codex 0.502.0"),
-		[]byte("trace req-429-7"),
-		[]byte("http 4290"),
-		[]byte("http 429-extra"),
-	} {
-		if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, stderr); ok {
-			t.Fatalf("Codex unrelated numeric stderr classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
-		}
-	}
-	status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, []byte("request failed with status 429"))
-	if !ok || status != ports.ProviderExecutionStatusRateLimit || diagnostic != "provider_rate_limit" || cause != domain.DiagnosticCauseRateLimited {
-		t.Fatalf("Codex standalone HTTP status was not classified: status = %q, diagnostic = %q, cause = %q, ok = %t", status, diagnostic, cause, ok)
-	}
-}
-
 func TestClassifyProviderFailureKeepsNativeSignalAuthorityByCaller(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -1252,22 +201,6 @@ func TestNativeProviderOutcomePrefersZCodeQuotaOverRateLimitAndTurnFailure(t *te
 		if !ok || status != ports.ProviderExecutionStatusQuota || diagnostic != "provider_quota" || cause != domain.DiagnosticCauseQuotaExceeded {
 			t.Fatalf("stderr = %q: status = %q, diagnostic = %q, cause = %q, ok = %t", stderr, status, diagnostic, cause, ok)
 		}
-	}
-}
-
-func TestNativeProviderOutcomeRequiresExactHTTPStatusToken(t *testing.T) {
-	for _, family := range []string{FamilyCodex, FamilyAgy, FamilyZcode, FamilyKimi} {
-		t.Run(family, func(t *testing.T) {
-			for _, stderr := range []string{"http 4290", "http 429-extra"} {
-				if _, _, _, ok := nativeProviderOutcome(family, nil, []byte(stderr)); ok {
-					t.Fatalf("classified malformed status %q", stderr)
-				}
-			}
-			status, _, _, ok := nativeProviderOutcome(family, nil, []byte("HTTP 429"))
-			if !ok || status != ports.ProviderExecutionStatusRateLimit {
-				t.Fatal("did not classify exact HTTP 429")
-			}
-		})
 	}
 }
 
@@ -1385,191 +318,6 @@ func packetOccurrences(argv []string, packet string) int {
 		}
 	}
 	return occurrences
-}
-
-func TestRegistryObserveWorkspaceUsesGuardedCWDLifecycleAndBoundRequest(t *testing.T) {
-	root, identity := testWorkspaceRoot(t)
-	events := make([]string, 0, 5)
-	guard := &workspaceGuardFake{root: root, identity: identity, events: &events}
-	authority := &workspaceAuthorityFake{identity: identity, guard: guard, events: &events}
-	runner := &workspaceRunnerFake{
-		events:      &events,
-		observation: testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0),
-	}
-	profile := testProfile(t, FamilyKimi, "kimi_default", "", "")
-	registry, err := NewRegistry(runner, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := registry.Observe(context.Background(), testWorkspaceInvocation(t, "kimi_default", authority)); err != nil {
-		t.Fatal(err)
-	}
-	if runner.request.WorkingDirectory() != root.Path() {
-		t.Fatalf("working directory = %q, want guard root %q", runner.request.WorkingDirectory(), root.Path())
-	}
-	if _, boundRoot, ok := runner.request.BoundLaunchDirectory(); !ok || boundRoot != root {
-		t.Fatalf("bound request = (%v, %v)", ok, boundRoot)
-	}
-	if got, want := events, []string{"pre", "duplicate", "run", "post", "close"}; !equalStrings(got, want) {
-		t.Fatalf("lifecycle = %q, want %q", got, want)
-	}
-}
-
-func TestRegistryObserveWorkspaceBindsProductionAgyAddDirAndPacketReceipt(t *testing.T) {
-	root, identity := testWorkspaceRoot(t)
-	events := make([]string, 0, 5)
-	guard := &workspaceGuardFake{root: root, identity: identity, events: &events}
-	authority := &workspaceAuthorityFake{identity: identity, guard: guard, events: &events}
-	runner := &workspaceRunnerFake{
-		events:      &events,
-		observation: testProcessObservation(t, []byte("{\"findings\":[]}"), nil, ports.ProcessTerminationExited, 0),
-	}
-	profile := testProfile(t, FamilyAgy, "agy_production", "", "")
-	registry, err := NewRegistry(runner, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	invocation := testWorkspaceInvocation(t, "agy_production", authority)
-	if _, err := registry.Observe(context.Background(), invocation); err != nil {
-		t.Fatal(err)
-	}
-
-	wantArgv := []string{"/private/bin/agy", "--new-project", "--sandbox", "--add-dir", root.Path(), "--mode", "plan", "--effort", "low", "--print-timeout", "500ms", "--output-format=json", "--print", string(invocation.PacketBytes())}
-	if !equalStrings(runner.request.Argv(), wantArgv) || runner.request.WorkingDirectory() != root.Path() {
-		t.Fatalf("request argv=%q working directory=%q, want argv=%q working directory=%q", runner.request.Argv(), runner.request.WorkingDirectory(), wantArgv, root.Path())
-	}
-	binding, ok := runner.request.ProviderPacketBinding()
-	if !ok || binding.Channel() != ports.ProviderPacketChannelArgvLiteral ||
-		binding.ArgvIndex() != len(profile.baseArgv)+12 ||
-		runner.request.Argv()[binding.ArgvIndex()] != string(invocation.PacketBytes()) {
-		t.Fatalf("packet binding = %#v, argv=%q", binding, runner.request.Argv())
-	}
-	if got, want := events, []string{"pre", "duplicate", "run", "post", "close"}; !equalStrings(got, want) {
-		t.Fatalf("lifecycle = %q, want %q", got, want)
-	}
-}
-
-func TestProviderProcessRequestRejectsMalformedWorkingDirectory(t *testing.T) {
-	definition := testDefinition(t, FamilyAgy, "agy_default")
-	packet := testInvocation(t, "agy_default").Packet()
-	for _, workingDirectory := range []string{"relative", "/private/work/../escape", "/private/work\x00"} {
-		t.Run(workingDirectory, func(t *testing.T) {
-			if _, _, err := providerProcessRequest(definition, packet, workingDirectory); err == nil {
-				t.Fatal("malformed working directory accepted")
-			}
-		})
-	}
-}
-
-func TestRegistryObserveWorkspaceDriftOverridesProviderSuccess(t *testing.T) {
-	root, identity := testWorkspaceRoot(t)
-	events := make([]string, 0, 5)
-	guard := &workspaceGuardFake{root: root, identity: identity, events: &events, postErr: errors.New("changed")}
-	authority := &workspaceAuthorityFake{identity: identity, guard: guard, events: &events}
-	runner := &workspaceRunnerFake{
-		events:      &events,
-		observation: testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0),
-	}
-	registry, err := NewRegistry(runner, testProfile(t, FamilyKimi, "kimi_default", "", ""))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = registry.Observe(context.Background(), testWorkspaceInvocation(t, "kimi_default", authority))
-	if !errors.Is(err, ports.ErrWorkspaceSnapshotDrift) {
-		t.Fatalf("error = %v, want workspace drift", err)
-	}
-	if got, want := events, []string{"pre", "duplicate", "run", "post", "close"}; !equalStrings(got, want) {
-		t.Fatalf("lifecycle = %q, want %q", got, want)
-	}
-}
-
-func TestRegistryObserveStrictDefinitionRejectsMissingWorkspaceAuthority(t *testing.T) {
-	profile, err := NewProductionRuntimeDefinition(
-		FamilyKimi, "kimi_default", "", "/private/bin/kimi", "", "kimi_default",
-		[]string{"/private/bin/kimi"}, nil, "/private/work", time.Second)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner := &workspaceRunnerFake{}
-	factory, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	registry, err := NewRegistryWithNamespaceFactory(runner, factory, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); providerRuntimeCause(err) != domain.DiagnosticCauseProviderSpawnFailed {
-		t.Fatal("strict definition accepted authority-free invocation")
-	}
-	if runner.calls != 0 {
-		t.Fatalf("runner calls = %d, want 0", runner.calls)
-	}
-}
-
-func TestRegistryObserveLegacyDefinitionSupportsAuthorityFreeInvocation(t *testing.T) {
-	runner := &workspaceRunnerFake{
-		observation: testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0),
-	}
-	registry, err := NewRegistry(runner, testProfile(t, FamilyKimi, "kimi_default", "", ""))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err != nil {
-		t.Fatal(err)
-	}
-	if runner.calls != 1 {
-		t.Fatalf("runner calls = %d, want 1", runner.calls)
-	}
-}
-func TestRegistryNamespaceBlocksHostHomeDriftAndTerminalReuse(t *testing.T) {
-	factory, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	profile := testProfile(t, FamilyKimi, "kimi_default", "", "")
-	profile.environment = []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/host/home/must-not-leak")}
-	runner := &workspaceRunnerFake{
-		observation: testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0),
-	}
-	registry, err := NewRegistryWithNamespaceFactory(runner, factory, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); err != nil {
-		t.Fatal(err)
-	}
-	for _, variable := range runner.request.Environment() {
-		if variable.Name() == "HOME" && variable.Value() == "/host/home/must-not-leak" {
-			t.Fatal("runner inherited host HOME")
-		}
-	}
-	lease := registry.namespaces["kimi_default"]
-	cache := namespaceEnvironmentMap(t, lease.Environment())["XDG_CACHE_HOME"]
-	if err := os.Remove(cache); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); providerRuntimeCause(err) != domain.DiagnosticCauseWorkspaceRevalidationFailed {
-		t.Fatalf("namespace drift cause = %q", providerRuntimeCause(err))
-	}
-	if runner.calls != 1 {
-		t.Fatalf("runner calls = %d, want 1", runner.calls)
-	}
-	if _, err := registry.Close(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := registry.Close(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "kimi_default")); providerRuntimeCause(err) != domain.DiagnosticCauseProviderSpawnFailed {
-		t.Fatalf("terminally drained cause = %q", providerRuntimeCause(err))
-	}
 }
 
 func providerRuntimeCause(err error) domain.RuntimeDiagnosticCause {
@@ -1926,244 +674,6 @@ func testProductionSafetyProfile(t *testing.T, family, policyIdentity string) Ru
 		t.Fatal(err)
 	}
 	return profile
-}
-
-func TestNewProductionRegistryBindsAcquiredRuntimeSafetyPolicyIdentity(t *testing.T) {
-	profile := testProductionSafetyProfile(t, FamilyKimi, "policy-expected")
-
-	for _, test := range []struct {
-		name   string
-		policy string
-		wantOK bool
-	}{
-		{name: "missing actual identity"},
-		{name: "mismatched actual identity", policy: "policy-other"},
-		{name: "matching actual identity", policy: "policy-expected", wantOK: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			lease := &scriptedNamespace{
-				instance: profile.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: test.policy,
-			}
-			registry, err := NewProductionRegistry(&countingRunner{}, scriptedNamespaceFactory{
-				leases: map[string]*scriptedNamespace{profile.Instance(): lease},
-			}, testSpawnVerifier{}, profile)
-			if test.wantOK {
-				if err != nil || registry == nil {
-					t.Fatalf("registry=%v err=%v", registry, err)
-				}
-				namespace, ok := registry.QualificationNamespace(profile.Instance())
-				if !ok || namespace.RuntimeSafetyPolicyIdentity() != test.policy {
-					t.Fatalf("qualification namespace policy = %q, ok=%t", namespace.RuntimeSafetyPolicyIdentity(), ok)
-				}
-				if _, exposesWorkingDirectory := namespace.(interface{ WorkingDirectory() string }); exposesWorkingDirectory {
-					t.Fatal("qualification namespace exposed working-directory authority")
-				}
-				return
-			}
-			if err == nil || registry != nil {
-				t.Fatalf("registry=%v err=%v", registry, err)
-			}
-			if lease.drainCalls != 1 {
-				t.Fatalf("drain calls = %d, want 1", lease.drainCalls)
-			}
-		})
-	}
-}
-func TestNewProductionRegistryConstructionUsesCallerContextForAcquireAndCleanup(t *testing.T) {
-	profile := testProductionSafetyProfile(t, FamilyKimi, "policy-expected")
-	type contextKey struct{}
-	key := contextKey{}
-	deadline := time.Now().Add(time.Minute)
-	ctx, cancel := context.WithDeadline(context.WithValue(context.Background(), key, "caller-value"), deadline)
-	defer cancel()
-
-	var acquisitionContext, cleanupContext context.Context
-	lease := &scriptedNamespace{
-		instance: profile.Instance(), generation: "generation-1", validateErr: errors.New("invalid namespace"),
-		drainContext: func(ctx context.Context) { cleanupContext = ctx },
-	}
-	_, err := NewProductionRegistryWithContext(ctx, &countingRunner{}, scriptedNamespaceFactory{
-		leases:  map[string]*scriptedNamespace{profile.Instance(): lease},
-		capture: func(ctx context.Context, _ string) { acquisitionContext = ctx },
-	}, testSpawnVerifier{}, profile)
-	if err == nil {
-		t.Fatal("malformed namespace construction succeeded")
-	}
-	for name, captured := range map[string]context.Context{"acquisition": acquisitionContext, "cleanup": cleanupContext} {
-		if captured == nil || captured.Value(key) != "caller-value" {
-			t.Fatalf("%s context value = %#v", name, captured)
-		}
-		gotDeadline, ok := captured.Deadline()
-		if !ok || !gotDeadline.Equal(deadline) {
-			t.Fatalf("%s deadline = %v, present=%t; want %v", name, gotDeadline, ok, deadline)
-		}
-	}
-}
-
-func TestNewProductionRegistryPolicyCleanupFailureRetainsPartialRegistry(t *testing.T) {
-	first := testProductionSafetyProfile(t, FamilyKimi, "policy-kimi")
-	second := testProductionSafetyProfile(t, FamilyKimi, "policy-zcode")
-	second.instance = "kimi_secondary"
-	firstLease := &scriptedNamespace{
-		instance: first.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: "policy-kimi",
-	}
-	secondLease := &scriptedNamespace{
-		instance: second.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: "wrong-policy", failCalls: 2,
-	}
-	registry, err := NewProductionRegistryWithContext(context.Background(), &countingRunner{}, scriptedNamespaceFactory{
-		leases: map[string]*scriptedNamespace{first.Instance(): firstLease, second.Instance(): secondLease},
-	}, testSpawnVerifier{}, first, second)
-	if registry != nil || err == nil {
-		t.Fatalf("registry=%v err=%v", registry, err)
-	}
-	owner, ok := RegistryFromConstructionError(err)
-	if !ok || owner == nil {
-		t.Fatalf("construction cleanup owner = %#v, present=%t", owner, ok)
-	}
-	if firstLease.drainCalls != 1 || secondLease.drainCalls != 1 {
-		t.Fatalf("initial drains = first:%d second:%d", firstLease.drainCalls, secondLease.drainCalls)
-	}
-	secondLease.failCalls = 0
-	receipt, closeErr := owner.Close(context.Background())
-	if closeErr != nil || !receipt.Valid() {
-		t.Fatalf("retry receipt=%#v err=%v", receipt, closeErr)
-	}
-	if firstLease.drainCalls != 1 || secondLease.drainCalls != 2 {
-		t.Fatalf("retry drains = first:%d second:%d", firstLease.drainCalls, secondLease.drainCalls)
-	}
-}
-func TestNewProductionRuntimeDefinitionWithSafetyPolicyAndPostOutputLifecycle(t *testing.T) {
-	transport, err := defaultRuntimeTransport(FamilyAgy, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	profile, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
-		FamilyAgy, "agy_production", "", "/private/bin/agy", "executable-sha256",
-		"/private/bin/agy", "executable-sha256", "agy_production", "generation-1", "policy-identity",
-		[]string{"/private/bin/agy"}, transport, lifecycle, nil, "/private/work", time.Second)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	if profile.RuntimeSafetyPolicyIdentity() != "policy-identity" {
-		t.Fatalf("runtime safety policy identity = %q", profile.RuntimeSafetyPolicyIdentity())
-	}
-	if got, ok := profile.PostOutputLifecycle(); !ok || got != lifecycle {
-		t.Fatalf("post-output lifecycle = %#v, enabled=%t", got, ok)
-	}
-	if _, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
-		FamilyKimi, "kimi_production", "", "/private/bin/kimi", "executable-sha256",
-		"/private/bin/kimi", "executable-sha256", "kimi_production", "generation-1", "policy-identity",
-		[]string{"/private/bin/kimi"}, transport, lifecycle, nil, "/private/work", time.Second); err == nil {
-		t.Fatal("non-AGY profile accepted post-output lifecycle")
-	}
-}
-
-func TestRegistryQualificationNamespaceIsNarrowRetainedLease(t *testing.T) {
-	profile := testProfile(t, FamilyKimi, "kimi_default", "", "")
-	lease := &scriptedNamespace{instance: "kimi_default", generation: "generation-1"}
-	registry, err := NewRegistryWithNamespaceFactory(&countingRunner{}, scriptedNamespaceFactory{
-		leases: map[string]*scriptedNamespace{"kimi_default": lease},
-	}, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	namespace, ok := registry.QualificationNamespace("kimi_default")
-	if !ok || namespace == nil || namespace.ProviderInstance() != lease.instance ||
-		namespace.Generation() != lease.generation || namespace.ValidateForSpawn() != nil {
-		t.Fatalf("qualification namespace = %#v, ok=%t", namespace, ok)
-	}
-	if _, isLease := namespace.(ports.ProviderNamespaceLease); isLease {
-		t.Fatal("qualification namespace exposed drain or credential authority")
-	}
-	if _, exposesWorkingDirectory := namespace.(interface{ WorkingDirectory() string }); exposesWorkingDirectory {
-		t.Fatal("qualification namespace exposed working-directory authority")
-	}
-}
-
-func TestRegistryCloseRetriesOnlyUndrainedNamespaces(t *testing.T) {
-	first := testDefinition(t, FamilyKimi, "kimi_primary")
-	second := testDefinition(t, FamilyKimi, "kimi_secondary")
-	primary := &scriptedNamespace{instance: "kimi_primary", generation: "generation-primary"}
-	secondary := &scriptedNamespace{instance: "kimi_secondary", generation: "generation-secondary", failCalls: 1}
-	registry, err := newRegistryWithNamespaces(context.Background(), &countingRunner{}, scriptedNamespaceFactory{leases: map[string]*scriptedNamespace{
-		"kimi_primary": primary, "kimi_secondary": secondary,
-	}}, first, second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if receipt, err := registry.Close(context.Background()); err == nil || receipt.Valid() {
-		t.Fatalf("partial close = %#v, %v", receipt, err)
-	}
-	if primary.drainCalls != 1 || secondary.drainCalls != 1 {
-		t.Fatalf("first drain calls = primary %d secondary %d", primary.drainCalls, secondary.drainCalls)
-	}
-	receipt, err := registry.Close(context.Background())
-	if err != nil || !receipt.Valid() || len(receipt.NamespaceReceipts()) != 2 {
-		t.Fatalf("retry receipt = %#v, %v", receipt, err)
-	}
-	if primary.drainCalls != 1 || secondary.drainCalls != 2 {
-		t.Fatalf("retry drain calls = primary %d secondary %d", primary.drainCalls, secondary.drainCalls)
-	}
-}
-func TestRegistryCloseRetriesAfterCancellation(t *testing.T) {
-	definition := testDefinition(t, FamilyKimi, "kimi_default")
-	lease := &scriptedNamespace{instance: "kimi_default", generation: "generation-1"}
-	registry, err := newRegistryWithNamespaces(context.Background(), &countingRunner{}, scriptedNamespaceFactory{
-		leases: map[string]*scriptedNamespace{"kimi_default": lease},
-	}, definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
-	if receipt, err := registry.Close(cancelled); err == nil || receipt.Valid() {
-		t.Fatalf("cancelled close = %#v, %v", receipt, err)
-	}
-	if _, err := registry.Close(context.Background()); err != nil {
-		t.Fatalf("retry close: %v", err)
-	}
-	if lease.drainCalls != 1 {
-		t.Fatalf("drain calls = %d, want 1 after pre-drain cancellation", lease.drainCalls)
-	}
-}
-func TestRegistryCloseCancellationWhileObservationIsActiveIsRetryable(t *testing.T) {
-	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyKimi, "kimi_default"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed := make(chan error, 1)
-	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "kimi_default"))
-		observed <- observeErr
-	}()
-	<-runner.started
-
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
-	closed := make(chan error, 1)
-	go func() {
-		_, closeErr := registry.Close(cancelled)
-		closed <- closeErr
-	}()
-	select {
-	case closeErr := <-closed:
-		if !errors.Is(closeErr, context.Canceled) {
-			t.Fatalf("cancelled close error = %v", closeErr)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("cancelled close waited for active observation")
-	}
-	close(runner.release)
-	<-observed
-	if _, err := registry.Close(context.Background()); err != nil {
-		t.Fatalf("retry close: %v", err)
-	}
 }
 
 // stagedOutputRunnerFake stages provider-written files at exactly the moment a
@@ -2634,63 +1144,848 @@ func TestRegistryObserveRemovesStagingOnProviderFailure(t *testing.T) {
 	requireStagingRemoved(t, destination)
 }
 
-func TestRegistryProviderOutputStagingDestinationFailsClosed(t *testing.T) {
-	registry, err := NewRegistry(&countingRunner{},
-		testProfile(t, FamilyZcode, "zcode_default", "", ""),
-		testProfile(t, FamilyAgy, "agy_default", "", ""),
-		testProfile(t, FamilyGrok, "grok_default", "", ""),
+// The protocol transport never delivers report content on stdout: the
+// review report arrives through the staged file and qualification evidence
+// through the conversation, so every stdout shape fails closed.
+
+func TestGrokJSONEnvelopeRejectsMissingOrFailedResponse(t *testing.T) {
+	for _, output := range []string{
+		`{"status":"SUCCESS","response":""}`,
+		`{"status":"SUCCESS","response":"  "}`,
+		`{"conversation_id":"c","status":"SUCCESS"}`,
+		`{"status":"SUCCESS","response":null}`,
+		`{"status":"SUCCESS","response":{"findings":[]}}`,
+		`{"status":"ERROR","response":"No findings."}`,
+		`{"status":42,"response":"No findings."}`,
+	} {
+		if body, _, err := providerResult(FamilyGrok, []byte(output)); err == nil {
+			t.Errorf("accepted invalid envelope %s as %q", output, body)
+		}
+	}
+}
+
+func TestNewRuntimeDefinitionAllowsOptionalProvenance(t *testing.T) {
+	for _, provenance := range []struct {
+		name      string
+		version   string
+		hash      string
+		profileID string
+	}{
+		{"empty", "", "", ""},
+		{"arbitrary", "future-build+unknown", "not-a-sha", "vendor profile 2030.4"},
+		{"different hash", "0.23.6", "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "grok.default"},
+	} {
+		for _, family := range []string{FamilyGrok, FamilyZcode, FamilyGrok} {
+			t.Run(family+"/"+provenance.name, func(t *testing.T) {
+				profile := testProfile(t, family, family+"_default", provenance.version, provenance.hash)
+				profile.profileID = provenance.profileID
+				registry, err := NewRegistry(&countingRunner{}, profile)
+				if err != nil || registry == nil {
+					t.Fatalf("registry=%v err=%v", registry, err)
+				}
+			})
+		}
+	}
+}
+
+func TestNewRegistryRejectsMalformedProfilesAndUnlistedFamilies(t *testing.T) {
+	profile := testProfile(t, FamilyGrok, "grok_default", "", "")
+	tests := map[string]func(*RuntimeDefinition){
+		"unlisted family": func(p *RuntimeDefinition) { p.family = "other" },
+		"relative executable": func(p *RuntimeDefinition) {
+			p.executable, p.baseArgv[0] = "grok", "grok"
+		},
+		"unclean executable": func(p *RuntimeDefinition) {
+			p.executable, p.baseArgv[0] = "/private/bin/../grok", "/private/bin/../grok"
+		},
+		"invalid argv": func(p *RuntimeDefinition) { p.baseArgv = []string{p.executable, ""} },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			invalid := cloneRuntimeDefinition(profile)
+			mutate(&invalid)
+			if registry, err := NewRegistry(&countingRunner{}, invalid); err == nil || registry != nil {
+				t.Fatalf("registry=%v err=%v", registry, err)
+			}
+		})
+	}
+}
+
+func TestNewRegistryPreservesProfileAndDefensiveCopies(t *testing.T) {
+	argv := []string{"/private/bin/grok", "--safe"}
+	environment := []ports.EnvironmentVariable{mustEnvironment(t, "HOME", "/private/home")}
+	profile, err := NewRuntimeDefinition(FamilyGrok, "grok_default", "", argv[0], "", "grok_default", argv, environment, "/private/work", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv[1] = "--mutated"
+	environment[0] = mustEnvironment(t, "HOME", "/mutated")
+	registry, err := NewRegistry(&countingRunner{}, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := registry.definitions["grok_default"].baseArgv; !equalStrings(got, []string{"/private/bin/grok", "--safe"}) {
+		t.Fatalf("runnable argv = %q", got)
+	}
+	if got := registry.definitions["grok_default"].environment[0].Value(); got != "/private/home" {
+		t.Fatalf("runnable environment value = %q", got)
+	}
+}
+
+func TestRegistryAcceptsDistinctInstancesOfSameFamilyAndRejectsDuplicateInstance(t *testing.T) {
+	runner := newBarrierRunner()
+	first := testDefinition(t, FamilyGrok, "grok_primary")
+	second := testDefinition(t, FamilyGrok, "grok_secondary")
+	registry, err := newRegistry(context.Background(), runner, first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := registry.definitions["grok_primary"]; !ok {
+		t.Fatal("primary Grok instance was not registered")
+	}
+	if _, ok := registry.definitions["grok_secondary"]; !ok {
+		t.Fatal("secondary Grok instance was not registered")
+	}
+	observed := make(chan error, 1)
+	secondaryInvocation := testInvocation(t, "grok_secondary")
+	go func() {
+		_, observeErr := registry.Observe(context.Background(), secondaryInvocation)
+		observed <- observeErr
+	}()
+	<-runner.started
+	close(runner.release)
+	if observeErr := <-observed; observeErr != nil {
+		t.Fatalf("secondary Grok dispatch failed: %v", observeErr)
+	}
+	if _, err := newRegistry(context.Background(), runner, first, first); err == nil {
+		t.Fatal("duplicate provider instance accepted")
+	}
+}
+
+func TestRegistryRejectsUnregisteredProviderBeforeRunnerCall(t *testing.T) {
+	runner := newBarrierRunner()
+	grok := testDefinition(t, FamilyGrok, "grok_default")
+	registry, err := newRegistry(context.Background(), runner, grok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "codex_default")); err == nil {
+		t.Fatal("unregistered provider was accepted")
+	}
+	select {
+	case <-runner.started:
+		t.Fatal("runner called for unregistered provider")
+	default:
+	}
+}
+
+func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
+	runner := newBarrierRunner()
+	grok := testDefinition(t, FamilyGrok, "grok_default")
+	zcode := testDefinition(t, FamilyZcode, "zcode_default")
+	registry, err := newRegistry(context.Background(), runner, grok, zcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var calls sync.WaitGroup
+	calls.Add(2)
+	go func() {
+		defer calls.Done()
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	}()
+	go func() {
+		defer calls.Done()
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
+	}()
+	for range 2 {
+		select {
+		case <-runner.started:
+		case <-time.After(time.Second):
+			t.Fatal("distinct provider instances did not overlap")
+		}
+	}
+	if active := runner.activeCount(); active != 2 {
+		t.Fatalf("distinct-instance active count = %d, want 2", active)
+	}
+	close(runner.release)
+	calls.Wait()
+}
+
+func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *testing.T) {
+	runner := newBarrierRunner()
+	definition := testDefinition(t, FamilyGrok, "grok_default")
+	first, err := newRegistry(context.Background(), runner, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newRegistry(context.Background(), runner, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.namespaceGenerations[definition.instance] == second.namespaceGenerations[definition.instance] ||
+		first.namespaces[definition.instance] == second.namespaces[definition.instance] {
+		t.Fatal("independent registries shared one provider namespace generation")
+	}
+	var calls sync.WaitGroup
+	calls.Add(2)
+	for _, registry := range []*Registry{first, second} {
+		registry := registry
+		go func() {
+			defer calls.Done()
+			_, _ = registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		}()
+	}
+	for range 2 {
+		select {
+		case <-runner.started:
+		case <-time.After(time.Second):
+			t.Fatal("independent registries serialized the same provider instance")
+		}
+	}
+	close(runner.release)
+	calls.Wait()
+}
+
+func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
+	runner := newBarrierRunner()
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		firstDone <- observeErr
+	}()
+	<-runner.started
+
+	refused := make(chan error, 1)
+	go func() {
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		refused <- observeErr
+	}()
+	select {
+	case observeErr := <-refused:
+		if !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
+			t.Fatalf("duplicate active instance error = %v, want typed internal invariant", observeErr)
+		}
+		if got := providerRuntimeCause(observeErr); got.Valid() {
+			t.Fatalf("duplicate active instance exposed provider diagnostic cause %q", got)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("duplicate active instance waited instead of failing closed")
+	}
+	if active := runner.activeCount(); active != 1 {
+		t.Fatalf("active count after invariant refusal = %d, want 1", active)
+	}
+	close(runner.release)
+	if observeErr := <-firstDone; observeErr != nil {
+		t.Fatalf("first observe failed: %v", observeErr)
+	}
+
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	if err != nil {
+		t.Fatalf("instance remained active after completion: %v", err)
+	}
+	if err := observed.Validate(); err != nil {
+		t.Fatalf("observation after completion is invalid: %v", err)
+	}
+}
+
+func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
+	runner := newBarrierRunner()
+	grok := testDefinition(t, FamilyGrok, "grok_default")
+	zcode := testDefinition(t, FamilyZcode, "zcode_default")
+	registry, err := newRegistry(context.Background(), runner, grok, zcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls sync.WaitGroup
+	calls.Add(2)
+	go func() {
+		defer calls.Done()
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
+	}()
+	go func() {
+		defer calls.Done()
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	}()
+	<-runner.started
+	select {
+	case <-runner.started:
+	case <-time.After(time.Second):
+		t.Fatal("distinct concurrency keys did not overlap")
+	}
+	close(runner.release)
+	calls.Wait()
+}
+
+func TestRegistryConcurrentSameInstanceRefusalDoesNotLeakActiveState(t *testing.T) {
+	runner := newBarrierRunner()
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		firstDone <- observeErr
+	}()
+	<-runner.started
+
+	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default")); !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
+		t.Fatalf("duplicate active invocation error = %v", observeErr)
+	}
+	select {
+	case <-runner.started:
+		t.Fatal("refused duplicate call reached runner")
+	default:
+	}
+	if active := runner.activeCount(); active != 1 {
+		t.Fatalf("active count after refusal = %d, want 1", active)
+	}
+
+	close(runner.release)
+	if observeErr := <-firstDone; observeErr != nil {
+		t.Fatalf("first observe failed: %v", observeErr)
+	}
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	if err != nil {
+		t.Fatalf("active instance was not released after completion: %v", err)
+	}
+	if err := observed.Validate(); err != nil {
+		t.Fatalf("observation after refusal is invalid: %v", err)
+	}
+}
+
+func TestRegistryObservePreservesRunnerErrorWithObservation(t *testing.T) {
+	process := testProcessObservation(t, []byte("{\"role\":\"assistant\",\"content\":\"answer\"}\n"), nil, ports.ProcessTerminationExited, 0)
+	runnerFailure, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseProviderProcessWaitFailed, "", process.Stdout(), process.Stderr(), errors.New("runner failed"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation := testInvocation(t, "zcode_default")
-
-	if _, transport, ok := registry.ProviderOutputStagingDestination(
-		"unregistered_default", invocation.AttemptID(), invocation.Purpose(),
-	); ok || transport != ports.ProviderOutputTransportStdout {
-		t.Fatalf("unregistered instance = transport %q, ok %t", transport, ok)
-	}
-	// Only the closed review purposes are staged. Unsupported synthetic purposes
-	// fail closed; exact replay uses its original initial or retry purpose.
-	if _, transport, ok := registry.ProviderOutputStagingDestination(
-		"zcode_default", invocation.AttemptID(), ports.ProviderInvocationPurpose("exact_replay"),
-	); ok || transport != ports.ProviderOutputTransportStdout {
-		t.Fatalf("unsupported purpose = transport %q, ok %t", transport, ok)
-	}
-	destination, transport, ok := registry.ProviderOutputStagingDestination(
-		"agy_default", invocation.AttemptID(), invocation.Purpose(),
-	)
-	if !ok || transport != ports.ProviderOutputTransportStdout || destination.Valid() {
-		t.Fatalf("AGY = destination %q, transport %q, ok %t", destination.Directory(), transport, ok)
-	}
-
-	for _, instance := range []string{"zcode_default", "grok_default"} {
-		scratch := namespaceEnvironmentMap(t, registry.namespaces[instance].Environment())["MULGAE_PROVIDER_SCRATCH"]
-		for _, test := range []struct {
-			purpose ports.ProviderInvocationPurpose
-			name    string
-		}{
-			{ports.ProviderInvocationInitial, invocation.AttemptID().String() + "-0"},
-			{ports.ProviderInvocationRepair, invocation.AttemptID().String() + "-1"},
-		} {
-			destination, transport, ok := registry.ProviderOutputStagingDestination(
-				instance, invocation.AttemptID(), test.purpose,
-			)
-			want := filepath.Join(scratch, "output", test.name)
-			if !ok || transport != ports.ProviderOutputTransportStagedFile ||
-				destination.Directory() != want || destination.Filename() != stagedOutputFilename {
-				t.Fatalf("%s destination = %q/%q, transport %q, ok %t; want %q",
-					test.purpose, destination.Directory(), destination.Filename(), transport, ok, want)
-			}
-		}
-	}
-
-	if _, err := registry.Close(context.Background()); err != nil {
+	runner := &observationRunner{observation: process, err: runnerFailure}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, transport, ok := registry.ProviderOutputStagingDestination(
-		"zcode_default", invocation.AttemptID(), invocation.Purpose(),
-	); ok || transport != ports.ProviderOutputTransportStdout {
-		t.Fatalf("drained registry = transport %q, ok %t", transport, ok)
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := observed.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if observed.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed ||
+		string(observed.Stdout()) != string(process.Stdout()) {
+		t.Fatalf("cause = %q, stdout was preserved = %t", observed.PrimaryCause(), bytes.Equal(observed.Stdout(), process.Stdout()))
 	}
 }
+
+func TestRegistryObservePreservesCoherentCancellationFromRunnerError(t *testing.T) {
+	process := testProcessObservation(t, nil, nil, ports.ProcessTerminationCancelled, 0)
+	runner := &observationRunner{observation: process, err: context.Canceled}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusCancelled ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderExecutionFailed ||
+		observed.DiagnosticCode() != "process_cancelled" {
+		t.Fatalf("cancellation observation = status:%q cause:%q diagnostic:%q", observed.Status(), observed.PrimaryCause(), observed.DiagnosticCode())
+	}
+}
+
+func TestRegistryObservePreservesPartialStreamsAndCleanupCause(t *testing.T) {
+	runnerFailure, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseProviderProcessWaitFailed,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		[]byte("partial stdout"),
+		[]byte("partial stderr"),
+		errors.New("private runner detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &observationRunner{err: runnerFailure}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := observed.AvailableProcessObservation(); ok {
+		t.Fatal("partial execution claimed a coherent process observation")
+	}
+	cleanup, ok := observed.CleanupCause()
+	if observed.PrimaryCause() != domain.DiagnosticCauseProviderProcessWaitFailed ||
+		!ok || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
+		t.Fatalf("primary = %q, cleanup = %q, present = %t", observed.PrimaryCause(), cleanup, ok)
+	}
+	if string(observed.Stdout()) != "partial stdout" || string(observed.Stderr()) != "partial stderr" {
+		t.Fatal("partial runner streams were lost")
+	}
+}
+
+func TestRegistryObservePreservesTransportVerificationCause(t *testing.T) {
+	runnerFailure, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseTransportVerificationFailed, "", []byte("partial stdout"), nil,
+		errors.New("private prompt-file identity detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &observationRunner{err: runnerFailure}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
+		observed.PrimaryCause() != domain.DiagnosticCauseTransportVerificationFailed ||
+		string(observed.Stdout()) != "partial stdout" {
+		t.Fatalf("status = %q, cause = %q, stdout preserved = %t", observed.Status(), observed.PrimaryCause(), string(observed.Stdout()) == "partial stdout")
+	}
+}
+
+func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
+	tests := []struct {
+		name        string
+		termination ports.ProcessTermination
+		exitCode    int
+		wantStatus  ports.ProviderExecutionStatus
+		wantCode    string
+		wantCause   domain.RuntimeDiagnosticCause
+	}{
+		{"timeout", ports.ProcessTerminationTimedOut, 0, ports.ProviderExecutionStatusTimedOut, "process_timeout", domain.DiagnosticCauseTimedOut},
+		{"cancelled", ports.ProcessTerminationCancelled, 0, ports.ProviderExecutionStatusCancelled, "process_cancelled", domain.DiagnosticCauseProviderExecutionFailed},
+		{"start unavailable", ports.ProcessTerminationStartUnavailable, 0, ports.ProviderExecutionStatusUnavailable, "process_unavailable", domain.DiagnosticCauseProviderSpawnFailed},
+		{"start configuration", ports.ProcessTerminationStartConfiguration, 0, ports.ProviderExecutionStatusConfigurationViolation, "process_configuration", domain.DiagnosticCauseProviderSpawnFailed},
+		{"start security", ports.ProcessTerminationStartSecurity, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProviderSpawnFailed},
+		{"residual process group", ports.ProcessTerminationResidualProcessGroup, 0, ports.ProviderExecutionStatusSecurityViolation, "process_security", domain.DiagnosticCauseProcessGroupCleanupFailed},
+		{"nonzero exit", ports.ProcessTerminationExited, 1, ports.ProviderExecutionStatusUnavailable, "provider_execution_failed", domain.DiagnosticCauseProviderExecutionFailed},
+		{"signaled", ports.ProcessTerminationSignaled, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderExecutionFailed},
+		{"start failed", ports.ProcessTerminationStartFailed, 0, ports.ProviderExecutionStatusInternalFailure, "process_internal", domain.DiagnosticCauseProviderSpawnFailed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invocation := testInvocation(t, "grok_default")
+			runner := &observationRunner{
+				observation: testProcessObservation(t, []byte("raw stdout"), []byte("raw stderr"), test.termination, test.exitCode),
+			}
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			observed, err := registry.Observe(context.Background(), invocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observed.Status() != test.wantStatus || observed.DiagnosticCode() != test.wantCode {
+				t.Fatalf("status = %q, diagnostic = %q; want %q, %q",
+					observed.Status(), observed.DiagnosticCode(), test.wantStatus, test.wantCode)
+			}
+			if observed.PrimaryCause() != test.wantCause {
+				t.Fatalf("cause = %q, want %q", observed.PrimaryCause(), test.wantCause)
+			}
+		})
+	}
+}
+
+func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
+	invocation := testInvocation(t, "grok_default")
+	runner := &observationRunner{
+		observation: testProcessObservation(
+			t,
+			nil,
+			[]byte(`{"code":"auth.login_required","message":"login first"}`),
+			ports.ProcessTerminationExited,
+			1,
+		),
+	}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusAuthentication || observed.DiagnosticCode() != "login_required" {
+		t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
+	}
+	if observed.PrimaryCause() != domain.DiagnosticCauseLoginRequired {
+		t.Fatalf("cause = %q", observed.PrimaryCause())
+	}
+}
+
+func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *testing.T) {
+	invocation := testInvocation(t, "grok_default")
+	runner := &observationRunner{
+		observation: testProcessObservation(
+			t,
+			[]byte("The review discusses auth.login_required and rate_limit handling."),
+			[]byte("provider execution failed"),
+			ports.ProcessTerminationExited,
+			1,
+		),
+	}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusUnavailable ||
+		observed.DiagnosticCode() != "provider_execution_failed" ||
+		observed.PrimaryCause() != domain.DiagnosticCauseProviderExecutionFailed {
+		t.Fatalf("status = %q, diagnostic = %q, cause = %q", observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause())
+	}
+}
+
+func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
+	invocation := testInvocation(t, "grok_default")
+	runner := &observationRunner{
+		observation: testProcessObservation(
+			t,
+			nil,
+			[]byte("Error: timeout waiting for response\n"),
+			ports.ProcessTerminationExited,
+			1,
+		),
+	}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusTimedOut || observed.DiagnosticCode() != "provider_timeout" {
+		t.Fatalf("status = %q, diagnostic = %q", observed.Status(), observed.DiagnosticCode())
+	}
+	if observed.PrimaryCause() != domain.DiagnosticCauseTimedOut {
+		t.Fatalf("cause = %q", observed.PrimaryCause())
+	}
+}
+
+func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T) {
+	reviewProse := []byte("the service is overloaded and running at capacity, returning 503 to callers")
+	if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyGrok, reviewProse, nil); ok {
+		t.Fatalf("review prose classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
+	}
+	argvEcho := []byte("Error: unknown flag --print-timeout\n")
+	status, diagnostic, _, ok := nativeProviderOutcome(FamilyGrok, nil, argvEcho)
+	if ok || status == ports.ProviderExecutionStatusTimedOut || diagnostic == "provider_timeout" {
+		t.Fatalf("argv echo classified as native timeout: status = %q, diagnostic = %q, ok = %t", status, diagnostic, ok)
+	}
+	codexProse := []byte(`{"type":"item.completed","item":{"text":"The usage limit handling is correct."}}`)
+	if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, codexProse, nil); ok {
+		t.Fatalf("Codex review prose classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
+	}
+	for _, stderr := range [][]byte{
+		[]byte("request completed in 1502ms"),
+		[]byte("trace a429b503c504d"),
+		[]byte("panic at src/session.rs:429:12"),
+		[]byte("codex 0.502.0"),
+		[]byte("trace req-429-7"),
+		[]byte("http 4290"),
+		[]byte("http 429-extra"),
+	} {
+		if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, stderr); ok {
+			t.Fatalf("Codex unrelated numeric stderr classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
+		}
+	}
+	status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, []byte("request failed with status 429"))
+	if !ok || status != ports.ProviderExecutionStatusRateLimit || diagnostic != "provider_rate_limit" || cause != domain.DiagnosticCauseRateLimited {
+		t.Fatalf("Codex standalone HTTP status was not classified: status = %q, diagnostic = %q, cause = %q, ok = %t", status, diagnostic, cause, ok)
+	}
+}
+
+func TestNativeProviderOutcomeRequiresExactHTTPStatusToken(t *testing.T) {
+	for _, family := range []string{FamilyCodex, FamilyGrok, FamilyZcode, FamilyGrok} {
+		t.Run(family, func(t *testing.T) {
+			for _, stderr := range []string{"http 4290", "http 429-extra"} {
+				if _, _, _, ok := nativeProviderOutcome(family, nil, []byte(stderr)); ok {
+					t.Fatalf("classified malformed status %q", stderr)
+				}
+			}
+			status, _, _, ok := nativeProviderOutcome(family, nil, []byte("HTTP 429"))
+			if !ok || status != ports.ProviderExecutionStatusRateLimit {
+				t.Fatal("did not classify exact HTTP 429")
+			}
+		})
+	}
+}
+
+func TestProviderProcessRequestRejectsMalformedWorkingDirectory(t *testing.T) {
+	definition := testDefinition(t, FamilyGrok, "grok_default")
+	packet := testInvocation(t, "grok_default").Packet()
+	for _, workingDirectory := range []string{"relative", "/private/work/../escape", "/private/work\x00"} {
+		t.Run(workingDirectory, func(t *testing.T) {
+			if _, _, err := providerProcessRequest(definition, packet, workingDirectory); err == nil {
+				t.Fatal("malformed working directory accepted")
+			}
+		})
+	}
+}
+
+func TestRegistryObserveStrictDefinitionRejectsMissingWorkspaceAuthority(t *testing.T) {
+	profile, err := NewProductionRuntimeDefinition(
+		FamilyGrok, "grok_default", "", "/private/bin/grok", "", "grok_default",
+		[]string{"/private/bin/grok"}, nil, "/private/work", time.Second)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &workspaceRunnerFake{}
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewRegistryWithNamespaceFactory(runner, factory, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "grok_default")); providerRuntimeCause(err) != domain.DiagnosticCauseProviderSpawnFailed {
+		t.Fatal("strict definition accepted authority-free invocation")
+	}
+	if runner.calls != 0 {
+		t.Fatalf("runner calls = %d, want 0", runner.calls)
+	}
+}
+
+func TestNewProductionRegistryBindsAcquiredRuntimeSafetyPolicyIdentity(t *testing.T) {
+	profile := testProductionSafetyProfile(t, FamilyGrok, "policy-expected")
+
+	for _, test := range []struct {
+		name   string
+		policy string
+		wantOK bool
+	}{
+		{name: "missing actual identity"},
+		{name: "mismatched actual identity", policy: "policy-other"},
+		{name: "matching actual identity", policy: "policy-expected", wantOK: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lease := &scriptedNamespace{
+				instance: profile.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: test.policy,
+			}
+			registry, err := NewProductionRegistry(&countingRunner{}, scriptedNamespaceFactory{
+				leases: map[string]*scriptedNamespace{profile.Instance(): lease},
+			}, testSpawnVerifier{}, profile)
+			if test.wantOK {
+				if err != nil || registry == nil {
+					t.Fatalf("registry=%v err=%v", registry, err)
+				}
+				namespace, ok := registry.QualificationNamespace(profile.Instance())
+				if !ok || namespace.RuntimeSafetyPolicyIdentity() != test.policy {
+					t.Fatalf("qualification namespace policy = %q, ok=%t", namespace.RuntimeSafetyPolicyIdentity(), ok)
+				}
+				if _, exposesWorkingDirectory := namespace.(interface{ WorkingDirectory() string }); exposesWorkingDirectory {
+					t.Fatal("qualification namespace exposed working-directory authority")
+				}
+				return
+			}
+			if err == nil || registry != nil {
+				t.Fatalf("registry=%v err=%v", registry, err)
+			}
+			if lease.drainCalls != 1 {
+				t.Fatalf("drain calls = %d, want 1", lease.drainCalls)
+			}
+		})
+	}
+}
+
+func TestNewProductionRegistryConstructionUsesCallerContextForAcquireAndCleanup(t *testing.T) {
+	profile := testProductionSafetyProfile(t, FamilyGrok, "policy-expected")
+	type contextKey struct{}
+	key := contextKey{}
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.WithValue(context.Background(), key, "caller-value"), deadline)
+	defer cancel()
+
+	var acquisitionContext, cleanupContext context.Context
+	lease := &scriptedNamespace{
+		instance: profile.Instance(), generation: "generation-1", validateErr: errors.New("invalid namespace"),
+		drainContext: func(ctx context.Context) { cleanupContext = ctx },
+	}
+	_, err := NewProductionRegistryWithContext(ctx, &countingRunner{}, scriptedNamespaceFactory{
+		leases:  map[string]*scriptedNamespace{profile.Instance(): lease},
+		capture: func(ctx context.Context, _ string) { acquisitionContext = ctx },
+	}, testSpawnVerifier{}, profile)
+	if err == nil {
+		t.Fatal("malformed namespace construction succeeded")
+	}
+	for name, captured := range map[string]context.Context{"acquisition": acquisitionContext, "cleanup": cleanupContext} {
+		if captured == nil || captured.Value(key) != "caller-value" {
+			t.Fatalf("%s context value = %#v", name, captured)
+		}
+		gotDeadline, ok := captured.Deadline()
+		if !ok || !gotDeadline.Equal(deadline) {
+			t.Fatalf("%s deadline = %v, present=%t; want %v", name, gotDeadline, ok, deadline)
+		}
+	}
+}
+
+func TestNewProductionRegistryPolicyCleanupFailureRetainsPartialRegistry(t *testing.T) {
+	first := testProductionSafetyProfile(t, FamilyGrok, "policy-grok")
+	second := testProductionSafetyProfile(t, FamilyGrok, "policy-zcode")
+	second.instance = "grok_secondary"
+	firstLease := &scriptedNamespace{
+		instance: first.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: "policy-grok",
+	}
+	secondLease := &scriptedNamespace{
+		instance: second.Instance(), generation: "generation-1", runtimeSafetyPolicyIdentity: "wrong-policy", failCalls: 2,
+	}
+	registry, err := NewProductionRegistryWithContext(context.Background(), &countingRunner{}, scriptedNamespaceFactory{
+		leases: map[string]*scriptedNamespace{first.Instance(): firstLease, second.Instance(): secondLease},
+	}, testSpawnVerifier{}, first, second)
+	if registry != nil || err == nil {
+		t.Fatalf("registry=%v err=%v", registry, err)
+	}
+	owner, ok := RegistryFromConstructionError(err)
+	if !ok || owner == nil {
+		t.Fatalf("construction cleanup owner = %#v, present=%t", owner, ok)
+	}
+	if firstLease.drainCalls != 1 || secondLease.drainCalls != 1 {
+		t.Fatalf("initial drains = first:%d second:%d", firstLease.drainCalls, secondLease.drainCalls)
+	}
+	secondLease.failCalls = 0
+	receipt, closeErr := owner.Close(context.Background())
+	if closeErr != nil || !receipt.Valid() {
+		t.Fatalf("retry receipt=%#v err=%v", receipt, closeErr)
+	}
+	if firstLease.drainCalls != 1 || secondLease.drainCalls != 2 {
+		t.Fatalf("retry drains = first:%d second:%d", firstLease.drainCalls, secondLease.drainCalls)
+	}
+}
+
+func TestRegistryQualificationNamespaceIsNarrowRetainedLease(t *testing.T) {
+	profile := testProfile(t, FamilyGrok, "grok_default", "", "")
+	lease := &scriptedNamespace{instance: "grok_default", generation: "generation-1"}
+	registry, err := NewRegistryWithNamespaceFactory(&countingRunner{}, scriptedNamespaceFactory{
+		leases: map[string]*scriptedNamespace{"grok_default": lease},
+	}, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace, ok := registry.QualificationNamespace("grok_default")
+	if !ok || namespace == nil || namespace.ProviderInstance() != lease.instance ||
+		namespace.Generation() != lease.generation || namespace.ValidateForSpawn() != nil {
+		t.Fatalf("qualification namespace = %#v, ok=%t", namespace, ok)
+	}
+	if _, isLease := namespace.(ports.ProviderNamespaceLease); isLease {
+		t.Fatal("qualification namespace exposed drain or credential authority")
+	}
+	if _, exposesWorkingDirectory := namespace.(interface{ WorkingDirectory() string }); exposesWorkingDirectory {
+		t.Fatal("qualification namespace exposed working-directory authority")
+	}
+}
+
+func TestRegistryCloseRetriesOnlyUndrainedNamespaces(t *testing.T) {
+	first := testDefinition(t, FamilyGrok, "grok_primary")
+	second := testDefinition(t, FamilyGrok, "grok_secondary")
+	primary := &scriptedNamespace{instance: "grok_primary", generation: "generation-primary"}
+	secondary := &scriptedNamespace{instance: "grok_secondary", generation: "generation-secondary", failCalls: 1}
+	registry, err := newRegistryWithNamespaces(context.Background(), &countingRunner{}, scriptedNamespaceFactory{leases: map[string]*scriptedNamespace{
+		"grok_primary": primary, "grok_secondary": secondary,
+	}}, first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt, err := registry.Close(context.Background()); err == nil || receipt.Valid() {
+		t.Fatalf("partial close = %#v, %v", receipt, err)
+	}
+	if primary.drainCalls != 1 || secondary.drainCalls != 1 {
+		t.Fatalf("first drain calls = primary %d secondary %d", primary.drainCalls, secondary.drainCalls)
+	}
+	receipt, err := registry.Close(context.Background())
+	if err != nil || !receipt.Valid() || len(receipt.NamespaceReceipts()) != 2 {
+		t.Fatalf("retry receipt = %#v, %v", receipt, err)
+	}
+	if primary.drainCalls != 1 || secondary.drainCalls != 2 {
+		t.Fatalf("retry drain calls = primary %d secondary %d", primary.drainCalls, secondary.drainCalls)
+	}
+}
+
+func TestRegistryCloseRetriesAfterCancellation(t *testing.T) {
+	definition := testDefinition(t, FamilyGrok, "grok_default")
+	lease := &scriptedNamespace{instance: "grok_default", generation: "generation-1"}
+	registry, err := newRegistryWithNamespaces(context.Background(), &countingRunner{}, scriptedNamespaceFactory{
+		leases: map[string]*scriptedNamespace{"grok_default": lease},
+	}, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if receipt, err := registry.Close(cancelled); err == nil || receipt.Valid() {
+		t.Fatalf("cancelled close = %#v, %v", receipt, err)
+	}
+	if _, err := registry.Close(context.Background()); err != nil {
+		t.Fatalf("retry close: %v", err)
+	}
+	if lease.drainCalls != 1 {
+		t.Fatalf("drain calls = %d, want 1 after pre-drain cancellation", lease.drainCalls)
+	}
+}
+
+func TestRegistryCloseCancellationWhileObservationIsActiveIsRetryable(t *testing.T) {
+	runner := newBarrierRunner()
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := make(chan error, 1)
+	go func() {
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		observed <- observeErr
+	}()
+	<-runner.started
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	closed := make(chan error, 1)
+	go func() {
+		_, closeErr := registry.Close(cancelled)
+		closed <- closeErr
+	}()
+	select {
+	case closeErr := <-closed:
+		if !errors.Is(closeErr, context.Canceled) {
+			t.Fatalf("cancelled close error = %v", closeErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled close waited for active observation")
+	}
+	close(runner.release)
+	<-observed
+	if _, err := registry.Close(context.Background()); err != nil {
+		t.Fatalf("retry close: %v", err)
+	}
+}
+
+// Only the closed review purposes are staged. Unsupported synthetic purposes
+// fail closed; exact replay uses its original initial or retry purpose.

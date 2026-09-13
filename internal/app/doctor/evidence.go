@@ -3,12 +3,12 @@ package doctor
 import "context"
 
 const (
-	providerEvidenceSchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json"
+	providerEvidenceSchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v4.schema.json"
 	platformEvidenceSchemaID = "https://mulgae.local/schemas/mulgae-platform-contract-evidence.v1.schema.json"
 )
 
 var (
-	intendedProviderIDs = []string{"kimi", "zcode", "agy", "grok", "codex"}
+	intendedProviderIDs = []string{"zcode", "grok", "codex"}
 	platformCells       = []PlatformCell{PlatformLinuxAMD64, PlatformLinuxARM64, PlatformDarwinAMD64, PlatformDarwinARM64}
 	providerProbeIDs    = []string{
 		"PV-VERSION",
@@ -69,7 +69,7 @@ type ProbeObservation struct {
 	Status EvidenceStatus
 }
 
-// ProviderEvidenceRecord is a provider-contract-evidence.v3 observation.
+// ProviderEvidenceRecord is a provider-contract-evidence.v4 observation.
 // SHA256 is the unprefixed document digest; doctor emits sha256:<digest>.
 type ProviderEvidenceRecord struct {
 	SchemaID                string

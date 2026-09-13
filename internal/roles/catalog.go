@@ -140,14 +140,14 @@ func (definition Definition) Validate() error {
 }
 
 // validateProviderPreferences keeps the derivation of init's default provider
-// assignment total. Every core role must name all five families, so the
+// assignment total. Every core role must name all active families, so the
 // intersection with any non-empty configured family set is never empty.
 func (definition Definition) validateProviderPreferences(role domain.Role) error {
-	allowed := []string{"kimi", "zcode", "agy", "grok", "codex"}
-	required := len(allowed)
+	allowed := []string{"zcode", "grok", "codex"}
+	required := 3
 	if role == domain.RoleArtist {
-		allowed = []string{"agy", "zcode", "codex"}
-		required = 1
+		allowed = []string{"zcode", "codex"}
+		required = 2
 	}
 	if len(definition.ProviderPreferences) < required || len(definition.ProviderPreferences) > len(allowed) {
 		return fmt.Errorf("role catalog: invalid provider preferences for %q", role)

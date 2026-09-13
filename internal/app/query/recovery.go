@@ -28,6 +28,13 @@ func (service *Service) ReadFailedRunRecovery(ctx context.Context, run ports.Pub
 	if observed.decision.Status() != domain.PublicationNotPublished {
 		return recovery.Snapshot{}, fmt.Errorf("recovery conflicts with publication state")
 	}
+	retired, err := service.recoveryArtifactRetired(ctx, run, snapshot, make(map[string]struct{}))
+	if err != nil {
+		return recovery.Snapshot{}, err
+	}
+	if retired {
+		return recovery.Snapshot{}, typedFailure("query.read_recovery", domain.FailureArtifact, retiredProviderArtifactReason, nil)
+	}
 	if err := service.verifyRecoveryReplay(ctx, run, snapshot); err != nil {
 		return recovery.Snapshot{}, dependencyFailure(ctx, "query.read_recovery", domain.FailureArtifact, "exact recovery lineage is invalid", err)
 	}

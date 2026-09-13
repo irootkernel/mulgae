@@ -20,9 +20,7 @@ import (
 type CredentialSourceFamily string
 
 const (
-	CredentialSourceKimi  CredentialSourceFamily = "kimi"
 	CredentialSourceZCode CredentialSourceFamily = "zcode"
-	CredentialSourceAGY   CredentialSourceFamily = "agy"
 	CredentialSourceGrok  CredentialSourceFamily = "grok"
 	CredentialSourceCodex CredentialSourceFamily = "codex"
 )
@@ -32,7 +30,6 @@ type credentialProjectingNamespaceFactory struct {
 	runtimeHome      string
 	homeIdentity     fileIdentity
 	runtimeHomeInfo  os.FileInfo
-	nativeHomes      map[string]nativeHomeAuthority
 	instanceFamilies map[string]CredentialSourceFamily
 	instancePolicies map[string]RuntimeSafetyPolicy
 	configuredRoots  map[string]projectionRootAuthority
@@ -44,14 +41,6 @@ type projectionRootAuthority struct {
 	identity fileIdentity
 	info     os.FileInfo
 	uid      uint32
-}
-
-type nativeHomeAuthority struct {
-	home            string
-	identity        fileIdentity
-	info            os.FileInfo
-	uid             uint32
-	launchAuthority ports.NativeHomeLaunchAuthority
 }
 
 type fileIdentity struct {
@@ -72,14 +61,9 @@ type credentialSourceAuthority struct {
 }
 
 var credentialSources = map[CredentialSourceFamily][]credentialSource{
-	CredentialSourceKimi: {
-		{ports.CredentialProjectionKimiConfig, []string{".kimi-code", "config.toml"}},
-		{ports.CredentialProjectionKimiCredentials, []string{".kimi-code", "credentials", "kimi-code.json"}},
-	},
 	CredentialSourceZCode: {
 		{ports.CredentialProjectionZCodeConfig, []string{".zcode", "cli", "config.json"}},
 	},
-	CredentialSourceAGY: {},
 	CredentialSourceGrok: {
 		{ports.CredentialProjectionGrokAuth, []string{".grok", "auth.json"}},
 	},
@@ -94,7 +78,7 @@ var _ ports.ProviderNamespaceFactory = (*credentialProjectingNamespaceFactory)(n
 // seeded only from the declared, descriptor-anchored runtime home.
 //
 // This retained constructor supplies canonical defaults for projected-home
-// families; AGY requires an explicit native-home binding.
+// families.
 func NewCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily) (ports.ProviderNamespaceFactory, error) {
 	policies := make(map[string]RuntimeSafetyPolicy, len(instanceFamilies))
 	for instance, family := range instanceFamilies {
@@ -108,23 +92,21 @@ func NewCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 }
 
 // NewCredentialProjectingNamespaceFactoryWithPolicies wraps base with exact,
-// immutable per-instance runtime safety policies for projected-home families. AGY
-// requires NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes.
+// immutable per-instance runtime safety policies for projected-home families.
 func NewCredentialProjectingNamespaceFactoryWithPolicies(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy) (ports.ProviderNamespaceFactory, error) {
 	return newCredentialProjectingNamespaceFactory(base, runtimeHome, instanceFamilies, instancePolicies, nil, nil)
 }
 
-// NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes wraps base
-// with immutable policies and exact per-AGY installed-user HOME bindings.
-// nativeHomes must contain every and only AGY instance.
+// NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes is retained
+// as a compatibility-neutral constructor shape; native home mappings are no
+// longer supported.
 func NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy, nativeHomes map[string]string) (ports.ProviderNamespaceFactory, error) {
 	return newCredentialProjectingNamespaceFactory(base, runtimeHome, instanceFamilies, instancePolicies, nativeHomes, nil)
 }
 
 // NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots binds
 // provider-native read-only projection roots admitted from local
-// configuration. Kimi entries name the exact data_home, Codex entries name the
-// exact CODEX_HOME, and AGY has no projected credential source.
+// configuration. Entries name exact Codex credential homes.
 func NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy, nativeHomes, sourceRoots map[string]string) (ports.ProviderNamespaceFactory, error) {
 	return newCredentialProjectingNamespaceFactory(base, runtimeHome, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
 }
@@ -161,26 +143,14 @@ func newCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 
 	families := make(map[string]CredentialSourceFamily, len(instanceFamilies))
 	policies := make(map[string]RuntimeSafetyPolicy, len(instancePolicies))
-	nativeAuthorities := make(map[string]nativeHomeAuthority)
 	configuredRoots := make(map[string]projectionRootAuthority)
 	for instance, family := range instanceFamilies {
 		policy, ok := instancePolicies[instance]
 		if !validCredentialSourceInstance(instance) || !validCredentialSourceFamily(family) || !ok || policy.family != family || !validRuntimeSafetyPolicy(policy) {
 			return nil, fmt.Errorf("credential source factory: invalid configuration")
 		}
-		if family == CredentialSourceAGY {
-			nativeHome, mapped := nativeHomes[instance]
-			if !mapped {
-				return nil, fmt.Errorf("credential source factory: missing AGY native home")
-			}
-			authority, authorityErr := captureNativeHome(nativeHome)
-			if authorityErr != nil {
-				return nil, fmt.Errorf("credential source factory: unsafe AGY native home")
-			}
-			nativeAuthorities[instance] = authority
-		}
 		if rootPath, mapped := sourceRoots[instance]; mapped {
-			if family != CredentialSourceKimi && family != CredentialSourceCodex || !canonicalAbsolutePath(rootPath) {
+			if family != CredentialSourceCodex || !canonicalAbsolutePath(rootPath) {
 				return nil, fmt.Errorf("credential source factory: invalid configured source root")
 			}
 			root, openErr := openAbsoluteDirectory(rootPath)
@@ -200,17 +170,14 @@ func newCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 		families[instance] = family
 		policies[instance] = cloneRuntimeSafetyPolicy(policy)
 	}
-	for instance := range nativeHomes {
-		if families[instance] != CredentialSourceAGY {
-			return nil, fmt.Errorf("credential source factory: invalid AGY native home mapping")
-		}
+	if len(nativeHomes) != 0 {
+		return nil, fmt.Errorf("credential source factory: native home mappings are unsupported")
 	}
 	return &credentialProjectingNamespaceFactory{
 		base:             base,
 		runtimeHome:      runtimeHome,
 		homeIdentity:     identity,
 		runtimeHomeInfo:  homeInfo,
-		nativeHomes:      nativeAuthorities,
 		instanceFamilies: families,
 		instancePolicies: policies,
 		configuredRoots:  configuredRoots,
@@ -225,11 +192,7 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 	if !ok {
 		return nil, fmt.Errorf("credential source factory: unknown provider instance")
 	}
-	if family == CredentialSourceAGY {
-		if err := factory.revalidateNativeHome(instance); err != nil {
-			return nil, err
-		}
-	} else if err := factory.revalidateHome(instance); err != nil {
+	if err := factory.revalidateHome(instance); err != nil {
 		return nil, err
 	}
 	lease, err = factory.base.AcquireProviderNamespace(ctx, instance, providerFamily)
@@ -253,17 +216,6 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 		return nil, fmt.Errorf("credential source factory: missing runtime safety policy")
 	}
 	policy = cloneRuntimeSafetyPolicy(policy)
-	if family == CredentialSourceAGY {
-		authority, ok := factory.nativeHomes[instance]
-		if !ok {
-			_, _ = lease.DrainTerminal(context.Background())
-			return nil, fmt.Errorf("credential source factory: missing AGY native home")
-		}
-		if err := concrete.bindRuntimeHome(authority.home, authority.info, authority.launchAuthority); err != nil {
-			_, _ = lease.DrainTerminal(context.Background())
-			return nil, err
-		}
-	}
 	if err := concrete.installRuntimeSafetyPolicy(policy); err != nil {
 		_, _ = lease.DrainTerminal(context.Background())
 		return nil, err
@@ -320,45 +272,10 @@ func (factory *credentialProjectingNamespaceFactory) revalidateHome(instance str
 	}
 	return nil
 }
-func (factory *credentialProjectingNamespaceFactory) revalidateNativeHome(instance string) error {
-	authority, ok := factory.nativeHomes[instance]
-	if !ok {
-		return fmt.Errorf("credential source factory: missing AGY native home")
-	}
-	current, err := captureNativeHome(authority.home)
-	if err != nil || current.identity != authority.identity || current.uid != authority.uid || !os.SameFile(current.info, authority.info) {
-		return fmt.Errorf("credential source factory: AGY native home drift")
-	}
-	return nil
-}
-
-func captureNativeHome(path string) (nativeHomeAuthority, error) {
-	if !canonicalAbsolutePath(path) {
-		return nativeHomeAuthority{}, fmt.Errorf("invalid native home")
-	}
-	home, err := openAbsoluteDirectory(path)
-	if err != nil {
-		return nativeHomeAuthority{}, err
-	}
-	defer home.Close()
-	identity, err := identityOf(home)
-	info, infoErr := home.Stat()
-	var stat unix.Stat_t
-	statErr := unix.Fstat(int(home.Fd()), &stat)
-	if err != nil || infoErr != nil || statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || stat.Uid != uint32(unix.Geteuid()) {
-		return nativeHomeAuthority{}, fmt.Errorf("unsafe native home")
-	}
-	launchAuthority, authorityErr := ports.NewNativeHomeLaunchAuthority(path, identity.device, identity.inode, stat.Uid)
-	if authorityErr != nil {
-		return nativeHomeAuthority{}, fmt.Errorf("unsafe native home")
-	}
-	return nativeHomeAuthority{home: path, identity: identity, info: info, uid: stat.Uid, launchAuthority: launchAuthority}, nil
-}
-
 func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context, lease ports.ProviderNamespaceLease, instance string, family CredentialSourceFamily, source credentialSource) error {
 	rootPath, rootIdentity := factory.runtimeHome, factory.homeIdentity
 	components := append([]string(nil), source.components...)
-	if configured, ok := factory.configuredRoots[instance]; ok && (family == CredentialSourceKimi || family == CredentialSourceCodex) {
+	if configured, ok := factory.configuredRoots[instance]; ok && family == CredentialSourceCodex {
 		rootPath, rootIdentity = configured.path, configured.identity
 		components = components[1:]
 	}

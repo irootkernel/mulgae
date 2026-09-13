@@ -1,0 +1,13 @@
+{
+  "attempted": true,
+  "authentication_may_occur": true,
+  "checked_at": "2026-08-16T00:00:00Z",
+  "cost_may_occur": true,
+  "credential_profile": "",
+  "network_may_occur": true,
+  "provider_id": "grok",
+  "reason_code": "heartbeat_succeeded",
+  "remote_logging_may_occur": true,
+  "schema_version": "mulgae-provider-heartbeat-result.v3",
+  "status": "succeeded"
+}

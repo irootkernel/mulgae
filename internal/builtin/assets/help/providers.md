@@ -1,11 +1,10 @@
 # Providers and role paths
 
-Mulgae supports the `kimi`, `zcode`, `agy`, `grok`, and `codex` provider
+Mulgae supports the `zcode`, `grok`, and `codex` provider
 families. Provider executables must be installed and authenticated before review.
 
-Automatic initialization selects ZCode and requires it to be available. AGY,
-Kimi, Grok, and Codex remain explicit-only providers and do not change the ZCode
-auto topology.
+Automatic initialization selects ZCode and Grok, requires both to be available,
+and assigns every default role to ZCode. Codex remains explicit-only.
 
 ```bash
 mulgae providers
@@ -61,7 +60,7 @@ the providers it configured and takes the first match as the role's provider.
 That is a generation-time default only: after init the shared project policy is
 the sole routing authority and is never re-derived.
 
-ZCode, AGY, Grok, and Codex reviews run against Mulgae's immutable captured directory view
+ZCode, Grok, and Codex reviews run against Mulgae's immutable captured directory view
 with adapter-owned tool boundaries. Providers may selectively read/search that
 view; they do not receive live project-tree access, shell, or network
 authority from Mulgae. A single tree is under `current/`; Git comparisons are
@@ -91,25 +90,14 @@ Role reports reach Mulgae over a per-family transport recorded in
   `role-report.md`. Any other permission request, tool path, active MCP server,
   protocol mismatch, or repeated write fails closed. Grok is text-only; an
   `artist` assignment fails preflight with `provider_capability_unsupported`.
-- AGY, Kimi, and Codex: `stdout`. Headless AGY auto-denies `write_file` in
-  safe mode.
+- Codex: `stdout`.
 - Exact replay (`rerun --replay exact`) keeps the provider family's transport. For
   ZCode and Grok, Mulgae preserves the stored review frames but replaces the
   expired output path with a fresh per-launch staging destination.
 
-AGY keeps `--new-project --sandbox --add-dir <workspace> --mode plan` limited to
-the immutable captured workspace. The default AGY `permission_mode` is `safe` so headless
-write/shell requests remain denied. Set
-`providers.agy.permission_mode: "dangerously-skip-permissions"` only as an
-explicit opt-in; Mulgae reports a warning because that mode may approve write or
-shell tool requests outside the read-oriented boundary. Permission denials under
-`safe` are reported as `provider_permission_denied`, not as output decode failures.
-
 Capability probes stay prompt-bound to the embedded fixture packet and must not
 induce workspace or tool reads. ZCode capability remains tool-denied; selective
-workspace reads apply only to review invocations. Kimi has no adapter-owned
-workspace read tools; its process working directory is still the immutable
-workspace view.
+workspace reads apply only to review invocations.
 
 Codex 0.149.0 or newer uses stdin for the review packet and exact stdout for the
 role report. A legacy configuration projects only native

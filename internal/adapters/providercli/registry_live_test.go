@@ -40,22 +40,18 @@ type liveCapabilityConfig struct {
 	transportIndex int
 	transport      ports.ProviderPacketChannel
 	minimumVersion [3]int
-	kimiModel      string
 	protectedPaths func(string, string) []string
 }
 
-func TestLiveKimiCapability(t *testing.T) {
-	config := liveCapabilityConfig{
-		family: providercli.FamilyKimi, credential: providercli.CredentialSourceKimi, instance: "kimi-logic", role: domain.RoleLogic,
-		executableEnv: "MULGAE_LIVE_KIMI_BIN", dataHomeEnv: "MULGAE_LIVE_KIMI_DATA_HOME", transportIndex: 4,
-		minimumVersion: [3]int{0, 38, 0}, kimiModel: "kimi-code/kimi-for-coding",
-		protectedPaths: func(_ string, dataHome string) []string {
-			return []string{filepath.Join(dataHome, "config.toml"), filepath.Join(dataHome, "credentials", "kimi-code.json")}
-		},
+func TestMain(m *testing.M) {
+	handled, err := processadapter.ExecInheritedDirectory(os.Args)
+	if handled {
+		if err != nil {
+			os.Exit(125)
+		}
+		os.Exit(126)
 	}
-	if err := certifyLiveCapability(t, config); err != nil {
-		t.Fatal(liveProbeFailureMessage("kimi live capability certification", err))
-	}
+	os.Exit(m.Run())
 }
 
 func TestLiveZCodeCapability(t *testing.T) {
@@ -286,7 +282,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	families := map[string]providercli.CredentialSourceFamily{config.instance: config.credential}
 	policies := map[string]providercli.RuntimeSafetyPolicy{config.instance: policy}
 	sourceRoots := map[string]string{}
-	if config.credential == providercli.CredentialSourceKimi || config.credential == providercli.CredentialSourceCodex {
+	if config.credential == providercli.CredentialSourceCodex {
 		sourceRoots[config.instance] = dataHome
 	}
 	var projectedNamespaces ports.ProviderNamespaceFactory
@@ -319,7 +315,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
 		Family: config.family, Instance: config.instance, Executable: executable, ExecutableSHA256: executableSHA,
 		Launcher: launcher, LauncherSHA256: launcherSHA, ProfileID: config.instance,
-		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(), KimiModel: config.kimiModel,
+		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(),
 		BaseArgv: baseArgv, TransportChannel: transportChannel, TransportArgvIndex: config.transportIndex,
 		WorkingDirectory: "/private/var/empty", Timeout: 3 * time.Minute,
 	})

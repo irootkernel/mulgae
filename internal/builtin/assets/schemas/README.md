@@ -10,6 +10,7 @@ Draft 2020-12 and a canonical
 | Schema | Valid example |
 |---|---|
 | `mulgae-command-result.v9` | `../examples/command-result.v9.valid.json` |
+| `mulgae-command-result.v10` | `../examples/command-result.v10.valid.json` |
 | `mulgae-command-result.v8` | `../examples/command-result.v8.valid.json` |
 | `mulgae-command-result.v7` | `../examples/command-result.v7.valid.json` |
 | `mulgae-run-recovery.v1` | `../examples/run-recovery.v1.valid.json` |
@@ -23,14 +24,17 @@ Draft 2020-12 and a canonical
 | `mulgae-command-result.v5` | `../examples/command-result.v5.valid.json` |
 | `mulgae-command-result.v6` | `../examples/command-result.v6.valid.json` |
 | `mulgae-doctor-result.v3` | `../examples/doctor-result.v3.valid.json` |
+| `mulgae-doctor-result.v4` | `../examples/doctor-result.v4.valid.json` |
 | `mulgae-doctor-result.v2` | `../examples/doctor-result.v2.valid.json` |
 | `mulgae-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` |
 | `mulgae-file-catalog.v1` | `../examples/file-catalog.v1.valid.json` |
 | `mulgae-mcp-tool-result.v1` | `../examples/mcp-tool-result.v1.valid.json` |
 | `mulgae-platform-contract-evidence.v1` | `../examples/platform-contract-evidence.v1.valid.json` |
 | `mulgae-provider-contract-evidence.v3` | `../examples/provider-contract-evidence.v3.valid.json` |
+| `mulgae-provider-contract-evidence.v4` | `../examples/provider-contract-evidence.v4.valid.json` |
 | `mulgae-provider-contract-evidence.v2` | `../examples/provider-contract-evidence.v2.valid.json` |
 | `mulgae-provider-heartbeat-result.v2` | `../examples/provider-heartbeat-result.v2.valid.json` |
+| `mulgae-provider-heartbeat-result.v3` | `../examples/provider-heartbeat-result.v3.valid.json` |
 | `mulgae-provider-heartbeat-result.v1` | `../examples/provider-heartbeat-result.v1.valid.json` |
 | `mulgae-provider-followup-output.v1` | `../examples/provider-followup-output.v1.valid.json` |
 | `mulgae-provider-review-output.v1` | `../examples/provider-review-output.v1.valid.json` |
@@ -39,6 +43,7 @@ Draft 2020-12 and a canonical
 | `mulgae-repair-request.v1` | `../examples/repair-request.json` |
 | `mulgae-review-artifact.v1` | `../examples/review-artifact.v1.valid.json` |
 | `mulgae-review-preflight.v4` | `../examples/review-preflight.v4.valid.json` |
+| `mulgae-review-preflight.v5` | `../examples/review-preflight.v5.valid.json` |
 | `mulgae-review-preflight.v3` | `../examples/review-preflight.v3.valid.json` |
 | `mulgae-run-manifest.v1` | `../examples/run-manifest.v1.valid.json` |
 | `mulgae-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` |

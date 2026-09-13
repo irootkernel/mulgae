@@ -23,20 +23,15 @@ const (
 	SelectionSelected SelectionMode = "selected"
 )
 
-var familyOrder = []string{"kimi", "zcode", "agy", "grok", "codex"}
+var familyOrder = []string{"zcode", "grok", "codex"}
 
 type Selection struct {
 	Mode        SelectionMode
 	ProviderIDs []string
 }
 type Overrides struct {
-	KimiExecutable       string
-	KimiModel            string
-	KimiDataHome         string
 	ZCodeNodeExecutable  string
 	ZCodeLauncher        string
-	AGYExecutable        string
-	AGYPermissionMode    string
 	GrokExecutable       string
 	CodexExecutable      string
 	CodexModel           string
@@ -210,7 +205,7 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 		result.DestinationState = ports.ConfigDestinationPresent
 		return result, newFailure(domain.FailureConfiguration, "init_destination_exists", false, nil)
 	}
-	if request.RefreshLocal && !source.Present() {
+	if request.RefreshLocal && !source.Present() && !projectPresent {
 		return result, newFailure(domain.FailureConfiguration, "init_local_missing", false, nil)
 	}
 	if projectPresent && request.ProjectPolicyOptions {
@@ -334,7 +329,7 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	var receipt ports.ConfigInstallReceipt
 	var installErr error
 	switch {
-	case request.RefreshLocal:
+	case request.RefreshLocal && source.Present():
 		receipt, installErr = splitInstaller.RefreshLocalConfig(ctx, request.ProjectRoot, directory, localCanonical)
 	case projectPresent:
 		receipt, installErr = splitInstaller.InstallLocalConfig(ctx, request.ProjectRoot, directory, localCanonical)
@@ -498,22 +493,22 @@ func mutationFailure(result InitializeProjectResult, writeState string, destinat
 var errUnsafeDiscovery = errors.New("unsafe provider discovery")
 
 type candidates struct {
-	kimi  *appconfig.KimiProviderConfig
 	zcode *appconfig.ZCodeProviderConfig
-	agy   *appconfig.AGYProviderConfig
 	grok  *appconfig.GrokProviderConfig
 	codex *appconfig.CodexProviderConfig
 }
 
 func (service *Service) discover(ctx context.Context, request InitializeProjectRequest) (candidates, []DiscoveryRow, error) {
-	wanted := map[string]bool{"zcode": request.Selection.Mode == SelectionAuto}
+	wanted := map[string]bool{
+		"zcode": request.Selection.Mode == SelectionAuto,
+		"grok":  request.Selection.Mode == SelectionAuto,
+	}
 	for _, id := range request.Selection.ProviderIDs {
 		wanted[id] = true
 	}
 	rows := make([]DiscoveryRow, 0, len(familyOrder))
 	var found candidates
 	var discoveryErrors []error
-	var securityErrors []error
 	for _, family := range familyOrder {
 		row := notSelectedDiscoveryRow(family)
 		row.Selected = wanted[family]
@@ -523,51 +518,6 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 		}
 		row.Status = "unavailable"
 		switch family {
-		case "kimi":
-			executable := ""
-			row.ExecutableSource = "not_discovered"
-			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverrides(ctx, service.inspector, reviewrun.FamilyKimi, request.Overrides.KimiExecutable, "")
-			if request.Overrides.KimiExecutable != "" {
-				row.ExecutableSource = "override"
-			}
-			if profileErr != nil {
-				discoveryErrors = append(discoveryErrors, profileErr)
-			} else if profile.Executable() != "" {
-				executable = profile.Executable()
-				if request.Overrides.KimiExecutable == "" {
-					row.ExecutableSource = "startup_path"
-				}
-			}
-			model := request.Overrides.KimiModel
-			row.ModelSource = "override"
-			if model == "" {
-				model = appconfig.DefaultKimiModel
-				row.ModelSource = "default_k3"
-			}
-			dataHome := request.Overrides.KimiDataHome
-			row.DataHomeSource = "override"
-			familyUnsafe := false
-			if dataHome == "" {
-				dataHome = appconfig.DefaultKimiDataHome(request.NativeHome)
-				row.DataHomeSource = "native_home_default"
-				if source, ok := service.inspector.(interface{ KimiCodeHome() (string, error) }); ok {
-					startupHome, sourceErr := source.KimiCodeHome()
-					if sourceErr != nil {
-						securityErrors = append(securityErrors, sourceErr)
-						row.DataHomeSource = "startup_environment"
-						familyUnsafe = true
-					}
-					if startupHome != "" {
-						dataHome = startupHome
-						row.DataHomeSource = "startup_environment"
-					}
-				}
-			}
-			if !familyUnsafe && executable != "" {
-				found.kimi = &appconfig.KimiProviderConfig{Executable: executable, Model: model, DataHome: dataHome, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
-				row.Candidate = true
-				row.Status = "candidate"
-			}
 		case "zcode":
 			node, launcher := "", ""
 			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverrides(ctx, service.inspector, reviewrun.FamilyZCode, request.Overrides.ZCodeNodeExecutable, request.Overrides.ZCodeLauncher)
@@ -590,37 +540,6 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 			}
 			if node != "" && launcher != "" {
 				found.zcode = &appconfig.ZCodeProviderConfig{NodeExecutable: node, Launcher: launcher, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
-				row.Candidate = true
-				row.Status = "candidate"
-			}
-		case "agy":
-			executable := ""
-			row.ExecutableSource = "not_discovered"
-			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverrides(ctx, service.inspector, reviewrun.FamilyAGY, request.Overrides.AGYExecutable, "")
-			if request.Overrides.AGYExecutable != "" {
-				row.ExecutableSource = "override"
-			}
-			if profileErr != nil {
-				discoveryErrors = append(discoveryErrors, profileErr)
-			} else if profile.Executable() != "" {
-				executable = profile.Executable()
-				if request.Overrides.AGYExecutable == "" {
-					row.ExecutableSource = "startup_path"
-				}
-			}
-			row.NativeHomeSource = "os_account"
-			if request.NativeHomeAsserted {
-				row.NativeHomeSource = "verified_equal_input"
-			}
-			mode := request.Overrides.AGYPermissionMode
-			modeExplicit := mode != ""
-			row.PermissionModeSource = "explicit"
-			if mode == "" {
-				mode = appconfig.DefaultAGYPermissionMode
-				row.PermissionModeSource = "safe_default"
-			}
-			if executable != "" {
-				found.agy = &appconfig.AGYProviderConfig{Executable: executable, PermissionMode: mode, PermissionModeExplicit: modeExplicit, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
 				row.Candidate = true
 				row.Status = "candidate"
 			}
@@ -676,11 +595,8 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 		rows = append(rows, row)
 	}
 	ids := candidateIDs(found)
-	if len(securityErrors) != 0 {
-		return found, rows, errors.Join(append([]error{errUnsafeDiscovery}, securityErrors...)...)
-	}
-	if request.Selection.Mode == SelectionAuto && !contains(ids, "zcode") {
-		return found, rows, errors.Join(append([]error{errors.New("auto selection requires zcode")}, discoveryErrors...)...)
+	if request.Selection.Mode == SelectionAuto && (!contains(ids, "zcode") || !contains(ids, "grok")) {
+		return found, rows, errors.Join(append([]error{errors.New("auto selection requires zcode and grok")}, discoveryErrors...)...)
 	}
 	if request.Selection.Mode == SelectionSelected {
 		for _, id := range request.Selection.ProviderIDs {
@@ -695,17 +611,9 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 func notSelectedDiscoveryRow(family string) DiscoveryRow {
 	row := DiscoveryRow{Family: family, Status: "not_selected"}
 	switch family {
-	case "kimi":
-		row.ExecutableSource = "not_selected"
-		row.ModelSource = "not_selected"
-		row.DataHomeSource = "not_selected"
 	case "zcode":
 		row.NodeExecutableSource = "not_selected"
 		row.LauncherSource = "not_selected"
-	case "agy":
-		row.ExecutableSource = "not_selected"
-		row.NativeHomeSource = "not_selected"
-		row.PermissionModeSource = "not_selected"
 	case "grok":
 		row.ExecutableSource = "not_selected"
 	case "codex":
@@ -717,7 +625,7 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 }
 
 func candidateConfig(request InitializeProjectRequest, defaults appconfig.RoleDefaults, value candidates) (appconfig.Config, error) {
-	providers := appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy, Grok: value.grok, Codex: value.codex}
+	providers := appconfig.ProvidersConfig{ZCode: value.zcode, Grok: value.grok, Codex: value.codex}
 	selectedRoles, _ := validateRoleSelection(request.RoleIDs)
 	roles, err := appconfig.CanonicalRolesConfigForSelection(defaults, providers.Families(), selectedRoles)
 	if err != nil {
@@ -782,14 +690,8 @@ func validateRoleSelection(roles []string) ([]string, error) {
 }
 func candidateIDs(value candidates) []string {
 	ids := make([]string, 0, len(familyOrder))
-	if value.kimi != nil {
-		ids = append(ids, "kimi")
-	}
 	if value.zcode != nil {
 		ids = append(ids, "zcode")
-	}
-	if value.agy != nil {
-		ids = append(ids, "agy")
 	}
 	if value.grok != nil {
 		ids = append(ids, "grok")
@@ -804,7 +706,7 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 		return nil, fmt.Errorf("mode")
 	}
 	if selection.Mode == SelectionAuto {
-		if len(selection.ProviderIDs) != 0 || overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "" || overrides.AGYExecutable != "" || overrides.AGYPermissionMode != "" || overrides.GrokExecutable != "" || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" {
+		if len(selection.ProviderIDs) != 0 || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" {
 			return nil, fmt.Errorf("auto members")
 		}
 		return []string{}, nil
@@ -821,14 +723,8 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 	if len(selected) != len(selection.ProviderIDs) {
 		return nil, fmt.Errorf("unknown or duplicate selection")
 	}
-	if !contains(selected, "kimi") && (overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "") {
-		return nil, fmt.Errorf("kimi override")
-	}
 	if !contains(selected, "zcode") && (overrides.ZCodeNodeExecutable != "" || overrides.ZCodeLauncher != "") {
 		return nil, fmt.Errorf("zcode override")
-	}
-	if !contains(selected, "agy") && (overrides.AGYExecutable != "" || overrides.AGYPermissionMode != "") {
-		return nil, fmt.Errorf("agy override")
 	}
 	if !contains(selected, "grok") && overrides.GrokExecutable != "" {
 		return nil, fmt.Errorf("grok override")
@@ -856,7 +752,7 @@ func contains(values []string, value string) bool {
 	return false
 }
 func discoveryReason(selection Selection, ids []string) string {
-	if selection.Mode == SelectionAuto && !contains(ids, "zcode") {
+	if selection.Mode == SelectionAuto && (!contains(ids, "zcode") || !contains(ids, "grok")) {
 		return "init_auto_provider_topology_unavailable"
 	}
 	return "init_provider_unavailable"
@@ -878,7 +774,7 @@ func initFailureMessage(code string) string {
 	case "init_discovery_empty":
 		return "No supported provider was discovered."
 	case "init_auto_provider_topology_unavailable":
-		return "Automatic initialization requires ZCode."
+		return "Automatic initialization requires ZCode and Grok."
 	case "init_provider_unavailable":
 		return "A selected provider is unavailable."
 	case "init_private_dir_raced":

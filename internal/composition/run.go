@@ -196,8 +196,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		build: build, root: root, artifactRoot: artifactRoot, catalog: catalog, validator: validator, projectReader: gitAdapter,
 		clock: clock, ids: ids, writer: writer, publicationStore: publicationStore, stdin: requestResolver, sources: childSources,
 	}
-	startupKimiCodeHome := os.Getenv("KIMI_CODE_HOME")
-	startupInspector := environment.NewStartupDiscoveryInspector(os.Getenv("PATH"), startupKimiCodeHome, root)
+	startupInspector := environment.NewStartupDiscoveryInspector(os.Getenv("PATH"), root)
 	reviewRuns := newDeferredReviewRunServiceWithPreflight(func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewRunService, error) {
 		if buildErr != nil {
 			return nil, unavailableBuildMetadata(buildErr)

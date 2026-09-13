@@ -27,14 +27,9 @@ commands:
     timeout_sec: 11400
   e2e-opt-in:
     command: ["make", "test-e2e-opt-in"]
-    tags: [go, e2e, live, kimi, codex, multi-profile]
+    tags: [go, e2e, live, codex, multi-profile]
     parser: go-test
     timeout_sec: 7200
-  kimi:
-    command: ["make", "test-kimi"]
-    tags: [go, e2e, live, kimi]
-    parser: go-test
-    timeout_sec: 6000
   grok:
     command: ["make", "test-grok"]
     tags: [go, e2e, live, grok]

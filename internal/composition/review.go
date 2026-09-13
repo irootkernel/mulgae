@@ -304,7 +304,7 @@ func (service *productionReviewPreflightService) PreflightReview(ctx context.Con
 	if err != nil {
 		return mulgae.ReviewPreflightResult{}, err
 	}
-	return mulgae.NewReviewPreflightResult(material, receipt, request.Target().Kind(), plan, budget, service.policy.agyPermissionMode)
+	return mulgae.NewReviewPreflightResult(material, receipt, request.Target().Kind(), plan, budget)
 }
 
 func resolvePreflightSelection(request mulgae.ReviewRequest, policy productionRunPolicy) ([]domain.Role, ports.ArtistReviewInputs, bool, error) {
@@ -366,16 +366,15 @@ func cleanupReviewCompositionRoots(cleanup bool, namespaceRoot, workspaceRoot po
 }
 
 type productionRunPolicy struct {
-	planner           reviewrun.PlannerPolicy
-	requiredRoles     []domain.Role
-	enabledRoles      map[domain.Role]bool
-	agyPermissionMode string
-	providerTimeouts  map[reviewrun.Family]time.Duration
-	config            adapterconfig.Config
-	source            *adapterconfig.LocalConfigSource
-	attestor          ports.ConfigLocalityAttestor
-	localityRequest   ports.ConfigLocalityRequest
-	locality          ports.ConfigLocalityContext
+	planner          reviewrun.PlannerPolicy
+	requiredRoles    []domain.Role
+	enabledRoles     map[domain.Role]bool
+	providerTimeouts map[reviewrun.Family]time.Duration
+	config           adapterconfig.Config
+	source           *adapterconfig.LocalConfigSource
+	attestor         ports.ConfigLocalityAttestor
+	localityRequest  ports.ConfigLocalityRequest
+	locality         ports.ConfigLocalityContext
 }
 
 // resolveProductionRunPolicy admits the sole project-local configuration before
@@ -480,15 +479,14 @@ func boundLocalitySpawnVerifier(ctx context.Context, inner providercli.SpawnVeri
 }
 
 type configuredProductionCandidateSource struct {
-	inspector         ports.EnvironmentInspector
-	config            adapterconfig.Config
-	policyIdentities  map[reviewrun.Family]string
-	agyPermissionMode string
-	providerTimeouts  map[reviewrun.Family]time.Duration
-	source            *adapterconfig.LocalConfigSource
-	attestor          ports.ConfigLocalityAttestor
-	staticRequest     ports.ConfigLocalityRequest
-	staticContext     ports.ConfigLocalityContext
+	inspector        ports.EnvironmentInspector
+	config           adapterconfig.Config
+	policyIdentities map[reviewrun.Family]string
+	providerTimeouts map[reviewrun.Family]time.Duration
+	source           *adapterconfig.LocalConfigSource
+	attestor         ports.ConfigLocalityAttestor
+	staticRequest    ports.ConfigLocalityRequest
+	staticContext    ports.ConfigLocalityContext
 }
 
 func (source *configuredProductionCandidateSource) BindQualifiedRunContext(ctx context.Context, captured reviewrun.CapturedRunInput) (context.Context, error) {
@@ -592,14 +590,8 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 
 func (source *configuredProductionCandidateSource) productionCandidateSource(ctx context.Context) (*reviewrun.ProductionQualifiedRunCandidateSource, error) {
 	configured := make(map[reviewrun.Family][]string, source.config.Providers.Count())
-	if provider := source.config.Providers.Kimi; provider != nil {
-		configured[reviewrun.FamilyKimi] = []string{provider.Executable}
-	}
 	if provider := source.config.Providers.ZCode; provider != nil {
 		configured[reviewrun.FamilyZCode] = []string{provider.NodeExecutable, provider.Launcher}
-	}
-	if provider := source.config.Providers.AGY; provider != nil {
-		configured[reviewrun.FamilyAGY] = []string{provider.Executable}
 	}
 	if provider := source.config.Providers.Grok; provider != nil {
 		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
@@ -611,16 +603,12 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 	if err != nil {
 		return nil, err
 	}
-	kimiModel := adapterconfig.DefaultKimiModel
-	if provider := source.config.Providers.Kimi; provider != nil {
-		kimiModel = provider.Model
-	}
 	codexModel, codexReasoningEffort := "", ""
 	if provider := source.config.Providers.Codex; provider != nil {
 		codexModel, codexReasoningEffort = provider.Model, provider.ReasoningEffort
 	}
-	return reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndRuntimeSettingsAndCodexCredentialProfilesAndTimeouts(
-		providercli.RuntimeBuilder{}, profiles, source.policyIdentities, source.agyPermissionMode, kimiModel,
+	return reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndCodexSettingsAndTimeouts(
+		providercli.RuntimeBuilder{}, profiles, source.policyIdentities,
 		codexModel, codexReasoningEffort,
 		configuredCodexCredentialProfiles(source.config),
 		cloneProviderTimeouts(source.providerTimeouts),
@@ -778,10 +766,6 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		DegradedReviewFails:   resolved.DegradedReviewFails(),
 		IncompleteReviewFails: true,
 	}
-	agyPermissionMode := adapterconfig.DefaultAGYPermissionMode
-	if providers := resolved.Providers(); providers.AGY != nil {
-		agyPermissionMode = providers.AGY.PermissionMode
-	}
 	providerTimeouts := make(map[reviewrun.Family]time.Duration, len(reviewrun.Families()))
 	for _, family := range reviewrun.Families() {
 		providerTimeouts[family] = appconfig.DefaultProviderTimeout
@@ -794,11 +778,10 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 			Ceilings: ceilings, Threshold: requestChanges[0], Policy: &ci, MaxWorkers: resolved.Runtime().MaxActiveLanes, Assignments: assignments, RequiredRoles: resolved.RequiredRoles(),
 			Extraction: resolved.ExtractionEnabled(),
 		},
-		requiredRoles:     resolved.RequiredRoles(),
-		enabledRoles:      enabled,
-		agyPermissionMode: agyPermissionMode,
-		providerTimeouts:  providerTimeouts,
-		config:            resolved.Raw(),
+		requiredRoles:    resolved.RequiredRoles(),
+		enabledRoles:     enabled,
+		providerTimeouts: providerTimeouts,
+		config:           resolved.Raw(),
 	}, nil
 }
 

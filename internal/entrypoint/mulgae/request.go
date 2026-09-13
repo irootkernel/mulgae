@@ -291,13 +291,8 @@ type InitRequest struct {
 	roleIDs              []string
 	nativeHome           string
 	hasNativeHome        bool
-	kimiExecutable       string
-	kimiModel            string
-	kimiDataHome         string
 	zcodeNodeExecutable  string
 	zcodeLauncher        string
-	agyExecutable        string
-	agyPermissionMode    string
 	grokExecutable       string
 	codexExecutable      string
 	codexModel           string
@@ -334,14 +329,8 @@ func (request InitRequest) Roles() []string { return cloneStrings(request.roleID
 func (request InitRequest) NativeHome() (string, bool) {
 	return request.nativeHome, request.hasNativeHome
 }
-func (request InitRequest) KimiOverrides() (string, string, string) {
-	return request.kimiExecutable, request.kimiModel, request.kimiDataHome
-}
 func (request InitRequest) ZCodeOverrides() (string, string) {
 	return request.zcodeNodeExecutable, request.zcodeLauncher
-}
-func (request InitRequest) AGYOverrides() (string, string) {
-	return request.agyExecutable, request.agyPermissionMode
 }
 func (request InitRequest) GrokExecutable() string { return request.grokExecutable }
 func (request InitRequest) CodexOverrides() (string, string, string) {

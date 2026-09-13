@@ -10,6 +10,7 @@ const (
 	ReasonSizeInvalid             = appconfig.ReasonSizeInvalid
 	ReasonProviderTimeoutInvalid  = appconfig.ReasonProviderTimeoutInvalid
 	ReasonProviderIdentityInvalid = appconfig.ReasonProviderIdentityInvalid
+	ReasonProviderRetired         = appconfig.ReasonProviderRetired
 	ReasonRoleMappingInvalid      = appconfig.ReasonRoleMappingInvalid
 	ReasonCredentialKeyDetected   = appconfig.ReasonCredentialKeyDetected
 	ReasonCredentialValueDetected = appconfig.ReasonCredentialValueDetected

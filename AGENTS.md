@@ -349,16 +349,13 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   is not satisfied, run `make test`.
 - `make test` calls `make test-e2e-opt-in` after the mandatory E2E target. It
   reports a stable skip unless `MULGAE_E2E_OPT_IN=1`; the default complete gate
-  therefore does not require Kimi or a second Codex credential home.
+  therefore does not require Codex credentials.
 - When enabled, `make test-e2e-opt-in` requires explicit primary and secondary
-  Codex homes plus a Kimi data home and runs exactly three roles: Kimi logic,
-  Codex-primary security, and Codex-secondary documentation. Missing or unsafe
+  Codex homes and runs exactly three roles: Codex-primary logic and security,
+  plus Codex-secondary documentation. Missing or unsafe
   prerequisites and provider failures fail the target; do not downgrade them to
   skips or substitute another provider.
-- `make test-kimi` is an opt-in compatibility check and is not part of `make test`.
-  Report it as skipped unless it was explicitly run; do not imply Kimi was live
-  verified when it was not.
-- Do not call a change release-ready when mandatory ZCode/Codex live checks were
+- Do not call a change release-ready when mandatory ZCode/Grok live checks were
   skipped, except under the explicit patch-only release rule above with the
   user's full-gate waiver recorded. Distinguish test success from commit, tag,
   push, release, installation, and runtime activation.
@@ -385,9 +382,8 @@ running it through Gaori from the repository root:
 - unit tests: `gaori run unit`
 - integration tests: `gaori run integration`
 - release-binary checks: `gaori run release`
-- mandatory ZCode/Codex live E2E checks: `gaori run e2e`
-- opt-in Kimi/two-profile Codex E2E: `gaori run e2e-opt-in`
-- opt-in Kimi compatibility check: `gaori run kimi`
+- mandatory ZCode/Grok live E2E checks: `gaori run e2e`
+- opt-in two-profile Codex E2E: `gaori run e2e-opt-in`
 - complete release gate: `gaori run full`
 
 For a dynamically selected Go test, use an explicit parser and tags:

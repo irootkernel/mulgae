@@ -23,7 +23,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-001](#epic-001-token-efficient-review-waiting) | Completed | Let attached agents await long reviews without repeated model turns while preserving exact lifecycle and publication authority. |
 | [EPIC-002](#epic-002-composite-recovery-for-incomplete-multi-role-reviews) | Completed | Recover missing required-role coverage by composing exact same-target rerun results into one authoritative immutable review. |
 | [EPIC-003](#epic-003-zcode-app-server-provider-transport) | Completed | Drive ZCode review and qualification through the ZCode app-server wire protocol instead of one-shot print invocations. |
-| [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | In Progress | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
+| [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | Completed | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
 
 ## EPIC-001: Token-efficient review waiting
 
@@ -117,9 +117,12 @@ concrete blocker instead of forcing the migration.
 
 ## EPIC-004: ZCode-first review with Grok recovery
 
-Status: In Progress
+Status: Completed
 
-Detailed SOT: [ZCode-first review with Grok recovery](../todo/TODO-zcode-grok-provider-strategy.md)
+Canonical Outcomes: [provider contracts](../specs/contracts.md),
+[security boundary](../specs/security.md),
+[implementation and release guidance](../implementation-tips/README.md), and
+[final provider portfolio decision](../architecture-decision-records/final-provider-portfolio.md)
 
 Goal: make ZCode the default provider for every role, add Grok as an explicit
 operator-selected text-role recovery provider over its ACP stdio surface,
@@ -130,13 +133,9 @@ provider substitution.
 |---|---|---|---|
 | TASK-011 | Completed | Unify every protocol invocation purpose behind one channel-plus-driver authority, resolve `DF-001`, and turn the verified Grok CLI 1.0.30 and ACP v1 planning baseline into deterministic protocol, permission, isolation, and lifecycle contracts. | Preserved the named ZCode protocol regressions and proved exact ACP correlation and write authorization, project-policy suppression, cancellation, timeout, process-tree cleanup, and the isolated live matrix. |
 | TASK-012 | Completed | Add Grok as an explicitly selectable text-role provider beside Kimi, ZCode, AGY, and Codex, reusing Mulgae's workspace, namespace, credential, and staged-output authorities. Reject Grok artist assignments before execution. | Published the five-provider contract and verified configuration, CLI/MCP projection, exact ACP permission and staged output, typed failures, text-role recovery, artist preflight rejection, and an authorized exact-binary live Grok review. |
-| TASK-013 | Planned | Atomically publish the final ZCode/Grok/Codex portfolio with typed transitive retirement, cleanup-only structural inspection, ZCode-first defaults, mandatory ZCode/Grok live certification, and opt-in Codex live certification. | Prove retirement and historical-read boundaries, safe cleanup, retained deterministic Codex coverage, schema and documentation conformance, generator idempotence, and the complete `make test` gate; run authorized Codex `make test-e2e-opt-in` or report its stable skip. |
+| TASK-013 | Completed | Published the final ZCode/Grok/Codex portfolio with typed transitive retirement, cleanup-only structural inspection, ZCode-first defaults, mandatory ZCode/Grok live certification, and opt-in Codex live certification. | Proved retirement and historical-read boundaries, safe cleanup, retained deterministic Codex coverage, schema and documentation conformance, generator idempotence, and the complete `make test` gate; Codex live testing remains an explicit opt-in. |
 
-The tasks are sequential. The planning spike established the Grok wire, text-only
-capability, and isolation direction, but it is not release evidence. TASK-011
-must complete the remaining lifecycle and exact-binary checks before TASK-012
-exposes a production route. TASK-012 publishes an internally consistent
-five-provider support boundary before TASK-013 removes the outgoing providers
-with new contract versions. TASK-013 is one atomic portfolio cutover so init
-defaults, provider discovery, public contracts, documentation, and live release
-evidence cannot disagree.
+The tasks were completed sequentially. TASK-011 established the shared protocol
+driver authority, TASK-012 introduced the Grok route, and TASK-013 completed the
+three-provider cutover across runtime behavior, contracts, documentation, and
+release evidence.

@@ -71,17 +71,9 @@ func ResolveConfiguration(raw Config) (ResolvedConfig, error) {
 
 func configuredProviderTimeout(providers ProvidersConfig, family string) string {
 	switch family {
-	case "kimi":
-		if providers.Kimi != nil {
-			return providers.Kimi.Timeout
-		}
 	case "zcode":
 		if providers.ZCode != nil {
 			return providers.ZCode.Timeout
-		}
-	case "agy":
-		if providers.AGY != nil {
-			return providers.AGY.Timeout
 		}
 	case "grok":
 		if providers.Grok != nil {
@@ -180,17 +172,9 @@ func parseSeverities(values []string) []domain.Severity {
 
 func cloneConfig(value Config) Config {
 	copyValue := value
-	if value.Providers.Kimi != nil {
-		provider := *value.Providers.Kimi
-		copyValue.Providers.Kimi = &provider
-	}
 	if value.Providers.ZCode != nil {
 		provider := *value.Providers.ZCode
 		copyValue.Providers.ZCode = &provider
-	}
-	if value.Providers.AGY != nil {
-		provider := *value.Providers.AGY
-		copyValue.Providers.AGY = &provider
 	}
 	if value.Providers.Grok != nil {
 		provider := *value.Providers.Grok

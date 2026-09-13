@@ -1,0 +1,79 @@
+{
+  "budget": {
+    "ceilings": {
+      "max_invocations_per_role": 2,
+      "max_invocations_per_run": 14,
+      "provider_timeout": "60m",
+      "role_path_deadline": "14h0m14s",
+      "run_deadline": "14h0m19s"
+    },
+    "critical_path_deadline": "1h0m2s",
+    "eligible": true,
+    "max_active_lanes": 2,
+    "reason_code": "eligible",
+    "role_paths": [
+      {
+        "deadline": "1h0m2s",
+        "invocation_count": 2,
+        "invocation_timeouts": "1h0m0s",
+        "provider_instance": "zcode-logic",
+        "role": "logic",
+        "transition_count": 1
+      }
+    ],
+    "run_deadline": "1h0m7s",
+    "total_invocations": 2
+  },
+  "file_sets": [
+    {
+      "files": [
+        {
+          "disposition": "binary_preserved",
+          "media_type": "image/png",
+          "path": "client/e2e/screenshots/example.png",
+          "sha256": "sha256:431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+          "size": 68
+        },
+        {
+          "disposition": "text",
+          "media_type": "text/plain",
+          "path": "src/main.go",
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "size": 20
+        }
+      ],
+      "id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e",
+      "policy_identity": "index;git=canonical-v1"
+    }
+  ],
+  "generated_files": [
+    {
+      "disposition": "generated_at_execution",
+      "media_type": "application/json",
+      "path": "._mulgae_workspace_manifest.json"
+    }
+  ],
+  "qualification": "not_run",
+  "schema_version": "mulgae-review-preflight.v5",
+  "status": "eligible",
+  "target": {
+    "captured_kind": "git",
+    "git_mode": "stage",
+    "requested_kind": "stage",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size": 128
+  },
+  "transmissions": [
+    {
+      "configured_timeout": "30m",
+      "file_set_id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e",
+      "permission_mode": "not_applicable",
+      "provider_family": "zcode",
+      "provider_instance": "zcode-logic",
+      "role": "logic",
+      "route_kind": "primary",
+      "target_channel": "prompt"
+    }
+  ],
+  "warnings": []
+}

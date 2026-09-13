@@ -14,18 +14,18 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// Family identifies an allowlisted provider family.
+// Family identifies a current allowlisted provider family.
 type Family string
 
 const (
-	FamilyKimi  Family = "kimi"
+	// Retired family tokens remain available for historical-artifact
+	// classification. Valid deliberately rejects them.
 	FamilyZCode Family = "zcode"
-	FamilyAGY   Family = "agy"
 	FamilyGrok  Family = "grok"
 	FamilyCodex Family = "codex"
 )
 
-var families = [...]Family{FamilyKimi, FamilyZCode, FamilyAGY, FamilyGrok, FamilyCodex}
+var families = [...]Family{FamilyZCode, FamilyGrok, FamilyCodex}
 
 // Families returns the allowlisted families in canonical order. The returned
 // slice is caller-owned.
@@ -33,12 +33,7 @@ func Families() []Family { return append([]Family(nil), families[:]...) }
 
 // Valid reports whether family is allowlisted.
 func (family Family) Valid() bool {
-	for _, candidate := range families {
-		if family == candidate {
-			return true
-		}
-	}
-	return false
+	return family == FamilyZCode || family == FamilyGrok || family == FamilyCodex
 }
 
 // VersionClassification describes a version's qualification guidance.
@@ -59,11 +54,9 @@ type VersionGuidance struct {
 }
 
 var guidance = [...]VersionGuidance{
-	{Family: FamilyKimi, Minimum: "0.38.0", VerifiedLatest: "0.38.0"},
 	// 0.16.5 is the first locally verified app-server-capable ZCode release;
 	// the print transport is gone, so older releases cannot qualify.
 	{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
-	{Family: FamilyAGY, Minimum: "1.1.19", VerifiedLatest: "1.1.19"},
 	{Family: FamilyGrok, Minimum: "1.0.30", VerifiedLatest: "1.0.30"},
 	{Family: FamilyCodex, Minimum: "0.149.0", VerifiedLatest: "0.149.0"},
 }
@@ -522,8 +515,7 @@ type Provenance struct {
 type AuthorityScope string
 
 const (
-	AuthorityScopeDirectExecution          AuthorityScope = "direct-execution"
-	AuthorityScopeAGYCanonicalPlanControls AuthorityScope = "agy-canonical-plan-controls"
+	AuthorityScopeDirectExecution AuthorityScope = "direct-execution"
 )
 
 // validatedAuthorityProof is package-private evidence emitted only after the
@@ -531,7 +523,6 @@ const (
 // current qualification binding.
 type validatedAuthorityProof struct {
 	directAuthorityID string
-	agyControlID      string
 	identity          Identity
 	expiresAt         time.Time
 }
@@ -644,13 +635,7 @@ func ValidateQualification(input QualificationInput) Qualification {
 				return decision
 			}
 		case ReceiptSecurityPolicy:
-			if input.Identity.Family == FamilyAGY {
-				if !receipt.hasAGYCanonicalControlAuthority() ||
-					receipt.authority.directAuthorityID != directAuthorityID {
-					decision.reason = "invalid_receipts"
-					return decision
-				}
-			} else if !receipt.hasDirectExecutionAuthority() ||
+			if !receipt.hasDirectExecutionAuthority() ||
 				receipt.authority.directAuthorityID != directAuthorityID {
 				decision.reason = "invalid_receipts"
 				return decision
@@ -677,16 +662,6 @@ func (receipt Receipt) hasDirectExecutionAuthority() bool {
 	return proof != nil &&
 		receipt.AuthorityID == proof.directAuthorityID &&
 		receipt.AuthorityScope == AuthorityScopeDirectExecution &&
-		proof.identity == receipt.Identity &&
-		proof.expiresAt.Equal(receipt.ExpiresAt)
-}
-
-func (receipt Receipt) hasAGYCanonicalControlAuthority() bool {
-	proof := receipt.authority
-	return proof != nil &&
-		proof.agyControlID != "" &&
-		receipt.AuthorityID == proof.agyControlID &&
-		receipt.AuthorityScope == AuthorityScopeAGYCanonicalPlanControls &&
 		proof.identity == receipt.Identity &&
 		proof.expiresAt.Equal(receipt.ExpiresAt)
 }

@@ -39,7 +39,7 @@ func TestCurrentQualifierCanonicalRolesRejectDuplicateAndMissingBase(t *testing.
 }
 
 func TestCurrentProbeAppReceiptsRejectsUnboundGenericAuthority(t *testing.T) {
-	for _, family := range []Family{FamilyKimi, FamilyZCode, FamilyCodex} {
+	for _, family := range []Family{FamilyZCode, FamilyZCode, FamilyCodex} {
 		t.Run(string(family), func(t *testing.T) {
 			identity := Identity{Family: family, Version: "2.0.0"}
 			expires := time.Now().Add(time.Minute)
@@ -241,7 +241,7 @@ func (probe *currentQualifierProbe) QualifyProviderCurrent(_ context.Context, re
 	if probe.mismatchExpiry && len(receipts) > 0 {
 		receipts[len(receipts)-1].ExpiresAt = request.Now.Add(2 * time.Minute)
 	}
-	return ports.ProviderCurrentProbeResult{VersionArgv: []string{"provider", "--version"}, Version: "0.38.0", Receipts: receipts}, nil
+	return ports.ProviderCurrentProbeResult{VersionArgv: []string{"provider", "--version"}, Version: "0.16.5", Receipts: receipts}, nil
 }
 
 func TestProviderCurrentQualifierDoesNotRetryInvalidCapabilityOutput(t *testing.T) {
@@ -651,10 +651,10 @@ func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base dom
 		t.Fatal(err)
 	}
 	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		"kimi", "current-qualifier", "", "/private/bin/kimi",
+		"codex", "current-qualifier", "", "/private/bin/codex",
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"/private/bin/kimi", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"kimi-default", "profile-generation", "policy-identity", []string{"/private/bin/kimi"},
+		"/private/bin/codex", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"codex-default", "profile-generation", "policy-identity", []string{"/private/bin/codex"},
 		transport, nil, "/private/work", time.Second,
 	)
 	if err != nil {
@@ -662,7 +662,7 @@ func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base dom
 	}
 	namespace := qualifierNamespace{instance: definition.Instance(), generation: "generation-1", policy: definition.RuntimeSafetyPolicyIdentity()}
 	profile := DiscoveredProviderProfile{
-		family: FamilyKimi, executable: definition.Executable(), launcher: definition.Launcher(),
+		family: FamilyCodex, executable: definition.Executable(), launcher: definition.Launcher(),
 		sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
 	}
 	return CurrentQualificationRequest{
@@ -788,21 +788,25 @@ func (r *authorityProbeRunner) Run(_ context.Context, request ports.ProcessReque
 	}
 	_ = file.Close()
 	if r.calls == 1 {
-		return authorityProbeObservation(r.t, []byte(r.version+"\n"), ports.ProviderPacketChannelArgvLiteral, ports.ProviderPacketIdentity{}, "", "", nil, nil), nil
+		version := r.version + "\n"
+		if r.family == FamilyGrok {
+			version = "grok " + r.version + " (abcdef0)\n"
+		}
+		return authorityProbeObservation(r.t, []byte(version), ports.ProviderPacketChannelArgvLiteral, ports.ProviderPacketIdentity{}, "", "", nil, nil), nil
 	}
 	binding, ok := request.ProviderPacketBinding()
 	if !ok || !binding.Valid() {
 		r.t.Fatal("capability request omitted provider packet binding")
 	}
 	output := []byte(`{"root":"nonce","link":"linked","role":"logic"}`)
-	if r.family == FamilyKimi {
+	if r.family == FamilyZCode {
 		output = []byte("{\"role\":\"assistant\",\"content\":\"{\\\"root\\\":\\\"nonce\\\",\\\"link\\\":\\\"linked\\\",\\\"role\\\":\\\"logic\\\"}\"}\n")
 	}
 	var lifecycle ports.ProcessLifecycleReceipt
-	if r.family == FamilyAGY {
-		policy, ok := request.PostOutputLifecycle()
-		if !ok || !policy.Valid() {
-			r.t.Fatal("AGY capability request omitted lifecycle policy")
+	if r.family == FamilyGrok {
+		policy, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
+		if err != nil {
+			r.t.Fatal(err)
 		}
 		frame, err := ports.NewProcessOutputFrameReceipt(policy.Framing(), output, policy.StabilityGrace())
 		if err != nil {
@@ -844,6 +848,26 @@ func (r *authorityProbeRunner) Converse(ctx context.Context, request ports.Proce
 	observation, err := r.Run(ctx, request)
 	if err != nil {
 		return observation, err
+	}
+	if r.family == FamilyGrok {
+		proof := `{"root":"nonce","link":"linked","role":"logic"}`
+		script := []string{
+			`{"jsonrpc":"2.0","id":"mulgae-initialize","result":{"protocolVersion":1,"authMethods":[{"id":"cached_token","name":"Cached token"}],"agentCapabilities":{"promptCapabilities":{"image":false}}}}`,
+			`{"jsonrpc":"2.0","id":"mulgae-authenticate","result":null}`,
+			`{"jsonrpc":"2.0","id":"mulgae-session-new","result":{"sessionId":"session-script"}}`,
+			`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":` + strconv.Quote(proof) + `}}}}`,
+			`{"jsonrpc":"2.0","id":"mulgae-session-prompt","result":{"stopReason":"end_turn"}}`,
+			`{"jsonrpc":"2.0","id":"mulgae-session-close","result":null}`,
+		}
+		exchange := &authorityProbeProtocolExchange{lines: make(chan string, len(script))}
+		for _, line := range script {
+			exchange.lines <- line
+		}
+		close(exchange.lines)
+		if driveErr := driver.Drive(ctx, exchange); driveErr != nil {
+			r.t.Fatalf("grok protocol conversation failed: %v", driveErr)
+		}
+		return observation, nil
 	}
 	if r.family != FamilyZCode {
 		return observation, nil
@@ -955,7 +979,7 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	probeVersion := version
 	if version == "current" {
-		probeVersion = "0.38.0"
+		probeVersion = "0.16.5"
 	}
 	directory := filepath.Join(t.TempDir(), "snapshot-0123456789abcdef0123456789abcdef")
 	definition, namespace := authorityProbeDefinition(t, family, instance, probeVersion, directory)
@@ -1011,14 +1035,11 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 func authorityProbeDefinition(t *testing.T, family Family, instance, version, workingDirectory string) (providercli.RuntimeDefinition, authorityProbeNamespace) {
 	t.Helper()
 	argvIndex := 4
-	if family == FamilyAGY {
-		argvIndex = 14
-	}
 	channel, reference := ports.ProviderPacketChannelPromptFile, "@roadmap.md"
 	if family == FamilyCodex {
 		channel, argvIndex, reference = ports.ProviderPacketChannelStdin, -1, ""
 	}
-	if family == FamilyZCode {
+	if family == FamilyZCode || family == FamilyGrok {
 		channel, argvIndex, reference = ports.ProviderPacketChannelProtocol, -1, ""
 	}
 	transport, err := providercli.NewRuntimeTransport(channel, argvIndex, reference)
@@ -1027,24 +1048,6 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	}
 	policy := string(family) + "-policy"
 	namespace := authorityProbeNamespace{instance: instance, generation: "generation-1", policy: policy, environment: authorityProbeEnvironment(t, family)}
-	if family == FamilyAGY {
-		namespace.nativeHome, err = ports.NewNativeHomeLaunchAuthority("/private/HOME", 1, 1, 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
-		if err != nil {
-			t.Fatal(err)
-		}
-		definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
-			string(family), instance, version, "/private/bin/"+string(family), qualifierTestSHA, "/private/bin/"+string(family), qualifierTestSHA,
-			string(family)+"-profile", "profile-1", policy, []string{"/private/bin/" + string(family)}, transport, lifecycle, nil, workingDirectory, 3*time.Second,
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return definition, namespace
-	}
 	executable := "/private/bin/" + string(family)
 	launcher := executable
 	baseArgv := []string{executable}
@@ -1074,9 +1077,6 @@ func authorityProbeEnvironment(t *testing.T, family Family) []ports.EnvironmentV
 		"TMP":                     filepath.Join(root, "tmp"),
 		"TEMP":                    filepath.Join(root, "tmp"),
 		"MULGAE_PROVIDER_SCRATCH": filepath.Join(root, "scratch"),
-	}
-	if family == FamilyAGY {
-		values["HOME"] = "/private/HOME"
 	}
 	names := []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TMP", "TEMP", "MULGAE_PROVIDER_SCRATCH"}
 	environment := make([]ports.EnvironmentVariable, 0, len(names))

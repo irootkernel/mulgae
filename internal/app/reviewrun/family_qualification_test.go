@@ -15,8 +15,8 @@ import (
 func TestGroupCandidatesByFamilyRuntimeProfileDeduplicatesRoles(t *testing.T) {
 	zcodeLogic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	zcodeSecurity := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
-	agyLogic := authorityCandidateForFamilyRole(t, FamilyAGY, domain.RoleLogic)
-	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeSecurity, agyLogic})
+	grokLogic := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
+	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeSecurity, grokLogic})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,23 +24,23 @@ func TestGroupCandidatesByFamilyRuntimeProfileDeduplicatesRoles(t *testing.T) {
 		t.Fatalf("groups = %d, want 2", len(groups))
 	}
 	batches := scheduleFamilyQualificationGroups(groups)
-	if len(batches) != 1 || len(batches[0]) != 2 {
-		t.Fatalf("ZCode/AGY overlap batches = %#v", batches)
+	if len(batches) != 2 || len(batches[0]) != 1 || len(batches[1]) != 1 {
+		t.Fatalf("family qualification batches = %#v", batches)
 	}
-	var zcodeRoles, agyRoles []domain.Role
+	var zcodeRoles, grokRoles []domain.Role
 	for _, group := range groups {
 		switch group.family {
 		case FamilyZCode:
 			zcodeRoles = group.roles
-		case FamilyAGY:
-			agyRoles = group.roles
+		case FamilyGrok:
+			grokRoles = group.roles
 		}
 	}
 	if !reflect.DeepEqual(zcodeRoles, []domain.Role{domain.RoleLogic, domain.RoleSecurity}) {
 		t.Fatalf("zcode roles = %v", zcodeRoles)
 	}
-	if !reflect.DeepEqual(agyRoles, []domain.Role{domain.RoleLogic}) {
-		t.Fatalf("agy roles = %v", agyRoles)
+	if !reflect.DeepEqual(grokRoles, []domain.Role{domain.RoleLogic}) {
+		t.Fatalf("grok roles = %v", grokRoles)
 	}
 }
 
@@ -60,7 +60,6 @@ func TestFamilyRuntimeProfileKeyRejectsCapabilityRelevantMutations(t *testing.T)
 		"executable":      func(d *testRuntimeMutation) { d.executable = "/private/bin/other-node" },
 		"launcher":        func(d *testRuntimeMutation) { d.launcher = "/private/bin/other-launcher" },
 		"safety-policy":   func(d *testRuntimeMutation) { d.runtimeSafetyPolicyIdentity = "other-policy" },
-		"kimi-model":      func(d *testRuntimeMutation) { d.kimiModel = "other-model" },
 		"lifecycle": func(d *testRuntimeMutation) {
 			lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, 2*time.Second)
 			if err != nil {
@@ -246,14 +245,14 @@ func TestScheduleFamilyQualificationGroupsDoesNotDropNonEquivalentGroups(t *test
 	zcodeB := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
 		d.transportArgvIndex++
 	})
-	agyA := authorityCandidateForFamilyRole(t, FamilyAGY, domain.RoleLogic)
-	agyB := authorityCandidateForFamilyRole(t, FamilyAGY, domain.RoleSecurity)
-	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeA, zcodeB, agyA, agyB})
+	grokA := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
+	grokB := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleSecurity)
+	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeA, zcodeB, grokA, grokB})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 4 {
-		t.Fatalf("groups = %d, want 4 non-equivalent family profiles", len(groups))
+	if len(groups) != 3 {
+		t.Fatalf("groups = %d, want 3 non-equivalent family profiles", len(groups))
 	}
 	batches := scheduleFamilyQualificationGroups(groups)
 	scheduled := 0
@@ -265,11 +264,11 @@ func TestScheduleFamilyQualificationGroupsDoesNotDropNonEquivalentGroups(t *test
 	}
 }
 
-func TestAGYInstancesDoNotShareFamilyProfileKey(t *testing.T) {
-	agyLogic := authorityCandidateForFamilyRole(t, FamilyAGY, domain.RoleLogic)
-	agySecurity := authorityCandidateForFamilyRole(t, FamilyAGY, domain.RoleSecurity)
-	if familyRuntimeProfileKeyFor(agyLogic.Definition) == familyRuntimeProfileKeyFor(agySecurity.Definition) {
-		t.Fatal("AGY instances unexpectedly shared one family profile key")
+func TestGrokInstancesShareEquivalentFamilyProfileKey(t *testing.T) {
+	grokLogic := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
+	grokSecurity := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleSecurity)
+	if familyRuntimeProfileKeyFor(grokLogic.Definition) != familyRuntimeProfileKeyFor(grokSecurity.Definition) {
+		t.Fatal("equivalent Grok instances did not share one family profile key")
 	}
 }
 
@@ -296,7 +295,7 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 	instance := string(family) + "-" + string(role)
 	// Sibling role routes must share capability-relevant runtime fields, including
 	// working directory, so family-profile deduplication can be exercised.
-	definition, _ := authorityProbeDefinition(t, family, instance, "1.1.19", "/private/work/"+string(family))
+	definition, _ := authorityProbeDefinition(t, family, instance, "1.0.30", "/private/work/"+string(family))
 	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -326,7 +325,6 @@ type testRuntimeMutation struct {
 	profileGeneration           string
 	profileID                   string
 	runtimeSafetyPolicyIdentity string
-	kimiModel                   string
 	baseArgv                    []string
 	transportChannel            ports.ProviderPacketChannel
 	transportArgvIndex          int
@@ -354,7 +352,6 @@ func (d testRuntimeMutation) ProfileID() string {
 	}
 	return d.instance
 }
-func (d testRuntimeMutation) KimiModel() string  { return d.kimiModel }
 func (d testRuntimeMutation) BaseArgv() []string { return append([]string(nil), d.baseArgv...) }
 func (d testRuntimeMutation) Environment() []ports.EnvironmentVariable {
 	return append([]ports.EnvironmentVariable(nil), d.environment...)
@@ -379,7 +376,7 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 		executable: definition.Executable(), executableSHA256: definition.ExecutableSHA256(),
 		launcher: definition.Launcher(), launcherSHA256: definition.LauncherSHA256(),
 		profileGeneration: definition.ProfileGeneration(), profileID: definition.ProfileID(), runtimeSafetyPolicyIdentity: definition.RuntimeSafetyPolicyIdentity(),
-		kimiModel: definition.KimiModel(), baseArgv: append([]string(nil), definition.BaseArgv()...),
+		baseArgv:         append([]string(nil), definition.BaseArgv()...),
 		transportChannel: definition.TransportChannel(), transportArgvIndex: definition.TransportArgvIndex(),
 		transportReference: definition.TransportReference(), environment: append([]ports.EnvironmentVariable(nil), definition.Environment()...),
 		workingDirectory: definition.WorkingDirectory(), hasLifecycle: hasLifecycle, lifecycle: lifecycle,
@@ -424,13 +421,13 @@ func (authority fakeFamilyAuthority) Valid() bool { return authority.id != "" }
 func (authority fakeFamilyAuthority) Matches(ports.ProviderRuntimeDefinition, string, string, []domain.Role) bool {
 	return true
 }
-func (authority fakeFamilyAuthority) AGYControlAuthorityID() (string, bool) { return "", false }
+func (authority fakeFamilyAuthority) GrokControlAuthorityID() (string, bool) { return "", false }
 
 func syntheticFamilyQualificationResult(t *testing.T, request CurrentQualificationRequest, now time.Time) CurrentQualificationResult {
 	t.Helper()
 	version := request.Definition.Version()
 	if version == "" {
-		version = "1.1.19"
+		version = "1.0.30"
 	}
 	identity := request.Identity
 	identity.Version = version

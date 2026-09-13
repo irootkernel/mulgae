@@ -45,10 +45,8 @@ read-only workspace view and its drift check, the disposable namespace, staging-
 trusted read-back after full process termination, and validate-then-copy
 publication. A stray absolute-path write elsewhere is not blocked by Mulgae; a
 git-managed project tree keeps such a write detectable. This residual risk is
-an accepted owner decision and applies to ZCode review invocations only. AGY
-and does not describe Grok's stricter ACP permission gate. AGY and Kimi are
-unchanged: AGY stays in `--sandbox` plan mode with safe
-permissions, where headless `write_file` is auto-denied.
+an accepted owner decision and applies to ZCode review invocations only. It
+does not describe Grok's stricter ACP permission gate.
 
 Codex uses a disposable `CODEX_HOME`, a read-only permission profile over the
 immutable workspace, approvals set to `never`, and an explicit model-tool deny

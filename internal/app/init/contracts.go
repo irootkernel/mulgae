@@ -29,21 +29,9 @@ type DiscoverySourceSpec struct {
 // DiscoverySourceSpecs returns a caller-owned copy of the command-owned source contract.
 func DiscoverySourceSpecs() []DiscoverySourceSpec {
 	specs := []DiscoverySourceSpec{
-		{Family: "kimi", Fields: []DiscoverySourceFieldSpec{
-			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
-			{JSONName: "model_source", Values: []string{"override", "default_k3", "not_selected"}},
-			{JSONName: "data_home_source", Values: []string{"override", "startup_environment", "native_home_default", "not_selected"}},
-		}},
 		{Family: "zcode", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "node_executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
 			{JSONName: "launcher_source", Values: []string{"override", "bundled", "not_discovered", "not_selected"}},
-		}},
-		{Family: "agy", Fields: []DiscoverySourceFieldSpec{
-			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
-			{JSONName: "native_home_source", Values: []string{"os_account", "verified_equal_input", "not_selected"}},
-			// headless_default remains admitted for command-result v1 readers even
-			// though new init results emit safe_default.
-			{JSONName: "permission_mode_source", Values: []string{"explicit", "headless_default", "safe_default", "not_selected"}},
 		}},
 		{Family: "grok", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
@@ -130,7 +118,7 @@ func (result InitializeProjectResult) Validate() error {
 		auto := len(result.SelectedProviderIDs) == 0
 		for index, family := range familyOrder {
 			row := result.Discovery[index]
-			autoSelected := auto && family == "zcode"
+			autoSelected := auto && (family == "zcode" || family == "grok")
 			if row.Family != family || row.Status == "" || !validDiscoverySources(row) || row.Selected != (autoSelected || contains(result.SelectedProviderIDs, family)) || row.Candidate != contains(result.CandidateProviderIDs, family) || row.Configured != contains(result.ConfiguredProviderIDs, family) {
 				return fmt.Errorf("init result: inconsistent discovery row")
 			}

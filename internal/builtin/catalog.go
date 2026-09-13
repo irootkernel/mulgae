@@ -1,5 +1,6 @@
 package builtin
 
+//go:generate go run generate_portfolio_contracts.go
 //go:generate go run generate.go
 
 import (

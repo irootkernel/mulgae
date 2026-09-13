@@ -3,16 +3,11 @@ package providercli
 import (
 	"fmt"
 	"reflect"
-	"time"
-
-	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // NativeProbeInvocation builds the sole family-policy probe argv. Approved
 // permission bypasses are emitted only by their owning family policy.
 type NativeProbeInvocation struct{}
-
-const agyPrintTimeoutCleanupGrace = 5 * time.Second
 
 // VersionArgv builds the sole family-closed argv admitted for a version probe.
 func (NativeProbeInvocation) VersionArgv(definition RuntimeDefinition) ([]string, error) {
@@ -62,11 +57,6 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		return nil, fmt.Errorf("native probe invocation: invalid fixture packet")
 	}
 	switch definition.Family() {
-	case FamilyKimi:
-		// Kimi has no adapter-owned workspace read tools; capability remains
-		// prompt-bound to the fixture packet while the process cwd stays the
-		// immutable snapshot.
-		return appendKimiInvocation(baseArgv, definition.KimiModel(), string(packet)), nil
 	case FamilyZcode:
 		// Capability stays tool-denied so qualification remains bounded. The
 		// conversation runs in plan mode with every tool denied; review
@@ -74,16 +64,6 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		return appendZcodeProtocolServerArgv(baseArgv), nil
 	case FamilyGrok:
 		return grokACPArgv(definition.Executable(), protocolPurposeQualification)
-	case FamilyAgy:
-		providerPacket, err := ports.NewProviderPacketFromBytes(packet)
-		if err != nil {
-			return nil, fmt.Errorf("native probe invocation: invalid fixture packet")
-		}
-		argv, err := canonicalAGYExecutionArgv(definition, fixture.WorkspaceSnapshotIdentity(), providerPacket)
-		if err != nil {
-			return nil, err
-		}
-		return argv, nil
 	case FamilyCodex:
 		argv := appendCodexInvocation(baseArgv, fixture.WorkspaceSnapshotIdentity().SnapshotPath(), definition.CodexModel(), definition.CodexReasoningEffort())
 		return append(argv[:len(argv)-1], "--output-schema", probeFixtureSchemaPath, "-"), nil
@@ -123,19 +103,11 @@ func appendZcodeProtocolServerArgv(argv []string) []string {
 	return append(result, zcodeProtocolServerArgument)
 }
 
-func appendKimiInvocation(argv []string, model, prompt string) []string {
-	result := append([]string(nil), argv...)
-	if model == "" {
-		model = "kimi-code/kimi-for-coding"
-	}
-	result = append(result, "--model", model)
-	return append(result, "--prompt", prompt, "--output-format", "stream-json")
-}
 func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	baseArgv := definition.BaseArgv()
 	executable := definition.Executable()
 	switch definition.Family() {
-	case FamilyKimi, FamilyAgy, FamilyGrok, FamilyCodex:
+	case FamilyGrok, FamilyCodex:
 		if !reflect.DeepEqual(baseArgv, []string{executable}) {
 			return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
 		}
@@ -179,50 +151,4 @@ func validCodexReasoningEffort(value string) bool {
 	default:
 		return false
 	}
-}
-
-func canonicalAGYExecutionArgv(definition RuntimeDefinition, snapshot ports.WorkspaceSnapshotIdentity, packet ports.ProviderPacket) ([]string, error) {
-	if !packet.Valid() {
-		return nil, fmt.Errorf("native probe invocation: invalid packet")
-	}
-	baseArgv, err := canonicalProbeBaseArgv(definition)
-	if err != nil {
-		return nil, err
-	}
-	snapshotPath, err := immutableSnapshotPath(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	controls := []string{"--new-project", "--sandbox"}
-	if agyPermissionBypassEnabled(definition.BaseArgv(), definition.Transport()) {
-		controls = append(controls, "--dangerously-skip-permissions")
-	}
-	controls = append(controls, "--add-dir", snapshotPath, "--mode", "plan", "--effort", "low", "--print-timeout", agyProbePrintTimeout(definition.Timeout()).String(), "--output-format=json", "--print", string(packet.Bytes()))
-	return append(baseArgv, controls...), nil
-}
-
-func agyPermissionBypassEnabled(baseArgv []string, transport RuntimeTransport) bool {
-	return transport.ArgvIndex() == len(baseArgv)+13
-}
-
-func agyPrintTimeout(runtimeTimeout time.Duration) time.Duration {
-	// Keep AGY's own timeout inside the enclosing process deadline so Mulgae
-	// retains time to collect output and complete bounded lifecycle cleanup.
-	grace := min(agyPrintTimeoutCleanupGrace, runtimeTimeout/2)
-	return runtimeTimeout - grace
-}
-
-// agyProbePrintTimeout keeps AGY's own print deadline inside the bounded
-// qualification process deadline. canonicalAGYExecutionArgv builds capability
-// probe argv only; review invocations keep deriving their print deadline from
-// the full configured runtime timeout in buildArgv.
-func agyProbePrintTimeout(runtimeTimeout time.Duration) time.Duration {
-	return agyPrintTimeout(boundedProbeTimeout(runtimeTimeout))
-}
-
-func immutableSnapshotPath(identity ports.WorkspaceSnapshotIdentity) (string, error) {
-	if !identity.Valid() {
-		return "", fmt.Errorf("native probe invocation: invalid immutable snapshot identity")
-	}
-	return identity.SnapshotPath(), nil
 }

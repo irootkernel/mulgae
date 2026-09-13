@@ -4,7 +4,6 @@ package providercli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,21 +13,17 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	FamilyKimi  = "kimi"
 	FamilyZcode = "zcode"
-	FamilyAgy   = "agy"
 	FamilyGrok  = "grok"
 	FamilyCodex = "codex"
 )
 
-var errInvalidAGYEnvelope = errors.New("invalid AGY headless envelope")
 var errProviderOutputFrameMissing = errors.New("provider output frame missing")
 
 type providerOutputFailure struct {
@@ -97,7 +92,6 @@ type RuntimeDefinition struct {
 	family, instance, version, executable, executableSHA256 string
 	launcher, launcherSHA256, profileGeneration             string
 	runtimeSafetyPolicyIdentity                             string
-	kimiModel                                               string
 	codexModel                                              string
 	codexReasoningEffort                                    string
 	profileID                                               string
@@ -236,33 +230,6 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 	return definition, nil
 }
 
-// NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy binds the
-// operator-admitted Kimi model without placing Mulgae-only metadata in provider
-// argv.
-func NewProductionKimiRuntimeDefinitionWithTransportAndSafetyPolicy(
-	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
-	profileID, profileGeneration, runtimeSafetyPolicyIdentity, kimiModel string,
-	baseArgv []string, transport RuntimeTransport, environment []ports.EnvironmentVariable,
-	workingDirectory string, timeout time.Duration,
-) (RuntimeDefinition, error) {
-	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
-		profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv,
-		transport, environment, workingDirectory, timeout,
-	)
-	if err != nil {
-		return RuntimeDefinition{}, err
-	}
-	if family != FamilyKimi || kimiModel == "" || strings.IndexByte(kimiModel, 0) >= 0 {
-		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: invalid Kimi model")
-	}
-	definition.kimiModel = kimiModel
-	if err := definition.validate(); err != nil {
-		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
-	}
-	return definition, nil
-}
-
 // NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy binds
 // optional operator-selected Codex model settings to an isolated runtime.
 func NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
@@ -287,54 +254,6 @@ func NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
 	return definition, nil
 }
 
-// NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle
-// constructs the AGY production profile with an explicit transport, immutable
-// runtime safety policy identity, and bounded post-output lifecycle.
-func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicyAndPostOutputLifecycle(
-	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
-	profileID, profileGeneration, runtimeSafetyPolicyIdentity string,
-	baseArgv []string, transport RuntimeTransport, lifecycle ports.BoundedPostOutputLifecycle,
-	environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration,
-) (RuntimeDefinition, error) {
-	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
-		profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv, transport,
-		environment, workingDirectory, timeout,
-	)
-	if err != nil {
-		return RuntimeDefinition{}, err
-	}
-	definition.postOutputLifecycle = lifecycle
-	definition.hasPostOutputLifecycle = true
-	if err := definition.validate(); err != nil {
-		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
-	}
-	return definition, nil
-}
-
-// NewRuntimeDefinitionWithTransportAndPostOutputLifecycle enables the bounded
-// strict-JSON lifecycle for AGY only.
-func NewRuntimeDefinitionWithTransportAndPostOutputLifecycle(
-	family, instance, version, executable, executableSHA256 string,
-	profileID string, baseArgv []string,
-	transport RuntimeTransport, lifecycle ports.BoundedPostOutputLifecycle,
-	environment []ports.EnvironmentVariable, workingDirectory string, timeout time.Duration,
-) (RuntimeDefinition, error) {
-	definition, err := NewRuntimeDefinitionWithTransport(
-		family, instance, version, executable, executableSHA256, profileID,
-		baseArgv, transport, environment, workingDirectory, timeout,
-	)
-	if err != nil {
-		return RuntimeDefinition{}, err
-	}
-	definition.postOutputLifecycle = lifecycle
-	definition.hasPostOutputLifecycle = true
-	if err := definition.validate(); err != nil {
-		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
-	}
-	return definition, nil
-}
-
 func (d RuntimeDefinition) Family() string            { return d.family }
 func (d RuntimeDefinition) Instance() string          { return d.instance }
 func (d RuntimeDefinition) Version() string           { return d.version }
@@ -347,7 +266,6 @@ func (d RuntimeDefinition) ProfileGeneration() string { return d.profileGenerati
 func (d RuntimeDefinition) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
-func (d RuntimeDefinition) KimiModel() string            { return d.kimiModel }
 func (d RuntimeDefinition) CodexModel() string           { return d.codexModel }
 func (d RuntimeDefinition) CodexReasoningEffort() string { return d.codexReasoningEffort }
 func (d RuntimeDefinition) Transport() RuntimeTransport  { return d.transport }
@@ -419,15 +337,8 @@ func (d RuntimeDefinition) validate() error {
 			return fmt.Errorf("direct launcher identity must equal executable identity")
 		}
 	}
-	if d.hasPostOutputLifecycle {
-		if d.family != FamilyAgy || !d.postOutputLifecycle.Valid() {
-			return fmt.Errorf("post-output lifecycle is supported only by AGY")
-		}
-	} else if d.postOutputLifecycle.Valid() {
-		return fmt.Errorf("post-output lifecycle present without marker")
-	}
-	if d.family != FamilyKimi && d.kimiModel != "" {
-		return fmt.Errorf("Kimi model is bound to another family")
+	if d.hasPostOutputLifecycle || d.postOutputLifecycle.Valid() {
+		return fmt.Errorf("post-output lifecycle is unsupported")
 	}
 	if d.family != FamilyCodex && (d.codexModel != "" || d.codexReasoningEffort != "") {
 		return fmt.Errorf("Codex settings are bound to another family")
@@ -790,10 +701,8 @@ const stagedOutputParentDirectoryName = "output"
 // expected to deliver its role report. Each grant comes from live capability
 // evidence, never from preference: ZCode reliably writes one regular file at an
 // absolute staging path once it runs outside plan mode with Write removed from
-// the review denylist, headless AGY auto-denies write_file in safe mode
-// whatever its mode, and Kimi is out of scope for provider-written output. Any
-// Grok's ACP driver grants exactly one correlated write to the staged report;
-// every family without positive evidence keeps the stdout transport.
+// the review denylist. Grok's ACP driver grants exactly one correlated write to
+// the staged report; every family without positive evidence keeps stdout.
 func familyReviewOutputTransport(family string) ports.ProviderOutputTransport {
 	if family == FamilyZcode || family == FamilyGrok {
 		return ports.ProviderOutputTransportStagedFile
@@ -1024,12 +933,6 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	}
 	if !processObservation.Valid() {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, fmt.Errorf("provider registry: process runner returned invalid observation"))
-	}
-	if definition.family == FamilyAgy && agyPermissionDenied(processObservation.Stderr()) {
-		return ports.NewFailedProviderExecutionObservationWithCause(
-			ports.ProviderExecutionStatusAuthentication, invocation, processObservation,
-			"provider_permission_denied", domain.DiagnosticCausePermissionDenied, "",
-		)
 	}
 	// A protocol conversation succeeds through its driver: the runner's
 	// receipt-proven bounded teardown classifies as signaled, and a server
@@ -1352,21 +1255,7 @@ func (r *Registry) runInWorkspace(
 	if duplicateErr != nil {
 		return ports.ProcessObservation{}, nil, workspaceGuardError("duplicate launch directory", duplicateErr)
 	}
-	if definition.family == FamilyAgy && definition.requiresSpawnVerification {
-		authorityLease, ok := namespace.(nativeHomeLaunchAuthorityLease)
-		if !ok {
-			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing AGY native home authority"))
-		}
-		authority, ok := authorityLease.NativeHomeLaunchAuthority()
-		if !ok {
-			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing AGY native home authority"))
-		}
-		request, requestErr = ports.NewBoundProcessRequestWithNativeHomeAuthority(request, root, launchDirectory, authority)
-	} else {
-		request, requestErr = ports.NewBoundProcessRequest(request, root, launchDirectory)
-	}
+	request, requestErr = ports.NewBoundProcessRequest(request, root, launchDirectory)
 	if requestErr != nil {
 		_ = launchDirectory.Close()
 		return ports.ProcessObservation{}, nil, workspaceGuardError("construct bound process request", requestErr)
@@ -1565,15 +1454,6 @@ func isolatedProcessEnvironment(
 			return nil, fmt.Errorf("provider registry: incomplete namespace environment")
 		}
 	}
-	if family == FamilyAgy {
-		// AGY invokes system tools by name; never inherit the operator's PATH.
-		path, err := ports.NewEnvironmentVariable("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-		if err != nil {
-			return nil, fmt.Errorf("provider registry: invalid AGY system path: %w", err)
-		}
-		environment = append(environment, path)
-		owned["PATH"] = struct{}{}
-	}
 	for _, variable := range configured {
 		if !variable.Valid() {
 			return nil, fmt.Errorf("provider registry: invalid configured environment")
@@ -1760,35 +1640,21 @@ func buildArgv(definition definition, workingDirectory string, packet []byte) ([
 }
 
 func buildArgvForPurpose(definition definition, workingDirectory string, packet []byte, purpose ports.ProviderInvocationPurpose) ([]string, error) {
-	value := ""
 	switch definition.transport.channel {
 	case ports.ProviderPacketChannelArgvLiteral:
-		value = string(packet)
 	case ports.ProviderPacketChannelStdin:
-		value = "-"
 	case ports.ProviderPacketChannelPromptFile:
-		value = definition.transport.reference
 	case ports.ProviderPacketChannelProtocol:
-		value = ""
 	default:
 		return nil, fmt.Errorf("unsupported packet channel")
 	}
 
 	argv := append([]string(nil), definition.baseArgv...)
 	switch definition.family {
-	case FamilyKimi:
-		return appendKimiInvocation(argv, definition.kimiModel, value), nil
 	case FamilyZcode:
 		return appendZcodeProtocolServerArgv(argv), nil
 	case FamilyGrok:
 		return grokACPArgv(definition.executable, protocolPurposeForReview(purpose))
-	case FamilyAgy:
-		controls := []string{"--new-project", "--sandbox"}
-		if agyPermissionBypassEnabled(definition.baseArgv, definition.transport) {
-			controls = append(controls, "--dangerously-skip-permissions")
-		}
-		controls = append(controls, "--add-dir", workingDirectory, "--mode", "plan", "--effort", "low", "--print-timeout", agyPrintTimeout(definition.timeout).String(), "--output-format=json", "--print", value)
-		return append(argv, controls...), nil
 	case FamilyCodex:
 		return appendCodexInvocation(argv, workingDirectory, definition.codexModel, definition.codexReasoningEffort), nil
 	default:
@@ -1801,16 +1667,6 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("provider output is empty"))
 	}
 	switch family {
-	case FamilyKimi:
-		result, err := kimiContent(stdout)
-		if err != nil {
-			cause := domain.DiagnosticCauseOutputDecodeFailed
-			if errors.Is(err, errProviderOutputFrameMissing) {
-				cause = domain.DiagnosticCauseOutputFrameMissing
-			}
-			return nil, true, newProviderOutputFailure(cause, err)
-		}
-		return result, true, nil
 	case FamilyZcode:
 		// The app-server protocol delivers review reports through the staged
 		// file and qualification evidence through the conversation's captured
@@ -1819,140 +1675,11 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("zcode protocol transport delivers no report on stdout"))
 	case FamilyGrok:
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("grok protocol transport delivers no report on stdout"))
-	case FamilyAgy:
-		result, err := agyContent(stdout)
-		if err != nil {
-			if errors.Is(err, errInvalidAGYEnvelope) {
-				return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
-			}
-			return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputDecodeFailed, err)
-		}
-		return result, true, nil
 	case FamilyCodex:
 		return append([]byte(nil), stdout...), true, nil
 	default:
 		return nil, false, newProviderOutputFailure(domain.DiagnosticCauseResultBindingFailed, fmt.Errorf("unknown provider family"))
 	}
-}
-
-func agyContent(stdout []byte) ([]byte, error) {
-	frame, err := ports.ExtractProcessOutputJSONFrame(ports.ProcessOutputFramingTerminalJSONObject, stdout)
-	if err != nil {
-		trimmed := bytes.TrimSpace(stdout)
-		if len(trimmed) == 0 || !utf8.Valid(stdout) {
-			return nil, err
-		}
-		// Malformed native JSON envelopes stay fail-closed. Pure Markdown/prose
-		// may reach application free-form acceptance.
-		if trimmed[0] == '{' || trimmed[0] == '[' {
-			return nil, err
-		}
-		// Trim only for nonempty/shape checks; return exact stdout bytes.
-		return append([]byte(nil), stdout...), nil
-	}
-	if err := validateAGYNativeEnvelope(frame); err != nil {
-		return nil, err
-	}
-	var native struct {
-		Response *string `json:"response"`
-	}
-	if json.Unmarshal(frame, &native) == nil && native.Response != nil {
-		return []byte(*native.Response), nil
-	}
-	if text := agyReviewResultText(frame); len(bytes.TrimSpace(text)) > 0 {
-		return append([]byte(nil), text...), nil
-	}
-	return frame, nil
-}
-
-func validateAGYNativeEnvelope(frame []byte) error {
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(frame, &envelope); err != nil {
-		return err
-	}
-	response, hasResponse := envelope["response"]
-	status, hasStatus := envelope["status"]
-	_, hasConversation := envelope["conversation_id"]
-	if !hasResponse && !hasStatus && !hasConversation {
-		return nil // Direct review JSON has no native envelope.
-	}
-	if hasStatus {
-		var value string
-		if json.Unmarshal(status, &value) != nil || !strings.EqualFold(value, "success") {
-			return fmt.Errorf("%w: unsuccessful status", errInvalidAGYEnvelope)
-		}
-	}
-	var body string
-	if !hasResponse || json.Unmarshal(response, &body) != nil || strings.TrimSpace(body) == "" {
-		return fmt.Errorf("%w: no nonempty response string", errInvalidAGYEnvelope)
-	}
-	return nil
-}
-
-// extractUniqueFencedPayload unwraps one complete JSON fence without deciding
-// whether the provider-owned payload is valid JSON. Payload parsing and repair
-// authority belong to the application validation layer, while this adapter
-// remains responsible for rejecting ambiguous transport framing.
-func extractUniqueFencedPayload(output []byte) ([]byte, error) {
-	const (
-		fenceStart = "```json\n"
-		fenceEnd   = "\n```"
-	)
-	start := bytes.Index(output, []byte(fenceStart))
-	if start < 0 || start > 0 && output[start-1] != '\n' {
-		return nil, errProviderOutputFrameMissing
-	}
-	contentStart := start + len(fenceStart)
-	if bytes.Contains(output[contentStart:], []byte(fenceStart)) {
-		return nil, errProviderOutputFrameMissing
-	}
-	endOffset := bytes.Index(output[contentStart:], []byte(fenceEnd))
-	if endOffset < 0 {
-		return nil, errProviderOutputFrameMissing
-	}
-	candidate := bytes.TrimSpace(output[contentStart : contentStart+endOffset])
-	if len(candidate) == 0 {
-		return nil, errProviderOutputFrameMissing
-	}
-	return append([]byte(nil), candidate...), nil
-}
-
-func kimiContent(stdout []byte) ([]byte, error) {
-	var content []byte
-	for _, line := range bytes.Split(stdout, []byte{'\n'}) {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			continue
-		}
-		var event map[string]json.RawMessage
-		if err := json.Unmarshal(line, &event); err != nil {
-			return nil, err
-		}
-		roleValue, ok := event["role"]
-		if !ok {
-			continue
-		}
-		var role string
-		if err := json.Unmarshal(roleValue, &role); err != nil {
-			return nil, err
-		}
-		if role != "assistant" {
-			continue
-		}
-		rawContent, ok := event["content"]
-		if !ok {
-			continue
-		}
-		var value string
-		if err := json.Unmarshal(rawContent, &value); err != nil {
-			return nil, err
-		}
-		content = []byte(value)
-	}
-	if content == nil {
-		return nil, errProviderOutputFrameMissing
-	}
-	return content, nil
 }
 
 func classifyProviderFailure(
@@ -2002,10 +1729,8 @@ func classifyProviderFailureWithNativeStdout(
 // nativeProviderOutcome maps a native provider diagnostic to a typed execution
 // outcome. Three constraints bound the token tables and must be preserved:
 //
-//   - No branch may ever match a bare "timeout" token. AGY argv carries
-//     --print-timeout, and an argv echo in stderr must not read as a native
-//     provider timeout. Timeout evidence is either the exact native phrase or a
-//     transport-level phrase such as "timed out".
+//   - No branch may ever match a bare "timeout" token. Timeout evidence is the
+//     exact native phrase or a transport-level phrase such as "timed out".
 //   - Short/numeric tokens (429, 503) and prose tokens (overloaded, try again
 //     later) are matched on stderr only.
 //   - Review execution callers withhold stdout because it is model-authored
@@ -2048,12 +1773,8 @@ func nativeProviderOutcome(
 	}
 	loginRequired := providerLoginRequired(output)
 	switch family {
-	case FamilyKimi:
-		loginRequired = loginRequired || containsAny("kimi.login_required", "kimi login required")
-	case FamilyZcode:
+	case FamilyZcode, FamilyGrok:
 		loginRequired = loginRequired || containsAny("zcode.login_required", "zcode login required")
-	case FamilyAgy:
-		loginRequired = loginRequired || containsAny("agy.login_required", "agy login required")
 	case FamilyCodex:
 		// Codex emits the shared signals below without a family prefix. Its
 		// stdout is JSONL that can contain model-authored text, so only stderr
@@ -2081,8 +1802,6 @@ func nativeProviderOutcome(
 		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit", domain.DiagnosticCauseRateLimited, true
 	case family == FamilyZcode && zcodeTurnFailed:
 		return ports.ProviderExecutionStatusUnavailable, "provider_turn_failed", domain.DiagnosticCauseProviderTurnFailed, true
-	case family == FamilyAgy && agyPermissionDenied(stderr):
-		return ports.ProviderExecutionStatusAuthentication, "provider_permission_denied", domain.DiagnosticCausePermissionDenied, true
 	case providerNativeTimeout(output) ||
 		errorContainsAny("timed out", "deadline exceeded", "etimedout", "request timeout", "read timeout", "connection timed out"):
 		return ports.ProviderExecutionStatusTimedOut, "provider_timeout", domain.DiagnosticCauseTimedOut, true
@@ -2142,24 +1861,6 @@ func containsStandaloneASCIIIdentifier(output []byte, value string) bool {
 
 func isASCIIIdentifierContinuation(value byte) bool {
 	return value >= '0' && value <= '9' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value == '_'
-}
-
-func agyPermissionDenied(stderr []byte) bool {
-	output := bytes.ToLower(stderr)
-	for _, signal := range [][]byte{
-		[]byte("permission_denied"),
-		[]byte("tool permission was denied"),
-		[]byte("tool permission denied"),
-		[]byte("request denied by permission policy"),
-		// Headless AGY refuses a write tool with its own auto-deny message
-		// ("... was auto-denied ..."), which matches none of the phrases above.
-		[]byte("auto-denied"),
-	} {
-		if bytes.Contains(output, signal) {
-			return true
-		}
-	}
-	return false
 }
 
 func classify(nativeStdout []byte, observation ports.ProcessObservation) ports.ProviderExecutionStatus {
@@ -2277,9 +1978,6 @@ func validateRuntimeTransportShape(family string, baseArgv []string, transport R
 	if transport.channel == ports.ProviderPacketChannelStdin || transport.channel == ports.ProviderPacketChannelProtocol {
 		return nil
 	}
-	if family == FamilyAgy && (transport.argvIndex == len(baseArgv)+12 || transport.argvIndex == len(baseArgv)+13) {
-		return nil
-	}
 	index, err := runtimeTransportArgvIndex(family, len(baseArgv))
 	if err != nil {
 		return err
@@ -2292,14 +1990,10 @@ func validateRuntimeTransportShape(family string, baseArgv []string, transport R
 
 func runtimeTransportArgvIndex(family string, baseArgvLength int) (int, error) {
 	switch family {
-	case FamilyKimi:
-		return baseArgvLength + 3, nil
 	case FamilyZcode:
 		return 0, fmt.Errorf("zcode requires the protocol transport")
-	case FamilyAgy:
-		// Safe AGY argv omits --dangerously-skip-permissions; print lands at +12.
-		// Explicit headless bypass uses +13 and remains opt-in only.
-		return baseArgvLength + 12, nil
+	case FamilyGrok:
+		return 0, fmt.Errorf("grok requires the protocol transport")
 	case FamilyCodex:
 		return 0, fmt.Errorf("codex requires stdin transport")
 	default:
@@ -2317,7 +2011,7 @@ func validPromptFileReference(value string) bool {
 }
 
 func validFamily(value string) bool {
-	return value == FamilyKimi || value == FamilyZcode || value == FamilyAgy || value == FamilyGrok || value == FamilyCodex
+	return value == FamilyZcode || value == FamilyGrok || value == FamilyCodex
 }
 
 func nilSpawnVerifier(verifier SpawnVerifier) bool {
@@ -2375,16 +2069,12 @@ func nilRunner(runner ports.ProcessRunner) bool {
 }
 func supportedFamilyOrder(family string) int {
 	switch family {
-	case FamilyKimi:
-		return 0
 	case FamilyZcode:
-		return 1
-	case FamilyAgy:
-		return 2
+		return 0
 	case FamilyGrok:
-		return 3
+		return 1
 	case FamilyCodex:
-		return 4
+		return 2
 	default:
 		return -1
 	}

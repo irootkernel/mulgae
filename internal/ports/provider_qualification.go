@@ -21,7 +21,6 @@ type ProviderRuntimeDefinition interface {
 	ProfileGeneration() string
 	RuntimeSafetyPolicyIdentity() string
 	ProfileID() string
-	KimiModel() string
 	BaseArgv() []string
 	Environment() []EnvironmentVariable
 	WorkingDirectory() string
@@ -46,7 +45,6 @@ type ProviderRuntimeSpec struct {
 	ProfileID                   string
 	ProfileGeneration           string
 	RuntimeSafetyPolicyIdentity string
-	KimiModel                   string
 	CodexModel                  string
 	CodexReasoningEffort        string
 	BaseArgv                    []string
@@ -100,7 +98,6 @@ type ProviderDirectExecutionAuthority interface {
 	ExpiresAt() time.Time
 	Valid() bool
 	Matches(ProviderRuntimeDefinition, string, string, []domain.Role) bool
-	AGYControlAuthorityID() (string, bool)
 }
 
 // ProviderEquivalentRouteAuthorityDeriver mints a new exact-runtime direct
@@ -151,13 +148,6 @@ type ProviderCurrentProbeResult struct {
 // ProviderCurrentProbe executes the adapter-owned current qualification probe.
 type ProviderCurrentProbe interface {
 	QualifyProviderCurrent(context.Context, ProviderCurrentProbeRequest) (ProviderCurrentProbeResult, error)
-}
-
-// ProviderLoginAuthenticator performs an explicit operator-facing login flow
-// for one exact discovered runtime. Implementations must not inherit ambient
-// process environment or retain native provider output.
-type ProviderLoginAuthenticator interface {
-	LoginProvider(context.Context, ProviderRuntimeDefinition) error
 }
 
 // ProviderQualificationRegistry is the retained admitted execution authority.

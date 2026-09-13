@@ -9,8 +9,8 @@ import (
 )
 
 func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
-	roles, _ := appconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"kimi"})
-	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{Kimi: &adapterconfig.KimiProviderConfig{Executable: "/secret/bin", DataHome: "/secret/home"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}}, Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12}}
+	roles, _ := appconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"zcode"})
+	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{ZCode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/secret/bin", Launcher: "/secret/launcher"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}}, Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12}}
 	resolved, err := appconfig.ResolveConfiguration(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -19,7 +19,7 @@ func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
 	if strings.Contains(string(data), "/secret/") {
 		t.Fatalf("redaction leaked: %s", data)
 	}
-	if !strings.Contains(string(data), `"primary_provider":"kimi"`) {
+	if !strings.Contains(string(data), `"primary_provider":"zcode"`) {
 		t.Fatalf("redaction omitted role assignments: %s", data)
 	}
 	if strings.Contains(string(data), "fallback") {
@@ -30,12 +30,12 @@ func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
 // Extraction changes what a run may spend its second invocation on, so an
 // operator must be able to see the admitted policy in `mulgae config`.
 func TestRedactionProjectsStructuredExtractionPolicy(t *testing.T) {
-	roles, _ := appconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"kimi"})
+	roles, _ := appconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"zcode"})
 	for _, enabled := range []bool{true, false} {
 		raw := adapterconfig.Config{
 			Version: adapterconfig.ConfigVersion,
 			Providers: adapterconfig.ProvidersConfig{
-				Kimi: &adapterconfig.KimiProviderConfig{Executable: "/bin/kimi", DataHome: "/home/kimi"},
+				ZCode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/app/zcode.cjs"},
 			},
 			Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"},
 			Roles:     roles,

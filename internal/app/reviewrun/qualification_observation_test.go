@@ -17,7 +17,7 @@ func TestQualificationTerminalCauseUsesExactSingleCause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failure, err := NewProviderQualificationFailure("kimi-default", FamilyKimi, string(domain.FailureInvalidOutput), cause)
+	failure, err := NewProviderQualificationFailure("zcode-default", FamilyZCode, string(domain.FailureInvalidOutput), cause)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestQualificationTerminalCausePreservesTransportLifecycleSubtype(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			observation := rejectedQualificationObservation("agy-default", cause, false)
+			observation := rejectedQualificationObservation("grok-default", cause, false)
 			aggregate := withQualificationObservations(cause, []ProviderQualificationObservation{observation})
 			if got := qualificationTerminalCause(aggregate); got != want {
 				t.Fatalf("terminal cause = %q, want %q", got, want)
@@ -72,8 +72,8 @@ func TestQualificationTerminalCauseCollapsesDifferentCauses(t *testing.T) {
 		return failure
 	}
 	aggregate := NewProviderQualificationFailuresError([]ProviderQualificationFailure{
-		newFailure("kimi-default", FamilyKimi, domain.DiagnosticCauseOutputFrameMissing),
-		newFailure("zcode-default", FamilyZCode, domain.DiagnosticCauseOutputEnvelopeInvalid),
+		newFailure("zcode-default", FamilyZCode, domain.DiagnosticCauseOutputFrameMissing),
+		newFailure("grok-default", FamilyGrok, domain.DiagnosticCauseOutputEnvelopeInvalid),
 	})
 	if got := qualificationTerminalCause(aggregate); got != domain.DiagnosticCauseObservationInvalid {
 		t.Fatalf("terminal cause = %q, want %q", got, domain.DiagnosticCauseObservationInvalid)

@@ -10,9 +10,7 @@ type Config = appconfig.Config
 type ProjectConfig = appconfig.ProjectConfig
 type NativeUserConfig = appconfig.NativeUserConfig
 type ProvidersConfig = appconfig.ProvidersConfig
-type KimiProviderConfig = appconfig.KimiProviderConfig
 type ZCodeProviderConfig = appconfig.ZCodeProviderConfig
-type AGYProviderConfig = appconfig.AGYProviderConfig
 type GrokProviderConfig = appconfig.GrokProviderConfig
 type CodexProviderConfig = appconfig.CodexProviderConfig
 type CodexCredentialHomeConfig = appconfig.CodexCredentialHomeConfig
@@ -31,22 +29,17 @@ type ResourcesConfig = appconfig.ResourcesConfig
 type CIConfig = appconfig.CIConfig
 
 const (
-	ConfigVersion             = appconfig.ConfigVersion
-	DefaultKimiModel          = appconfig.DefaultKimiModel
-	DefaultAGYPermissionMode  = appconfig.DefaultAGYPermissionMode
-	SafeAGYPermissionMode     = appconfig.SafeAGYPermissionMode
-	HeadlessAGYPermissionMode = appconfig.HeadlessAGYPermissionMode
-	DefaultProviderTimeout    = appconfig.DefaultProviderTimeout
-	MinimumProviderTimeout    = appconfig.MinimumProviderTimeout
-	MaximumProviderTimeout    = appconfig.MaximumProviderTimeout
-	ConfigRelativePath        = appconfig.ConfigRelativePath
-	LocalConfigRelativePath   = appconfig.LocalConfigRelativePath
-	MaximumConfigBytes        = appconfig.MaximumConfigBytes
-	ProjectKindNonUI          = appconfig.ProjectKindNonUI
-	ProjectKindUI             = appconfig.ProjectKindUI
+	ConfigVersion           = appconfig.ConfigVersion
+	DefaultProviderTimeout  = appconfig.DefaultProviderTimeout
+	MinimumProviderTimeout  = appconfig.MinimumProviderTimeout
+	MaximumProviderTimeout  = appconfig.MaximumProviderTimeout
+	ConfigRelativePath      = appconfig.ConfigRelativePath
+	LocalConfigRelativePath = appconfig.LocalConfigRelativePath
+	MaximumConfigBytes      = appconfig.MaximumConfigBytes
+	ProjectKindNonUI        = appconfig.ProjectKindNonUI
+	ProjectKindUI           = appconfig.ProjectKindUI
 )
 
-func DefaultKimiDataHome(nativeHome string) string { return appconfig.DefaultKimiDataHome(nativeHome) }
 func ParseProviderTimeout(value string) (time.Duration, error) {
 	return appconfig.ParseProviderTimeout(value)
 }

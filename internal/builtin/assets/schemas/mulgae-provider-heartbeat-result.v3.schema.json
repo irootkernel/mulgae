@@ -1,0 +1,113 @@
+{
+  "$id": "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v3.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "not_authorized"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "attempted": {
+            "const": false
+          },
+          "reason_code": {
+            "const": "live_authorization_required"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "succeeded",
+              "provider_failure",
+              "timeout",
+              "authentication_failure",
+              "malformed_response"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "attempted": {
+            "const": true
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "attempted": {
+      "type": "boolean"
+    },
+    "authentication_may_occur": {
+      "const": true
+    },
+    "checked_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "cost_may_occur": {
+      "const": true
+    },
+    "credential_profile": {
+      "maxLength": 32,
+      "type": "string"
+    },
+    "network_may_occur": {
+      "const": true
+    },
+    "provider_id": {
+      "enum": [
+        "zcode",
+        "grok",
+        "codex"
+      ]
+    },
+    "reason_code": {
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "type": "string"
+    },
+    "remote_logging_may_occur": {
+      "const": true
+    },
+    "schema_version": {
+      "const": "mulgae-provider-heartbeat-result.v3"
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "not_authorized",
+        "provider_failure",
+        "timeout",
+        "authentication_failure",
+        "malformed_response",
+        "execution_failure"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "checked_at",
+    "provider_id",
+    "credential_profile",
+    "attempted",
+    "status",
+    "reason_code",
+    "authentication_may_occur",
+    "network_may_occur",
+    "cost_may_occur",
+    "remote_logging_may_occur"
+  ],
+  "title": "Mulgae Provider Heartbeat Result v2",
+  "type": "object"
+}
