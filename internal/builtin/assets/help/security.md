@@ -24,8 +24,8 @@ publication.
 Project configuration cannot introduce executable commands. Supported provider
 adapters are compiled into Mulgae.
 
-One provider family is granted bounded write authority. A ZCode review runs
-with `Write` enabled so it can place its role report in a fresh per-invocation
+Two provider families are granted bounded review-output authority. A ZCode
+review runs with `Write` enabled so it can place its role report in a fresh per-invocation
 staging directory Mulgae creates under a disposable namespace, outside the
 workspace view and outside `.mulgae`. Exactly one filename is authorized, and Mulgae
 names the absolute path in the last trusted prompt layer. After the process
@@ -34,7 +34,9 @@ symlinks, extra hard links, non-regular files, extra entries, ownership, mode,
 or identity drift, invalid UTF-8, NUL bytes, and empty or
 whitespace-only content. Accepted bytes are copied into
 `role-reports/<role>.md`; the provider's own file is never published, and
-staging is always removed. Missing or unusable staged content is an ordinary
+staging is always removed. Grok receives the same single-destination outcome
+through ACP only after its session, tool-call ID, edit kind, `Write` variant,
+and exact path agree; all other permissions are rejected. Missing or unusable staged content is an ordinary
 invalid-output failure; a boundary violation fails closed.
 
 Be aware that ZCode has no path-scoped write permission, so that grant is not
@@ -44,7 +46,8 @@ trusted read-back after full process termination, and validate-then-copy
 publication. A stray absolute-path write elsewhere is not blocked by Mulgae; a
 git-managed project tree keeps such a write detectable. This residual risk is
 an accepted owner decision and applies to ZCode review invocations only. AGY
-and Kimi are unchanged: AGY stays in `--sandbox` plan mode with safe
+and does not describe Grok's stricter ACP permission gate. AGY and Kimi are
+unchanged: AGY stays in `--sandbox` plan mode with safe
 permissions, where headless `write_file` is auto-denied.
 
 Codex uses a disposable `CODEX_HOME`, a read-only permission profile over the

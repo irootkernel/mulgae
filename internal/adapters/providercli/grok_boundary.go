@@ -12,10 +12,6 @@ import (
 	"syscall"
 )
 
-// grokCandidateFamily is deliberately not part of validFamily or the public
-// runtime registry during TASK-011. It names only the isolated ACP gate.
-const grokCandidateFamily = "grok"
-
 var grokReviewArgvTail = []string{
 	"--no-auto-update",
 	"--sandbox", "mulgae",

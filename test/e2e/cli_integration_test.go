@@ -111,7 +111,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 		if err := json.Unmarshal(got.stdout, &envelope); err != nil {
 			t.Fatal(err)
 		}
-		if envelope.SchemaVersion != "mulgae-command-result.v8" || envelope.Command != "delta" ||
+		if envelope.SchemaVersion != "mulgae-command-result.v9" || envelope.Command != "delta" ||
 			envelope.Request.RequestState != "unresolved" || envelope.Request.OutputFormat != "json" ||
 			envelope.Exit.Code != 2 || envelope.Exit.Kind != "usage" || len(envelope.Reasons) != 1 ||
 			envelope.Reasons[0].Code != "project_root_mismatch" ||
@@ -530,7 +530,7 @@ func TestIntegrationMulgaeBinaryBoundary(t *testing.T) {
 				exit:       7,
 				nullFields: []string{"session_id", "run_id", "review_id", "run_manifest_uri", "review_artifact_uri"},
 				check: func(t *testing.T, envelope commandEnvelope) {
-					if envelope.SchemaVersion != "mulgae-command-result.v8" || envelope.Command != "compose" ||
+					if envelope.SchemaVersion != "mulgae-command-result.v9" || envelope.Command != "compose" ||
 						envelope.Request.OutputFormat != "json" ||
 						envelope.Result.Kind != "composite_failed" || envelope.Result.RootRunID == nil ||
 						*envelope.Result.RootRunID != "r_019f596a-cf80-7c67-b265-f37053d51ccf" ||

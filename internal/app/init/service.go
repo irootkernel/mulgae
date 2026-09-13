@@ -23,7 +23,7 @@ const (
 	SelectionSelected SelectionMode = "selected"
 )
 
-var familyOrder = []string{"kimi", "zcode", "agy", "codex"}
+var familyOrder = []string{"kimi", "zcode", "agy", "grok", "codex"}
 
 type Selection struct {
 	Mode        SelectionMode
@@ -37,6 +37,7 @@ type Overrides struct {
 	ZCodeLauncher        string
 	AGYExecutable        string
 	AGYPermissionMode    string
+	GrokExecutable       string
 	CodexExecutable      string
 	CodexModel           string
 	CodexReasoningEffort string
@@ -500,6 +501,7 @@ type candidates struct {
 	kimi  *appconfig.KimiProviderConfig
 	zcode *appconfig.ZCodeProviderConfig
 	agy   *appconfig.AGYProviderConfig
+	grok  *appconfig.GrokProviderConfig
 	codex *appconfig.CodexProviderConfig
 }
 
@@ -508,7 +510,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 	for _, id := range request.Selection.ProviderIDs {
 		wanted[id] = true
 	}
-	rows := make([]DiscoveryRow, 0, 4)
+	rows := make([]DiscoveryRow, 0, len(familyOrder))
 	var found candidates
 	var discoveryErrors []error
 	var securityErrors []error
@@ -622,6 +624,26 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				row.Candidate = true
 				row.Status = "candidate"
 			}
+		case "grok":
+			executable := ""
+			row.ExecutableSource = "not_discovered"
+			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverrides(ctx, service.inspector, reviewrun.FamilyGrok, request.Overrides.GrokExecutable, "")
+			if request.Overrides.GrokExecutable != "" {
+				row.ExecutableSource = "override"
+			}
+			if profileErr != nil {
+				discoveryErrors = append(discoveryErrors, profileErr)
+			} else if profile.Executable() != "" {
+				executable = profile.Executable()
+				if request.Overrides.GrokExecutable == "" {
+					row.ExecutableSource = "startup_path"
+				}
+			}
+			if executable != "" {
+				found.grok = &appconfig.GrokProviderConfig{Executable: executable, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
+				row.Candidate = true
+				row.Status = "candidate"
+			}
 		case "codex":
 			executable := ""
 			row.ExecutableSource = "not_discovered"
@@ -684,6 +706,8 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 		row.ExecutableSource = "not_selected"
 		row.NativeHomeSource = "not_selected"
 		row.PermissionModeSource = "not_selected"
+	case "grok":
+		row.ExecutableSource = "not_selected"
 	case "codex":
 		row.ExecutableSource = "not_selected"
 		row.ModelSource = "not_selected"
@@ -693,7 +717,7 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 }
 
 func candidateConfig(request InitializeProjectRequest, defaults appconfig.RoleDefaults, value candidates) (appconfig.Config, error) {
-	providers := appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy, Codex: value.codex}
+	providers := appconfig.ProvidersConfig{Kimi: value.kimi, ZCode: value.zcode, AGY: value.agy, Grok: value.grok, Codex: value.codex}
 	selectedRoles, _ := validateRoleSelection(request.RoleIDs)
 	roles, err := appconfig.CanonicalRolesConfigForSelection(defaults, providers.Families(), selectedRoles)
 	if err != nil {
@@ -757,7 +781,7 @@ func validateRoleSelection(roles []string) ([]string, error) {
 	return append([]string(nil), roles...), nil
 }
 func candidateIDs(value candidates) []string {
-	ids := make([]string, 0, 4)
+	ids := make([]string, 0, len(familyOrder))
 	if value.kimi != nil {
 		ids = append(ids, "kimi")
 	}
@@ -766,6 +790,9 @@ func candidateIDs(value candidates) []string {
 	}
 	if value.agy != nil {
 		ids = append(ids, "agy")
+	}
+	if value.grok != nil {
+		ids = append(ids, "grok")
 	}
 	if value.codex != nil {
 		ids = append(ids, "codex")
@@ -777,7 +804,7 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 		return nil, fmt.Errorf("mode")
 	}
 	if selection.Mode == SelectionAuto {
-		if len(selection.ProviderIDs) != 0 || overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "" || overrides.AGYExecutable != "" || overrides.AGYPermissionMode != "" || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" {
+		if len(selection.ProviderIDs) != 0 || overrides.KimiExecutable != "" || overrides.KimiModel != "" || overrides.KimiDataHome != "" || overrides.AGYExecutable != "" || overrides.AGYPermissionMode != "" || overrides.GrokExecutable != "" || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" {
 			return nil, fmt.Errorf("auto members")
 		}
 		return []string{}, nil
@@ -802,6 +829,9 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 	}
 	if !contains(selected, "agy") && (overrides.AGYExecutable != "" || overrides.AGYPermissionMode != "") {
 		return nil, fmt.Errorf("agy override")
+	}
+	if !contains(selected, "grok") && overrides.GrokExecutable != "" {
+		return nil, fmt.Errorf("grok override")
 	}
 	if !contains(selected, "codex") && (overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "") {
 		return nil, fmt.Errorf("codex override")

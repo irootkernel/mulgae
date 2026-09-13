@@ -162,6 +162,7 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 		Kimi:  &KimiProviderConfig{Executable: "/usr/local/bin/kimi", Model: DefaultKimiModel, DataHome: DefaultKimiDataHome(config.NativeUser.Home), Timeout: "1m"},
 		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs", Timeout: "30m"},
 		AGY:   &AGYProviderConfig{Executable: "/usr/local/bin/agy", PermissionMode: DefaultAGYPermissionMode, Timeout: "45m"},
+		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok", Timeout: "25m"},
 		Codex: &CodexProviderConfig{Executable: "/usr/local/bin/codex", Model: "gpt-5.3-codex", ReasoningEffort: "high", Timeout: "20m"},
 	}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
@@ -171,7 +172,7 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`timeout: "1m"`, `timeout: "30m"`, `timeout: "45m"`, `timeout: "20m"`, `model: "gpt-5.3-codex"`, `reasoning_effort: "high"`} {
+	for _, field := range []string{`timeout: "1m"`, `timeout: "30m"`, `timeout: "45m"`, `timeout: "25m"`, `timeout: "20m"`, `model: "gpt-5.3-codex"`, `reasoning_effort: "high"`} {
 		if !bytes.Contains(canonical, []byte(field)) {
 			t.Fatalf("canonical config omitted %s:\n%s", field, canonical)
 		}

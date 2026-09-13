@@ -24,6 +24,7 @@ const (
 	FamilyKimi  = "kimi"
 	FamilyZcode = "zcode"
 	FamilyAgy   = "agy"
+	FamilyGrok  = "grok"
 	FamilyCodex = "codex"
 )
 
@@ -791,9 +792,10 @@ const stagedOutputParentDirectoryName = "output"
 // absolute staging path once it runs outside plan mode with Write removed from
 // the review denylist, headless AGY auto-denies write_file in safe mode
 // whatever its mode, and Kimi is out of scope for provider-written output. Any
-// family without positive evidence keeps the stdout transport.
+// Grok's ACP driver grants exactly one correlated write to the staged report;
+// every family without positive evidence keeps the stdout transport.
 func familyReviewOutputTransport(family string) ports.ProviderOutputTransport {
-	if family == FamilyZcode {
+	if family == FamilyZcode || family == FamilyGrok {
 		return ports.ProviderOutputTransportStagedFile
 	}
 	return ports.ProviderOutputTransportStdout
@@ -1291,7 +1293,7 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 func (r *Registry) runLegacy(
 	ctx context.Context, definition definition, packet ports.ProviderPacket, environment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose, staging *stagedOutputLease,
 ) (ports.ProcessObservation, []byte, error) {
-	request, err := processRequest(definition, packet, definition.workingDirectory, environment)
+	request, err := processRequest(definition, packet, definition.workingDirectory, environment, purpose)
 	if err != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", err))
 	}
@@ -1336,7 +1338,7 @@ func (r *Registry) runInWorkspace(
 	if guard.WorkspaceSnapshotIdentity() != expected || !root.Valid() || root.SnapshotIdentity() != expected {
 		return ports.ProcessObservation{}, nil, workspaceGuardError("guard workspace identity mismatch", nil)
 	}
-	request, requestErr := processRequest(definition, packet, root.Path(), environment)
+	request, requestErr := processRequest(definition, packet, root.Path(), environment, invocation.Purpose())
 	if requestErr != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", requestErr))
 	}
@@ -1391,9 +1393,9 @@ func (r *Registry) runInWorkspace(
 }
 
 func processRequest(
-	definition definition, packet ports.ProviderPacket, workingDirectory string, namespaceEnvironment []ports.EnvironmentVariable,
+	definition definition, packet ports.ProviderPacket, workingDirectory string, namespaceEnvironment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose,
 ) (ports.ProcessRequest, error) {
-	argv, binding, err := providerProcessRequest(definition, packet, workingDirectory)
+	argv, binding, err := providerProcessRequestForPurpose(definition, packet, workingDirectory, purpose)
 	if err != nil {
 		return ports.ProcessRequest{}, fmt.Errorf("construct packet transport: %w", err)
 	}
@@ -1595,7 +1597,7 @@ func isolatedProcessEnvironment(
 		}
 		environment = append(environment, codexHome)
 	}
-	if family == grokCandidateFamily {
+	if family == FamilyGrok {
 		home := ""
 		for _, variable := range namespace {
 			if variable.Name() == "HOME" {
@@ -1722,10 +1724,14 @@ func nilWorkspaceExecutionGuard(guard ports.WorkspaceExecutionGuard) bool {
 }
 
 func providerProcessRequest(definition definition, packet ports.ProviderPacket, workingDirectory string) ([]string, ports.ProviderPacketBinding, error) {
+	return providerProcessRequestForPurpose(definition, packet, workingDirectory, ports.ProviderInvocationInitial)
+}
+
+func providerProcessRequestForPurpose(definition definition, packet ports.ProviderPacket, workingDirectory string, purpose ports.ProviderInvocationPurpose) ([]string, ports.ProviderPacketBinding, error) {
 	if !validCanonicalAbsolute(workingDirectory) {
 		return nil, ports.ProviderPacketBinding{}, fmt.Errorf("invalid working directory")
 	}
-	argv, err := buildArgv(definition, workingDirectory, packet.Bytes())
+	argv, err := buildArgvForPurpose(definition, workingDirectory, packet.Bytes(), purpose)
 	if err != nil {
 		return nil, ports.ProviderPacketBinding{}, err
 	}
@@ -1750,6 +1756,10 @@ func providerProcessRequest(definition definition, packet ports.ProviderPacket, 
 }
 
 func buildArgv(definition definition, workingDirectory string, packet []byte) ([]string, error) {
+	return buildArgvForPurpose(definition, workingDirectory, packet, ports.ProviderInvocationInitial)
+}
+
+func buildArgvForPurpose(definition definition, workingDirectory string, packet []byte, purpose ports.ProviderInvocationPurpose) ([]string, error) {
 	value := ""
 	switch definition.transport.channel {
 	case ports.ProviderPacketChannelArgvLiteral:
@@ -1770,6 +1780,8 @@ func buildArgv(definition definition, workingDirectory string, packet []byte) ([
 		return appendKimiInvocation(argv, definition.kimiModel, value), nil
 	case FamilyZcode:
 		return appendZcodeProtocolServerArgv(argv), nil
+	case FamilyGrok:
+		return grokACPArgv(definition.executable, protocolPurposeForReview(purpose))
 	case FamilyAgy:
 		controls := []string{"--new-project", "--sandbox"}
 		if agyPermissionBypassEnabled(definition.baseArgv, definition.transport) {
@@ -1805,6 +1817,8 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 		// assistant text; stdout carries only the protocol transcript and is
 		// never provider report content.
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("zcode protocol transport delivers no report on stdout"))
+	case FamilyGrok:
+		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("grok protocol transport delivers no report on stdout"))
 	case FamilyAgy:
 		result, err := agyContent(stdout)
 		if err != nil {
@@ -2303,7 +2317,7 @@ func validPromptFileReference(value string) bool {
 }
 
 func validFamily(value string) bool {
-	return value == FamilyKimi || value == FamilyZcode || value == FamilyAgy || value == FamilyCodex
+	return value == FamilyKimi || value == FamilyZcode || value == FamilyAgy || value == FamilyGrok || value == FamilyCodex
 }
 
 func nilSpawnVerifier(verifier SpawnVerifier) bool {
@@ -2367,8 +2381,10 @@ func supportedFamilyOrder(family string) int {
 		return 1
 	case FamilyAgy:
 		return 2
-	case FamilyCodex:
+	case FamilyGrok:
 		return 3
+	case FamilyCodex:
+		return 4
 	default:
 		return -1
 	}

@@ -40,8 +40,8 @@ import (
 )
 
 const (
-	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json"
-	heartbeatResultSchema = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json"
+	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v3.schema.json"
+	heartbeatResultSchema = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v2.schema.json"
 )
 
 type applicationCommandHandler func(*Application, context.Context, Invocation, string) execution
@@ -972,6 +972,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	kimiExecutable, kimiModel, kimiDataHome := request.KimiOverrides()
 	zcodeNode, zcodeLauncher := request.ZCodeOverrides()
 	agyExecutable, agyPermission := request.AGYOverrides()
+	grokExecutable := request.GrokExecutable()
 	codexExecutable, codexModel, codexReasoningEffort := request.CodexOverrides()
 
 	// Destination proof precedes native-account inspection so create-once init
@@ -1079,7 +1080,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		NativeHomeAsserted:   nativeHomeAsserted,
 		Selection:            selection,
 		RoleIDs:              request.Roles(),
-		Overrides:            appinit.Overrides{KimiExecutable: kimiExecutable, KimiModel: kimiModel, KimiDataHome: kimiDataHome, ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, AGYExecutable: agyExecutable, AGYPermissionMode: agyPermission, CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort},
+		Overrides:            appinit.Overrides{KimiExecutable: kimiExecutable, KimiModel: kimiModel, KimiDataHome: kimiDataHome, ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, AGYExecutable: agyExecutable, AGYPermissionMode: agyPermission, GrokExecutable: grokExecutable, CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort},
 		RefreshLocal:         request.RefreshLocal(),
 		ProjectPolicyOptions: request.ProjectPolicyOptions(),
 	})
@@ -1448,6 +1449,9 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	if provider := config.Providers.AGY; provider != nil {
 		configured[reviewrun.FamilyAGY] = []string{provider.Executable}
 	}
+	if provider := config.Providers.Grok; provider != nil {
+		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
+	}
 	if provider := config.Providers.Codex; provider != nil {
 		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
 	}
@@ -1466,7 +1470,7 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	base.ProviderInventory = make([]doctor.LocalProviderInventoryRow, 0, 4)
 	eligible := 0
 	unsafeAdmission := len(securityDiscoveryFamilies) > 0
-	for _, family := range []string{"kimi", "zcode", "agy", "codex"} {
+	for _, family := range []string{"kimi", "zcode", "agy", "grok", "codex"} {
 		if _, configuredFamily := configured[reviewrun.Family(family)]; !configuredFamily {
 			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{
 				Family: family, ReferencedByRoles: []string{}, State: "not_configured", Reason: "not_configured",
@@ -1602,7 +1606,7 @@ func localCLICompatibility(family reviewrun.Family, guidance reviewrun.VersionGu
 
 func localUnobservedProviderInventory() []doctor.LocalProviderInventoryRow {
 	rows := make([]doctor.LocalProviderInventoryRow, 0, 4)
-	for _, family := range []string{"kimi", "zcode", "agy", "codex"} {
+	for _, family := range []string{"kimi", "zcode", "agy", "grok", "codex"} {
 		rows = append(rows, doctor.LocalProviderInventoryRow{
 			Family: family, ReferencedByRoles: []string{}, State: "not_observed", Reason: "config_not_ready",
 			BinaryAvailable: doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
@@ -1613,7 +1617,7 @@ func localUnobservedProviderInventory() []doctor.LocalProviderInventoryRow {
 }
 
 func localConfiguredRoleReferences(config adapterconfig.Config) map[string][]string {
-	references := map[string][]string{"kimi": {}, "zcode": {}, "agy": {}, "codex": {}}
+	references := map[string][]string{"kimi": {}, "zcode": {}, "agy": {}, "grok": {}, "codex": {}}
 	roles := []struct {
 		name string
 		role adapterconfig.RoleConfig
@@ -1702,7 +1706,7 @@ func rejectDoctorConfig(base doctor.LocalDoctorResult, err error) doctor.LocalDo
 }
 
 func localProviderAdmission(evidence doctor.ProviderEvidenceRecord, family string) (admitted, unsafe bool) {
-	if evidence.SchemaID != "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json" || evidence.ProviderID != family || evidence.URI == "" || len(evidence.SHA256) != 64 {
+	if evidence.SchemaID != "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json" || evidence.ProviderID != family || evidence.URI == "" || len(evidence.SHA256) != 64 {
 		return false, false
 	}
 	if _, err := hex.DecodeString(evidence.SHA256); err != nil || evidence.SecureWriterIndexStatus != doctor.EvidenceStatusPass || evidence.AssignmentStatus != doctor.EvidenceStatusPass {

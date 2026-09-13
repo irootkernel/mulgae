@@ -205,6 +205,7 @@ func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
 		reviewrun.FamilyKimi:  appconfig.DefaultProviderTimeout,
 		reviewrun.FamilyZCode: 30 * time.Minute,
 		reviewrun.FamilyAGY:   appconfig.DefaultProviderTimeout,
+		reviewrun.FamilyGrok:  appconfig.DefaultProviderTimeout,
 		reviewrun.FamilyCodex: appconfig.DefaultProviderTimeout,
 	}
 	if !reflect.DeepEqual(policy.providerTimeouts, want) {
@@ -212,6 +213,36 @@ func TestProductionRunPolicyPropagatesConfiguredProviderTimeouts(t *testing.T) {
 	}
 	if policy.agyPermissionMode != adapterconfig.SafeAGYPermissionMode {
 		t.Fatalf("production AGY permission mode = %q, want explicit safe", policy.agyPermissionMode)
+	}
+}
+
+func TestProductionRunPolicyRejectsGrokArtistBeforeRuntimeConstruction(t *testing.T) {
+	roles, err := adapterconfig.CanonicalRolesConfigForUI(testRoleDefaults(), []string{"zcode", "grok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles.Artist.PrimaryProvider = "grok"
+	raw := adapterconfig.Config{
+		Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "grok-artist", Kind: adapterconfig.ProjectKindUI},
+		NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"},
+		Providers: adapterconfig.ProvidersConfig{
+			ZCode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/opt/zcode/launcher.cjs"},
+			Grok:  &adapterconfig.GrokProviderConfig{Executable: "/bin/grok"},
+		},
+		Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "readonly_snapshot"}, Roles: roles,
+		Review:     adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security", "maintainability", "product", "documentation", "testing"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
+		Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}},
+		Resources:  adapterconfig.ResourcesConfig{MaxActiveLanes: 7, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 14},
+		CI:         adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
+	}
+	resolved, err := appconfig.ResolveConfiguration(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = deriveProductionRunPolicy(resolved)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureProviderUnavailable || failure.Reason() != "provider_capability_unsupported" {
+		t.Fatalf("Grok artist failure = %#v, %v", failure, err)
 	}
 }
 

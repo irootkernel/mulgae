@@ -233,7 +233,7 @@ queries, file existence, or OS process scans as substitutes.
      --output json
    ```
 
-4. Read the complete `mulgae-command-result.v8` JSON envelope even when the
+4. Read the complete `mulgae-command-result.v9` JSON envelope even when the
    process exits nonzero. Exit `1` is a policy outcome. A rejected `followup`,
    `delta`, `rerun`, or `compose` request still has a machine envelope:
    `request_state` `invalid` means syntax rejection, while `unresolved` applies

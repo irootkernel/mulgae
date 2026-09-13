@@ -65,7 +65,7 @@ func validLocalDoctorResult() LocalDoctorResult {
 		ConfiguredProviderIDs: []string{"kimi"},
 		ProviderInventory: []LocalProviderInventoryRow{
 			{Family: "kimi", Configured: true, ReferencedByRoles: []string{"logic"}, State: "eligible", Reason: "provider_cli_version_supported", BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "0.38.0", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "0.38.0", VerifiedLatest: "0.38.0", ReasonCode: "provider_cli_version_supported"}},
-			notConfigured("zcode"), notConfigured("agy"), notConfigured("codex"),
+			notConfigured("zcode"), notConfigured("agy"), notConfigured("grok"), notConfigured("codex"),
 		},
 		Assignment: LocalAssignmentProjection{State: "ready", Resilience: "ready"}, PlatformEvidence: []LocalPlatformEvidence{{Cell: "darwin-arm64", Native: true}}, ToolsLock: LocalToolsLock{State: "not_observed"},
 		Readiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, ConfiguredReadiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, RoleRouteReadiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, Diagnostics: []LocalDiagnostic{},

@@ -16,9 +16,10 @@ mulgae config --mode provenance --output json
 ```
 
 For a new workspace, `mulgae init` selects only compiled provider families and
-compiled roles. Mulgae supports Kimi, ZCode, AGY, and Codex. Automatic provider
-selection requires ZCode; select AGY, Kimi, or Codex explicitly with
-`--providers agy`, `--providers kimi`, or `--providers codex`. The compiled
+compiled roles. Mulgae supports Kimi, ZCode, AGY, Grok, and Codex. Automatic
+provider selection requires ZCode; select AGY, Kimi, Grok, or Codex explicitly
+with `--providers agy`, `--providers kimi`, `--providers grok`, or
+`--providers codex`. The compiled
 catalog holds seven roles, and bare `mulgae init` enables only the required
 `logic` role, so list every intended role explicitly. Examples:
 
@@ -27,6 +28,8 @@ mulgae init --providers zcode,agy \
   --roles logic,security,maintainability,product,documentation,testing \
   --output json
 mulgae init --providers kimi --roles logic --output json
+mulgae init --providers grok --roles logic,security \
+  --grok-executable /absolute/path/to/grok --output json
 mulgae init --providers codex --roles logic,security --output json
 ```
 

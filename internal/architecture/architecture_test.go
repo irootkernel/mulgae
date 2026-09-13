@@ -261,8 +261,8 @@ func TestMakefileContract(t *testing.T) {
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
-	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 4 {
-		t.Fatal("release, mandatory E2E, opt-in E2E, and MCP client binaries do not share RELEASE_VERSION")
+	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 5 {
+		t.Fatal("release, mandatory E2E, opt-in E2E, Grok, and MCP client binaries do not share RELEASE_VERSION")
 	}
 	optInStart := strings.Index(text, "\ntest-e2e-opt-in:")
 	kimiStart := strings.Index(text, "\ntest-kimi:")
@@ -302,10 +302,25 @@ func TestMakefileContract(t *testing.T) {
 			t.Errorf("test-e2e-opt-in missing mixed-profile token %q", required)
 		}
 	}
-	kimiTarget := text[kimiStart:]
+	grokStart := strings.Index(text, "\ntest-grok:")
+	mcpClientStart := strings.Index(text, "\ntest-mcp-clients:")
+	if grokStart <= kimiStart || mcpClientStart <= grokStart {
+		t.Fatal("Makefile does not define the Grok gate before the MCP client gate")
+	}
+	kimiTarget := text[kimiStart:grokStart]
 	for _, required := range []string{"MULGAE_LIVE_KIMI_BIN", "MULGAE_LIVE_KIMI_DATA_HOME", "-run '^TestLiveKimiCapability$$'"} {
 		if !strings.Contains(kimiTarget, required) {
 			t.Errorf("test-kimi missing compatibility token %q", required)
+		}
+	}
+	grokTarget := text[grokStart:mcpClientStart]
+	for _, required := range []string{
+		"MULGAE_LIVE_GROK_BIN", "-tags=liveprovider", "-run '^TestLiveGrokCapability$$'",
+		"MULGAE_E2E_GROK_EXECUTABLE", "main.buildVersion=$(RELEASE_VERSION)",
+		"-tags='live_e2e live_grok'", "-run '^TestE2EGrokReleaseBinaryReview$$'",
+	} {
+		if !strings.Contains(grokTarget, required) {
+			t.Errorf("test-grok missing exact-binary review token %q", required)
 		}
 	}
 	capability := strings.Index(e2eTarget, "-tags=liveprovider")

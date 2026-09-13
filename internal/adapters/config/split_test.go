@@ -34,6 +34,29 @@ func TestConfigV2SplitKeepsMachinePathsOutOfProjectPolicy(t *testing.T) {
 	}
 }
 
+func TestConfigV3SplitKeepsGrokExecutableMachineLocalAndTimeoutShared(t *testing.T) {
+	config := validConfig()
+	config.Providers = ProvidersConfig{Grok: &GrokProviderConfig{Executable: "/opt/grok/bin/grok", Timeout: "25m"}}
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
+	project, local, err := EncodeSplit(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(project, []byte(config.Providers.Grok.Executable)) || !bytes.Contains(project, []byte(`timeout: "25m"`)) {
+		t.Fatalf("Grok project policy authority is invalid:\n%s", project)
+	}
+	if !bytes.Contains(local, []byte(`executable: "/opt/grok/bin/grok"`)) || bytes.Contains(local, []byte("timeout:")) {
+		t.Fatalf("Grok machine-path authority is invalid:\n%s", local)
+	}
+	decoded, err := DecodeSplit(project, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Providers.Grok == nil || decoded.Providers.Grok.Executable != config.Providers.Grok.Executable || decoded.Providers.Grok.Timeout != "25m" {
+		t.Fatalf("Grok split round trip = %#v", decoded.Providers.Grok)
+	}
+}
+
 func TestConfigV2SplitRejectsLegacyAndProviderSetMismatch(t *testing.T) {
 	project, local, err := EncodeSplit(validConfig())
 	if err != nil {

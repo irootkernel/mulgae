@@ -2638,6 +2638,7 @@ func TestRegistryProviderOutputStagingDestinationFailsClosed(t *testing.T) {
 	registry, err := NewRegistry(&countingRunner{},
 		testProfile(t, FamilyZcode, "zcode_default", "", ""),
 		testProfile(t, FamilyAgy, "agy_default", "", ""),
+		testProfile(t, FamilyGrok, "grok_default", "", ""),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -2663,22 +2664,24 @@ func TestRegistryProviderOutputStagingDestinationFailsClosed(t *testing.T) {
 		t.Fatalf("AGY = destination %q, transport %q, ok %t", destination.Directory(), transport, ok)
 	}
 
-	scratch := namespaceEnvironmentMap(t, registry.namespaces["zcode_default"].Environment())["MULGAE_PROVIDER_SCRATCH"]
-	for _, test := range []struct {
-		purpose ports.ProviderInvocationPurpose
-		name    string
-	}{
-		{ports.ProviderInvocationInitial, invocation.AttemptID().String() + "-0"},
-		{ports.ProviderInvocationRepair, invocation.AttemptID().String() + "-1"},
-	} {
-		destination, transport, ok := registry.ProviderOutputStagingDestination(
-			"zcode_default", invocation.AttemptID(), test.purpose,
-		)
-		want := filepath.Join(scratch, "output", test.name)
-		if !ok || transport != ports.ProviderOutputTransportStagedFile ||
-			destination.Directory() != want || destination.Filename() != stagedOutputFilename {
-			t.Fatalf("%s destination = %q/%q, transport %q, ok %t; want %q",
-				test.purpose, destination.Directory(), destination.Filename(), transport, ok, want)
+	for _, instance := range []string{"zcode_default", "grok_default"} {
+		scratch := namespaceEnvironmentMap(t, registry.namespaces[instance].Environment())["MULGAE_PROVIDER_SCRATCH"]
+		for _, test := range []struct {
+			purpose ports.ProviderInvocationPurpose
+			name    string
+		}{
+			{ports.ProviderInvocationInitial, invocation.AttemptID().String() + "-0"},
+			{ports.ProviderInvocationRepair, invocation.AttemptID().String() + "-1"},
+		} {
+			destination, transport, ok := registry.ProviderOutputStagingDestination(
+				instance, invocation.AttemptID(), test.purpose,
+			)
+			want := filepath.Join(scratch, "output", test.name)
+			if !ok || transport != ports.ProviderOutputTransportStagedFile ||
+				destination.Directory() != want || destination.Filename() != stagedOutputFilename {
+				t.Fatalf("%s destination = %q/%q, transport %q, ok %t; want %q",
+					test.purpose, destination.Directory(), destination.Filename(), transport, ok, want)
+			}
 		}
 	}
 

@@ -129,10 +129,10 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "project.root" || len(field) >= 10 && (field[:10] == "execution." && field != "execution.workspace_access") || len(field) >= 8 && field[:8] == "runtime." || len(field) >= 9 && field[:9] == "provider." || len(field) >= 10 && field[:10] == "artifacts." || len(field) >= 7 && field[:7] == "safety." {
 			source, disposition, class = "code", "fixed", "invariant"
 		}
-		if field == "project.context" && config.Project.Context == "" || field == "providers.kimi.configured" && config.Providers.Kimi == nil || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.agy.configured" && config.Providers.AGY == nil || field == "providers.codex.configured" && config.Providers.Codex == nil {
+		if field == "project.context" && config.Project.Context == "" || field == "providers.kimi.configured" && config.Providers.Kimi == nil || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.agy.configured" && config.Providers.AGY == nil || field == "providers.grok.configured" && config.Providers.Grok == nil || field == "providers.codex.configured" && config.Providers.Codex == nil {
 			disposition = "absent"
 		}
-		if field == "providers.kimi.timeout" && config.Providers.Kimi == nil || field == "providers.zcode.timeout" && config.Providers.ZCode == nil || field == "providers.agy.timeout" && config.Providers.AGY == nil || strings.HasPrefix(field, "providers.codex.") && field != "providers.codex.configured" && config.Providers.Codex == nil {
+		if field == "providers.kimi.timeout" && config.Providers.Kimi == nil || field == "providers.zcode.timeout" && config.Providers.ZCode == nil || field == "providers.agy.timeout" && config.Providers.AGY == nil || field == "providers.grok.timeout" && config.Providers.Grok == nil || strings.HasPrefix(field, "providers.codex.") && field != "providers.codex.configured" && config.Providers.Codex == nil {
 			disposition = "absent"
 		}
 		if config.Providers.Codex != nil && (field == "providers.codex.model" && config.Providers.Codex.Model == "" || field == "providers.codex.reasoning_effort" && config.Providers.Codex.ReasoningEffort == "") {
@@ -150,7 +150,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "validation.extraction.enabled" && !config.Validation.Extraction.EnabledExplicit {
 			source, disposition = "default", "defaulted"
 		}
-		if field == "providers.kimi.timeout" && config.Providers.Kimi != nil && config.Providers.Kimi.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.zcode.timeout" && config.Providers.ZCode != nil && config.Providers.ZCode.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.agy.timeout" && config.Providers.AGY != nil && config.Providers.AGY.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.codex.timeout" && config.Providers.Codex != nil && config.Providers.Codex.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
+		if field == "providers.kimi.timeout" && config.Providers.Kimi != nil && config.Providers.Kimi.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.zcode.timeout" && config.Providers.ZCode != nil && config.Providers.ZCode.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.agy.timeout" && config.Providers.AGY != nil && config.Providers.AGY.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.grok.timeout" && config.Providers.Grok != nil && config.Providers.Grok.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.codex.timeout" && config.Providers.Codex != nil && config.Providers.Codex.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
 			source, disposition = "default", "defaulted"
 		}
 		rows = append(rows, ProvenanceRow{Field: field, Source: source, Disposition: disposition, ValueClass: class})

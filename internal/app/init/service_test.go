@@ -463,7 +463,7 @@ func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing
 	}
 }
 
-func TestInitializeProjectSupportsAllFifteenSelectedSubsets(t *testing.T) {
+func TestInitializeProjectSupportsAllThirtyOneSelectedSubsets(t *testing.T) {
 	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -472,7 +472,7 @@ func TestInitializeProjectSupportsAllFifteenSelectedSubsets(t *testing.T) {
 	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for mask := 1; mask < 16; mask++ {
+	for mask := 1; mask < 32; mask++ {
 		rootPath := t.TempDir()
 		_ = os.Chmod(rootPath, 0o700)
 		root, _ := ports.NewAnchoredRoot(rootPath)
@@ -492,6 +492,10 @@ func TestInitializeProjectSupportsAllFifteenSelectedSubsets(t *testing.T) {
 			overrides.AGYExecutable = "/bin/agy"
 		}
 		if mask&8 != 0 {
+			ids = append(ids, "grok")
+			overrides.GrokExecutable = "/bin/grok"
+		}
+		if mask&16 != 0 {
 			ids = append(ids, "codex")
 			overrides.CodexExecutable = "/bin/codex"
 		}
@@ -523,6 +527,8 @@ func TestInitializeProjectSupportsAllFifteenSelectedSubsets(t *testing.T) {
 				timeout = decoded.Providers.ZCode.Timeout
 			case "agy":
 				timeout = decoded.Providers.AGY.Timeout
+			case "grok":
+				timeout = decoded.Providers.Grok.Timeout
 			case "codex":
 				timeout = decoded.Providers.Codex.Timeout
 			}
@@ -656,7 +662,7 @@ func TestInitializeProjectNeverObservesUnselectedFamiliesOrExecutesProviders(t *
 	if !reflect.DeepEqual(inspector.calls, []string{"/bin/agy"}) || len(inspector.legacyCalls) != 0 {
 		t.Fatalf("observations=%v legacy=%v", inspector.calls, inspector.legacyCalls)
 	}
-	if len(result.Discovery) != 4 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "candidate" || result.Discovery[3].Status != "not_selected" {
+	if len(result.Discovery) != 5 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "candidate" || result.Discovery[3].Status != "not_selected" || result.Discovery[4].Status != "not_selected" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
@@ -726,7 +732,7 @@ func TestInitializeProjectZCodePartialOverridesObserveOnlyMissingComponent(t *te
 	}
 }
 
-func TestInitializeProjectDiscoveryFailureStillReturnsFourRows(t *testing.T) {
+func TestInitializeProjectDiscoveryFailureStillReturnsFiveRows(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
@@ -739,7 +745,7 @@ func TestInitializeProjectDiscoveryFailureStillReturnsFourRows(t *testing.T) {
 	if err == nil {
 		t.Fatal("selected provider discovery failure accepted")
 	}
-	if len(result.Discovery) != 4 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "unavailable" || result.Discovery[3].Status != "not_selected" {
+	if len(result.Discovery) != 5 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "unavailable" || result.Discovery[3].Status != "not_selected" || result.Discovery[4].Status != "not_selected" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
@@ -766,6 +772,7 @@ func TestInitializeProjectAutoRequiresZCodeWithoutObservingOtherProviders(t *tes
 			errors: map[string]error{
 				"kimi":  errors.New("auto must not inspect Kimi"),
 				"agy":   errors.New("auto must not inspect AGY"),
+				"grok":  errors.New("auto must not inspect Grok"),
 				"codex": errors.New("auto must not inspect Codex"),
 			},
 		}
@@ -787,10 +794,10 @@ func TestInitializeProjectAutoRequiresZCodeWithoutObservingOtherProviders(t *tes
 		if initErr != nil {
 			t.Fatal(initErr)
 		}
-		if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"zcode"}) || len(result.Discovery) != 4 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "candidate" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" {
+		if !reflect.DeepEqual(result.ConfiguredProviderIDs, []string{"zcode"}) || len(result.Discovery) != 5 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "candidate" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" || result.Discovery[4].Status != "not_selected" {
 			t.Fatalf("result=%#v", result)
 		}
-		if contains(inspector.calls, "kimi") || contains(inspector.calls, "agy") || contains(inspector.calls, "codex") || len(inspector.legacyCalls) != 0 {
+		if contains(inspector.calls, "kimi") || contains(inspector.calls, "agy") || contains(inspector.calls, "grok") || contains(inspector.calls, "codex") || len(inspector.legacyCalls) != 0 {
 			t.Fatalf("auto discovery observed a non-ZCode provider or launched a provider: calls=%v legacy=%v", inspector.calls, inspector.legacyCalls)
 		}
 		config, decodeErr := readInstalledConfig(rootPath)
@@ -900,6 +907,7 @@ func TestValidateSelectionRejectsNonZCodeOverridesInAutoMode(t *testing.T) {
 		{KimiDataHome: "/Users/test/.kimi-code"},
 		{AGYExecutable: "/bin/agy"},
 		{AGYPermissionMode: "safe"},
+		{GrokExecutable: "/bin/grok"},
 		{CodexExecutable: "/bin/codex"},
 		{CodexModel: "gpt"},
 		{CodexReasoningEffort: "high"},
@@ -910,7 +918,7 @@ func TestValidateSelectionRejectsNonZCodeOverridesInAutoMode(t *testing.T) {
 	}
 }
 
-func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsFourRows(t *testing.T) {
+func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsFiveRows(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
@@ -933,7 +941,7 @@ func TestInitializeProjectUnsafeKimiEnvironmentStillReturnsFourRows(t *testing.T
 	if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy {
 		t.Fatalf("failure=%T %v", err, err)
 	}
-	if len(result.Discovery) != 4 || result.Discovery[0].Status != "unavailable" || result.Discovery[0].DataHomeSource != "startup_environment" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" {
+	if len(result.Discovery) != 5 || result.Discovery[0].Status != "unavailable" || result.Discovery[0].DataHomeSource != "startup_environment" || result.Discovery[1].Status != "not_selected" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" || result.Discovery[4].Status != "not_selected" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
@@ -970,6 +978,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		{Family: "kimi", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "default_k3", DataHomeSource: "startup_environment"},
 		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", NodeExecutableSource: "override", LauncherSource: "override"},
 		{Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", NativeHomeSource: "verified_equal_input", PermissionModeSource: "explicit"},
+		{Family: "grok", Status: "not_selected", ExecutableSource: "not_selected"},
 		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}
 	if !reflect.DeepEqual(result.Discovery, want) {
@@ -1221,7 +1230,7 @@ func admittedAGYDiscoveryRows() []DiscoveryRow {
 		Family: "agy", Selected: true, Candidate: true, Configured: true, Status: "candidate",
 		ExecutableSource: "override", NativeHomeSource: "os_account", PermissionModeSource: "safe_default",
 	}
-	return []DiscoveryRow{notSelectedDiscoveryRow("kimi"), notSelectedDiscoveryRow("zcode"), agy, notSelectedDiscoveryRow("codex")}
+	return []DiscoveryRow{notSelectedDiscoveryRow("kimi"), notSelectedDiscoveryRow("zcode"), agy, notSelectedDiscoveryRow("grok"), notSelectedDiscoveryRow("codex")}
 }
 
 func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {

@@ -86,7 +86,7 @@ func TestGrokCredentialProjectionRejectsNonPrivateAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := factory.AcquireProviderNamespace(context.Background(), "grok", string(grokCandidateFamily)); err == nil {
+	if _, err := factory.AcquireProviderNamespace(context.Background(), "grok", FamilyGrok); err == nil {
 		t.Fatalf("non-private Grok auth error = %v", err)
 	}
 }

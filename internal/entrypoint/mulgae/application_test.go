@@ -47,7 +47,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v8.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v9.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -257,7 +257,7 @@ func (reader *foundationEvidenceReader) ProviderEvidence(_ context.Context, prov
 		probes[0].Status = configuredStatus
 	}
 	return doctor.ProviderEvidenceRecord{
-		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json",
+		SchemaID:                "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json",
 		ProviderID:              providerID,
 		URI:                     uri,
 		SHA256:                  strings.Repeat("a", 64),
@@ -517,7 +517,7 @@ func TestApplicationComposeUnavailableReturnsV8ReconciliationEnvelope(t *testing
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v8" || envelope.Result["kind"] != "composite_failed" ||
+	if envelope.SchemaVersion != "mulgae-command-result.v9" || envelope.Result["kind"] != "composite_failed" ||
 		envelope.Result["root_run_id"] == nil || envelope.Result["reconciliation_state"] != "not_committed" || envelope.Result["retry_safe"] != true {
 		t.Fatalf("compose failure envelope = %#v", envelope)
 	}
@@ -2344,7 +2344,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 		t.Fatalf("providers human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
-	wantFamilies := []string{"kimi", "zcode", "agy", "codex"}
+	wantFamilies := []string{"kimi", "zcode", "agy", "grok", "codex"}
 	if len(lines) != len(wantFamilies) {
 		t.Fatalf("providers human rows = %q, want provider rows without failure details", human.Stdout())
 	}
@@ -2389,7 +2389,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 func TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile(t *testing.T) {
 	evidence := &foundationEvidenceReader{providerEvidenceStatuses: map[string]doctor.EvidenceStatus{
 		"kimi": doctor.EvidenceStatusFail, "zcode": doctor.EvidenceStatusFail,
-		"agy": doctor.EvidenceStatusFail, "codex": doctor.EvidenceStatusFail,
+		"agy": doctor.EvidenceStatusFail, "grok": doctor.EvidenceStatusFail, "codex": doctor.EvidenceStatusFail,
 	}}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
@@ -2405,6 +2405,25 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	root := testAnchoredRoot(t)
 	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "agy", "--agy-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	anchoredRoot, err := ports.NewAnchoredRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directDoctor, err := fixture.application.diagnoseLocalDoctor(context.Background(), anchoredRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directDoctorJSON, err := json.Marshal(directDoctor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v3.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.validator.Validate(context.Background(), doctorSchemaID, directDoctorJSON); err != nil {
+		t.Fatalf("direct doctor contract validation: %v", err)
+	}
 
 	providersResult := fixture.application.Run(context.Background(), []string{"providers", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, providersResult, app.ExitCodeSuccess)
@@ -2418,10 +2437,10 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err := json.Unmarshal(providersResult.Stdout(), &providersEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 4 ||
+	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 5 ||
 		providersEnvelope.Result.ProviderEvidenceURI == nil ||
 		*providersEnvelope.Result.ProviderEvidenceURI != foundationProviderEvidenceURI {
-		t.Fatalf("providers result = %#v, want 4 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
+		t.Fatalf("providers result = %#v, want 5 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
 	}
 
 	doctorResult := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
@@ -2442,7 +2461,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 		t.Fatalf("doctor config status = %q, want ready", got)
 	}
 
-	wantCalls := []string{"kimi", "zcode", "agy", "codex"}
+	wantCalls := []string{"kimi", "zcode", "agy", "grok", "codex"}
 	if !reflect.DeepEqual(evidence.providerCalls, wantCalls) ||
 		len(evidence.platformCalls) != 1 || evidence.toolsCalls != 1 {
 		t.Fatalf("evidence reader calls = providers %#v platforms %#v tools %d, want only shared reader observations", evidence.providerCalls, evidence.platformCalls, evidence.toolsCalls)
@@ -4521,6 +4540,17 @@ func TestExecutionFailurePreservesClosedLocalityReason(t *testing.T) {
 	}
 	failure := executionFailureFor(app.CommandReview, err, domain.FailureArtifact)
 	if failure.code != string(ports.ConfigLocalityTargetPrivateConfigForbidden) || failure.exit != app.ExitCodeSecurity {
+		t.Fatalf("failure = %s/exit %d", failure.code, failure.exit)
+	}
+}
+
+func TestExecutionFailureProjectsUnsupportedProviderCapability(t *testing.T) {
+	err, createErr := domain.NewFailure("review.composition", domain.FailureProviderUnavailable, "provider_capability_unsupported", nil)
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+	failure := executionFailureFor(app.CommandReview, err, domain.FailureArtifact)
+	if failure.code != "provider_capability_unsupported" || failure.exit != app.ExitCodeReadiness {
 		t.Fatalf("failure = %s/exit %d", failure.code, failure.exit)
 	}
 }

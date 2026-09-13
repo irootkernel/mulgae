@@ -62,9 +62,8 @@ func grokACPFailure(cause domain.RuntimeDiagnosticCause, err error) *grokACPErro
 	return &grokACPError{cause: cause, err: err}
 }
 
-// grokACPProtocolSession implements the deterministic ACP v1 client contract
-// without registering Grok as a production provider. TASK-012 can bind this
-// constructor only after the live gate and public contracts are complete.
+// grokACPProtocolSession implements Grok's deterministic ACP v1 client contract
+// for qualification, extraction, and staged-file review invocations.
 type grokACPProtocolSession struct {
 	workspacePath  string
 	prompt         string

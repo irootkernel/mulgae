@@ -17,7 +17,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v3"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v4"
 
 // ReviewPreflightService projects the exact capture and configured execution
 // envelope without provider discovery, qualification, invocation, or durable

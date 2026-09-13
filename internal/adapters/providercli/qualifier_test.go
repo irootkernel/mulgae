@@ -1635,6 +1635,19 @@ func TestPlainSemverAcceptsCodexCLIIdentityPrefixOnlyForCodex(t *testing.T) {
 	}
 }
 
+func TestPlainSemverAcceptsExactGrokCLIIdentity(t *testing.T) {
+	observation := testProcessObservation(t, []byte("grok 1.0.30 (a1b2c3d)\n"), nil, ports.ProcessTerminationExited, 0)
+	if got, err := plainSemver(FamilyGrok, observation); err != nil || got != "1.0.30" {
+		t.Fatalf("Grok version = %q, %v", got, err)
+	}
+	for _, invalid := range []string{"1.0.30", "grok 1.0.30", "grok 1.0.30 (A1B2)", "grok 1.0.30 (a1b2c3d) [stable]"} {
+		candidate := testProcessObservation(t, []byte(invalid+"\n"), nil, ports.ProcessTerminationExited, 0)
+		if _, err := plainSemver(FamilyGrok, candidate); err == nil {
+			t.Fatalf("invalid Grok version output %q was accepted", invalid)
+		}
+	}
+}
+
 func TestValidateProbeEvidenceRequiresPositiveCapabilityOnly(t *testing.T) {
 	fixture := &currentProbeFixture{}
 	if err := validateProbeEvidence([]byte(`{"root":"nonce","link":"linked","role":"logic"}`), fixture); err != nil {

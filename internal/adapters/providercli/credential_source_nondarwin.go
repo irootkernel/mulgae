@@ -16,6 +16,7 @@ const (
 	CredentialSourceKimi  CredentialSourceFamily = "kimi"
 	CredentialSourceZCode CredentialSourceFamily = "zcode"
 	CredentialSourceAGY   CredentialSourceFamily = "agy"
+	CredentialSourceGrok  CredentialSourceFamily = "grok"
 	CredentialSourceCodex CredentialSourceFamily = "codex"
 )
 
@@ -38,6 +39,10 @@ func NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes(ports.Pro
 }
 
 func NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(ports.ProviderNamespaceFactory, string, map[string]CredentialSourceFamily, map[string]RuntimeSafetyPolicy, map[string]string, map[string]string) (ports.ProviderNamespaceFactory, error) {
+	return nil, fmt.Errorf("credential source factory: unsupported platform")
+}
+
+func NewCredentialProjectingNamespaceFactoryWithProjectRoot(ports.ProviderNamespaceFactory, string, string, map[string]CredentialSourceFamily, map[string]RuntimeSafetyPolicy, map[string]string, map[string]string) (ports.ProviderNamespaceFactory, error) {
 	return nil, fmt.Errorf("credential source factory: unsupported platform")
 }
 func canonicalAbsolutePath(path string) bool {

@@ -6,6 +6,7 @@
 - Go 1.26.6 or newer
 - Git
 - authenticated ZCode and Codex installations for the mandatory live tests
+- an authenticated Grok installation for the dedicated live Grok review target
 - an authenticated Kimi installation only for the opt-in compatibility test
 - two distinct authenticated Codex homes plus an authenticated Kimi data home
   only for the opt-in mixed-profile E2E
@@ -44,11 +45,19 @@ Smaller targets are available while iterating:
 make test-prepare
 make test-unit
 make test-int
+make test-release
 make test-e2e
 make test-e2e-opt-in
+make test-grok
 make test-kimi
 make test-mcp-clients
 ```
+
+`make test-grok` builds the exact current release binary and runs one authorized
+Grok review through ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and
+otherwise discovers `grok` on `PATH`. The target requires an already
+authenticated installation, does not modify native Grok configuration, and is
+not part of `make test` until the final provider-portfolio transition.
 
 `make test-kimi` is an opt-in compatibility check and is not part of
 `make test`. Do not call a change release-ready when the mandatory ZCode/Codex

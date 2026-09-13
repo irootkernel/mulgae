@@ -14,8 +14,8 @@ result, evidence status, lineage, and a durable publication record.
 2. **Multiple review lenses.** Logic, security, maintainability, product,
    documentation, testing, and UI-focused artist roles inspect a target through
    explicit assignments.
-3. **Provider and run independence.** Kimi, ZCode, AGY, and Codex use separate
-   adapters behind common application ports. Independent runs and projects do
+3. **Provider and run independence.** Kimi, ZCode, AGY, Grok, and Codex use
+   separate adapters behind common application ports. Independent runs and projects do
    not consume one another's execution budget through a Mulgae-owned provider
    queue or lock; concurrency remains bounded explicitly within each process.
 4. **Reproducible inputs.** Mulgae captures an immutable target and records
@@ -74,7 +74,7 @@ The first public release is intentionally narrow:
 - Config v3 split between tracked `.mulgae/config.yaml` project policy and
   untracked mode-`0600` `.mulgae/local.yaml` machine paths;
 - independently versioned machine contracts;
-- Kimi, ZCode, AGY, and Codex provider families;
+- Kimi, ZCode, AGY, Grok, and Codex provider families;
 - macOS on Apple silicon;
 - manual Git tagging after the complete local release gate passes.
 

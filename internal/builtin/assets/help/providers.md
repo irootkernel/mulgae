@@ -1,11 +1,11 @@
 # Providers and role paths
 
-Mulgae supports the `kimi`, `zcode`, `agy`, and `codex` provider families. Provider
-executables must be installed and authenticated before review.
+Mulgae supports the `kimi`, `zcode`, `agy`, `grok`, and `codex` provider
+families. Provider executables must be installed and authenticated before review.
 
 Automatic initialization selects ZCode and requires it to be available. AGY,
-Kimi, and Codex remain explicit-only providers and do not change the ZCode auto
-topology.
+Kimi, Grok, and Codex remain explicit-only providers and do not change the ZCode
+auto topology.
 
 ```bash
 mulgae providers
@@ -28,7 +28,7 @@ known incompatible version fails closed.
 Run a live synthetic heartbeat only with explicit authorization:
 
 ```bash
-mulgae heartbeat --provider agy --authorize-live-request --output json
+mulgae heartbeat --provider grok --authorize-live-request --output json
 ```
 
 It may authenticate, use the network, incur cost, and create remote logs. It
@@ -39,7 +39,9 @@ before provider composition or execution.
 Each configured role runs on exactly one provider. Mulgae never substitutes
 another provider when one fails: the role is reported as failed with its typed
 failure reason, every other role continues on its own provider, and choosing a
-replacement is yours. The final report lists each failed role, the provider it
+replacement is yours. A recomposed rerun may use that explicitly configured
+replacement for a missing role, but composition rejects any attempt to replace
+an accepted role. The final report lists each failed role, the provider it
 ran on, why it stopped, and the `mulgae rerun` command to run it again
 elsewhere. Provider invocations carry no hidden scheduling key and create no
 provider queue or lock. Each run owns its provider registry and a temporary
@@ -59,7 +61,7 @@ the providers it configured and takes the first match as the role's provider.
 That is a generation-time default only: after init the shared project policy is
 the sole routing authority and is never re-derived.
 
-ZCode, AGY, and Codex reviews run against Mulgae's immutable captured directory view
+ZCode, AGY, Grok, and Codex reviews run against Mulgae's immutable captured directory view
 with adapter-owned tool boundaries. Providers may selectively read/search that
 view; they do not receive live project-tree access, shell, or network
 authority from Mulgae. A single tree is under `current/`; Git comparisons are
@@ -82,11 +84,18 @@ Role reports reach Mulgae over a per-family transport recorded in
   always removes staging. ZCode's write authority is not path-scoped by the
   provider; containment is Mulgae-side. ZCode qualification runs in plan mode
   and remains fully tool-denied.
+- Grok: `staged_file` for review and stdout assistant evidence for qualification
+  and extraction. Mulgae speaks ACP v1, supplies no MCP servers, installs an
+  adapter-owned workspace policy in the disposable Grok home, and admits exactly
+  one correlated `allow_once` permission for `Write` to the invocation-owned
+  `role-report.md`. Any other permission request, tool path, active MCP server,
+  protocol mismatch, or repeated write fails closed. Grok is text-only; an
+  `artist` assignment fails preflight with `provider_capability_unsupported`.
 - AGY, Kimi, and Codex: `stdout`. Headless AGY auto-denies `write_file` in
   safe mode.
 - Exact replay (`rerun --replay exact`) keeps the provider family's transport. For
-  ZCode, Mulgae preserves the stored review frames but replaces the expired
-  output path with a fresh per-launch staging destination.
+  ZCode and Grok, Mulgae preserves the stored review frames but replaces the
+  expired output path with a fresh per-launch staging destination.
 
 AGY keeps `--new-project --sandbox --add-dir <workspace> --mode plan` limited to
 the immutable captured workspace. The default AGY `permission_mode` is `safe` so headless

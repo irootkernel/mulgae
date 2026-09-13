@@ -26,6 +26,7 @@ type projectProvidersConfig struct {
 	Kimi  *projectKimiConfig  `yaml:"kimi,omitempty"`
 	ZCode *projectZCodeConfig `yaml:"zcode,omitempty"`
 	AGY   *projectAGYConfig   `yaml:"agy,omitempty"`
+	Grok  *projectGrokConfig  `yaml:"grok,omitempty"`
 	Codex *projectCodexConfig `yaml:"codex,omitempty"`
 }
 
@@ -41,6 +42,9 @@ type projectZCodeConfig struct {
 type projectAGYConfig struct {
 	PermissionMode string `yaml:"permission_mode,omitempty"`
 	Timeout        string `yaml:"timeout,omitempty"`
+}
+type projectGrokConfig struct {
+	Timeout string `yaml:"timeout,omitempty"`
 }
 
 type projectCodexConfig struct {
@@ -60,6 +64,7 @@ type machineProvidersConfig struct {
 	Kimi  *machineKimiConfig  `yaml:"kimi,omitempty"`
 	ZCode *machineZCodeConfig `yaml:"zcode,omitempty"`
 	AGY   *machineAGYConfig   `yaml:"agy,omitempty"`
+	Grok  *machineGrokConfig  `yaml:"grok,omitempty"`
 	Codex *machineCodexConfig `yaml:"codex,omitempty"`
 }
 
@@ -74,6 +79,9 @@ type machineZCodeConfig struct {
 }
 
 type machineAGYConfig struct {
+	Executable string `yaml:"executable"`
+}
+type machineGrokConfig struct {
 	Executable string `yaml:"executable"`
 }
 
@@ -144,6 +152,9 @@ func ProjectProviderIDs(projectData []byte) ([]string, error) {
 	if project.Providers.AGY != nil {
 		families = append(families, "agy")
 	}
+	if project.Providers.Grok != nil {
+		families = append(families, "grok")
+	}
 	if project.Providers.Codex != nil {
 		families = append(families, "codex")
 	}
@@ -195,6 +206,7 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 	if (project.Providers.Kimi == nil) != (local.Providers.Kimi == nil) ||
 		(project.Providers.ZCode == nil) != (local.Providers.ZCode == nil) ||
 		(project.Providers.AGY == nil) != (local.Providers.AGY == nil) ||
+		(project.Providers.Grok == nil) != (local.Providers.Grok == nil) ||
 		(project.Providers.Codex == nil) != (local.Providers.Codex == nil) {
 		return Config{}, fmt.Errorf("provider sets differ")
 	}
@@ -206,6 +218,9 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 	}
 	if project.Providers.AGY != nil {
 		config.Providers.AGY = &AGYProviderConfig{Executable: local.Providers.AGY.Executable, PermissionMode: project.Providers.AGY.PermissionMode, Timeout: project.Providers.AGY.Timeout}
+	}
+	if project.Providers.Grok != nil {
+		config.Providers.Grok = &GrokProviderConfig{Executable: local.Providers.Grok.Executable, Timeout: project.Providers.Grok.Timeout}
 	}
 	if project.Providers.Codex != nil {
 		credentialHomes := make([]CodexCredentialHomeConfig, 0, len(local.Providers.Codex.CredentialHomes))
@@ -285,6 +300,14 @@ func encodeProjectConfig(config Config) []byte {
 			}
 		}
 	}
+	if provider := config.Providers.Grok; provider != nil {
+		out.WriteString("  grok:")
+		if provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString(" {}\n")
+		} else {
+			out.WriteString("\n    timeout: " + q(provider.Timeout) + "\n")
+		}
+	}
 	if provider := config.Providers.Codex; provider != nil {
 		out.WriteString("  codex:")
 		if provider.DefaultCredentialProfile == "" && provider.Model == "" && provider.ReasoningEffort == "" && provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
@@ -355,6 +378,9 @@ func encodeMachineConfig(config Config) []byte {
 	}
 	if provider := config.Providers.AGY; provider != nil {
 		out.WriteString("  agy:\n    executable: " + q(provider.Executable) + "\n")
+	}
+	if provider := config.Providers.Grok; provider != nil {
+		out.WriteString("  grok:\n    executable: " + q(provider.Executable) + "\n")
 	}
 	if provider := config.Providers.Codex; provider != nil {
 		out.WriteString("  codex:\n    executable: " + q(provider.Executable) + "\n")

@@ -3,7 +3,7 @@ TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.22
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-kimi test-mcp-clients
+.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-kimi test-mcp-clients
 
 test:
 	@$(MAKE) test-prepare
@@ -171,6 +171,25 @@ test-kimi:
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestLiveKimiCapability$$' ./internal/adapters/providercli
 	@printf '%s\n' '[test-kimi] completed'
+
+test-grok:
+	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-grok requires darwin/arm64" >&2; exit 1; }
+	@grok_tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$grok_tmp"' EXIT; \
+	grok_binary="$$grok_tmp/mulgae"; \
+	grok_commit="$$(git rev-parse HEAD)"; \
+	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$grok_commit" -o "$$grok_binary" .; \
+	grok_candidate="$${MULGAE_E2E_GROK_EXECUTABLE:-$$(command -v grok)}"; \
+	test -n "$$grok_candidate" && test -x "$$grok_candidate" || { echo "test-grok requires the Grok executable" >&2; exit 1; }; \
+	grok_bin="$$(realpath "$$grok_candidate")"; \
+	case "$$grok_bin" in /*) ;; *) echo "test-grok requires an absolute Grok executable" >&2; exit 1;; esac; \
+	MULGAE_LIVE_GROK_BIN="$$grok_bin" \
+		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
+		-run '^TestLiveGrokCapability$$' ./internal/adapters/providercli; \
+	MULGAE_E2E_BINARY="$$grok_binary" MULGAE_E2E_GROK_EXECUTABLE="$$grok_bin" \
+		$(GO) test -v -tags='live_e2e live_grok' -timeout $(TEST_TIMEOUT) -count=1 \
+		-run '^TestE2EGrokReleaseBinaryReview$$' ./test/e2e
+	@printf '%s\n' '[test-grok] completed'
 
 test-mcp-clients:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-mcp-clients requires darwin/arm64" >&2; exit 1; }

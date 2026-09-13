@@ -174,6 +174,12 @@ say that no provider ever holds it.
   not used for role output.
 - Kimi is unchanged and has no adapter-owned workspace tools; its process
   working directory is still the immutable workspace view.
+- Grok speaks ACP v1 with no MCP servers. Mulgae projects only the native
+  authentication file and an adapter-owned workspace policy into a disposable
+  Grok home. Review may approve one correlated `Write` request to the exact
+  staged report destination; shell, web, subagent, sibling, traversal, symlink,
+  repeated-write, and unrecognized requests fail closed. Qualification and
+  extraction receive no write authority. Grok is admitted only for text roles.
 - Codex runs with approvals disabled and an adapter-owned read-only permission
   profile over the immutable workspace. Its projected `~/.codex` directory is
   explicitly denied to model tools. User configuration, rules, project
@@ -182,7 +188,7 @@ say that no provider ever holds it.
 
 ### Staging boundary
 
-A ZCode review launch receives exactly one write target: a fresh
+A ZCode or Grok review launch receives exactly one write target: a fresh
 per-invocation directory Mulgae creates with `0700` under the provider's
 disposable namespace scratch area, holding the single Mulgae-chosen filename
 `role-report.md`. That directory is outside the sealed workspace view and

@@ -30,11 +30,14 @@ mulgae init [--project-root PATH] [--name NAME]
   [--output human|json]
 ```
 
-`FAMILY := kimi | zcode | agy | codex`
+`FAMILY := kimi | zcode | agy | grok | codex`
 
 `--providers auto` discovers exactly ZCode and fails closed unless it is
-available. Select AGY, Kimi, or Codex explicitly to create a configuration backed
-by that provider; auto selection remains unchanged.
+available. Select AGY, Kimi, Grok, or Codex explicitly to create a configuration
+backed by that provider; auto selection remains unchanged. Grok accepts a
+machine-local `--grok-executable` override and an optional shared-policy
+`providers.grok.timeout`; its model and reasoning settings are provider defaults
+and are not configurable through Mulgae.
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.

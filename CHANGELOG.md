@@ -6,9 +6,9 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
-### Changed
-
-### Fixed
+- Add Grok as an explicitly selected text-role provider with ACP v1 isolation,
+  staged review output, typed capability failures, and an exact-binary live
+  review target while rejecting artist assignments before provider execution.
 
 ## v0.1.21 - 2026-09-12
 

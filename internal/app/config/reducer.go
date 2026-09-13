@@ -83,6 +83,10 @@ func configuredProviderTimeout(providers ProvidersConfig, family string) string 
 		if providers.AGY != nil {
 			return providers.AGY.Timeout
 		}
+	case "grok":
+		if providers.Grok != nil {
+			return providers.Grok.Timeout
+		}
 	case "codex":
 		if providers.Codex != nil {
 			return providers.Codex.Timeout
@@ -187,6 +191,10 @@ func cloneConfig(value Config) Config {
 	if value.Providers.AGY != nil {
 		provider := *value.Providers.AGY
 		copyValue.Providers.AGY = &provider
+	}
+	if value.Providers.Grok != nil {
+		provider := *value.Providers.Grok
+		copyValue.Providers.Grok = &provider
 	}
 	if value.Providers.Codex != nil {
 		provider := *value.Providers.Codex

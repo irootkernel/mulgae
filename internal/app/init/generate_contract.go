@@ -43,16 +43,58 @@ func generate() error {
 		return err
 	}
 	assets := filepath.Join(root, "internal", "builtin", "assets")
-	if err := replaceSchemaMatrix(filepath.Join(assets, "schemas", "mulgae-command-result.v8.schema.json"), specs); err != nil {
+	if err := replaceSchemaMatrix(filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json"), specs); err != nil {
 		return err
 	}
-	if err := replaceSchemaOutcomeContract(filepath.Join(assets, "schemas", "mulgae-command-result.v8.schema.json"), specs); err != nil {
+	if err := replaceSchemaOutcomeContract(filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json"), specs); err != nil {
 		return err
 	}
-	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "mulgae-command-result.v8.schema.json"), discoverySpecs); err != nil {
+	if err := replaceSchemaDiscoveryContract(filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json"), discoverySpecs); err != nil {
+		return err
+	}
+	if err := replaceSchemaProviderContract(filepath.Join(assets, "schemas", "mulgae-command-result.v9.schema.json")); err != nil {
 		return err
 	}
 	return nil
+}
+
+func replaceSchemaProviderContract(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	startNeedle := []byte(`    "canonical_provider_ids": {`)
+	endNeedle := []byte(`    "canonical_role_ids": {`)
+	start, end := bytes.Index(data, startNeedle), bytes.Index(data, endNeedle)
+	if start < 0 || end <= start {
+		return fmt.Errorf("init contract generator: provider schema anchors are missing")
+	}
+	families := []string{"kimi", "zcode", "agy", "grok", "codex"}
+	branches := make([]any, 0, 1<<len(families))
+	for mask := 0; mask < 1<<len(families); mask++ {
+		selected := make([]any, 0, len(families))
+		for index, family := range families {
+			if mask&(1<<index) != 0 {
+				selected = append(selected, map[string]any{"const": family})
+			}
+		}
+		if len(selected) == 0 {
+			branches = append(branches, map[string]any{"maxItems": 0})
+			continue
+		}
+		branches = append(branches, map[string]any{"minItems": len(selected), "maxItems": len(selected), "prefixItems": selected, "items": false})
+	}
+	encoded, err := json.MarshalIndent(map[string]any{"type": "array", "oneOf": branches}, "    ", "  ")
+	if err != nil {
+		return err
+	}
+	replacement := append([]byte(`    "canonical_provider_ids": `), encoded...)
+	replacement = append(replacement, ',', '\n')
+	updated := append(append(append([]byte(nil), data[:start]...), replacement...), data[end:]...)
+	if !json.Valid(updated) {
+		return fmt.Errorf("init contract generator: generated provider schema is invalid JSON")
+	}
+	return writeIfChanged(filename, updated)
 }
 
 func repositoryRoot() (string, error) {

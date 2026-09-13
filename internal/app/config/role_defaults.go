@@ -75,7 +75,7 @@ func (defaults RoleDefaults) Role(role domain.Role) (RoleDefault, bool) {
 }
 
 func validateRoleDefault(role domain.Role, entry RoleDefault) error {
-	allowed := []string{"kimi", "zcode", "agy", "codex"}
+	allowed := []string{"kimi", "zcode", "agy", "grok", "codex"}
 	required := len(allowed)
 	if role == domain.RoleArtist {
 		allowed = []string{"agy", "zcode", "codex"}

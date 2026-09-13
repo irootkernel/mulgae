@@ -45,6 +45,9 @@ func DiscoverySourceSpecs() []DiscoverySourceSpec {
 			// though new init results emit safe_default.
 			{JSONName: "permission_mode_source", Values: []string{"explicit", "headless_default", "safe_default", "not_selected"}},
 		}},
+		{Family: "grok", Fields: []DiscoverySourceFieldSpec{
+			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
+		}},
 		{Family: "codex", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
 			{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},

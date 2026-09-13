@@ -72,6 +72,20 @@ func TestLiveZCodeCapability(t *testing.T) {
 	}
 }
 
+func TestLiveGrokCapability(t *testing.T) {
+	config := liveCapabilityConfig{
+		family: providercli.FamilyGrok, credential: providercli.CredentialSourceGrok, instance: "grok-logic", role: domain.RoleLogic,
+		executableEnv: "MULGAE_LIVE_GROK_BIN", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
+		minimumVersion: [3]int{1, 0, 30},
+		protectedPaths: func(home, _ string) []string {
+			return []string{filepath.Join(home, ".grok", "auth.json")}
+		},
+	}
+	if err := certifyLiveCapability(t, config); err != nil {
+		t.Fatal(liveProbeFailureMessage("grok live capability certification", err))
+	}
+}
+
 func TestLiveCodexCapability(t *testing.T) {
 	config := liveCapabilityConfig{
 		family: providercli.FamilyCodex, credential: providercli.CredentialSourceCodex, instance: "codex-logic", role: domain.RoleLogic,
@@ -275,9 +289,16 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	if config.credential == providercli.CredentialSourceKimi || config.credential == providercli.CredentialSourceCodex {
 		sourceRoots[config.instance] = dataHome
 	}
-	projectedNamespaces, err := providercli.NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(
-		baseNamespaces, runtimeHome, families, policies, nil, sourceRoots,
-	)
+	var projectedNamespaces ports.ProviderNamespaceFactory
+	if config.credential == providercli.CredentialSourceGrok {
+		projectedNamespaces, err = providercli.NewCredentialProjectingNamespaceFactoryWithProjectRoot(
+			baseNamespaces, runtimeHome, liveCapabilityTempDir(t), families, policies, nil, sourceRoots,
+		)
+	} else {
+		projectedNamespaces, err = providercli.NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(
+			baseNamespaces, runtimeHome, families, policies, nil, sourceRoots,
+		)
+	}
 	if err != nil {
 		t.Fatalf("%s credential namespace: %v", config.family, err)
 	}

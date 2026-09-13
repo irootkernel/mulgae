@@ -298,6 +298,7 @@ type InitRequest struct {
 	zcodeLauncher        string
 	agyExecutable        string
 	agyPermissionMode    string
+	grokExecutable       string
 	codexExecutable      string
 	codexModel           string
 	codexReasoningEffort string
@@ -342,6 +343,7 @@ func (request InitRequest) ZCodeOverrides() (string, string) {
 func (request InitRequest) AGYOverrides() (string, string) {
 	return request.agyExecutable, request.agyPermissionMode
 }
+func (request InitRequest) GrokExecutable() string { return request.grokExecutable }
 func (request InitRequest) CodexOverrides() (string, string, string) {
 	return request.codexExecutable, request.codexModel, request.codexReasoningEffort
 }

@@ -11,7 +11,7 @@ import (
 )
 
 func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
-	want := []Family{FamilyKimi, FamilyZCode, FamilyAGY, FamilyCodex}
+	want := []Family{FamilyKimi, FamilyZCode, FamilyAGY, FamilyGrok, FamilyCodex}
 	if got := Families(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Families() = %v, want %v", got, want)
 	}
@@ -19,6 +19,7 @@ func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
 		{Family: FamilyKimi, Minimum: "0.38.0", VerifiedLatest: "0.38.0"},
 		{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 		{Family: FamilyAGY, Minimum: "1.1.19", VerifiedLatest: "1.1.19"},
+		{Family: FamilyGrok, Minimum: "1.0.30", VerifiedLatest: "1.0.30"},
 		{Family: FamilyCodex, Minimum: "0.149.0", VerifiedLatest: "0.149.0"},
 	}
 	for _, want := range guidance {
@@ -62,6 +63,9 @@ func TestClassifyVersion(t *testing.T) {
 		{name: "minimum", family: FamilyAGY, version: "1.1.19", want: VersionGreen},
 		{name: "verified latest", family: FamilyAGY, version: "1.1.19", want: VersionGreen},
 		{name: "above verified latest", family: FamilyAGY, version: "1.1.20", want: VersionYellow},
+		{name: "below minimum", family: FamilyGrok, version: "1.0.29", want: VersionRed},
+		{name: "minimum", family: FamilyGrok, version: "1.0.30", want: VersionGreen},
+		{name: "above verified latest", family: FamilyGrok, version: "1.0.31", want: VersionYellow},
 		{name: "unparseable", family: FamilyKimi, version: "latest", want: VersionYellow},
 		{name: "unknown family", family: "other", version: "1.0.0", want: VersionUnknown},
 	}
@@ -531,6 +535,7 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 		"node":        discoveredExecutable(t, "node", "/new/location/node", "0.16.5"),
 		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.5"),
 		"agy":         discoveredExecutable(t, "agy", "/new/location/agy", "1.1.19"),
+		"grok":        discoveredExecutable(t, "grok", "/new/location/grok", "1.0.30"),
 		"codex":       discoveredExecutable(t, "codex", "/new/location/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)

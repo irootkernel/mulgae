@@ -2087,6 +2087,10 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 		failure.code = "request_cancelled"
 	case domain.FailureProviderUnavailable:
 		failure.code = "provider_unavailable"
+		var typed *domain.Failure
+		if errors.As(err, &typed) && typed.Reason() == "provider_capability_unsupported" {
+			failure.code = "provider_capability_unsupported"
+		}
 	case domain.FailureTimeout:
 		failure.code = "execution_timeout"
 	case domain.FailureInvalidOutput:

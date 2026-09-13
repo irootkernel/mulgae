@@ -73,6 +73,8 @@ func adapterAuthorityForFamily(family string) (providerAdapterAuthority, error) 
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelArgvLiteral, qualificationChannel: ports.ProviderPacketChannelArgvLiteral}, nil
 	case FamilyZcode:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: zcodeProtocolDriverConstructor{}}, nil
+	case FamilyGrok:
+		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: grokACPProtocolDriverConstructor{}}, nil
 	case FamilyCodex:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelStdin, qualificationChannel: ports.ProviderPacketChannelStdin}, nil
 	default:

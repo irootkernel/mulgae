@@ -160,7 +160,7 @@ func TestDiagnoseEnvironmentUnsupportedEvidenceSchemasAreUnverified(t *testing.T
 			name: "provider",
 			mutate: func(evidence *fakeEvidence) {
 				record := evidence.providers["kimi"]
-				record.SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json"
+				record.SchemaID = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json"
 				evidence.providers["kimi"] = record
 			},
 			row: func(t *testing.T, result DoctorResult) EvidenceState {

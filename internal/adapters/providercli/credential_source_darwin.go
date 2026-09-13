@@ -36,6 +36,7 @@ type credentialProjectingNamespaceFactory struct {
 	instanceFamilies map[string]CredentialSourceFamily
 	instancePolicies map[string]RuntimeSafetyPolicy
 	configuredRoots  map[string]projectionRootAuthority
+	projectRoot      string
 }
 
 type projectionRootAuthority struct {
@@ -126,6 +127,21 @@ func NewCredentialProjectingNamespaceFactoryWithPoliciesAndNativeHomes(base port
 // exact CODEX_HOME, and AGY has no projected credential source.
 func NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy, nativeHomes, sourceRoots map[string]string) (ports.ProviderNamespaceFactory, error) {
 	return newCredentialProjectingNamespaceFactory(base, runtimeHome, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
+}
+
+// NewCredentialProjectingNamespaceFactoryWithProjectRoot also binds the live
+// project root that Grok's generated sandbox must deny.
+func NewCredentialProjectingNamespaceFactoryWithProjectRoot(base ports.ProviderNamespaceFactory, runtimeHome, projectRoot string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy, nativeHomes, sourceRoots map[string]string) (ports.ProviderNamespaceFactory, error) {
+	factory, err := newCredentialProjectingNamespaceFactory(base, runtimeHome, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
+	if err != nil {
+		return nil, err
+	}
+	concrete := factory.(*credentialProjectingNamespaceFactory)
+	if !canonicalAbsolutePath(projectRoot) {
+		return nil, fmt.Errorf("credential source factory: invalid project root")
+	}
+	concrete.projectRoot = projectRoot
+	return concrete, nil
 }
 
 func newCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory, runtimeHome string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy, nativeHomes, sourceRoots map[string]string) (ports.ProviderNamespaceFactory, error) {
@@ -251,6 +267,16 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 	if err := concrete.installRuntimeSafetyPolicy(policy); err != nil {
 		_, _ = lease.DrainTerminal(context.Background())
 		return nil, err
+	}
+	if family == CredentialSourceGrok {
+		if factory.projectRoot != "" {
+			bundle, boundaryErr := installGrokBoundaryBundle(filepath.Join(concrete.root, "home", ".grok"), factory.runtimeHome, factory.projectRoot)
+			if boundaryErr != nil {
+				_, _ = lease.DrainTerminal(context.Background())
+				return nil, fmt.Errorf("credential source factory: Grok boundary installation failed")
+			}
+			concrete.grokBoundary = &bundle
+		}
 	}
 	acquired := lease
 	defer func() {

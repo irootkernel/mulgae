@@ -262,6 +262,31 @@ func TestStartRerunRecomposeHasNoExactMaterial(t *testing.T) {
 		t.Fatalf("recompose role tasks = %#v, want one security role", roles)
 	}
 }
+
+func TestStartRerunRecomposeAllowsConfiguredProviderChangeForMissingRole(t *testing.T) {
+	source := validRerunSource()
+	reader := &rerunSourceReader{source: source}
+	executor := &rerunExecutor{}
+	route, err := ports.NewProviderRoute("grok-security")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := review.NewScheduledAssignment(domain.RoleSecurity, true, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := testRerunServiceWithAssignments(t, reader, executor, []review.Assignment{assignment})
+
+	if _, err := service.StartRerun(context.Background(), Request{SourceRunID: source.RunID, SourceAttemptID: source.AttemptID, ReplayMode: RecomposeReplay}); err != nil {
+		t.Fatal(err)
+	}
+	if got := executor.child.Assignments[0].ProviderInstance(); got != "grok-security" {
+		t.Fatalf("recomposed provider instance = %q, want grok-security", got)
+	}
+	if got := executor.child.Run.RoleTasks()[0].PrimaryProvider(); got != "grok-security" {
+		t.Fatalf("recomposed role task provider = %q, want grok-security", got)
+	}
+}
 func TestSourceAttemptDigestRejectsEveryBoundFieldMutation(t *testing.T) {
 	request := Request{SourceRunID: mustRerunRun(rerunSourceRun), SourceAttemptID: mustRerunAttempt(), ReplayMode: ExactReplay}
 	cases := []struct {

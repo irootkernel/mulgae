@@ -21,10 +21,11 @@ const (
 	FamilyKimi  Family = "kimi"
 	FamilyZCode Family = "zcode"
 	FamilyAGY   Family = "agy"
+	FamilyGrok  Family = "grok"
 	FamilyCodex Family = "codex"
 )
 
-var families = [...]Family{FamilyKimi, FamilyZCode, FamilyAGY, FamilyCodex}
+var families = [...]Family{FamilyKimi, FamilyZCode, FamilyAGY, FamilyGrok, FamilyCodex}
 
 // Families returns the allowlisted families in canonical order. The returned
 // slice is caller-owned.
@@ -63,6 +64,7 @@ var guidance = [...]VersionGuidance{
 	// the print transport is gone, so older releases cannot qualify.
 	{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 	{Family: FamilyAGY, Minimum: "1.1.19", VerifiedLatest: "1.1.19"},
+	{Family: FamilyGrok, Minimum: "1.0.30", VerifiedLatest: "1.0.30"},
 	{Family: FamilyCodex, Minimum: "0.149.0", VerifiedLatest: "0.149.0"},
 }
 
@@ -144,7 +146,7 @@ func DiscoverProviderProfileWithOverrides(ctx context.Context, inspector ports.E
 	if inspector == nil {
 		return DiscoveredProviderProfile{}, fmt.Errorf("review run: environment inspector unavailable")
 	}
-	if family != FamilyKimi && family != FamilyZCode && family != FamilyAGY && family != FamilyCodex {
+	if !family.Valid() {
 		return DiscoveredProviderProfile{}, fmt.Errorf("review run: unsupported provider family %q", family)
 	}
 	if family != FamilyZCode && launcherOverride != "" {

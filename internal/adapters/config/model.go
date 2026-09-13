@@ -13,6 +13,7 @@ type ProvidersConfig = appconfig.ProvidersConfig
 type KimiProviderConfig = appconfig.KimiProviderConfig
 type ZCodeProviderConfig = appconfig.ZCodeProviderConfig
 type AGYProviderConfig = appconfig.AGYProviderConfig
+type GrokProviderConfig = appconfig.GrokProviderConfig
 type CodexProviderConfig = appconfig.CodexProviderConfig
 type CodexCredentialHomeConfig = appconfig.CodexCredentialHomeConfig
 type ExecutionConfig = appconfig.ExecutionConfig

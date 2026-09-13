@@ -22,6 +22,7 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 		FamilyKimi:  10 * time.Minute,
 		FamilyZCode: 30 * time.Minute,
 		FamilyAGY:   15 * time.Minute,
+		FamilyGrok:  25 * time.Minute,
 		FamilyCodex: 20 * time.Minute,
 	}
 	plan, receipt, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic, domain.RoleDocumentation})
@@ -53,7 +54,7 @@ func TestPreflightConfiguredPlanBindsCodexCredentialProfileToInstance(t *testing
 		t.Fatal(err)
 	}
 	policy.Assignments = []RoleProviderAssignment{logic}
-	timeouts := map[Family]time.Duration{FamilyKimi: 15 * time.Minute, FamilyZCode: 15 * time.Minute, FamilyAGY: 15 * time.Minute, FamilyCodex: 20 * time.Minute}
+	timeouts := map[Family]time.Duration{FamilyKimi: 15 * time.Minute, FamilyZCode: 15 * time.Minute, FamilyAGY: 15 * time.Minute, FamilyGrok: 15 * time.Minute, FamilyCodex: 20 * time.Minute}
 	plan, _, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic})
 	if err != nil {
 		t.Fatal(err)

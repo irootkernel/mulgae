@@ -114,11 +114,11 @@ func composeProductionRuntimeGraph(
 		}
 	}()
 
-	policies := make(map[reviewrun.Family]providercli.RuntimeSafetyPolicy, 4)
+	policies := make(map[reviewrun.Family]providercli.RuntimeSafetyPolicy, len(reviewrun.Families()))
 	for _, item := range []struct {
 		family     reviewrun.Family
 		credential providercli.CredentialSourceFamily
-	}{{reviewrun.FamilyKimi, providercli.CredentialSourceKimi}, {reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyAGY, providercli.CredentialSourceAGY}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}} {
+	}{{reviewrun.FamilyKimi, providercli.CredentialSourceKimi}, {reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyAGY, providercli.CredentialSourceAGY}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}} {
 		value, policyErr := providercli.RuntimeSafetyPolicyForFamily(item.credential)
 		if policyErr != nil {
 			return nil, fmt.Errorf("production graph: %s runtime safety policy: %w", item.family, policyErr)
@@ -184,6 +184,8 @@ func composeProductionRuntimeGraph(
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
 		case reviewrun.FamilyAGY:
 			instanceFamilies[instance], instancePolicies[instance], nativeHomes[instance] = providercli.CredentialSourceAGY, policies[family], installedUser.HomeDir
+		case reviewrun.FamilyGrok:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceGrok, policies[family]
 		case reviewrun.FamilyCodex:
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCodex, policies[family]
 			if credentialProfile != "" {
@@ -193,7 +195,7 @@ func composeProductionRuntimeGraph(
 			return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
 		}
 	}
-	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(namespaces, installedUser.HomeDir, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
+	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithProjectRoot(namespaces, installedUser.HomeDir, root.String(), instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: credential namespaces: %w", err)
 	}
@@ -271,7 +273,7 @@ func (graph *productionRuntimeGraph) sourceBoundAuthority(role domain.Role, prov
 		return nil, fmt.Errorf("production graph: source-bound authority is unavailable")
 	}
 	family := reviewrun.Family("")
-	for _, candidate := range []reviewrun.Family{reviewrun.FamilyKimi, reviewrun.FamilyZCode, reviewrun.FamilyAGY, reviewrun.FamilyCodex} {
+	for _, candidate := range reviewrun.Families() {
 		legacyCurrent := string(candidate) + "-" + string(role)
 		current := legacyCurrent
 		if candidate == reviewrun.FamilyCodex {
@@ -312,6 +314,8 @@ func legacyProviderInstanceFamily(instance string) reviewrun.Family {
 		return reviewrun.FamilyZCode
 	case "agy-default":
 		return reviewrun.FamilyAGY
+	case "grok-default":
+		return reviewrun.FamilyGrok
 	case "codex-default":
 		return reviewrun.FamilyCodex
 	default:

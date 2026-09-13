@@ -10,6 +10,7 @@ const (
 	FamilyKimi  Family = "kimi"
 	FamilyZCode Family = "zcode"
 	FamilyAGY   Family = "agy"
+	FamilyGrok  Family = "grok"
 	FamilyCodex Family = "codex"
 )
 
@@ -26,8 +27,9 @@ const (
 type PromptTransport string
 
 const (
-	PromptTransportArgv  PromptTransport = "argv"
-	PromptTransportStdin PromptTransport = "stdin"
+	PromptTransportArgv     PromptTransport = "argv"
+	PromptTransportStdin    PromptTransport = "stdin"
+	PromptTransportProtocol PromptTransport = "protocol"
 )
 
 // ResultTransport identifies the fixed provider result transport.
@@ -37,6 +39,7 @@ const (
 	ResultTransportKimiStreamJSONAssistantContent ResultTransport = "kimi_stream_json_assistant_content"
 	ResultTransportStrictJSON                     ResultTransport = "strict_json"
 	ResultTransportStdout                         ResultTransport = "stdout"
+	ResultTransportStagedFile                     ResultTransport = "staged_file"
 )
 
 // Profile is the immutable application view of a trusted provider profile.

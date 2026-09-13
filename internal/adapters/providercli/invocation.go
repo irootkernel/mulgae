@@ -72,6 +72,8 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		// conversation runs in plan mode with every tool denied; review
 		// conversations use zcodeReviewProtocolDenylist instead.
 		return appendZcodeProtocolServerArgv(baseArgv), nil
+	case FamilyGrok:
+		return grokACPArgv(definition.Executable(), protocolPurposeQualification)
 	case FamilyAgy:
 		providerPacket, err := ports.NewProviderPacketFromBytes(packet)
 		if err != nil {
@@ -133,7 +135,7 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	baseArgv := definition.BaseArgv()
 	executable := definition.Executable()
 	switch definition.Family() {
-	case FamilyKimi, FamilyAgy, FamilyCodex:
+	case FamilyKimi, FamilyAgy, FamilyGrok, FamilyCodex:
 		if !reflect.DeepEqual(baseArgv, []string{executable}) {
 			return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
 		}

@@ -44,7 +44,7 @@ var _ ports.ProviderNamespaceFactory = (*NamespaceFactory)(nil)
 // family-specific namespace environment shaping.
 func validNamespaceFamily(family string) bool {
 	switch family {
-	case FamilyKimi, FamilyZcode, FamilyAgy, FamilyCodex, grokCandidateFamily:
+	case FamilyKimi, FamilyZcode, FamilyAgy, FamilyGrok, FamilyCodex:
 		return true
 	default:
 		return false
@@ -267,6 +267,7 @@ type namespaceLease struct {
 	policyMu                  sync.RWMutex
 	policy                    RuntimeSafetyPolicy
 	policyInfo                os.FileInfo
+	grokBoundary              *grokBoundaryBundle
 	terminalMu                sync.Mutex
 	terminalDrain             ports.ProviderNamespaceTerminalDrain
 	drained                   bool
@@ -517,6 +518,11 @@ func (lease *namespaceLease) ValidateForSpawn() error {
 	if hasPolicy {
 		if err := lease.validateRuntimeSafetyPolicy(); err != nil {
 			return fmt.Errorf("provider namespace: runtime safety policy drift")
+		}
+	}
+	if lease.grokBoundary != nil {
+		if err := lease.grokBoundary.Validate(); err != nil {
+			return fmt.Errorf("provider namespace: Grok boundary drift")
 		}
 	}
 	return nil

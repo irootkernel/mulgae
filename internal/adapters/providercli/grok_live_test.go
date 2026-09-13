@@ -28,7 +28,7 @@ func TestLiveGrokACPSmoke(t *testing.T) {
 	liveProject := mustCanonicalLiveTempDir(t)
 	lease := mustLiveGrokNamespace(t, liveProject)
 	defer drainLiveGrokNamespace(t, lease)
-	environment, err := isolatedProcessEnvironment(grokCandidateFamily, nil, lease.Environment())
+	environment, err := isolatedProcessEnvironment(FamilyGrok, nil, lease.Environment())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ mcp-disabled: yes
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment, err := isolatedProcessEnvironment(grokCandidateFamily, nil, lease.Environment())
+	environment, err := isolatedProcessEnvironment(FamilyGrok, nil, lease.Environment())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestLiveGrokACPCancellationDrainsOnlyItsProcessGroup(t *testing.T) {
 	workspace := mustCanonicalLiveTempDir(t)
 	lease := mustLiveGrokNamespace(t, mustCanonicalLiveTempDir(t))
 	namespaceRoot := lease.root
-	environment, err := isolatedProcessEnvironment(grokCandidateFamily, nil, lease.Environment())
+	environment, err := isolatedProcessEnvironment(FamilyGrok, nil, lease.Environment())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestLiveGrokACPTimeoutDrainsItsProcessGroup(t *testing.T) {
 	workspace := mustCanonicalLiveTempDir(t)
 	lease := mustLiveGrokNamespace(t, mustCanonicalLiveTempDir(t))
 	namespaceRoot := lease.root
-	environment, err := isolatedProcessEnvironment(grokCandidateFamily, nil, lease.Environment())
+	environment, err := isolatedProcessEnvironment(FamilyGrok, nil, lease.Environment())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestLiveGrokACPAmbientCredentialFallbackIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := factory.AcquireProviderNamespace(context.Background(), "grok-gate", grokCandidateFamily)
+	acquired, err := factory.AcquireProviderNamespace(context.Background(), "grok-gate", FamilyGrok)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestLiveGrokACPAmbientCredentialFallbackIsUnavailable(t *testing.T) {
 	if _, err := installGrokBoundaryBundle(filepath.Join(lease.root, "home", ".grok"), mustLiveGrokHome(t), mustCanonicalLiveTempDir(t)); err != nil {
 		t.Fatal(err)
 	}
-	environment, err := isolatedProcessEnvironment(grokCandidateFamily, nil, lease.Environment())
+	environment, err := isolatedProcessEnvironment(FamilyGrok, nil, lease.Environment())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func mustLiveGrokNamespace(t *testing.T, liveProjectRoot string) *namespaceLease
 	if err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := factory.AcquireProviderNamespace(context.Background(), "grok-gate", grokCandidateFamily)
+	acquired, err := factory.AcquireProviderNamespace(context.Background(), "grok-gate", FamilyGrok)
 	if err != nil {
 		t.Fatal(err)
 	}

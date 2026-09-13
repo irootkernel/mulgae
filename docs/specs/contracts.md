@@ -448,8 +448,9 @@ project-relative `role_report_uris` derived from the verified committed
 manifest inventory. Attempt `stdout.raw` remains private capture evidence and
 is never the primary report URI.
 
-`transport` is adapter-owned per provider family, not configurable. ZCode
-review invocations are granted `staged_file`; AGY and Kimi remain `stdout`.
+`transport` is adapter-owned per provider family, not configurable. ZCode and
+Grok review invocations are granted `staged_file`; AGY, Kimi, and Codex remain
+`stdout`.
 For a failed review invocation, model-authored stdout remains private process
 evidence but never classifies a native provider condition; stderr has that
 authority. Qualification may classify native failures from both stdout and
@@ -469,6 +470,15 @@ business-error marker with that generic diagnostic, the explicit marker
 determines the typed rate-limit outcome while the protocol session and process
 evidence remain attached. Other rate-limit prose does not override the generic
 turn-failure classification.
+
+Grok review, extraction, qualification, and heartbeat invocations speak ACP v1
+over stdio. Review output is accepted only from the exact staged
+`role-report.md` after one correlated `allow_once` permission for the matching
+session, tool-call ID, edit kind, `Write` variant, and absolute destination.
+Qualification and extraction use only correlated assistant-message chunks.
+Protocol negotiation, authentication, session completion, permission denial,
+and teardown failures retain typed provider causes. Grok uses its own model and
+reasoning defaults; the public configuration exposes no setting for either.
 
 AGY review, extraction, and capability invocations request `--output-format=json`;
 the adapter unwraps the native envelope's `response` as the review content.
@@ -607,7 +617,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v8` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v9` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -616,10 +626,10 @@ can fail before execution. Child selector failures preserve cancellation and
 typed artifact or security exits; only an unclassified resolver failure uses
 exit `10` and `selector_resolution_failed`.
 
-Command-result v5, v6, and v7 remain readable but are never emitted by the
+Command-result v5, v6, v7, and v8 remain readable but are never emitted by the
 current command surface. Other commands do not have rejected-request variants
-in v8.
-For the top-level `review` command, attributed provider execution details in v8
+in v9.
+For the top-level `review` command, attributed provider execution details in v9
 preserve the assigned role and provider in the reason message. A rate-limited
 attempt adds the stable code `provider_rate_limited`, readiness exit `4`,
 `retryable: false`, and the `mulgae rerun` next-action hint. A committed
@@ -662,7 +672,7 @@ exits:
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 
-`mulgae doctor --output json` returns `mulgae-doctor-result.v2`. Capability
+`mulgae doctor --output json` returns `mulgae-doctor-result.v3`. Capability
 detection starts with `schema_version`; consumers of an older result must treat
 an absent v2 dimension as unsupported, never as failed. The result reports
 `config_v3`, `local_configuration`, and `provider_identity` independently, and
@@ -708,7 +718,7 @@ owned by the filesystem/Git admission boundary.
 `mulgae heartbeat --provider FAMILY --authorize-live-request` is the only
 standalone live diagnostic. For named Codex configurations it also accepts the
 explicit `--credential-profile`. Omitting the authorization returns a versioned
-`mulgae-provider-heartbeat-result.v1` with `attempted: false` before provider
+`mulgae-provider-heartbeat-result.v2` with `attempted: false` before provider
 composition, credential access, or process execution. An authorized heartbeat
 discloses that authentication, network, cost, and remote logging may occur,
 uses a bounded provider timeout, and sends only Mulgae's immutable synthetic
@@ -915,6 +925,6 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5/v6/v7 schema examples remain available for
-explicit backward validation; current CLI envelopes use v8. MCP retains its v1
+retry loop is introduced. CLI v5/v6/v7/v8 schema examples remain available for
+explicit backward validation; current CLI envelopes use v9. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.

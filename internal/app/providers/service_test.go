@@ -25,6 +25,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 		evidence("zcode", doctor.EvidenceStateFail, doctor.AssignmentIneligible),
 		evidence("agy", doctor.EvidenceStateInconclusive, doctor.AssignmentIneligible),
+		evidence("grok", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
 		evidence("codex", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
 	)})
 
@@ -33,7 +34,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := len(profiles), 4; got != want {
+	if got, want := len(profiles), 5; got != want {
 		t.Fatalf("profiles length = %d, want %d", got, want)
 	}
 	want := []struct {
@@ -44,8 +45,9 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		support SupportState
 	}{
 		{FamilyKimi, "kimi-default", PromptTransportArgv, ResultTransportKimiStreamJSONAssistantContent, SupportSupported},
-		{FamilyZCode, "zcode-default", PromptTransportArgv, ResultTransportStrictJSON, SupportUnsupported},
+		{FamilyZCode, "zcode-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnsupported},
 		{FamilyAGY, "agy-default", PromptTransportArgv, ResultTransportStrictJSON, SupportUnsupported},
+		{FamilyGrok, "grok-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnverified},
 		{FamilyCodex, "codex-default", PromptTransportStdin, ResultTransportStdout, SupportUnverified},
 	}
 	for index, expected := range want {
@@ -61,6 +63,7 @@ func TestListProviderProfilesEvidenceProjectionAndFiltering(t *testing.T) {
 		evidence("kimi", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 		evidence("zcode", doctor.EvidenceStateFail, doctor.AssignmentIneligible),
 		evidence("agy", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
+		evidence("grok", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 		evidence("codex", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 	)})
 
@@ -68,14 +71,14 @@ func TestListProviderProfilesEvidenceProjectionAndFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("all profiles error = %v", err)
 	}
-	if got, want := profileSupports(all.Profiles()), []SupportState{SupportSupported, SupportUnsupported, SupportUnverified, SupportSupported}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(all.Profiles()), []SupportState{SupportSupported, SupportUnsupported, SupportUnverified, SupportSupported, SupportSupported}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	filtered, err := service.ListProviderProfiles(context.Background(), false)
 	if err != nil {
 		t.Fatalf("filtered profiles error = %v", err)
 	}
-	if got, want := profileFamilies(filtered.Profiles()), []Family{FamilyKimi, FamilyZCode, FamilyCodex}; !reflect.DeepEqual(got, want) {
+	if got, want := profileFamilies(filtered.Profiles()), []Family{FamilyKimi, FamilyZCode, FamilyGrok, FamilyCodex}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered families = %v, want %v", got, want)
 	}
 }
@@ -96,7 +99,7 @@ func TestListProviderProfilesAbsentEvidenceIsUnverified(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	if got := profiles[1].AssignmentState(); got != doctor.AssignmentIntendedButUnverified {

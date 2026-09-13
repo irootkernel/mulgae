@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v8.schema.json"
+	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v9.schema.json"
 	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 )
@@ -1329,10 +1329,11 @@ func liveProviderFamily(providerInstance string) string {
 
 // liveExpectedRoleReportTransport is the adapter-owned transport a committed
 // role report must record. The transport is per provider family and never
-// configurable: every ZCode review-family launch, including exact replay,
-// receives a fresh staged_file write grant; every other family keeps stdout.
+// configurable: every ZCode or Grok review-family launch, including exact
+// replay, receives a fresh staged_file write grant; every other family keeps
+// stdout.
 func liveExpectedRoleReportTransport(providerInstance, _ string) string {
-	if liveProviderFamily(providerInstance) == "zcode" {
+	if family := liveProviderFamily(providerInstance); family == "zcode" || family == "grok" {
 		return "staged_file"
 	}
 	return "stdout"
@@ -1381,8 +1382,8 @@ func assertLiveRoleReportTransports(t *testing.T, run livePublishedRun, label st
 }
 
 // assertLiveExactReplayRoleReportTransports keeps exact replay on the source
-// provider family's transport. ZCode receives a new isolated staging grant;
-// stdout providers retain the stored complete stdin bytes.
+// provider family's transport. ZCode and Grok receive a new isolated staging
+// grant; stdout providers retain the stored complete stdin bytes.
 func assertLiveExactReplayRoleReportTransports(t *testing.T, run livePublishedRun) {
 	t.Helper()
 	if liveReplayMode(run.manifest) != "exact" {
@@ -1391,7 +1392,8 @@ func assertLiveExactReplayRoleReportTransports(t *testing.T, run livePublishedRu
 	if len(run.manifest.RoleReports) == 0 {
 		t.Fatalf("exact replay committed no role_reports inventory: %#v", run.manifest)
 	}
-	assertLiveRoleReportTransports(t, run, "exact", liveProviderFamily(run.manifest.RoleReports[0].ProviderInstance) == "zcode")
+	family := liveProviderFamily(run.manifest.RoleReports[0].ProviderInstance)
+	assertLiveRoleReportTransports(t, run, "exact", family == "zcode" || family == "grok")
 }
 
 func liveArtifactSHA256(content []byte) string {

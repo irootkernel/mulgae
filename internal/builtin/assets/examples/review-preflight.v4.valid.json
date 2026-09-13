@@ -1,0 +1,76 @@
+{
+  "schema_version": "mulgae-review-preflight.v4",
+  "status": "eligible",
+  "qualification": "not_run",
+  "target": {
+    "requested_kind": "stage",
+    "captured_kind": "git",
+    "git_mode": "stage",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size": 128
+  },
+  "agy_permission_mode": "safe",
+  "warnings": [],
+  "file_sets": [{
+    "id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e",
+    "policy_identity": "index;git=canonical-v1",
+    "files": [
+      {
+        "path": "client/e2e/screenshots/example.png",
+        "media_type": "image/png",
+        "size": 68,
+        "sha256": "sha256:431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+        "disposition": "binary_preserved"
+      },
+      {
+        "path": "src/main.go",
+        "media_type": "text/plain",
+        "size": 20,
+        "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "disposition": "text"
+      }
+    ]
+  }],
+  "generated_files": [{
+    "path": "._mulgae_workspace_manifest.json",
+    "media_type": "application/json",
+    "disposition": "generated_at_execution"
+  }],
+  "transmissions": [
+    {
+      "role": "logic",
+      "route_kind": "primary",
+      "provider_instance": "zcode-logic",
+      "provider_family": "zcode",
+      "configured_timeout": "30m",
+      "permission_mode": "not_applicable",
+      "target_channel": "prompt",
+      "file_set_id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e"
+    }
+  ],
+  "budget": {
+    "eligible": true,
+    "reason_code": "eligible",
+    "max_active_lanes": 2,
+    "total_invocations": 2,
+    "critical_path_deadline": "1h0m2s",
+    "run_deadline": "1h0m7s",
+    "ceilings": {
+      "provider_timeout": "60m",
+      "role_path_deadline": "14h0m14s",
+      "run_deadline": "14h0m19s",
+      "max_invocations_per_role": 2,
+      "max_invocations_per_run": 14
+    },
+    "role_paths": [
+      {
+        "role": "logic",
+        "provider_instance": "zcode-logic",
+        "invocation_count": 2,
+        "transition_count": 1,
+        "invocation_timeouts": "1h0m0s",
+        "deadline": "1h0m2s"
+      }
+    ]
+  }
+}

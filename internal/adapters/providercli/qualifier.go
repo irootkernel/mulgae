@@ -613,6 +613,7 @@ func providerDiagnosticCause(err error) (domain.RuntimeDiagnosticCause, bool) {
 }
 
 var semverOutput = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
+var grokVersionOutput = regexp.MustCompile(`^grok ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?) \([0-9a-f]+\)$`)
 
 func currentProbeValidatedReceipts(
 	definition RuntimeDefinition,
@@ -992,6 +993,12 @@ func plainSemver(family string, observation ports.ProcessObservation) (string, e
 	version := strings.TrimSpace(string(observation.Stdout()))
 	if family == FamilyCodex {
 		version = strings.TrimPrefix(version, "codex-cli ")
+	} else if family == FamilyGrok {
+		match := grokVersionOutput.FindStringSubmatch(version)
+		if len(match) != 2 {
+			return "", fmt.Errorf("invalid Grok version output")
+		}
+		version = match[1]
 	}
 	if !observation.Succeeded() || !semverOutput.MatchString(version) {
 		return "", fmt.Errorf("invalid plain semver version output")

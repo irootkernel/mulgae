@@ -89,7 +89,7 @@ func knownProviderIdentities(root *yaml.Node) bool {
 	if providers == nil || providers.Kind != yaml.MappingNode {
 		return true
 	}
-	known := map[string]struct{}{"kimi": {}, "zcode": {}, "agy": {}, "codex": {}}
+	known := map[string]struct{}{"kimi": {}, "zcode": {}, "agy": {}, "grok": {}, "codex": {}}
 	for index := 0; index < len(providers.Content); index += 2 {
 		if _, ok := known[providers.Content[index].Value]; !ok {
 			return false
@@ -486,6 +486,16 @@ func validate(config *Config) error {
 		}
 		config.Providers.AGY.Timeout = ProviderTimeoutText(timeout)
 	}
+	if config.Providers.Grok != nil {
+		if !canonicalAbsolute(config.Providers.Grok.Executable) {
+			return fmt.Errorf("grok executable")
+		}
+		timeout, err := ParseProviderTimeout(config.Providers.Grok.Timeout)
+		if err != nil {
+			return fmt.Errorf("grok timeout: %w: %v", errProviderTimeoutInvalid, err)
+		}
+		config.Providers.Grok.Timeout = ProviderTimeoutText(timeout)
+	}
 	if config.Providers.Codex != nil {
 		if !canonicalAbsolute(config.Providers.Codex.Executable) {
 			return fmt.Errorf("codex executable")
@@ -741,6 +751,12 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		if provider.PermissionMode != DefaultAGYPermissionMode || provider.PermissionModeExplicit {
 			out.WriteString("    permission_mode: " + q(provider.PermissionMode) + "\n")
 		}
+		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
+		}
+	}
+	if provider := config.Providers.Grok; provider != nil {
+		out.WriteString("  grok:\n    executable: " + q(provider.Executable) + "\n")
 		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}

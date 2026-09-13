@@ -299,7 +299,7 @@ func productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTi
 	if err != nil {
 		return nil, err
 	}
-	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder())-1)
+	templates := make([]productionCandidateTemplate, 0, len(Families())*len(domain.FixedRoleOrder())-2)
 	for _, family := range Families() {
 		for _, role := range productionRolesForFamily(family) {
 			instance := string(family) + "-" + string(role)
@@ -322,6 +322,8 @@ func productionCandidateTemplatesWithRuntimeSettingsCodexCredentialProfilesAndTi
 			case FamilyZCode:
 				// The app-server conversation owns the packet; the argv never
 				// carries the prompt or tool policy.
+				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
+			case FamilyGrok:
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
 			case FamilyAGY:
 				template.transportArgvIndex, template.lifecycle = agyArgvIndex, &lifecycle
@@ -397,7 +399,7 @@ func validateProductionProviderTimeouts(timeouts map[Family]time.Duration) error
 }
 
 func validateProductionCandidateTemplates(templates []productionCandidateTemplate) error {
-	if len(templates) != len(Families())*len(domain.FixedRoleOrder())-1 {
+	if len(templates) != len(Families())*len(domain.FixedRoleOrder())-2 {
 		return fmt.Errorf("template count")
 	}
 	seenInstances := make(map[string]struct{}, len(templates))
@@ -420,7 +422,7 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		if template.family == FamilyCodex {
 			validTransport = template.transportChannel == ports.ProviderPacketChannelStdin && template.transportArgvIndex == -1
 		}
-		if template.family == FamilyZCode {
+		if template.family == FamilyZCode || template.family == FamilyGrok {
 			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1
 		}
 		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" || !validTransport || template.transportReference != "" ||
@@ -450,7 +452,7 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 	for _, family := range Families() {
 		for _, role := range domain.FixedRoleOrder() {
 			want := 1
-			if family == FamilyKimi && role == domain.RoleArtist {
+			if (family == FamilyKimi || family == FamilyGrok) && role == domain.RoleArtist {
 				want = 0
 			}
 			if roleCoverage[family][role] != want {
@@ -476,7 +478,7 @@ func codexCredentialProfileFromInstance(instance string, role domain.Role) (stri
 
 func productionRolesForFamily(family Family) []domain.Role {
 	roles := domain.FixedRoleOrder()
-	if family != FamilyKimi {
+	if family != FamilyKimi && family != FamilyGrok {
 		return roles
 	}
 	return append([]domain.Role(nil), roles[:len(roles)-1]...)

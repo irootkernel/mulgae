@@ -112,8 +112,8 @@ func checkRoleReportSchemaBounds(t *testing.T, commandVersion, manifestVersion s
 func TestReviewPreflightV3RolePathSchemaBounds(t *testing.T) {
 	t.Parallel()
 
-	document := readAssetJSON(t, "schemas/mulgae-review-preflight.v3.schema.json")
-	resourceID := "https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json"
+	document := readAssetJSON(t, "schemas/mulgae-review-preflight.v4.schema.json")
+	resourceID := "https://mulgae.local/schemas/mulgae-review-preflight.v4.schema.json"
 	ref := resourceID + "#/properties/budget/properties/role_paths"
 	roles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
 	paths := make([]any, 0, len(roles))

@@ -36,6 +36,7 @@ type ProvidersConfig struct {
 	Kimi  *KimiProviderConfig  `yaml:"kimi,omitempty" json:"kimi,omitempty"`
 	ZCode *ZCodeProviderConfig `yaml:"zcode,omitempty" json:"zcode,omitempty"`
 	AGY   *AGYProviderConfig   `yaml:"agy,omitempty" json:"agy,omitempty"`
+	Grok  *GrokProviderConfig  `yaml:"grok,omitempty" json:"grok,omitempty"`
 	Codex *CodexProviderConfig `yaml:"codex,omitempty" json:"codex,omitempty"`
 }
 type KimiProviderConfig struct {
@@ -54,6 +55,10 @@ type AGYProviderConfig struct {
 	PermissionMode         string `yaml:"permission_mode,omitempty" json:"permission_mode"`
 	Timeout                string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	PermissionModeExplicit bool   `yaml:"-" json:"-"`
+}
+type GrokProviderConfig struct {
+	Executable string `yaml:"executable" json:"executable"`
+	Timeout    string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type CodexProviderConfig struct {
 	Executable               string                      `yaml:"executable" json:"executable"`
@@ -239,7 +244,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 	lastOrdinal := -1
 	for _, family := range families {
 		ordinal := -1
-		for index, candidate := range []string{"kimi", "zcode", "agy", "codex"} {
+		for index, candidate := range []string{"kimi", "zcode", "agy", "grok", "codex"} {
 			if family == candidate {
 				ordinal = index
 				break
@@ -331,7 +336,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 
 func DefaultKimiDataHome(nativeHome string) string { return nativeHome + "/.kimi-code" }
 func (providers ProvidersConfig) Families() []string {
-	result := make([]string, 0, 4)
+	result := make([]string, 0, 5)
 	if providers.Kimi != nil {
 		result = append(result, "kimi")
 	}
@@ -340,6 +345,9 @@ func (providers ProvidersConfig) Families() []string {
 	}
 	if providers.AGY != nil {
 		result = append(result, "agy")
+	}
+	if providers.Grok != nil {
+		result = append(result, "grok")
 	}
 	if providers.Codex != nil {
 		result = append(result, "codex")

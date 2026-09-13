@@ -87,7 +87,7 @@ func TestGrokEnvironmentPinsDisposableHomeAndRejectsAmbientFallback(t *testing.T
 	root := "/private/mulgae-owned-namespace"
 	namespace := directExecutionNamespaceEnvironment(t, root, filepath.Join(root, "home"))
 	configured := []ports.EnvironmentVariable{mustEnvironment(t, "GROK_HOME", "/Users/operator/.grok")}
-	environment, err := isolatedProcessEnvironment(grokCandidateFamily, configured, namespace)
+	environment, err := isolatedProcessEnvironment(FamilyGrok, configured, namespace)
 	if err != nil {
 		t.Fatal(err)
 	}

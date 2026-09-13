@@ -10,9 +10,10 @@ Mulgae reports findings and recommendations only.
 
 ## Start
 
-Automatic initialization requires ZCode. AGY, Kimi, and Codex remain available
-through explicit `--providers agy`, `--providers kimi`, or `--providers codex`
-selection and do not alter the automatic topology.
+Automatic initialization requires ZCode. AGY, Kimi, Grok, and Codex remain
+available through explicit `--providers agy`, `--providers kimi`,
+`--providers grok`, or `--providers codex` selection and do not alter the
+automatic topology.
 
 ```bash
 mulgae init

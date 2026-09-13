@@ -136,6 +136,13 @@ func TestParseInitForms(t *testing.T) {
 		t.Fatalf("invalid Codex reasoning effort error = %v, want usage", err)
 	}
 
+	grok := mustParse(t, []string{"init", "--providers", "grok", "--grok-executable", "/opt/homebrew/bin/grok"})
+	grokRequest, ok := grok.Init()
+	if !ok || grokRequest.GrokExecutable() != "/opt/homebrew/bin/grok" {
+		t.Fatalf("Grok init request = %#v, %t", grokRequest, ok)
+	}
+	assertRequestJSON(t, grok, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["grok"]},"roles":["logic"],"overrides":{"grok_executable":"/opt/homebrew/bin/grok"},"overwrite":false,"output_format":"human"}`)
+
 	subset := mustParse(t, []string{"init", "--roles", "testing,security,logic"})
 	subsetRequest, ok := subset.Init()
 	if !ok || !reflect.DeepEqual(subsetRequest.Roles(), []string{"logic", "security", "testing"}) {

@@ -601,6 +601,9 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 	if provider := source.config.Providers.AGY; provider != nil {
 		configured[reviewrun.FamilyAGY] = []string{provider.Executable}
 	}
+	if provider := source.config.Providers.Grok; provider != nil {
+		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
+	}
 	if provider := source.config.Providers.Codex; provider != nil {
 		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
 	}
@@ -760,6 +763,9 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		enabled[role] = definition.Enabled()
 		if !definition.Enabled() {
 			continue
+		}
+		if role == domain.RoleArtist && reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyGrok {
+			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureProviderUnavailable, "provider_capability_unsupported", nil)
 		}
 		assignment, err := reviewrun.NewRoleProviderAssignmentWithCredentialProfile(role, reviewrun.Family(definition.PrimaryProvider()), definition.CredentialProfile())
 		if err != nil {

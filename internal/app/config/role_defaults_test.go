@@ -15,7 +15,7 @@ func syntheticDefaults(t *testing.T, overrides map[domain.Role]appconfig.RoleDef
 	t.Helper()
 	entries := map[domain.Role]appconfig.RoleDefault{}
 	for _, role := range domain.CoreRoleOrder() {
-		entries[role] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "zcode", "agy", "codex"}}
+		entries[role] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "zcode", "agy", "grok", "codex"}}
 	}
 	entries[domain.RoleArtist] = appconfig.RoleDefault{
 		ProviderPreferences:   []string{"agy", "zcode", "codex"},
@@ -38,7 +38,7 @@ func TestNewRoleDefaultsRejectsIncompleteOrInvalidEntries(t *testing.T) {
 	complete := func() map[domain.Role]appconfig.RoleDefault {
 		entries := map[domain.Role]appconfig.RoleDefault{}
 		for _, role := range domain.CoreRoleOrder() {
-			entries[role] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "zcode", "agy", "codex"}}
+			entries[role] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "zcode", "agy", "grok", "codex"}}
 		}
 		entries[domain.RoleArtist] = appconfig.RoleDefault{
 			ProviderPreferences:   []string{"agy", "zcode", "codex"},
@@ -54,10 +54,10 @@ func TestNewRoleDefaultsRejectsIncompleteOrInvalidEntries(t *testing.T) {
 			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "zcode"}}
 		},
 		"core role duplicate family": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "kimi", "agy", "codex"}}
+			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "kimi", "agy", "grok", "codex"}}
 		},
 		"core role with artist inputs": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "zcode", "agy", "codex"}, ArtistTaskPath: "brief.md"}
+			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "zcode", "agy", "grok", "codex"}, ArtistTaskPath: "brief.md"}
 		},
 		"artist with kimi": func(e map[domain.Role]appconfig.RoleDefault) {
 			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "agy"}, ArtistTaskPath: "brief.md", ArtistDesignSpecGlobs: []string{"specs/a.png"}}
@@ -89,7 +89,7 @@ func TestNewRoleDefaultsRejectsIncompleteOrInvalidEntries(t *testing.T) {
 func TestNewRoleDefaultsDeepCopiesEntries(t *testing.T) {
 	t.Parallel()
 
-	preferences := []string{"kimi", "zcode", "agy", "codex"}
+	preferences := []string{"kimi", "zcode", "agy", "grok", "codex"}
 	entries := map[domain.Role]appconfig.RoleDefault{}
 	for _, role := range domain.CoreRoleOrder() {
 		entries[role] = appconfig.RoleDefault{ProviderPreferences: preferences}
@@ -122,7 +122,7 @@ func TestCanonicalRolesConfigFollowsSuppliedPreferenceOrder(t *testing.T) {
 	t.Parallel()
 
 	defaults := syntheticDefaults(t, map[domain.Role]appconfig.RoleDefault{
-		domain.RoleLogic: {ProviderPreferences: []string{"agy", "zcode", "kimi", "codex"}},
+		domain.RoleLogic: {ProviderPreferences: []string{"agy", "zcode", "kimi", "grok", "codex"}},
 	})
 	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"kimi", "zcode", "agy"})
 	if err != nil {
@@ -139,8 +139,8 @@ func TestCanonicalRolesConfigResolvesEachCoreRoleIndependently(t *testing.T) {
 	t.Parallel()
 
 	defaults := syntheticDefaults(t, map[domain.Role]appconfig.RoleDefault{
-		domain.RoleSecurity: {ProviderPreferences: []string{"zcode", "agy", "kimi", "codex"}},
-		domain.RoleTesting:  {ProviderPreferences: []string{"agy", "kimi", "zcode", "codex"}},
+		domain.RoleSecurity: {ProviderPreferences: []string{"zcode", "agy", "kimi", "grok", "codex"}},
+		domain.RoleTesting:  {ProviderPreferences: []string{"agy", "kimi", "zcode", "grok", "codex"}},
 	})
 	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"kimi", "zcode", "agy"})
 	if err != nil {
@@ -171,7 +171,7 @@ func TestCanonicalRolesConfigSelectsOneProviderPerRole(t *testing.T) {
 		want       string
 	}{
 		{"single family", []string{"agy"}, "agy"},
-		{"every family", []string{"kimi", "zcode", "agy", "codex"}, "kimi"},
+		{"every family", []string{"kimi", "zcode", "agy", "grok", "codex"}, "kimi"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			roles, err := appconfig.CanonicalRolesConfig(defaults, test.configured)

@@ -35,6 +35,11 @@ commands:
     tags: [go, e2e, live, kimi]
     parser: go-test
     timeout_sec: 6000
+  grok:
+    command: ["make", "test-grok"]
+    tags: [go, e2e, live, grok]
+    parser: go-test
+    timeout_sec: 6000
   full:
     command: ["make", "test"]
     tags: [go, full, live]

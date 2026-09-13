@@ -14,7 +14,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v3.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v4.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 
 func TestReviewPreflightValidateSafeModeWarningAndNoChange(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v3.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v4.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func loadReviewPreflightExample(t *testing.T) ReviewPreflightResult {
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v3.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v4.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

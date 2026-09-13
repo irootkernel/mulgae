@@ -19,11 +19,13 @@ provider families:
 - Kimi CLI
 - ZCode
 - AGY
+- Grok CLI
 - Codex CLI
 
 The default `mulgae init` topology requires an authenticated ZCode installation.
-AGY, Kimi, and Codex remain available when selected explicitly with
-`--providers agy`, `--providers kimi`, or `--providers codex`. Mulgae records
+AGY, Kimi, Grok, and Codex remain available when selected explicitly with
+`--providers agy`, `--providers kimi`, `--providers grok`, or
+`--providers codex`. Mulgae records
 provider identity and capabilities at runtime and fails closed when a required
 capability is unavailable. Other operating systems, architectures, and provider
 families are not supported by the initial release.
@@ -144,6 +146,25 @@ persists this as a user-level preference. Mulgae does not currently enforce or
 verify the value, so check it again after reinstalling or updating ZCode, or
 after changing the reasoning setting in another ZCode session.
 
+### Use Grok from Mulgae
+
+Install Grok CLI 1.0.30 or newer and sign in before selecting it explicitly:
+
+```bash
+grok --version
+mulgae init --providers grok --grok-executable "$(command -v grok)"
+mulgae providers --include-unverified
+```
+
+Grok uses ACP v1 with its model and reasoning defaults unchanged. Mulgae copies
+only the native Grok authentication file into a disposable home, suppresses
+project and user configuration, disables MCP servers, and installs an
+adapter-owned workspace policy. A text-role review may authorize one correlated
+`Write` request to its exact staged `role-report.md`; assistant text is used only
+for qualification and structured extraction. Grok does not advertise image
+prompt support, so assigning it to `artist` fails before provider execution with
+`provider_capability_unsupported` and exit 4.
+
 ## Install
 
 Mulgae requires Go 1.26.6 or newer.
@@ -176,7 +197,7 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
-`doctor --output json` returns `mulgae-doctor-result.v2`. It checks Config v3,
+`doctor --output json` returns `mulgae-doctor-result.v3`. It checks Config v3,
 project-local security, provider and role identities, exact executable/launcher
 availability, and adapter-owned local CLI version compatibility. The only
 provider process it may run is the fixed `--version` command; it does not
@@ -193,7 +214,7 @@ failure, and a prior live review never mutates either diagnostic result.
 A live heartbeat is separate and always requires an explicit authorization:
 
 ```bash
-mulgae heartbeat --provider agy --authorize-live-request --output json
+mulgae heartbeat --provider grok --authorize-live-request --output json
 ```
 
 The heartbeat may authenticate, use the network, incur cost, and create remote
@@ -228,7 +249,9 @@ existing `.mulgae/config.yaml`, which remains the shared project-policy
 authority once a project is initialized.
 
 Each role runs on exactly one provider, and Mulgae never switches providers on
-its own. A published review therefore reflects one reviewer per role rather than
+its own. An operator may explicitly recompose a failed, missing role on another
+configured provider; an accepted role cannot be replaced. A published review
+therefore reflects one reviewer per role rather than
 a mix of models chosen by whichever one happened to fail. When a provider fails,
 that role is reported as failed with its typed reason while every other role
 continues on its own provider; the report's "Provider issues" section names each
