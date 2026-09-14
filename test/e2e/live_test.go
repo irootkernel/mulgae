@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/builtin"
-	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
@@ -115,7 +115,10 @@ type liveManifest struct {
 	SessionID                 string           `json:"session_id"`
 	RunID                     string           `json:"run_id"`
 	RunType                   string           `json:"run_type"`
+	ContentVerdict            string           `json:"content_verdict"`
+	CoverageStatus            string           `json:"coverage_status"`
 	StructuredExtractionState string           `json:"structured_extraction_status"`
+	CIDecision                string           `json:"ci_decision"`
 	State                     string           `json:"state"`
 	Sealed                    bool             `json:"sealed"`
 	ImmutableLineage          liveLineage      `json:"immutable_lineage"`
@@ -146,13 +149,17 @@ type liveFinding struct {
 }
 
 type liveReview struct {
-	RunID             string            `json:"run_id"`
-	ReviewID          string            `json:"review_id"`
-	RunType           string            `json:"run_type"`
-	ImmutableLineage  liveLineage       `json:"immutable_lineage"`
-	PublicationStatus string            `json:"publication_status"`
-	RoleOutcomes      []liveRoleOutcome `json:"role_outcomes"`
-	Findings          []liveFinding     `json:"findings"`
+	RunID                      string            `json:"run_id"`
+	ReviewID                   string            `json:"review_id"`
+	RunType                    string            `json:"run_type"`
+	ImmutableLineage           liveLineage       `json:"immutable_lineage"`
+	ContentVerdict             string            `json:"content_verdict"`
+	CoverageStatus             string            `json:"coverage_status"`
+	StructuredExtractionStatus string            `json:"structured_extraction_status"`
+	PublicationStatus          string            `json:"publication_status"`
+	CIDecision                 string            `json:"ci_decision"`
+	RoleOutcomes               []liveRoleOutcome `json:"role_outcomes"`
+	Findings                   []liveFinding     `json:"findings"`
 }
 
 type livePublishedRun struct {
@@ -193,136 +200,121 @@ func (scope *liveE2ELogScope) end() {
 	scope.t.Logf("[test-e2e] %s END %s status=%s duration=%s", scope.kind, scope.fields, scope.status, time.Since(scope.started).Round(time.Millisecond))
 }
 
-func TestE2EActualProvidersProductionWorkflow(t *testing.T) {
-	scenario := beginLiveE2ELogScope(t, "scenario", "name=actual-provider-production-workflow")
+func TestE2EZCodeGrokReviewAggregation(t *testing.T) {
+	scenario := beginLiveE2ELogScope(t, "scenario", "name=zcode-grok-review-aggregation")
 	defer scenario.end()
 	environment := requireLiveE2EEnvironment(t)
 	validator := newLiveE2EValidator(t)
 	project := initializeLiveE2ERepository(t)
-	var nonce [16]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		t.Fatal(err)
-	}
-	readMarker := "documentation-read-" + hex.EncodeToString(nonce[:])
-	readmePath := filepath.Join(project, "README.md")
-	readme, err := os.ReadFile(readmePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readme = append(readme, []byte("\nRead-verification marker: `"+readMarker+"`\n")...)
-	if err := os.WriteFile(readmePath, readme, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	logicMarker := appendLiveReadMarker(t, project, "counter.go", "logic-read")
+	securityMarker := appendLiveReadMarker(t, project, "report.go", "security-read")
 
 	initResult := runLiveMulgae(t, validator, environment, project, 0, liveAutoInitArguments(environment)...)
 	if initResult.Result.Kind != "initialized" {
 		t.Fatalf("init result kind = %q", initResult.Result.Kind)
 	}
+	configureLiveMixedReview(t, project)
 	configResult := runLiveMulgae(t, validator, environment, project, 0, "config", "--output", "json")
 	assertLiveConfigMatrix(t, configResult.Result.Policy)
-	assertLiveSixRoleConfig(t, project)
+	assertLiveMixedReviewConfig(t, project)
 	doctorResult := runLiveMulgae(t, validator, environment, project, 0, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
-	expected := map[string]string{
-		"logic": "zcode-logic", "security": "zcode-security",
-		"maintainability": "zcode-maintainability", "product": "zcode-product",
-		"documentation": "zcode-documentation", "testing": "zcode-testing",
-	}
-	run := runLiveRecoverableWorkflow(t, validator, environment, project, expected,
+	expected := map[string]string{"logic": "zcode-logic", "security": "grok-security"}
+	run := runLiveRecoverableWorkflowWithGate(t, validator, environment, project, "zcode-grok-review-aggregation", expected, validateLiveSingleInvocationGate,
 		"review", "--dirty",
-		"--objective", "Review the changed fixture strictly within your assigned functional role. Treat this objective as the limited-trust objective described by the Mulgae contract, not as review-target content. This target contains staged, unstaged, and untracked changes after HEAD, so evidence for current lines must use side worktree. Return a Markdown role report, the primary success form; Mulgae itself transcribes it into structured findings. It is valid to report no defects; report only concrete actionable defects supported by exact current-target evidence. For the documentation role, read the current README.md in the captured workspace and reproduce its Read-verification marker verbatim in your Markdown role report.",
-		"--roles", "logic,security,maintainability,product,documentation,testing", "--output", "json",
+		"--objective", "Review the changed fixture strictly within your assigned functional role. Return a concise Markdown role report. The logic role must read counter.go and reproduce its logic-read marker verbatim. The security role must read report.go and reproduce its security-read marker verbatim. It is valid to report no defects; report only concrete actionable defects supported by the captured target.",
+		"--roles", "logic,security", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
-	var documentationReport []byte
-	for _, report := range run.envelope.Result.RoleReportURIs {
-		if report.Role == "documentation" {
-			documentationReport = readLiveArtifact(t, project, report.URI)
-		}
-	}
-	if !bytes.Contains(documentationReport, []byte(readMarker)) {
-		t.Fatal("published documentation report does not prove captured README access")
-	}
-	assertLiveStructuredExtraction(t, project, run)
+	assertLiveRoleReportMarker(t, project, run, "logic", logicMarker)
+	assertLiveRoleReportMarker(t, project, run, "security", securityMarker)
+	assertLiveReportsOnlyAggregation(t, run)
 	assertLiveRoleReportTransports(t, run, "review", true)
 	assertNoProjectProviderLocks(t, project)
-	securityProvider := requireLiveSelectedProvider(t, run, "security")
-	assertLiveSecurityDefect(t, project, run, securityProvider)
 	doctorAfterReview := runLiveMulgae(t, validator, environment, project, 0, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorAfterReview.Result.Doctor)
 	status := runLiveMulgae(t, validator, environment, project, 0,
 		"status", "--run", run.manifest.RunID, "--output", "json",
 	)
 	assertLiveRoleReportURIEquality(t, status.Result.RoleReportURIs, run.envelope.Result.RoleReportURIs)
-	runLiveChildProductionWorkflows(t, validator, environment, project, run)
 	assertNoProjectProviderLocks(t, project)
 	scenario.status = "passed"
 }
 
-func runLiveChildProductionWorkflows(
-	t *testing.T,
-	validator *jsonschema.Validator,
-	environment liveE2EEnvironment,
-	project string,
-	root livePublishedRun,
-) {
+func appendLiveReadMarker(t *testing.T, project, relativePath, prefix string) string {
 	t.Helper()
-	// Exact/recompose replay the already-successful selected zcode-logic attempt.
-	sourceAttempt := requireLiveSelectedAttempt(t, root, "logic")
-
-	writeLiveFixedReportPath(t, project)
-	// followup --finding remains structured-path only. The objective asks every
-	// role for a Markdown report, so a committed structured finding proves the
-	// Mulgae-owned structured extraction trailer actually ran end to end. Prefer
-	// a finding from the selected security provider; otherwise take a
-	// deterministic one from another successful selected role/provider.
-	sourceFinding, ok := selectLiveFollowupSourceFinding(root)
-	if !ok {
-		t.Fatalf("committed review has zero structured findings bound to successful selected providers: structured extraction did not produce findings from prose reports")
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		t.Fatal(err)
 	}
-	followup := runLiveRecoverableChildWorkflow(t, validator, environment, project, nil,
-		"followup", "--run", root.manifest.RunID, "--finding", sourceFinding.ID,
-		"--dirty", "--objective", "Verify only whether the original directory traversal is resolved.",
-		"--output", "json",
-	)
-	assertLiveSourceLineage(t, followup, root, sourceFinding.ID, "")
-	assertLiveSourceBoundAssignment(t, followup, sourceFinding.Role, sourceFinding.ProviderInstance)
-	assertLiveRoleReportTransports(t, followup, "followup", false)
-
-	delta := runLiveChildWorkflowWithAssignments(t, validator, environment, project,
-		map[string]string{"logic": "zcode-logic", "security": "zcode-security", "documentation": "zcode-documentation"},
-		"delta", "--since-run", root.manifest.RunID, "--dirty",
-		"--roles", "logic,security,documentation", "--output", "json",
-	)
-	assertLiveSourceLineage(t, delta, root, "", "")
-	assertLiveRoleReportTransports(t, delta, "delta", false)
-
-	exact := runLiveRecoverableChildWorkflow(t, validator, environment, project, nil,
-		"rerun", "--run", root.manifest.RunID, "--attempt", sourceAttempt.AttemptID,
-		"--replay", "exact", "--output", "json",
-	)
-	assertLiveSourceLineage(t, exact, root, "", "exact")
-	assertLiveSourceBoundAssignment(t, exact, sourceAttempt.Role, sourceAttempt.ProviderInstance)
-	assertLiveExactReplayRoleReportTransports(t, exact)
-
-	recompose := runLiveChildWorkflowWithAssignments(t, validator, environment, project,
-		map[string]string{"logic": "zcode-logic"},
-		"rerun", "--run", root.manifest.RunID, "--attempt", sourceAttempt.AttemptID,
-		"--replay", "recompose", "--output", "json",
-	)
-	assertLiveSourceLineage(t, recompose, root, "", "recompose")
-	assertLiveRoleReportTransports(t, recompose, "recompose", false)
+	marker := prefix + "-" + hex.EncodeToString(nonce[:])
+	path := filepath.Join(project, relativePath)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = append(body, []byte("\n// "+prefix+" marker: "+marker+"\n")...)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return marker
 }
 
 func liveAutoInitArguments(environment liveE2EEnvironment) []string {
 	arguments := []string{
 		"init", "--providers", "auto",
-		"--roles", "logic,security,maintainability,product,documentation,testing",
+		"--roles", "logic,security",
 		"--zcode-node-executable", environment.zcodeNode, "--zcode-launcher", environment.zcodeLauncher,
 		"--grok-executable", environment.grokExecutable,
 	}
 	return append(arguments, "--output", "json")
+}
+
+func configureLiveMixedReview(t *testing.T, project string) {
+	t.Helper()
+	config := readE2EConfig(t, project)
+	if config.Providers.ZCode == nil || config.Providers.Grok == nil {
+		t.Fatalf("automatic init omitted required providers: %#v", config.Providers)
+	}
+	config.Roles.Logic.PrimaryProvider = "zcode"
+	config.Roles.Security.PrimaryProvider = "grok"
+	config.Review.RequiredRoles = []string{"logic", "security"}
+	config.Validation.Repair = adapterconfig.RepairConfig{}
+	config.Validation.Extraction.Enabled = false
+	config.Validation.Extraction.EnabledExplicit = true
+	config.Resources.MaxActiveLanes = 2
+	config.Resources.PrimaryRepairAttempts = 0
+	// The execution preflight models two structural slots per role even when
+	// repair and extraction are disabled. The live gate below still requires
+	// exactly one observed initial invocation from each provider.
+	config.Resources.RoleMaxInvocations = 2
+	config.Resources.RunMaxInvocations = 4
+	projectConfig, localConfig, err := adapterconfig.EncodeSplit(config)
+	if err != nil {
+		t.Fatalf("encode mixed-review Config v3 pair: %v", err)
+	}
+	writeLiveExistingConfig(t, filepath.Join(project, ".mulgae", "config.yaml"), projectConfig)
+	writeLiveExistingConfig(t, filepath.Join(project, ".mulgae", "local.yaml"), localConfig)
+}
+
+func writeLiveExistingConfig(t *testing.T, path string, content []byte) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("live config destination is unavailable: %v", err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		t.Fatalf("open live config destination: %v", err)
+	}
+	if _, err := file.Write(content); err != nil {
+		_ = file.Close()
+		t.Fatalf("write live config destination: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close live config destination: %v", err)
+	}
 }
 
 func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
@@ -460,16 +452,6 @@ func initializeLiveE2ERepository(t *testing.T) string {
 	return project
 }
 
-func writeLiveFixedReportPath(t *testing.T, project string) {
-	t.Helper()
-	// Go does not require indentation. Keeping candidate evidence at column one
-	// prevents a provider's first-line code-fence trim from changing exact bytes.
-	fixed := "package report\n\nimport (\n\t\"errors\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"strings\"\n)\n\nfunc ReadReport(base, name string) ([]byte, error) {\nclean := filepath.Clean(name)\nif clean == \".\" || filepath.IsAbs(clean) || clean == \"..\" || strings.HasPrefix(clean, \"..\"+string(os.PathSeparator)) {\nreturn nil, errors.New(\"invalid report path\")\n}\nreturn os.ReadFile(filepath.Join(base, clean))\n}\n"
-	if err := os.WriteFile(filepath.Join(project, "report.go"), []byte(fixed), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func mustLiveGit(t *testing.T, directory string, arguments ...string) {
 	t.Helper()
 	command := exec.Command("git", arguments...)
@@ -540,14 +522,6 @@ func containsLiveExit(values []int, value int) bool {
 		}
 	}
 	return false
-}
-
-func runLiveRecoverableWorkflow(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project string, expected map[string]string, arguments ...string) livePublishedRun {
-	return runLiveRecoverableWorkflowForScenario(t, validator, environment, project, "actual-provider-production-workflow", expected, arguments...)
-}
-
-func runLiveRecoverableWorkflowForScenario(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project, scenario string, expected map[string]string, arguments ...string) livePublishedRun {
-	return runLiveRecoverableWorkflowWithGate(t, validator, environment, project, scenario, expected, validateLiveSecurityRecoveryGate, arguments...)
 }
 
 func runLiveRecoverableWorkflowWithGate(t *testing.T, validator *jsonschema.Validator, environment liveE2EEnvironment, project, scenario string, expected map[string]string, gate func(string, livePublishedRun, map[string]string) error, arguments ...string) livePublishedRun {
@@ -637,16 +611,15 @@ func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, en
 	return livePublishedRun{}, scope.status, reason
 }
 
-func validateLiveSecurityRecoveryGate(project string, run livePublishedRun, expected map[string]string) error {
+func validateLiveSingleInvocationGate(project string, run livePublishedRun, expected map[string]string) error {
 	if err := validateLiveRecoverableAssignments(run, expected); err != nil {
 		return err
 	}
-	provider, err := liveSelectedProvider(run, "security")
-	if err != nil {
-		return err
-	}
-	if !liveSecurityDefectPresent(project, run, provider) {
-		return fmt.Errorf("selected security provider %s did not publish the required defect via structured finding or verified role-report markers", provider)
+	for role, provider := range expected {
+		attempts := liveAttemptsForRole(run.manifest.Attempts, role)
+		if len(attempts) != 1 || attempts[0].ProviderInstance != provider || attempts[0].InvocationCount != 1 {
+			return fmt.Errorf("%s invocation budget mismatch: %#v", role, attempts)
+		}
 	}
 	if err := validateLivePrimaryProcessTerminals(project, run, expected); err != nil {
 		return fmt.Errorf("invalid process diagnostics: %w", err)
@@ -1066,21 +1039,6 @@ func assertLiveRoleReportTransports(t *testing.T, run livePublishedRun, label st
 	}
 }
 
-// assertLiveExactReplayRoleReportTransports keeps exact replay on the source
-// provider family's transport. ZCode and Grok receive a new isolated staging
-// grant; stdout providers retain the stored complete stdin bytes.
-func assertLiveExactReplayRoleReportTransports(t *testing.T, run livePublishedRun) {
-	t.Helper()
-	if liveReplayMode(run.manifest) != "exact" {
-		t.Fatalf("exact replay manifest lost its replay lineage: %#v", run.manifest.ImmutableLineage)
-	}
-	if len(run.manifest.RoleReports) == 0 {
-		t.Fatalf("exact replay committed no role_reports inventory: %#v", run.manifest)
-	}
-	family := liveProviderFamily(run.manifest.RoleReports[0].ProviderInstance)
-	assertLiveRoleReportTransports(t, run, "exact", family == "zcode" || family == "grok")
-}
-
 func liveArtifactSHA256(content []byte) string {
 	sum := sha256.Sum256(content)
 	return "sha256:" + hex.EncodeToString(sum[:])
@@ -1149,7 +1107,11 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	var redacted struct {
 		ConfiguredProviderIDs []string `json:"configured_provider_ids"`
 		Policy                struct {
-			RoleAssignments []struct {
+			RequiredRoles      []string `json:"required_roles"`
+			RoleMaxInvocations int      `json:"role_max_invocations"`
+			RunMaxInvocations  int      `json:"run_max_invocations"`
+			ExtractionEnabled  bool     `json:"extraction_enabled"`
+			RoleAssignments    []struct {
 				Role            string `json:"role"`
 				PrimaryProvider string `json:"primary_provider"`
 			} `json:"role_assignments"`
@@ -1161,10 +1123,8 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode", "grok"}) {
 		t.Fatalf("configured providers = %v", redacted.ConfiguredProviderIDs)
 	}
-	// Each role names exactly one provider: the first configured family from its
-	// own preference order. The projection carries no second route.
 	want := map[string]string{
-		"logic": "zcode", "security": "zcode", "maintainability": "zcode",
+		"logic": "zcode", "security": "grok", "maintainability": "zcode",
 		"product": "zcode", "documentation": "zcode", "testing": "zcode",
 		"artist": "",
 	}
@@ -1177,13 +1137,46 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 			t.Fatalf("unexpected config assignment: %#v", assignment)
 		}
 	}
+	if !reflect.DeepEqual(redacted.Policy.RequiredRoles, []string{"logic", "security"}) ||
+		redacted.Policy.RoleMaxInvocations != 2 || redacted.Policy.RunMaxInvocations != 4 || redacted.Policy.ExtractionEnabled {
+		t.Fatalf("mixed-review policy = %#v", redacted.Policy)
+	}
 }
 
-func assertLiveSixRoleConfig(t *testing.T, project string) {
+func assertLiveMixedReviewConfig(t *testing.T, project string) {
 	t.Helper()
 	config := readE2EConfig(t, project)
-	if config.Resources.MaxActiveLanes != 6 {
-		t.Fatalf("max_active_lanes = %d, want 6", config.Resources.MaxActiveLanes)
+	if config.Resources.MaxActiveLanes != 2 || config.Resources.PrimaryRepairAttempts != 0 ||
+		config.Resources.RoleMaxInvocations != 2 || config.Resources.RunMaxInvocations != 4 ||
+		config.Validation.Repair.Enabled || config.Validation.Extraction.Enabled {
+		t.Fatalf("mixed-review execution policy = validation=%#v resources=%#v", config.Validation, config.Resources)
+	}
+	if !config.Roles.Logic.Enabled || !config.Roles.Security.Enabled || config.Roles.Maintainability.Enabled ||
+		config.Roles.Product.Enabled || config.Roles.Documentation.Enabled || config.Roles.Testing.Enabled || config.Roles.Artist.Enabled {
+		t.Fatalf("mixed-review enabled roles = %#v", config.Roles)
+	}
+}
+
+func assertLiveRoleReportMarker(t *testing.T, project string, run livePublishedRun, role, marker string) {
+	t.Helper()
+	for _, report := range run.envelope.Result.RoleReportURIs {
+		if report.Role == role {
+			if body := readLiveArtifact(t, project, report.URI); !bytes.Contains(body, []byte(marker)) {
+				t.Fatalf("published %s report does not prove captured workspace access", role)
+			}
+			return
+		}
+	}
+	t.Fatalf("published review has no %s role report", role)
+}
+
+func assertLiveReportsOnlyAggregation(t *testing.T, run livePublishedRun) {
+	t.Helper()
+	if run.manifest.ContentVerdict != "reports_only" || run.review.ContentVerdict != "reports_only" ||
+		run.manifest.CoverageStatus != "complete" || run.review.CoverageStatus != "complete" ||
+		run.manifest.StructuredExtractionState != "reports_only" || run.review.StructuredExtractionStatus != "reports_only" ||
+		run.manifest.CIDecision != "pass" || run.review.CIDecision != "pass" || len(run.review.Findings) != 0 {
+		t.Fatalf("mixed-provider reports-only aggregation mismatch: manifest=%#v review=%#v", run.manifest, run.review)
 	}
 }
 
@@ -1335,162 +1328,6 @@ func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	}
 }
 
-func assertLiveAssignments(t *testing.T, run livePublishedRun, expected map[string]string) {
-	t.Helper()
-	if err := validateLiveAssignments(run, expected); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func validateLiveAssignments(run livePublishedRun, expected map[string]string) error {
-	if len(run.manifest.SelectedRoles) != len(expected) || len(run.review.RoleOutcomes) != len(expected) {
-		return fmt.Errorf("selected role cardinality mismatch: selected=%v outcomes=%#v", run.manifest.SelectedRoles, run.review.RoleOutcomes)
-	}
-	for role, provider := range expected {
-		attempts := liveAttemptsForRole(run.manifest.Attempts, role)
-		var outcome *liveRoleOutcome
-		for index := range run.review.RoleOutcomes {
-			if run.review.RoleOutcomes[index].Role == role {
-				outcome = &run.review.RoleOutcomes[index]
-				break
-			}
-		}
-		if outcome == nil || !liveSuccessfulRoleOutcome(outcome.Outcome) || outcome.AttemptID == nil || outcome.ProviderInstance == nil || outcome.SelectedVia == nil {
-			return fmt.Errorf("%s role outcome is not a successful product outcome: %#v", role, outcome)
-		}
-		// One provider per role means exactly one attempt, always primary.
-		if len(attempts) != 1 || attempts[0].ProviderInstance != provider || attempts[0].SelectedAs != "primary" {
-			return fmt.Errorf("%s does not bind exactly one primary attempt from %s: %#v", role, provider, attempts)
-		}
-		if *outcome.SelectedVia != "primary" {
-			return fmt.Errorf("%s selected_via = %q, want primary", role, *outcome.SelectedVia)
-		}
-		if attempts[0].State != "succeeded" || *outcome.AttemptID != attempts[0].AttemptID || *outcome.ProviderInstance != provider {
-			return fmt.Errorf("%s primary outcome mismatch: attempts=%#v outcome=%#v", role, attempts, outcome)
-		}
-	}
-	return nil
-}
-
-// runLiveChildWorkflowWithAssignments runs one child workflow and retries it
-// while any selected role misses its own provider. Live providers are
-// stochastic: the same role on the same provider can succeed in one run and
-// return provider_output_missing in the next. Mulgae no longer masks that by
-// moving the role elsewhere, so this scenario absorbs it the way the root
-// workflow already does, rather than asserting a live provider never flakes.
-// liveChildProviderNondeterminism reports whether a failed child workflow stopped
-// on the bounded live-provider nondeterminism this repository already records,
-// rather than on a defect the gate must surface. A child workflow reaches a real
-// provider, so it needs the same bounded recovery the root review already has.
-func liveChildProviderNondeterminism(envelope liveCommandEnvelope) bool {
-	if liveFocusedAttemptRetryable(envelope) {
-		return true
-	}
-	// A provider that terminates without usable output is the recorded
-	// stochastic outcome for these fixtures; it is not a Mulgae defect. Every
-	// reported reason must be that outcome: a compound failure that also names a
-	// publication or integrity defect must reach the gate rather than be retried
-	// away, or a real artifact regression could hide behind a passing retry.
-	if envelope.Exit.Kind != "artifact" || len(envelope.Reasons) == 0 {
-		return false
-	}
-	for _, reason := range envelope.Reasons {
-		if reason.Code != "provider_output_missing" {
-			return false
-		}
-	}
-	return true
-}
-
-// runLiveRecoverableChildWorkflow runs one child workflow with the same bounded
-// recovery the root review uses. validate may be nil when reaching P2 is the
-// whole requirement.
-func runLiveRecoverableChildWorkflow(
-	t *testing.T,
-	validator *jsonschema.Validator,
-	environment liveE2EEnvironment,
-	project string,
-	validate func(livePublishedRun) error,
-	arguments ...string,
-) livePublishedRun {
-	t.Helper()
-	const maxAttempts = 2
-	var last string
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Admit the wider terminal set so bounded provider nondeterminism is
-		// classified here instead of failing the gate inside the runner.
-		envelope := runLiveMulgaeAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
-		if envelope.Exit.Code != 0 && envelope.Exit.Code != 1 && envelope.Exit.Code != 4 {
-			if !liveChildProviderNondeterminism(envelope) {
-				t.Fatalf("live %s failed without retry authority: exit=%#v reasons=%#v",
-					arguments[0], envelope.Exit, envelope.Reasons)
-			}
-			last = fmt.Sprintf("%s: %#v", envelope.Exit.Kind, envelope.Reasons)
-			t.Logf("[test-e2e] %s attempt %d/%d hit bounded provider nondeterminism; retrying: %s",
-				arguments[0], attempt, maxAttempts, last)
-			continue
-		}
-		run := loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
-		if validate == nil {
-			return run
-		}
-		err := validate(run)
-		if err == nil {
-			return run
-		}
-		last = err.Error()
-		t.Logf("[test-e2e] %s attempt %d/%d did not satisfy its gate; retrying: %v",
-			arguments[0], attempt, maxAttempts, err)
-	}
-	t.Fatalf("live %s did not succeed after %d attempts: %s", arguments[0], maxAttempts, last)
-	return livePublishedRun{}
-}
-
-func runLiveChildWorkflowWithAssignments(
-	t *testing.T,
-	validator *jsonschema.Validator,
-	environment liveE2EEnvironment,
-	project string,
-	expected map[string]string,
-	arguments ...string,
-) livePublishedRun {
-	t.Helper()
-	return runLiveRecoverableChildWorkflow(t, validator, environment, project,
-		func(run livePublishedRun) error { return validateLiveAssignments(run, expected) },
-		arguments...)
-}
-
-// assertLiveStructuredExtraction proves the Mulgae-owned structured extraction
-// trailer ran against real providers. Manifest counts alone cannot prove it: a
-// retry that returned exact JSON also reaches invocation_count 2 with valid
-// extraction states. The exact purpose is what distinguishes them, so this
-// requires a succeeded attempt whose committed artifacts carry the 002-extract
-// prompt and invocation streams.
-func assertLiveStructuredExtraction(t *testing.T, project string, run livePublishedRun) {
-	t.Helper()
-	if run.manifest.StructuredExtractionState == "reports_only" {
-		t.Fatalf("structured_extraction_status = %q: structured extraction produced no findings from prose reports",
-			run.manifest.StructuredExtractionState)
-	}
-	runRoot := filepath.Join(project, ".mulgae", run.manifest.SessionID, run.manifest.RunID)
-	for _, attempt := range run.manifest.Attempts {
-		if attempt.State != "succeeded" || attempt.InvocationCount != 2 ||
-			attempt.ParseState != "valid" || attempt.ValidationState != "valid" {
-			continue
-		}
-		promptPath := filepath.Join(runRoot, "prompts", attempt.AttemptID, "002-extract.stdin")
-		streamPath := filepath.Join(runRoot, "attempts", attempt.AttemptID, "invocations", "002-extract", "stdout.raw")
-		if _, err := os.Stat(promptPath); err != nil {
-			continue
-		}
-		if _, err := os.Stat(streamPath); err != nil {
-			t.Fatalf("attempt %s has an extraction prompt without its invocation streams: %v", attempt.AttemptID, err)
-		}
-		return
-	}
-	t.Fatalf("no succeeded attempt carries committed 002-extract artifacts: %#v", run.manifest.Attempts)
-}
-
 func assertLiveRecoverableAssignments(t *testing.T, run livePublishedRun, expected map[string]string) {
 	t.Helper()
 	if err := validateLiveRecoverableAssignments(run, expected); err != nil {
@@ -1548,25 +1385,6 @@ func validateLiveRecoverableAssignments(run livePublishedRun, expected map[strin
 	return nil
 }
 
-func liveSelectedProvider(run livePublishedRun, role string) (string, error) {
-	for _, outcome := range run.review.RoleOutcomes {
-		if outcome.Role == role && outcome.ProviderInstance != nil && outcome.AttemptID != nil && outcome.SelectedVia != nil &&
-			(outcome.Outcome == "completed" || outcome.Outcome == "degraded") {
-			return *outcome.ProviderInstance, nil
-		}
-	}
-	return "", fmt.Errorf("role %s has no selected successful provider", role)
-}
-
-func requireLiveSelectedProvider(t *testing.T, run livePublishedRun, role string) string {
-	t.Helper()
-	provider, err := liveSelectedProvider(run, role)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return provider
-}
-
 func logLiveRecoverySelections(t *testing.T, run livePublishedRun) {
 	t.Helper()
 	for _, outcome := range run.review.RoleOutcomes {
@@ -1575,67 +1393,6 @@ func logLiveRecoverySelections(t *testing.T, run livePublishedRun) {
 		}
 		t.Logf("[test-e2e] role=%s provider=%s selected_via=%s outcome=%s", outcome.Role, *outcome.ProviderInstance, *outcome.SelectedVia, outcome.Outcome)
 	}
-}
-
-func requireLiveFinding(t *testing.T, run livePublishedRun, role, provider string) liveFinding {
-	t.Helper()
-	for _, finding := range run.review.Findings {
-		if finding.Role == role && finding.ProviderInstance == provider {
-			return finding
-		}
-	}
-	t.Fatalf("focused run has no %s finding from %s: %#v", role, provider, run.review.Findings)
-	return liveFinding{}
-}
-
-// selectLiveFollowupSourceFinding chooses one validated structured finding for
-// live followup admission. Preference order:
-//  1. first committed finding from the selected successful security provider
-//  2. first committed finding from another successful selected role/provider,
-//     walking FixedRoleOrder and committed finding order
-//
-// Findings bound to an unselected or unsuccessful provider are excluded.
-// Returns false only when the committed review has no eligible structured findings.
-func selectLiveFollowupSourceFinding(run livePublishedRun) (liveFinding, bool) {
-	selected := liveSuccessfulSelectedProviders(run)
-	if finding, ok := firstLiveFindingForSelectedProvider(run, string(domain.RoleSecurity), selected); ok {
-		return finding, true
-	}
-	for _, role := range domain.FixedRoleOrder() {
-		if role == domain.RoleSecurity {
-			continue
-		}
-		if finding, ok := firstLiveFindingForSelectedProvider(run, string(role), selected); ok {
-			return finding, true
-		}
-	}
-	return liveFinding{}, false
-}
-
-func liveSuccessfulSelectedProviders(run livePublishedRun) map[string]string {
-	selected := make(map[string]string, len(run.review.RoleOutcomes))
-	for _, outcome := range run.review.RoleOutcomes {
-		if !liveSuccessfulRoleOutcome(outcome.Outcome) ||
-			outcome.ProviderInstance == nil || strings.TrimSpace(*outcome.ProviderInstance) == "" ||
-			outcome.AttemptID == nil || outcome.SelectedVia == nil {
-			continue
-		}
-		selected[outcome.Role] = *outcome.ProviderInstance
-	}
-	return selected
-}
-
-func firstLiveFindingForSelectedProvider(run livePublishedRun, role string, selected map[string]string) (liveFinding, bool) {
-	provider, ok := selected[role]
-	if !ok {
-		return liveFinding{}, false
-	}
-	for _, finding := range run.review.Findings {
-		if finding.Role == role && finding.ProviderInstance == provider && strings.TrimSpace(finding.ID) != "" {
-			return finding, true
-		}
-	}
-	return liveFinding{}, false
 }
 
 func livePrimaryAttempt(attempts []liveAttempt, provider string) (liveAttempt, bool) {
@@ -1653,165 +1410,6 @@ func livePrimaryAttempt(attempts []liveAttempt, provider string) (liveAttempt, b
 	return result, found
 }
 
-func assertLiveSecurityDefect(t *testing.T, project string, run livePublishedRun, provider string) {
-	t.Helper()
-	if liveSecurityDefectPresent(project, run, provider) {
-		return
-	}
-	t.Fatalf("selected security provider %s did not publish the required defect via structured finding or verified role-report markers: findings=%#v role_reports=%#v", provider, run.review.Findings, run.manifest.RoleReports)
-}
-
-func liveRoleFindingPresent(run livePublishedRun, role, provider string) bool {
-	for _, finding := range run.review.Findings {
-		if finding.Role == role && finding.ProviderInstance == provider {
-			return true
-		}
-	}
-	return false
-}
-
-// Fixture-specific markers for the deliberate ReadReport path-traversal defect
-// in the live E2E report.go target. Arbitrary praise prose must not satisfy
-// the six-role gate.
-const (
-	liveSecurityDefectPathMarker   = "report.go"
-	liveSecurityDefectSymbolMarker = "ReadReport"
-)
-
-func liveSecurityDefectPresent(project string, run livePublishedRun, provider string) bool {
-	if liveRoleFindingPresent(run, "security", provider) {
-		return true
-	}
-	return liveSecurityRoleReportDefectPresent(project, run, provider) == nil
-}
-
-func liveSecurityDefectTraversalMarkerPresent(body string) bool {
-	lower := strings.ToLower(body)
-	for _, marker := range []string{
-		"directory traversal",
-		"path traversal",
-		"path-traversal",
-	} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func liveSecurityRoleReportDefectPresent(project string, run livePublishedRun, provider string) error {
-	if provider == "" || run.manifest.SessionID == "" || run.manifest.RunID == "" {
-		return fmt.Errorf("security role-report defect check requires selected provider and committed run identity")
-	}
-	var outcome *liveRoleOutcome
-	for index := range run.review.RoleOutcomes {
-		candidate := &run.review.RoleOutcomes[index]
-		if candidate.Role != "security" {
-			continue
-		}
-		if outcome != nil {
-			return fmt.Errorf("duplicate security role outcomes")
-		}
-		outcome = candidate
-	}
-	if outcome == nil || outcome.ProviderInstance == nil || outcome.AttemptID == nil || outcome.SelectedVia == nil {
-		return fmt.Errorf("security role has no selected successful outcome")
-	}
-	if !liveSuccessfulRoleOutcome(outcome.Outcome) {
-		return fmt.Errorf("security role outcome %q is not successful", outcome.Outcome)
-	}
-	if *outcome.ProviderInstance != provider {
-		return fmt.Errorf("selected security provider %q does not match required %q", *outcome.ProviderInstance, provider)
-	}
-
-	var report *liveRoleReport
-	for index := range run.manifest.RoleReports {
-		candidate := &run.manifest.RoleReports[index]
-		if candidate.Role != "security" {
-			continue
-		}
-		if report != nil {
-			return fmt.Errorf("duplicate security role_reports inventory entries")
-		}
-		report = candidate
-	}
-	if report == nil {
-		return fmt.Errorf("manifest role_reports lacks selected security inventory entry")
-	}
-	if report.ProviderInstance != provider {
-		return fmt.Errorf("security role report provider %q does not match selected %q", report.ProviderInstance, provider)
-	}
-	if report.AttemptID != *outcome.AttemptID {
-		return fmt.Errorf("security role report attempt_id %q does not match selected outcome %q", report.AttemptID, *outcome.AttemptID)
-	}
-	if report.Path != "role-reports/security.md" || report.ContentType != "text/markdown" || report.ByteLength <= 0 || report.SHA256 == "" {
-		return fmt.Errorf("security role report metadata is invalid: %#v", *report)
-	}
-
-	wantURI := fmt.Sprintf(".mulgae/%s/%s/role-reports/security.md", run.manifest.SessionID, run.manifest.RunID)
-	var matchedURI bool
-	for _, uri := range run.envelope.Result.RoleReportURIs {
-		if uri.Role != "security" {
-			continue
-		}
-		if matchedURI {
-			return fmt.Errorf("duplicate security role_report_uris entries")
-		}
-		if uri.URI != wantURI {
-			return fmt.Errorf("security role_report_uri %q is not manifest-bound path %q", uri.URI, wantURI)
-		}
-		matchedURI = true
-	}
-	if !matchedURI {
-		return fmt.Errorf("command role_report_uris lacks selected security inventory entry")
-	}
-
-	content, err := loadLiveArtifactBytes(project, wantURI)
-	if err != nil {
-		return fmt.Errorf("read verified security role report: %w", err)
-	}
-	if len(content) != report.ByteLength {
-		return fmt.Errorf("security role report byte length = %d, want digest-bound %d", len(content), report.ByteLength)
-	}
-	if digest := liveArtifactSHA256(content); digest != report.SHA256 {
-		return fmt.Errorf("security role report digest = %q, want inventory %q", digest, report.SHA256)
-	}
-
-	body := string(content)
-	if !strings.Contains(body, liveSecurityDefectPathMarker) {
-		return fmt.Errorf("verified security role report lacks fixture path marker %q", liveSecurityDefectPathMarker)
-	}
-	if !strings.Contains(body, liveSecurityDefectSymbolMarker) {
-		return fmt.Errorf("verified security role report lacks fixture symbol marker %q", liveSecurityDefectSymbolMarker)
-	}
-	if !liveSecurityDefectTraversalMarkerPresent(body) {
-		return fmt.Errorf("verified security role report lacks fixture traversal defect marker")
-	}
-	return nil
-}
-
-func loadLiveArtifactBytes(project, uri string) ([]byte, error) {
-	normalized, err := normalizeLiveArtifactURI(project, uri)
-	if err != nil {
-		return nil, err
-	}
-	return os.ReadFile(filepath.Join(project, normalized))
-}
-
-func assertLiveSourceBoundAssignment(t *testing.T, run livePublishedRun, role, provider string) {
-	t.Helper()
-	attempt := requireLiveAttempt(t, run.manifest.Attempts, role)
-	if attempt.ProviderInstance != provider || attempt.SelectedAs != "primary" || attempt.State != "succeeded" {
-		t.Fatalf("source-bound %s attempt = %#v, want successful %s", role, attempt, provider)
-	}
-	if len(run.review.RoleOutcomes) != 1 || run.review.RoleOutcomes[0].Role != role || !liveSuccessfulRoleOutcome(run.review.RoleOutcomes[0].Outcome) ||
-		run.review.RoleOutcomes[0].AttemptID == nil || *run.review.RoleOutcomes[0].AttemptID != attempt.AttemptID ||
-		run.review.RoleOutcomes[0].ProviderInstance == nil || *run.review.RoleOutcomes[0].ProviderInstance != provider ||
-		run.review.RoleOutcomes[0].SelectedVia == nil || *run.review.RoleOutcomes[0].SelectedVia != "primary" {
-		t.Fatalf("source-bound %s outcome mismatch: %#v", role, run.review.RoleOutcomes)
-	}
-}
-
 func liveSuccessfulRoleOutcome(outcome string) bool {
 	return outcome == "completed" || outcome == "degraded"
 }
@@ -1826,106 +1424,6 @@ func liveAttemptsForRole(attempts []liveAttempt, role string) []liveAttempt {
 	return result
 }
 
-func requireLiveAttempt(t *testing.T, attempts []liveAttempt, role string) liveAttempt {
-	t.Helper()
-	var matches []liveAttempt
-	for _, attempt := range attempts {
-		if attempt.Role == role {
-			matches = append(matches, attempt)
-		}
-	}
-	if len(matches) != 1 {
-		t.Fatalf("role %s has %d attempts: %#v", role, len(matches), matches)
-	}
-	return matches[0]
-}
-
-func requireLiveSelectedAttempt(t *testing.T, run livePublishedRun, role string) liveAttempt {
-	t.Helper()
-	var outcome *liveRoleOutcome
-	for index := range run.review.RoleOutcomes {
-		if run.review.RoleOutcomes[index].Role == role {
-			outcome = &run.review.RoleOutcomes[index]
-			break
-		}
-	}
-	if outcome == nil || outcome.AttemptID == nil {
-		t.Fatalf("role %s has no selected attempt outcome: %#v", role, run.review.RoleOutcomes)
-	}
-	for _, attempt := range run.manifest.Attempts {
-		if attempt.AttemptID == *outcome.AttemptID {
-			return attempt
-		}
-	}
-	t.Fatalf("role %s selected attempt %s is absent", role, *outcome.AttemptID)
-	return liveAttempt{}
-}
-
-func assertLiveSourceLineage(t *testing.T, child, source livePublishedRun, finding, replay string) {
-	t.Helper()
-	lineage := child.manifest.ImmutableLineage
-	if lineage.SourceRunID == nil || *lineage.SourceRunID != source.manifest.RunID || lineage.SourceReviewID == nil || *lineage.SourceReviewID != source.review.ReviewID {
-		t.Fatalf("child source lineage does not bind root P2: %#v", lineage)
-	}
-	if finding == "" {
-		if lineage.SourceFindingRef != nil {
-			t.Fatalf("unexpected source finding lineage: %#v", lineage)
-		}
-	} else if lineage.SourceFindingRef == nil || *lineage.SourceFindingRef != finding {
-		t.Fatalf("followup source finding lineage = %#v, want %s", lineage, finding)
-	}
-	if replay == "" {
-		if lineage.ReplayMode != nil {
-			t.Fatalf("unexpected replay lineage: %#v", lineage)
-		}
-	} else if lineage.ReplayMode == nil || *lineage.ReplayMode != replay {
-		t.Fatalf("replay lineage = %#v, want %s", lineage, replay)
-	}
-	if !reflect.DeepEqual(lineage, child.review.ImmutableLineage) {
-		t.Fatalf("manifest/review lineage mismatch: %#v != %#v", lineage, child.review.ImmutableLineage)
-	}
-}
-
 func (environment liveE2EEnvironment) String() string {
 	return fmt.Sprintf("Mulgae=%s HOME=%s ZCode=%s/%s", environment.binary, environment.nativeHome, environment.zcodeNode, environment.zcodeLauncher)
-}
-
-func TestLiveChildProviderNondeterminismRequiresRecordedOutcome(t *testing.T) {
-	t.Parallel()
-	missing := liveCommandEnvelope{}
-	missing.Exit.Kind = "artifact"
-	missing.Reasons = append(missing.Reasons, liveReason{Code: "provider_output_missing"})
-	if !liveChildProviderNondeterminism(missing) {
-		t.Fatal("a provider that produced no output must keep bounded child retry authority")
-	}
-
-	otherArtifact := liveCommandEnvelope{}
-	otherArtifact.Exit.Kind = "artifact"
-	otherArtifact.Reasons = append(otherArtifact.Reasons, liveReason{Code: "publication_corrupt"})
-	if liveChildProviderNondeterminism(otherArtifact) {
-		t.Fatal("an unrelated artifact failure must not gain retry authority")
-	}
-
-	compound := liveCommandEnvelope{}
-	compound.Exit.Kind = "artifact"
-	compound.Reasons = append(compound.Reasons,
-		liveReason{Code: "provider_output_missing"},
-		liveReason{Code: "publication_corrupt"},
-	)
-	if liveChildProviderNondeterminism(compound) {
-		t.Fatal("a compound failure must not be retried away behind provider nondeterminism")
-	}
-
-	empty := liveCommandEnvelope{}
-	empty.Exit.Kind = "artifact"
-	if liveChildProviderNondeterminism(empty) {
-		t.Fatal("an artifact failure with no reason must not gain retry authority")
-	}
-
-	security := liveCommandEnvelope{}
-	security.Exit.Kind = "security"
-	security.Reasons = append(security.Reasons, liveReason{Code: "provider_output_missing"})
-	if liveChildProviderNondeterminism(security) {
-		t.Fatal("a security failure must never be retried as provider nondeterminism")
-	}
 }

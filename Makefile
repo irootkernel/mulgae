@@ -84,14 +84,14 @@ test-e2e:
 		exit $$status; \
 	fi; \
 	MULGAE_LIVE_ZCODE_NODE_BIN="$$zcode_node" MULGAE_LIVE_ZCODE_LAUNCHER="$$zcode_launcher" \
+		MULGAE_LIVE_GROK_BIN="$$grok_bin" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
+		-run '^TestLive(ZCode|Grok)Capability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \
 	}; \
 	rm -rf "$$e2e_project"
-	@$(MAKE) test-grok
 	@printf '%s\n' '[test-e2e] completed'
 
 test-e2e-opt-in:

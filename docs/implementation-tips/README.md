@@ -17,14 +17,16 @@ make test
 ```
 
 It runs generators and static checks, serialized race-instrumented unit tests,
-serialized race-instrumented integration tests, an exact-binary production
-workflow, and independent live capability certification for ZCode and Grok. It
-then invokes the opt-in Codex profile target, which reports a stable
-skip unless `MULGAE_E2E_OPT_IN=1` is present.
-The mandatory workflow also requires the documentation role report to reproduce
-a fresh marker stored only in the captured README, never in the objective.
-A published report that merely claims it could not read the target does not
-certify workspace access.
+serialized race-instrumented integration tests, one exact-binary two-role live
+review, and independent live capability certification for ZCode and Grok. The
+live review routes `logic` to ZCode and `security` to Grok concurrently, accepts
+one Markdown report from each provider without repair or structured extraction,
+and requires Mulgae to publish one complete reports-only review. Each role must
+reproduce a fresh marker stored only in its captured source file, never the
+objective, so a report that merely claims it could not read the target does not
+certify workspace access. The complete gate then invokes the opt-in Codex
+profile target, which reports a stable skip unless `MULGAE_E2E_OPT_IN=1` is
+present.
 Independent live capability certification failures preserve the exact request,
 nonempty version/capability stdout and stderr, and process exit metadata in a
 private `mulgae-capability-failure-<family>-*` temporary directory. The failure
@@ -53,7 +55,8 @@ make test-mcp-clients
 Grok review through ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and
 otherwise discovers `grok` on `PATH`. The target requires an already
 authenticated installation, does not modify native Grok configuration, and is
-part of the mandatory `make test-e2e` gate.
+an optional standalone provider diagnostic; the mandatory `make test-e2e` gate
+already exercises Grok through the mixed-provider review.
 
 `make test-e2e-opt-in` is called after `make test-e2e`, but performs no provider
 discovery or execution unless `MULGAE_E2E_OPT_IN=1`. When enabled it runs one

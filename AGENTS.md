@@ -330,7 +330,8 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
 - Run `make test` before claiming complete development or release readiness. It is
   the complete required gate and includes generation/static checks, serialized
   race-instrumented unit and integration tests, exact release-binary checks, and
-  mandatory live ZCode/Codex certification.
+  mandatory live ZCode/Grok certification through one mixed-provider two-role
+  review plus independent capability probes.
 - A patch-only release may use a reduced exact-commit gate when master explicitly
   states that `make test` has already passed, accepts responsibility for relying
   on that result, and explicitly requests release after only a patch-version

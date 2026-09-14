@@ -16,8 +16,9 @@ This file records concise shipped outcomes and the planned next stable release.
 
 - Set the supported provider order to ZCode, Grok, and Codex. Automatic init now
   configures ZCode and Grok and assigns every default role to ZCode.
-- Require live ZCode and Grok certification in `make test`; keep the two-profile
-  Codex live scenario behind `MULGAE_E2E_OPT_IN=1`.
+- Require one reports-only ZCode/Grok two-role review and independent capability
+  certification in `make test`; keep deeper workflows deterministic and the
+  two-profile Codex live scenario behind `MULGAE_E2E_OPT_IN=1`.
 - Publish command-result v10, doctor-result v4, provider-contract-evidence v4,
   provider-heartbeat-result v3, and review-preflight v5.
 

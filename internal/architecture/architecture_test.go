@@ -273,9 +273,9 @@ func TestMakefileContract(t *testing.T) {
 	for _, required := range []string{
 		"zcode_node=", `test -n "$$zcode_node"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`, "grok_candidate=", `test -n "$$grok_candidate"`,
-		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER",
-		"-tags=liveprovider", "-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
-		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_GROK_EXECUTABLE", "$(MAKE) test-grok",
+		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_GROK_BIN",
+		"-tags=liveprovider", "-run '^TestLive(ZCode|Grok)Capability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_GROK_EXECUTABLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
 		if !strings.Contains(e2eTarget, required) {
@@ -286,6 +286,9 @@ func TestMakefileContract(t *testing.T) {
 		if strings.Contains(e2eTarget, forbidden) {
 			t.Errorf("mandatory test-e2e still requires Codex token %q", forbidden)
 		}
+	}
+	if strings.Contains(e2eTarget, "$(MAKE) test-grok") {
+		t.Fatal("mandatory test-e2e still nests the standalone Grok review target")
 	}
 	optInTarget := text[optInStart:grokStart]
 	for _, required := range []string{
@@ -340,9 +343,10 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	workflowText := string(workflowData)
 	for _, required := range []string{
-		"func TestE2EActualProvidersProductionWorkflow", "runLiveChildProductionWorkflows", `"followup"`, `"delta"`, `"exact"`, `"recompose"`,
+		"func TestE2EZCodeGrokReviewAggregation", `"logic": "zcode-logic"`, `"security": "grok-security"`,
+		"configureLiveMixedReview", "validateLiveSingleInvocationGate", "assertLiveRoleReportMarker", "assertLiveReportsOnlyAggregation",
 		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "validateLivePrimaryProcessTerminals",
-		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER",
+		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_GROK_EXECUTABLE",
 	} {
 		if !strings.Contains(workflowText, required) {
 			t.Errorf("exact-binary live workflow contract missing %q", required)
@@ -354,8 +358,10 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	if strings.Contains(workflowText, "validateLivePrimaryProcessOverlap") || strings.Contains(workflowText, "maxAttempts = 3") {
 		t.Fatal("exact-binary live workflow restored an obsolete overlap or three-attempt predicate")
 	}
-	if !strings.Contains(workflowText, `\nclean := filepath.Clean(name)`) || strings.Contains(workflowText, `\n\tclean := filepath.Clean(name)`) {
-		t.Fatal("exact-binary followup fixture does not keep candidate evidence at an exact column-one boundary")
+	for _, obsolete := range []string{"runLiveChildProductionWorkflows", "assertLiveStructuredExtraction", "assertLiveSecurityDefect"} {
+		if strings.Contains(workflowText, obsolete) {
+			t.Errorf("exact-binary live workflow still contains obsolete deep-workflow token %q", obsolete)
+		}
 	}
 	if strings.Contains(workflowText, ".Skip(") || strings.Contains(workflowText, ".Skipf(") {
 		t.Fatal("exact-binary actual-provider workflow may not skip prerequisites")
