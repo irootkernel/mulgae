@@ -336,6 +336,115 @@ func TestCoordinatorExecuteRunPreservesSuppliedRootIdentity(t *testing.T) {
 	}
 }
 
+func TestCoordinatorAdmissionFailureEndsWhenRunStartIsRecorded(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t)
+	runtime := &preparationRuntime{
+		prepare: func(context.Context, []InvocationJob) error {
+			return errors.New("initial input unavailable")
+		},
+		invoke: func(job InvocationJob) AttemptOutcome {
+			return coordinatorSuccessOutcome(t, job)
+		},
+	}
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+
+	_, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, domain.Severity("unknown"), nil)
+	cause, admissionFailed := CoordinatorAdmissionFailureFromError(err)
+	if !admissionFailed || cause == nil || !strings.Contains(cause.Error(), "invalid request-changes threshold") {
+		t.Fatalf("pre-start error = (%v, %t), err=%v", cause, admissionFailed, err)
+	}
+	if strings.Contains(err.Error(), "invalid request-changes threshold") {
+		t.Fatalf("admission error exposed causal detail: %q", err)
+	}
+
+	_, err = coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, domain.SeverityHigh, nil)
+	if err == nil || !strings.Contains(err.Error(), "initial input unavailable") {
+		t.Fatalf("post-start error = %v", err)
+	}
+	if _, admissionFailed := CoordinatorAdmissionFailureFromError(err); admissionFailed {
+		t.Fatalf("post-start error was marked as admission failure: %v", err)
+	}
+}
+
+func TestCoordinatorAdmissionFailurePreservesCancellation(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t)
+	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := coordinator.Execute(ctx, coordinatorTestTarget(t), assignments, domain.SeverityHigh, nil)
+	if _, admissionFailed := CoordinatorAdmissionFailureFromError(err); !admissionFailed || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled admission = %v", err)
+	}
+}
+
+func TestCoordinatorChildEntryPointsMarkPrologueFailures(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t)
+	coordinator := coordinatorTestCoordinator(
+		t,
+		&coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+			return coordinatorSuccessOutcome(t, job)
+		}},
+		len(assignments),
+		receipt,
+	)
+	assignment := assignments[0]
+	replay := ExactReplayInput{
+		Role:                   assignment.Role(),
+		SourceProviderInstance: assignment.PrimaryRoute().ProviderInstance(),
+	}
+
+	var nilCoordinator *Coordinator
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{
+			name: "delta invalid dependencies",
+			run: func() error {
+				_, err := nilCoordinator.ExecuteDeltaRun(context.Background(), nil, nil, domain.SeverityHigh, nil, DeltaInvocationMaterial{})
+				return err
+			},
+		},
+		{
+			name: "delta wrong runtime",
+			run: func() error {
+				_, err := coordinator.ExecuteDeltaRun(context.Background(), nil, assignments, domain.SeverityHigh, nil, DeltaInvocationMaterial{})
+				return err
+			},
+		},
+		{
+			name: "exact replay invalid authority",
+			run: func() error {
+				_, err := nilCoordinator.ExecuteExactReplayRun(context.Background(), nil, Assignment{}, domain.SeverityHigh, nil, ExactReplayInput{})
+				return err
+			},
+		},
+		{
+			name: "exact replay wrong runtime",
+			run: func() error {
+				_, err := coordinator.ExecuteExactReplayRun(context.Background(), nil, assignment, domain.SeverityHigh, nil, replay)
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.run()
+			cause, ok := CoordinatorAdmissionFailureFromError(err)
+			if !ok || cause == nil {
+				t.Fatalf("child prologue error = %v", err)
+			}
+			if err.Error() != "review coordinator admission failed" {
+				t.Fatalf("child prologue exposed causal detail: %q", err)
+			}
+		})
+	}
+}
+
 // TestCoordinatorDiagnosticsPersistProviderFailureBeforeRoleTerminal proves a
 // provider failure is durably recorded before the role closes, and that only
 // deterministic failures additionally record the provider as unusable.

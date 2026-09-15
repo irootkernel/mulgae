@@ -75,6 +75,31 @@ func (lifecycle *runtimeDiagnosticLifecycle) observeRunEvent(
 	return err
 }
 
+func (lifecycle *runtimeDiagnosticLifecycle) observePreparationFailure(
+	ctx context.Context,
+	stage ReviewPreparationStage,
+) error {
+	cause := stage.diagnosticCause()
+	if !stage.Valid() || !cause.Valid() {
+		failure, err := domain.NewFailure(
+			"reviewrun.preparation",
+			domain.FailureInternal,
+			"invalid review preparation diagnostic",
+			fmt.Errorf("invalid review preparation stage %q", stage),
+		)
+		if err != nil {
+			return fmt.Errorf("review preparation diagnostic invariant: %w", err)
+		}
+		return failure
+	}
+	_, err := lifecycle.emit(context.WithoutCancel(ctx), domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticError, Component: "reviewrun", Operation: string(stage),
+		Event: domain.DiagnosticInternalInvariantDetected, SessionID: lifecycle.identity.sessionID, RunID: lifecycle.identity.runID,
+		Cause: cause, Failure: "review_preparation_failed", ProtocolPhase: string(stage), InvariantID: string(cause),
+	})
+	return err
+}
+
 func (lifecycle *runtimeDiagnosticLifecycle) observeQualificationCandidate(
 	ctx context.Context,
 	observation ProviderQualificationObservation,
@@ -246,6 +271,9 @@ func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, er
 	}
 	if _, ok := ProviderLoginRequiredProvidersFromError(err); ok {
 		return domain.RunFailed, domain.DiagnosticCauseLoginRequired, ""
+	}
+	if _, cause, ok := ReviewPreparationFailureFromError(err); ok {
+		return domain.RunFailed, cause, ""
 	}
 	if cause := qualificationTerminalCause(err); cause.Valid() {
 		return domain.RunFailed, cause, ""

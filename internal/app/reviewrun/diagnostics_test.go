@@ -60,6 +60,85 @@ func TestRuntimeDiagnosticTerminalDecisionDistinguishesDiagnosticPersistence(t *
 	}
 }
 
+func TestRuntimeDiagnosticTerminalDecisionPreservesReviewPreparationCause(t *testing.T) {
+	t.Parallel()
+
+	failure := NewReviewPreparationFailure(ReviewPreparationProviderRuntime, errors.New("private adapter detail"))
+	state, cause, phase := runtimeDiagnosticTerminalDecision(context.Background(), Result{}, failure)
+	if state != domain.RunFailed || cause != domain.DiagnosticCauseReviewProviderRuntimePreparationFailed || phase != "" {
+		t.Fatalf("review preparation decision = (%q, %q, %q)", state, cause, phase)
+	}
+}
+
+func TestRuntimeDiagnosticTerminalDecisionIgnoresIndependentDrainDeadline(t *testing.T) {
+	t.Parallel()
+
+	preparation := NewReviewPreparationFailure(ReviewPreparationProviderRuntime, errors.New("private adapter detail"))
+	drain := &terminalDrainCleanupError{cause: context.DeadlineExceeded}
+	state, cause, phase := runtimeDiagnosticTerminalDecision(context.Background(), Result{}, errors.Join(preparation, drain))
+	if state != domain.RunFailed || cause != domain.DiagnosticCauseReviewProviderRuntimePreparationFailed || phase != "" {
+		t.Fatalf("joined preparation decision = (%q, %q, %q)", state, cause, phase)
+	}
+}
+
+func TestRuntimeDiagnosticPreparationFailureUsesOnlyClosedFields(t *testing.T) {
+	t.Parallel()
+
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	runID, _ := domain.ParseRunID("r_019f596a-cf80-7c67-b265-f37053d51ccf")
+	calls := []string{}
+	factory := &serviceDiagnosticFactory{calls: &calls}
+	lifecycle, err := openRuntimeDiagnosticLifecycle(
+		context.Background(), factory, root,
+		rootRunIdentity{sessionID: sessionID, runID: runID, startedAt: serviceClock{}.Now()},
+		[]domain.Role{domain.RoleLogic}, serviceClock{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.observePreparationFailure(context.Background(), ReviewPreparationProviderRuntime); err != nil {
+		t.Fatal(err)
+	}
+	input := factory.inputs[len(factory.inputs)-1]
+	if input.Event != domain.DiagnosticInternalInvariantDetected || input.Level != domain.RuntimeDiagnosticError ||
+		input.Component != "reviewrun" || input.Operation != string(ReviewPreparationProviderRuntime) ||
+		input.ProtocolPhase != string(ReviewPreparationProviderRuntime) ||
+		input.Cause != domain.DiagnosticCauseReviewProviderRuntimePreparationFailed ||
+		input.Failure != "review_preparation_failed" || input.InvariantID != string(domain.DiagnosticCauseReviewProviderRuntimePreparationFailed) {
+		t.Fatalf("preparation diagnostic = %#v", input)
+	}
+}
+
+func TestRuntimeDiagnosticPreparationMappingFailureIsInternal(t *testing.T) {
+	t.Parallel()
+
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	runID, _ := domain.ParseRunID("r_019f596a-cf80-7c67-b265-f37053d51ccf")
+	calls := []string{}
+	lifecycle, err := openRuntimeDiagnosticLifecycle(
+		context.Background(), &serviceDiagnosticFactory{calls: &calls}, root,
+		rootRunIdentity{sessionID: sessionID, runID: runID, startedAt: serviceClock{}.Now()},
+		[]domain.Role{domain.RoleLogic}, serviceClock{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = lifecycle.observePreparationFailure(context.Background(), ReviewPreparationStage("unknown"))
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureInternal ||
+		failure.Stage() != "reviewrun.preparation" || runtimeDiagnosticPersistenceFailure(err) {
+		t.Fatalf("invalid preparation diagnostic = %v", err)
+	}
+}
+
 func TestRuntimeDiagnosticReferencePreservesAllocatedIdentity(t *testing.T) {
 	t.Parallel()
 

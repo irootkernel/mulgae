@@ -2694,6 +2694,9 @@ func sameStrings(left, right []string) bool {
 
 func classifyHandlerFailure(stage string, fallback domain.FailureClass, reason string, cause error) error {
 	if cause != nil {
+		if _, _, preparationFailed := reviewrun.ReviewPreparationFailureFromError(cause); preparationFailed {
+			return cause
+		}
 		var failure *domain.Failure
 		if errors.As(cause, &failure) ||
 			errors.Is(cause, context.Canceled) ||

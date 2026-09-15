@@ -2921,11 +2921,20 @@ func TestApplicationReviewPreflightAcceptsLargeProjection(t *testing.T) {
 }
 
 func TestApplicationHumanFailuresAlwaysIncludeSafeCodeStageAndHint(t *testing.T) {
+	providerUnavailable, err := domain.NewFailure(
+		"review.provider",
+		domain.FailureProviderUnavailable,
+		"required readiness evidence is unverified",
+		errors.New("private adapter detail"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{err: errors.New("private adapter detail")}
+	fixture.application.reviewRuns = &reviewRunFake{err: providerUnavailable}
 	result := fixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
 	stderr := string(result.Stderr())
-	if result.ExitCode() == app.ExitCodeSuccess || !strings.Contains(stderr, "code: provider_unavailable") ||
+	if result.ExitCode() != app.ExitCodeReadiness || !strings.Contains(stderr, "code: provider_unavailable") ||
 		!strings.Contains(stderr, "stage: cli.review") || !strings.Contains(stderr, "hint: run mulgae doctor") ||
 		strings.Contains(stderr, "private adapter detail") {
 		t.Fatalf("actionable human failure = exit %d stderr=%q", result.ExitCode(), stderr)
@@ -2934,6 +2943,98 @@ func TestApplicationHumanFailuresAlwaysIncludeSafeCodeStageAndHint(t *testing.T)
 	usage := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--stage"}, testAnchoredRoot(t))
 	if usage.ExitCode() != app.ExitCodeUsage || !strings.Contains(string(usage.Stderr()), "hint: run mulgae help workflows") {
 		t.Fatalf("actionable usage failure = exit %d stderr=%q", usage.ExitCode(), usage.Stderr())
+	}
+}
+
+func TestApplicationUntypedReviewFailureRetainsReadinessFallback(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: errors.New("private adapter detail")}
+	result := fixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
+	stderr := string(result.Stderr())
+	if result.ExitCode() != app.ExitCodeReadiness || !strings.Contains(stderr, "code: provider_unavailable") ||
+		!strings.Contains(stderr, "stage: cli.review") || !strings.Contains(stderr, "hint: run mulgae doctor") ||
+		strings.Contains(stderr, "private adapter detail") {
+		t.Fatalf("untyped review failure = exit %d stderr=%q", result.ExitCode(), stderr)
+	}
+}
+
+func TestApplicationReviewPreparationFailureIsInternalAndActionable(t *testing.T) {
+	private := errors.New("/Users/private/.codex/auth.json")
+	preparation := reviewrun.NewReviewPreparationFailure(reviewrun.ReviewPreparationCoordinatorAdmission, private)
+	diagnosticURI, err := ports.NewSafeRelativePath(".mulgae/diagnostics/" + g006SessionID + "/" + testRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, _ := domain.ParseSessionID(g006SessionID)
+	runID, _ := domain.ParseRunID(testRunID)
+	terminalErr := reviewrun.NewRuntimeDiagnosticReferenceErrorWithIdentity(diagnosticURI, sessionID, runID, preparation)
+
+	fixture := newFoundationFixture(t)
+	fixture.application.reviewRuns = &reviewRunFake{err: terminalErr}
+	result := fixture.application.Run(
+		context.Background(),
+		[]string{"review", "--dirty", "--output", "json"},
+		testAnchoredRoot(t),
+	)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeInternal)
+	var envelope struct {
+		Reasons []struct {
+			Category    string  `json:"category"`
+			Code        string  `json:"code"`
+			Message     string  `json:"message"`
+			Retryable   bool    `json:"retryable"`
+			ArtifactURI *string `json:"artifact_uri"`
+		} `json:"reasons"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "internal" ||
+		envelope.Reasons[0].Code != "review_preparation_failed" || envelope.Reasons[0].Retryable ||
+		envelope.Reasons[0].ArtifactURI == nil || *envelope.Reasons[0].ArtifactURI != diagnosticURI.String() ||
+		!strings.Contains(envelope.Reasons[0].Message, "review.prepare.coordinator_admission") ||
+		strings.Contains(string(result.Stdout()), "private") || strings.Contains(string(result.Stdout()), ".codex") {
+		t.Fatalf("review preparation envelope = %#v, stdout=%s", envelope, result.Stdout())
+	}
+	if !bytes.Contains(result.Stdout(), []byte("mulgae status --run "+testRunID+" --output json")) {
+		t.Fatalf("review preparation hint = %s", result.Stdout())
+	}
+
+	humanFixture := newFoundationFixture(t)
+	humanFixture.application.reviewRuns = &reviewRunFake{err: terminalErr}
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
+	humanStderr := string(human.Stderr())
+	if human.ExitCode() != app.ExitCodeInternal ||
+		!strings.Contains(humanStderr, "stage: review.prepare.coordinator_admission") ||
+		!strings.Contains(humanStderr, "hint: run mulgae status --run "+testRunID+" --output json") ||
+		strings.Contains(humanStderr, "run rerun") || strings.Contains(humanStderr, "private") || strings.Contains(humanStderr, ".codex") {
+		t.Fatalf("human review preparation failure = exit:%d stderr:%q", human.ExitCode(), humanStderr)
+	}
+}
+
+func TestApplicationIndependentCleanupFailureDoesNotSuppressReviewPreparationFailure(t *testing.T) {
+	sessionID, _ := domain.ParseSessionID(g006SessionID)
+	runID, _ := domain.ParseRunID(testRunID)
+	private := errors.New("/Users/private/.codex/auth.json")
+	preparation := reviewrun.NewReviewPreparationFailure(reviewrun.ReviewPreparationProviderRuntime, private)
+	typed, err := domain.NewFailure("review.composition", domain.FailureArtifact, "temporary root cleanup failed", errors.New("injected"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, competing := range map[string]error{"artifact": typed, "deadline": context.DeadlineExceeded} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			joined := reviewrun.NewAllocatedRunIdentityError(sessionID, runID, errors.Join(preparation, competing))
+			fixture.application.reviewRuns = &reviewRunFake{err: joined}
+			result := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeInternal)
+			if !bytes.Contains(result.Stdout(), []byte(`"code":"review_preparation_failed"`)) ||
+				bytes.Contains(result.Stdout(), []byte(`"code":"artifact_unavailable"`)) ||
+				bytes.Contains(result.Stdout(), []byte(`"code":"request_cancelled"`)) ||
+				bytes.Contains(result.Stdout(), []byte("private")) || bytes.Contains(result.Stdout(), []byte(".codex")) {
+				t.Fatalf("joined failure projection = %s", result.Stdout())
+			}
+		})
 	}
 }
 

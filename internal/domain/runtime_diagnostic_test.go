@@ -159,6 +159,22 @@ func TestRuntimeDiagnosticClosedCodeSets(t *testing.T) {
 			t.Fatalf("staged-output transport subtype %q is not closed", cause)
 		}
 	}
+	for _, cause := range []RuntimeDiagnosticCause{
+		DiagnosticCauseReviewPromptSourcePreparationFailed,
+		DiagnosticCauseReviewProviderRuntimePreparationFailed,
+		DiagnosticCauseReviewProviderOutputStagingPreparationFailed,
+		DiagnosticCauseReviewCoordinatorPreparationFailed,
+		DiagnosticCauseReviewCoordinatorAdmissionPreparationFailed,
+		DiagnosticCauseReviewRootRunPreparationFailed,
+	} {
+		if !cause.Valid() {
+			t.Fatalf("review preparation cause %q is not closed", cause)
+		}
+	}
+	if DiagnosticCauseReviewProviderOutputStagingPreparationFailed != "review_provider_output_staging_preparation_failed" ||
+		DiagnosticCauseReviewCoordinatorAdmissionPreparationFailed != "review_coordinator_admission_preparation_failed" {
+		t.Fatal("review preparation causes do not follow the public stage naming contract")
+	}
 	if !DiagnosticStdout.Valid() || RuntimeDiagnosticStream("combined").Valid() {
 		t.Fatal("stream set is not closed")
 	}

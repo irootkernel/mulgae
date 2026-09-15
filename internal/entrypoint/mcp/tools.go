@@ -420,6 +420,15 @@ func publicToolError(err error, tool string) ToolError {
 	if errors.Is(err, errInvalidToolArguments) {
 		return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "invalid_arguments", Stage: "admission", Message: "The tool arguments are invalid.", Retryable: false})
 	}
+	if preparationStage, _, preparationFailed := reviewrun.ReviewPreparationFailureFromError(err); preparationFailed &&
+		(tool == toolRunReview || tool == toolAwaitReview) {
+		if _, _, hasIdentity := reviewrun.RuntimeDiagnosticIdentityFromError(err); hasIdentity {
+			return finalizePublicToolError(err, tool, ToolError{
+				Class: "internal", Code: "review_preparation_failed", Stage: "execution",
+				Message: "Review preparation failed at review.prepare." + string(preparationStage) + ". Inspect the returned run identity with get_run.", Retryable: false,
+			})
+		}
+	}
 	stage := "query"
 	if tool == toolRunReview || tool == toolAwaitReview || tool == toolComposeReview {
 		stage = "execution"

@@ -2034,6 +2034,19 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			recommendedNextCommand: hint,
 		}
 	}
+	if stage, cause, preparationFailed := reviewrun.ReviewPreparationFailureFromError(err); preparationFailed {
+		_, runID, hasIdentity := reviewrun.RuntimeDiagnosticIdentityFromError(err)
+		if hasIdentity {
+			hint := "mulgae status --run " + runID.String() + " --output json"
+			return &executionFailure{
+				class: domain.FailureInternal, code: "review_preparation_failed",
+				message:      "Review preparation failed at stage review.prepare." + string(stage) + " with cause " + string(cause) + "; hint: run " + hint + ".",
+				humanMessage: "mulgae: review preparation failed at review.prepare." + string(stage),
+				retryable:    false, hasRetryable: true, stage: "review.prepare." + string(stage),
+				exit: app.ExitCodeInternal, recommendedNextCommand: hint,
+			}
+		}
+	}
 	class := reducedFailureClass(err, fallback)
 	if diagnostic, ok := apppublication.FailureDiagnosticFromError(err); ok {
 		hint := "rerun the review"

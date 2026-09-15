@@ -309,6 +309,51 @@ func TestDiagnosticStoreRetainsInvariantSummaryOverLaterProtocolSummary(t *testi
 	}
 }
 
+func TestDiagnosticStorePersistsPreparationInvariantSummary(t *testing.T) {
+	fixture := newDiagnosticStoreFixture(t)
+	cause := domain.DiagnosticCauseReviewProviderRuntimePreparationFailed
+	draft, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{
+		Level: domain.RuntimeDiagnosticError, Component: "reviewrun", Operation: "provider_runtime",
+		Event: domain.DiagnosticInternalInvariantDetected, SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(),
+		Cause: cause, Failure: "review_preparation_failed", ProtocolPhase: "provider_runtime", InvariantID: string(cause),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := fixture.store.Emit(context.Background(), draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := fixture.request.StartedAt().Add(time.Second)
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunFailed,
+		StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true,
+		LastSequence: event.Sequence(), TerminalCause: cause,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize, err := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunFailed, cause, status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.Finalize(context.Background(), finalize); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(diagnosticStorePath(fixture, "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := decodeDiagnosticRunStatus(data, fixture.request.SessionID(), fixture.request.RunID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, ok := persisted.DiagnosticSummary()
+	if !ok || summary.InvariantID() != string(cause) || summary.Component() != "reviewrun" || summary.Phase() != "provider_runtime" {
+		t.Fatalf("preparation diagnostic summary = %#v, present = %t", summary.Input(), ok)
+	}
+}
+
 func TestDiagnosticStoreAppendsCompleteEventsAndFinalizesExactlyOnce(t *testing.T) {
 	fixture := newDiagnosticStoreFixture(t)
 	event, err := fixture.store.Emit(context.Background(), diagnosticStoreDraft(t, fixture, domain.DiagnosticRunStarted))

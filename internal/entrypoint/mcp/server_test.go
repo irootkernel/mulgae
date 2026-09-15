@@ -627,6 +627,98 @@ func TestServeRunReviewFailurePreservesAllocatedIdentityWithoutRetry(t *testing.
 	}
 }
 
+func TestPublicToolErrorProjectsReviewPreparationFailure(t *testing.T) {
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	private := errors.New("/Users/private/.codex/auth.json")
+	preparation := reviewrun.NewReviewPreparationFailure(reviewrun.ReviewPreparationCoordinatorAdmission, private)
+	allocated := reviewrun.NewAllocatedRunIdentityError(sessionID, runID, preparation)
+
+	for _, tool := range []string{toolRunReview, toolAwaitReview} {
+		failure := publicToolError(allocated, tool)
+		if failure.Class != "internal" || failure.Code != "review_preparation_failed" ||
+			failure.Stage != "execution" || failure.Retryable ||
+			failure.SessionID == nil || *failure.SessionID != sessionID.String() ||
+			failure.RunID == nil || *failure.RunID != runID.String() ||
+			!strings.Contains(failure.Message, "review.prepare.coordinator_admission") ||
+			strings.Contains(failure.Message, "private") || strings.Contains(failure.Message, ".codex") {
+			t.Fatalf("%s preparation failure = %#v", tool, failure)
+		}
+	}
+}
+
+func TestPublicToolErrorIndependentCleanupFailureDoesNotSuppressReviewPreparationFailure(t *testing.T) {
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	preparation := reviewrun.NewReviewPreparationFailure(
+		reviewrun.ReviewPreparationProviderRuntime,
+		errors.New("/Users/private/.codex/auth.json"),
+	)
+	typed, err := domain.NewFailure("review.composition", domain.FailureArtifact, "temporary root cleanup failed", errors.New("injected"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, competing := range map[string]error{"artifact": typed, "deadline": context.DeadlineExceeded} {
+		t.Run(name, func(t *testing.T) {
+			joined := reviewrun.NewAllocatedRunIdentityError(sessionID, runID, errors.Join(preparation, competing))
+			failure := publicToolError(joined, toolRunReview)
+			if failure.Class != "internal" || failure.Code != "review_preparation_failed" || failure.Stage != "execution" || failure.Retryable {
+				t.Fatalf("joined MCP failure projection = %#v", failure)
+			}
+		})
+	}
+}
+
+func TestServeRunReviewPreparationFailurePreservesEnvelopeAndIdentity(t *testing.T) {
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	private := errors.New("/Users/private/.codex/auth.json")
+	preparation := reviewrun.NewReviewPreparationFailure(reviewrun.ReviewPreparationProviderRuntime, private)
+	backend := &toolBackendFake{runReviewErr: reviewrun.NewAllocatedRunIdentityError(sessionID, runID, preparation)}
+	discover := latestRequest(1, "server/discover", `{}`)
+	call := latestRequest(2, "tools/call", `{"name":"run_review","arguments":{"target":{"kind":"workspace"},"roles":["logic"]}}`)
+	response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), discover, call)[1])
+	result := response["result"].(map[string]any)
+	structured := result["structuredContent"].(map[string]any)
+	failure := structured["error"].(map[string]any)
+	if failure["class"] != "internal" || failure["code"] != "review_preparation_failed" ||
+		failure["stage"] != "execution" || failure["retryable"] != false ||
+		failure["session_id"] != sessionID.String() || failure["run_id"] != runID.String() {
+		t.Fatalf("run_review preparation failure = %#v", structured)
+	}
+	if strings.Contains(fmt.Sprint(result), "private") || strings.Contains(fmt.Sprint(result), ".codex") {
+		t.Fatalf("run_review preparation failure leaked private details: %#v", result)
+	}
+}
+
+func TestServeAwaitReviewPreparationFailurePreservesEnvelopeAndIdentity(t *testing.T) {
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	private := errors.New("/Users/private/.codex/auth.json")
+	preparation := reviewrun.NewReviewPreparationFailure(reviewrun.ReviewPreparationProviderRuntime, private)
+	backend := &toolBackendFake{runReviewErr: reviewrun.NewAllocatedRunIdentityError(sessionID, runID, preparation)}
+	config := toolTestConfigWithIDs(t, backend,
+		"i_019f596a-cf80-7c67-b265-f37053d51ccf",
+		"i_019f596a-cf81-7c67-b265-f37053d51ccf",
+	)
+	discover := latestRequest(1, "server/discover", `{}`)
+	start := latestRequest(2, "tools/call", `{"name":"start_review","arguments":{"target":{"kind":"workspace"}}}`)
+	await := latestRequest(3, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf"}}`)
+	response := decodeResponse(t, serveRequestsWithConfig(t, config, discover, start, await)[2])
+	result := response["result"].(map[string]any)
+	structured := result["structuredContent"].(map[string]any)
+	failure := structured["error"].(map[string]any)
+	if failure["class"] != "internal" || failure["code"] != "review_preparation_failed" ||
+		failure["stage"] != "execution" || failure["retryable"] != false ||
+		failure["session_id"] != sessionID.String() || failure["run_id"] != runID.String() ||
+		failure["invocation_id"] != "i_019f596a-cf80-7c67-b265-f37053d51ccf" {
+		t.Fatalf("await_review preparation failure = %#v", structured)
+	}
+	if strings.Contains(fmt.Sprint(result), "private") || strings.Contains(fmt.Sprint(result), ".codex") {
+		t.Fatalf("await_review preparation failure leaked private details: %#v", result)
+	}
+}
+
 func TestServeAwaitReviewPreservesTerminalFailureIdentity(t *testing.T) {
 	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
 	if err != nil {

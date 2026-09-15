@@ -659,6 +659,27 @@ exits:
 | 9 | cancellation |
 | 10 | internal failure |
 
+An untyped failure in one of the closed preparation steps after review planning
+accepts the run budget but before the coordinator durably records `run_started`
+is a Mulgae preparation failure, not provider readiness evidence. This includes
+the coordinator admission prologue; failures after the durable start remain
+coordinator execution outcomes. CLI and MCP results report
+non-retryable `review_preparation_failed` and retain the allocated run identity.
+CLI additionally uses exit `10`, the detailed `review.prepare.<stage>` stage,
+the diagnostic artifact URI, and the exact command
+`mulgae status --run <id> --output json`. MCP retains its versioned `execution`
+stage and carries the closed preparation detail plus the `get_run` instruction
+in the safe message; its tool error has neither an exit code nor an artifact URI.
+The diagnostic run records the stage in `diagnostic_summary` and a closed
+preparation-specific `terminal_cause`; it never exposes the causal error text.
+A typed provider, artifact, security, or cancellation failure that directly
+caused preparation retains its original class. Independent joined cleanup
+failures do not erase a preparation failure. A runtime-diagnostic persistence
+failure anywhere in the terminal error tree, including one raised by cleanup,
+outranks preparation and remains an artifact failure.
+`mulgae doctor` remains an offline static check and is not the remediation for
+this internal failure.
+
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 

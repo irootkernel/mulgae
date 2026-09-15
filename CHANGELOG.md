@@ -22,6 +22,14 @@ This file records concise shipped outcomes and the planned next stable release.
 - Publish command-result v10, doctor-result v4, provider-contract-evidence v4,
   provider-heartbeat-result v3, and review-preflight v5.
 
+### Fixed
+
+- Classify failures between accepted review planning and the coordinator's
+  durably recorded run start as internal preparation failures, changing the CLI
+  result from readiness exit `4` with `provider_unavailable` to exit `10` with
+  `review_preparation_failed`; retain their closed diagnostic stage and direct
+  operators to the exact diagnostic run instead of `mulgae doctor`.
+
 ### Removed
 
 - Remove the Kimi and AGY runtime, configuration, discovery, credential,

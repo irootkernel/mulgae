@@ -56,7 +56,16 @@ func newPromptSource(input ImmutableReviewInput, templates review.TemplateSet, i
 		bytes := input.Objective()
 		candidate := prompt.NewObjective(bytes)
 		if err := candidate.Lint().Err(); err != nil {
-			return nil, fmt.Errorf("review run: objective: %w", err)
+			failure, failureErr := domain.NewFailure(
+				"review.configuration",
+				domain.FailureConfiguration,
+				"review objective conflicts with trusted constraints",
+				err,
+			)
+			if failureErr != nil {
+				return nil, fmt.Errorf("review run: classify objective rejection: %w", failureErr)
+			}
+			return nil, failure
 		}
 		objective = &candidate
 	}

@@ -641,11 +641,11 @@ func (coordinator *Coordinator) ExecuteDeltaRun(
 	material DeltaInvocationMaterial,
 ) (CoordinatorResult, error) {
 	if coordinator == nil || coordinator.runtime == nil {
-		return CoordinatorResult{}, fmt.Errorf("review coordinator: delta execution dependencies are invalid")
+		return CoordinatorResult{}, markCoordinatorAdmissionFailure(fmt.Errorf("review coordinator: delta execution dependencies are invalid"), false)
 	}
 	runtime, ok := coordinator.runtime.(*ProviderInvocationRuntime)
 	if !ok || runtime == nil {
-		return CoordinatorResult{}, fmt.Errorf("review coordinator: delta execution requires provider invocation runtime")
+		return CoordinatorResult{}, markCoordinatorAdmissionFailure(fmt.Errorf("review coordinator: delta execution requires provider invocation runtime"), false)
 	}
 	explicit := *coordinator
 	explicit.runtime = deltaInvocationRuntime{runtime: runtime, material: cloneDeltaInvocationMaterial(material)}
@@ -667,15 +667,15 @@ func (coordinator *Coordinator) ExecuteExactReplayRun(
 	if coordinator == nil || coordinator.runtime == nil || assignment.Role() != input.Role ||
 		!validCoordinatorProviderInstance(input.SourceProviderInstance) ||
 		assignment.PrimaryRoute().ProviderInstance() != input.SourceProviderInstance {
-		return CoordinatorResult{}, fmt.Errorf("review coordinator: exact replay authority is invalid")
+		return CoordinatorResult{}, markCoordinatorAdmissionFailure(fmt.Errorf("review coordinator: exact replay authority is invalid"), false)
 	}
 	runtime, ok := coordinator.runtime.(*ProviderInvocationRuntime)
 	if !ok || runtime == nil {
-		return CoordinatorResult{}, fmt.Errorf("review coordinator: exact replay requires provider invocation runtime")
+		return CoordinatorResult{}, markCoordinatorAdmissionFailure(fmt.Errorf("review coordinator: exact replay requires provider invocation runtime"), false)
 	}
 	selected, err := NewScheduledAssignment(assignment.Role(), assignment.Required(), assignment.PrimaryRoute())
 	if err != nil {
-		return CoordinatorResult{}, fmt.Errorf("review coordinator: exact replay assignment: %w", err)
+		return CoordinatorResult{}, markCoordinatorAdmissionFailure(fmt.Errorf("review coordinator: exact replay assignment: %w", err), false)
 	}
 	explicit := *coordinator
 	explicit.runtime = exactReplayInvocationRuntime{runtime: runtime, input: cloneExactReplayInput(input)}
@@ -715,9 +715,35 @@ func (coordinator *Coordinator) ExecuteRun(
 	policy *domain.CIPolicy,
 ) (CoordinatorResult, error) {
 	if run == nil {
-		return CoordinatorResult{}, fmt.Errorf("review coordinator: run is required")
+		return CoordinatorResult{}, markCoordinatorAdmissionFailure(fmt.Errorf("review coordinator: run is required"), false)
 	}
 	return coordinator.execute(ctx, run.Target(), assignments, threshold, policy, run)
+}
+
+type coordinatorAdmissionFailure struct {
+	cause error
+}
+
+func (failure *coordinatorAdmissionFailure) Error() string {
+	return "review coordinator admission failed"
+}
+
+func (failure *coordinatorAdmissionFailure) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.cause
+}
+
+// CoordinatorAdmissionFailureFromError reports an error returned before the
+// coordinator durably recorded that execution started. The causal error remains
+// available for application-level precedence without entering public output.
+func CoordinatorAdmissionFailureFromError(err error) (error, bool) {
+	var failure *coordinatorAdmissionFailure
+	if !errors.As(err, &failure) || failure == nil || failure.cause == nil {
+		return nil, false
+	}
+	return failure.cause, true
 }
 
 func (coordinator *Coordinator) execute(
@@ -728,6 +754,10 @@ func (coordinator *Coordinator) execute(
 	policy *domain.CIPolicy,
 	supplied *domain.Run,
 ) (result CoordinatorResult, err error) {
+	runStartRecorded := false
+	defer func() {
+		err = markCoordinatorAdmissionFailure(err, runStartRecorded)
+	}()
 	if coordinator == nil || nilInterface(coordinator.clock) || nilInterface(coordinator.ids) ||
 		nilInvocationRuntime(coordinator.runtime) || coordinator.maxActiveLanes < 1 ||
 		coordinator.runContextFactory == nil ||
@@ -871,9 +901,16 @@ func (coordinator *Coordinator) execute(
 		result = aborted
 		err = errors.Join(err, finalizationErr)
 	}()
+	// Mark the initiating error before abort joins independent finalization
+	// failures around it. Application policy can then classify only the causal
+	// admission branch while preserving cleanup evidence as siblings.
+	defer func() {
+		err = markCoordinatorAdmissionFailure(err, runStartRecorded)
+	}()
 	if err := execution.record(CoordinatorEventRunStarted, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
 		return CoordinatorResult{}, err
 	}
+	runStartRecorded = true
 
 	wave := make([]InvocationJob, 0, len(canonicalAssignments))
 	for _, role := range domain.FixedRoleOrder() {
@@ -979,6 +1016,16 @@ func (coordinator *Coordinator) execute(
 		return CoordinatorResult{}, err
 	}
 	return execution.snapshot(sessionID, runID, threshold, localPolicyPointer)
+}
+
+func markCoordinatorAdmissionFailure(err error, runStartRecorded bool) error {
+	if err == nil || runStartRecorded {
+		return err
+	}
+	if _, alreadyClassified := CoordinatorAdmissionFailureFromError(err); alreadyClassified {
+		return err
+	}
+	return &coordinatorAdmissionFailure{cause: err}
 }
 func sameCoordinatorRoleTasks(left, right []domain.RoleTask) bool {
 	if len(left) != len(right) {

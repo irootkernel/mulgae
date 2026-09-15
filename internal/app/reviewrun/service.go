@@ -243,17 +243,17 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return prompt.ParseRoleTaskID(value)
 	}, stagingLocator)
 	if err != nil {
-		return Result{}, err
+		return Result{}, classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationPromptSource, err)
 	}
 	abortReason = ports.WorkspaceAbortExecutionFailure
 	screenedProvider := &packetScreeningProvider{provider: qualified.Provider(), detector: detector}
 	runtime, err := review.NewObservedProviderInvocationRuntimeWithWorkspaceAndDiagnostics(screenedProvider, source, lease, service.dependencies.Validator, verifier, diagnostics)
 	if err != nil {
-		return Result{}, fmt.Errorf("review run: runtime: %w", err)
+		return Result{}, classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationProviderRuntime, err)
 	}
 	if !nilInterface(stagingLocator) {
 		if err := runtime.BindProviderOutputStaging(stagingLocator); err != nil {
-			return Result{}, fmt.Errorf("review run: provider output staging: %w", err)
+			return Result{}, classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationProviderOutputStaging, err)
 		}
 	}
 	var inventory []review.RuntimeArtifactInventory
@@ -269,16 +269,16 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	defer runtime.DiscardInitialInputsForRun(identity.runID)
 	coordinator, err := review.NewCoordinatorWithRuntimeDiagnostics(service.dependencies.Clock, runIDs, runtime, plan.MaxWorkers, receipt, diagnostics.Sink())
 	if err != nil {
-		return Result{}, fmt.Errorf("review run: coordinator: %w", err)
+		return Result{}, classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationCoordinator, err)
 	}
 	if plan.Extraction {
 		if err := coordinator.AdmitStructuredExtraction(); err != nil {
-			return Result{}, fmt.Errorf("review run: coordinator: %w", err)
+			return Result{}, classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationCoordinator, err)
 		}
 	}
 	rootRun, err := newRootReviewRun(identity, target, plan.Assignments)
 	if err != nil {
-		return Result{}, err
+		return Result{}, classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationRootRun, err)
 	}
 	coordinatorResult, err := coordinator.ExecuteRun(ctx, &rootRun, plan.Assignments, plan.Threshold, plan.Policy)
 	terminalCoordinator = coordinatorResult
@@ -289,7 +289,7 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, fmt.Errorf("review run: provider packet rejected")
 	}
 	if err != nil {
-		return Result{}, fmt.Errorf("review run: execute: %w", err)
+		return Result{}, classifyCoordinatorExecutionFailure(ctx, diagnostics, err)
 	}
 	if failure := CoordinatorExecutionFailure(coordinatorResult); failure != nil {
 		retentionCtx, cancelRetention := DetachedFailedRunRecoveryContext(ctx)
@@ -365,6 +365,51 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 		return Result{}, fmt.Errorf("review run: role report identities: %w", err)
 	}
 	return newResult(coordinatorResult.SessionID(), coordinatorResult.RunID(), coordinatorResult, final, snapshot, roleReportURIs, exit)
+}
+
+func classifyReviewPreparationFailure(
+	ctx context.Context,
+	diagnostics *runtimeDiagnosticLifecycle,
+	stage ReviewPreparationStage,
+	cause error,
+) error {
+	if cause == nil {
+		return nil
+	}
+	var typed *domain.Failure
+	if errors.As(cause, &typed) || errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		return cause
+	}
+	failure := NewReviewPreparationFailure(stage, cause)
+	if diagnostics == nil {
+		return failure
+	}
+	if diagnosticErr := diagnostics.observePreparationFailure(ctx, stage); diagnosticErr != nil {
+		return errors.Join(failure, diagnosticErr)
+	}
+	return failure
+}
+
+func classifyCoordinatorExecutionFailure(
+	ctx context.Context,
+	diagnostics *runtimeDiagnosticLifecycle,
+	cause error,
+) error {
+	if cause == nil {
+		return nil
+	}
+	executionErr := fmt.Errorf("review run: execute: %w", cause)
+	admissionCause, admissionFailed := review.CoordinatorAdmissionFailureFromError(cause)
+	if !admissionFailed {
+		return executionErr
+	}
+	directErr := fmt.Errorf("review run: coordinator admission: %w", admissionCause)
+	var typed *domain.Failure
+	if errors.As(directErr, &typed) || errors.Is(directErr, context.Canceled) || errors.Is(directErr, context.DeadlineExceeded) {
+		return executionErr
+	}
+	classified := classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationCoordinatorAdmission, directErr)
+	return errors.Join(classified, executionErr)
 }
 
 // CoordinatorExecutionFailure applies the shared pre-publication terminal

@@ -230,6 +230,16 @@ are typed provider outcomes; preserve the assigned provider and apply only the
 smallest documented remediation. Never weaken sandbox, locality, evidence,
 validation, integrity, or publication fences to make recovery pass.
 
+When CLI `mulgae review` returns `review_preparation_failed` with exit `10`,
+inspect the exact diagnostic-only run using the returned
+`mulgae status --run <id> --output json` command. For MCP `run_review` or
+`await_review`, preserve the returned session and run identities and inspect
+that run with `get_run`. Record the closed `review.prepare.<stage>` and terminal
+cause when reporting the failure. Do not run `mulgae doctor`: it verifies
+offline readiness and cannot diagnose this internal preparation invariant. Do
+not blindly repeat the review mutation; a replacement review requires explicit
+operator authority.
+
 When MCP `run_review` or terminal `await_review` returns
 `provider_rate_limited` as an error, every qualification failure recorded for
 the selected roles was a provider rate limit, and no higher failure class took
