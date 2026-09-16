@@ -190,11 +190,12 @@ review. Cancelling or timing out an await returns retryable `await_cancelled`
 without cancelling execution. `cancel_review` is an idempotent mutation: only
 the first active cancellation reports `cancellation_accepted: true`, and every
 acknowledgement remains nonterminal. Unknown invocation identities return
-non-retryable `invocation_not_found`; the 64-identity session bound returns
-non-retryable `invocation_limit_reached`. The bound counts cumulative retained
-identities so terminal results remain repeatable; clients must reconcile exact
-returned run IDs before restarting the attached server to regain capacity. A
-server-ending await that can still receive a transport result returns
+non-retryable `invocation_not_found`. The registry retains at most 64 identities.
+Oldest terminal identities may be discarded to admit a new start; await of a
+discarded identity is `invocation_not_found`. `invocation_limit_reached` is
+non-retryable and occurs only when 64 reviews are still running. Identities are
+discarded without recovery when the server exits. A server-ending await that can
+still receive a transport result returns
 non-retryable `invocation_registry_closed` rather than observer-only
 `await_cancelled`. Empty stdin EOF ends the transport itself, so pending calls
 may receive no response even though shutdown still cancels and drains their

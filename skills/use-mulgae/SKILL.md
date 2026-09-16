@@ -27,9 +27,9 @@ Call start exactly once. A successful start or a pending await is not a complete
 review and does not guarantee a durable run ID. Keep one `await_review` pending
 on the returned invocation until completion. Never repeat an uncertain start or
 start another review to change transports.
-On non-retryable `invocation_limit_reached`, follow
-[recovery.md](references/recovery.md) rather than retrying start or bypassing the
-session limit through another execution path.
+On non-retryable `invocation_limit_reached`, 64 reviews are still running in
+that MCP session. Follow [recovery.md](references/recovery.md) rather than
+retrying start or bypassing the concurrent bound through another execution path.
 
 Prefer a host-native wait that suspends the pending tool call until completion.
 If the host returns a deferred handle or cell, wait only on that same handle for

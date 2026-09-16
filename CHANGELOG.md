@@ -14,6 +14,9 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Changed
 
+- Keep sequential `start_review` admission in one attached MCP process by
+  discarding oldest terminal identities, and emit `invocation_limit_reached`
+  only when 64 reviews are still running.
 - Set the supported provider order to ZCode, Grok, and Codex. Automatic init now
   configures ZCode and Grok and assigns every default role to ZCode.
 - Require one reports-only ZCode/Grok two-role review and independent capability

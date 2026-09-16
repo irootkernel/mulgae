@@ -154,7 +154,8 @@ one server-owned execution and an event-driven completion channel.
 `await_review` observes that channel under its request context without owning the
 execution context; repeated waits clone the same cached terminal result.
 `cancel_review` is the only client tool that cancels a registry-owned execution.
-The registry retains at most 64 identities, admits no new work after shutdown,
+The registry retains at most 64 identities, may discard oldest terminal
+identities to admit a new start, admits no new work after shutdown,
 cancels and drains active reviews within one minute, and is discarded without
 recovery when the MCP process exits. Preflight, list, lookup, and resource reads
 remain bounded read-only projections.

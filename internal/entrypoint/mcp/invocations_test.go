@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	testInvocationOne = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	testInvocationTwo = "i_019f596a-cf81-7c67-b265-f37053d51ccf"
+	testInvocationOne   = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
+	testInvocationTwo   = "i_019f596a-cf81-7c67-b265-f37053d51ccf"
+	testInvocationThree = "i_019f596a-cf82-7c67-b265-f37053d51ccf"
 )
 
 func TestInvocationRegistryOwnsOneExecutionAcrossAwaiters(t *testing.T) {
@@ -82,7 +83,7 @@ func TestInvocationRegistryExplicitCancellationIsIdempotent(t *testing.T) {
 		<-ctx.Done()
 		return BackendResult{}, ctx.Err()
 	}}
-	registry := mustInvocationRegistry(t, context.Background(), backend, 1)
+	registry := mustInvocationRegistry(t, context.Background(), backend, 2)
 	if _, err := registry.Start(testInvocationOne, RunReviewInput{}); err != nil {
 		t.Fatal(err)
 	}
@@ -102,25 +103,125 @@ func TestInvocationRegistryExplicitCancellationIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestInvocationRegistryBoundsSessionIdentityAndRejectsUnknownIDs(t *testing.T) {
+func TestInvocationRegistryRejectsDuplicateAndUnknownIDs(t *testing.T) {
 	backend := &invocationBackendFake{run: func(context.Context, string, RunReviewInput) (BackendResult, error) {
 		return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{}}, nil
 	}}
-	registry := mustInvocationRegistry(t, context.Background(), backend, 1)
+	registry := mustInvocationRegistry(t, context.Background(), backend, 2)
 	if _, err := registry.Start(testInvocationOne, RunReviewInput{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := registry.Start(testInvocationOne, RunReviewInput{}); !errors.Is(err, errInvocationAlreadyExists) {
 		t.Fatalf("duplicate start = %v", err)
 	}
+	if _, err := registry.Start(testInvocationTwo, RunReviewInput{}); err != nil {
+		t.Fatalf("second start = %v", err)
+	}
+	if _, err := registry.Await(context.Background(), testInvocationThree); !errors.Is(err, errInvocationNotFound) {
+		t.Fatalf("unknown await = %v", err)
+	}
+	if _, _, err := registry.Cancel(testInvocationThree); !errors.Is(err, errInvocationNotFound) {
+		t.Fatalf("unknown cancel = %v", err)
+	}
+}
+
+func TestInvocationRegistryEvictsOldestTerminalToAdmitStart(t *testing.T) {
+	backend := &invocationBackendFake{run: func(context.Context, string, RunReviewInput) (BackendResult, error) {
+		return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{"id": "ok"}}, nil
+	}}
+	registry := mustInvocationRegistry(t, context.Background(), backend, 1)
+	if _, err := registry.Start(testInvocationOne, RunReviewInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Await(context.Background(), testInvocationOne); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Start(testInvocationTwo, RunReviewInput{}); err != nil {
+		t.Fatalf("sequential start = %v", err)
+	}
+	if _, err := registry.Await(context.Background(), testInvocationOne); !errors.Is(err, errInvocationNotFound) {
+		t.Fatalf("evicted await = %v", err)
+	}
+	if _, _, err := registry.Cancel(testInvocationOne); !errors.Is(err, errInvocationNotFound) {
+		t.Fatalf("evicted cancel = %v", err)
+	}
+	terminal, err := registry.Await(context.Background(), testInvocationTwo)
+	if err != nil || terminal.Phase != invocationTerminal {
+		t.Fatalf("retained await = %#v, %v", terminal, err)
+	}
+}
+
+func TestInvocationRegistryRejectsStartWhenAllIdentitiesAreRunning(t *testing.T) {
+	started := make(chan struct{})
+	backend := &invocationBackendFake{run: func(ctx context.Context, _ string, _ RunReviewInput) (BackendResult, error) {
+		close(started)
+		<-ctx.Done()
+		return BackendResult{}, ctx.Err()
+	}}
+	registry := mustInvocationRegistry(t, context.Background(), backend, 1)
+	if _, err := registry.Start(testInvocationOne, RunReviewInput{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("review execution did not start")
+	}
 	if _, err := registry.Start(testInvocationTwo, RunReviewInput{}); !errors.Is(err, errInvocationLimitReached) {
 		t.Fatalf("capacity start = %v", err)
 	}
 	if _, err := registry.Await(context.Background(), testInvocationTwo); !errors.Is(err, errInvocationNotFound) {
-		t.Fatalf("unknown await = %v", err)
+		t.Fatalf("refused await = %v", err)
 	}
-	if _, _, err := registry.Cancel(testInvocationTwo); !errors.Is(err, errInvocationNotFound) {
-		t.Fatalf("unknown cancel = %v", err)
+}
+
+func TestInvocationRegistryDoesNotEvictRunningIdentity(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	backend := &invocationBackendFake{run: func(ctx context.Context, id string, _ RunReviewInput) (BackendResult, error) {
+		if id == testInvocationOne {
+			close(started)
+			select {
+			case <-ctx.Done():
+				return BackendResult{}, ctx.Err()
+			case <-release:
+				return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{}}, nil
+			}
+		}
+		return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{}}, nil
+	}}
+	registry := mustInvocationRegistry(t, context.Background(), backend, 2)
+	if _, err := registry.Start(testInvocationOne, RunReviewInput{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("running review did not start")
+	}
+	if _, err := registry.Start(testInvocationTwo, RunReviewInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Await(context.Background(), testInvocationTwo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Start(testInvocationThree, RunReviewInput{}); err != nil {
+		t.Fatalf("evicting start = %v", err)
+	}
+	observerCtx, cancelObserver := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelObserver()
+	if _, err := registry.Await(observerCtx, testInvocationOne); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("running await = %v, want observer timeout", err)
+	}
+	if _, err := registry.Await(context.Background(), testInvocationTwo); !errors.Is(err, errInvocationNotFound) {
+		t.Fatalf("terminal victim await = %v", err)
+	}
+	if _, err := registry.Await(context.Background(), testInvocationThree); err != nil {
+		t.Fatalf("admitted await = %v", err)
+	}
+	close(release)
+	if _, err := registry.Await(context.Background(), testInvocationOne); err != nil {
+		t.Fatalf("preserved running await = %v", err)
 	}
 }
 
@@ -150,7 +251,7 @@ func TestInvocationRegistryShutdownCancelsAndDrainsActiveExecutions(t *testing.T
 			t.Fatalf("shutdown terminal %s = %#v, %v", id, terminal, err)
 		}
 	}
-	if _, err := registry.Start("i_019f596a-cf82-7c67-b265-f37053d51ccf", RunReviewInput{}); !errors.Is(err, errInvocationRegistryClosed) {
+	if _, err := registry.Start(testInvocationThree, RunReviewInput{}); !errors.Is(err, errInvocationRegistryClosed) {
 		t.Fatalf("post-shutdown start = %v", err)
 	}
 }

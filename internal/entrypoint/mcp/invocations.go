@@ -31,16 +31,18 @@ type invocationSnapshot struct {
 }
 
 type invocationRegistry struct {
-	mu      sync.Mutex
-	ctx     context.Context
-	backend Backend
-	limit   int
-	closed  bool
-	entries map[string]*invocationEntry
+	mu           sync.Mutex
+	ctx          context.Context
+	backend      Backend
+	limit        int
+	nextSequence uint64
+	closed       bool
+	entries      map[string]*invocationEntry
 }
 
 type invocationEntry struct {
 	id                    string
+	sequence              uint64
 	phase                 invocationPhase
 	cancellationRequested bool
 	result                BackendResult
@@ -72,13 +74,14 @@ func (registry *invocationRegistry) Start(id string, input RunReviewInput) (invo
 		registry.mu.Unlock()
 		return invocationSnapshot{}, errInvocationAlreadyExists
 	}
-	if len(registry.entries) >= registry.limit {
+	if len(registry.entries) >= registry.limit && !registry.evictOldestTerminalLocked() {
 		registry.mu.Unlock()
 		return invocationSnapshot{}, errInvocationLimitReached
 	}
+	registry.nextSequence++
 	executionCtx, cancel := context.WithCancel(registry.ctx)
 	entry := &invocationEntry{
-		id: id, phase: invocationRunning, cancel: cancel, done: make(chan struct{}),
+		id: id, sequence: registry.nextSequence, phase: invocationRunning, cancel: cancel, done: make(chan struct{}),
 	}
 	registry.entries[id] = entry
 	snapshot := snapshotInvocation(entry)
@@ -186,6 +189,23 @@ func (registry *invocationRegistry) SessionEnded() bool {
 	closed := registry.closed
 	registry.mu.Unlock()
 	return closed
+}
+
+func (registry *invocationRegistry) evictOldestTerminalLocked() bool {
+	var victim *invocationEntry
+	for _, entry := range registry.entries {
+		if entry.phase != invocationTerminal {
+			continue
+		}
+		if victim == nil || entry.sequence < victim.sequence {
+			victim = entry
+		}
+	}
+	if victim == nil {
+		return false
+	}
+	delete(registry.entries, victim.id)
+	return true
 }
 
 func snapshotInvocation(entry *invocationEntry) invocationSnapshot {

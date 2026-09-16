@@ -72,10 +72,11 @@ lifecycle messages, an admitted bounded client token, and a monotonic counter;
 they do not expose paths, source, provider output, run identity, or artifact
 content.
 Notification delivery failure cannot weaken review or publication policy.
-The lifecycle registry is bounded to 64 identities and exists only inside one
-MCP process. A start request cannot supply or reuse an identity, unknown
-identities fail closed, and terminal results are cloned before returning to an
-observer. Cancelling or timing out `await_review` cannot reach provider work.
+The lifecycle registry exists only inside one MCP process and retains at most 64
+identities. Oldest terminal identities may be discarded to admit a new start.
+A start request cannot supply or reuse an identity, unknown identities fail
+closed, and terminal results are cloned before returning to an observer.
+Cancelling or timing out `await_review` cannot reach provider work.
 Only an explicit `cancel_review` request marks client cancellation intent; its
 acknowledgement grants no terminal or publication authority. Process shutdown
 closes admission before cancelling and draining active executions, and a later

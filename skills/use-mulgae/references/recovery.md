@@ -47,12 +47,13 @@ server can recover it. Reconcile an exact returned run ID through `get_run` when
 one is available; without one, report the outcome as unknown. Do not use repeated
 `list_runs`, status-file checks, or OS process scans to reconstruct live state.
 
-The registry retains at most 64 cumulative invocation identities so terminal
-results remain repeatable. `invocation_limit_reached` is non-retryable in that
-server session. Reconcile every exact returned run ID, then restart the attached
-MCP server before starting another review; the restart discards every preserved
-invocation identity. `invocation_registry_closed` is likewise non-retryable and
-means that the server session is ending rather than that one observer timed out.
+The registry retains at most 64 identities. Oldest terminal identities may be
+discarded to admit a new start, so await of a discarded ID is
+`invocation_not_found`. `invocation_limit_reached` is non-retryable and means
+64 reviews are still running; do not start another execution path. Identities
+are discarded without recovery when the server exits.
+`invocation_registry_closed` is non-retryable and means that the
+server session is ending rather than that one observer timed out.
 
 ## Respect idempotency boundaries
 

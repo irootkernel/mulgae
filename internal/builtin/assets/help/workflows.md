@@ -129,8 +129,9 @@ targets; stdin is reserved for JSON-RPC and cannot carry review content.
 invocation ID before completion. `await_review` waits eventfully on that exact
 identity and may be repeated without starting another run. Cancelling an await
 ends only that observer. `cancel_review` is the sole explicit cancellation tool;
-its acknowledgement is not terminal, so await the final result. The registry
-retains at most 64 identities and has no recovery after server exit. Query
+its acknowledgement is not terminal, so await the final result. The invocation
+registry retains at most 64 identities, may discard oldest terminal identities
+to admit a new start, and has no recovery after server exit. Query
 tools return bounded verified projections, not report or source bodies. Their
 `mulgae://` report and evidence resource links expose integrity-checked content
 in chunks of at most 16 KiB, with SHA-256, offset, total length, completion, and
@@ -152,10 +153,9 @@ the result. Cancelling the MCP request cancels that foreground review and its
 provider processes. Progress is optional and best-effort; it never changes the
 review outcome or publication authority. Lifecycle awaits emit no heartbeat
 loop, and an `await_cancelled` result is retryable without cancelling execution.
-The 64-identity bound is cumulative for one server process so terminal awaits
-remain repeatable. `invocation_limit_reached` is non-retryable in that session;
-reconcile exact returned run IDs before restarting the attached server, which
-discards every invocation identity. `invocation_registry_closed` is
+Terminal awaits remain repeatable for retained identities.
+`invocation_limit_reached` is non-retryable and occurs only when 64 reviews are
+still running. `invocation_registry_closed` is
 non-retryable and means an await observed the server session ending while the
 transport could still deliver a result. Closing MCP stdin ends the transport,
 so pending calls may end without a response while their reviews are cancelled

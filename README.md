@@ -377,15 +377,14 @@ returns `run_status_unavailable`; the returned identity remains valid but has
 no durable status to inspect. A failed `run_review` is never marked retryable
 because another call creates a new run. `start_review` is likewise not safe to
 repeat after an uncertain response. Its invocation is retained only by that MCP
-server process, with at most 64 identities per session and no restart recovery.
+server process, with at most 64 identities and no restart recovery. Oldest
+terminal identities may be discarded to admit a new start.
 `await_review` is event-driven and may be repeated for the same identity; an
 `await_cancelled` error ends only that observer and is retryable while the same
 MCP session remains alive. A successful terminal result echoes the exact
 `invocation_id` beside the durable run identity. Unknown identities fail closed
-without starting a review. The 64-identity bound is cumulative for one server
-process so terminal results remain repeatable. Exhaustion is non-retryable in
-that session; reconcile exact returned run IDs before restarting the attached
-server, which discards every invocation identity. A non-retryable
+without starting a review. `invocation_limit_reached` is non-retryable and
+occurs only when 64 reviews are still running. A non-retryable
 `invocation_registry_closed` means an await observed the server session ending
 while its transport could still deliver a result. Closing MCP stdin ends that
 transport, so pending calls may end without a response. Server shutdown still
