@@ -152,8 +152,8 @@ contract. Codex stays an explicitly selected provider.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-014 | In Review | Pin Codex 0.154.0 app-server wire behavior and prove that the isolated configuration, read-only workspace, and credential boundary survive the change. Stop the cutover if the boundary cannot be certified. | Isolated handshake and turn probe, actual capability response, exact-binary review, workspace and credential checks. |
-| TASK-015 | In Review | Switch the Codex family and profile projection to the protocol driver in one change; remove exec-only arguments, retain final assistant text as the report, and update tests, contracts, help, and the transport decision record. | Scripted protocol failures and success, qualification and role-route tests, generator idempotence, `make test`, and the opt-in two-profile Codex E2E. |
+| TASK-014 | Completed | Pin Codex 0.154.0 app-server wire behavior and prove that the isolated configuration, read-only workspace, and credential boundary survive the change. Stop the cutover if the boundary cannot be certified. | Isolated handshake and turn probe, actual capability response, exact-binary review, workspace and credential checks. |
+| TASK-015 | Completed | Switch the Codex family and profile projection to the protocol driver in one change; remove exec-only arguments, retain final assistant text as the report, and update tests, contracts, help, and the transport decision record. | Scripted protocol failures and success, qualification and role-route tests, generator idempotence, `make test`, and the opt-in two-profile Codex E2E. |
 
 TASK-014 establishes the installed protocol and permission facts used by
 TASK-015. The Codex provider minimum rises to the verified 0.154.0 release;
