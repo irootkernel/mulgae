@@ -58,6 +58,12 @@ func (grokACPProtocolDriverConstructor) NewSession(workspacePath string, prompt 
 	return newGrokACPProtocolSession(workspacePath, prompt, purpose, writeAuthority)
 }
 
+type codexProtocolDriverConstructor struct{}
+
+func (codexProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority) (providerProtocolSession, error) {
+	return newCodexProtocolSession(workspacePath, prompt, purpose, writeAuthority)
+}
+
 // providerAdapterAuthority is the single family-to-transport-and-driver
 // registry. Other family switches may shape native argv or output, but they do
 // not select whether or how a protocol conversation is driven.
@@ -74,7 +80,7 @@ func adapterAuthorityForFamily(family string) (providerAdapterAuthority, error) 
 	case FamilyGrok:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: grokACPProtocolDriverConstructor{}}, nil
 	case FamilyCodex:
-		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelStdin, qualificationChannel: ports.ProviderPacketChannelStdin}, nil
+		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: codexProtocolDriverConstructor{}}, nil
 	default:
 		return providerAdapterAuthority{}, fmt.Errorf("unsupported family")
 	}

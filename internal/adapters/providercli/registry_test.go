@@ -18,8 +18,8 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestBuildArgvUsesIsolatedCodexExecProfile(t *testing.T) {
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
+func TestBuildArgvUsesIsolatedCodexAppServerProfile(t *testing.T) {
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,19 +31,18 @@ func TestBuildArgvUsesIsolatedCodexExecProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"/private/bin/codex", "-a", "never", "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral",
-		"--skip-git-repo-check", "--color", "never", "-C", "/private/work",
+		"/private/bin/codex", "app-server", "--strict-config",
 		"--disable", "apps", "--disable", "browser_use", "--disable", "computer_use", "--disable", "hooks",
 		"--disable", "image_generation", "--disable", "multi_agent", "--disable", "plugins", "--disable", "skill_search",
 		"-c", `permissions.mulgae={extends=":read-only",filesystem={"~/.codex"="deny"}}`,
 		"-c", `default_permissions="mulgae"`, "-c", "project_doc_max_bytes=0", "-c", "shell_environment_policy.inherit=none",
-		"-m", "gpt-5.3-codex", "-c", `model_reasoning_effort="high"`, "-",
+		"-c", `model="gpt-5.3-codex"`, "-c", `model_reasoning_effort="high"`,
 	}
 	if !equalStrings(got, want) {
 		t.Fatalf("Codex argv = %q, want %q", got, want)
 	}
 	if occurrences := packetOccurrences(got, "review bytes"); occurrences != 0 {
-		t.Fatalf("Codex argv contains stdin packet %d times", occurrences)
+		t.Fatalf("Codex argv contains protocol packet %d times", occurrences)
 	}
 }
 

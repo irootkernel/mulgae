@@ -16,3 +16,5 @@ explain why durable choices were made.
 - [ZCode app-server transport](zcode-app-server-transport.md) records why ZCode
   review and qualification speak the app-server protocol and the wire shapes
   its live spike pinned.
+- [Codex app-server transport](codex-app-server-transport.md) records the
+  ephemeral Codex protocol route and its report and isolation boundaries.

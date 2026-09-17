@@ -124,7 +124,7 @@ func TestProbeFixtureCapabilityPacketDoesNotInduceWorkspaceToolReads(t *testing.
 		!strings.Contains(packet, "do not add Markdown, narration, or fields") {
 		t.Fatalf("capability packet lost embedded fixture bindings: %q", packet)
 	}
-	if request.PolicyIdentity() != "current-qualification-fixture-v2" {
+	if request.PolicyIdentity() != "current-qualification-fixture-v3" {
 		t.Fatalf("capability fixture policy = %q", request.PolicyIdentity())
 	}
 }

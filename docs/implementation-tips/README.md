@@ -8,6 +8,10 @@
 - authenticated ZCode and Grok installations for the mandatory live tests
 - two distinct authenticated Codex homes only for the opt-in profile E2E
 
+Codex provider execution requires CLI 0.154.0 or newer for the app-server
+route. The separate Codex MCP-client compatibility check retains its own
+minimum version.
+
 ## Local checks
 
 The complete gate is:

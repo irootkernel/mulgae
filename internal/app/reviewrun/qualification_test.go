@@ -18,7 +18,7 @@ func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
 	guidance := []VersionGuidance{
 		{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 		{Family: FamilyGrok, Minimum: "1.0.30", VerifiedLatest: "1.0.30"},
-		{Family: FamilyCodex, Minimum: "0.149.0", VerifiedLatest: "0.149.0"},
+		{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
 	}
 	for _, want := range guidance {
 		got, ok := Guidance(want.Family)

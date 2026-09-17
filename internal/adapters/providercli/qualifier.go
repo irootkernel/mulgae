@@ -409,7 +409,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	}
 	output := capabilityObservation.Stdout()
 	if protocolConversation {
-		// ZCode capability evidence is the conversation's captured assistant
+		// Protocol capability evidence is the conversation's captured assistant
 		// text; the protocol transcript on stdout is never evidence.
 		output = capabilityEvidence
 	}
@@ -997,7 +997,7 @@ func capabilityEvidenceCandidates(family string, output []byte) ([][]byte, error
 		return nil, fmt.Errorf("empty capability output")
 	}
 	candidates := make([][]byte, 0, 2)
-	// ZCode capability evidence arrives as the conversation's captured
+	// Protocol capability evidence arrives as the conversation's captured
 	// assistant text, so its candidates are the controlled probe JSON and the
 	// trimmed text itself.
 	if content, err := controlledProbeJSON(trimmed); err == nil {

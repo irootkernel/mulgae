@@ -90,7 +90,8 @@ Role reports reach Mulgae over a per-family transport recorded in
   `role-report.md`. Any other permission request, tool path, active MCP server,
   protocol mismatch, or repeated write fails closed. Grok is text-only; an
   `artist` assignment fails preflight with `provider_capability_unsupported`.
-- Codex: `stdout`.
+- Codex: `stdout`, carrying the final assistant message from a completed
+  app-server turn. The raw protocol transcript is private evidence.
 - Exact replay (`rerun --replay exact`) keeps the provider family's transport. For
   ZCode and Grok, Mulgae preserves the stored review frames but replaces the
   expired output path with a fresh per-launch staging destination.
@@ -99,9 +100,11 @@ Capability probes stay prompt-bound to the embedded fixture packet and must not
 induce workspace or tool reads. ZCode capability remains tool-denied; selective
 workspace reads apply only to review invocations.
 
-Codex 0.149.0 or newer uses stdin for the review packet and exact stdout for the
-role report. A legacy configuration projects only native
-`~/.codex/auth.json`. To route roles through several authenticated environments,
+Codex 0.154.0 or newer uses a stdio app-server conversation for review,
+extraction, and qualification. Mulgae starts a fresh ephemeral thread for each
+invocation and records its final assistant message as the role report. A legacy
+configuration uses only native `~/.codex/auth.json`. To route roles through
+several authenticated environments,
 set an operator-chosen `default_credential_profile` and optional role-level
 `credential_profile` aliases in `.mulgae/config.yaml`, then map those aliases in
 lexical order under `providers.codex.credential_homes` in private
@@ -110,7 +113,7 @@ not configure profile-specific wrappers. Run `mulgae help config` for the exact
 two-file example.
 
 Mulgae projects only the selected profile's `auth.json` into a disposable
-`CODEX_HOME`, ignores user configuration, rules, and project instructions, sets
+`CODEX_HOME`, excludes ambient user configuration and project instructions, sets
 approvals to `never`, applies an adapter-owned read-only permission profile that
 denies credential-directory access to model tools, and disables web, apps,
 plugins, browser, hooks, image generation, and multi-agent features. Optional

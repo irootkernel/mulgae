@@ -85,8 +85,8 @@ func TestLiveGrokCapability(t *testing.T) {
 func TestLiveCodexCapability(t *testing.T) {
 	config := liveCapabilityConfig{
 		family: providercli.FamilyCodex, credential: providercli.CredentialSourceCodex, instance: "codex-logic", role: domain.RoleLogic,
-		executableEnv: "MULGAE_LIVE_CODEX_BIN", dataHomeEnv: "MULGAE_LIVE_CODEX_HOME", transport: ports.ProviderPacketChannelStdin, transportIndex: -1,
-		minimumVersion: [3]int{0, 149, 0},
+		executableEnv: "MULGAE_LIVE_CODEX_BIN", dataHomeEnv: "MULGAE_LIVE_CODEX_HOME", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
+		minimumVersion: [3]int{0, 154, 0},
 		protectedPaths: func(_ string, dataHome string) []string {
 			return []string{filepath.Join(dataHome, "auth.json")}
 		},

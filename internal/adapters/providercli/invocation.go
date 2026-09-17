@@ -65,8 +65,7 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 	case FamilyGrok:
 		return grokACPArgv(definition.Executable(), protocolPurposeQualification)
 	case FamilyCodex:
-		argv := appendCodexInvocation(baseArgv, fixture.WorkspaceSnapshotIdentity().SnapshotPath(), definition.CodexModel(), definition.CodexReasoningEffort())
-		return append(argv[:len(argv)-1], "--output-schema", probeFixtureSchemaPath, "-"), nil
+		return appendCodexProtocolServerArgv(baseArgv, definition.CodexModel(), definition.CodexReasoningEffort()), nil
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}
@@ -123,9 +122,9 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	return baseArgv, nil
 }
 
-func appendCodexInvocation(argv []string, workingDirectory, model, reasoningEffort string) []string {
+func appendCodexProtocolServerArgv(argv []string, model, reasoningEffort string) []string {
 	result := append([]string(nil), argv...)
-	result = append(result, "-a", "never", "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--skip-git-repo-check", "--color", "never", "-C", workingDirectory)
+	result = append(result, "app-server", "--strict-config")
 	for _, feature := range []string{"apps", "browser_use", "computer_use", "hooks", "image_generation", "multi_agent", "plugins", "skill_search"} {
 		result = append(result, "--disable", feature)
 	}
@@ -136,12 +135,12 @@ func appendCodexInvocation(argv []string, workingDirectory, model, reasoningEffo
 		"-c", "shell_environment_policy.inherit=none",
 	)
 	if model != "" {
-		result = append(result, "-m", model)
+		result = append(result, "-c", fmt.Sprintf("model=%q", model))
 	}
 	if reasoningEffort != "" {
 		result = append(result, "-c", fmt.Sprintf("model_reasoning_effort=%q", reasoningEffort))
 	}
-	return append(result, "-")
+	return result
 }
 
 func validCodexReasoningEffort(value string) bool {

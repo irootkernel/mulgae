@@ -360,8 +360,8 @@ func requireOperationalCapabilityMismatch(t *testing.T, err error) {
 	requireProviderDiagnosticCause(t, err, domain.DiagnosticCauseObservationMismatch)
 }
 
-func TestBoundProbeProviderRequestUsesCodexStdinTransport(t *testing.T) {
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
+func TestCodexCapabilityUsesProtocolTransport(t *testing.T) {
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,12 +373,16 @@ func TestBoundProbeProviderRequestUsesCodexStdinTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	argv := appendCodexInvocation(definition.BaseArgv(), "/private/work", "", "")
-	request, err := boundProbeProviderRequest(definition, packet, argv, "@roadmap.md", nil, "/private/work", time.Second)
+	argv := appendCodexProtocolServerArgv(definition.BaseArgv(), "", "")
+	binding, err := ports.NewProtocolProviderPacketBinding(packet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(request.Stdin(), packet.Bytes()) || packetOccurrences(request.Argv(), string(packet.Bytes())) != 0 {
+	request, err := ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, nil, "/private/work", binding, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Stdin()) != 0 || packetOccurrences(request.Argv(), string(packet.Bytes())) != 0 {
 		t.Fatalf("Codex capability packet binding = argv %q stdin %q", request.Argv(), request.Stdin())
 	}
 }
@@ -558,6 +562,25 @@ func TestQualificationProcessFailurePreservesExactProcessCause(t *testing.T) {
 		qualificationProcessFailure(FamilyGrok, observation, processErr),
 		domain.DiagnosticCausePromptFilePostEndFailed,
 	)
+}
+
+func TestQualificationProcessFailurePreservesCodexProtocolCause(t *testing.T) {
+	observation := testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 1)
+	for _, test := range []struct {
+		cause domain.RuntimeDiagnosticCause
+		class domain.FailureClass
+	}{
+		{domain.DiagnosticCauseOutputDecodeFailed, domain.FailureInvalidOutput},
+		{domain.DiagnosticCauseProviderTurnFailed, domain.FailureProviderUnavailable},
+	} {
+		err := qualificationProcessFailure(FamilyCodex, observation, codexProtocolFailure(test.cause, errors.New("codex turn failed")))
+		requireProviderDiagnosticCause(t, err, test.cause)
+		classified := classifyProbeFailure(context.Background(), FamilyCodex, err, nil)
+		var failure *domain.Failure
+		if !errors.As(classified, &failure) || failure.Class() != test.class {
+			t.Fatalf("cause %q classified as %v, want %q", test.cause, classified, test.class)
+		}
+	}
 }
 
 func TestPlainSemverAcceptsCodexCLIIdentityPrefixOnlyForCodex(t *testing.T) {

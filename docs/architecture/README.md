@@ -86,8 +86,8 @@ the untracked `.mulgae/local.yaml` authority.
    per-invocation process isolation against that shared directory view.
 7. The provider result arrives on the transport declared for that route: a
    Mulgae-owned staged file for ZCode and Grok reviews that the adapter validates
-   and reads back after the process terminates, or process stdout for the other
-   routes.
+   and reads back after the process terminates, or Codex's final assistant
+   message from a completed app-server turn.
 8. UTF-8 provider output becomes Mulgae-owned free-form role reports without a
    fixed report-size ceiling; bounded previews remain private diagnostics;
    optional exact JSON may be structured-extracted and normalized with

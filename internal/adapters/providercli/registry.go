@@ -1656,7 +1656,7 @@ func buildArgvForPurpose(definition definition, workingDirectory string, packet 
 	case FamilyGrok:
 		return grokACPArgv(definition.executable, protocolPurposeForReview(purpose))
 	case FamilyCodex:
-		return appendCodexInvocation(argv, workingDirectory, definition.codexModel, definition.codexReasoningEffort), nil
+		return appendCodexProtocolServerArgv(argv, definition.codexModel, definition.codexReasoningEffort), nil
 	default:
 		return nil, fmt.Errorf("unknown provider family")
 	}
@@ -1676,7 +1676,7 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 	case FamilyGrok:
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("grok protocol transport delivers no report on stdout"))
 	case FamilyCodex:
-		return append([]byte(nil), stdout...), true, nil
+		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("codex protocol transport delivers no report on raw stdout"))
 	default:
 		return nil, false, newProviderOutputFailure(domain.DiagnosticCauseResultBindingFailed, fmt.Errorf("unknown provider family"))
 	}
@@ -1995,7 +1995,7 @@ func runtimeTransportArgvIndex(family string, baseArgvLength int) (int, error) {
 	case FamilyGrok:
 		return 0, fmt.Errorf("grok requires the protocol transport")
 	case FamilyCodex:
-		return 0, fmt.Errorf("codex requires stdin transport")
+		return 0, fmt.Errorf("codex requires protocol transport")
 	default:
 		return 0, fmt.Errorf("unsupported family")
 	}

@@ -26,10 +26,10 @@ func (fixture nativeInvocationFixture) WorkspaceSnapshotIdentity() ports.Workspa
 }
 func (fixture nativeInvocationFixture) Validate() error { return nil }
 
-func TestNativeProbeInvocationCodexBindsStructuredOutputSchema(t *testing.T) {
+func TestNativeProbeInvocationCodexUsesAppServer(t *testing.T) {
 	identity := nativeInvocationIdentity(t, t.TempDir())
 	fixture := nativeInvocationFixture{identity: identity}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,8 +39,7 @@ func TestNativeProbeInvocationCodexBindsStructuredOutputSchema(t *testing.T) {
 	}
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := appendCodexInvocation(definition.BaseArgv(), identity.SnapshotPath(), "", "")
-	want = append(want[:len(want)-1], "--output-schema", probeFixtureSchemaPath, "-")
+	want := appendCodexProtocolServerArgv(definition.BaseArgv(), "", "")
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("Codex argv = %#v, err = %v, want %#v", argv, err, want)
 	}
@@ -48,9 +47,9 @@ func TestNativeProbeInvocationCodexBindsStructuredOutputSchema(t *testing.T) {
 		t.Fatalf("validate exact Codex argv: %v", err)
 	}
 	tampered := append([]string(nil), argv...)
-	tampered[len(tampered)-2] = "other.schema.json"
+	tampered[len(tampered)-1] = "other.schema.json"
 	if err := (NativeProbeInvocation{}).Validate(definition, fixture, tampered); err == nil {
-		t.Fatal("validate accepted a Codex qualification schema outside the fixture")
+		t.Fatal("validate accepted a different Codex launch")
 	}
 }
 

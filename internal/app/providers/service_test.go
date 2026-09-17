@@ -44,7 +44,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 	}{
 		{FamilyZCode, "zcode-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnsupported},
 		{FamilyGrok, "grok-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnverified},
-		{FamilyCodex, "codex-default", PromptTransportStdin, ResultTransportStdout, SupportUnverified},
+		{FamilyCodex, "codex-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
 	}
 	for index, expected := range want {
 		profile := profiles[index]

@@ -235,7 +235,7 @@ func TestProductionCandidatesBindConfiguredCodexRuntimeSettings(t *testing.T) {
 	if !ok || definition.CodexModel() != "gpt-5.3-codex" || definition.CodexReasoningEffort() != "high" {
 		t.Fatalf("configured Codex settings were not bound: %#v", candidates)
 	}
-	if definition.Transport().Channel() != ports.ProviderPacketChannelStdin || definition.Transport().ArgvIndex() != -1 {
+	if definition.Transport().Channel() != ports.ProviderPacketChannelProtocol || definition.Transport().ArgvIndex() != -1 {
 		t.Fatalf("Codex transport = %#v", definition.Transport())
 	}
 }

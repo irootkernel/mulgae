@@ -262,7 +262,7 @@ func productionCandidateTemplatesWithCodexSettingsAndTimeouts(identities map[Fam
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
 			case FamilyCodex:
 				template.codexModel, template.codexReasoningEffort = codexModel, codexReasoningEffort
-				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelStdin, -1
+				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
 				if profile := codexCredentialProfiles[role]; profile != "" {
 					template.profileID = "codex-" + profile
 				}
@@ -352,7 +352,7 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		}
 		validTransport := template.transportChannel == ports.ProviderPacketChannelArgvLiteral && template.transportArgvIndex >= 0
 		if template.family == FamilyCodex {
-			validTransport = template.transportChannel == ports.ProviderPacketChannelStdin && template.transportArgvIndex == -1
+			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1
 		}
 		if template.family == FamilyZCode || template.family == FamilyGrok {
 			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1

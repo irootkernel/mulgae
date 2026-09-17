@@ -14,6 +14,9 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Changed
 
+- Move explicitly selected Codex reviews, extraction, and qualification to the app-server
+  protocol with ephemeral threads, keeping read-only isolation and `stdout`
+  role-report compatibility. Require Codex 0.154.0 for the provider route.
 - Keep sequential `start_review` admission in one attached MCP process by
   discarding oldest terminal identities, and emit `invocation_limit_reached`
   only when 64 reviews are still running.

@@ -126,7 +126,7 @@ func (authenticator *qualifierLoginAuthenticator) LoginProvider(_ context.Contex
 func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *testing.T) {
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	profile := DiscoveredProviderProfile{family: FamilyCodex, executable: "/private/bin/codex", launcher: "/private/bin/codex", argv: []string{"/private/bin/codex"}, sha256: qualifierTestSHA, launcherSHA256: qualifierTestSHA, reason: "unqualified_discovery"}
-	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
+	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
 	if err != nil {
 		t.Fatal(err)
 	}

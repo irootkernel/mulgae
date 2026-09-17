@@ -450,7 +450,10 @@ manifest inventory. Attempt `stdout.raw` remains private capture evidence and
 is never the primary report URI.
 
 `transport` is adapter-owned per provider family, not configurable. ZCode and
-Grok review invocations use `staged_file`; Codex uses `stdout`.
+Grok review invocations use `staged_file`; Codex uses `stdout`. For Codex,
+`stdout` carries the final assistant message extracted from correlated
+app-server stdout frames. The raw frame stream remains private process
+evidence and is never a report.
 For a failed review invocation, model-authored stdout remains private process
 evidence but never classifies a native provider condition; stderr has that
 authority. Qualification may classify native failures from both stdout and
@@ -479,6 +482,16 @@ Qualification and extraction use only correlated assistant-message chunks.
 Protocol negotiation, authentication, session completion, permission denial,
 and teardown failures retain typed provider causes. Grok uses its own model and
 reasoning defaults; the public configuration exposes no setting for either.
+
+Codex review, extraction, and qualification use one ephemeral app-server thread
+and one turn per invocation over stdio. Mulgae sends `initialize`,
+`thread/start`, and `turn/start`, then accepts the final assistant message only
+after the matching `turn/completed` reports success. Qualification constrains
+that message with its fixture schema through `turn/start.outputSchema`.
+Unexpected server requests, loaded instruction sources, malformed frames,
+missing final text, and failed or missing turn completion fail closed. Codex
+provider qualification requires 0.154.0 or newer; the separate Codex MCP
+client minimum remains 0.149.0.
 
 Exact replay (`rerun --replay exact`) preserves the source attempt's framed review
 input and provider route. On a `staged_file` route Mulgae replaces only the
@@ -819,8 +832,10 @@ identity. Roles using the same credential profile may share one probe; roles
 using different profiles never share qualification or direct-execution
 authority. Their provider instances use `codex-<profile>-<role>`. Legacy Codex
 configuration retains `codex-<role>`.
-Required family probes, including Codex, run concurrently. Capability
-readiness is decided by bound immutable fixture evidence: free-form or narrated
+Codex qualification takes evidence from its correlated final assistant
+message rather than the raw protocol transcript. Required family probes,
+including Codex, run concurrently. Capability readiness is decided by bound
+immutable fixture evidence: free-form or narrated
 provider output is accepted when it proves immutable fixture nonce/input binding
 together with transport, lifecycle, authentication, version, and required
 process behavior, and mere prompt echo is rejected. A terminal JSON stdout frame
@@ -930,6 +945,6 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5/v6/v7/v8 schema examples remain available for
-explicit backward validation; current CLI envelopes use v9. MCP retains its v1
+retry loop is introduced. CLI v5/v6/v7/v8/v9 schema examples remain available
+for explicit backward validation; current CLI envelopes use v10. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.

@@ -174,11 +174,15 @@ say that no provider ever holds it.
   staged report destination; shell, web, subagent, sibling, traversal, symlink,
   repeated-write, and unrecognized requests fail closed. Qualification and
   extraction receive no write authority. Grok is admitted only for text roles.
-- Codex runs with approvals disabled and an adapter-owned read-only permission
-  profile over the immutable workspace. Its projected `~/.codex` directory is
-  explicitly denied to model tools. User configuration, rules, project
-  instructions, web, apps, plugins, browser, hooks, image generation, and
-  multi-agent features are disabled for every invocation.
+- Codex launches one stdio app-server process and one ephemeral thread per
+  invocation. Mulgae disables approvals and applies its read-only permission
+  profile over the immutable workspace. The projected `~/.codex` directory is
+  denied to model tools. Only the selected authentication file enters the
+  disposable home; project instructions have a zero-byte allowance. Web,
+  apps, plugins, browser, hooks, image generation, and multi-agent features
+  are disabled. The driver rejects loaded instruction sources and unexpected
+  server requests, including approval requests. It accepts report text only
+  from a completed, correlated turn; protocol stdout remains private evidence.
 
 ### Staging boundary
 

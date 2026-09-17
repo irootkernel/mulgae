@@ -58,7 +58,7 @@ var guidance = [...]VersionGuidance{
 	// the print transport is gone, so older releases cannot qualify.
 	{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 	{Family: FamilyGrok, Minimum: "1.0.30", VerifiedLatest: "1.0.30"},
-	{Family: FamilyCodex, Minimum: "0.149.0", VerifiedLatest: "0.149.0"},
+	{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
 }
 
 // Guidance returns the qualification guidance for family.

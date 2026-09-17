@@ -24,6 +24,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-002](#epic-002-composite-recovery-for-incomplete-multi-role-reviews) | Completed | Recover missing required-role coverage by composing exact same-target rerun results into one authoritative immutable review. |
 | [EPIC-003](#epic-003-zcode-app-server-provider-transport) | Completed | Drive ZCode review and qualification through the ZCode app-server wire protocol instead of one-shot print invocations. |
 | [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | Completed | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
+| [EPIC-005](#epic-005-codex-app-server-provider-transport) | In Review | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 
 ## EPIC-001: Token-efficient review waiting
 
@@ -139,3 +140,23 @@ The tasks were completed sequentially. TASK-011 established the shared protocol
 driver authority, TASK-012 introduced the Grok route, and TASK-013 completed the
 three-provider cutover across runtime behavior, contracts, documentation, and
 release evidence.
+
+## EPIC-005: Codex app-server provider transport
+
+Status: In Review
+
+Goal: move Codex review, extraction, and qualification to one ephemeral
+app-server thread and turn per invocation, retaining immutable capture,
+read-only permissions, credential isolation, and the `stdout` role-report
+contract. Codex stays an explicitly selected provider.
+
+| Task | Status | Outcome | Verification |
+|---|---|---|---|
+| TASK-014 | In Review | Pin Codex 0.154.0 app-server wire behavior and prove that the isolated configuration, read-only workspace, and credential boundary survive the change. Stop the cutover if the boundary cannot be certified. | Isolated handshake and turn probe, actual capability response, exact-binary review, workspace and credential checks. |
+| TASK-015 | In Review | Switch the Codex family and profile projection to the protocol driver in one change; remove exec-only arguments, retain final assistant text as the report, and update tests, contracts, help, and the transport decision record. | Scripted protocol failures and success, qualification and role-route tests, generator idempotence, `make test`, and the opt-in two-profile Codex E2E. |
+
+TASK-014 establishes the installed protocol and permission facts used by
+TASK-015. The Codex provider minimum rises to the verified 0.154.0 release;
+the separate Codex MCP client minimum is unchanged. The complete `make test`
+gate retains optional Codex execution, but this epic requires one actual Codex
+capability probe and two-profile exact-binary review before acceptance.

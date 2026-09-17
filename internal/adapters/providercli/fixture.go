@@ -16,9 +16,8 @@ import (
 )
 
 const (
-	probeFixtureReference  = "roadmap.md"
-	probeFixtureLinkPath   = "docs/linked.md"
-	probeFixtureSchemaPath = "qualification-output.schema.json"
+	probeFixtureReference = "roadmap.md"
+	probeFixtureLinkPath  = "docs/linked.md"
 )
 const probeFixtureOutputSchema = `{"additionalProperties":false,"properties":{"link":{"minLength":1,"type":"string"},"role":{"minLength":1,"type":"string"},"root":{"minLength":1,"type":"string"}},"required":["root","link","role"],"type":"object"}`
 const probeFixtureCleanupTimeout = time.Second
@@ -158,11 +157,11 @@ func newProbeFixture(role domain.Role, nonce, link string) (*probeFixtureLease, 
 		"link=" + link + "\n" +
 		"role=" + string(role) + "\n")
 	linked := []byte(link)
-	files, err := probeFixtureFiles(roadmap, linked, []byte(probeFixtureOutputSchema))
+	files, err := probeFixtureFiles(roadmap, linked)
 	if err != nil {
 		return nil, ports.WorkspaceSnapshotRequest{}, err
 	}
-	request, err := ports.NewWorkspaceSnapshotRequest(files, "current-qualification-fixture-v2")
+	request, err := ports.NewWorkspaceSnapshotRequest(files, "current-qualification-fixture-v3")
 	if err != nil {
 		return nil, ports.WorkspaceSnapshotRequest{}, fmt.Errorf("probe fixture: snapshot request: %w", err)
 	}
@@ -173,13 +172,12 @@ func newProbeFixture(role domain.Role, nonce, link string) (*probeFixtureLease, 
 	}, request, nil
 }
 
-func probeFixtureFiles(roadmap, linked, schema []byte) ([]ports.WorkspaceSnapshotFile, error) {
+func probeFixtureFiles(roadmap, linked []byte) ([]ports.WorkspaceSnapshotFile, error) {
 	values := []struct {
 		path  string
 		bytes []byte
 	}{
 		{probeFixtureLinkPath, linked},
-		{probeFixtureSchemaPath, schema},
 		{probeFixtureReference, roadmap},
 	}
 	files := make([]ports.WorkspaceSnapshotFile, 0, len(values))

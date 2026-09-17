@@ -96,7 +96,7 @@ type doctorIdentityInspector struct {
 type doctorVersionObserver struct{}
 
 func (doctorVersionObserver) ObserveProviderVersion(_ context.Context, family string, _ []string, _, _ string) (ports.ProviderVersionObservation, error) {
-	versions := map[string]string{"zcode": "0.16.3", "grok": "1.0.30", "codex": "0.149.0"}
+	versions := map[string]string{"zcode": "0.16.3", "grok": "1.0.30", "codex": "0.154.0"}
 	return ports.NewProviderVersionObservation(ports.ProviderVersionObserved, versions[family])
 }
 
