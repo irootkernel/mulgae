@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,13 +56,33 @@ func TestCurrentProbeDirectExecutionAuthorityBindsDirectRoleProofs(t *testing.T)
 		t.Fatalf("typed authority = %#v, %v", receipt, err)
 	}
 	for name, mutate := range map[string]func(*currentProbeDirectExecutionRoleProof){
-		"family":               func(proof *currentProbeDirectExecutionRoleProof) { proof.Family = FamilyGrok },
-		"instance":             func(proof *currentProbeDirectExecutionRoleProof) { proof.ProviderInstance = "other" },
-		"version":              func(proof *currentProbeDirectExecutionRoleProof) { proof.ObservedVersion = "2.0.0" },
-		"executable":           func(proof *currentProbeDirectExecutionRoleProof) { proof.Executable = "/private/bin/other" },
-		"executable SHA":       func(proof *currentProbeDirectExecutionRoleProof) { proof.ExecutableSHA256 = "sha256:other-executable" },
-		"launcher":             func(proof *currentProbeDirectExecutionRoleProof) { proof.Launcher = "/private/bin/other-launcher" },
-		"launcher SHA":         func(proof *currentProbeDirectExecutionRoleProof) { proof.LauncherSHA256 = "sha256:other-launcher" },
+		"family": func(proof *currentProbeDirectExecutionRoleProof) {
+			proof.Family = FamilyGrok
+			proof.ZCodeProviderConfig = ""
+			proof.ZCodeProviderConfigSHA256 = ""
+			proof.ApplicationVersion = ""
+			proof.ApplicationMetadata = ""
+			proof.ApplicationMetadataSHA256 = ""
+		},
+		"instance":       func(proof *currentProbeDirectExecutionRoleProof) { proof.ProviderInstance = "other" },
+		"version":        func(proof *currentProbeDirectExecutionRoleProof) { proof.ObservedVersion = "2.0.0" },
+		"executable":     func(proof *currentProbeDirectExecutionRoleProof) { proof.Executable = "/private/bin/other" },
+		"executable SHA": func(proof *currentProbeDirectExecutionRoleProof) { proof.ExecutableSHA256 = "sha256:other-executable" },
+		"launcher":       func(proof *currentProbeDirectExecutionRoleProof) { proof.Launcher = "/private/bin/other-launcher" },
+		"launcher SHA":   func(proof *currentProbeDirectExecutionRoleProof) { proof.LauncherSHA256 = "sha256:other-launcher" },
+		"provider config": func(proof *currentProbeDirectExecutionRoleProof) {
+			proof.ZCodeProviderConfig = "/private/config/other.json"
+		},
+		"provider config SHA": func(proof *currentProbeDirectExecutionRoleProof) {
+			proof.ZCodeProviderConfigSHA256 = "sha256:" + strings.Repeat("b", 64)
+		},
+		"application version": func(proof *currentProbeDirectExecutionRoleProof) { proof.ApplicationVersion = "3.13.0" },
+		"application metadata": func(proof *currentProbeDirectExecutionRoleProof) {
+			proof.ApplicationMetadata = "/Applications/Other.app/Contents/Info.plist"
+		},
+		"application metadata SHA": func(proof *currentProbeDirectExecutionRoleProof) {
+			proof.ApplicationMetadataSHA256 = "sha256:" + strings.Repeat("c", 64)
+		},
 		"profile version":      func(proof *currentProbeDirectExecutionRoleProof) { proof.ProviderVersion = "2.0.0" },
 		"profile":              func(proof *currentProbeDirectExecutionRoleProof) { proof.ProfileID = "other-profile" },
 		"namespace generation": func(proof *currentProbeDirectExecutionRoleProof) { proof.NamespaceGeneration = "other-generation" },
@@ -116,6 +137,8 @@ func currentProbeDirectExecutionTestProof() currentProbeDirectExecutionRoleProof
 	return currentProbeDirectExecutionRoleProof{
 		Family: FamilyZcode, ProviderInstance: "zcode_current", ProviderVersion: "1.2.3", ObservedVersion: "1.2.3",
 		Executable: "/private/bin/zcode", ExecutableSHA256: "sha256:executable", Launcher: "/private/bin/zcode", LauncherSHA256: "sha256:executable",
+		ZCodeProviderConfig: "/private/config/zcode-builtin.json", ZCodeProviderConfigSHA256: "sha256:" + strings.Repeat("a", 64),
+		ApplicationVersion: "3.12.3", ApplicationMetadata: "/Applications/ZCode.app/Contents/Info.plist", ApplicationMetadataSHA256: "sha256:" + strings.Repeat("b", 64),
 		ProfileID: "profile", ProfileGeneration: "generation", NamespaceGeneration: "namespace", Role: string(domain.RoleLogic),
 		SnapshotManifestSHA256: "sha256:snapshot", SnapshotName: "snapshot", SnapshotPath: "/snapshot/path", SnapshotPolicyIdentity: "sha256:snapshot-policy",
 		SnapshotDevice: 1, SnapshotInode: 2, RootDevice: 3, RootInode: 4, ArgvSHA256: "sha256:argv", NativeReference: "@roadmap.md",

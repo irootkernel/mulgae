@@ -1,7 +1,8 @@
 # Providers and role paths
 
-Mulgae supports the `zcode`, `grok`, and `codex` provider
-families. Provider executables must be installed and authenticated before review.
+Mulgae supports the `zcode`, `grok`, and `codex` provider families. ZCode must
+be installed as an app bundle with an API-key personal provider configured;
+Grok and Codex use their own authenticated installations.
 
 Automatic initialization selects ZCode and Grok, requires both to be available,
 and assigns every default role to ZCode. Codex remains explicit-only.
@@ -16,8 +17,10 @@ The command lists fixed trusted profiles without invoking them. Missing static
 admission evidence is reported as `unverified` information and does not make
 the command fail. JSON reports `offline_ready_provider_count` separately from
 `static_evidence_ready_provider_count`. `mulgae doctor` checks exact local
-binary identity and adapter-owned `--version` compatibility without a live
-provider request. Static evidence and prior review qualification do not affect
+binary identity, ZCode app-release compatibility, and adapter-owned launcher
+`--version` compatibility without a live provider request. ZCode app 3.12.3 and
+launcher protocol 0.16.5 are independent minimums; higher versions remain
+eligible as newer than verified. Static evidence and prior review qualification do not affect
 that offline result.
 
 Provider identity and capability are checked at runtime. An unknown version is
@@ -71,7 +74,8 @@ Role reports reach Mulgae over a per-family transport recorded in
 `manifest.role_reports[].transport`:
 
 - ZCode: `staged_file`. ZCode review and qualification speak the app-server
-  protocol: Mulgae launches `zcode app-server` and conducts one
+  protocol: Mulgae runs the app-owned Electron executable as Node with the
+  bundled `zcode.cjs app-server --stdio` launcher and conducts one
   newline-delimited protocol conversation, so no prompt, mode, or tool policy
   appears on the command line. Review conversations request `yolo` mode with
   the denylist `Bash,Edit,NotebookEdit,WebSearch,WebFetch,EnterPlanMode,ExitPlanMode`,

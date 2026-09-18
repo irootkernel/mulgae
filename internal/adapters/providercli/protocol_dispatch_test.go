@@ -12,7 +12,7 @@ func TestZCodeProtocolConstructorOwnsPurposeSelection(t *testing.T) {
 		{protocolPurposeExtraction, true},
 		{protocolPurposeQualification, true},
 	} {
-		driver, err := constructor.NewSession("/private/work", []byte("packet"), test.purpose, nil)
+		driver, err := constructor.NewSession("/private/work", []byte("packet"), test.purpose, nil, protocolSessionConfiguration{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -21,7 +21,7 @@ func TestZCodeProtocolConstructorOwnsPurposeSelection(t *testing.T) {
 			t.Fatalf("purpose %q driver = %#v", test.purpose, driver)
 		}
 	}
-	if _, err := constructor.NewSession("/private/work", []byte("packet"), protocolInvocationPurpose("other"), nil); err == nil {
+	if _, err := constructor.NewSession("/private/work", []byte("packet"), protocolInvocationPurpose("other"), nil, protocolSessionConfiguration{}); err == nil {
 		t.Fatal("constructor accepted an unknown purpose")
 	}
 }

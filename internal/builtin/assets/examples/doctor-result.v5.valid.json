@@ -1,0 +1,155 @@
+{
+  "assignment": {
+    "resilience": "ready",
+    "state": "ready"
+  },
+  "checked_at": "2026-07-20T00:00:00Z",
+  "config": {
+    "authority": "project_local",
+    "checkout_head_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "index_entries_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "locality": "verified",
+    "native_home_identity": "verified",
+    "provenance_state": "accepted",
+    "reason_codes": [],
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "status": "ready",
+    "target_commit_oids": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "uri": ".mulgae/config.yaml"
+  },
+  "config_v3": {
+    "reason_codes": [],
+    "status": "verified"
+  },
+  "configured_provider_ids": [
+    "zcode"
+  ],
+  "configured_readiness": {
+    "exit_code": 0,
+    "reason_codes": [],
+    "state": "ready"
+  },
+  "diagnostics": [],
+  "local_configuration": {
+    "reason_codes": [],
+    "status": "verified"
+  },
+  "platform_evidence": [
+    {
+      "cell": "darwin-arm64",
+      "native": true
+    }
+  ],
+  "project_root_uri": ".",
+  "provider_identity": {
+    "reason_codes": [],
+    "status": "verified"
+  },
+  "provider_inventory": [
+    {
+      "application_compatible": {
+        "compatibility": "verified",
+        "eligibility": "eligible",
+        "minimum_version": "3.12.3",
+        "observed_version": "3.12.3",
+        "reason_code": "zcode_application_version_supported",
+        "status": "verified",
+        "verified_latest": "3.12.3"
+      },
+      "binary_available": {
+        "reason_codes": [],
+        "status": "verified"
+      },
+      "cli_compatible": {
+        "compatibility": "verified",
+        "eligibility": "eligible",
+        "minimum_version": "0.16.5",
+        "observed_version": "0.16.5",
+        "reason_code": "provider_cli_version_supported",
+        "status": "verified",
+        "verified_latest": "0.16.5"
+      },
+      "configured": true,
+      "family": "zcode",
+      "reason": "zcode_application_version_supported",
+      "referenced_by_roles": [
+        "logic"
+      ],
+      "state": "eligible"
+    },
+    {
+      "application_compatible": {
+        "compatibility": "not_observed",
+        "eligibility": "not_evaluated",
+        "minimum_version": "",
+        "observed_version": "",
+        "reason_code": "",
+        "status": "not_applicable",
+        "verified_latest": ""
+      },
+      "binary_available": {
+        "reason_codes": [],
+        "status": "not_applicable"
+      },
+      "cli_compatible": {
+        "compatibility": "not_observed",
+        "eligibility": "not_evaluated",
+        "minimum_version": "",
+        "observed_version": "",
+        "reason_code": "",
+        "status": "not_applicable",
+        "verified_latest": ""
+      },
+      "configured": false,
+      "family": "grok",
+      "reason": "not_configured",
+      "referenced_by_roles": [],
+      "state": "not_configured"
+    },
+    {
+      "application_compatible": {
+        "compatibility": "not_observed",
+        "eligibility": "not_evaluated",
+        "minimum_version": "",
+        "observed_version": "",
+        "reason_code": "",
+        "status": "not_applicable",
+        "verified_latest": ""
+      },
+      "binary_available": {
+        "reason_codes": [],
+        "status": "not_applicable"
+      },
+      "cli_compatible": {
+        "compatibility": "not_observed",
+        "eligibility": "not_evaluated",
+        "minimum_version": "",
+        "observed_version": "",
+        "reason_code": "",
+        "status": "not_applicable",
+        "verified_latest": ""
+      },
+      "configured": false,
+      "family": "codex",
+      "reason": "not_configured",
+      "referenced_by_roles": [],
+      "state": "not_configured"
+    }
+  ],
+  "readiness": {
+    "exit_code": 0,
+    "reason_codes": [],
+    "state": "ready"
+  },
+  "role_route_readiness": {
+    "exit_code": 0,
+    "reason_codes": [],
+    "state": "ready"
+  },
+  "schema_version": "mulgae-doctor-result.v5",
+  "tools_lock": {
+    "state": "not_observed"
+  }
+}

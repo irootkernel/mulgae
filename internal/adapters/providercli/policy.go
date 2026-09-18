@@ -5,11 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -20,7 +18,6 @@ import (
 type RuntimeSafetyPolicy struct {
 	family   CredentialSourceFamily
 	identity string
-	path     string
 	bytes    []byte
 }
 
@@ -64,6 +61,11 @@ type currentProbeDirectExecutionRoleProof struct {
 	ExecutableSHA256           string `json:"executable_sha256"`
 	Launcher                   string `json:"launcher"`
 	LauncherSHA256             string `json:"launcher_sha256"`
+	ApplicationVersion         string `json:"application_version,omitempty"`
+	ApplicationMetadata        string `json:"application_metadata,omitempty"`
+	ApplicationMetadataSHA256  string `json:"application_metadata_sha256,omitempty"`
+	ZCodeProviderConfig        string `json:"zcode_provider_config,omitempty"`
+	ZCodeProviderConfigSHA256  string `json:"zcode_provider_config_sha256,omitempty"`
 	ProfileID                  string `json:"profile_id"`
 	ProfileGeneration          string `json:"profile_generation"`
 	NamespaceGeneration        string `json:"namespace_generation"`
@@ -238,6 +240,8 @@ func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, obser
 	proof := currentProbeDirectExecutionRoleProof{
 		Family: definition.Family(), ProviderInstance: definition.Instance(), ProviderVersion: definition.Version(), ObservedVersion: observedVersion,
 		Executable: definition.Executable(), ExecutableSHA256: definition.ExecutableSHA256(), Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
+		ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
+		ZCodeProviderConfig: definition.ZCodeProviderConfig(), ZCodeProviderConfigSHA256: definition.ZCodeProviderConfigSHA256(),
 		ProfileID: definition.ProfileID(), ProfileGeneration: definition.ProfileGeneration(), NamespaceGeneration: namespaceGeneration, Role: string(fixture.Role()),
 		SnapshotManifestSHA256: snapshot.ManifestSHA256(), SnapshotName: snapshot.SnapshotName(), SnapshotPath: snapshot.SnapshotPath(), SnapshotPolicyIdentity: snapshot.PolicyIdentity(),
 		SnapshotDevice: snapshotDevice, SnapshotInode: snapshotInode, RootDevice: rootDevice, RootInode: rootInode,
@@ -308,13 +312,21 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 			(index > 0 && proof.Role == canonical[index-1].Role) {
 			return "", fmt.Errorf("current probe direct-execution authority: invalid or replayed role proof")
 		}
+		if proof.Family == FamilyZcode {
+			if !validCanonicalAbsolute(proof.ZCodeProviderConfig) || !validSHA256Identity(proof.ZCodeProviderConfigSHA256) ||
+				proof.ApplicationVersion == "" || !validCanonicalAbsolute(proof.ApplicationMetadata) || !validSHA256Identity(proof.ApplicationMetadataSHA256) {
+				return "", fmt.Errorf("current probe direct-execution authority: invalid ZCode provider config proof")
+			}
+		} else if proof.ZCodeProviderConfig != "" || proof.ZCodeProviderConfigSHA256 != "" || proof.ApplicationVersion != "" || proof.ApplicationMetadata != "" || proof.ApplicationMetadataSHA256 != "" {
+			return "", fmt.Errorf("current probe direct-execution authority: provider config proof family mismatch")
+		}
 		if proof.NativeReference == "" || !strings.HasPrefix(proof.NativeReference, "@") ||
 			!validRelativeNativeReference(strings.TrimPrefix(proof.NativeReference, "@")) {
 			return "", fmt.Errorf("current probe direct-execution authority: invalid native reference")
 		}
 	}
 	bytes, err := json.Marshal(currentProbeDirectExecutionAuthorityContract{
-		Domain: "Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/2", ExpiresUnixNano: expiresAt.UTC().UnixNano(), Proofs: canonical,
+		Domain: "Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/3", ExpiresUnixNano: expiresAt.UTC().UnixNano(), Proofs: canonical,
 	})
 	if err != nil {
 		return "", fmt.Errorf("current probe direct-execution authority: encode")
@@ -335,7 +347,7 @@ func cloneRuntimeSafetyPolicy(policy RuntimeSafetyPolicy) RuntimeSafetyPolicy {
 }
 
 func validRuntimeSafetyPolicy(policy RuntimeSafetyPolicy) bool {
-	if policy.identity == "" || !validCredentialSourceFamily(policy.family) || len(policy.bytes) == 0 || policy.path != "" {
+	if policy.identity == "" || !validCredentialSourceFamily(policy.family) || len(policy.bytes) == 0 {
 		return false
 	}
 	return policy.identity == runtimeSafetyPolicyWithIdentity(policy).identity
@@ -358,33 +370,8 @@ func (lease *namespaceLease) installRuntimeSafetyPolicy(policy RuntimeSafetyPoli
 	if lease.policy.identity != "" {
 		return fmt.Errorf("runtime safety policy: already installed")
 	}
-	if policy.path == "" {
-		lease.policy = policy
-		lease.policy.bytes = append([]byte(nil), policy.bytes...)
-		return nil
-	}
-	parent, err := lease.validateCredentialDirectory(policy.path)
-	if err != nil {
-		return fmt.Errorf("runtime safety policy: namespace drift")
-	}
-	path := filepath.Join(parent, filepath.Base(policy.path))
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
-	if err != nil {
-		return fmt.Errorf("runtime safety policy: install")
-	}
-	if count, err := file.Write(policy.bytes); err != nil || count != len(policy.bytes) || file.Sync() != nil || file.Close() != nil {
-		_ = file.Close()
-		_ = os.Remove(path)
-		return fmt.Errorf("runtime safety policy: install")
-	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() != int64(len(policy.bytes)) {
-		_ = os.Remove(path)
-		return fmt.Errorf("runtime safety policy: install")
-	}
 	lease.policy = policy
 	lease.policy.bytes = append([]byte(nil), policy.bytes...)
-	lease.policyInfo = info
 	return nil
 }
 
@@ -395,51 +382,5 @@ func (lease *namespaceLease) validateRuntimeSafetyPolicy() error {
 	if !validRuntimeSafetyPolicy(policy) {
 		return fmt.Errorf("runtime safety policy drift")
 	}
-	if policy.path == "" {
-		return nil
-	}
-	parent, err := lease.validateCredentialDirectory(policy.path)
-	if err != nil {
-		return fmt.Errorf("runtime safety policy drift")
-	}
-	path := filepath.Join(parent, filepath.Base(policy.path))
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() != int64(len(policy.bytes)) || !os.SameFile(lease.policyInfo, info) {
-		return fmt.Errorf("runtime safety policy drift")
-	}
-	bytes, err := os.ReadFile(path)
-	if err != nil || sha256.Sum256(bytes) != sha256.Sum256(policy.bytes) {
-		return fmt.Errorf("runtime safety policy drift")
-	}
-	return nil
-}
-
-func (lease *namespaceLease) zeroAndUnlinkRuntimeSafetyPolicy() error {
-	lease.policyMu.Lock()
-	defer lease.policyMu.Unlock()
-	if lease.policy.path == "" || lease.policyCleaned {
-		return nil
-	}
-	parent, err := lease.validateCredentialDirectory(lease.policy.path)
-	if err != nil {
-		return fmt.Errorf("runtime safety policy cleanup failed")
-	}
-	path := filepath.Join(parent, filepath.Base(lease.policy.path))
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || !os.SameFile(lease.policyInfo, info) {
-		return fmt.Errorf("runtime safety policy cleanup failed")
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return fmt.Errorf("runtime safety policy cleanup failed")
-	}
-	zeros := make([]byte, len(lease.policy.bytes))
-	_, writeErr := file.Write(zeros)
-	zeroBytes(zeros)
-	if writeErr != nil || file.Sync() != nil || file.Close() != nil || os.Remove(path) != nil {
-		_ = file.Close()
-		return fmt.Errorf("runtime safety policy cleanup failed")
-	}
-	lease.policyCleaned = true
 	return nil
 }

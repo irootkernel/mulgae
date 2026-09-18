@@ -36,20 +36,58 @@ test-int:
 
 test-release:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-release requires darwin/arm64" >&2; exit 1; }
-	@release_tmp="$$(mktemp -d)"; \
-	trap 'rm -rf "$$release_tmp"' EXIT; \
+	@release_base="$${TMPDIR:-/tmp}"; \
+	release_base="$$(cd "$$release_base" && pwd -P)" || exit 1; \
+	case "$$release_base" in /*) ;; *) exit 1;; esac; \
+	test "$$release_base" != / || exit 1; \
+	release_uid="$$(/usr/bin/id -u)" || exit 1; \
+	release_base_identity="$$(/usr/bin/stat -f '%u:%Lp' "$$release_base")" || exit 1; \
+	release_base_owner="$${release_base_identity%%:*}"; release_base_mode="$${release_base_identity#*:}"; \
+	if test "$$release_base_owner" = "$$release_uid" && test "$$((0$$release_base_mode & 022))" = 0; then :; \
+	elif test "$$release_base_owner" = 0 && test "$$((0$$release_base_mode & 01000))" != 0; then :; \
+	else exit 1; fi; \
+	release_tmp="$$(/usr/bin/mktemp -d "$${release_base%/}/mulgae-release.XXXXXX")" || exit 1; \
+	release_tmp="$$(cd "$$release_tmp" && pwd -P)" || exit 1; \
+	case "$$release_tmp" in "$$release_base"/mulgae-release.*) ;; *) exit 1;; esac; \
+	test "$$(dirname "$$release_tmp")" = "$$release_base" || exit 1; \
+	release_tmp_identity="$$(/usr/bin/stat -f '%d:%i:%u' "$$release_tmp")" || exit 1; \
+	release_tmp_mode="$$(/usr/bin/stat -f '%Lp' "$$release_tmp")" || exit 1; \
+	case "$$release_tmp_identity:$$release_tmp_mode" in *:"$$release_uid":700) ;; *) exit 1;; esac; \
 	release_gobin="$$release_tmp/bin"; \
-	mkdir -p "$$release_gobin"; \
-	release_commit="$$(git rev-parse HEAD)"; \
+	release_fixture_binary="$$release_tmp/mulgae-isolated-release-fixture"; \
+	release_fixture_home="$$release_fixture_binary.native-home"; \
+	release_gobin_owned=0; release_fixture_binary_owned=0; release_fixture_home_owned=0; \
+	release_tmp_matches() { test "$$(/usr/bin/stat -f '%d:%i:%u' "$$release_tmp" 2>/dev/null)" = "$$release_tmp_identity"; }; \
+	cleanup_release_tmp() { \
+		release_status=$$?; cleanup_status=0; \
+		if release_tmp_matches; then \
+			test "$$(/usr/bin/stat -f '%Lp' "$$release_tmp" 2>/dev/null)" = 700 || { cleanup_status=1; chmod 700 "$$release_tmp" 2>/dev/null || :; }; \
+			test "$$release_fixture_binary_owned" = 0 || { release_tmp_matches && /bin/rm -f "$$release_fixture_binary"; } || cleanup_status=1; \
+			test "$$release_fixture_home_owned" = 0 || { release_tmp_matches && /bin/rm -rf "$$release_fixture_home"; } || cleanup_status=1; \
+			test "$$release_gobin_owned" = 0 || { release_tmp_matches && /bin/rm -rf "$$release_gobin"; } || cleanup_status=1; \
+			release_tmp_matches && rmdir "$$release_tmp" 2>/dev/null || cleanup_status=1; \
+		else cleanup_status=1; fi; \
+		trap - EXIT; \
+		test "$$release_status" = 0 || exit "$$release_status"; \
+		exit "$$cleanup_status"; \
+	}; \
+	trap cleanup_release_tmp EXIT; \
+	test ! -e "$$release_gobin" && mkdir -m 700 "$$release_gobin" && release_gobin_owned=1 && \
+	test ! -e "$$release_fixture_home" && mkdir -m 700 "$$release_fixture_home" && release_fixture_home_owned=1 && \
+	test ! -e "$$release_fixture_binary" && release_fixture_binary_owned=1 && \
+	release_commit="$$(git rev-parse HEAD)" && \
+	release_ldflags="-X 'main.buildVersion=$(RELEASE_VERSION)' -X 'main.buildRevision=$$release_commit'" && \
 	GOBIN="$$release_gobin" $(GO) install -trimpath \
-		-ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$release_commit" .; \
+		-ldflags "$$release_ldflags" . && \
 	MULGAE_RELEASE_BINARY="$$release_gobin/mulgae" \
 		MULGAE_RELEASE_GOBIN="$$release_gobin" \
 		MULGAE_RELEASE_VERSION="$(RELEASE_VERSION)" \
 		MULGAE_RELEASE_REVISION="$$release_commit" \
 		$(GO) test -tags=releasecheck -count=1 ./internal/releasecheck && \
-	MULGAE_E2E_BINARY="$$release_gobin/mulgae" $(GO) test -count=1 \
-		-run '^(TestIntegrationReleaseBinaryComposesExactRecoveredReview|TestIntegrationReleaseBinaryRecoversCancelledRunThroughExactReruns)$$' ./test/e2e
+	release_fixture_ldflags="$$release_ldflags -X 'github.com/irootkernel/mulgae/internal/adapters/environment.buildNativeHomeOverride=$$release_fixture_home'" && \
+	$(GO) build -trimpath -ldflags "$$release_fixture_ldflags" -o "$$release_fixture_binary" . && \
+	MULGAE_E2E_BINARY="$$release_fixture_binary" $(GO) test -count=1 \
+		-run '^(TestIntegrationIsolatedReleaseFixtureComposesExactRecoveredReview|TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns)$$' ./test/e2e
 	@printf '%s\n' '[test-release] completed'
 
 test-e2e:
@@ -62,18 +100,19 @@ test-e2e:
 	MULGAE_E2E_BINARY="$$e2e_tmp/mulgae"; \
 	MULGAE_E2E_COMMIT="$$(git rev-parse HEAD)"; \
 	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$MULGAE_E2E_COMMIT" -o "$$MULGAE_E2E_BINARY" .; \
-	zcode_node="$${MULGAE_E2E_ZCODE_NODE_EXECUTABLE:-$$(command -v node)}"; \
-	test -n "$$zcode_node" && test -x "$$zcode_node" || { echo "test-e2e requires the ZCode Node executable" >&2; exit 1; }; \
-	case "$$zcode_node" in /*) ;; *) echo "test-e2e requires an absolute ZCode Node executable" >&2; exit 1;; esac; \
-	zcode_launcher="$${MULGAE_E2E_ZCODE_LAUNCHER:-/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs}"; \
+	zcode_app="$${MULGAE_E2E_ZCODE_APP_BUNDLE:-/Applications/ZCode.app}"; \
+	test -d "$$zcode_app" || { echo "test-e2e requires the ZCode app bundle" >&2; exit 1; }; \
+	case "$$zcode_app" in /*) ;; *) echo "test-e2e requires an absolute ZCode app bundle" >&2; exit 1;; esac; \
+	zcode_executable="$$zcode_app/Contents/MacOS/ZCode"; \
+	test -x "$$zcode_executable" || { echo "test-e2e requires the ZCode app runtime" >&2; exit 1; }; \
+	zcode_launcher="$$zcode_app/Contents/Resources/glm/zcode.cjs"; \
 	test -f "$$zcode_launcher" && test -r "$$zcode_launcher" || { echo "test-e2e requires the ZCode launcher" >&2; exit 1; }; \
-	case "$$zcode_launcher" in /*) ;; *) echo "test-e2e requires an absolute ZCode launcher" >&2; exit 1;; esac; \
 	grok_candidate="$${MULGAE_E2E_GROK_EXECUTABLE:-$$(command -v grok)}"; \
 	test -n "$$grok_candidate" && test -x "$$grok_candidate" || { echo "test-e2e requires the Grok executable" >&2; exit 1; }; \
 	grok_bin="$$(realpath "$$grok_candidate")"; \
 	case "$$grok_bin" in /*) ;; *) echo "test-e2e requires an absolute Grok executable" >&2; exit 1;; esac; \
 	if MULGAE_E2E_BINARY="$$MULGAE_E2E_BINARY" MULGAE_E2E_PROJECT_ROOT="$$e2e_project" \
-		MULGAE_E2E_ZCODE_NODE_EXECUTABLE="$$zcode_node" MULGAE_E2E_ZCODE_LAUNCHER="$$zcode_launcher" \
+		MULGAE_E2E_ZCODE_APP_BUNDLE="$$zcode_app" \
 		MULGAE_E2E_GROK_EXECUTABLE="$$grok_bin" \
 		$(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^Test(E2E|Live)' ./test/e2e; then \
@@ -83,7 +122,7 @@ test-e2e:
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \
 	fi; \
-	MULGAE_LIVE_ZCODE_NODE_BIN="$$zcode_node" MULGAE_LIVE_ZCODE_LAUNCHER="$$zcode_launcher" \
+	MULGAE_LIVE_ZCODE_APP_BUNDLE="$$zcode_app" \
 		MULGAE_LIVE_GROK_BIN="$$grok_bin" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestLive(ZCode|Grok)Capability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \

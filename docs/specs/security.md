@@ -143,7 +143,8 @@ Write authority is not uniform across families, and it is no longer accurate to
 say that no provider ever holds it.
 
 - ZCode review and qualification invocations speak the app-server protocol:
-  the adapter launches `[node, launcher, app-server]` and conducts one
+  the adapter launches the app-owned Electron runtime as
+  `[runtime, launcher, app-server, --stdio]` with `ELECTRON_RUN_AS_NODE=1` and conducts one
   newline-delimited protocol conversation over the child's stdin and stdout,
   replacing the former one-shot print invocation without a fallback. Review
   conversations request `yolo` mode with the adapter-owned denylist
@@ -240,6 +241,18 @@ credential or project location. Commit only the machine-path-free project
 policy at `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`,
 credentials, provider homes, any other `.mulgae/` artifacts, or exported review
 bundles.
+
+ZCode receives its descriptor-anchored legacy CLI config when present. Mulgae
+also converts that same source into ZCode's current personal-provider format
+inside the disposable home because app-server does not perform the standalone
+launcher's legacy import. Both projected files are mode `0600`, retain the
+source's identity and digest as spawn authority, and are zeroed and removed at
+terminal drain. A provider-created replacement is zeroed only when its opened
+descriptor proves that it is a single-link regular file on the namespace device
+with the namespace owner. Cleanup never writes through an unsafe replacement;
+it removes the namespace name and completes descriptor-anchored namespace
+teardown instead. Desktop credential stores, settings, history, logs, caches,
+and other ZCode runtime state are not projected.
 
 Codex authentication is copied from a descriptor-anchored credential home into
 the invocation's disposable `CODEX_HOME`. Legacy configuration uses native

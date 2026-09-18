@@ -150,7 +150,7 @@ func TestProductionRunPolicyRejectsGrokArtistBeforeRuntimeConstruction(t *testin
 		Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "grok-artist", Kind: adapterconfig.ProjectKindUI},
 		NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"},
 		Providers: adapterconfig.ProvidersConfig{
-			ZCode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/opt/zcode/launcher.cjs"},
+			ZCode: &adapterconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
 			Grok:  &adapterconfig.GrokProviderConfig{Executable: "/bin/grok"},
 		},
 		Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "readonly_snapshot"}, Roles: roles,
@@ -383,17 +383,17 @@ func TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation(t *testing.T
 	}
 }
 
-const compositionProjectConfig = `version: 3
+const compositionProjectConfig = `version: 4
 project: {name: "project"}
-providers: {agy: {}}
+providers: {grok: {}}
 execution: {workspace_access: "none"}
 roles:
-  logic: {enabled: true, primary_provider: "agy"}
-  security: {enabled: false, primary_provider: "agy"}
-  maintainability: {enabled: false, primary_provider: "agy"}
-  product: {enabled: false, primary_provider: "agy"}
-  documentation: {enabled: false, primary_provider: "agy"}
-  testing: {enabled: false, primary_provider: "agy"}
+  logic: {enabled: true, primary_provider: "grok"}
+  security: {enabled: false, primary_provider: "grok"}
+  maintainability: {enabled: false, primary_provider: "grok"}
+  product: {enabled: false, primary_provider: "grok"}
+  documentation: {enabled: false, primary_provider: "grok"}
+  testing: {enabled: false, primary_provider: "grok"}
 review: {required_roles: ["logic"], request_changes_on: ["high", "critical", "blocker"]}
 validation:
   evidence: {require_verified_for: ["high", "critical", "blocker"]}
@@ -402,10 +402,10 @@ resources: {max_active_lanes: 1, primary_repair_attempts: 1, role_max_invocation
 ci: {fail_on_severity: ["high", "critical", "blocker"], degraded_review_fails: true}
 `
 
-const compositionLocalConfig = `version: 3
+const compositionLocalConfig = `version: 4
 native_user: {home: "/Users/test"}
 providers:
-  agy: {executable: "/bin/agy"}
+  grok: {executable: "/bin/grok"}
 `
 
 func TestReviewCompositionConstructorFailureCleansTemporaryRoots(t *testing.T) {

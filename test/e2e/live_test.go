@@ -21,13 +21,15 @@ import (
 	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	environmentadapter "github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v10.schema.json"
+	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v11.schema.json"
 	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 )
@@ -35,8 +37,7 @@ const (
 type liveE2EEnvironment struct {
 	binary         string
 	nativeHome     string
-	zcodeNode      string
-	zcodeLauncher  string
+	zcodeAppBundle string
 	grokExecutable string
 }
 
@@ -265,7 +266,7 @@ func liveAutoInitArguments(environment liveE2EEnvironment) []string {
 	arguments := []string{
 		"init", "--providers", "auto",
 		"--roles", "logic,security",
-		"--zcode-node-executable", environment.zcodeNode, "--zcode-launcher", environment.zcodeLauncher,
+		"--zcode-app-bundle", environment.zcodeAppBundle,
 		"--grok-executable", environment.grokExecutable,
 	}
 	return append(arguments, "--output", "json")
@@ -292,7 +293,7 @@ func configureLiveMixedReview(t *testing.T, project string) {
 	config.Resources.RunMaxInvocations = 4
 	projectConfig, localConfig, err := adapterconfig.EncodeSplit(config)
 	if err != nil {
-		t.Fatalf("encode mixed-review Config v3 pair: %v", err)
+		t.Fatalf("encode mixed-review Config v4 pair: %v", err)
 	}
 	writeLiveExistingConfig(t, filepath.Join(project, ".mulgae", "config.yaml"), projectConfig)
 	writeLiveExistingConfig(t, filepath.Join(project, ".mulgae", "local.yaml"), localConfig)
@@ -324,10 +325,13 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 		t.Fatalf("native installed-user HOME is unavailable: %v", err)
 	}
 	binary := requireLiveExecutable(t, "MULGAE_E2E_BINARY", "")
-	zcodeNode := requireLiveExecutable(t, "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", lookupLiveExecutable(t, "node"))
-	zcodeLauncher := requireLiveExecutable(t, "MULGAE_E2E_ZCODE_LAUNCHER", "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs")
+	zcodeAppBundle := requireLiveDirectory(t, "MULGAE_E2E_ZCODE_APP_BUNDLE", "/Applications/ZCode.app")
+	profile, discoverErr := reviewrun.DiscoverProviderProfileWithOverride(context.Background(), environmentadapter.NewInspector(), reviewrun.FamilyZCode, zcodeAppBundle)
+	if discoverErr != nil || profile.Executable() == "" || profile.Launcher() == "" || profile.ZCodeProviderConfig() == "" {
+		t.Fatalf("ZCode production discovery failed: reason=%q error=%v", profile.Reason(), discoverErr)
+	}
 	grokExecutable := requireLiveExecutable(t, "MULGAE_E2E_GROK_EXECUTABLE", lookupLiveExecutable(t, "grok"))
-	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeNode: zcodeNode, zcodeLauncher: zcodeLauncher, grokExecutable: grokExecutable}
+	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeAppBundle: zcodeAppBundle, grokExecutable: grokExecutable}
 }
 
 func requireLiveExecutable(t *testing.T, environmentName, fallback string) string {
@@ -1317,7 +1321,14 @@ func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	}
 	eligible := map[string]bool{}
 	for _, row := range doctor.ProviderInventory {
-		if row.State == "eligible" && (row.Reason == "provider_cli_version_supported" || row.Reason == "provider_cli_version_newer_than_verified") {
+		if row.State != "eligible" {
+			continue
+		}
+		reasonAccepted := row.Reason == "provider_cli_version_supported" || row.Reason == "provider_cli_version_newer_than_verified"
+		if row.Family == "zcode" {
+			reasonAccepted = row.Reason == "zcode_application_version_supported" || row.Reason == "zcode_application_version_newer_than_verified"
+		}
+		if reasonAccepted {
 			eligible[row.Family] = true
 		}
 	}
@@ -1425,5 +1436,5 @@ func liveAttemptsForRole(attempts []liveAttempt, role string) []liveAttempt {
 }
 
 func (environment liveE2EEnvironment) String() string {
-	return fmt.Sprintf("Mulgae=%s HOME=%s ZCode=%s/%s", environment.binary, environment.nativeHome, environment.zcodeNode, environment.zcodeLauncher)
+	return fmt.Sprintf("Mulgae=%s HOME=%s ZCode.app=%s", environment.binary, environment.nativeHome, environment.zcodeAppBundle)
 }

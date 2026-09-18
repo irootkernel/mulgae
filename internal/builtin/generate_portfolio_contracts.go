@@ -26,7 +26,7 @@ func main() {
 	}
 	assets := filepath.Join(filepath.Dir(filename), "assets")
 	pairs := []contractPair{
-		{"schemas/mulgae-doctor-result.v3.schema.json", "schemas/mulgae-doctor-result.v4.schema.json", "examples/doctor-result.v3.valid.json", "examples/doctor-result.v4.valid.json", "mulgae-doctor-result.v3", "mulgae-doctor-result.v4"},
+		{"schemas/mulgae-doctor-result.v4.schema.json", "schemas/mulgae-doctor-result.v5.schema.json", "examples/doctor-result.v4.valid.json", "examples/doctor-result.v5.valid.json", "mulgae-doctor-result.v4", "mulgae-doctor-result.v5"},
 		{"schemas/mulgae-provider-contract-evidence.v3.schema.json", "schemas/mulgae-provider-contract-evidence.v4.schema.json", "examples/provider-contract-evidence.v3.valid.json", "examples/provider-contract-evidence.v4.valid.json", "mulgae-provider-contract-evidence.v3", "mulgae-provider-contract-evidence.v4"},
 		{"schemas/mulgae-provider-heartbeat-result.v2.schema.json", "schemas/mulgae-provider-heartbeat-result.v3.schema.json", "examples/provider-heartbeat-result.v2.valid.json", "examples/provider-heartbeat-result.v3.valid.json", "mulgae-provider-heartbeat-result.v2", "mulgae-provider-heartbeat-result.v3"},
 		{"schemas/mulgae-review-preflight.v4.schema.json", "schemas/mulgae-review-preflight.v5.schema.json", "examples/review-preflight.v4.valid.json", "examples/review-preflight.v5.valid.json", "mulgae-review-preflight.v4", "mulgae-review-preflight.v5"},
@@ -37,7 +37,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	commandPair := contractPair{"schemas/mulgae-command-result.v9.schema.json", "schemas/mulgae-command-result.v10.schema.json", "examples/command-result.v9.valid.json", "examples/command-result.v10.valid.json", "mulgae-command-result.v9", "mulgae-command-result.v10"}
+	commandPair := contractPair{"schemas/mulgae-command-result.v10.schema.json", "schemas/mulgae-command-result.v11.schema.json", "examples/command-result.v10.valid.json", "examples/command-result.v11.valid.json", "mulgae-command-result.v10", "mulgae-command-result.v11"}
 	if err := updateFileCatalog(assets, append(pairs, commandPair)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -136,6 +136,9 @@ func generatePair(root string, pair contractPair) error {
 			return fmt.Errorf("portfolio contract generator: decode %s: %w", item.source, err)
 		}
 		document = transformPortfolio(document, pair.oldVersion, pair.newVersion, item.schema)
+		if pair.newVersion == "mulgae-doctor-result.v5" {
+			addDoctorApplicationCompatibility(document, item.schema)
+		}
 		if !item.schema && pair.exampleTarget == "examples/provider-contract-evidence.v4.valid.json" {
 			normalizeProviderEvidenceExample(document)
 		}
@@ -149,6 +152,41 @@ func generatePair(root string, pair contractPair) error {
 		}
 	}
 	return nil
+}
+
+func addDoctorApplicationCompatibility(document any, schema bool) {
+	if schema {
+		root := document.(map[string]any)
+		root["title"] = "Mulgae Project-local Doctor Result v5"
+		definitions := root["$defs"].(map[string]any)
+		provider := definitions["provider"].(map[string]any)
+		properties := provider["properties"].(map[string]any)
+		properties["application_compatible"] = map[string]any{"$ref": "#/$defs/cli_compatibility"}
+		required := provider["required"].([]any)
+		provider["required"] = append(required, "application_compatible")
+		return
+	}
+	root := document.(map[string]any)
+	providers := root["provider_inventory"].([]any)
+	for _, item := range providers {
+		provider := item.(map[string]any)
+		compatibility := map[string]any{
+			"status": "not_applicable", "observed_version": "", "eligibility": "not_evaluated", "compatibility": "not_observed",
+			"minimum_version": "", "verified_latest": "", "reason_code": "",
+		}
+		if provider["family"] == "zcode" && provider["configured"] == true {
+			provider["cli_compatible"] = map[string]any{
+				"status": "verified", "observed_version": "0.16.5", "eligibility": "eligible", "compatibility": "verified",
+				"minimum_version": "0.16.5", "verified_latest": "0.16.5", "reason_code": "provider_cli_version_supported",
+			}
+			compatibility = map[string]any{
+				"status": "verified", "observed_version": "3.12.3", "eligibility": "eligible", "compatibility": "verified",
+				"minimum_version": "3.12.3", "verified_latest": "3.12.3", "reason_code": "zcode_application_version_supported",
+			}
+			provider["reason"] = "zcode_application_version_supported"
+		}
+		provider["application_compatible"] = compatibility
+	}
 }
 
 func transformPortfolio(value any, oldVersion, newVersion string, schema bool) any {
@@ -196,7 +234,7 @@ func transformPortfolio(value any, oldVersion, newVersion string, schema bool) a
 	case string:
 		result := strings.ReplaceAll(typed, oldVersion, newVersion)
 		for old, next := range map[string]string{
-			"mulgae-doctor-result.v3":              "mulgae-doctor-result.v4",
+			"mulgae-doctor-result.v4":              "mulgae-doctor-result.v5",
 			"mulgae-provider-contract-evidence.v3": "mulgae-provider-contract-evidence.v4",
 			"mulgae-provider-heartbeat-result.v2":  "mulgae-provider-heartbeat-result.v3",
 			"mulgae-review-preflight.v4":           "mulgae-review-preflight.v5",

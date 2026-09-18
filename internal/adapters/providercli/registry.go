@@ -4,6 +4,7 @@ package providercli
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -91,6 +92,9 @@ func (t RuntimeTransport) validate() error {
 type RuntimeDefinition struct {
 	family, instance, version, executable, executableSHA256 string
 	launcher, launcherSHA256, profileGeneration             string
+	zcodeProviderConfig, zcodeProviderConfigSHA256          string
+	applicationVersion, applicationMetadata                 string
+	applicationMetadataSHA256                               string
 	runtimeSafetyPolicyIdentity                             string
 	codexModel                                              string
 	codexReasoningEffort                                    string
@@ -184,6 +188,7 @@ func NewProductionRuntimeDefinition(
 // executable and launcher, and a profile generation.
 func NewProductionRuntimeDefinitionWithTransport(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
+	zcodeProviderConfig, zcodeProviderConfigSHA256 string,
 	profileID, profileGeneration string, baseArgv []string,
 	transport RuntimeTransport, environment []ports.EnvironmentVariable, workingDirectory string,
 	timeout time.Duration,
@@ -197,6 +202,8 @@ func NewProductionRuntimeDefinitionWithTransport(
 	}
 	definition.launcher = launcher
 	definition.launcherSHA256 = launcherSHA256
+	definition.zcodeProviderConfig = zcodeProviderConfig
+	definition.zcodeProviderConfigSHA256 = zcodeProviderConfigSHA256
 	definition.profileGeneration = profileGeneration
 	definition.requiresWorkspaceAuthority = true
 	definition.requiresSpawnVerification = true
@@ -211,6 +218,7 @@ func NewProductionRuntimeDefinitionWithTransport(
 // production profile bound to one immutable runtime safety policy identity.
 func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 	family, instance, version, executable, executableSHA256, launcher, launcherSHA256 string,
+	zcodeProviderConfig, zcodeProviderConfigSHA256 string,
 	profileID, profileGeneration, runtimeSafetyPolicyIdentity string,
 	baseArgv []string, transport RuntimeTransport, environment []ports.EnvironmentVariable,
 	workingDirectory string, timeout time.Duration,
@@ -220,6 +228,7 @@ func NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 	}
 	definition, err := NewProductionRuntimeDefinitionWithTransport(
 		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
+		zcodeProviderConfig, zcodeProviderConfigSHA256,
 		profileID, profileGeneration, baseArgv, transport, environment,
 		workingDirectory, timeout,
 	)
@@ -240,6 +249,7 @@ func NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
 ) (RuntimeDefinition, error) {
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		family, instance, version, executable, executableSHA256, launcher, launcherSHA256,
+		"", "",
 		profileID, profileGeneration, runtimeSafetyPolicyIdentity, baseArgv, transport,
 		environment, workingDirectory, timeout,
 	)
@@ -254,15 +264,20 @@ func NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
 	return definition, nil
 }
 
-func (d RuntimeDefinition) Family() string            { return d.family }
-func (d RuntimeDefinition) Instance() string          { return d.instance }
-func (d RuntimeDefinition) Version() string           { return d.version }
-func (d RuntimeDefinition) Executable() string        { return d.executable }
-func (d RuntimeDefinition) ExecutableSHA256() string  { return d.executableSHA256 }
-func (d RuntimeDefinition) ProfileID() string         { return d.profileID }
-func (d RuntimeDefinition) Launcher() string          { return d.launcher }
-func (d RuntimeDefinition) LauncherSHA256() string    { return d.launcherSHA256 }
-func (d RuntimeDefinition) ProfileGeneration() string { return d.profileGeneration }
+func (d RuntimeDefinition) Family() string                    { return d.family }
+func (d RuntimeDefinition) Instance() string                  { return d.instance }
+func (d RuntimeDefinition) Version() string                   { return d.version }
+func (d RuntimeDefinition) Executable() string                { return d.executable }
+func (d RuntimeDefinition) ExecutableSHA256() string          { return d.executableSHA256 }
+func (d RuntimeDefinition) ProfileID() string                 { return d.profileID }
+func (d RuntimeDefinition) Launcher() string                  { return d.launcher }
+func (d RuntimeDefinition) LauncherSHA256() string            { return d.launcherSHA256 }
+func (d RuntimeDefinition) ZCodeProviderConfig() string       { return d.zcodeProviderConfig }
+func (d RuntimeDefinition) ZCodeProviderConfigSHA256() string { return d.zcodeProviderConfigSHA256 }
+func (d RuntimeDefinition) ApplicationVersion() string        { return d.applicationVersion }
+func (d RuntimeDefinition) ApplicationMetadata() string       { return d.applicationMetadata }
+func (d RuntimeDefinition) ApplicationMetadataSHA256() string { return d.applicationMetadataSHA256 }
+func (d RuntimeDefinition) ProfileGeneration() string         { return d.profileGeneration }
 func (d RuntimeDefinition) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
@@ -333,8 +348,15 @@ func (d RuntimeDefinition) validate() error {
 			if len(d.baseArgv) < 2 || d.baseArgv[1] != d.launcher {
 				return fmt.Errorf("zcode base argv must contain launcher")
 			}
+			if !validCanonicalAbsolute(d.zcodeProviderConfig) || !validSHA256Identity(d.zcodeProviderConfigSHA256) ||
+				!hasExactEnvironmentVariable(d.environment, "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", d.zcodeProviderConfig) ||
+				!hasExactEnvironmentVariable(d.environment, "ELECTRON_RUN_AS_NODE", "1") {
+				return fmt.Errorf("zcode provider config identity is incomplete")
+			}
 		} else if d.launcher != d.executable || d.launcherSHA256 != d.executableSHA256 {
 			return fmt.Errorf("direct launcher identity must equal executable identity")
+		} else if d.zcodeProviderConfig != "" || d.zcodeProviderConfigSHA256 != "" || hasZCodeProviderConfigEnvironment(d.environment) || hasEnvironmentVariable(d.environment, "ELECTRON_RUN_AS_NODE") {
+			return fmt.Errorf("zcode provider config is bound to another family")
 		}
 	}
 	if d.hasPostOutputLifecycle || d.postOutputLifecycle.Valid() {
@@ -356,6 +378,46 @@ func (d RuntimeDefinition) validate() error {
 		return fmt.Errorf("protocol transport and driver authority must be paired")
 	}
 	return nil
+}
+
+func validSHA256Identity(value string) bool {
+	if !strings.HasPrefix(value, "sha256:") || len(value) != len("sha256:")+64 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
+	return err == nil && value == strings.ToLower(value)
+}
+
+func hasExactEnvironmentVariable(environment []ports.EnvironmentVariable, name, value string) bool {
+	count := 0
+	for _, variable := range environment {
+		if variable.Name() == name {
+			count++
+			if variable.Value() != value {
+				return false
+			}
+		}
+	}
+	return count == 1
+}
+
+func hasEnvironmentVariable(environment []ports.EnvironmentVariable, name string) bool {
+	for _, variable := range environment {
+		if variable.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasZCodeProviderConfigEnvironment(environment []ports.EnvironmentVariable) bool {
+	for _, variable := range environment {
+		switch variable.Name() {
+		case "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", "ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE", "ZCODE_PERSONAL_PROVIDER_CONFIG_FILE":
+			return true
+		}
+	}
+	return false
 }
 
 type definition RuntimeDefinition
@@ -398,6 +460,14 @@ func (namespace retainedQualificationNamespace) Generation() string {
 
 func (namespace retainedQualificationNamespace) Environment() []ports.EnvironmentVariable {
 	return namespace.lease.Environment()
+}
+
+func (namespace retainedQualificationNamespace) zcodeSessionSelection() *zcodeModelSelection {
+	authority, ok := namespace.lease.(zcodeSessionSelectionAuthority)
+	if !ok {
+		return nil
+	}
+	return authority.zcodeSessionSelection()
 }
 
 func (namespace retainedQualificationNamespace) RuntimeSafetyPolicyIdentity() string {
@@ -867,11 +937,57 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		processObservation, conversationEvidence, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment(), invocation.Purpose(), staging)
 	}
 	if runErr != nil {
-		if errors.Is(runErr, context.Canceled) && processObservation.Valid() &&
-			processObservation.Termination() == ports.ProcessTerminationCancelled {
+		// Boundary and cleanup failures describe a compromised observation and
+		// outrank the process's concurrent cancellation or timeout termination.
+		// Ordinary protocol/exchange failures still yield to the coherent process
+		// interruption below so session evidence is retained.
+		cause, cleanupCause := providerRunCauses(runErr)
+		failureStatus, _ := providerFailureProjection(cause)
+		protectedFailure := failureStatus == ports.ProviderExecutionStatusSecurityViolation || cleanupCause != ""
+		if processObservation.Valid() && !protectedFailure {
+			switch processObservation.Termination() {
+			case ports.ProcessTerminationCancelled:
+				return failedProviderObservationWithRetainedSession(
+					ports.ProviderExecutionStatusCancelled, invocation, processObservation, runErr,
+					"process_cancelled", domain.DiagnosticCauseProviderExecutionFailed,
+				)
+			case ports.ProcessTerminationTimedOut:
+				return failedProviderObservationWithRetainedSession(
+					ports.ProviderExecutionStatusTimedOut, invocation, processObservation, runErr,
+					"process_timeout", domain.DiagnosticCauseTimedOut,
+				)
+			}
+		}
+		var configurationFailure *domain.Failure
+		if errors.As(runErr, &configurationFailure) && configurationFailure.Class() == domain.FailureConfiguration &&
+			configurationFailure.Stage() == "zcode_model_selection" && processObservation.Valid() {
+			var conversationFailure interface {
+				SessionObservation() ports.ProviderSessionObservation
+			}
+			if errors.As(runErr, &conversationFailure) && conversationFailure.SessionObservation().Valid() {
+				observation, observationErr := ports.NewFailedProtocolProviderExecutionObservationWithCause(
+					ports.ProviderExecutionStatusConfigurationViolation, invocation, processObservation,
+					conversationFailure.SessionObservation(), "zcode_model_selection",
+					domain.DiagnosticCauseObservationInvalid, "",
+				)
+				if observationErr != nil {
+					invariant, invariantErr := ports.NewProviderObservationInvariantError(
+						ports.ProviderExecutionStatusConfigurationViolation,
+						domain.DiagnosticCauseObservationInvalid,
+						processObservation,
+						conversationFailure.SessionObservation(),
+						observationErr,
+					)
+					if invariantErr != nil {
+						return ports.ProviderExecutionObservation{}, invariantErr
+					}
+					return ports.ProviderExecutionObservation{}, invariant
+				}
+				return observation, nil
+			}
 			return ports.NewFailedProviderExecutionObservationWithCause(
-				ports.ProviderExecutionStatusCancelled, invocation, processObservation,
-				"process_cancelled", domain.DiagnosticCauseProviderExecutionFailed, "",
+				ports.ProviderExecutionStatusConfigurationViolation, invocation, processObservation,
+				"zcode_model_selection", domain.DiagnosticCauseObservationInvalid, "",
 			)
 		}
 		var protocolFailure protocolDiagnosticFailure
@@ -902,7 +1018,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			}
 			return ports.NewFailedProviderExecutionObservationWithCause(status, invocation, processObservation, diagnostic, cause, "")
 		}
-		cause, cleanupCause := providerRunCauses(runErr)
+		cause, cleanupCause = providerRunCauses(runErr)
 		status, diagnostic := providerFailureProjection(cause)
 		var processFailure *ports.ProcessExecutionError
 		if !errors.As(runErr, &processFailure) {
@@ -1002,6 +1118,34 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	return ports.NewFailedProviderExecutionObservationWithCause(
 		status, invocation, processObservation, diagnostic, cause, "",
 	)
+}
+
+func failedProviderObservationWithRetainedSession(
+	status ports.ProviderExecutionStatus,
+	invocation ports.ProviderInvocation,
+	process ports.ProcessObservation,
+	runErr error,
+	diagnostic string,
+	cause domain.RuntimeDiagnosticCause,
+) (ports.ProviderExecutionObservation, error) {
+	var conversationFailure interface {
+		SessionObservation() ports.ProviderSessionObservation
+	}
+	if errors.As(runErr, &conversationFailure) && conversationFailure.SessionObservation().Valid() {
+		session := conversationFailure.SessionObservation()
+		observation, observationErr := ports.NewFailedProtocolProviderExecutionObservationWithCause(
+			status, invocation, process, session, diagnostic, cause, "",
+		)
+		if observationErr == nil {
+			return observation, nil
+		}
+		invariant, invariantErr := ports.NewProviderObservationInvariantError(status, cause, process, session, observationErr)
+		if invariantErr != nil {
+			return ports.ProviderExecutionObservation{}, invariantErr
+		}
+		return ports.ProviderExecutionObservation{}, invariant
+	}
+	return ports.NewFailedProviderExecutionObservationWithCause(status, invocation, process, diagnostic, cause, "")
 }
 
 func completeProcessStdout(ctx context.Context, observation ports.ProcessObservation) ([]byte, error) {
@@ -1179,7 +1323,11 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("provider registry: process runner cannot converse"))
 	}
-	session, err := definition.protocolDriver.NewSession(request.WorkingDirectory(), packet.Bytes(), protocolPurposeForReview(purpose), writeAuthority)
+	configuration, err := protocolConfigurationForNamespace(definition.family, r.namespaces[definition.instance])
+	if err != nil {
+		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
+	}
+	session, err := definition.protocolDriver.NewSession(request.WorkingDirectory(), packet.Bytes(), protocolPurposeForReview(purpose), writeAuthority, configuration)
 	if err != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}

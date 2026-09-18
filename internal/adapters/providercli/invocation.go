@@ -89,9 +89,6 @@ var zcodeReviewProtocolDenylist = []string{"Bash", "Edit", "NotebookEdit", "WebS
 // bounded. Workspace-selective read is exercised on review invocations.
 var zcodeCapabilityProtocolDenylist = []string{"*"}
 
-// zcodeProtocolServerArgv is the complete argv of the ZCode app-server: the
-// protocol needs no stdio flags because the server speaks newline-delimited
-// JSON on its standard pipes by default.
 const zcodeProtocolServerArgument = "app-server"
 
 // appendZcodeProtocolServerArgv builds the ZCode review and qualification
@@ -99,7 +96,7 @@ const zcodeProtocolServerArgument = "app-server"
 // argv never carries the prompt or tool policy.
 func appendZcodeProtocolServerArgv(argv []string) []string {
 	result := append([]string(nil), argv...)
-	return append(result, zcodeProtocolServerArgument)
+	return append(result, zcodeProtocolServerArgument, "--stdio")
 }
 
 func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {

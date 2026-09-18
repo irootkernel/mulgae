@@ -20,8 +20,9 @@ provider families:
 - Grok CLI
 - Codex CLI
 
-The default `mulgae init` topology requires authenticated ZCode and Grok
-installations and assigns every default role to ZCode. Codex remains available
+The default `mulgae init` topology requires a ZCode app bundle with an API-key
+personal provider and an authenticated Grok installation, and assigns every
+default role to ZCode. Codex remains available
 through explicit `--providers codex` selection. Mulgae records
 provider identity and capabilities at runtime and fails closed when a required
 capability is unavailable. Other operating systems, architectures, and provider
@@ -93,55 +94,36 @@ for every profile rather than a wrapper that rewrites `CODEX_HOME`.
 ### Use ZCode from Mulgae
 
 ZCode is distributed as a macOS app rather than as a `zcode` executable on
-`PATH`. Mulgae runs the app's bundled launcher with Node.js, so no wrapper or
-symlink is required. Install Node.js and ZCode, sign in through the ZCode app,
-then verify the two components:
-
-```bash
-zcode_node="$(command -v node)"
-zcode_launcher="/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
-
-test -n "$zcode_node"
-test -x "$zcode_node"
-test -r "$zcode_launcher"
-"$zcode_node" "$zcode_launcher" --version
-"$zcode_node" "$zcode_launcher" doctor
-```
-
-The bundled launcher uses ZCode's shared login state. With the standard app
-location, `mulgae init` discovers the Node.js executable from its startup
-`PATH` and the launcher automatically:
+`PATH`. Mulgae runs the app's own Electron runtime and bundled app-server
+launcher, so a separate Node.js installation, wrapper, or symlink is not
+required. Install ZCode and configure at least one API-key personal provider in
+`~/.zcode/cli/config.json`. ZCode app 3.12.3 is the minimum and currently
+verified app release; newer app versions remain eligible but are reported as
+newer than verified. Its bundled launcher reports protocol version 0.16.5,
+which has its own independent minimum and verified-latest value. Then initialize Mulgae:
 
 ```bash
 mulgae init --providers zcode
 mulgae providers --include-unverified
 ```
 
-Use explicit absolute paths when Node.js or the ZCode app is installed
-elsewhere:
+The standard app location is `/Applications/ZCode.app`. If the app is installed
+elsewhere, provide its canonical absolute bundle path:
 
 ```bash
 mulgae init --providers zcode \
-  --zcode-node-executable "$(command -v node)" \
-  --zcode-launcher "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
+  --zcode-app-bundle "/path/to/ZCode.app"
 ```
 
-#### Set ZCode reasoning effort to max
-
-Mulgae's ZCode adapter does not set reasoning effort for each invocation.
-Headless reviews inherit ZCode's per-user reasoning preference, so set it to
-`max` before using ZCode with Mulgae. In the ZCode app, select `max` for
-**Thought Level**, or enter these slash commands in a ZCode conversation:
-
-```text
-/effort max
-/effort
-```
-
-The second command should report `Current reasoning effort: max.` ZCode
-persists this as a user-level preference. Mulgae does not currently enforce or
-verify the value, so check it again after reinstalling or updating ZCode, or
-after changing the reasoning setting in another ZCode session.
+Mulgae derives the app runtime and launcher from that bundle, binds their exact
+identities and the bundled provider config, and invokes app-server with
+`ELECTRON_RUN_AS_NODE=1`. The certified provider catalog is
+`Contents/Resources/config/provider/zcode-builtin.json`. For a live invocation,
+it copies the legacy ZCode user config into a disposable home and materializes
+the current personal-provider format that app-server requires.
+It validates that the selected provider and model were imported, then applies
+that selection before sending the review prompt. Desktop and account sign-in
+state is not projected into the disposable review home.
 
 ### Use Grok from Mulgae
 
@@ -194,7 +176,7 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
-`doctor --output json` returns `mulgae-doctor-result.v4`. It checks Config v3,
+`doctor --output json` returns `mulgae-doctor-result.v5`. It checks Config v4,
 project-local security, provider and role identities, exact executable/launcher
 availability, and adapter-owned local CLI version compatibility. The only
 provider process it may run is the fixed `--version` command; it does not
@@ -202,6 +184,8 @@ authenticate, send a prompt or source, contact a provider API, create a review
 run, or start MCP. Versions above the latest verified version remain eligible
 but are reported as `newer_than_verified`. Static-admission evidence and review
 qualification do not gate this offline readiness.
+The v5 result retains the v4 JSON member name `config_v3` for compatibility;
+that member evaluates the currently supported Config v4 pair.
 
 `providers --output json` reports `offline_ready_provider_count` separately
 from `static_evidence_ready_provider_count`. A missing static-evidence source
@@ -257,9 +241,15 @@ command to run it again on a provider you choose.
 
 Earlier config versions, including v1 fallback-provider files and Config v2,
 are rejected rather than partially interpreted. Back up the old private file and
-initialize Config v3 deliberately; Mulgae does not migrate it automatically.
+initialize Config v4 deliberately; Mulgae does not migrate it automatically.
+For a Config v3 ZCode setup, change the shared and local `version` fields to
+`4`, remove `providers.zcode.node_executable` and
+`providers.zcode.launcher` from `local.yaml`, and set
+`providers.zcode.app_bundle` to the app bundle that contains them. The standard
+value is `/Applications/ZCode.app`. Run `mulgae init --refresh-local` only after
+the shared file is already a valid Config v4 policy.
 
-`mulgae init` creates Config v3 as two authorities: the shareable project policy
+`mulgae init` creates Config v4 as two authorities: the shareable project policy
 at `.mulgae/config.yaml` and machine-local paths at `.mulgae/local.yaml`. It
 never overwrites an existing complete configuration. On a clone that already
 contains the project policy, `mulgae init` discovers the configured provider
@@ -281,9 +271,10 @@ out of Git with these root-anchored rules:
 Then commit `.gitignore` and `.mulgae/config.yaml`. The shared file carries
 roles, provider families and models, timeouts, review/validation policy,
 resource budgets, and CI policy. It never contains credentials, the native user
-home, provider executables, launchers, or provider data-home paths. Those remain
-in the mode-`0600` `.mulgae/local.yaml`, so collaborators share review policy
-without assuming identical account names or installation paths.
+home, provider executables, ZCode app-bundle paths, or Codex credential-home
+paths. Those remain in the mode-`0600` `.mulgae/local.yaml`, so collaborators
+share review policy without assuming identical account names or installation
+paths.
 
 After cloning, run `mulgae init` once to create `.mulgae/local.yaml`. If the
 shared provider set changes or local installations move, explicitly refresh
@@ -297,7 +288,7 @@ mulgae config --mode provenance
 `--refresh-local` preserves `.mulgae/config.yaml` and atomically replaces only
 the admitted local file. It accepts machine-path overrides but rejects project
 policy options. Earlier config versions are not migrated or read: back them up,
-remove the old private configuration, and initialize Config v3 deliberately.
+remove the old private configuration, and initialize Config v4 deliberately.
 
 Every review command requires exactly one target:
 

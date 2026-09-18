@@ -82,7 +82,8 @@ func (failure ProviderQualificationFailure) validate() error {
 		string(domain.FailureCancelled),
 		"qualification_failed",
 		"qualification_invalid",
-		"version_incompatible":
+		"version_incompatible",
+		"application_version_incompatible":
 		return nil
 	default:
 		return fmt.Errorf("review run: invalid provider qualification reason")

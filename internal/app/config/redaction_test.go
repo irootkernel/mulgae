@@ -10,7 +10,7 @@ import (
 
 func TestRedactionOmitsExecutableAndNativePaths(t *testing.T) {
 	roles, _ := appconfig.CanonicalRolesConfig(testRoleDefaults(), []string{"zcode"})
-	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{ZCode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/secret/bin", Launcher: "/secret/launcher"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}}, Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12}}
+	raw := adapterconfig.Config{Version: adapterconfig.ConfigVersion, Providers: adapterconfig.ProvidersConfig{ZCode: &adapterconfig.ZCodeProviderConfig{AppBundle: "/secret/ZCode.app"}}, Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"}, Roles: roles, Review: adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security"}}, Resources: adapterconfig.ResourcesConfig{RoleMaxInvocations: 2, RunMaxInvocations: 12}}
 	resolved, err := appconfig.ResolveConfiguration(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestRedactionProjectsStructuredExtractionPolicy(t *testing.T) {
 		raw := adapterconfig.Config{
 			Version: adapterconfig.ConfigVersion,
 			Providers: adapterconfig.ProvidersConfig{
-				ZCode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/app/zcode.cjs"},
+				ZCode: &adapterconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
 			},
 			Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "none"},
 			Roles:     roles,

@@ -9,6 +9,7 @@ Draft 2020-12 and a canonical
 
 | Schema | Valid example |
 |---|---|
+| `mulgae-command-result.v11` | `../examples/command-result.v11.valid.json` |
 | `mulgae-command-result.v9` | `../examples/command-result.v9.valid.json` |
 | `mulgae-command-result.v10` | `../examples/command-result.v10.valid.json` |
 | `mulgae-command-result.v8` | `../examples/command-result.v8.valid.json` |
@@ -25,6 +26,7 @@ Draft 2020-12 and a canonical
 | `mulgae-command-result.v6` | `../examples/command-result.v6.valid.json` |
 | `mulgae-doctor-result.v3` | `../examples/doctor-result.v3.valid.json` |
 | `mulgae-doctor-result.v4` | `../examples/doctor-result.v4.valid.json` |
+| `mulgae-doctor-result.v5` | `../examples/doctor-result.v5.valid.json` |
 | `mulgae-doctor-result.v2` | `../examples/doctor-result.v2.valid.json` |
 | `mulgae-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` |
 | `mulgae-file-catalog.v1` | `../examples/file-catalog.v1.valid.json` |
@@ -54,7 +56,7 @@ contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a future schema version. Command-result v5 through v8
-schemas remain available for explicit backward reads while commands emit v9.
+Breaking changes require a future schema version. Command-result v5 through v10
+schemas remain available for explicit backward reads while commands emit v11.
 Published review, run-manifest, and composite v1 contracts remain readable
 alongside the v2 contracts for recovery-derived artifacts.

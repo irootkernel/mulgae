@@ -192,6 +192,7 @@ type schemaExamplePair struct {
 }
 
 var authoritativePairs = []schemaExamplePair{
+	{"https://mulgae.local/schemas/mulgae-command-result.v11.schema.json", "example:command-result.v11.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v10.schema.json", "example:command-result.v10.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v9.schema.json", "example:command-result.v9.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v8.schema.json", "example:command-result.v8.valid.json"},
@@ -208,6 +209,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-command-result.v5.schema.json", "example:command-result.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v6.schema.json", "example:command-result.v6.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v4.schema.json", "example:doctor-result.v4.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-doctor-result.v5.schema.json", "example:doctor-result.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v3.schema.json", "example:doctor-result.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "example:doctor-result.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "example:export-manifest.v1.valid.json"},

@@ -25,6 +25,11 @@ func (qualificationRuntimeDefinitionStub) Executable() string                  {
 func (qualificationRuntimeDefinitionStub) ExecutableSHA256() string            { return "digest" }
 func (qualificationRuntimeDefinitionStub) Launcher() string                    { return "/test" }
 func (qualificationRuntimeDefinitionStub) LauncherSHA256() string              { return "digest" }
+func (qualificationRuntimeDefinitionStub) ZCodeProviderConfig() string         { return "" }
+func (qualificationRuntimeDefinitionStub) ZCodeProviderConfigSHA256() string   { return "" }
+func (qualificationRuntimeDefinitionStub) ApplicationVersion() string          { return "" }
+func (qualificationRuntimeDefinitionStub) ApplicationMetadata() string         { return "" }
+func (qualificationRuntimeDefinitionStub) ApplicationMetadataSHA256() string   { return "" }
 func (qualificationRuntimeDefinitionStub) ProfileGeneration() string           { return "generation" }
 func (qualificationRuntimeDefinitionStub) RuntimeSafetyPolicyIdentity() string { return "policy" }
 func (qualificationRuntimeDefinitionStub) ProfileID() string                   { return "profile" }

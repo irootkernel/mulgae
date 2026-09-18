@@ -1,4 +1,4 @@
-version: 3
+version: 4
 project:
   name: "my-project"
 providers:

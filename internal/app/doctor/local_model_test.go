@@ -42,8 +42,9 @@ func TestLocalDoctorResultRequiresEveryConfiguredProvider(t *testing.T) {
 	result.ConfiguredProviderIDs = []string{"zcode", "grok"}
 	result.ProviderInventory[1] = LocalProviderInventoryRow{
 		Family: "grok", Configured: true, ReferencedByRoles: []string{}, State: "unavailable", Reason: "provider_cli_version_below_minimum",
-		BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}},
-		CLICompatible:   LocalCLICompatibility{Status: "failed", ObservedVersion: "1.1.18", Eligibility: "ineligible", Compatibility: "below_minimum", MinimumVersion: "1.1.19", VerifiedLatest: "1.1.19", ReasonCode: "provider_cli_version_below_minimum"},
+		BinaryAvailable:       LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}},
+		CLICompatible:         LocalCLICompatibility{Status: "failed", ObservedVersion: "1.1.18", Eligibility: "ineligible", Compatibility: "below_minimum", MinimumVersion: "1.1.19", VerifiedLatest: "1.1.19", ReasonCode: "provider_cli_version_below_minimum"},
+		ApplicationCompatible: LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
 	}
 	result.Assignment = LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
 	result.Readiness = LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_offline_readiness_failed"}}
@@ -56,7 +57,7 @@ func TestLocalDoctorResultRequiresEveryConfiguredProvider(t *testing.T) {
 
 func validLocalDoctorResult() LocalDoctorResult {
 	notConfigured := func(family string) LocalProviderInventoryRow {
-		return LocalProviderInventoryRow{Family: family, ReferencedByRoles: []string{}, State: "not_configured", Reason: "not_configured", BinaryAvailable: LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}}
+		return LocalProviderInventoryRow{Family: family, ReferencedByRoles: []string{}, State: "not_configured", Reason: "not_configured", BinaryAvailable: LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}, ApplicationCompatible: LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}}
 	}
 	return LocalDoctorResult{
 		SchemaVersion: LocalSchemaVersion, CheckedAt: time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), ProjectRootURI: ".",
@@ -64,7 +65,7 @@ func validLocalDoctorResult() LocalDoctorResult {
 		ConfigV3: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, LocalConfiguration: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, ProviderIdentity: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}},
 		ConfiguredProviderIDs: []string{"zcode"},
 		ProviderInventory: []LocalProviderInventoryRow{
-			{Family: "zcode", Configured: true, ReferencedByRoles: []string{"logic"}, State: "eligible", Reason: "provider_cli_version_supported", BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "0.16.5", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "0.16.5", VerifiedLatest: "0.16.5", ReasonCode: "provider_cli_version_supported"}},
+			{Family: "zcode", Configured: true, ReferencedByRoles: []string{"logic"}, State: "eligible", Reason: "zcode_application_version_supported", BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "0.16.5", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "0.16.5", VerifiedLatest: "0.16.5", ReasonCode: "provider_cli_version_supported"}, ApplicationCompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "3.12.3", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "3.12.3", VerifiedLatest: "3.12.3", ReasonCode: "zcode_application_version_supported"}},
 			notConfigured("grok"), notConfigured("codex"),
 		},
 		Assignment: LocalAssignmentProjection{State: "ready", Resilience: "ready"}, PlatformEvidence: []LocalPlatformEvidence{{Cell: "darwin-arm64", Native: true}}, ToolsLock: LocalToolsLock{State: "not_observed"},

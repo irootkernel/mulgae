@@ -43,7 +43,7 @@ func generate() error {
 		return err
 	}
 	assets := filepath.Join(root, "internal", "builtin", "assets")
-	commandSchema := filepath.Join(assets, "schemas", "mulgae-command-result.v10.schema.json")
+	commandSchema := filepath.Join(assets, "schemas", "mulgae-command-result.v11.schema.json")
 	if err := seedCommandSchema(assets, commandSchema); err != nil {
 		return err
 	}
@@ -52,12 +52,16 @@ func generate() error {
 		func(filename string) error { return replaceSchemaOutcomeContract(filename, specs) },
 		func(filename string) error { return replaceSchemaDiscoveryContract(filename, discoverySpecs) },
 		replaceSchemaProviderContract,
+		replaceSchemaZCodeAppBundleContract,
 	} {
 		if err := update(commandSchema); err != nil {
 			return err
 		}
 	}
 	if err := sanitizeCommandJSON(commandSchema); err != nil {
+		return err
+	}
+	if err := addCommandDoctorApplicationCompatibility(commandSchema, true); err != nil {
 		return err
 	}
 	return writeCommandExample(assets)
@@ -69,20 +73,87 @@ func seedCommandSchema(assets, target string) error {
 	if err != nil {
 		return err
 	}
-	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v10"))
-	contents = bytes.ReplaceAll(contents, []byte("Mulgae Command Result v9"), []byte("Mulgae Command Result v10"))
+	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v11"))
+	contents = bytes.ReplaceAll(contents, []byte("Mulgae Command Result v9"), []byte("Mulgae Command Result v11"))
 	return writeIfChanged(target, contents)
 }
 
 func writeCommandExample(assets string) error {
 	source := filepath.Join(assets, "examples", "command-result.v9.valid.json")
-	target := filepath.Join(assets, "examples", "command-result.v10.valid.json")
+	target := filepath.Join(assets, "examples", "command-result.v11.valid.json")
 	contents, err := os.ReadFile(source)
 	if err != nil {
 		return err
 	}
-	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v10"))
-	return writeIfChanged(target, contents)
+	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v11"))
+	if err := writeIfChanged(target, contents); err != nil {
+		return err
+	}
+	return addCommandDoctorApplicationCompatibility(target, false)
+}
+
+func addCommandDoctorApplicationCompatibility(filename string, schema bool) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	var document any
+	if err := json.Unmarshal(data, &document); err != nil {
+		return err
+	}
+	var visit func(any)
+	visit = func(value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			if schema {
+				if properties, ok := typed["properties"].(map[string]any); ok && properties["cli_compatible"] != nil && properties["binary_available"] != nil {
+					properties["application_compatible"] = map[string]any{"$ref": "#/$defs/doctor/$defs/cli_compatibility"}
+					if required, ok := typed["required"].([]any); ok {
+						typed["required"] = append(required, "application_compatible")
+					}
+				}
+			} else if family, ok := typed["family"].(string); ok {
+				if _, ok := typed["cli_compatible"].(map[string]any); ok {
+					compatibility := map[string]any{"status": "not_applicable", "observed_version": "", "eligibility": "not_evaluated", "compatibility": "not_observed", "minimum_version": "", "verified_latest": "", "reason_code": ""}
+					if family == "zcode" && typed["configured"] == true {
+						compatibility = map[string]any{"status": "verified", "observed_version": "3.12.3", "eligibility": "eligible", "compatibility": "verified", "minimum_version": "3.12.3", "verified_latest": "3.12.3", "reason_code": "zcode_application_version_supported"}
+						typed["reason"] = "zcode_application_version_supported"
+					}
+					typed["application_compatible"] = compatibility
+				}
+			}
+			for _, child := range typed {
+				visit(child)
+			}
+		case []any:
+			for _, child := range typed {
+				visit(child)
+			}
+		}
+	}
+	visit(document)
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeIfChanged(filename, append(encoded, '\n'))
+}
+
+func replaceSchemaZCodeAppBundleContract(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	old := []byte(`              "zcode_node_executable": { "$ref": "#/$defs/path" }, "zcode_launcher": { "$ref": "#/$defs/path" },`)
+	replacement := []byte(`              "zcode_app_bundle": { "$ref": "#/$defs/path" },`)
+	if bytes.Count(data, old) != 1 {
+		return fmt.Errorf("init contract generator: zcode app-bundle schema anchor is missing or ambiguous")
+	}
+	updated := bytes.Replace(data, old, replacement, 1)
+	if !json.Valid(updated) {
+		return fmt.Errorf("init contract generator: generated zcode app-bundle schema is invalid JSON")
+	}
+	return writeIfChanged(filename, updated)
 }
 
 func sanitizeCommandJSON(filename string) error {
@@ -138,7 +209,7 @@ func sanitizeCommandValue(value any) any {
 		return result
 	case string:
 		for old, next := range map[string]string{
-			"mulgae-doctor-result.v3":             "mulgae-doctor-result.v4",
+			"mulgae-doctor-result.v3":             "mulgae-doctor-result.v5",
 			"mulgae-provider-heartbeat-result.v2": "mulgae-provider-heartbeat-result.v3",
 			"mulgae-review-preflight.v4":          "mulgae-review-preflight.v5",
 			"(?:kimi|zcode|agy|grok|codex)":       "(?:zcode|grok|codex)",

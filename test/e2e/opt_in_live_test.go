@@ -137,7 +137,7 @@ func configureOptInCredentialProfiles(t *testing.T, project string, environment 
 	config.Roles.Documentation.CredentialProfile = optInCodexSecondaryProfile
 	projectConfig, localConfig, err := adapterconfig.EncodeSplit(config)
 	if err != nil {
-		t.Fatalf("encode opt-in Config v3 pair: %v", err)
+		t.Fatalf("encode opt-in Config v4 pair: %v", err)
 	}
 	writeExistingOptInConfig(t, filepath.Join(project, ".mulgae", "config.yaml"), projectConfig)
 	writeExistingOptInConfig(t, filepath.Join(project, ".mulgae", "local.yaml"), localConfig)

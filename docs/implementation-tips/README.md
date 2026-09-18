@@ -5,12 +5,20 @@
 - macOS on Apple silicon for the complete release gate
 - Go 1.26.6 or newer
 - Git
-- authenticated ZCode and Grok installations for the mandatory live tests
+- a ZCode app bundle with an API-key personal provider, plus an authenticated
+  Grok installation, for the mandatory live tests
 - two distinct authenticated Codex homes only for the opt-in profile E2E
 
 Codex provider execution requires CLI 0.154.0 or newer for the app-server
 route. The separate Codex MCP-client compatibility check retains its own
 minimum version.
+
+ZCode app 3.12.3 is the minimum and currently verified app release for the app-owned
+Electron plus bundled `zcode.cjs app-server --stdio` route. That bundle's
+launcher reports protocol version 0.16.5; provider qualification observes that
+launcher value, so its minimum and verified-latest guidance remain 0.16.5.
+App releases above 3.12.3 and launcher protocol releases above 0.16.5 remain
+eligible as `newer_than_verified`; the two version axes are never substituted.
 
 ## Local checks
 
@@ -54,6 +62,13 @@ make test-e2e-opt-in
 make test-grok
 make test-mcp-clients
 ```
+
+`make test-release` first installs the production binary with only the public
+version and revision link flags and checks that exact installed artifact through
+`internal/releasecheck`. It separately builds an isolated recovery-scenario
+fixture with the test-only native-home override. The fixture exercises recovery
+without reading the operator's real home; it is not the installed release
+artifact and does not replace the releasecheck evidence.
 
 `make test-grok` builds the exact current release binary and runs one authorized
 Grok review through ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and

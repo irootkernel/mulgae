@@ -63,6 +63,7 @@ type credentialSourceAuthority struct {
 var credentialSources = map[CredentialSourceFamily][]credentialSource{
 	CredentialSourceZCode: {
 		{ports.CredentialProjectionZCodeConfig, []string{".zcode", "cli", "config.json"}},
+		{ports.CredentialProjectionZCodeProviderConfig, []string{".zcode", "cli", "config.json"}},
 	},
 	CredentialSourceGrok: {
 		{ports.CredentialProjectionGrokAuth, []string{".grok", "auth.json"}},
@@ -240,7 +241,7 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 
 	for _, source := range credentialSources[family] {
 		if err := factory.project(ctx, lease, instance, family, source); err != nil {
-			return nil, fmt.Errorf("credential source factory: projection failed")
+			return nil, fmt.Errorf("credential source factory: projection failed: %w", err)
 		}
 	}
 	return lease, nil

@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -251,12 +252,20 @@ func TestMakefileContract(t *testing.T) {
 		"GOBIN=", "$(GO) install", "-trimpath", "main.buildVersion=$(RELEASE_VERSION)",
 		"main.buildRevision=", "-tags=releasecheck", "MULGAE_RELEASE_BINARY",
 		"MULGAE_RELEASE_GOBIN", "MULGAE_RELEASE_VERSION", "MULGAE_RELEASE_REVISION",
-		"TestIntegrationReleaseBinaryComposesExactRecoveredReview",
-		"TestIntegrationReleaseBinaryRecoversCancelledRunThroughExactReruns",
+		"TestIntegrationIsolatedReleaseFixtureComposesExactRecoveredReview",
+		"TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns",
 	} {
 		if !strings.Contains(releaseTarget, required) {
 			t.Errorf("test-release missing installation-contract token %q", required)
 		}
+	}
+	override := "github.com/irootkernel/mulgae/internal/adapters/environment.buildNativeHomeOverride="
+	if strings.Count(releaseTarget, override) != 1 || !strings.Contains(releaseTarget, "release_fixture_ldflags=") {
+		t.Fatal("test-release must bind the native-home override exactly once in the isolated fixture build")
+	}
+	installEnd := strings.Index(releaseTarget, "./internal/releasecheck")
+	if installEnd < 0 || strings.Contains(releaseTarget[:installEnd], override) {
+		t.Fatal("test-release production installation must not contain the test-only native-home override")
 	}
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
@@ -271,11 +280,11 @@ func TestMakefileContract(t *testing.T) {
 	}
 	e2eTarget := text[releaseEnd:optInStart]
 	for _, required := range []string{
-		"zcode_node=", `test -n "$$zcode_node"`,
+		"zcode_app=", `test -d "$$zcode_app"`, "zcode_executable=", `test -x "$$zcode_executable"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`, "grok_candidate=", `test -n "$$grok_candidate"`,
-		"MULGAE_LIVE_ZCODE_NODE_BIN", "MULGAE_LIVE_ZCODE_LAUNCHER", "MULGAE_LIVE_GROK_BIN",
+		"MULGAE_LIVE_ZCODE_APP_BUNDLE", "MULGAE_LIVE_GROK_BIN",
 		"-tags=liveprovider", "-run '^TestLive(ZCode|Grok)Capability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
-		"MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_GROK_EXECUTABLE",
+		"MULGAE_E2E_ZCODE_APP_BUNDLE", "MULGAE_E2E_GROK_EXECUTABLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
 		if !strings.Contains(e2eTarget, required) {
@@ -322,6 +331,199 @@ func TestMakefileContract(t *testing.T) {
 	}
 }
 
+func TestMakefileReleaseGateUsesTrustedTemporaryDirectoryCreator(t *testing.T) {
+	root := repositoryRoot(t)
+	base := t.TempDir()
+	preexisting := filepath.Join(base, "mulgae-release.victim")
+	if err := os.Mkdir(preexisting, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(preexisting, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	shimMarker := filepath.Join(base, "path-mktemp-invoked")
+	shim := "#!/bin/sh\nprintf invoked > \"$FAKE_MKTEMP_MARKER\"\nprintf '%s\\n' \"$FAKE_MKTEMP_RESULT\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "mktemp"), []byte(shim), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fakeGo := writeReleaseGateFakeGo(t, bin)
+	makeBinary, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(makeBinary, "-f", filepath.Join(root, "Makefile"), "test-release", "GO="+fakeGo)
+	command.Dir = root
+	command.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "TMPDIR="+base, "FAKE_MKTEMP_RESULT="+preexisting, "FAKE_MKTEMP_MARKER="+shimMarker, "FAKE_GO_LOG="+filepath.Join(base, "go.log"), "FAKE_GO_FAIL_INSTALL=1")
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("test-release accepted production install failure:\n%s", output)
+	}
+	if _, err := os.Stat(shimMarker); !os.IsNotExist(err) {
+		t.Fatalf("test-release used PATH-selected mktemp: %v", err)
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "preserve" {
+		t.Fatalf("test-release cleanup removed pre-existing content: data=%q err=%v", data, err)
+	}
+	if info, err := os.Stat(preexisting); err != nil || !info.IsDir() {
+		t.Fatalf("test-release removed pre-existing directory: info=%v err=%v", info, err)
+	}
+}
+
+func TestMakefileReleaseGateStopsAfterProductionInstallFailure(t *testing.T) {
+	root := repositoryRoot(t)
+	bin := t.TempDir()
+	fakeGo := writeReleaseGateFakeGo(t, bin)
+	logPath := filepath.Join(t.TempDir(), "go.log")
+	makeBinary, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(makeBinary, "-f", filepath.Join(root, "Makefile"), "test-release", "GO="+fakeGo)
+	command.Dir = root
+	command.Env = append(os.Environ(), "FAKE_GO_LOG="+logPath, "FAKE_GO_FAIL_INSTALL=1")
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("test-release accepted production install failure:\n%s", output)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "install\n") || strings.Contains(string(log), "test\n") || strings.Contains(string(log), "build\n") {
+		t.Fatalf("commands after failed install were executed:\n%s", log)
+	}
+}
+
+func TestMakefileReleaseGatePreservesReplacedTemporaryRoot(t *testing.T) {
+	root := repositoryRoot(t)
+	base := t.TempDir()
+	bin := t.TempDir()
+	fakeGo := writeReleaseGateFakeGo(t, bin)
+	makeBinary, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(makeBinary, "-f", filepath.Join(root, "Makefile"), "test-release", "GO="+fakeGo)
+	command.Dir = root
+	command.Env = append(os.Environ(), "TMPDIR="+base, "FAKE_GO_LOG="+filepath.Join(base, "go.log"), "FAKE_GO_REPLACE_RELEASE_ROOT=1")
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("test-release accepted replaced temporary root:\n%s", output)
+	}
+	matches, err := filepath.Glob(filepath.Join(base, "mulgae-release.*", "replacement-sentinel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("replacement sentinel paths = %v, want one preserved replacement", matches)
+	}
+}
+
+func TestMakefileReleaseGateRejectsUnprotectedTemporaryBase(t *testing.T) {
+	root := repositoryRoot(t)
+	base := t.TempDir()
+	if err := os.Chmod(base, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(base, 0o700) })
+	bin := t.TempDir()
+	fakeGo := writeReleaseGateFakeGo(t, bin)
+	logPath := filepath.Join(t.TempDir(), "go.log")
+	makeBinary, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(makeBinary, "-f", filepath.Join(root, "Makefile"), "test-release", "GO="+fakeGo)
+	command.Dir = root
+	command.Env = append(os.Environ(), "TMPDIR="+base, "FAKE_GO_LOG="+logPath)
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("test-release accepted an unprotected temporary base:\n%s", output)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("test-release invoked go after rejecting temporary base: %v", err)
+	}
+}
+
+func TestMakefileReleaseGateSupportsTemporaryBaseWithSpaces(t *testing.T) {
+	root := repositoryRoot(t)
+	parent := t.TempDir()
+	base := filepath.Join(parent, "release base")
+	if err := os.Mkdir(base, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	fakeGo := writeReleaseGateFakeGo(t, bin)
+	makeBinary, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(makeBinary, "-f", filepath.Join(root, "Makefile"), "test-release", "GO="+fakeGo)
+	command.Dir = root
+	command.Env = append(os.Environ(), "TMPDIR="+base, "FAKE_GO_LOG="+filepath.Join(parent, "go.log"))
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("test-release rejected a protected temporary base containing spaces: %v\n%s", err, output)
+	}
+}
+
+func TestMakefileReleaseGateFailsWhenCleanupCannotRemoveTemporaryRoot(t *testing.T) {
+	root := repositoryRoot(t)
+	base := t.TempDir()
+	bin := t.TempDir()
+	fakeGo := writeReleaseGateFakeGo(t, bin)
+	makeBinary, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(makeBinary, "-f", filepath.Join(root, "Makefile"), "test-release", "GO="+fakeGo)
+	command.Dir = root
+	command.Env = append(os.Environ(), "TMPDIR="+base, "FAKE_GO_LOG="+filepath.Join(base, "go.log"), "FAKE_GO_LEAK_RELEASE_ROOT=1")
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("test-release reported success after incomplete cleanup:\n%s", output)
+	}
+}
+
+func writeReleaseGateFakeGo(t *testing.T, directory string) string {
+	t.Helper()
+	path := filepath.Join(directory, "fake-go")
+	script := `#!/bin/sh
+if [ "$1" = "env" ]; then
+	case "$2" in
+		GOOS) printf '%s\n' darwin ;;
+		GOARCH) printf '%s\n' arm64 ;;
+	esac
+	exit 0
+fi
+if [ "$1" = "list" ]; then
+	exit 0
+fi
+printf '%s\n' "$1" >> "$FAKE_GO_LOG"
+if [ "$1" = "install" ] && [ "${FAKE_GO_FAIL_INSTALL:-}" = "1" ]; then
+	exit 23
+fi
+if [ "$1" = "install" ] && [ "${FAKE_GO_REPLACE_RELEASE_ROOT:-}" = "1" ]; then
+	release_root=${GOBIN%/bin}
+	mv "$release_root" "$release_root.original" || exit 24
+	mkdir -m 700 "$release_root" || exit 24
+	printf '%s\n' preserve > "$release_root/replacement-sentinel" || exit 24
+	exit 23
+fi
+if [ "$1" = "build" ] && [ "${FAKE_GO_LEAK_RELEASE_ROOT:-}" = "1" ]; then
+	previous=
+	output=
+	for argument in "$@"; do
+		if [ "$previous" = "-o" ]; then output=$argument; break; fi
+		previous=$argument
+	done
+	release_root=${output%/*}
+	printf '%s\n' preserve > "$release_root/unexpected-file" || exit 24
+fi
+exit 0
+`
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	root := repositoryRoot(t)
 	data, err := os.ReadFile(filepath.Join(root, "internal", "adapters", "providercli", "registry_live_test.go"))
@@ -346,7 +548,7 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 		"func TestE2EZCodeGrokReviewAggregation", `"logic": "zcode-logic"`, `"security": "grok-security"`,
 		"configureLiveMixedReview", "validateLiveSingleInvocationGate", "assertLiveRoleReportMarker", "assertLiveReportsOnlyAggregation",
 		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "validateLivePrimaryProcessTerminals",
-		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_NODE_EXECUTABLE", "MULGAE_E2E_ZCODE_LAUNCHER", "MULGAE_E2E_GROK_EXECUTABLE",
+		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_APP_BUNDLE", "MULGAE_E2E_GROK_EXECUTABLE",
 	} {
 		if !strings.Contains(workflowText, required) {
 			t.Errorf("exact-binary live workflow contract missing %q", required)

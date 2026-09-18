@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
@@ -87,18 +88,93 @@ func TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher(t *tes
 	}
 	node := filepath.Join(directory, "node")
 	launcher := filepath.Join(directory, "zcode.cjs")
+	providerConfig := filepath.Join(directory, "zcode-builtin.json")
+	applicationMetadata := filepath.Join(directory, "Info.plist")
 	nodeContents := []byte("#!/bin/sh\n[ \"$1\" = \"" + launcher + "\" ] || exit 8\n[ \"$2\" = \"--version\" ] || exit 9\nprintf 'zcode 0.15.2\\n'\n")
 	launcherContents := []byte("// fixed launcher\n")
+	providerConfigContents := []byte("{}\n")
+	applicationMetadataContents := []byte("<plist><dict></dict></plist>\n")
 	writeExecutable(t, node, nodeContents)
 	if err := os.WriteFile(launcher, launcherContents, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "zcode", []string{node, launcher, "--version"}, testDigest(nodeContents), testDigest(launcherContents))
+	if err := os.WriteFile(providerConfig, providerConfigContents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(applicationMetadata, applicationMetadataContents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity := ports.ProviderVersionIdentity{
+		ExecutableSHA256: testDigest(nodeContents), LauncherSHA256: testDigest(launcherContents),
+		ZCodeProviderConfig: providerConfig, ZCodeProviderConfigSHA256: testDigest(providerConfigContents),
+		ApplicationMetadata: applicationMetadata, ApplicationMetadataSHA256: testDigest(applicationMetadataContents),
+	}
+	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "zcode", []string{node, launcher, "--version"}, identity)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if observation.State() != ports.ProviderVersionObserved || observation.Version() != "0.15.2" {
 		t.Fatalf("zcode observation = %q/%q", observation.State(), observation.Version())
+	}
+	if err := os.WriteFile(providerConfig, []byte("{\"changed\":true}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	observation, err = NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "zcode", []string{node, launcher, "--version"}, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.State() != ports.ProviderVersionUnsafeIdentity {
+		t.Fatalf("drifted provider config observation state = %q, want unsafe identity", observation.State())
+	}
+}
+
+func TestSpawnVerifierRejectsZCodeProviderConfigDrift(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := filepath.Join(directory, "node")
+	launcher := filepath.Join(directory, "zcode.cjs")
+	providerConfig := filepath.Join(directory, "zcode-builtin.json")
+	applicationMetadata := filepath.Join(directory, "Info.plist")
+	nodeContents := []byte("#!/bin/sh\nexit 0\n")
+	launcherContents := []byte("// launcher\n")
+	providerConfigContents := []byte("{}\n")
+	applicationMetadataContents := []byte("plist\n")
+	writeExecutable(t, node, nodeContents)
+	if err := os.WriteFile(launcher, launcherContents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(providerConfig, providerConfigContents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(applicationMetadata, applicationMetadataContents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
+		Family: providercli.FamilyZcode, Instance: "zcode-logic", Executable: node, ExecutableSHA256: testDigest(nodeContents),
+		Launcher: launcher, LauncherSHA256: testDigest(launcherContents), ZCodeProviderConfig: providerConfig,
+		ZCodeProviderConfigSHA256: testDigest(providerConfigContents), ProfileID: "zcode-default", ProfileGeneration: "test-v1",
+		ApplicationVersion: "3.12.3", ApplicationMetadata: applicationMetadata, ApplicationMetadataSHA256: testDigest(applicationMetadataContents),
+		RuntimeSafetyPolicyIdentity: "policy", BaseArgv: []string{node, launcher}, TransportChannel: ports.ProviderPacketChannelProtocol,
+		TransportArgvIndex: -1, WorkingDirectory: directory, Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := definitionPort.(providercli.RuntimeDefinition)
+	if !ok {
+		t.Fatalf("runtime definition type = %T", definitionPort)
+	}
+	verifier := NewSpawnVerifier()
+	if err := verifier.VerifyProviderSpawn(context.Background(), definition); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(providerConfig, []byte("{\"changed\":true}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.VerifyProviderSpawn(context.Background(), definition); !errors.Is(err, ports.ErrProviderSpawnEnvironmentDrift) {
+		t.Fatalf("provider config drift = %v", err)
 	}
 }
 
@@ -199,6 +275,86 @@ func TestReadableFileIdentityAcceptsNonExecutableCJSAndSpawnRevalidatesHash(t *t
 	}
 	if err := verifyReadableSpawnIdentity(context.Background(), launcher, wantHash); err == nil {
 		t.Fatal("readable spawn verification accepted launcher drift")
+	}
+}
+
+func TestApplicationMetadataObservationBindsShortVersionAndDigest(t *testing.T) {
+	root := canonicalBootstrapTempDir(t)
+	metadata := filepath.Join(root, "Info.plist")
+	contents := []byte(`<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>dev.zcode</string><key>CFBundleShortVersionString</key><string>3.12.3</string></dict></plist>`)
+	if err := os.WriteFile(metadata, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	observation, err := NewInspector().ObserveApplicationMetadata(context.Background(), metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observation.Valid() || observation.Path() != metadata || observation.Version() != "3.12.3" || observation.SHA256() != testDigest(contents) {
+		t.Fatalf("application metadata observation = path %q version %q digest %q", observation.Path(), observation.Version(), observation.SHA256())
+	}
+}
+
+func TestApplicationMetadataObservationRejectsMalformedOrDuplicateVersion(t *testing.T) {
+	for _, contents := range []string{
+		`<plist><dict><key>CFBundleIdentifier</key><string>dev.zcode</string></dict></plist>`,
+		`<plist><dict><key>CFBundleShortVersionString</key><integer>3</integer></dict></plist>`,
+		`<plist><dict><key>CFBundleShortVersionString</key><string></string><key>CFBundleShortVersionString</key><string>3.12.4</string></dict></plist>`,
+		`<plist><dict><key>CFBundleShortVersionString</key><string>3.12.3</string><key>CFBundleShortVersionString</key><string>3.12.4</string></dict></plist>`,
+		`<x><y><key>CFBundleShortVersionString</key><string>3.12.3</string></y></x>`,
+		`<plist><array><key>CFBundleShortVersionString</key><string>3.12.3</string></array></plist>`,
+	} {
+		root := canonicalBootstrapTempDir(t)
+		metadata := filepath.Join(root, "Info.plist")
+		if err := os.WriteFile(metadata, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := NewInspector().ObserveApplicationMetadata(context.Background(), metadata)
+		if reason, ok := ports.IdentityObservationReason(err); !ok || reason != ports.IdentityObservationReasonMalformed {
+			t.Fatalf("malformed metadata error = %v, reason = %q, classified = %t", err, reason, ok)
+		}
+	}
+}
+
+func TestIdentityObservationRejectsIntermediateSymlinkAsSecurityFailure(t *testing.T) {
+	root := canonicalBootstrapTempDir(t)
+	realContents := filepath.Join(root, "real-contents")
+	if err := os.MkdirAll(filepath.Join(realContents, "MacOS"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(realContents, "Resources", "glm"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	runtime := filepath.Join(realContents, "MacOS", "ZCode")
+	writeExecutable(t, runtime, []byte("runtime"))
+	providerConfig := filepath.Join(realContents, "Resources", "glm", "provider_config.json")
+	if err := os.WriteFile(providerConfig, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(root, "ZCode.app")
+	if err := os.Mkdir(bundle, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realContents, filepath.Join(bundle, "Contents")); err != nil {
+		t.Fatal(err)
+	}
+
+	inspector := NewInspector()
+	for name, observe := range map[string]func() error{
+		"executable": func() error {
+			_, err := inspector.ObserveExecutableIdentity(context.Background(), filepath.Join(bundle, "Contents", "MacOS", "ZCode"))
+			return err
+		},
+		"readable file": func() error {
+			_, err := inspector.ObserveReadableFileIdentity(context.Background(), filepath.Join(bundle, "Contents", "Resources", "glm", "provider_config.json"))
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := observe()
+			if kind, ok := ports.IdentityObservationFailure(err); !ok || kind != ports.IdentityObservationSecurity {
+				t.Fatalf("intermediate symlink error = %v, kind = %q, classified = %t", err, kind, ok)
+			}
+		})
 	}
 }
 
@@ -714,6 +870,22 @@ func TestFrozenInspectorUsesCapturedPathAndExplicitPath(t *testing.T) {
 	if err != nil || absent.Found() {
 		t.Fatalf("missing observation = %#v, %v", absent, err)
 	}
+	absoluteMissing := filepath.Join(root, "missing", "provider")
+	if _, err = inspector.ObserveExecutable(context.Background(), absoluteMissing); err == nil {
+		t.Fatal("absolute executable with a missing parent was accepted as absent")
+	}
+	nonDirectory := filepath.Join(root, "bundle-file")
+	if err := os.WriteFile(nonDirectory, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	nestedExecutable := filepath.Join(nonDirectory, "Contents", "MacOS", "ZCode")
+	if _, err = inspector.ObserveExecutable(context.Background(), nestedExecutable); err == nil {
+		t.Fatal("executable below a non-directory parent was accepted as absent")
+	}
+	readable, err := inspector.ObserveReadableFileIdentity(context.Background(), filepath.Join(nonDirectory, "provider_config.json"))
+	if err != nil || readable.Found() {
+		t.Fatalf("non-directory readable parent observation = %#v, %v", readable, err)
+	}
 }
 
 func TestObserveNativeHomeIdentityCapturesDescriptorAndDetectsReplacement(t *testing.T) {
@@ -883,7 +1055,7 @@ func TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes(t *testing
 			path := filepath.Join(directory, "grok")
 			contents := []byte(test.script)
 			writeExecutable(t, path, contents)
-			observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "grok", []string{path, "--version"}, testDigest(contents), testDigest(contents))
+			observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "grok", []string{path, "--version"}, ports.ProviderVersionIdentity{ExecutableSHA256: testDigest(contents), LauncherSHA256: testDigest(contents)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -902,7 +1074,7 @@ func TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution(t *testin
 	path := filepath.Join(directory, "grok")
 	contents := []byte("#!/bin/sh\nprintf '1.1.4\\n'\n")
 	writeExecutable(t, path, contents)
-	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "grok", []string{path, "--version"}, "sha256:"+strings.Repeat("0", 64), testDigest(contents))
+	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "grok", []string{path, "--version"}, ports.ProviderVersionIdentity{ExecutableSHA256: "sha256:" + strings.Repeat("0", 64), LauncherSHA256: testDigest(contents)})
 	if err != nil {
 		t.Fatal(err)
 	}

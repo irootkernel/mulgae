@@ -31,7 +31,9 @@ type familyQualificationGroup struct {
 // sibling role routes can share one probe; transport, argv, environment,
 // working directory, output bounds, lifecycle, model, digests, and safety
 // identity remain part of the share key. Codex credential-profile identity is
-// included so different authenticated homes never share qualification.
+// included so different authenticated homes never share qualification. ZCode
+// instances are deliberately distinct because each acquired namespace owns a
+// provider/model selection that is not part of the provider-independent port.
 func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) familyRuntimeProfileKey {
 	environment := definition.Environment()
 	environmentValues := make([]string, len(environment))
@@ -53,6 +55,11 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		definition.ExecutableSHA256(),
 		definition.Launcher(),
 		definition.LauncherSHA256(),
+		definition.ZCodeProviderConfig(),
+		definition.ZCodeProviderConfigSHA256(),
+		definition.ApplicationVersion(),
+		definition.ApplicationMetadata(),
+		definition.ApplicationMetadataSHA256(),
 		definition.ProfileGeneration(),
 		definition.RuntimeSafetyPolicyIdentity(),
 		strings.Join(definition.BaseArgv(), "\x1e"),
@@ -68,6 +75,9 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 	}
 	if definition.Family() == string(FamilyCodex) && definition.ProfileID() != definition.Instance() {
 		parts = append(parts, definition.ProfileID())
+	}
+	if definition.Family() == string(FamilyZCode) {
+		parts = append(parts, definition.Instance())
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return familyRuntimeProfileKey("sha256:" + hex.EncodeToString(sum[:]))

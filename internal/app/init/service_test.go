@@ -63,6 +63,12 @@ func (inspector testInspector) ObserveReadableFileIdentity(_ context.Context, na
 	}
 	return ports.NewFileIdentityObservation(name, true, name, "")
 }
+func (inspector testInspector) ObserveApplicationMetadata(_ context.Context, name string) (ports.ApplicationMetadataObservation, error) {
+	if inspector.absent || !filepath.IsAbs(name) {
+		return ports.ApplicationMetadataObservation{}, ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "application metadata unavailable")
+	}
+	return ports.NewApplicationMetadataObservation(name, "sha256:"+strings.Repeat("b", 64), "3.12.3")
+}
 
 func (testInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
 	return ports.NativeHomeLaunchAuthority{}, nil
@@ -72,13 +78,14 @@ func (testInspector) ObservePermission(context.Context, ports.AnchoredRoot, port
 }
 
 type scopedDiscoveryInspector struct {
-	calls            []string
-	readableCalls    []string
-	legacyCalls      []string
-	observations     map[string]ports.ExecutableObservation
-	fileObservations map[string]ports.FileIdentityObservation
-	errors           map[string]error
-	kimiHomeErr      error
+	calls                   []string
+	readableCalls           []string
+	legacyCalls             []string
+	observations            map[string]ports.ExecutableObservation
+	fileObservations        map[string]ports.FileIdentityObservation
+	applicationObservations map[string]ports.ApplicationMetadataObservation
+	errors                  map[string]error
+	kimiHomeErr             error
 }
 
 func (inspector *scopedDiscoveryInspector) ObservePlatform(context.Context) (ports.PlatformObservation, error) {
@@ -107,6 +114,15 @@ func (inspector *scopedDiscoveryInspector) ObserveReadableFileIdentity(_ context
 		return observation, nil
 	}
 	return ports.NewFileIdentityObservation(name, false, "", "")
+}
+func (inspector *scopedDiscoveryInspector) ObserveApplicationMetadata(_ context.Context, name string) (ports.ApplicationMetadataObservation, error) {
+	if err := inspector.errors[name]; err != nil {
+		return ports.ApplicationMetadataObservation{}, err
+	}
+	if observation, ok := inspector.applicationObservations[name]; ok {
+		return observation, nil
+	}
+	return ports.NewApplicationMetadataObservation(name, "sha256:"+strings.Repeat("b", 64), "3.12.3")
 }
 
 func (*scopedDiscoveryInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
@@ -464,14 +480,7 @@ func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing
 }
 
 func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
-	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	launcher := filepath.Join(launcherRoot, "zcode.cjs")
-	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	appBundle := filepath.Join(t.TempDir(), "ZCode.app")
 	for mask := 1; mask < 8; mask++ {
 		rootPath := t.TempDir()
 		_ = os.Chmod(rootPath, 0o700)
@@ -480,8 +489,7 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		overrides := Overrides{}
 		if mask&1 != 0 {
 			ids = append(ids, "zcode")
-			overrides.ZCodeNodeExecutable = "/bin/node"
-			overrides.ZCodeLauncher = launcher
+			overrides.ZCodeAppBundle = appBundle
 		}
 		if mask&2 != 0 {
 			ids = append(ids, "grok")
@@ -583,7 +591,7 @@ func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t 
 
 func TestCandidateUIConfigUsesArtistBriefDefaultAndExplicitPath(t *testing.T) {
 	selectedRoles := []string{"logic", "security", "maintainability", "product", "documentation", "testing", "artist"}
-	providers := candidates{zcode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}}
+	providers := candidates{zcode: &adapterconfig.ZCodeProviderConfig{AppBundle: reviewrun.ZCodeAppBundle}}
 	defaults := testRoleDefaults()
 	artistDefault, ok := defaults.Role(domain.RoleArtist)
 	if !ok {
@@ -609,7 +617,7 @@ func TestCandidateUIConfigUsesArtistBriefDefaultAndExplicitPath(t *testing.T) {
 }
 
 func TestCandidateUIConfigDoesNotConfigureUnselectedArtist(t *testing.T) {
-	providers := candidates{zcode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}}
+	providers := candidates{zcode: &adapterconfig.ZCodeProviderConfig{AppBundle: reviewrun.ZCodeAppBundle}}
 	configured, err := candidateConfig(InitializeProjectRequest{
 		ProjectName: "project", NativeHome: "/Users/test", ProjectKind: adapterconfig.ProjectKindUI,
 		RoleIDs: []string{"logic"},
@@ -625,52 +633,35 @@ func TestCandidateUIConfigDoesNotConfigureUnselectedArtist(t *testing.T) {
 	}
 }
 
-func TestInitializeProjectZCodePartialOverridesObserveOnlyMissingComponent(t *testing.T) {
-	const nodeOverride = "/opt/custom/node"
-	const launcherOverride = "/opt/custom/zcode.cjs"
+func TestInitializeProjectZCodeAppBundleDiscovery(t *testing.T) {
+	const overrideBundle = "/opt/custom/ZCode.app"
 	for _, test := range []struct {
-		name               string
-		overrides          Overrides
-		observations       map[string]ports.ExecutableObservation
-		fileObservations   map[string]ports.FileIdentityObservation
-		errors             map[string]error
-		wantExecutableCall string
-		wantReadableCall   string
-		wantNodeSource     string
-		wantLauncherSource string
+		name             string
+		overrides        Overrides
+		bundle           string
+		wantBundleSource string
 	}{
-		{
-			name:      "node override and bundled launcher",
-			overrides: Overrides{ZCodeNodeExecutable: nodeOverride},
-			observations: map[string]ports.ExecutableObservation{
-				nodeOverride: availableDiscoveryObservation(t, nodeOverride, nodeOverride),
-			},
-			fileObservations: map[string]ports.FileIdentityObservation{
-				reviewrun.ZCodeLauncher: availableFileObservation(t, reviewrun.ZCodeLauncher, reviewrun.ZCodeLauncher),
-			},
-			errors:             map[string]error{"node": errors.New("unused PATH node observed")},
-			wantExecutableCall: nodeOverride, wantReadableCall: reviewrun.ZCodeLauncher,
-			wantNodeSource: "override", wantLauncherSource: "bundled",
-		},
-		{
-			name:      "PATH node and launcher override",
-			overrides: Overrides{ZCodeLauncher: launcherOverride},
-			observations: map[string]ports.ExecutableObservation{
-				"node": availableDiscoveryObservation(t, "node", "/opt/path/node"),
-			},
-			fileObservations: map[string]ports.FileIdentityObservation{
-				launcherOverride: availableFileObservation(t, launcherOverride, launcherOverride),
-			},
-			errors:             map[string]error{reviewrun.ZCodeLauncher: errors.New("unused bundled launcher observed")},
-			wantExecutableCall: "node", wantReadableCall: launcherOverride,
-			wantNodeSource: "startup_path", wantLauncherSource: "override",
-		},
+		{name: "standard bundle", bundle: reviewrun.ZCodeAppBundle, wantBundleSource: "standard"},
+		{name: "override bundle", overrides: Overrides{ZCodeAppBundle: overrideBundle}, bundle: overrideBundle, wantBundleSource: "override"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			executable := filepath.Join(test.bundle, filepath.FromSlash(reviewrun.ZCodeExecutableRelativePath))
+			launcher := filepath.Join(test.bundle, filepath.FromSlash(reviewrun.ZCodeLauncherRelativePath))
+			providerConfig := filepath.Join(test.bundle, filepath.FromSlash(reviewrun.ZCodeProviderConfigRelativePath))
 			rootPath := t.TempDir()
 			_ = os.Chmod(rootPath, 0o700)
 			root, _ := ports.NewAnchoredRoot(rootPath)
-			inspector := &scopedDiscoveryInspector{observations: test.observations, fileObservations: test.fileObservations, errors: test.errors}
+			inspector := &scopedDiscoveryInspector{
+				observations: map[string]ports.ExecutableObservation{
+					executable: availableDiscoveryObservation(t, executable, executable),
+				},
+				fileObservations: map[string]ports.FileIdentityObservation{
+					executable:     availableFileObservation(t, executable, executable),
+					launcher:       availableFileObservation(t, launcher, launcher),
+					providerConfig: availableFileObservation(t, providerConfig, providerConfig),
+				},
+				errors: map[string]error{},
+			}
 			service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 			if err != nil {
 				t.Fatal(err)
@@ -683,10 +674,40 @@ func TestInitializeProjectZCodePartialOverridesObserveOnlyMissingComponent(t *te
 				t.Fatal(err)
 			}
 			row := result.Discovery[0]
-			if !result.Committed || !reflect.DeepEqual(inspector.calls, []string{test.wantExecutableCall}) || !reflect.DeepEqual(inspector.readableCalls, []string{test.wantReadableCall}) || row.NodeExecutableSource != test.wantNodeSource || row.LauncherSource != test.wantLauncherSource {
+			if !result.Committed || !reflect.DeepEqual(inspector.calls, []string{executable}) || !reflect.DeepEqual(inspector.readableCalls, []string{executable, launcher, providerConfig}) || row.AppBundleSource != test.wantBundleSource {
 				t.Fatalf("result=%#v calls=%v readable=%v", result, inspector.calls, inspector.readableCalls)
 			}
 		})
+	}
+}
+
+func TestInitializeProjectDoesNotAdmitIneligibleZCodeApplication(t *testing.T) {
+	bundle := reviewrun.ZCodeAppBundle
+	executable := filepath.Join(bundle, filepath.FromSlash(reviewrun.ZCodeExecutableRelativePath))
+	launcher := filepath.Join(bundle, filepath.FromSlash(reviewrun.ZCodeLauncherRelativePath))
+	providerConfig := filepath.Join(bundle, filepath.FromSlash(reviewrun.ZCodeProviderConfigRelativePath))
+	metadata := filepath.Join(bundle, filepath.FromSlash(reviewrun.ZCodeApplicationMetadataRelativePath))
+	belowMinimum, err := ports.NewApplicationMetadataObservation(metadata, "sha256:"+strings.Repeat("b", 64), "3.12.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspector := &scopedDiscoveryInspector{
+		observations: map[string]ports.ExecutableObservation{executable: availableDiscoveryObservation(t, executable, executable)},
+		fileObservations: map[string]ports.FileIdentityObservation{
+			executable: availableFileObservation(t, executable, executable), launcher: availableFileObservation(t, launcher, launcher), providerConfig: availableFileObservation(t, providerConfig, providerConfig),
+		},
+		applicationObservations: map[string]ports.ApplicationMetadataObservation{metadata: belowMinimum}, errors: map[string]error{},
+	}
+	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, rows, err := service.discover(context.Background(), InitializeProjectRequest{Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode"}}})
+	if err == nil {
+		t.Fatal("ineligible selected ZCode application was accepted")
+	}
+	if found.zcode != nil || len(rows) != 3 || rows[0].Candidate || rows[0].Status != "unavailable" {
+		t.Fatalf("ineligible ZCode discovery = found %#v rows %#v", found.zcode, rows)
 	}
 }
 
@@ -777,14 +798,7 @@ func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T)
 }
 
 func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
-	launcherRoot, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	launcher := filepath.Join(launcherRoot, "zcode.cjs")
-	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	appBundle := filepath.Join(t.TempDir(), "ZCode.app")
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
@@ -797,7 +811,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", NativeHomeAsserted: true,
 		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode", "grok"}},
 		Overrides: Overrides{
-			ZCodeNodeExecutable: "/bin/node", ZCodeLauncher: launcher,
+			ZCodeAppBundle: appBundle,
 			GrokExecutable: "/bin/grok",
 		},
 	})
@@ -805,7 +819,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []DiscoveryRow{
-		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", NodeExecutableSource: "override", LauncherSource: "override"},
+		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override"},
 		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override"},
 		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}

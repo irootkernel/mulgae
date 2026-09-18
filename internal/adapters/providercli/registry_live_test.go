@@ -25,6 +25,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
 	workspaceadapter "github.com/irootkernel/mulgae/internal/adapters/workspace"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -34,8 +35,8 @@ type liveCapabilityConfig struct {
 	credential     providercli.CredentialSourceFamily
 	instance       string
 	role           domain.Role
+	appBundleEnv   string
 	executableEnv  string
-	launcherEnv    string
 	dataHomeEnv    string
 	transportIndex int
 	transport      ports.ProviderPacketChannel
@@ -57,7 +58,7 @@ func TestMain(m *testing.M) {
 func TestLiveZCodeCapability(t *testing.T) {
 	config := liveCapabilityConfig{
 		family: providercli.FamilyZcode, credential: providercli.CredentialSourceZCode, instance: "zcode-security", role: domain.RoleSecurity,
-		executableEnv: "MULGAE_LIVE_ZCODE_NODE_BIN", launcherEnv: "MULGAE_LIVE_ZCODE_LAUNCHER", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
+		appBundleEnv: "MULGAE_LIVE_ZCODE_APP_BUNDLE", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
 		minimumVersion: [3]int{0, 16, 5},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}
@@ -230,10 +231,22 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 		t.Fatalf("%s installed-user identity is unavailable: %v", config.family, err)
 	}
 	runtimeHome := liveCapabilityDirectory(t, "installed user home", installed.HomeDir)
-	executable := liveCapabilityFile(t, config.executableEnv, true)
+	executable := ""
 	launcher := ""
-	if config.launcherEnv != "" {
-		launcher = liveCapabilityFile(t, config.launcherEnv, false)
+	zcodeProviderConfig := ""
+	applicationVersion := ""
+	applicationMetadata := ""
+	applicationMetadataSHA := ""
+	if config.appBundleEnv != "" {
+		appBundle := liveCapabilityDirectory(t, config.appBundleEnv, os.Getenv(config.appBundleEnv))
+		profile, discoverErr := reviewrun.DiscoverProviderProfileWithOverride(context.Background(), environmentadapter.NewInspector(), reviewrun.FamilyZCode, appBundle)
+		if discoverErr != nil || profile.Executable() == "" || profile.Launcher() == "" || profile.ZCodeProviderConfig() == "" || profile.ApplicationVersion() == "" || profile.ApplicationMetadata() == "" || profile.ApplicationMetadataSHA256() == "" {
+			t.Fatalf("%s production ZCode discovery: reason=%q error=%v", config.family, profile.Reason(), discoverErr)
+		}
+		executable, launcher, zcodeProviderConfig = profile.Executable(), profile.Launcher(), profile.ZCodeProviderConfig()
+		applicationVersion, applicationMetadata, applicationMetadataSHA = profile.ApplicationVersion(), profile.ApplicationMetadata(), profile.ApplicationMetadataSHA256()
+	} else {
+		executable = liveCapabilityFile(t, config.executableEnv, true)
 	}
 	dataHome := ""
 	if config.dataHomeEnv != "" {
@@ -299,11 +312,13 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 		t.Fatalf("%s credential namespace: %v", config.family, err)
 	}
 
-	executableSHA := liveCapabilitySHA256(t, config.executableEnv, executable)
+	executableSHA := liveCapabilitySHA256(t, "provider executable", executable)
 	launcherSHA := executableSHA
+	zcodeProviderConfigSHA := ""
 	baseArgv := []string{executable}
 	if launcher != "" {
-		launcherSHA = liveCapabilitySHA256(t, config.launcherEnv, launcher)
+		launcherSHA = liveCapabilitySHA256(t, "provider launcher", launcher)
+		zcodeProviderConfigSHA = liveCapabilitySHA256(t, "ZCode built-in provider config", zcodeProviderConfig)
 		baseArgv = append(baseArgv, launcher)
 	} else {
 		launcher = executable
@@ -315,6 +330,8 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
 		Family: config.family, Instance: config.instance, Executable: executable, ExecutableSHA256: executableSHA,
 		Launcher: launcher, LauncherSHA256: launcherSHA, ProfileID: config.instance,
+		ZCodeProviderConfig: zcodeProviderConfig, ZCodeProviderConfigSHA256: zcodeProviderConfigSHA,
+		ApplicationVersion: applicationVersion, ApplicationMetadata: applicationMetadata, ApplicationMetadataSHA256: applicationMetadataSHA,
 		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(),
 		BaseArgv: baseArgv, TransportChannel: transportChannel, TransportArgvIndex: config.transportIndex,
 		WorkingDirectory: "/private/var/empty", Timeout: 3 * time.Minute,

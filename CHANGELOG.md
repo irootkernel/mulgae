@@ -25,11 +25,35 @@ This file records concise shipped outcomes and the planned next stable release.
 - Require one reports-only ZCode/Grok two-role review and independent capability
   certification in `make test`; keep deeper workflows deterministic and the
   two-profile Codex live scenario behind `MULGAE_E2E_OPT_IN=1`.
-- Publish command-result v10, doctor-result v4, provider-contract-evidence v4,
+- Publish command-result v11, doctor-result v5, provider-contract-evidence v4,
   provider-heartbeat-result v3, and review-preflight v5.
+- Make the ZCode app bundle the sole machine-local launch authority, derive its
+  Electron runtime and app-server launcher, and remove the external Node.js and
+  launcher-path configuration. Publish Config v4 for the clean-break
+  configuration and init-discovery contracts.
+- Enforce ZCode app 3.12.3 as an independent minimum, retain higher app
+  releases as eligible but newer than verified, and bind descriptor-observed
+  `Info.plist` version identity through qualification and every provider spawn.
+- Certify ZCode app 3.12.3 for provider import, explicit `--stdio`, model
+  selection, and reasoning-level fallback while retaining the bundled
+  launcher's 0.16.5 protocol version as qualification guidance.
 
 ### Fixed
 
+- Preserve ZCode legacy API-key provider and model selection by linking built-in
+  provider templates, applying last-wins import behavior to unselected provider
+  ID collisions, rejecting missing or ambiguous selected entries, and applying
+  the admitted model before any review prompt is sent.
+- Preserve model-selection configuration failures through qualification and
+  runtime observation, and match ZCode's exact-key legacy config decoding while
+  rejecting unsupported provider kinds and npm-backed providers.
+- Require exact certified `session/setModel` success payloads, keep
+  authentication, rate-limit, timeout, and internal errors out of configuration
+  classification, and let coherent cancellation or deadlines outrank a
+  concurrent protocol error while retaining session evidence.
+- Match ECMAScript object-key enumeration when importing numeric legacy ZCode
+  providers, preserve the v1 Grok/Codex profile generation, and make release
+  fixture cleanup operate only on validated directories created by the gate.
 - Classify failures between accepted review planning and the coordinator's
   durably recorded run start as internal preparation failures, changing the CLI
   result from readiness exit `4` with `provider_unavailable` to exit `10` with

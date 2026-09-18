@@ -508,6 +508,10 @@ func TestRetryableOperationalProbeFailurePredicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	deadlineTimeout, err := domain.NewFailure("capability", domain.FailureTimeout, "provider timed out", context.DeadlineExceeded)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		name  string
 		err   error
@@ -519,6 +523,7 @@ func TestRetryableOperationalProbeFailurePredicate(t *testing.T) {
 		{name: "untyped error", err: errors.New("provider failed")},
 		{name: "typed cause without failure", err: currentQualifierDiagnosticError{cause: domain.DiagnosticCauseProviderExecutionFailed, err: errors.New("spawn")}},
 		{name: "timeout", err: currentQualifierProbeFailure(t, domain.FailureTimeout, ""), retry: true},
+		{name: "provider timeout wrapping deadline", err: deadlineTimeout, retry: true},
 		{name: "quota", err: currentQualifierProbeFailure(t, domain.FailureQuota, ""), retry: true},
 		{name: "rate limit", err: currentQualifierProbeFailure(t, domain.FailureRateLimit, ""), retry: true},
 		{name: "provider unavailable", err: currentQualifierProbeFailure(t, domain.FailureProviderUnavailable, ""), retry: true},
@@ -654,6 +659,7 @@ func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base dom
 		"codex", "current-qualifier", "", "/private/bin/codex",
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"/private/bin/codex", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"", "",
 		"codex-default", "profile-generation", "policy-identity", []string{"/private/bin/codex"},
 		transport, nil, "/private/work", time.Second,
 	)
@@ -671,6 +677,7 @@ func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base dom
 			Family: Family(definition.Family()), Instance: definition.Instance(), ProfileGeneration: definition.ProfileGeneration(),
 			AdapterProfile: definition.ProfileID(), Version: definition.Version(), Executable: definition.Executable(),
 			ExecutableSHA256: definition.ExecutableSHA256(), Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
+			ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 			NamespaceLease: definition.Instance() + ":" + namespace.Generation(), NamespaceGeneration: namespace.Generation(),
 		},
 		Now: time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC),
@@ -1036,6 +1043,7 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 		Family: family, Instance: definition.Instance(), ProfileGeneration: definition.ProfileGeneration(), AdapterProfile: definition.ProfileID(),
 		Version: probeVersion, Executable: definition.Executable(), ExecutableSHA256: definition.ExecutableSHA256(),
 		Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
+		ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 		NamespaceLease: definition.Instance() + ":" + namespace.Generation(), NamespaceGeneration: namespace.Generation(), SnapshotManifest: "manifest-1",
 	}
 	receipts, err := currentProbeAppReceipts(portCurrentProbeReceipts(result.Receipts), identity, definition, namespace.Generation(), []domain.Role{domain.RoleLogic})
@@ -1073,17 +1081,29 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	executable := "/private/bin/" + string(family)
 	launcher := executable
 	baseArgv := []string{executable}
+	providerConfig, providerConfigSHA := "", ""
+	applicationVersion, applicationMetadata, applicationMetadataSHA := "", "", ""
 	if family == FamilyZCode {
 		executable = "/usr/bin/node"
 		launcher = "/private/bin/zcode.cjs"
 		baseArgv = []string{executable, launcher}
+		providerConfig, providerConfigSHA = "/private/config/zcode-builtin.json", "sha256:"+qualifierTestSHA
+		applicationVersion, applicationMetadata, applicationMetadataSHA = "3.12.3", "/Applications/ZCode.app/Contents/Info.plist", "sha256:"+qualifierTestSHA
 	}
-	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		string(family), instance, version, executable, qualifierTestSHA, launcher, qualifierTestSHA,
-		string(family)+"-profile", "profile-1", policy, baseArgv, transport, nil, workingDirectory, time.Second,
-	)
+	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
+		Family: string(family), Instance: instance, Version: version, Executable: executable, ExecutableSHA256: qualifierTestSHA,
+		Launcher: launcher, LauncherSHA256: qualifierTestSHA, ZCodeProviderConfig: providerConfig, ZCodeProviderConfigSHA256: providerConfigSHA,
+		ApplicationVersion: applicationVersion, ApplicationMetadata: applicationMetadata, ApplicationMetadataSHA256: applicationMetadataSHA,
+		ProfileID: string(family) + "-profile", ProfileGeneration: "profile-1", RuntimeSafetyPolicyIdentity: policy,
+		BaseArgv: baseArgv, TransportChannel: transport.Channel(), TransportArgvIndex: transport.ArgvIndex(), TransportReference: transport.Reference(),
+		WorkingDirectory: workingDirectory, Timeout: time.Second,
+	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	definition, ok := definitionPort.(providercli.RuntimeDefinition)
+	if !ok {
+		t.Fatalf("runtime definition type = %T", definitionPort)
 	}
 	return definition, namespace
 }

@@ -1331,6 +1331,7 @@ func serviceQualifiedTerminal(t *testing.T) QualifiedRunTerminalReceipt {
 	terminal, err := newQualifiedRunTerminalReceipt([]qualifiedProviderEvidence{{identity: Identity{
 		Family: FamilyZCode, Instance: "provider", ProfileGeneration: "profile", AdapterProfile: "adapter", Version: "0.16.5",
 		Executable: "/private/bin/provider", ExecutableSHA256: "sha256", Launcher: "/private/bin/provider", LauncherSHA256: "sha256",
+		ApplicationVersion: "3.12.3", ApplicationMetadata: "/Applications/ZCode.app/Contents/Info.plist", ApplicationMetadataSHA256: "sha256:application",
 		SnapshotManifest: "manifest", NamespaceLease: "lease", NamespaceGeneration: "generation",
 	}, qualificationReceiptIDs: []string{"qualification"}, packetTransportReceiptIDs: []string{"transport"}}}, aggregate)
 	if err != nil {

@@ -3,7 +3,9 @@ package reviewrun
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,7 +66,7 @@ func TestClassifyVersion(t *testing.T) {
 		{name: "below minimum", family: FamilyGrok, version: "1.0.29", want: VersionRed},
 		{name: "minimum", family: FamilyGrok, version: "1.0.30", want: VersionGreen},
 		{name: "above verified latest", family: FamilyGrok, version: "1.0.31", want: VersionYellow},
-		{name: "unparseable", family: FamilyZCode, version: "latest", want: VersionYellow},
+		{name: "unparseable", family: FamilyZCode, version: "latest", want: VersionUnknown},
 		{name: "unknown family", family: "other", version: "1.0.0", want: VersionUnknown},
 	}
 	for _, test := range tests {
@@ -344,7 +346,7 @@ func TestValidateQualificationVersionPolicy(t *testing.T) {
 		{name: "newer AGY", family: FamilyGrok, version: "1.0.31", available: true, reason: "eligible", class: VersionYellow},
 		{name: "newer with current pass", family: FamilyGrok, version: "1.0.31", available: true, reason: "eligible", class: VersionYellow},
 		{name: "newer with failed current pass", family: FamilyGrok, version: "1.0.31", mutate: func(input *QualificationInput) { input.Receipts[0].State = ReceiptFailed }, available: false, reason: "non_passing_receipt", class: VersionYellow},
-		{name: "unparseable", family: FamilyZCode, version: "current", available: false, reason: "unparseable_version", class: VersionYellow},
+		{name: "unparseable", family: FamilyZCode, version: "current", available: false, reason: "unparseable_version", class: VersionUnknown},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -372,21 +374,23 @@ func TestValidateQualificationRequiresCanonicalExecutableProvenance(t *testing.T
 }
 
 func TestDiscoverProviderProfilesUsesIdentityOnlyZCodeNodeLauncher(t *testing.T) {
+	zcodeExecutable := filepath.Join(ZCodeAppBundle, filepath.FromSlash(ZCodeExecutableRelativePath))
+	zcodeLauncher := filepath.Join(ZCodeAppBundle, filepath.FromSlash(ZCodeLauncherRelativePath))
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
-		"node":        discoveredExecutable(t, "node", "/opt/node/bin/node", "0.16.5"),
-		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.5"),
-		"grok":        discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.30"),
-		"codex":       discoveredExecutable(t, "codex", "/opt/providers/codex", "0.149.0"),
+		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
+		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
+		"grok":          discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.30"),
+		"codex":         discoveredExecutable(t, "codex", "/opt/providers/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
 	if err != nil {
 		t.Fatalf("DiscoverProviderProfiles() error = %v", err)
 	}
 	zcode := profiles[0]
-	wantArgv := []string{"/opt/node/bin/node", ZCodeLauncher}
+	wantArgv := []string{zcodeExecutable, zcodeLauncher}
 	if zcode.Version() != "" || zcode.Available() || zcode.Reason() != "unqualified_discovery" ||
 		zcode.Family() != FamilyZCode || zcode.Executable() != wantArgv[0] ||
-		zcode.Launcher() != ZCodeLauncher || !reflect.DeepEqual(zcode.Argv(), wantArgv) {
+		zcode.Launcher() != zcodeLauncher || !reflect.DeepEqual(zcode.Argv(), wantArgv) {
 		t.Fatalf("unqualified zcode profile = %#v", zcode)
 	}
 	zcode = zcode.WithQualifiedVersion(append(wantArgv, "--version"), "0.16.5")
@@ -412,20 +416,20 @@ func TestDiscoverProviderProfileObservesOnlyRequestedFamily(t *testing.T) {
 }
 
 func TestDiscoverConfiguredProviderProfilesKeepsEligibleFamilyWhenAnotherIsUnavailable(t *testing.T) {
-	const node = "/opt/providers/node"
-	const zcode = "/opt/providers/zcode.cjs"
+	const bundle = "/opt/providers/ZCode.app"
 	const grok = "/opt/providers/grok"
+	zcodeExecutable := filepath.Join(bundle, filepath.FromSlash(ZCodeExecutableRelativePath))
 	inspector := &recordingDiscoveryInspector{
 		executables: map[string]ports.ExecutableObservation{
-			grok:  discoveredExecutable(t, grok, grok, ""),
-			zcode: discoveredExecutable(t, zcode, zcode, ""),
+			grok: discoveredExecutable(t, grok, grok, ""),
 		},
 		errors: map[string]error{
-			node: ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "executable is unavailable"),
+			zcodeExecutable: ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "executable is unavailable"),
 		},
+		fileMissing: map[string]bool{filepath.Join(bundle, filepath.FromSlash(ZCodeLauncherRelativePath)): true},
 	}
 	profiles, err := DiscoverConfiguredProviderProfiles(context.Background(), inspector, map[Family][]string{
-		FamilyZCode: {node, zcode},
+		FamilyZCode: {bundle},
 		FamilyGrok:  {grok},
 	})
 	if err != nil {
@@ -437,20 +441,19 @@ func TestDiscoverConfiguredProviderProfilesKeepsEligibleFamilyWhenAnotherIsUnava
 }
 
 func TestDiscoverConfiguredProviderProfilesReportsScopedSecurityFailureAfterOtherFamilies(t *testing.T) {
-	const node = "/opt/providers/node"
-	const zcode = "/opt/providers/zcode.cjs"
+	const bundle = "/opt/providers/ZCode.app"
 	const grok = "/opt/providers/grok"
+	zcodeExecutable := filepath.Join(bundle, filepath.FromSlash(ZCodeExecutableRelativePath))
 	inspector := &recordingDiscoveryInspector{
 		executables: map[string]ports.ExecutableObservation{
-			grok:  discoveredExecutable(t, grok, grok, ""),
-			zcode: discoveredExecutable(t, zcode, zcode, ""),
+			grok: discoveredExecutable(t, grok, grok, ""),
 		},
 		errors: map[string]error{
-			node: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "executable identity changed"),
+			zcodeExecutable: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "executable identity changed"),
 		},
 	}
 	profiles, err := DiscoverConfiguredProviderProfiles(context.Background(), inspector, map[Family][]string{
-		FamilyZCode: {node, zcode},
+		FamilyZCode: {bundle},
 		FamilyGrok:  {grok},
 	})
 	if !reflect.DeepEqual(ConfiguredProviderSecurityFamilies(err), []Family{FamilyZCode}) {
@@ -464,15 +467,15 @@ func TestDiscoverConfiguredProviderProfilesReportsScopedSecurityFailureAfterOthe
 func TestDiscoverConfiguredProviderProfilesPropagatesCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	const node = "/opt/providers/node"
-	const zcode = "/opt/providers/zcode.cjs"
+	const bundle = "/opt/providers/ZCode.app"
+	zcodeExecutable := filepath.Join(bundle, filepath.FromSlash(ZCodeExecutableRelativePath))
 	inspector := &recordingDiscoveryInspector{
 		executables: map[string]ports.ExecutableObservation{},
 		errors: map[string]error{
-			node: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "executable identity changed"),
+			zcodeExecutable: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "executable identity changed"),
 		},
 	}
-	profiles, err := DiscoverConfiguredProviderProfiles(ctx, inspector, map[Family][]string{FamilyZCode: {node, zcode}})
+	profiles, err := DiscoverConfiguredProviderProfiles(ctx, inspector, map[Family][]string{FamilyZCode: {bundle}})
 	if !errors.Is(err, context.Canceled) || profiles != nil {
 		t.Fatalf("profiles = %#v, error = %v", profiles, err)
 	}
@@ -484,7 +487,7 @@ func TestDiscoverConfiguredProviderProfilesRejectsInvalidConfiguredTuplesBeforeO
 		"unknown family":   {Family("other"): {"/opt/providers/other"}},
 		"empty tuple":      {FamilyZCode: {}},
 		"extra path":       {FamilyGrok: {"/opt/providers/agy", "/opt/providers/other"}},
-		"missing launcher": {FamilyZCode: {"/opt/providers/node"}},
+		"extra app bundle": {FamilyZCode: {"/opt/providers/ZCode.app", "/opt/providers/other.app"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if profiles, err := DiscoverConfiguredProviderProfiles(context.Background(), inspector, configured); err == nil || profiles != nil {
@@ -497,34 +500,34 @@ func TestDiscoverConfiguredProviderProfilesRejectsInvalidConfiguredTuplesBeforeO
 	}
 }
 
-func TestDiscoverZCodeProfileObservesOnlyEffectiveOverrideComponents(t *testing.T) {
-	const nodeOverride = "/opt/custom/node"
-	const launcherOverride = "/opt/custom/zcode.cjs"
+func TestDiscoverZCodeProfileObservesOnlyEffectiveAppBundle(t *testing.T) {
+	const overrideBundle = "/opt/custom/ZCode.app"
 	for _, test := range []struct {
-		name               string
-		executableOverride string
-		launcherOverride   string
-		poisoned           string
-		wantCalls          []string
+		name     string
+		bundle   string
+		override string
 	}{
-		{name: "node override with bundled launcher", executableOverride: nodeOverride, poisoned: "node", wantCalls: []string{nodeOverride, ZCodeLauncher}},
-		{name: "PATH node with launcher override", launcherOverride: launcherOverride, poisoned: ZCodeLauncher, wantCalls: []string{"node", launcherOverride}},
+		{name: "standard app bundle", bundle: ZCodeAppBundle},
+		{name: "override app bundle", bundle: overrideBundle, override: overrideBundle},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			executable := filepath.Join(test.bundle, filepath.FromSlash(ZCodeExecutableRelativePath))
+			launcher := filepath.Join(test.bundle, filepath.FromSlash(ZCodeLauncherRelativePath))
+			providerConfig := filepath.Join(test.bundle, filepath.FromSlash(ZCodeProviderConfigRelativePath))
+			applicationMetadata := filepath.Join(test.bundle, filepath.FromSlash(ZCodeApplicationMetadataRelativePath))
 			inspector := &recordingDiscoveryInspector{
 				executables: map[string]ports.ExecutableObservation{
-					"node":           discoveredExecutable(t, "node", "/opt/path/node", ""),
-					nodeOverride:     discoveredExecutable(t, nodeOverride, nodeOverride, ""),
-					ZCodeLauncher:    discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, ""),
-					launcherOverride: discoveredExecutable(t, launcherOverride, launcherOverride, ""),
+					executable: discoveredExecutable(t, executable, executable, ""),
+					launcher:   discoveredExecutable(t, launcher, launcher, ""),
 				},
-				errors: map[string]error{test.poisoned: errors.New("unused source observed")},
+				errors: map[string]error{},
 			}
-			profile, err := DiscoverProviderProfileWithOverrides(context.Background(), inspector, FamilyZCode, test.executableOverride, test.launcherOverride)
+			profile, err := DiscoverProviderProfileWithOverride(context.Background(), inspector, FamilyZCode, test.override)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if profile.Executable() == "" || profile.Launcher() == "" || !reflect.DeepEqual(inspector.calls, test.wantCalls) {
+			wantCalls := []string{executable, executable, launcher, providerConfig, applicationMetadata}
+			if profile.Executable() == "" || profile.Launcher() == "" || !reflect.DeepEqual(inspector.calls, wantCalls) {
 				t.Fatalf("profile=%#v calls=%v", profile, inspector.calls)
 			}
 		})
@@ -532,11 +535,13 @@ func TestDiscoverZCodeProfileObservesOnlyEffectiveOverrideComponents(t *testing.
 }
 
 func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
+	zcodeExecutable := filepath.Join(ZCodeAppBundle, filepath.FromSlash(ZCodeExecutableRelativePath))
+	zcodeLauncher := filepath.Join(ZCodeAppBundle, filepath.FromSlash(ZCodeLauncherRelativePath))
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
-		"node":        discoveredExecutable(t, "node", "/new/location/node", "0.16.5"),
-		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.5"),
-		"grok":        discoveredExecutable(t, "grok", "/new/location/grok", "1.0.30"),
-		"codex":       discoveredExecutable(t, "codex", "/new/location/codex", "0.149.0"),
+		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
+		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
+		"grok":          discoveredExecutable(t, "grok", "/new/location/grok", "1.0.30"),
+		"codex":         discoveredExecutable(t, "codex", "/new/location/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
 	if err != nil {
@@ -550,24 +555,39 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 }
 
 func TestDiscoverProviderProfilesTreatsUnparseableAsYellowUnavailable(t *testing.T) {
+	zcodeExecutable := filepath.Join(ZCodeAppBundle, filepath.FromSlash(ZCodeExecutableRelativePath))
+	zcodeLauncher := filepath.Join(ZCodeAppBundle, filepath.FromSlash(ZCodeLauncherRelativePath))
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
-		"node":        discoveredExecutable(t, "node", "/opt/node/bin/node", "0.16.5"),
-		ZCodeLauncher: discoveredExecutable(t, ZCodeLauncher, ZCodeLauncher, "0.16.5"),
-		"grok":        discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.30"),
-		"codex":       discoveredExecutable(t, "codex", "/opt/providers/codex", "0.149.0"),
+		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
+		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
+		"grok":          discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.30"),
+		"codex":         discoveredExecutable(t, "codex", "/opt/providers/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
 	if err != nil {
 		t.Fatalf("DiscoverProviderProfiles() error = %v", err)
 	}
 	zcode := profiles[0].WithQualifiedVersion(append(profiles[0].Argv(), "--version"), "current")
-	if zcode.Available() || zcode.Classification() != VersionYellow || zcode.Reason() != "unparseable_version" {
+	if zcode.Available() || zcode.Classification() != VersionUnknown || zcode.Reason() != "unparseable_version" {
 		t.Fatalf("zcode = available %t class %q reason %q", zcode.Available(), zcode.Classification(), zcode.Reason())
 	}
 }
 
 func completeInput(t *testing.T, family Family, version string) QualificationInput {
 	return currentProbeAuthorityInput(t, family, version)
+}
+
+func TestZCodeApplicationVersionGuidanceAllowsFutureVersionsAboveMinimum(t *testing.T) {
+	for version, want := range map[string]VersionClassification{
+		"3.12.2":  VersionRed,
+		"3.12.3":  VersionGreen,
+		"3.99.0":  VersionYellow,
+		"garbage": VersionUnknown,
+	} {
+		if got := ClassifyZCodeApplicationVersion(version); got != want {
+			t.Fatalf("application version %s classified as %q, want %q", version, got, want)
+		}
+	}
 }
 
 type discoveryInspector struct {
@@ -577,6 +597,7 @@ type discoveryInspector struct {
 type recordingDiscoveryInspector struct {
 	executables map[string]ports.ExecutableObservation
 	errors      map[string]error
+	fileMissing map[string]bool
 	calls       []string
 }
 
@@ -598,7 +619,58 @@ func (inspector *recordingDiscoveryInspector) ObserveReadableFileIdentity(_ cont
 	if err := inspector.errors[name]; err != nil {
 		return ports.FileIdentityObservation{}, err
 	}
+	if inspector.fileMissing[name] {
+		return ports.NewFileIdentityObservation(name, false, "", "")
+	}
+	if strings.HasSuffix(name, "/zcode-builtin.json") {
+		return ports.NewFileIdentityObservation(name, true, name, "sha256:"+strings.Repeat("a", 64))
+	}
 	return fileIdentityFromExecutable(inspector.executables[name])
+}
+func (inspector *recordingDiscoveryInspector) ObserveApplicationMetadata(_ context.Context, name string) (ports.ApplicationMetadataObservation, error) {
+	inspector.calls = append(inspector.calls, name)
+	if err := inspector.errors[name]; err != nil {
+		return ports.ApplicationMetadataObservation{}, err
+	}
+	if inspector.fileMissing[name] {
+		return ports.ApplicationMetadataObservation{}, ports.NewIdentityObservationErrorWithReason(ports.IdentityObservationUnavailable, ports.IdentityObservationReasonUnreadable, "application metadata missing")
+	}
+	return ports.NewApplicationMetadataObservation(name, "sha256:"+strings.Repeat("b", 64), "3.12.3")
+}
+
+func TestDiscoverZCodeProviderConfigUsesCertifiedBundleLayout(t *testing.T) {
+	const bundle = ZCodeAppBundle
+	launcher := filepath.Join(bundle, filepath.FromSlash(ZCodeLauncherRelativePath))
+	executable := filepath.Join(bundle, filepath.FromSlash(ZCodeExecutableRelativePath))
+	providerConfig := filepath.Join(bundle, filepath.FromSlash(ZCodeProviderConfigRelativePath))
+	applicationMetadata := filepath.Join(bundle, filepath.FromSlash(ZCodeApplicationMetadataRelativePath))
+	for _, test := range []struct {
+		name       string
+		missing    map[string]bool
+		wantPath   string
+		wantReason string
+		wantCalls  []string
+	}{
+		{name: "certified layout", wantPath: providerConfig, wantReason: "unqualified_discovery", wantCalls: []string{executable, executable, launcher, providerConfig, applicationMetadata}},
+		{name: "certified layout missing", missing: map[string]bool{providerConfig: true}, wantReason: "provider_config_not_found", wantCalls: []string{executable, executable, launcher, providerConfig, applicationMetadata}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inspector := &recordingDiscoveryInspector{
+				executables: map[string]ports.ExecutableObservation{
+					executable: discoveredExecutable(t, executable, executable, ""),
+					launcher:   discoveredExecutable(t, launcher, launcher, ""),
+				},
+				errors: map[string]error{}, fileMissing: test.missing,
+			}
+			profile, err := DiscoverProviderProfile(context.Background(), inspector, FamilyZCode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if profile.ZCodeProviderConfig() != test.wantPath || profile.Reason() != test.wantReason || !reflect.DeepEqual(inspector.calls, test.wantCalls) {
+				t.Fatalf("profile config/reason/calls = %q/%q/%v", profile.ZCodeProviderConfig(), profile.Reason(), inspector.calls)
+			}
+		})
+	}
 }
 
 func (*recordingDiscoveryInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
@@ -619,7 +691,13 @@ func (inspector discoveryInspector) ObserveExecutableIdentity(ctx context.Contex
 	return inspector.ObserveExecutable(ctx, name)
 }
 func (inspector discoveryInspector) ObserveReadableFileIdentity(_ context.Context, name string) (ports.FileIdentityObservation, error) {
+	if strings.HasSuffix(name, "/zcode-builtin.json") {
+		return ports.NewFileIdentityObservation(name, true, name, "sha256:"+strings.Repeat("a", 64))
+	}
 	return fileIdentityFromExecutable(inspector.executables[name])
+}
+func (discoveryInspector) ObserveApplicationMetadata(_ context.Context, name string) (ports.ApplicationMetadataObservation, error) {
+	return ports.NewApplicationMetadataObservation(name, "sha256:"+strings.Repeat("b", 64), "3.12.3")
 }
 
 func (discoveryInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {

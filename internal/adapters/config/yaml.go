@@ -461,8 +461,8 @@ func validate(config *Config) error {
 		return fmt.Errorf("providers")
 	}
 	if config.Providers.ZCode != nil {
-		if !canonicalAbsolute(config.Providers.ZCode.NodeExecutable) || !canonicalAbsolute(config.Providers.ZCode.Launcher) {
-			return fmt.Errorf("zcode paths")
+		if !canonicalAbsolute(config.Providers.ZCode.AppBundle) {
+			return fmt.Errorf("zcode app bundle")
 		}
 		timeout, err := ParseProviderTimeout(config.Providers.ZCode.Timeout)
 		if err != nil {
@@ -713,7 +713,7 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	}
 	out.WriteString("native_user:\n  home: " + q(config.NativeUser.Home) + "\nproviders:\n")
 	if provider := config.Providers.ZCode; provider != nil {
-		out.WriteString("  zcode:\n    node_executable: " + q(provider.NodeExecutable) + "\n    launcher: " + q(provider.Launcher) + "\n")
+		out.WriteString("  zcode:\n    app_bundle: " + q(provider.AppBundle) + "\n")
 		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}

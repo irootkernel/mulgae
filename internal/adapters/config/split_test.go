@@ -9,13 +9,13 @@ import (
 	"testing"
 )
 
-func TestConfigV2SplitKeepsMachinePathsOutOfProjectPolicy(t *testing.T) {
+func TestConfigV4SplitKeepsMachinePathsOutOfProjectPolicy(t *testing.T) {
 	config := validConfig()
 	project, local, err := EncodeSplit(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{config.NativeUser.Home, config.Providers.ZCode.NodeExecutable, config.Providers.ZCode.Launcher} {
+	for _, forbidden := range []string{config.NativeUser.Home, config.Providers.ZCode.AppBundle} {
 		if bytes.Contains(project, []byte(forbidden)) {
 			t.Fatalf("project config contains machine-local value %q", forbidden)
 		}
@@ -34,7 +34,7 @@ func TestConfigV2SplitKeepsMachinePathsOutOfProjectPolicy(t *testing.T) {
 	}
 }
 
-func TestConfigV3SplitKeepsGrokExecutableMachineLocalAndTimeoutShared(t *testing.T) {
+func TestConfigV4SplitKeepsGrokExecutableMachineLocalAndTimeoutShared(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{Grok: &GrokProviderConfig{Executable: "/opt/grok/bin/grok", Timeout: "25m"}}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
@@ -57,12 +57,12 @@ func TestConfigV3SplitKeepsGrokExecutableMachineLocalAndTimeoutShared(t *testing
 	}
 }
 
-func TestConfigV2SplitRejectsLegacyAndProviderSetMismatch(t *testing.T) {
+func TestConfigV4SplitRejectsLegacyAndProviderSetMismatch(t *testing.T) {
 	project, local, err := EncodeSplit(validConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := []byte(strings.Replace(string(project), "version: 3", "version: 2", 1))
+	legacy := []byte(strings.Replace(string(project), "version: 4", "version: 3", 1))
 	if _, err := DecodeSplit(legacy, local); err == nil {
 		t.Fatal("Config v1 was accepted")
 	}
@@ -85,12 +85,12 @@ func TestRepositoryProjectConfigIsCanonicalSharedPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"native_user:", "executable:", "node_executable:", "launcher:", "data_home:", "fallback_repair_attempts:"} {
+	for _, forbidden := range []string{"native_user:", "app_bundle:", "executable:", "node_executable:", "launcher:", "data_home:", "fallback_repair_attempts:"} {
 		if bytes.Contains(project, []byte(forbidden)) {
 			t.Fatalf("repository project config contains machine-local field %q", forbidden)
 		}
 	}
-	local := []byte("version: 3\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    node_executable: \"/usr/bin/node\"\n    launcher: \"/opt/mulgae/zcode.cjs\"\n  grok:\n    executable: \"/usr/bin/grok\"\n")
+	local := []byte("version: 4\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    app_bundle: \"/Applications/ZCode.app\"\n  grok:\n    executable: \"/usr/bin/grok\"\n")
 	config, err := DecodeSplit(project, local)
 	if err != nil {
 		t.Fatalf("decode repository project config: %v", err)

@@ -9,7 +9,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v10.schema.json"
+const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v11.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
 const fixedCommandSpecCount = 19
@@ -20,7 +20,7 @@ const (
 	recoveryReviewArtifactContractURI    = "https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json"
 	recoveryCompositeManifestContractURI = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v2.schema.json"
 	recoveryCompositeReviewContractURI   = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json"
-	doctorResultContractURI              = "https://mulgae.local/schemas/mulgae-doctor-result.v4.schema.json"
+	doctorResultContractURI              = "https://mulgae.local/schemas/mulgae-doctor-result.v5.schema.json"
 	heartbeatResultContractURI           = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v3.schema.json"
 	runManifestContractURI               = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	reviewArtifactContractURI            = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"

@@ -18,6 +18,11 @@ type ProviderRuntimeDefinition interface {
 	ExecutableSHA256() string
 	Launcher() string
 	LauncherSHA256() string
+	ZCodeProviderConfig() string
+	ZCodeProviderConfigSHA256() string
+	ApplicationVersion() string
+	ApplicationMetadata() string
+	ApplicationMetadataSHA256() string
 	ProfileGeneration() string
 	RuntimeSafetyPolicyIdentity() string
 	ProfileID() string
@@ -42,6 +47,11 @@ type ProviderRuntimeSpec struct {
 	ExecutableSHA256            string
 	Launcher                    string
 	LauncherSHA256              string
+	ZCodeProviderConfig         string
+	ZCodeProviderConfigSHA256   string
+	ApplicationVersion          string
+	ApplicationMetadata         string
+	ApplicationMetadataSHA256   string
 	ProfileID                   string
 	ProfileGeneration           string
 	RuntimeSafetyPolicyIdentity string

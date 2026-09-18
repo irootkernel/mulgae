@@ -463,6 +463,9 @@ func (inspector *fakeInspector) ObserveExecutableIdentity(ctx context.Context, n
 func (*fakeInspector) ObserveReadableFileIdentity(_ context.Context, name string) (ports.FileIdentityObservation, error) {
 	return ports.NewFileIdentityObservation(name, false, "", "")
 }
+func (*fakeInspector) ObserveApplicationMetadata(_ context.Context, _ string) (ports.ApplicationMetadataObservation, error) {
+	return ports.ApplicationMetadataObservation{}, errors.New("application metadata unavailable")
+}
 
 func (*fakeInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
 	return ports.NativeHomeLaunchAuthority{}, nil

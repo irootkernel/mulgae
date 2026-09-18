@@ -30,8 +30,7 @@ type DiscoverySourceSpec struct {
 func DiscoverySourceSpecs() []DiscoverySourceSpec {
 	specs := []DiscoverySourceSpec{
 		{Family: "zcode", Fields: []DiscoverySourceFieldSpec{
-			{JSONName: "node_executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
-			{JSONName: "launcher_source", Values: []string{"override", "bundled", "not_discovered", "not_selected"}},
+			{JSONName: "app_bundle_source", Values: []string{"override", "standard", "not_discovered", "not_selected"}},
 		}},
 		{Family: "grok", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
@@ -206,10 +205,9 @@ func canonicalRoleIDs(values []string) bool {
 func validDiscoverySources(row DiscoveryRow) bool {
 	fields := map[string]string{
 		"executable_source":       row.ExecutableSource,
+		"app_bundle_source":       row.AppBundleSource,
 		"model_source":            row.ModelSource,
 		"data_home_source":        row.DataHomeSource,
-		"node_executable_source":  row.NodeExecutableSource,
-		"launcher_source":         row.LauncherSource,
 		"native_home_source":      row.NativeHomeSource,
 		"permission_mode_source":  row.PermissionModeSource,
 		"reasoning_effort_source": row.ReasoningEffortSource,

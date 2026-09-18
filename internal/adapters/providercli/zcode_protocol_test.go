@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -42,6 +43,12 @@ func protocolMessagesResult(proof string) string {
 	return `{"id":"mulgae-messages","result":{"messages":[{"info":{"role":"assistant"},"parts":[{"type":"text","text":` + strconvQuote(proof) + `}]},{"info":{"role":"user"},"parts":[{"type":"text","text":"prompt"}]}]}}`
 }
 
+func protocolModelResult(candidate int, reasoning string) string {
+	selection := `{"providerId":"selected","modelId":"model","options":{"reasoningLevel":` + strconvQuote(reasoning) + `}}`
+	sessionModel := `{"providerId":"selected","modelId":"model"}`
+	return `{"id":"mulgae-model-` + fmt.Sprintf("%d", candidate) + `","result":{"protocol":{"name":"ZCode Protocol","version":1},"session":{"sessionId":"sess_script","model":` + sessionModel + `},"settings":{"model":{"current":` + selection + `}}}}`
+}
+
 func strconvQuote(value string) string {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -66,6 +73,199 @@ func mustCapabilitySession(t *testing.T) *zcodeProtocolSession {
 		t.Fatal(err)
 	}
 	return session
+}
+
+func TestZCodeProtocolPinsLegacySelectionBeforeSendingPrompt(t *testing.T) {
+	session, err := newZcodeReviewProtocolSession("/private/work", []byte("review packet"), &zcodeModelSelection{ProviderID: "selected", ModelID: "model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, sent := driveScripted(t, session,
+		protocolCreateResult,
+		`{"id":"mulgae-model-0","error":{"code":-32603,"message":"Reasoning effort \"max\" is not supported","data":{"code":"invalid_model_request"}}}`,
+		`{"id":"mulgae-model-1","error":{"code":-32603,"message":"Reasoning effort \"xhigh\" is not supported","data":{"code":"invalid_model_request"}}}`,
+		protocolModelResult(2, "high"),
+		protocolSendAck, protocolTurnDone, protocolCloseResult,
+	)
+	if err != nil {
+		t.Fatalf("Drive failed: %v", err)
+	}
+	if len(sent) != 6 {
+		t.Fatalf("client lines = %d, want create, three model attempts, send, close: %s", len(sent), sent)
+	}
+	for index, reasoning := range []string{"max", "xhigh", "high"} {
+		var request struct {
+			Method string `json:"method"`
+			Params struct {
+				SessionID string `json:"sessionId"`
+				Model     struct {
+					ProviderID string `json:"providerId"`
+					ModelID    string `json:"modelId"`
+					Options    struct {
+						ReasoningLevel string `json:"reasoningLevel"`
+					} `json:"options"`
+				} `json:"model"`
+				Persist bool `json:"persistAsWorkspaceLastUsed"`
+			} `json:"params"`
+		}
+		if err := json.Unmarshal(sent[index+1], &request); err != nil {
+			t.Fatal(err)
+		}
+		if request.Method != zcodeProtocolSetModelMethod || request.Params.SessionID != "sess_script" ||
+			request.Params.Model.ProviderID != "selected" || request.Params.Model.ModelID != "model" ||
+			request.Params.Model.Options.ReasoningLevel != reasoning || request.Params.Persist {
+			t.Fatalf("model request %d = %#v", index, request)
+		}
+	}
+	var send struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(sent[4], &send); err != nil || send.Method != zcodeProtocolSendMethod {
+		t.Fatalf("post-selection request = %s, %v", sent[4], err)
+	}
+}
+
+func TestZCodeProtocolIgnoresModelResponseBeforeRequest(t *testing.T) {
+	session, err := newZcodeReviewProtocolSession("/private/work", []byte("review packet"), &zcodeModelSelection{ProviderID: "selected", ModelID: "model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	premature := strings.Replace(protocolModelResult(0, "max"), `"sessionId":"sess_script"`, `"sessionId":""`, 1)
+	driveErr, sent := driveScripted(t, session,
+		premature, protocolCreateResult, protocolModelResult(0, "max"),
+		protocolSendAck, protocolTurnDone, protocolCloseResult,
+	)
+	if driveErr != nil {
+		t.Fatalf("Drive failed after inert premature response: %v", driveErr)
+	}
+	if len(sent) != 4 {
+		t.Fatalf("client lines = %d, want create, model, send, close: %s", len(sent), sent)
+	}
+	var modelRequest struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(sent[1], &modelRequest); err != nil || modelRequest.Method != zcodeProtocolSetModelMethod {
+		t.Fatalf("request after create = %s, %v", sent[1], err)
+	}
+}
+
+func TestZCodeProtocolRejectsUnavailableLegacySelectionBeforePrompt(t *testing.T) {
+	session, err := newZcodeReviewProtocolSession("/private/work", []byte("review packet"), &zcodeModelSelection{ProviderID: "selected", ModelID: "missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := []string{protocolCreateResult}
+	for index, reasoning := range zcodeProtocolReasoningCandidates {
+		lines = append(lines, `{"id":"mulgae-model-`+fmt.Sprintf("%d", index)+`","error":{"code":-32603,"message":"Reasoning effort `+reasoning+` is not supported","data":{"code":"invalid_model_request"}}}`)
+	}
+	err, sent := driveScripted(t, session, lines...)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
+		t.Fatalf("Drive error = %v, want configuration_violation", err)
+	}
+	if len(sent) != 1+len(zcodeProtocolReasoningCandidates) {
+		t.Fatalf("client lines = %d, want create plus bounded model attempts", len(sent))
+	}
+	observation, ok := session.SessionObservation()
+	if !ok || observation.Phase() != ports.ProviderSessionPhaseModel || observation.Terminal() != ports.ProviderSessionFailed {
+		t.Fatalf("selection failure observation = %#v, present = %t", observation.Input(), ok)
+	}
+	for _, line := range sent {
+		if strings.Contains(string(line), `"method":"session/send"`) {
+			t.Fatalf("prompt sent after selection rejection: %s", line)
+		}
+	}
+}
+
+func TestZCodeProtocolDoesNotMisclassifyModelSelectionServerFailure(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		response string
+	}{
+		{
+			name:     "missing model is configuration",
+			response: `{"id":"mulgae-model-0","error":{"code":-32603,"message":"missing","data":{"code":"model_not_found"}}}`,
+		},
+		{name: "provider not configured is configuration", response: `{"id":"mulgae-model-0","error":{"code":-32603,"message":"missing","data":{"code":"provider_not_configured"}}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session, err := newZcodeReviewProtocolSession("/private/work", []byte("review packet"), &zcodeModelSelection{ProviderID: "selected", ModelID: "model"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err, sent := driveScripted(t, session, protocolCreateResult, test.response)
+			var failure *domain.Failure
+			if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
+				t.Fatalf("Drive error = %v, want configuration_violation", err)
+			}
+			if len(sent) != 2 {
+				t.Fatalf("client lines = %d, want create plus one model request", len(sent))
+			}
+			if strings.Contains(string(sent[len(sent)-1]), `"method":"session/send"`) {
+				t.Fatalf("prompt sent after selection rejection: %s", sent[len(sent)-1])
+			}
+		})
+	}
+}
+
+func TestZCodeProtocolRejectsUnverifiedModelSelectionSuccess(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		response string
+	}{
+		{name: "id only", response: `{"id":"mulgae-model-0"}`},
+		{name: "null result", response: `{"id":"mulgae-model-0","result":null}`},
+		{name: "malformed result", response: `{"id":"mulgae-model-0","result":"accepted"}`},
+		{name: "wrong session", response: strings.Replace(protocolModelResult(0, "max"), "sess_script", "other", 1)},
+		{name: "wrong model", response: strings.ReplaceAll(protocolModelResult(0, "max"), `"modelId":"model"`, `"modelId":"other"`)},
+		{name: "missing session model", response: strings.Replace(protocolModelResult(0, "max"), `,"model":{"providerId":"selected","modelId":"model"}`, "", 1)},
+		{name: "wrong session model", response: strings.Replace(protocolModelResult(0, "max"), `"modelId":"model"`, `"modelId":"other"`, 1)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session, err := newZcodeReviewProtocolSession("/private/work", []byte("review packet"), &zcodeModelSelection{ProviderID: "selected", ModelID: "model"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			driveErr, sent := driveScripted(t, session, protocolCreateResult, test.response)
+			if cause := protocolCause(t, driveErr); cause != domain.DiagnosticCauseOutputEnvelopeInvalid {
+				t.Fatalf("cause = %q, want %q", cause, domain.DiagnosticCauseOutputEnvelopeInvalid)
+			}
+			for _, line := range sent {
+				if strings.Contains(string(line), `"method":"session/send"`) {
+					t.Fatalf("prompt sent after invalid model result: %s", line)
+				}
+			}
+		})
+	}
+}
+
+func TestZCodeProtocolClassifiesNonConfigurationModelSelectionFailures(t *testing.T) {
+	for _, test := range []struct {
+		code string
+		want domain.RuntimeDiagnosticCause
+	}{
+		{code: "model_request_auth_missing", want: domain.DiagnosticCauseAuthenticationFailed},
+		{code: "model_rate_limited", want: domain.DiagnosticCauseRateLimited},
+		{code: "model_request_timeout", want: domain.DiagnosticCauseTimedOut},
+		{code: "model_request_failed", want: domain.DiagnosticCauseProviderExecutionFailed},
+		{code: "invalid_model_response", want: domain.DiagnosticCauseProviderExecutionFailed},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			session, err := newZcodeReviewProtocolSession("/private/work", []byte("review packet"), &zcodeModelSelection{ProviderID: "selected", ModelID: "model"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := `{"id":"mulgae-model-0","error":{"code":-32603,"message":"failure","data":{"code":` + strconvQuote(test.code) + `}}}`
+			driveErr, _ := driveScripted(t, session, protocolCreateResult, response)
+			if cause := protocolCause(t, driveErr); cause != test.want {
+				t.Fatalf("cause = %q, want %q", cause, test.want)
+			}
+			var configuration *domain.Failure
+			if errors.As(driveErr, &configuration) {
+				t.Fatalf("non-configuration error was projected as configuration: %v", driveErr)
+			}
+		})
+	}
 }
 
 // TestZCodeProtocolDriveClassifiesFailureBranches pins the typed cause of every

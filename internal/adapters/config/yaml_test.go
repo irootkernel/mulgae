@@ -17,7 +17,7 @@ func validConfig() Config {
 		Version:    ConfigVersion,
 		Project:    ProjectConfig{Name: "project", Context: ".mulgae-context.md"},
 		NativeUser: NativeUserConfig{Home: "/Users/test"},
-		Providers:  ProvidersConfig{ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"}},
+		Providers:  ProvidersConfig{ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}},
 		Execution:  ExecutionConfig{WorkspaceAccess: "none"},
 		Roles:      roles,
 		Review:     ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
@@ -63,7 +63,7 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 
 func TestDecodeRejectsRetiredProviderBlocks(t *testing.T) {
 	for _, family := range []string{"kimi", "agy"} {
-		document := []byte("version: 3\nproject:\n  name: project\nproviders:\n  " + family + ":\n    executable: /bin/provider\n")
+		document := []byte("version: 4\nproject:\n  name: project\nproviders:\n  " + family + ":\n    executable: /bin/provider\n")
 		_, err := Decode(document)
 		admission, ok := AsAdmissionError(err)
 		if !ok || admission.Reason() != ReasonProviderRetired {
@@ -111,7 +111,7 @@ func TestDecodeTracksStructuredExtractionPresence(t *testing.T) {
 func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{
-		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs", Timeout: "30m"},
+		ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app", Timeout: "30m"},
 		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok", Timeout: "25m"},
 		Codex: &CodexProviderConfig{Executable: "/usr/local/bin/codex", Model: "gpt-5.3-codex", ReasoningEffort: "high", Timeout: "20m"},
 	}
@@ -223,7 +223,7 @@ func TestProviderTimeoutRejectsInvalidZeroAndOutOfRangeValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	invalid := strings.Replace(string(canonical), "providers:\n", "providers:\n", 1)
-	invalid = strings.Replace(invalid, "    node_executable: \"/usr/local/bin/node\"\n", "    node_executable: \"/usr/local/bin/node\"\n    timeout: \"0s\"\n", 1)
+	invalid = strings.Replace(invalid, "    app_bundle: \"/Applications/ZCode.app\"\n", "    app_bundle: \"/Applications/ZCode.app\"\n    timeout: \"0s\"\n", 1)
 	_, err = Decode([]byte(invalid))
 	admission, ok := AsAdmissionError(err)
 	if !ok || admission.Reason() != ReasonProviderTimeoutInvalid {
@@ -248,7 +248,7 @@ func TestCanonicalRoundTripSupportsEveryProviderSubset(t *testing.T) {
 		config := validConfig()
 		config.Providers = ProvidersConfig{}
 		if mask&1 != 0 {
-			config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}
+			config.Providers.ZCode = &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}
 		}
 		if mask&2 != 0 {
 			config.Providers.Grok = &GrokProviderConfig{Executable: "/usr/local/bin/grok"}
@@ -285,7 +285,7 @@ func TestConfigRejectsRemovedFallbackKeys(t *testing.T) {
 
 	config := validConfig()
 	config.Providers = ProvidersConfig{
-		ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"},
+		ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
 		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok"},
 	}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
@@ -327,7 +327,7 @@ func TestConfigRejectsRemovedFallbackKeys(t *testing.T) {
 
 func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 	config := validConfig()
-	config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}
+	config.Providers.ZCode = &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 	config.Resources.RoleMaxInvocations = 2
 	config.Resources.RunMaxInvocations = 12
@@ -349,7 +349,7 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 			t.Fatalf("canonical config omitted %q:\n%s", expected, encoded)
 		}
 	}
-	future := strings.Replace(string(encoded), "version: 3", "version: 4", 1)
+	future := strings.Replace(string(encoded), "version: 4", "version: 5", 1)
 	if _, err := Decode([]byte(future)); err == nil {
 		t.Fatal("future config version was accepted")
 	}
@@ -363,7 +363,7 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 func TestConfigV1RoundTripsArtistBriefPath(t *testing.T) {
 	config := validConfig()
 	config.Project.Kind = ProjectKindUI
-	config.Providers = ProvidersConfig{ZCode: &ZCodeProviderConfig{NodeExecutable: "/usr/local/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"}}
+	config.Providers = ProvidersConfig{ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}}
 	roles, err := CanonicalRolesConfigForUI(testRoleDefaults(), config.Providers.Families())
 	if err != nil {
 		t.Fatal(err)

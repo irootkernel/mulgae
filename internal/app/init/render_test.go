@@ -30,7 +30,7 @@ func TestCandidateConfigDefaultsAutoProviderTimeouts(t *testing.T) {
 		InitializeProjectRequest{ProjectName: "project", NativeHome: "/Users/test"},
 		testRoleDefaults(),
 		candidates{
-			zcode: &adapterconfig.ZCodeProviderConfig{NodeExecutable: "/bin/node", Launcher: "/Applications/ZCode.app/zcode.cjs"},
+			zcode: &adapterconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
 			grok:  &adapterconfig.GrokProviderConfig{Executable: "/bin/grok"},
 		},
 	)

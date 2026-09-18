@@ -19,6 +19,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/cli"
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	adapterenvironment "github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/app"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
@@ -40,7 +41,7 @@ import (
 )
 
 const (
-	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v4.schema.json"
+	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v5.schema.json"
 	heartbeatResultSchema = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v3.schema.json"
 )
 
@@ -969,7 +970,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	}
 	mode, providerIDs := request.Selection()
 	selection := appinit.Selection{Mode: appinit.SelectionMode(mode), ProviderIDs: providerIDs}
-	zcodeNode, zcodeLauncher := request.ZCodeOverrides()
+	zcodeAppBundle := request.ZCodeAppBundle()
 	grokExecutable := request.GrokExecutable()
 	codexExecutable, codexModel, codexReasoningEffort := request.CodexOverrides()
 
@@ -999,7 +1000,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	if initialSource.Present() && !request.RefreshLocal() {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationPresent, domain.FailureConfiguration, "init_destination_exists", "The project-local Mulgae configuration already exists.", false)
 	}
-	nativeUser, err := user.Current()
+	nativeUser, err := adapterenvironment.InstalledUser()
 	if err != nil || nativeUser == nil {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureProviderUnavailable, "init_native_account_unavailable", "The native user account is unavailable.", false)
 	}
@@ -1078,7 +1079,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		NativeHomeAsserted:   nativeHomeAsserted,
 		Selection:            selection,
 		RoleIDs:              request.Roles(),
-		Overrides:            appinit.Overrides{ZCodeNodeExecutable: zcodeNode, ZCodeLauncher: zcodeLauncher, GrokExecutable: grokExecutable, CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort},
+		Overrides:            appinit.Overrides{ZCodeAppBundle: zcodeAppBundle, GrokExecutable: grokExecutable, CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort},
 		RefreshLocal:         request.RefreshLocal(),
 		ProjectPolicyOptions: request.ProjectPolicyOptions(),
 	})
@@ -1183,7 +1184,7 @@ func (application *Application) handleConfig(ctx context.Context, invocation Inv
 		}
 		return execution{failure: executionFailureFor(invocation.Command(), err, class)}
 	}
-	installed, installedErr := user.Current()
+	installed, installedErr := adapterenvironment.InstalledUser()
 	nativeHome, effectiveUID, err := admitConfiguredNativeAccount(resolved.Config().Raw().NativeUser.Home, installed, installedErr, os.Geteuid())
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureProviderUnavailable)}
@@ -1406,7 +1407,7 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	head, _ := locality.Checkout()
 	indexDigest, _, _ := locality.Index()
 	base.Config = doctor.LocalConfigProjection{Status: "ready", URI: adapterconfig.ConfigRelativePath, SHA256: identity.SHA256(), Authority: "project_local", Locality: "verified", CheckoutHeadOID: head, IndexEntriesSHA256: indexDigest, TargetCommitOIDs: locality.ApplicableCommitOIDs(), ProvenanceState: "accepted", ReasonCodes: []string{}}
-	installed, userErr := user.Current()
+	installed, userErr := adapterenvironment.InstalledUser()
 	installedUID := uint64(0)
 	var installedUIDErr error
 	if installed != nil {
@@ -1439,7 +1440,7 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	roleReferences := localConfiguredRoleReferences(config)
 	configured := make(map[reviewrun.Family][]string, len(base.ConfiguredProviderIDs))
 	if provider := config.Providers.ZCode; provider != nil {
-		configured[reviewrun.FamilyZCode] = []string{provider.NodeExecutable, provider.Launcher}
+		configured[reviewrun.FamilyZCode] = []string{provider.AppBundle}
 	}
 	if provider := config.Providers.Grok; provider != nil {
 		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
@@ -1466,24 +1467,34 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 		if _, configuredFamily := configured[reviewrun.Family(family)]; !configuredFamily {
 			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{
 				Family: family, ReferencedByRoles: []string{}, State: "not_configured", Reason: "not_configured",
-				BinaryAvailable: doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
-				CLICompatible:   doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
+				BinaryAvailable:       doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
+				CLICompatible:         doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
+				ApplicationCompatible: doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
 			})
 			continue
 		}
 		row := doctor.LocalProviderInventoryRow{Family: family, Configured: true, ReferencedByRoles: roleReferences[family]}
 		profile := profileByFamily[family]
+		row.ApplicationCompatible = doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}
+		if family == "zcode" {
+			row.ApplicationCompatible = localZCodeApplicationCompatibility(profile)
+		}
 		if _, unsafeIdentity := securityDiscoveryFamilies[reviewrun.Family(family)]; unsafeIdentity {
 			row.State, row.Reason = "unavailable", "provider_executable_unsafe_identity"
-			if profile.Reason() == "launcher_security_failure" {
+			switch profile.Reason() {
+			case "launcher_security_failure":
 				row.Reason = "zcode_launcher_unsafe_identity"
+			case "provider_config_security_failure":
+				row.Reason = "zcode_provider_config_unsafe_identity"
+			case "application_metadata_security_failure":
+				row.Reason = "zcode_application_metadata_unsafe_identity"
 			}
 			row.BinaryAvailable = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{row.Reason}}
 			row.CLICompatible = doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}
 			base.ProviderInventory = append(base.ProviderInventory, row)
 			continue
 		}
-		if profile.Executable() == "" || profile.Launcher() == "" {
+		if profile.Executable() == "" || profile.Launcher() == "" || profile.Family() == reviewrun.FamilyZCode && (profile.ZCodeProviderConfig() == "" || profile.ApplicationMetadata() == "" || profile.ApplicationVersion() == "") {
 			reason := "provider_executable_missing"
 			switch profile.Reason() {
 			case "executable_not_executable":
@@ -1496,6 +1507,18 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 				reason = "zcode_launcher_observation_failed"
 			case "launcher_not_found":
 				reason = "zcode_launcher_missing"
+			case "provider_config_not_found":
+				reason = "zcode_provider_config_missing"
+			case "provider_config_unreadable":
+				reason = "zcode_provider_config_unreadable"
+			case "provider_config_observation_failed":
+				reason = "zcode_provider_config_observation_failed"
+			case "application_metadata_unreadable":
+				reason = "zcode_application_metadata_unreadable"
+			case "application_metadata_observation_failed":
+				reason = "zcode_application_metadata_observation_failed"
+			case "application_version_malformed":
+				reason = "zcode_application_version_malformed"
 			}
 			row.State, row.Reason = "unavailable", reason
 			row.BinaryAvailable = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
@@ -1511,16 +1534,28 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 		}
 		if !nilApplicationDependency(application.versionObserver) {
 			argv := append(profile.Argv(), "--version")
-			observation, observeErr := application.versionObserver.ObserveProviderVersion(ctx, family, argv, profile.SHA256(), profile.LauncherSHA256())
+			observation, observeErr := application.versionObserver.ObserveProviderVersion(ctx, family, argv, ports.ProviderVersionIdentity{
+				ExecutableSHA256: profile.SHA256(), LauncherSHA256: profile.LauncherSHA256(),
+				ZCodeProviderConfig: profile.ZCodeProviderConfig(), ZCodeProviderConfigSHA256: profile.ZCodeProviderConfigSHA256(),
+				ApplicationMetadata: profile.ApplicationMetadata(), ApplicationMetadataSHA256: profile.ApplicationMetadataSHA256(),
+			})
 			if observeErr == nil {
 				row.CLICompatible = localCLICompatibility(reviewrun.Family(family), guidance, observation)
 			}
 		}
-		if row.CLICompatible.Eligibility == "eligible" {
+		cliIdentityUnsafe := row.CLICompatible.ReasonCode == "provider_cli_version_unsafe_identity"
+		unsafeAdmission = unsafeAdmission || cliIdentityUnsafe
+		if row.CLICompatible.Eligibility == "eligible" && row.ApplicationCompatible.Eligibility != "ineligible" {
 			eligible++
 			row.State, row.Reason = "eligible", row.CLICompatible.ReasonCode
+			if family == "zcode" {
+				row.Reason = row.ApplicationCompatible.ReasonCode
+			}
 		} else {
 			row.State, row.Reason = "unavailable", row.CLICompatible.ReasonCode
+			if row.ApplicationCompatible.Eligibility == "ineligible" && !cliIdentityUnsafe {
+				row.Reason = row.ApplicationCompatible.ReasonCode
+			}
 		}
 		base.ProviderInventory = append(base.ProviderInventory, row)
 	}
@@ -1579,8 +1614,10 @@ func localCLICompatibility(family reviewrun.Family, guidance reviewrun.VersionGu
 			result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "verified", "eligible", "verified", "provider_cli_version_supported"
 		case reviewrun.VersionYellow:
 			result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "verified", "eligible", "newer_than_verified", "provider_cli_version_newer_than_verified"
-		default:
+		case reviewrun.VersionRed:
 			result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "failed", "ineligible", "below_minimum", "provider_cli_version_below_minimum"
+		default:
+			result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "failed", "ineligible", "malformed", "provider_cli_version_malformed"
 		}
 	case ports.ProviderVersionTimedOut:
 		result.Status, result.ReasonCode = "unverifiable", "provider_cli_version_timeout"
@@ -1596,13 +1633,31 @@ func localCLICompatibility(family reviewrun.Family, guidance reviewrun.VersionGu
 	return result
 }
 
+func localZCodeApplicationCompatibility(profile reviewrun.DiscoveredProviderProfile) doctor.LocalCLICompatibility {
+	guidance := reviewrun.ZCodeApplicationGuidance()
+	result := doctor.LocalCLICompatibility{
+		Status: "failed", ObservedVersion: profile.ApplicationVersion(), Eligibility: "ineligible", Compatibility: "malformed",
+		MinimumVersion: guidance.Minimum, VerifiedLatest: guidance.VerifiedLatest, ReasonCode: "zcode_application_version_malformed",
+	}
+	switch profile.ApplicationVersionClassification() {
+	case reviewrun.VersionGreen:
+		result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "verified", "eligible", "verified", "zcode_application_version_supported"
+	case reviewrun.VersionYellow:
+		result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "verified", "eligible", "newer_than_verified", "zcode_application_version_newer_than_verified"
+	case reviewrun.VersionRed:
+		result.Compatibility, result.ReasonCode = "below_minimum", "zcode_application_version_below_minimum"
+	}
+	return result
+}
+
 func localUnobservedProviderInventory() []doctor.LocalProviderInventoryRow {
 	rows := make([]doctor.LocalProviderInventoryRow, 0, 3)
 	for _, family := range []string{"zcode", "grok", "codex"} {
 		rows = append(rows, doctor.LocalProviderInventoryRow{
 			Family: family, ReferencedByRoles: []string{}, State: "not_observed", Reason: "config_not_ready",
-			BinaryAvailable: doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
-			CLICompatible:   doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
+			BinaryAvailable:       doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
+			CLICompatible:         doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
+			ApplicationCompatible: doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
 		})
 	}
 	return rows

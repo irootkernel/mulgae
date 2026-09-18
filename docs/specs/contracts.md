@@ -2,7 +2,7 @@
 
 ## Versioning
 
-The public contract surface starts at v1. Configuration uses `version: 3`;
+The public contract surface starts at v1. Configuration uses `version: 4`;
 machine documents use identifiers such as `mulgae-run-manifest.v1`; prompts and
 role definitions also carry v1 identities.
 
@@ -26,12 +26,12 @@ The stable composition failure reasons are `composite_target_mismatch`,
 `composite_selection_ambiguous`, `composite_validation_failed`, and
 `composite_publication_incomplete`.
 
-Config `version: 3` is additive rather than frozen: a release may add an
+Config `version: 4` is additive rather than frozen: a release may add an
 optional project-policy field without changing the version, and an omitted
 field keeps its documented default. Compatibility therefore runs one way. A
-newer Mulgae reads a `config.yaml` written by an older one, but the YAML
-decoder rejects unknown fields, so an older Mulgae rejects a file that a newer
-one wrote with `config_yaml_invalid`. Because `config.yaml` is the Git-shareable
+newer Mulgae reads a `config.yaml` written by an older Config v4 release, but
+the YAML decoder rejects unknown fields, so an older Mulgae rejects a file that
+a newer one wrote with `config_yaml_invalid`. Because `config.yaml` is the Git-shareable
 authority, every collaborator on a project must run a Mulgae at least as new as
 the release that last wrote that file. Raising the config version instead would
 not help: an older binary still could not read the newer file, and every
@@ -50,7 +50,7 @@ Configuration has two authorities:
 The Git-shareable `config.yaml` selects provider families and models, role
 assignments, validation policy, resource ceilings, and CI thresholds. The
 untracked, mode-`0600` `local.yaml` supplies the native home and provider
-executable, launcher, and data-home paths. Neither file can add arbitrary
+executable, ZCode app-bundle, and Codex credential-home paths. Neither file can add arbitrary
 provider commands. Mulgae admits them only as a matching pair and reports their
 merged value through `config --mode effective` and field ownership through
 `config --mode provenance`. Provider stdout and stderr have no configurable or
@@ -63,7 +63,22 @@ The matching local authority contains the exact, lexically ordered
 Mulgae projects `<home>/auth.json`, never the home's `config.toml`, rules,
 skills, plugins, or other contents. When the named fields are absent, the
 legacy singleton uses `<native_user.home>/.codex`. Named and legacy forms are
-both Config v3; partially named or unmatched pairs are rejected.
+both Config v4; partially named or unmatched pairs are rejected.
+
+For ZCode, Mulgae descriptor-anchors the native
+`<native_user.home>/.zcode/cli/config.json` source. When present, each isolated
+invocation receives an exact legacy copy plus a generated
+`.zcode/v2/provider_config.json` containing the equivalent supported personal
+provider, model, and default-selection rules. Unselected provider-ID collisions
+follow ZCode's last-wins import behavior; a collision involving the selected
+provider fails closed as ambiguous. Mulgae rejects a selected provider or model
+that cannot be imported and applies the admitted selection before it sends the
+review prompt. Desktop and account sign-in state is not projected.
+This conversion is required because current ZCode app-server does not run the
+launcher's standalone legacy import. The local
+authority records only the canonical ZCode app bundle. Mulgae derives and binds
+the app-owned Electron runtime, bundled `zcode.cjs`, and built-in provider
+configuration, then launches app-server with `ELECTRON_RUN_AS_NODE=1`.
 
 `mulgae init` creates both files in a new project. When a clone already has the
 shared file, init creates only the missing local file and rejects project-policy
@@ -71,7 +86,13 @@ options. `init --refresh-local` atomically replaces only `local.yaml` and
 rejects project-policy options. Earlier config versions, including v2, are
 rejected and are never migrated automatically.
 
-Each Config v3 pathname is installed atomically, but initial creation of the two
+Manual Config v3 migration changes both `version` fields to `4`. In the ZCode
+local entry, remove `node_executable` and `launcher`, then set `app_bundle` to
+their canonical containing app bundle. The standard value is
+`/Applications/ZCode.app`. The shared policy must be valid Config v4 before
+`init --refresh-local` can rebuild the local authority.
+
+Each Config v4 pathname is installed atomically, but initial creation of the two
 files is not one filesystem transaction. If `config.yaml` commits and the local
 install fails before commitment, init returns `committed: false`,
 `write_state: project_committed_local_missing`, `destination_state: present`,
@@ -459,9 +480,10 @@ evidence but never classifies a native provider condition; stderr has that
 authority. Qualification may classify native failures from both stdout and
 stderr after a process failure or failed capability-proof validation.
 ZCode review and qualification invocations speak the ZCode app-server protocol:
-the adapter launches `[node, launcher, app-server]` and delivers every packet
-inside one newline-delimited protocol conversation over the child's stdin and
-stdout, so no prompt, mode, or tool policy ever appears on the argv. The
+the adapter launches the app-owned Electron runtime as
+`[runtime, launcher, app-server, --stdio]` with `ELECTRON_RUN_AS_NODE=1` and
+delivers every packet inside one newline-delimited protocol conversation over
+the child's stdin and stdout, so no prompt, mode, or tool policy ever appears on the argv. The
 conversation's turn completion, not child exit, is the provider's terminal
 review fact. A protocol failure remains a provider failure when bounded process
 teardown ends the app server with SIGTERM; that signal does not invalidate the
@@ -621,7 +643,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v10` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v11` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -630,7 +652,7 @@ can fail before execution. Child selector failures preserve cancellation and
 typed artifact or security exits; only an unclassified resolver failure uses
 exit `10` and `selector_resolution_failed`.
 
-Command-result v5, v6, v7, and v8 remain readable but are never emitted by the
+Command-result v5 through v10 remain readable but are never emitted by the
 current command surface. Other commands do not have rejected-request variants
 in v9.
 For the top-level `review` command, attributed provider execution details in v9
@@ -697,7 +719,7 @@ this internal failure.
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 
-`mulgae doctor --output json` returns `mulgae-doctor-result.v4`. Capability
+`mulgae doctor --output json` returns `mulgae-doctor-result.v5`. Capability
 detection starts with `schema_version`; consumers of an older result must treat
 an absent v2 dimension as unsupported, never as failed. The result reports
 `config_v3`, `local_configuration`, and `provider_identity` independently, and
@@ -705,21 +727,30 @@ each dimension uses exactly `verified`, `failed`, `unverifiable`, or
 `not_applicable`. Provider and role identifiers are fixed, redacted family/role
 IDs; executable paths, native homes, credentials, and local configuration values
 are not projected.
+`config_v3` is a frozen v4 result member name retained for compatibility; it
+evaluates the current Config v4 project and local authorities.
 
-Each configured `provider_inventory[]` row reports `binary_available` and
-`cli_compatible`. Binary observation revalidates the exact adapter-owned regular
+Each configured `provider_inventory[]` row reports `binary_available`,
+`cli_compatible`, and `application_compatible`. The application dimension is
+`not_applicable` outside ZCode. For ZCode it reports the independently observed
+`CFBundleShortVersionString`, minimum 3.12.3, and verified-latest 3.12.3;
+higher versions remain eligible as `newer_than_verified`.
+Binary observation revalidates the exact adapter-owned regular
 file through descriptor-safe identity and permission checks. ZCode requires an
-executable Node binary and a readable regular `.cjs` launcher; the launcher does
-not require an executable bit. CLI compatibility runs only the admitted direct
+executable app-owned Electron runtime, a readable regular `.cjs` launcher, the
+launcher's readable built-in provider config, and descriptor-bound
+`Contents/Info.plist` metadata. The launcher and provider
+config do not require an executable bit. CLI compatibility runs only the admitted direct
 `[executable, "--version"]` or ZCode
-`[node, launcher, "--version"]` command in a disposable empty home, with no
-credential projection or project working directory. It emits the normalized
-observed version, current minimum and verified-latest guidance, eligibility,
+`[runtime, launcher, "--version"]` command with `ELECTRON_RUN_AS_NODE=1` in a
+disposable empty home, with no credential projection or project working
+directory. It emits the normalized observed version, current minimum and verified-latest guidance, eligibility,
 and compatibility. A version above `verified_latest` preserves the existing
 eligible policy while using compatibility `newer_than_verified`.
 
 Top-level `readiness` and `configured_readiness` require every configured
-provider to pass binary availability and remain eligible under version policy.
+provider to pass binary availability and remain eligible under every applicable
+version policy.
 `role_route_readiness` separately reports whether every enabled role route is
 eligible. Static-admission evidence is not consulted by doctor and cannot gate
 offline readiness. `mulgae providers --output json` exposes the independent
@@ -733,7 +764,7 @@ Stable doctor reasons are grouped as follows:
 |---|---|
 | Config/local | `config_missing`, `local_config_missing`, `config_yaml_invalid`, `config_size_invalid`, `config_provider_timeout_invalid`, `config_credential_key_detected`, `config_credential_value_detected`, `config_locality_unsafe`, `config_locality_drifted`, `native_home_mismatch` |
 | Provider/role identity | `config_provider_identity_invalid`, `config_role_mapping_invalid` |
-| Binary | `provider_executable_missing`, `provider_executable_not_executable`, `provider_binary_observation_failed`, `provider_executable_unsafe_identity`, `zcode_launcher_missing`, `zcode_launcher_unreadable`, `zcode_launcher_observation_failed`, `zcode_launcher_unsafe_identity` |
+| Binary | `provider_executable_missing`, `provider_executable_not_executable`, `provider_binary_observation_failed`, `provider_executable_unsafe_identity`, `zcode_launcher_missing`, `zcode_launcher_unreadable`, `zcode_launcher_observation_failed`, `zcode_launcher_unsafe_identity`, `zcode_provider_config_missing`, `zcode_provider_config_unreadable`, `zcode_provider_config_observation_failed`, `zcode_provider_config_unsafe_identity`, `zcode_application_metadata_unreadable`, `zcode_application_metadata_observation_failed`, `zcode_application_metadata_unsafe_identity`, `zcode_application_version_malformed`, `zcode_application_version_below_minimum`, `zcode_application_version_supported`, `zcode_application_version_newer_than_verified` |
 | CLI version | `provider_cli_version_supported`, `provider_cli_version_newer_than_verified`, `provider_cli_version_below_minimum`, `provider_cli_version_malformed`, `provider_cli_version_command_failed`, `provider_cli_version_timeout`, `provider_cli_version_unsafe_identity`, `provider_cli_version_observation_failed` |
 | Aggregate | `provider_offline_readiness_failed`, `provider_role_route_unavailable`, `provider_security_admission_failed` |
 
@@ -816,17 +847,18 @@ profile, with at most one bounded operational retry, then derives role admission
 for configured role routes that share that profile. Shareable
 profiles are equivalent across base argv, transport channel/reference/index,
 environment, working directory, lifecycle, model, Codex reasoning effort,
-executable/launcher identity, and runtime safety policy identity. ZCode
+executable/launcher identity, ZCode built-in provider-config identity, and
+runtime safety policy identity. ZCode
 qualification probes use the app-server protocol conversation in plan mode
 with every tool denied; their capability evidence is the conversation's
 captured assistant response text, read back through the protocol after the
 turn completes, and the protocol transcript on stdout is never evidence.
-ZCode may share one probe across sibling role instances only when that full
-shareable profile matches. Direct-execution authority construction and Matches
-bind currentProbeRuntimeDefinitionIdentity for the exact destination runtime,
-including instance. Sibling routes receive a new authority only through an
-adapter-owned derivation that revalidates shareable equivalence and exact
-destination Matches. Application-layer identity rewriting cannot copy authority.
+ZCode qualification is additionally namespace-scoped: each role instance owns
+its selected provider/model namespace and therefore performs its own probe even
+when the remaining runtime profile fields match. Direct-execution authority
+construction and Matches bind currentProbeRuntimeDefinitionIdentity for the
+exact destination runtime, including instance. Application-layer identity
+rewriting cannot copy authority between those namespaces.
 Named Codex credential profiles additionally participate in qualification-group
 identity. Roles using the same credential profile may share one probe; roles
 using different profiles never share qualification or direct-execution
@@ -946,5 +978,5 @@ verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
 retry loop is introduced. CLI v5/v6/v7/v8/v9 schema examples remain available
-for explicit backward validation; current CLI envelopes use v10. MCP retains its v1
+along with v10 for explicit backward validation; current CLI envelopes use v11. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.

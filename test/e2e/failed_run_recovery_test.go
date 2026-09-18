@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/user"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -16,21 +15,18 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/recovery"
 )
 
-func TestIntegrationReleaseBinaryRecoversCancelledRunThroughExactReruns(t *testing.T) {
+func TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, root)
 	project := canonicalTestTempDir(t)
 	initializeReviewGitRepository(t, project)
-	account, err := user.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
+	nativeHome := integrationNativeHome(t, binary)
 	providers := canonicalTestTempDir(t)
 	logPath := filepath.Join(canonicalTestTempDir(t), "zcode.jsonl")
-	node, launcher := filepath.Join(providers, "node"), filepath.Join(providers, "zcode.cjs")
+	appBundle, node, launcher := fakeZCodeAppPaths(providers)
 	buildFakeZCode(t, root, node, launcher, logPath, "wait_twice_documentation")
-	environment := isolatedMulgaeEnvWith(t, account.HomeDir, providers)
-	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic,documentation", node, launcher)
+	environment := isolatedMulgaeEnvWith(t, nativeHome, providers)
+	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic,documentation", appBundle)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	running := startMulgaeBinaryWithEnv(t, ctx, binary, project, environment, "review", "--dirty", "--roles", "logic,documentation", "--output", "json")

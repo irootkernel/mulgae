@@ -33,7 +33,7 @@ mulgae init --providers codex --roles logic,security --output json
 
 Add the seventh role, `artist`, only with `--project-kind ui`; artist inputs
 require the artist role. Initialization never overwrites an existing complete
-Config v3 pair.
+Config v4 pair.
 
 ## Change an existing configuration
 
@@ -41,15 +41,15 @@ Config v3 pair.
 models, roles, artist inputs, timeouts, validation, resources, and CI policy.
 Edit it only when the user explicitly authorizes that policy change. The
 untracked, mode-`0600` `.mulgae/local.yaml` owns only the native home and
-provider executable, launcher, data-home, and credential-home paths. Prefer
+provider executable, ZCode app-bundle, and credential-home paths. Prefer
 `mulgae init --refresh-local` over hand-editing ordinary discovered paths. Use
-only Config v3 fields demonstrated by current effective configuration, the
-paired embedded examples, and `mulgae help config`; Config v1 and v2 are
+only Config v4 fields demonstrated by current effective configuration, the
+paired embedded examples, and `mulgae help config`; Config v1 through v3 are
 unsupported.
 
 ## Configure several Codex authentication profiles
 
-Named Codex profiles are a YAML-only Config v3 feature. Treat profile IDs as
+Named Codex profiles are a YAML-only Config v4 feature. Treat profile IDs as
 operator-chosen authentication aliases, not executable names. With explicit
 authorization, set the default and any role overrides in shared project policy:
 

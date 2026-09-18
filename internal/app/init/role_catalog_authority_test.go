@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -49,18 +50,13 @@ func initServiceWithCatalog(t *testing.T, catalog ports.ContractCatalog) (*Servi
 	if err != nil {
 		t.Fatalf("anchor project root: %v", err)
 	}
-	launcher := filepath.Join(t.TempDir(), "zcode.cjs")
-	if err := os.WriteFile(launcher, []byte("module.exports = {}\n"), 0o600); err != nil {
-		t.Fatalf("write zcode launcher: %v", err)
-	}
 	service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, catalog)
 	if err != nil {
 		t.Fatalf("build init service: %v", err)
 	}
 	overrides := Overrides{
-		ZCodeNodeExecutable: "/bin/node",
-		ZCodeLauncher:       launcher,
-		GrokExecutable:      "/bin/grok",
+		ZCodeAppBundle: reviewrun.ZCodeAppBundle,
+		GrokExecutable: "/bin/grok",
 	}
 	return service, root, overrides
 }

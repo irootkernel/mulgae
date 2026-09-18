@@ -291,8 +291,7 @@ type InitRequest struct {
 	roleIDs              []string
 	nativeHome           string
 	hasNativeHome        bool
-	zcodeNodeExecutable  string
-	zcodeLauncher        string
+	zcodeAppBundle       string
 	grokExecutable       string
 	codexExecutable      string
 	codexModel           string
@@ -329,9 +328,7 @@ func (request InitRequest) Roles() []string { return cloneStrings(request.roleID
 func (request InitRequest) NativeHome() (string, bool) {
 	return request.nativeHome, request.hasNativeHome
 }
-func (request InitRequest) ZCodeOverrides() (string, string) {
-	return request.zcodeNodeExecutable, request.zcodeLauncher
-}
+func (request InitRequest) ZCodeAppBundle() string { return request.zcodeAppBundle }
 func (request InitRequest) GrokExecutable() string { return request.grokExecutable }
 func (request InitRequest) CodexOverrides() (string, string, string) {
 	return request.codexExecutable, request.codexModel, request.codexReasoningEffort

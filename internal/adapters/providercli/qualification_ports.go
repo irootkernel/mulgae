@@ -41,20 +41,50 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	if spec.HasPostOutputLifecycle || spec.PostOutputLifecycle.Valid() {
 		return nil, fmt.Errorf("provider runtime builder: post-output lifecycle is unsupported")
 	}
+	environment := append([]ports.EnvironmentVariable(nil), spec.Environment...)
+	if spec.Family == FamilyZcode {
+		if !validCanonicalAbsolute(spec.ZCodeProviderConfig) || !validSHA256Identity(spec.ZCodeProviderConfigSHA256) ||
+			!validCanonicalAbsolute(spec.ApplicationMetadata) || !validSHA256Identity(spec.ApplicationMetadataSHA256) || spec.ApplicationVersion == "" ||
+			hasZCodeProviderConfigEnvironment(environment) || hasEnvironmentVariable(environment, "ELECTRON_RUN_AS_NODE") {
+			return nil, fmt.Errorf("provider runtime builder: invalid zcode provider config identity")
+		}
+		providerConfig, err := ports.NewEnvironmentVariable("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", spec.ZCodeProviderConfig)
+		if err != nil {
+			return nil, fmt.Errorf("provider runtime builder: invalid zcode provider config environment")
+		}
+		electronRuntime, err := ports.NewEnvironmentVariable("ELECTRON_RUN_AS_NODE", "1")
+		if err != nil {
+			return nil, fmt.Errorf("provider runtime builder: invalid zcode app environment")
+		}
+		environment = append(environment, providerConfig, electronRuntime)
+	} else if spec.ZCodeProviderConfig != "" || spec.ZCodeProviderConfigSHA256 != "" || spec.ApplicationVersion != "" || spec.ApplicationMetadata != "" || spec.ApplicationMetadataSHA256 != "" || hasZCodeProviderConfigEnvironment(environment) || hasEnvironmentVariable(environment, "ELECTRON_RUN_AS_NODE") {
+		return nil, fmt.Errorf("provider runtime builder: zcode provider config is bound to another family")
+	}
 	if spec.Family == FamilyCodex {
 		return NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
 			spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
 			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity, spec.CodexModel, spec.CodexReasoningEffort,
-			append([]string(nil), spec.BaseArgv...), transport, append([]ports.EnvironmentVariable(nil), spec.Environment...),
+			append([]string(nil), spec.BaseArgv...), transport, environment,
 			spec.WorkingDirectory, spec.Timeout,
 		)
 	}
-	return NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
+	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
+		spec.ZCodeProviderConfig, spec.ZCodeProviderConfigSHA256,
 		spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity,
-		append([]string(nil), spec.BaseArgv...), transport, append([]ports.EnvironmentVariable(nil), spec.Environment...),
+		append([]string(nil), spec.BaseArgv...), transport, environment,
 		spec.WorkingDirectory, spec.Timeout,
 	)
+	if err != nil {
+		return nil, err
+	}
+	definition.applicationVersion = spec.ApplicationVersion
+	definition.applicationMetadata = spec.ApplicationMetadata
+	definition.applicationMetadataSHA256 = spec.ApplicationMetadataSHA256
+	if err := definition.validate(); err != nil {
+		return nil, fmt.Errorf("provider runtime builder: %w", err)
+	}
+	return definition, nil
 }
 
 func credentialFamilyForRuntime(family string) (CredentialSourceFamily, error) {

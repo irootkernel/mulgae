@@ -11,7 +11,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -38,14 +37,10 @@ type versionOutput struct {
 func TestIntegrationIndependentProcessesDoNotShareProviderLocks(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, root)
-	installedUser, err := user.Current()
-	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) {
-		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
-	}
+	nativeHome := integrationNativeHome(t, binary)
 	providerDirectory := canonicalTestTempDir(t)
 	barrier := canonicalTestTempDir(t)
-	zcodeNode := filepath.Join(providerDirectory, "node")
-	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	zcodeAppBundle, zcodeNode, zcodeLauncher := fakeZCodeAppPaths(providerDirectory)
 	buildFakeZCodeWithBarrier(t, root, zcodeNode, zcodeLauncher, filepath.Join(canonicalTestTempDir(t), "zcode.jsonl"), barrier)
 
 	for _, runtimeRoot := range []struct {
@@ -66,7 +61,7 @@ func TestIntegrationIndependentProcessesDoNotShareProviderLocks(t *testing.T) {
 				t.Run(projects.name, func(t *testing.T) {
 					clearProviderBarrier(t, barrier)
 					sharedRuntimeRoot := canonicalTestTempDir(t)
-					environment := sharedMulgaeProcessEnv(t, installedUser.HomeDir, providerDirectory, sharedRuntimeRoot, runtimeRoot.useXDG)
+					environment := sharedMulgaeProcessEnv(t, nativeHome, providerDirectory, sharedRuntimeRoot, runtimeRoot.useXDG)
 
 					firstProject := canonicalTestTempDir(t)
 					initializeReviewGitRepository(t, firstProject)
@@ -80,7 +75,7 @@ func TestIntegrationIndependentProcessesDoNotShareProviderLocks(t *testing.T) {
 						runTestCommand(t, project, "git", "-c", "user.name=Mulgae E2E", "-c", "user.email=mulgae-e2e@example.invalid", "commit", "-m", "review target")
 						initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
 							"init", "--providers", "zcode", "--roles", "logic",
-							"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher)
+							"--zcode-app-bundle", zcodeAppBundle)
 						if initialized.exitCode != 0 {
 							t.Fatalf("initialize concurrent review config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
 						}
@@ -118,19 +113,15 @@ func TestIntegrationPublicationLockCancellationPreservesTypedFailureAndArtifacts
 	runTestCommand(t, project, "git", "add", "review.go")
 	runTestCommand(t, project, "git", "-c", "user.name=Mulgae E2E", "-c", "user.email=mulgae-e2e@example.invalid", "commit", "-m", "review target")
 
-	installedUser, err := user.Current()
-	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) {
-		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
-	}
+	nativeHome := integrationNativeHome(t, binary)
 	providerDirectory := canonicalTestTempDir(t)
 	zcodeLog := filepath.Join(canonicalTestTempDir(t), "zcode.jsonl")
-	zcodeNode := filepath.Join(providerDirectory, "node")
-	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	zcodeAppBundle, zcodeNode, zcodeLauncher := fakeZCodeAppPaths(providerDirectory)
 	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "success")
-	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
+	environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
 	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment,
 		"init", "--providers", "zcode", "--roles", "logic",
-		"--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher)
+		"--zcode-app-bundle", zcodeAppBundle)
 	if initialized.exitCode != 0 {
 		t.Fatalf("initialize publication-lock config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
 	}
@@ -261,7 +252,7 @@ func commandEnvelopeHasReason(envelope commandEnvelope, code string) bool {
 // staged output file is classified as an operational invalid-output failure
 // rather than a staging violation, and that the role simply fails: Mulgae does
 // not move it to the other configured provider.
-func TestIntegrationReleaseBinaryComposesExactRecoveredReview(t *testing.T) {
+func TestIntegrationIsolatedReleaseFixtureComposesExactRecoveredReview(t *testing.T) {
 	for _, role := range []string{"logic", "maintainability"} {
 		t.Run(role, func(t *testing.T) { testReleaseBinaryComposesRecoveredRole(t, role) })
 	}
@@ -278,18 +269,14 @@ func testReleaseBinaryComposesRecoveredRole(t *testing.T, failedRole string) {
 	project := canonicalTestTempDir(t)
 	initializeReviewGitRepository(t, project)
 
-	installedUser, err := user.Current()
-	if err != nil || installedUser == nil {
-		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
-	}
+	nativeHome := integrationNativeHome(t, binary)
 	providerDirectory := canonicalTestTempDir(t)
 	logDirectory := canonicalTestTempDir(t)
 	zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
-	zcodeNode := filepath.Join(providerDirectory, "node")
-	zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+	zcodeAppBundle, zcodeNode, zcodeLauncher := fakeZCodeAppPaths(providerDirectory)
 	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "fail_first_"+failedRole)
-	environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
-	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", reviewRoles, zcodeNode, zcodeLauncher)
+	environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
+	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", reviewRoles, zcodeAppBundle)
 
 	incomplete := runMulgaeBinaryWithEnv(t, binary, project, environment,
 		"review", "--dirty", "--roles", reviewRoles, "--output", "json")
@@ -365,10 +352,7 @@ func testReleaseBinaryComposesRecoveredRole(t *testing.T, failedRole string) {
 func TestIntegrationStagedSymlinkFailsClosedAsSecurityViolation(t *testing.T) {
 	root := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, root)
-	installedUser, err := user.Current()
-	if err != nil || installedUser == nil {
-		t.Fatalf("current native home unavailable: user=%#v err=%v", installedUser, err)
-	}
+	nativeHome := integrationNativeHome(t, binary)
 
 	for _, test := range []struct {
 		name     string
@@ -384,11 +368,10 @@ func TestIntegrationStagedSymlinkFailsClosedAsSecurityViolation(t *testing.T) {
 			providerDirectory := canonicalTestTempDir(t)
 			logDirectory := canonicalTestTempDir(t)
 			zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
-			zcodeNode := filepath.Join(providerDirectory, "node")
-			zcodeLauncher := filepath.Join(providerDirectory, "zcode.cjs")
+			zcodeAppBundle, zcodeNode, zcodeLauncher := fakeZCodeAppPaths(providerDirectory)
 			buildFakeZCodeWithStagedOutput(t, root, zcodeNode, zcodeLauncher, zcodeLog, "success", test.staged)
-			environment := isolatedMulgaeEnvWith(t, installedUser.HomeDir, providerDirectory)
-			initializeOfflineProviders(t, binary, project, environment, "zcode", zcodeNode, zcodeLauncher)
+			environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
+			initializeOfflineProviders(t, binary, project, environment, "zcode", zcodeAppBundle)
 
 			review := runMulgaeBinaryWithEnv(t, binary, project, environment,
 				"review", "--dirty", "--roles", "security", "--output", "json")
@@ -558,13 +541,13 @@ func environmentValue(t *testing.T, environment []string, name string) string {
 	return ""
 }
 
-func initializeOfflineProviders(t *testing.T, binary, project string, environment []string, providers, zcodeNode, zcodeLauncher string) {
-	initializeOfflineProvidersForRoles(t, binary, project, environment, providers, "security", zcodeNode, zcodeLauncher)
+func initializeOfflineProviders(t *testing.T, binary, project string, environment []string, providers, zcodeAppBundle string) {
+	initializeOfflineProvidersForRoles(t, binary, project, environment, providers, "security", zcodeAppBundle)
 }
 
-func initializeOfflineProvidersForRoles(t *testing.T, binary, project string, environment []string, providers, roles, zcodeNode, zcodeLauncher string) {
+func initializeOfflineProvidersForRoles(t *testing.T, binary, project string, environment []string, providers, roles, zcodeAppBundle string) {
 	t.Helper()
-	arguments := []string{"init", "--providers", providers, "--roles", roles, "--zcode-node-executable", zcodeNode, "--zcode-launcher", zcodeLauncher}
+	arguments := []string{"init", "--providers", providers, "--roles", roles, "--zcode-app-bundle", zcodeAppBundle}
 	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment, arguments...)
 	if initialized.exitCode != 0 {
 		t.Fatalf("initialize offline providers: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
@@ -858,6 +841,13 @@ func buildFakeZCode(t *testing.T, root, binary, launcher, logPath, mode string) 
 	buildFakeZCodeWithStagedOutputAndBarrier(t, root, binary, launcher, logPath, mode, "write", "")
 }
 
+func fakeZCodeAppPaths(root string) (string, string, string) {
+	bundle := filepath.Join(root, "ZCode.app")
+	return bundle,
+		filepath.Join(bundle, "Contents", "MacOS", "ZCode"),
+		filepath.Join(bundle, "Contents", "Resources", "glm", "zcode.cjs")
+}
+
 func buildFakeZCodeWithBarrier(t *testing.T, root, binary, launcher, logPath, barrier string) {
 	t.Helper()
 	buildFakeZCodeWithStagedOutputAndBarrier(t, root, binary, launcher, logPath, "success", "write", barrier)
@@ -877,6 +867,10 @@ func buildFakeZCodeWithStagedOutput(t *testing.T, root, binary, launcher, logPat
 func buildFakeZCodeWithStagedOutputAndBarrier(t *testing.T, root, binary, launcher, logPath, mode, staged, barrier string) {
 	t.Helper()
 	mustWriteTestFile(t, launcher, []byte("// offline fake ZCode launcher\n"))
+	mustWriteTestFile(t, filepath.Join(filepath.Dir(launcher), "..", "config", "provider", "zcode-builtin.json"), []byte("{}\n"))
+	mustWriteTestFile(t, filepath.Join(filepath.Dir(filepath.Dir(binary)), "Info.plist"), []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>3.12.3</string></dict></plist>
+`))
 	source := filepath.Join(t.TempDir(), "main.go")
 	program := `package main
 
@@ -909,7 +903,7 @@ func main() {
 		fmt.Println("22.14.0")
 		return
 	}
-	if len(argv) != 2 || argv[1] != "app-server" {
+	if len(argv) != 3 || argv[1] != "app-server" || argv[2] != "--stdio" {
 		panic("non-canonical ZCode invocation")
 	}
 	serve(argv)
@@ -1290,14 +1284,33 @@ func buildMulgaeBinary(t *testing.T, root string) string {
 		}
 		return binary
 	}
-	binary := filepath.Join(t.TempDir(), "mulgae")
-	build := exec.Command("go", "build", "-ldflags", "-X main.buildVersion=v1.4.2 -X main.buildRevision=0123456789abcdef0123456789abcdef01234567", "-o", binary, ".")
+	buildDirectory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(buildDirectory, "mulgae")
+	nativeHome := binary + ".native-home"
+	if err := os.Mkdir(nativeHome, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ldflags := "-X main.buildVersion=v1.4.2 -X main.buildRevision=0123456789abcdef0123456789abcdef01234567 -X github.com/irootkernel/mulgae/internal/adapters/environment.buildNativeHomeOverride=" + nativeHome
+	build := exec.Command("go", "build", "-ldflags", ldflags, "-o", binary, ".")
 	build.Dir = root
 	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOCACHE="+t.TempDir())
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build Mulgae binary: %v\n%s", err, output)
 	}
 	return binary
+}
+
+func integrationNativeHome(t *testing.T, binary string) string {
+	t.Helper()
+	isolated := binary + ".native-home"
+	if info, err := os.Stat(isolated); err == nil && info.IsDir() {
+		return isolated
+	}
+	t.Fatalf("isolated native home unavailable beside E2E binary: %q", isolated)
+	return ""
 }
 
 func mustAssetID(t *testing.T, value string) ports.AssetID {
@@ -1564,17 +1577,14 @@ func TestIntegrationChildQualificationFailureRetainsPrivateDiagnostics(t *testin
 	binary := buildMulgaeBinary(t, repository)
 	project := canonicalTestTempDir(t)
 	initializeReviewGitRepository(t, project)
-	installed, err := user.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
+	nativeHome := integrationNativeHome(t, binary)
 	providerDirectory := canonicalTestTempDir(t)
-	node, launcher := filepath.Join(providerDirectory, "node"), filepath.Join(providerDirectory, "zcode.cjs")
+	appBundle, node, launcher := fakeZCodeAppPaths(providerDirectory)
 	buildFakeZCode(t, repository, node, launcher, filepath.Join(canonicalTestTempDir(t), "zcode.jsonl"), "reject_child_qualification")
-	environment := isolatedMulgaeEnvWith(t, installed.HomeDir, providerDirectory)
-	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment, "init", "--providers", "zcode", "--roles", "logic", "--zcode-node-executable", node, "--zcode-launcher", launcher)
+	environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
+	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment, "init", "--providers", "zcode", "--roles", "logic", "--zcode-app-bundle", appBundle)
 	if initialized.exitCode != 0 {
-		t.Fatalf("init failed: %s", initialized.stdout)
+		t.Fatalf("init failed: exit=%d stdout=%s stderr=%s", initialized.exitCode, initialized.stdout, initialized.stderr)
 	}
 	root := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--dirty", "--roles", "logic", "--output", "json")
 	var parent commandEnvelope

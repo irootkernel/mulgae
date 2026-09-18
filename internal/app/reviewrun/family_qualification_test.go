@@ -3,6 +3,7 @@ package reviewrun
 import (
 	"context"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestGroupCandidatesByFamilyRuntimeProfileDeduplicatesRoles(t *testing.T) {
+func TestGroupCandidatesByFamilyRuntimeProfileKeepsZCodeNamespacesDistinct(t *testing.T) {
 	zcodeLogic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	zcodeSecurity := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
 	grokLogic := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
@@ -20,24 +21,32 @@ func TestGroupCandidatesByFamilyRuntimeProfileDeduplicatesRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 2 {
-		t.Fatalf("groups = %d, want 2", len(groups))
+	if len(groups) != 3 {
+		t.Fatalf("groups = %d, want 3", len(groups))
 	}
 	batches := scheduleFamilyQualificationGroups(groups)
-	if len(batches) != 2 || len(batches[0]) != 1 || len(batches[1]) != 1 {
-		t.Fatalf("family qualification batches = %#v", batches)
+	scheduled := 0
+	for _, batch := range batches {
+		scheduled += len(batch)
 	}
-	var zcodeRoles, grokRoles []domain.Role
+	if scheduled != len(groups) {
+		t.Fatalf("scheduled groups = %d, want %d: %#v", scheduled, len(groups), batches)
+	}
+	var zcodeGroups int
+	var grokRoles []domain.Role
 	for _, group := range groups {
 		switch group.family {
 		case FamilyZCode:
-			zcodeRoles = group.roles
+			zcodeGroups++
+			if len(group.roles) != 1 {
+				t.Fatalf("zcode group roles = %v, want one namespace-bound role", group.roles)
+			}
 		case FamilyGrok:
 			grokRoles = group.roles
 		}
 	}
-	if !reflect.DeepEqual(zcodeRoles, []domain.Role{domain.RoleLogic, domain.RoleSecurity}) {
-		t.Fatalf("zcode roles = %v", zcodeRoles)
+	if zcodeGroups != 2 {
+		t.Fatalf("zcode groups = %d, want 2", zcodeGroups)
 	}
 	if !reflect.DeepEqual(grokRoles, []domain.Role{domain.RoleLogic}) {
 		t.Fatalf("grok roles = %v", grokRoles)
@@ -48,8 +57,8 @@ func TestFamilyRuntimeProfileKeyRejectsCapabilityRelevantMutations(t *testing.T)
 	base := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	baseKey := familyRuntimeProfileKeyFor(base.Definition)
 	sibling := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
-	if familyRuntimeProfileKeyFor(sibling.Definition) != baseKey {
-		t.Fatal("sibling role route did not share the family profile key")
+	if familyRuntimeProfileKeyFor(sibling.Definition) == baseKey {
+		t.Fatal("distinct ZCode namespaces shared the family profile key")
 	}
 
 	for name, mutate := range map[string]func(*testRuntimeMutation){
@@ -81,7 +90,7 @@ func TestFamilyRuntimeProfileKeyRejectsCapabilityRelevantMutations(t *testing.T)
 	}
 }
 
-func TestFamilyQualificationDerivesSiblingRoleRoutesFromOneProbe(t *testing.T) {
+func TestFamilyQualificationProbesEachZCodeNamespace(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	var calls atomic.Int32
 	var derives atomic.Int32
@@ -116,11 +125,11 @@ func TestFamilyQualificationDerivesSiblingRoleRoutesFromOneProbe(t *testing.T) {
 			return nil
 		}())
 	}
-	if calls.Load() != 1 {
-		t.Fatalf("QualifyCurrent calls = %d, want 1 family probe", calls.Load())
+	if calls.Load() != 2 {
+		t.Fatalf("QualifyCurrent calls = %d, want 2 namespace-bound probes", calls.Load())
 	}
-	if derives.Load() != 1 {
-		t.Fatalf("DeriveEquivalentFamilyRoute calls = %d, want 1 sibling derivation", derives.Load())
+	if derives.Load() != 0 {
+		t.Fatalf("DeriveEquivalentFamilyRoute calls = %d, want no cross-namespace derivation", derives.Load())
 	}
 	if len(run.Routes()) != 2 {
 		t.Fatalf("routes = %d, want 2 derived role routes", len(run.Routes()))
@@ -174,17 +183,16 @@ func TestFamilyQualificationRetainsRetryMitigatedRejectionOnSuccess(t *testing.T
 		t.Fatalf("routes = %d, want 2 derived role routes", len(run.Routes()))
 	}
 	observations := run.QualificationObservations()
-	if len(observations) != 3 {
-		t.Fatalf("qualification observations = %#v, want the attempt-1 rejection plus one per admitted route", observations)
+	if len(observations) != 4 {
+		t.Fatalf("qualification observations = %#v, want one retry rejection and one admission per ZCode namespace", observations)
 	}
-	if observations[0].Outcome() != qualificationOutcomeRejected ||
-		observations[0].Mitigation() != qualificationMitigationRetry ||
-		observations[0].Cause() != domain.DiagnosticCauseProviderExecutionFailed {
-		t.Fatalf("retry-mitigated rejection was not retained first: %#v", observations)
-	}
-	for _, observation := range observations[1:] {
-		if observation.Outcome() != qualificationOutcomeQualified {
-			t.Fatalf("admitted route observation = %#v, want qualified", observation)
+	for index := 0; index < len(observations); index += 2 {
+		if observations[index].Outcome() != qualificationOutcomeRejected ||
+			observations[index].Mitigation() != qualificationMitigationRetry ||
+			observations[index].Cause() != domain.DiagnosticCauseProviderExecutionFailed ||
+			observations[index+1].Outcome() != qualificationOutcomeQualified ||
+			observations[index].ProviderInstance() != observations[index+1].ProviderInstance() {
+			t.Fatalf("namespace retry/admission evidence = %#v, want paired rejection and qualification", observations[index:index+2])
 		}
 	}
 }
@@ -194,7 +202,8 @@ func TestRemapCurrentQualificationResultRejectsAuthorityBleedAcrossInstances(t *
 	sourceIdentity := Identity{
 		Family: FamilyZCode, Instance: "zcode-logic", ProfileGeneration: productionProfileGeneration,
 		AdapterProfile: "zcode-logic", Version: "0.16.3", Executable: "/private/bin/node",
-		ExecutableSHA256: "sha256:node", Launcher: ZCodeLauncher, LauncherSHA256: "sha256:launcher",
+		ExecutableSHA256: "sha256:runtime", Launcher: testZCodeLauncher, LauncherSHA256: "sha256:launcher",
+		ApplicationVersion: "3.12.3", ApplicationMetadata: testZCodeApplicationMetadata, ApplicationMetadataSHA256: testZCodeApplicationMetadataSHA256,
 		SnapshotManifest: "snapshot", NamespaceLease: "zcode-logic:generation", NamespaceGeneration: "generation",
 	}
 	authorityID := "sha256:authority"
@@ -237,6 +246,20 @@ func TestTransportMutatedSiblingIsNotShareableFamilyProfile(t *testing.T) {
 	}
 	if len(groups) != 2 {
 		t.Fatalf("transport-mutated sibling collapsed into %d family group(s)", len(groups))
+	}
+}
+
+func TestZCodeProviderConfigMutatedSiblingIsNotShareableFamilyProfile(t *testing.T) {
+	logic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
+	security := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
+		d.zcodeProviderConfigSHA256 = "sha256:" + strings.Repeat("b", 64)
+	})
+	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{logic, security})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("ZCode provider-config identities shared qualification: %#v", groups)
 	}
 }
 
@@ -295,7 +318,11 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 	instance := string(family) + "-" + string(role)
 	// Sibling role routes must share capability-relevant runtime fields, including
 	// working directory, so family-profile deduplication can be exercised.
-	definition, _ := authorityProbeDefinition(t, family, instance, "1.0.30", "/private/work/"+string(family))
+	version := "1.0.30"
+	if familyGuidance, ok := Guidance(family); ok {
+		version = familyGuidance.VerifiedLatest
+	}
+	definition, _ := authorityProbeDefinition(t, family, instance, version, "/private/work/"+string(family))
 	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -304,6 +331,8 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 		Profile: DiscoveredProviderProfile{
 			family: family, executable: definition.Executable(), launcher: definition.Launcher(),
 			argv: definition.BaseArgv(), sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
+			providerConfig: definition.ZCodeProviderConfig(), providerConfigSHA256: definition.ZCodeProviderConfigSHA256(),
+			applicationVersion: definition.ApplicationVersion(), applicationVersionClassification: ClassifyZCodeApplicationVersion(definition.ApplicationVersion()), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 			reason: "unqualified_discovery",
 		},
 		Definition:       definition,
@@ -322,6 +351,11 @@ type testRuntimeMutation struct {
 	executableSHA256            string
 	launcher                    string
 	launcherSHA256              string
+	zcodeProviderConfig         string
+	zcodeProviderConfigSHA256   string
+	applicationVersion          string
+	applicationMetadata         string
+	applicationMetadataSHA256   string
 	profileGeneration           string
 	profileID                   string
 	runtimeSafetyPolicyIdentity string
@@ -335,14 +369,19 @@ type testRuntimeMutation struct {
 	lifecycle                   ports.BoundedPostOutputLifecycle
 }
 
-func (d testRuntimeMutation) Family() string            { return d.family }
-func (d testRuntimeMutation) Instance() string          { return d.instance }
-func (d testRuntimeMutation) Version() string           { return d.version }
-func (d testRuntimeMutation) Executable() string        { return d.executable }
-func (d testRuntimeMutation) ExecutableSHA256() string  { return d.executableSHA256 }
-func (d testRuntimeMutation) Launcher() string          { return d.launcher }
-func (d testRuntimeMutation) LauncherSHA256() string    { return d.launcherSHA256 }
-func (d testRuntimeMutation) ProfileGeneration() string { return d.profileGeneration }
+func (d testRuntimeMutation) Family() string                    { return d.family }
+func (d testRuntimeMutation) Instance() string                  { return d.instance }
+func (d testRuntimeMutation) Version() string                   { return d.version }
+func (d testRuntimeMutation) Executable() string                { return d.executable }
+func (d testRuntimeMutation) ExecutableSHA256() string          { return d.executableSHA256 }
+func (d testRuntimeMutation) Launcher() string                  { return d.launcher }
+func (d testRuntimeMutation) LauncherSHA256() string            { return d.launcherSHA256 }
+func (d testRuntimeMutation) ZCodeProviderConfig() string       { return d.zcodeProviderConfig }
+func (d testRuntimeMutation) ZCodeProviderConfigSHA256() string { return d.zcodeProviderConfigSHA256 }
+func (d testRuntimeMutation) ApplicationVersion() string        { return d.applicationVersion }
+func (d testRuntimeMutation) ApplicationMetadata() string       { return d.applicationMetadata }
+func (d testRuntimeMutation) ApplicationMetadataSHA256() string { return d.applicationMetadataSHA256 }
+func (d testRuntimeMutation) ProfileGeneration() string         { return d.profileGeneration }
 func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
@@ -375,6 +414,8 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 		family: definition.Family(), instance: definition.Instance(), version: definition.Version(),
 		executable: definition.Executable(), executableSHA256: definition.ExecutableSHA256(),
 		launcher: definition.Launcher(), launcherSHA256: definition.LauncherSHA256(),
+		zcodeProviderConfig: definition.ZCodeProviderConfig(), zcodeProviderConfigSHA256: definition.ZCodeProviderConfigSHA256(),
+		applicationVersion: definition.ApplicationVersion(), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 		profileGeneration: definition.ProfileGeneration(), profileID: definition.ProfileID(), runtimeSafetyPolicyIdentity: definition.RuntimeSafetyPolicyIdentity(),
 		baseArgv:         append([]string(nil), definition.BaseArgv()...),
 		transportChannel: definition.TransportChannel(), transportArgvIndex: definition.TransportArgvIndex(),

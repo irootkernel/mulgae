@@ -30,8 +30,7 @@ type Selection struct {
 	ProviderIDs []string
 }
 type Overrides struct {
-	ZCodeNodeExecutable  string
-	ZCodeLauncher        string
+	ZCodeAppBundle       string
 	GrokExecutable       string
 	CodexExecutable      string
 	CodexModel           string
@@ -65,8 +64,7 @@ type DiscoveryRow struct {
 	ExecutableSource      string `json:"executable_source,omitempty"`
 	ModelSource           string `json:"model_source,omitempty"`
 	DataHomeSource        string `json:"data_home_source,omitempty"`
-	NodeExecutableSource  string `json:"node_executable_source,omitempty"`
-	LauncherSource        string `json:"launcher_source,omitempty"`
+	AppBundleSource       string `json:"app_bundle_source,omitempty"`
 	NativeHomeSource      string `json:"native_home_source,omitempty"`
 	PermissionModeSource  string `json:"permission_mode_source,omitempty"`
 	ReasoningEffortSource string `json:"reasoning_effort_source,omitempty"`
@@ -519,34 +517,31 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 		row.Status = "unavailable"
 		switch family {
 		case "zcode":
-			node, launcher := "", ""
-			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverrides(ctx, service.inspector, reviewrun.FamilyZCode, request.Overrides.ZCodeNodeExecutable, request.Overrides.ZCodeLauncher)
+			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverride(ctx, service.inspector, reviewrun.FamilyZCode, request.Overrides.ZCodeAppBundle)
 			if profileErr != nil {
 				discoveryErrors = append(discoveryErrors, profileErr)
-			} else {
-				node, launcher = profile.Executable(), profile.Launcher()
 			}
-			row.NodeExecutableSource = "not_discovered"
-			if request.Overrides.ZCodeNodeExecutable != "" {
-				row.NodeExecutableSource = "override"
-			} else if node != "" {
-				row.NodeExecutableSource = "startup_path"
+			row.AppBundleSource = "not_discovered"
+			if request.Overrides.ZCodeAppBundle != "" {
+				row.AppBundleSource = "override"
+			} else if profile.Executable() != "" && profile.Launcher() != "" {
+				row.AppBundleSource = "standard"
 			}
-			row.LauncherSource = "not_discovered"
-			if request.Overrides.ZCodeLauncher != "" {
-				row.LauncherSource = "override"
-			} else if launcher != "" {
-				row.LauncherSource = "bundled"
-			}
-			if node != "" && launcher != "" {
-				found.zcode = &appconfig.ZCodeProviderConfig{NodeExecutable: node, Launcher: launcher, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
+			applicationEligible := profile.ApplicationVersionClassification() == reviewrun.VersionGreen || profile.ApplicationVersionClassification() == reviewrun.VersionYellow
+			if profile.Executable() != "" && profile.Launcher() != "" && profile.ZCodeProviderConfig() != "" &&
+				profile.ApplicationMetadata() != "" && applicationEligible && profile.Reason() == "unqualified_discovery" {
+				appBundle := request.Overrides.ZCodeAppBundle
+				if appBundle == "" {
+					appBundle = reviewrun.ZCodeAppBundle
+				}
+				found.zcode = &appconfig.ZCodeProviderConfig{AppBundle: appBundle, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
 				row.Candidate = true
 				row.Status = "candidate"
 			}
 		case "grok":
 			executable := ""
 			row.ExecutableSource = "not_discovered"
-			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverrides(ctx, service.inspector, reviewrun.FamilyGrok, request.Overrides.GrokExecutable, "")
+			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverride(ctx, service.inspector, reviewrun.FamilyGrok, request.Overrides.GrokExecutable)
 			if request.Overrides.GrokExecutable != "" {
 				row.ExecutableSource = "override"
 			}
@@ -566,7 +561,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 		case "codex":
 			executable := ""
 			row.ExecutableSource = "not_discovered"
-			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverrides(ctx, service.inspector, reviewrun.FamilyCodex, request.Overrides.CodexExecutable, "")
+			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverride(ctx, service.inspector, reviewrun.FamilyCodex, request.Overrides.CodexExecutable)
 			if request.Overrides.CodexExecutable != "" {
 				row.ExecutableSource = "override"
 			}
@@ -612,8 +607,7 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 	row := DiscoveryRow{Family: family, Status: "not_selected"}
 	switch family {
 	case "zcode":
-		row.NodeExecutableSource = "not_selected"
-		row.LauncherSource = "not_selected"
+		row.AppBundleSource = "not_selected"
 	case "grok":
 		row.ExecutableSource = "not_selected"
 	case "codex":
@@ -723,7 +717,7 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 	if len(selected) != len(selection.ProviderIDs) {
 		return nil, fmt.Errorf("unknown or duplicate selection")
 	}
-	if !contains(selected, "zcode") && (overrides.ZCodeNodeExecutable != "" || overrides.ZCodeLauncher != "") {
+	if !contains(selected, "zcode") && overrides.ZCodeAppBundle != "" {
 		return nil, fmt.Errorf("zcode override")
 	}
 	if !contains(selected, "grok") && overrides.GrokExecutable != "" {

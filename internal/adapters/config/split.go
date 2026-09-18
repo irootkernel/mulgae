@@ -56,8 +56,7 @@ type machineProvidersConfig struct {
 }
 
 type machineZCodeConfig struct {
-	NodeExecutable string `yaml:"node_executable"`
-	Launcher       string `yaml:"launcher"`
+	AppBundle string `yaml:"app_bundle"`
 }
 
 type machineGrokConfig struct {
@@ -182,7 +181,7 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 		return Config{}, fmt.Errorf("provider sets differ")
 	}
 	if project.Providers.ZCode != nil {
-		config.Providers.ZCode = &ZCodeProviderConfig{NodeExecutable: local.Providers.ZCode.NodeExecutable, Launcher: local.Providers.ZCode.Launcher, Timeout: project.Providers.ZCode.Timeout}
+		config.Providers.ZCode = &ZCodeProviderConfig{AppBundle: local.Providers.ZCode.AppBundle, Timeout: project.Providers.ZCode.Timeout}
 	}
 	if project.Providers.Grok != nil {
 		config.Providers.Grok = &GrokProviderConfig{Executable: local.Providers.Grok.Executable, Timeout: project.Providers.Grok.Timeout}
@@ -305,7 +304,7 @@ func encodeMachineConfig(config Config) []byte {
 	var out strings.Builder
 	out.WriteString("version: " + strconv.Itoa(ConfigVersion) + "\nnative_user:\n  home: " + q(config.NativeUser.Home) + "\nproviders:\n")
 	if provider := config.Providers.ZCode; provider != nil {
-		out.WriteString("  zcode:\n    node_executable: " + q(provider.NodeExecutable) + "\n    launcher: " + q(provider.Launcher) + "\n")
+		out.WriteString("  zcode:\n    app_bundle: " + q(provider.AppBundle) + "\n")
 	}
 	if provider := config.Providers.Grok; provider != nil {
 		out.WriteString("  grok:\n    executable: " + q(provider.Executable) + "\n")

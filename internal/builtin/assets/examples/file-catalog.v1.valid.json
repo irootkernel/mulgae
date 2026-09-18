@@ -64,6 +64,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-command-result.v11.schema.json",
+      "path": "sot/examples/command-result.v11.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v11.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "command-result-validator"
       ],
       "disposition": "ADDED",
@@ -204,6 +216,18 @@
       "pair": "sot/schemas/mulgae-doctor-result.v4.schema.json",
       "path": "sot/examples/doctor-result.v4.valid.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-doctor-result.v4.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "doctor-result-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-doctor-result.v5.schema.json",
+      "path": "sot/examples/doctor-result.v5.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-doctor-result.v5.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -742,6 +766,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/command-result.v11.valid.json",
+      "path": "sot/schemas/mulgae-command-result.v11.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v11.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "command-result-validator"
       ],
       "disposition": "ADDED",
@@ -882,6 +918,18 @@
       "pair": "sot/examples/doctor-result.v4.valid.json",
       "path": "sot/schemas/mulgae-doctor-result.v4.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-doctor-result.v4.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "doctor-result-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/doctor-result.v5.valid.json",
+      "path": "sot/schemas/mulgae-doctor-result.v5.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-doctor-result.v5.schema.json"
     },
     {
       "checksum_inclusion": true,

@@ -112,6 +112,8 @@ func (receipt CurrentProbeDirectExecutionAuthorityReceipt) Matches(candidate por
 		if proof.Family != definition.Family() || proof.ProviderInstance != definition.Instance() || proof.ProviderVersion != definition.Version() ||
 			proof.Executable != definition.Executable() || proof.ExecutableSHA256 != definition.ExecutableSHA256() ||
 			proof.Launcher != definition.Launcher() || proof.LauncherSHA256 != definition.LauncherSHA256() ||
+			proof.ApplicationVersion != definition.ApplicationVersion() || proof.ApplicationMetadata != definition.ApplicationMetadata() || proof.ApplicationMetadataSHA256 != definition.ApplicationMetadataSHA256() ||
+			proof.ZCodeProviderConfig != definition.ZCodeProviderConfig() || proof.ZCodeProviderConfigSHA256 != definition.ZCodeProviderConfigSHA256() ||
 			proof.ProfileID != definition.ProfileID() || proof.ProfileGeneration != definition.ProfileGeneration() ||
 			proof.ObservedVersion != observedVersion || proof.NamespaceGeneration != namespaceGeneration {
 			return false
@@ -264,6 +266,8 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.ExecutableSHA256() != right.ExecutableSHA256() ||
 		left.Launcher() != right.Launcher() ||
 		left.LauncherSHA256() != right.LauncherSHA256() ||
+		left.ZCodeProviderConfig() != right.ZCodeProviderConfig() ||
+		left.ZCodeProviderConfigSHA256() != right.ZCodeProviderConfigSHA256() ||
 		left.ProfileGeneration() != right.ProfileGeneration() ||
 		left.RuntimeSafetyPolicyIdentity() != right.RuntimeSafetyPolicyIdentity() ||
 		left.WorkingDirectory() != right.WorkingDirectory() ||
@@ -494,7 +498,11 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, root.Path(), binding, timeout)
 		}
 		if requestErr == nil {
-			protocolSession, requestErr = authority.protocolDriver.NewSession(root.Path(), packet.Bytes(), protocolPurposeQualification, nil)
+			configuration, configurationErr := protocolConfigurationForNamespace(definition.family, namespace)
+			if configurationErr != nil {
+				return ports.ProcessObservation{}, nil, configurationErr
+			}
+			protocolSession, requestErr = authority.protocolDriver.NewSession(root.Path(), packet.Bytes(), protocolPurposeQualification, nil, configuration)
 		}
 	} else {
 		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, root.Path(), timeout)
@@ -531,6 +539,12 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		return observation, nil, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
 	}
 	if err != nil {
+		if interruption := qualificationInterruptionFailure(observation, err); interruption != nil {
+			if errors.Is(interruption, context.Canceled) {
+				return observation, nil, interruption
+			}
+			err = interruption
+		}
 		return observation, nil, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
 	}
 	if protocolSession != nil {
@@ -539,7 +553,28 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	return observation, protocolEvidence, nil
 }
 
+func qualificationInterruptionFailure(observation ports.ProcessObservation, err error) error {
+	if !observation.Valid() || err == nil {
+		return nil
+	}
+	switch observation.Termination() {
+	case ports.ProcessTerminationCancelled:
+		return errors.Join(context.Canceled, err)
+	case ports.ProcessTerminationTimedOut:
+		// A process-local timeout is retryable while the enclosing qualification
+		// context still has budget. Do not make it indistinguishable from exhaustion
+		// of that enclosing context by wrapping context.DeadlineExceeded here.
+		return newProviderOutputFailure(domain.DiagnosticCauseTimedOut, errors.New("provider process timed out"))
+	default:
+		return nil
+	}
+}
+
 func qualificationProcessFailure(family string, observation ports.ProcessObservation, err error) error {
+	var failure *domain.Failure
+	if errors.As(err, &failure) {
+		return failure
+	}
 	if cause, ok := providerDiagnosticCause(err); ok {
 		return newProviderOutputFailure(cause, err)
 	}
@@ -664,23 +699,27 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 	}
 	lifecycle, hasLifecycle := definition.PostOutputLifecycle()
 	bytes, err := json.Marshal(struct {
-		Family, Instance, Version, Executable, ExecutableSHA256                  string
-		Launcher, LauncherSHA256, ProfileGeneration, RuntimeSafetyPolicyIdentity string
-		ProfileID                                                                string
-		BaseArgv, Environment                                                    []string
-		TransportChannel, TransportReference                                     string
-		TransportArgvIndex                                                       int
-		WorkingDirectory                                                         string
-		TimeoutNanoseconds                                                       int64
-		HasPostOutputLifecycle                                                   bool
-		LifecycleFraming                                                         string
-		LifecycleStabilityNanoseconds, LifecycleTerminationNanoseconds           int64
-		RequiresWorkspaceAuthority, RequiresSpawnVerification                    bool
-		ProductionExplicitTransport                                              bool
+		Family, Instance, Version, Executable, ExecutableSHA256                   string
+		Launcher, LauncherSHA256, ApplicationVersion, ApplicationMetadata         string
+		ApplicationMetadataSHA256, ZCodeProviderConfig, ZCodeProviderConfigSHA256 string
+		ProfileGeneration, RuntimeSafetyPolicyIdentity, ProfileID                 string
+		BaseArgv, Environment                                                     []string
+		TransportChannel, TransportReference                                      string
+		TransportArgvIndex                                                        int
+		WorkingDirectory                                                          string
+		TimeoutNanoseconds                                                        int64
+		HasPostOutputLifecycle                                                    bool
+		LifecycleFraming                                                          string
+		LifecycleStabilityNanoseconds, LifecycleTerminationNanoseconds            int64
+		RequiresWorkspaceAuthority, RequiresSpawnVerification                     bool
+		ProductionExplicitTransport                                               bool
 	}{
 		Family: definition.family, Instance: definition.instance, Version: definition.version,
 		Executable: definition.executable, ExecutableSHA256: definition.executableSHA256,
 		Launcher: definition.launcher, LauncherSHA256: definition.launcherSHA256,
+		ApplicationVersion: definition.applicationVersion, ApplicationMetadata: definition.applicationMetadata,
+		ApplicationMetadataSHA256: definition.applicationMetadataSHA256,
+		ZCodeProviderConfig:       definition.zcodeProviderConfig, ZCodeProviderConfigSHA256: definition.zcodeProviderConfigSHA256,
 		ProfileGeneration: definition.profileGeneration, RuntimeSafetyPolicyIdentity: definition.runtimeSafetyPolicyIdentity,
 		ProfileID: definition.profileID,
 		BaseArgv:  append([]string(nil), definition.baseArgv...), Environment: environmentValues,
@@ -701,7 +740,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 }
 
 func currentProbeAuthorityID(proofAuthorityID, runtimeDefinitionIdentity string) string {
-	sum := sha256.Sum256([]byte("Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/3\x00" + proofAuthorityID + "\x00" + runtimeDefinitionIdentity))
+	sum := sha256.Sum256([]byte("Mulgae-CURRENT-PROBE-DIRECT-EXECUTION-AUTHORITY/4\x00" + proofAuthorityID + "\x00" + runtimeDefinitionIdentity))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
@@ -1186,6 +1225,10 @@ func controlledProbeJSON(output []byte) ([]byte, error) {
 func classifyProbeFailure(ctx context.Context, family string, err error, stderr []byte, additionalDiagnostics ...[]byte) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	var failure *domain.Failure
+	if errors.As(err, &failure) {
+		return failure
 	}
 	if cause, ok := providerDiagnosticCause(err); ok {
 		switch cause {

@@ -34,19 +34,43 @@ type protocolWriteAuthority interface {
 // providerProtocolDriverConstructor owns the wire-protocol choice for a
 // runtime definition. A protocol channel without this authority is invalid.
 type providerProtocolDriverConstructor interface {
-	NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority) (providerProtocolSession, error)
+	NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error)
+}
+
+type protocolSessionConfiguration struct {
+	zcodeSelection *zcodeModelSelection
+}
+
+type zcodeSessionSelectionAuthority interface {
+	zcodeSessionSelection() *zcodeModelSelection
+}
+
+func protocolConfigurationForNamespace(family string, namespace any) (protocolSessionConfiguration, error) {
+	configuration := protocolSessionConfiguration{}
+	if family != FamilyZcode {
+		return configuration, nil
+	}
+	authority, ok := namespace.(zcodeSessionSelectionAuthority)
+	if !ok || authority == nil {
+		// Provider-neutral qualification doubles have no credential projection
+		// metadata. Production namespaces are concrete namespace leases and carry
+		// the admitted selection when the legacy config declares one.
+		return configuration, nil
+	}
+	configuration.zcodeSelection = authority.zcodeSessionSelection()
+	return configuration, nil
 }
 
 type zcodeProtocolDriverConstructor struct{}
 
-func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, _ protocolWriteAuthority) (providerProtocolSession, error) {
+func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, _ protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
 	switch purpose {
 	case protocolPurposeReview:
-		return newZcodeReviewProtocolSession(workspacePath, prompt)
+		return newZcodeReviewProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 	case protocolPurposeExtraction:
-		return newZcodeExtractionProtocolSession(workspacePath, prompt)
+		return newZcodeExtractionProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 	case protocolPurposeQualification:
-		return newZcodeCapabilityProtocolSession(workspacePath, prompt)
+		return newZcodeCapabilityProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 	default:
 		return nil, fmt.Errorf("zcode protocol: unsupported invocation purpose")
 	}
@@ -54,13 +78,13 @@ func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 
 type grokACPProtocolDriverConstructor struct{}
 
-func (grokACPProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority) (providerProtocolSession, error) {
+func (grokACPProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, _ protocolSessionConfiguration) (providerProtocolSession, error) {
 	return newGrokACPProtocolSession(workspacePath, prompt, purpose, writeAuthority)
 }
 
 type codexProtocolDriverConstructor struct{}
 
-func (codexProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority) (providerProtocolSession, error) {
+func (codexProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, _ protocolSessionConfiguration) (providerProtocolSession, error) {
 	return newCodexProtocolSession(workspacePath, prompt, purpose, writeAuthority)
 }
 

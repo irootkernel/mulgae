@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const LocalSchemaVersion = "mulgae-doctor-result.v4"
+const LocalSchemaVersion = "mulgae-doctor-result.v5"
 
 type LocalConfigProjection struct {
 	Status             string   `json:"status"`
@@ -23,13 +23,14 @@ type LocalConfigProjection struct {
 }
 
 type LocalProviderInventoryRow struct {
-	Family            string                `json:"family"`
-	Configured        bool                  `json:"configured"`
-	ReferencedByRoles []string              `json:"referenced_by_roles"`
-	State             string                `json:"state"`
-	Reason            string                `json:"reason"`
-	BinaryAvailable   LocalDiagnosticCheck  `json:"binary_available"`
-	CLICompatible     LocalCLICompatibility `json:"cli_compatible"`
+	Family                string                `json:"family"`
+	Configured            bool                  `json:"configured"`
+	ReferencedByRoles     []string              `json:"referenced_by_roles"`
+	State                 string                `json:"state"`
+	Reason                string                `json:"reason"`
+	BinaryAvailable       LocalDiagnosticCheck  `json:"binary_available"`
+	CLICompatible         LocalCLICompatibility `json:"cli_compatible"`
+	ApplicationCompatible LocalCLICompatibility `json:"application_compatible"`
 }
 
 type LocalDiagnosticCheck struct {
@@ -201,14 +202,16 @@ func validateReadyProviderProjection(result LocalDoctorResult) error {
 			return fmt.Errorf("local doctor result: invalid provider configuration projection")
 		}
 		if !configured {
-			if row.State != "not_configured" || row.Reason != "not_configured" || row.BinaryAvailable.Status != "not_applicable" || row.CLICompatible.Status != "not_applicable" {
+			if row.State != "not_configured" || row.Reason != "not_configured" || row.BinaryAvailable.Status != "not_applicable" || row.CLICompatible.Status != "not_applicable" || row.ApplicationCompatible.Status != "not_applicable" {
 				return fmt.Errorf("local doctor result: omitted provider was observed")
 			}
 			continue
 		}
 		switch row.State {
 		case "eligible":
-			if row.BinaryAvailable.Status != "verified" || row.CLICompatible.Status != "verified" || row.CLICompatible.Eligibility != "eligible" {
+			if row.BinaryAvailable.Status != "verified" || row.CLICompatible.Status != "verified" || row.CLICompatible.Eligibility != "eligible" ||
+				row.Family == "zcode" && (row.ApplicationCompatible.Status != "verified" || row.ApplicationCompatible.Eligibility != "eligible") ||
+				row.Family != "zcode" && row.ApplicationCompatible.Status != "not_applicable" {
 				return fmt.Errorf("local doctor result: invalid eligible provider")
 			}
 			eligible++
@@ -216,7 +219,7 @@ func validateReadyProviderProjection(result LocalDoctorResult) error {
 			if row.Reason == "" {
 				return fmt.Errorf("local doctor result: invalid unavailable provider")
 			}
-			unsafe = unsafe || row.Reason == "provider_executable_unsafe_identity" || row.Reason == "zcode_launcher_unsafe_identity" || row.Reason == "provider_cli_version_unsafe_identity"
+			unsafe = unsafe || row.Reason == "provider_executable_unsafe_identity" || row.Reason == "zcode_launcher_unsafe_identity" || row.Reason == "zcode_provider_config_unsafe_identity" || row.Reason == "zcode_application_metadata_unsafe_identity" || row.Reason == "provider_cli_version_unsafe_identity"
 		default:
 			return fmt.Errorf("local doctor result: configured provider was not classified")
 		}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,21 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
+
+func TestQualificationPreservesConfigurationFailureWithoutRetryClassification(t *testing.T) {
+	failure, err := domain.NewFailure("zcode_model_selection", domain.FailureConfiguration, "selected ZCode model is unavailable", errZCodeSelectedModelUnavailable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processed := qualificationProcessFailure(FamilyZcode, ports.ProcessObservation{}, failure)
+	if processed != failure {
+		t.Fatalf("qualification process failure = %v, want original configuration failure", processed)
+	}
+	classified := classifyProbeFailure(context.Background(), FamilyZcode, processed, []byte("provider unavailable"))
+	if classified != failure {
+		t.Fatalf("classified failure = %v, want original configuration failure", classified)
+	}
+}
 
 func TestClassifyCodexProbeFailurePreservesQuotaSignalFromStderr(t *testing.T) {
 	observation := testProcessObservation(
@@ -336,6 +352,15 @@ func currentProbeDefinitionWithExecutionIdentity(definition RuntimeDefinition) R
 	definition.executableSHA256 = "sha256:current-probe-executable"
 	definition.launcher = definition.Executable()
 	definition.launcherSHA256 = definition.ExecutableSHA256()
+	if definition.Family() == FamilyZcode {
+		definition.zcodeProviderConfig = "/private/config/zcode-builtin.json"
+		definition.zcodeProviderConfigSHA256 = "sha256:" + strings.Repeat("a", 64)
+		definition.applicationVersion = "3.12.3"
+		definition.applicationMetadata = "/Applications/ZCode.app/Contents/Info.plist"
+		definition.applicationMetadataSHA256 = "sha256:" + strings.Repeat("b", 64)
+		providerConfig, _ := ports.NewEnvironmentVariable("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", definition.zcodeProviderConfig)
+		definition.environment = append(definition.environment, providerConfig)
+	}
 	return definition
 }
 
@@ -448,6 +473,11 @@ func currentProbeAuthorityForDefinition(t *testing.T) (RuntimeDefinition, Curren
 	proof.ExecutableSHA256 = definition.ExecutableSHA256()
 	proof.Launcher = definition.Launcher()
 	proof.LauncherSHA256 = definition.LauncherSHA256()
+	proof.ZCodeProviderConfig = definition.ZCodeProviderConfig()
+	proof.ZCodeProviderConfigSHA256 = definition.ZCodeProviderConfigSHA256()
+	proof.ApplicationVersion = definition.ApplicationVersion()
+	proof.ApplicationMetadata = definition.ApplicationMetadata()
+	proof.ApplicationMetadataSHA256 = definition.ApplicationMetadataSHA256()
 	proof.ProfileID = definition.ProfileID()
 	proof.ProfileGeneration = definition.ProfileGeneration()
 	receipt, err := newCurrentProbeDirectExecutionAuthorityReceiptForDefinition([]currentProbeDirectExecutionRoleProof{proof}, time.Now().UTC().Add(time.Minute), definition)
@@ -547,6 +577,33 @@ func TestQualificationProcessFailurePreservesExecutionStage(t *testing.T) {
 	var failure *providerOutputFailure
 	if !errors.As(err, &failure) || failure.Cause() != domain.DiagnosticCauseProviderExecutionFailed {
 		t.Fatalf("qualification process failure = %#v, err=%v", failure, err)
+	}
+}
+
+func TestQualificationInterruptionOutranksConcurrentExchangeFailure(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		termination ports.ProcessTermination
+		want        error
+		cause       domain.RuntimeDiagnosticCause
+	}{
+		{name: "cancelled", termination: ports.ProcessTerminationCancelled, want: context.Canceled},
+		{name: "timed out", termination: ports.ProcessTerminationTimedOut, cause: domain.DiagnosticCauseTimedOut},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := qualificationInterruptionFailure(protocolInterruptedObservation(t, test.termination), ports.ErrProviderSessionExchangeClosed)
+			if test.want != nil && !errors.Is(err, test.want) {
+				t.Fatalf("interruption error = %v, want %v", err, test.want)
+			}
+			if test.termination == ports.ProcessTerminationTimedOut && errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("process-local timeout inherited enclosing deadline identity: %v", err)
+			}
+			if test.cause != "" {
+				if cause, ok := providerDiagnosticCause(err); !ok || cause != test.cause {
+					t.Fatalf("interruption cause = %q/%t, want %q", cause, ok, test.cause)
+				}
+			}
+		})
 	}
 }
 

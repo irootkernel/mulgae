@@ -9,7 +9,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-// Config is the admitted effective value merged from Config v3's project and
+// Config is the admitted effective value merged from Config v4's project and
 // machine-local authorities.
 type Config struct {
 	Version    int              `yaml:"version" json:"version"`
@@ -38,9 +38,8 @@ type ProvidersConfig struct {
 	Codex *CodexProviderConfig `yaml:"codex,omitempty" json:"codex,omitempty"`
 }
 type ZCodeProviderConfig struct {
-	NodeExecutable string `yaml:"node_executable" json:"node_executable"`
-	Launcher       string `yaml:"launcher" json:"launcher"`
-	Timeout        string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	AppBundle string `yaml:"app_bundle" json:"app_bundle"`
+	Timeout   string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type GrokProviderConfig struct {
 	Executable string `yaml:"executable" json:"executable"`
@@ -127,7 +126,7 @@ type CIConfig struct {
 }
 
 const (
-	ConfigVersion           = 3
+	ConfigVersion           = 4
 	DefaultProviderTimeout  = 60 * time.Minute
 	MinimumProviderTimeout  = time.Minute
 	MaximumProviderTimeout  = 60 * time.Minute
@@ -138,7 +137,7 @@ const (
 	ProjectKindUI           = "ui"
 )
 
-// ParseProviderTimeout resolves an optional Config v3 provider timeout. An
+// ParseProviderTimeout resolves an optional Config v4 provider timeout. An
 // omitted value uses the fixed 60-minute default, which is also the admitted
 // maximum; explicit values are bounded inclusively between one and sixty
 // minutes, so a project may only shorten a provider window.
@@ -153,7 +152,7 @@ func ParseProviderTimeout(value string) (time.Duration, error) {
 	return timeout, nil
 }
 
-// ProviderTimeoutText returns the stable Config v3 spelling for a valid
+// ProviderTimeoutText returns the stable Config v4 spelling for a valid
 // provider timeout. Whole-minute values use the concise "30m" form.
 func ProviderTimeoutText(timeout time.Duration) string {
 	return canonicalProviderTimeout(timeout)
@@ -209,7 +208,7 @@ func coreRoleIDs() []string {
 }
 
 // CanonicalRolesConfigForSelection derives the deterministic assignments for
-// every Config v3 role while enabling only the canonical project role set.
+// every Config v4 role while enabling only the canonical project role set.
 // Logic forms the project-level floor, not a per-run selection.
 //
 // Each role resolves independently from its own build-owned preference order, so
@@ -366,7 +365,7 @@ type Codec interface {
 	EncodeCanonical(Config) ([]byte, error)
 }
 
-// SplitCodec owns the disk projection and merge rules for Config v3's paired
+// SplitCodec owns the disk projection and merge rules for Config v4's paired
 // authorities.
 type SplitCodec interface {
 	Codec

@@ -1,6 +1,6 @@
 # Configuration
 
-Mulgae Config v3 has two configuration authorities:
+Mulgae Config v4 has two configuration authorities:
 
 - `<canonical-project-root>/.mulgae/config.yaml` is the Git-shareable project
   policy.
@@ -13,12 +13,19 @@ policy and rejects project-policy options.
 Earlier versions, including Config v2, are rejected; there is no automatic
 migration path.
 
-Config v3 is additive: a release may add an optional project-policy field
+Config v4 is additive: a release may add an optional project-policy field
 without changing the version, and an omitted field keeps its documented
-default. A newer Mulgae reads an older `config.yaml`, but unknown fields are
-rejected, so an older Mulgae reports `config_yaml_invalid` for a file a newer
-one wrote. Since `config.yaml` is shared through Git, keep every collaborator on
+default. A newer Mulgae reads a file written by an older Config v4 release, but
+unknown fields are rejected, so an older Mulgae reports `config_yaml_invalid`
+for a file a newer one wrote. Since `config.yaml` is shared through Git, keep every collaborator on
 a Mulgae at least as new as the release that last wrote it.
+
+To migrate Config v3 manually, change both `version` fields to `4`. In
+`local.yaml`, remove ZCode's `node_executable` and `launcher`, then set
+`app_bundle` to their canonical containing app bundle, normally
+`/Applications/ZCode.app`. The shared file must already be valid Config v4
+before `init --refresh-local` can
+rebuild the local file.
 
 ```text
 mulgae init [--project-root PATH] [--name NAME]
@@ -39,6 +46,16 @@ machine-local `--grok-executable` override and an optional shared-policy
 `providers.grok.timeout`; its model and reasoning settings are provider defaults
 and are not configurable through Mulgae.
 
+ZCode uses the standard `/Applications/ZCode.app` bundle by default. An app
+installed elsewhere accepts the machine-local `--zcode-app-bundle` override.
+Mulgae derives the app-owned Electron runtime, bundled app-server launcher, and
+built-in provider configuration from that one canonical absolute bundle path;
+it does not require an external Node.js executable.
+ZCode reviews import only API-key personal providers from the installed user's
+`~/.zcode/cli/config.json`. Desktop and account sign-in state is not projected
+into the disposable review home. The selected imported provider and model are
+applied before Mulgae sends a review prompt.
+
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.
 `execution.workspace_access` is required and must remain `none`.
@@ -46,7 +63,7 @@ Use `mulgae config --mode effective` to inspect the admitted configuration and
 `validation.extraction.enabled` admits the Mulgae-owned structured extraction
 trailer, which transcribes an accepted free-form role report into exact finding
 JSON on the same provider and role. `mulgae init` sets it for new projects; an
-existing Config v3 file that omits the block keeps it disabled until you add:
+existing Config v4 file that omits the block keeps it disabled until you add:
 
 ```yaml
 validation:
@@ -83,7 +100,7 @@ providers:
     timeout: "30m"
 ```
 
-Executable and launcher paths belong only in `local.yaml`.
+Executable and ZCode app-bundle paths belong only in `local.yaml`.
 Provider stdout and stderr have no configuration field or product byte ceiling.
 
 Codex accepts optional project-policy `model` and `reasoning_effort` fields and
@@ -145,7 +162,7 @@ Added images are primary `after` evidence; modified images provide both `before`
 and `after`. The artist may inspect any file in the captured workspace when
 history or a similar screen is useful.
 
-Initialization installs each Config v3 file atomically and uses an unconditional
+Initialization installs each Config v4 file atomically and uses an unconditional
 project-root durability barrier. The two files cannot commit as one filesystem
 transaction: if project policy commits before the local write fails, init
 reports `project_committed_local_missing`. Resolve any reported local-path

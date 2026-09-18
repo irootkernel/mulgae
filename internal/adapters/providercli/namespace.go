@@ -250,40 +250,41 @@ const (
 )
 
 type namespaceLease struct {
-	instance                  string
-	generation                string
-	root                      string
-	rootInfo                  os.FileInfo
-	parentDirectory           *os.File
-	rootDirectory             *os.File
-	rootName                  string
-	environment               []ports.EnvironmentVariable
-	directoryInfo             map[string]os.FileInfo
-	nativeHome                string
-	nativeHomeInfo            os.FileInfo
-	seedMu                    sync.RWMutex
-	nativeHomeLaunchAuthority ports.NativeHomeLaunchAuthority
-	seeds                     map[ports.CredentialProjectionDestination]credentialSeed
-	policyMu                  sync.RWMutex
-	policy                    RuntimeSafetyPolicy
-	policyInfo                os.FileInfo
-	grokBoundary              *grokBoundaryBundle
-	terminalMu                sync.Mutex
-	terminalDrain             ports.ProviderNamespaceTerminalDrain
-	drained                   bool
-	policyCleaned             bool
-	cleanupStage              namespaceCleanupStage
-	cleanupDevice             int32
-	cleanupInode              uint64
-	afterFinalCheckHook       func(*namespaceLease)
-	afterQuarantineHook       func(*namespaceLease) error
-	afterContentsDeletedHook  func(*namespaceLease) error
-	afterUnlinkHook           func(*namespaceLease) error
-	afterDetachedHook         func(*namespaceLease) error
-	closeRootDirectory        func(*os.File) error
-	closeParentDirectory      func(*os.File) error
-	pendingDescriptors        []*os.File
-	traversal                 *namespaceTraversal
+	instance                      string
+	generation                    string
+	root                          string
+	rootInfo                      os.FileInfo
+	parentDirectory               *os.File
+	rootDirectory                 *os.File
+	rootName                      string
+	environment                   []ports.EnvironmentVariable
+	directoryInfo                 map[string]os.FileInfo
+	nativeHome                    string
+	nativeHomeInfo                os.FileInfo
+	seedMu                        sync.RWMutex
+	nativeHomeLaunchAuthority     ports.NativeHomeLaunchAuthority
+	seeds                         map[ports.CredentialProjectionDestination]credentialSeed
+	zcodeSelection                *zcodeModelSelection
+	policyMu                      sync.RWMutex
+	policy                        RuntimeSafetyPolicy
+	grokBoundary                  *grokBoundaryBundle
+	terminalMu                    sync.Mutex
+	terminalDrain                 ports.ProviderNamespaceTerminalDrain
+	terminalErr                   error
+	drained                       bool
+	cleanupStage                  namespaceCleanupStage
+	cleanupDevice                 int32
+	cleanupInode                  uint64
+	afterFinalCheckHook           func(*namespaceLease)
+	afterQuarantineHook           func(*namespaceLease) error
+	afterContentsDeletedHook      func(*namespaceLease) error
+	afterUnlinkHook               func(*namespaceLease) error
+	afterDetachedHook             func(*namespaceLease) error
+	afterCredentialParentOpenHook func(*namespaceLease, string)
+	closeRootDirectory            func(*os.File) error
+	closeParentDirectory          func(*os.File) error
+	pendingDescriptors            []*os.File
+	traversal                     *namespaceTraversal
 }
 
 var _ ports.ProviderNamespaceLease = (*namespaceLease)(nil)
@@ -306,7 +307,7 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 	}
 	directories := []string{
 		"home",
-		"home/.zcode", "home/.zcode/cli", "home/.gemini", "home/.gemini/antigravity-cli",
+		"home/.zcode", "home/.zcode/cli", "home/.zcode/v2", "home/.gemini", "home/.gemini/antigravity-cli",
 		"home/.codex", "home/.grok",
 		"settings", "auth", "cache", "tmp", "scratch",
 	}
@@ -550,22 +551,25 @@ func (lease *namespaceLease) drainTerminalEffects(ctx context.Context) error {
 	if lease.drained {
 		return nil
 	}
+	if lease.cleanupStage == namespaceCleanupDescriptorsClosed && lease.terminalErr != nil {
+		return lease.terminalErr
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := lease.zeroAndUnlinkRuntimeSafetyPolicy(); err != nil {
-		return err
-	}
 	if err := lease.zeroAndUnlinkSeeds(); err != nil {
-		return err
+		lease.terminalErr = errors.Join(lease.terminalErr, err)
 	}
 	if err := lease.removeNamespaceRoot(); err != nil {
-		return err
+		return errors.Join(lease.terminalErr, err)
 	}
 	if err := lease.closeNamespaceDescriptors(); err != nil {
-		return err
+		return errors.Join(lease.terminalErr, err)
 	}
 	lease.cleanupStage = namespaceCleanupDescriptorsClosed
+	if lease.terminalErr != nil {
+		return lease.terminalErr
+	}
 	lease.drained = true
 	return nil
 }

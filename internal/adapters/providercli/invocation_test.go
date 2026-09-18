@@ -62,7 +62,7 @@ func TestZCodeQualificationDenylistStillFullyToolDenied(t *testing.T) {
 	definition := testProfile(t, FamilyZcode, "zcode_current", "", "")
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := []string{"/private/bin/zcode", "app-server"}
+	want := []string{"/private/bin/zcode", "app-server", "--stdio"}
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("ZCode qualification argv = %#v, err = %v, want %#v", argv, err, want)
 	}
@@ -81,7 +81,7 @@ func TestNativeProbeInvocationAllowsDeclaredZcodeLauncher(t *testing.T) {
 	definition.baseArgv = []string{definition.executable, definition.launcher}
 
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := []string{definition.executable, definition.launcher, "app-server"}
+	want := []string{definition.executable, definition.launcher, "app-server", "--stdio"}
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatalf("ZCode launcher argv = %#v, err = %v, want %#v", argv, err, want)
 	}

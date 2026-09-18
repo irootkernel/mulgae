@@ -252,20 +252,20 @@ func localityFixture(t *testing.T) (string, *GitLocalityAttestor, ports.ConfigLo
 	return root, attestor, request, expected
 }
 
-const localityProjectConfig = `version: 3
+const localityProjectConfig = `version: 4
 project:
   name: "project"
 providers:
-  agy: {}
+  grok: {}
 execution:
   workspace_access: "none"
 roles:
-  logic: {enabled: true, primary_provider: "agy"}
-  security: {enabled: false, primary_provider: "agy"}
-  maintainability: {enabled: false, primary_provider: "agy"}
-  product: {enabled: false, primary_provider: "agy"}
-  documentation: {enabled: false, primary_provider: "agy"}
-  testing: {enabled: false, primary_provider: "agy"}
+  logic: {enabled: true, primary_provider: "grok"}
+  security: {enabled: false, primary_provider: "grok"}
+  maintainability: {enabled: false, primary_provider: "grok"}
+  product: {enabled: false, primary_provider: "grok"}
+  documentation: {enabled: false, primary_provider: "grok"}
+  testing: {enabled: false, primary_provider: "grok"}
 review:
   required_roles: ["logic"]
   request_changes_on: ["high", "critical", "blocker"]
@@ -286,10 +286,10 @@ ci:
   degraded_review_fails: true
 `
 
-const localityMachineConfig = `version: 3
+const localityMachineConfig = `version: 4
 native_user:
   home: "/Users/test"
 providers:
-  agy:
-    executable: "/bin/agy"
+  grok:
+    executable: "/bin/grok"
 `

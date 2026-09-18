@@ -1,16 +1,19 @@
 package providercli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
@@ -374,6 +377,26 @@ func TestCredentialProjectionSafeAndTerminallyZeroesAndUnlinks(t *testing.T) {
 	}
 }
 
+func TestZCodeProviderProjectionClassifiesInvalidSelectedLegacyProviderAsConfiguration(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "zcode_logic", FamilyZcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, request := declaredCredentialRequest(t, lease, `{"model":"zai/model","provider":{"zai":{"options":{"apiKeyRequired":false}}}}`, ports.CredentialProjectionZCodeProviderConfig)
+	_, err = lease.ProjectCredential(context.Background(), request)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
+		t.Fatalf("projection error = %v, want configuration_violation", err)
+	}
+	if _, drainErr := lease.DrainTerminal(context.Background()); drainErr != nil {
+		t.Fatal(drainErr)
+	}
+}
+
 func TestCredentialProjectionDrainAcceptsProviderOwnedAtomicRefresh(t *testing.T) {
 	factory, err := NewNamespaceFactory(t.TempDir())
 	if err != nil {
@@ -401,6 +424,11 @@ func TestCredentialProjectionDrainAcceptsProviderOwnedAtomicRefresh(t *testing.T
 	if err := os.Rename(replacement, destination); err != nil {
 		t.Fatal(err)
 	}
+	refreshedRetained, err := os.Open(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer refreshedRetained.Close()
 	if err := lease.ValidateForSpawn(); err != nil {
 		t.Fatalf("safe provider-owned refresh was rejected: %v", err)
 	}
@@ -411,8 +439,216 @@ func TestCredentialProjectionDrainAcceptsProviderOwnedAtomicRefresh(t *testing.T
 	if err != nil || string(zeroed) != strings.Repeat("\x00", len(secret)) {
 		t.Fatalf("original projected credential was not zeroed: %v", err)
 	}
+	if _, err := refreshedRetained.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	refreshedZeroed, err := io.ReadAll(refreshedRetained)
+	if err != nil || string(refreshedZeroed) != strings.Repeat("\x00", len("provider-refreshed-state")) {
+		t.Fatalf("refreshed credential was not zeroed: %v", err)
+	}
 	if _, err := os.Lstat(concrete.root); !os.IsNotExist(err) {
 		t.Fatalf("refreshed provider namespace remains after drain: %v", err)
+	}
+}
+
+func TestCredentialProjectionDrainDoesNotWriteThroughReplacementHardlink(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "grok_primary", FamilyGrok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "projected-secret"
+	_, request := declaredCredentialRequest(t, lease, secret, ports.CredentialProjectionGrokAuth)
+	if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	concrete := lease.(*namespaceLease)
+	destination := filepath.Join(concrete.root, "home", ".grok", "auth.json")
+	retained := filepath.Join(t.TempDir(), "retained")
+	if err := os.Link(destination, retained); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(destination); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(t.TempDir(), "victim")
+	victimContents := []byte("must-remain-unchanged")
+	if err := os.WriteFile(victim, victimContents, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(victim, destination); err != nil {
+		t.Fatal(err)
+	}
+
+	receipt, drainErr := lease.DrainTerminal(context.Background())
+	if drainErr == nil || receipt.Valid() {
+		t.Fatalf("unsafe replacement drain = %#v, %v", receipt, drainErr)
+	}
+	got, err := os.ReadFile(victim)
+	if err != nil || !bytes.Equal(got, victimContents) {
+		t.Fatalf("replacement hardlink target changed: %q, %v", got, err)
+	}
+	zeroed, err := os.ReadFile(retained)
+	if err != nil || string(zeroed) != strings.Repeat("\x00", len(secret)) {
+		t.Fatalf("original projected credential was not zeroed: %v", err)
+	}
+	if _, err := os.Lstat(concrete.root); !os.IsNotExist(err) {
+		t.Fatalf("unsafe replacement namespace remains: %v", err)
+	}
+	repeated, repeatErr := lease.DrainTerminal(context.Background())
+	if repeatErr == nil || repeated.Valid() || repeatErr.Error() != drainErr.Error() {
+		t.Fatalf("repeated unsafe replacement drain = %#v, %v; want %v", repeated, repeatErr, drainErr)
+	}
+}
+
+func TestCredentialProjectionDrainUsesPinnedParentAfterSymlinkSwap(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "grok_primary", FamilyGrok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "projected-secret"
+	_, request := declaredCredentialRequest(t, lease, secret, ports.CredentialProjectionGrokAuth)
+	if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	concrete := lease.(*namespaceLease)
+	nativeDirectory := filepath.Join(t.TempDir(), ".grok")
+	if err := os.Mkdir(nativeDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	nativeCredential := filepath.Join(nativeDirectory, "auth.json")
+	nativeContents := []byte("native-must-remain-unchanged")
+	if err := os.WriteFile(nativeCredential, nativeContents, 0600); err != nil {
+		t.Fatal(err)
+	}
+	concrete.afterCredentialParentOpenHook = func(candidate *namespaceLease, destination string) {
+		if destination != "home/.grok/auth.json" {
+			return
+		}
+		candidate.afterCredentialParentOpenHook = nil
+		parent := filepath.Join(candidate.root, "home", ".grok")
+		if err := os.Rename(parent, parent+".moved"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(nativeDirectory, parent); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	receipt, err := lease.DrainTerminal(context.Background())
+	if err != nil || !receipt.Valid() {
+		t.Fatalf("descriptor-anchored drain = %#v, %v", receipt, err)
+	}
+	got, err := os.ReadFile(nativeCredential)
+	if err != nil || !bytes.Equal(got, nativeContents) {
+		t.Fatalf("native credential changed: %q, %v", got, err)
+	}
+	if _, err := os.Lstat(concrete.root); !os.IsNotExist(err) {
+		t.Fatalf("swapped namespace remains after drain: %v", err)
+	}
+}
+
+func TestCredentialProjectionDoesNotWriteThroughParentSwap(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "grok_primary", FamilyGrok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	concrete := lease.(*namespaceLease)
+	nativeDirectory := filepath.Join(t.TempDir(), ".grok")
+	if err := os.Mkdir(nativeDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(nativeDirectory, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("native"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var movedParent string
+	concrete.afterCredentialParentOpenHook = func(candidate *namespaceLease, destination string) {
+		if destination != "home/.grok/auth.json" {
+			return
+		}
+		candidate.afterCredentialParentOpenHook = nil
+		parent := filepath.Join(candidate.root, "home", ".grok")
+		movedParent = parent + ".moved"
+		if err := os.Rename(parent, movedParent); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(nativeDirectory, parent); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	secret := "projected-secret"
+	_, request := declaredCredentialRequest(t, lease, secret, ports.CredentialProjectionGrokAuth)
+	if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(nativeDirectory, "auth.json")); !os.IsNotExist(err) {
+		t.Fatalf("credential was written through swapped parent: %v", err)
+	}
+	projected, err := os.ReadFile(filepath.Join(movedParent, "auth.json"))
+	if err != nil || string(projected) != secret {
+		t.Fatalf("pinned namespace credential = %q, %v", projected, err)
+	}
+	if err := lease.ValidateForSpawn(); err == nil {
+		t.Fatal("swapped credential parent reached spawn authority")
+	}
+	receipt, drainErr := lease.DrainTerminal(context.Background())
+	if drainErr == nil || receipt.Valid() {
+		t.Fatalf("drifted namespace drain = %#v, %v", receipt, drainErr)
+	}
+	if got, err := os.ReadFile(sentinel); err != nil || string(got) != "native" {
+		t.Fatalf("native directory changed: %q, %v", got, err)
+	}
+	if _, err := os.Lstat(concrete.root); !os.IsNotExist(err) {
+		t.Fatalf("drifted namespace remains after drain: %v", err)
+	}
+}
+
+func TestCredentialProjectionDrainRemovesNamespaceAfterReplacementCleanupFailure(t *testing.T) {
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "zcode_logic", FamilyZcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, destination := range []ports.CredentialProjectionDestination{
+		ports.CredentialProjectionZCodeConfig,
+		ports.CredentialProjectionZCodeProviderConfig,
+	} {
+		_, request := declaredCredentialRequest(t, lease, `{"provider":{}}`, destination)
+		if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	concrete := lease.(*namespaceLease)
+	destination := filepath.Join(concrete.root, "home", ".zcode", "cli", "config.json")
+	if err := os.Remove(destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("provider-refresh"), 0400); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := lease.DrainTerminal(context.Background())
+	if err == nil || receipt.Valid() {
+		t.Fatalf("replacement cleanup failure drain = %#v, %v", receipt, err)
+	}
+	if _, err := os.Lstat(concrete.root); !os.IsNotExist(err) {
+		t.Fatalf("namespace remains after replacement cleanup failure: %v", err)
 	}
 }
 
@@ -552,6 +788,7 @@ func TestNamespaceDoesNotSeedCredentialsWithoutDescriptor(t *testing.T) {
 		filepath.Join(root, "home", ".codex", "auth.json"),
 		filepath.Join(root, "home", ".grok", "auth.json"),
 		filepath.Join(root, "home", ".zcode", "cli", "config.json"),
+		filepath.Join(root, "home", ".zcode", "v2", "provider_config.json"),
 	} {
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
 			t.Fatalf("unexpected seeded file %q: %v", path, err)
@@ -765,7 +1002,7 @@ func TestNamespaceDrainRetriesAfterQuarantineFailure(t *testing.T) {
 	}
 }
 
-func TestNamespaceDrainRetriesAfterPartialSeedCleanup(t *testing.T) {
+func TestNamespaceDrainFinishesTeardownAfterPartialSeedCleanup(t *testing.T) {
 	factory, err := NewNamespaceFactory(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -792,19 +1029,15 @@ func TestNamespaceDrainRetriesAfterPartialSeedCleanup(t *testing.T) {
 	if err == nil || receipt.Valid() {
 		t.Fatalf("partial seed cleanup drain = %#v, %v", receipt, err)
 	}
-	configPath := filepath.Join(concrete.root, "home", ".grok", "auth.json")
-	if _, err := os.Lstat(configPath); !os.IsNotExist(err) {
-		t.Fatalf("completed seed was not removed: %v", err)
+	if _, statErr := os.Lstat(concrete.root); !os.IsNotExist(statErr) {
+		t.Fatalf("namespace remains after partial seed cleanup: %v", statErr)
 	}
-	if _, exists := concrete.seeds[ports.CredentialProjectionGrokAuth]; exists {
-		t.Fatal("completed seed remained pending")
+	if len(concrete.seeds) != 0 {
+		t.Fatalf("credential seeds remain after terminal teardown: %d", len(concrete.seeds))
 	}
-	if err := os.Rename(movedCredentialsDirectory, credentialsDirectory); err != nil {
-		t.Fatal(err)
-	}
-	receipt, err = lease.DrainTerminal(context.Background())
-	if err != nil || !receipt.Valid() {
-		t.Fatalf("repaired seed cleanup drain = %#v, %v", receipt, err)
+	repeated, repeatErr := lease.DrainTerminal(context.Background())
+	if repeatErr == nil || repeated.Valid() || repeatErr.Error() != err.Error() {
+		t.Fatalf("repeated partial cleanup drain = %#v, %v; want %v", repeated, repeatErr, err)
 	}
 }
 

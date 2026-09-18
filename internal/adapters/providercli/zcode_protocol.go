@@ -14,26 +14,29 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// ZCode Protocol v1 wire facts below are pinned by the live wire-shape spike
-// against the installed ZCode 0.16.5 app-server and recorded in the ADR
-// zcode-app-server-transport. The protocol is newline-delimited JSON over the
+// ZCode Protocol v1 framing and session facts originated in the bundled launcher
+// protocol 0.16.5 spike. Model selection and reasoning-level fallback are
+// certified against the supported ZCode 3.12.3 app bundle, as recorded in the
+// ADR zcode-app-server-transport. The protocol is newline-delimited JSON over the
 // child stdin and stdout pipes. Requests carry {"id","method","params"} without
 // a JSON-RPC envelope, responses echo the request id with either "result" or
 // "error", and notifications carry {"method","params"} without an id.
 const (
-	zcodeProtocolCreateMethod = "session/create"
-	zcodeProtocolSendMethod   = "session/send"
-	zcodeProtocolCloseMethod  = "session/close"
+	zcodeProtocolCreateMethod   = "session/create"
+	zcodeProtocolSetModelMethod = "session/setModel"
+	zcodeProtocolSendMethod     = "session/send"
+	zcodeProtocolCloseMethod    = "session/close"
 	// zcodeProtocolMessagesMethod reads the conversation's messages after a
 	// completed turn; the assistant text parts carry the qualification probe's
 	// controlled evidence, which never appears in the protocol transcript
 	// itself.
 	zcodeProtocolMessagesMethod = "session/messages"
 
-	zcodeProtocolCreateID   = "mulgae-create"
-	zcodeProtocolSendID     = "mulgae-send"
-	zcodeProtocolCloseID    = "mulgae-close"
-	zcodeProtocolMessagesID = "mulgae-messages"
+	zcodeProtocolCreateID         = "mulgae-create"
+	zcodeProtocolSendID           = "mulgae-send"
+	zcodeProtocolCloseID          = "mulgae-close"
+	zcodeProtocolMessagesID       = "mulgae-messages"
+	zcodeProtocolSetModelIDPrefix = "mulgae-model-"
 
 	// zcodeProtocolMessageLimit bounds the message read to the completed
 	// conversation's own turn.
@@ -44,6 +47,10 @@ const (
 	zcodeProtocolTurnCompletedKind = "turn-completed"
 	zcodeProtocolTurnFailedKind    = "turn-failed"
 )
+
+var zcodeProtocolReasoningCandidates = [...]string{"max", "xhigh", "high", "enabled", "medium", "low", "none", "disabled"}
+
+var errZCodeSelectedModelUnavailable = errors.New("selected ZCode model is unavailable")
 
 // zcodeProtocolError is the typed fail-closed classification for a protocol
 // conversation that ended without a complete provider turn.
@@ -117,14 +124,15 @@ type zcodeProtocolSession struct {
 	captureAssistantText bool
 	assistantEvidence    []string
 	observation          ports.ProviderSessionObservation
+	modelSelection       *zcodeModelSelection
 }
 
-func newZcodeReviewProtocolSession(workspacePath string, prompt []byte) (*zcodeProtocolSession, error) {
-	return newZcodeProtocolSession(workspacePath, "yolo", zcodeReviewProtocolDenylist, prompt)
+func newZcodeReviewProtocolSession(workspacePath string, prompt []byte, selection ...*zcodeModelSelection) (*zcodeProtocolSession, error) {
+	return newZcodeProtocolSession(workspacePath, "yolo", zcodeReviewProtocolDenylist, prompt, firstZCodeModelSelection(selection))
 }
 
-func newZcodeCapabilityProtocolSession(workspacePath string, prompt []byte) (*zcodeProtocolSession, error) {
-	session, err := newZcodeProtocolSession(workspacePath, "plan", zcodeCapabilityProtocolDenylist, prompt)
+func newZcodeCapabilityProtocolSession(workspacePath string, prompt []byte, selection ...*zcodeModelSelection) (*zcodeProtocolSession, error) {
+	session, err := newZcodeProtocolSession(workspacePath, "plan", zcodeCapabilityProtocolDenylist, prompt, firstZCodeModelSelection(selection))
 	if err != nil {
 		return nil, err
 	}
@@ -135,8 +143,8 @@ func newZcodeCapabilityProtocolSession(workspacePath string, prompt []byte) (*zc
 // newZcodeExtractionProtocolSession runs the structured extraction trailer in
 // the review posture and captures the assistant text, which carries the exact
 // JSON the extraction contract demands.
-func newZcodeExtractionProtocolSession(workspacePath string, prompt []byte) (*zcodeProtocolSession, error) {
-	session, err := newZcodeProtocolSession(workspacePath, "yolo", zcodeReviewProtocolDenylist, prompt)
+func newZcodeExtractionProtocolSession(workspacePath string, prompt []byte, selection ...*zcodeModelSelection) (*zcodeProtocolSession, error) {
+	session, err := newZcodeProtocolSession(workspacePath, "yolo", zcodeReviewProtocolDenylist, prompt, firstZCodeModelSelection(selection))
 	if err != nil {
 		return nil, err
 	}
@@ -144,15 +152,26 @@ func newZcodeExtractionProtocolSession(workspacePath string, prompt []byte) (*zc
 	return session, nil
 }
 
-func newZcodeProtocolSession(workspacePath, mode string, denylist []string, prompt []byte) (*zcodeProtocolSession, error) {
+func firstZCodeModelSelection(selections []*zcodeModelSelection) *zcodeModelSelection {
+	if len(selections) == 0 {
+		return nil
+	}
+	return cloneZCodeModelSelection(selections[0])
+}
+
+func newZcodeProtocolSession(workspacePath, mode string, denylist []string, prompt []byte, selection *zcodeModelSelection) (*zcodeProtocolSession, error) {
 	if !validCanonicalAbsolute(workspacePath) || len(prompt) == 0 || len(denylist) == 0 {
 		return nil, fmt.Errorf("zcode protocol: invalid session request")
 	}
+	if selection != nil && (strings.TrimSpace(selection.ProviderID) == "" || strings.TrimSpace(selection.ModelID) == "") {
+		return nil, fmt.Errorf("zcode protocol: invalid model selection")
+	}
 	return &zcodeProtocolSession{
-		workspacePath: workspacePath,
-		mode:          mode,
-		toolDenylist:  append([]string(nil), denylist...),
-		prompt:        string(prompt),
+		workspacePath:  workspacePath,
+		mode:           mode,
+		toolDenylist:   append([]string(nil), denylist...),
+		prompt:         string(prompt),
+		modelSelection: cloneZCodeModelSelection(selection),
 	}, nil
 }
 
@@ -170,7 +189,7 @@ func (session *zcodeProtocolSession) AssistantEvidenceText() []byte {
 }
 
 func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) (driveErr error) {
-	state := &zcodeProtocolConversation{prompt: session.prompt, captureAssistantText: session.captureAssistantText, phase: ports.ProviderSessionPhaseCreate}
+	state := &zcodeProtocolConversation{prompt: session.prompt, captureAssistantText: session.captureAssistantText, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection)}
 	defer func() {
 		terminal := ports.ProviderSessionCompleted
 		if driveErr != nil {
@@ -275,6 +294,10 @@ type zcodeProtocolConversation struct {
 	hasProviderErrorCode bool
 	captureAssistantText bool
 	assistantEvidence    []string
+	modelSelection       *zcodeModelSelection
+	modelCandidate       int
+	modelRequestPending  bool
+	modelAccepted        bool
 }
 
 func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange ports.ProviderSessionExchange, message zcodeProtocolMessage) (bool, error) {
@@ -296,6 +319,31 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		state.closeAccepted = true
 		return true, nil
 	}
+	if state.isModelSelectionResponse(message) {
+		state.modelRequestPending = false
+		if message.Error != nil {
+			if message.Error.modelSelectionUnavailable() {
+				state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
+				return true, zcodeModelSelectionFailure()
+			}
+			if message.Error.retryableModelReasoningRejection() {
+				state.modelCandidate++
+				if state.modelCandidate >= len(zcodeProtocolReasoningCandidates) {
+					state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
+					return true, zcodeModelSelectionFailure()
+				}
+				return false, state.sendModelSelection(ctx, exchange)
+			}
+			state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
+			return true, zcodeProtocolFailure(message.Error.modelSelectionFailureCause(),
+				fmt.Errorf("session model selection failed: %s", message.Error.Message))
+		}
+		if err := state.acceptModelSelection(message.Result); err != nil {
+			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
+		}
+		state.modelAccepted = true
+		return false, state.sendPrompt(ctx, exchange)
+	}
 	if message.Error != nil && message.correlatesTo(zcodeProtocolCreateID, zcodeProtocolSendID, zcodeProtocolMessagesID, zcodeProtocolCloseID) {
 		state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
 		return true, zcodeProtocolFailure(domain.DiagnosticCauseProviderExecutionFailed,
@@ -311,11 +359,10 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		if err := state.acceptCreate(message.Result); err != nil {
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
 		}
-		state.phase = ports.ProviderSessionPhaseSend
-		return false, sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolSendID, zcodeProtocolSendMethod, map[string]any{
-			"sessionId": state.sessionID,
-			"content":   state.prompt,
-		})
+		if state.modelSelection != nil {
+			return false, state.sendModelSelection(ctx, exchange)
+		}
+		return false, state.sendPrompt(ctx, exchange)
 	case message.isResponseID(zcodeProtocolSendID):
 		if err := state.acceptSend(message.Result); err != nil {
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
@@ -333,6 +380,96 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		// terminal notification decides the conversation.
 		return false, nil
 	}
+}
+
+func zcodeModelSelectionFailure() error {
+	failure, err := domain.NewFailure("zcode_model_selection", domain.FailureConfiguration, "selected ZCode model is unavailable", errZCodeSelectedModelUnavailable)
+	if err != nil {
+		return zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, err)
+	}
+	return failure
+}
+
+func (state *zcodeProtocolConversation) isModelSelectionResponse(message zcodeProtocolMessage) bool {
+	return state.modelSelection != nil && state.modelRequestPending && !state.modelAccepted && state.modelCandidate < len(zcodeProtocolReasoningCandidates) &&
+		message.isResponseID(zcodeProtocolSetModelIDPrefix+fmt.Sprintf("%d", state.modelCandidate))
+}
+
+func (state *zcodeProtocolConversation) sendModelSelection(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	if state.modelSelection == nil || state.sessionID == "" || state.modelCandidate >= len(zcodeProtocolReasoningCandidates) {
+		return zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, errors.New("invalid model selection state"))
+	}
+	selection := map[string]any{
+		"providerId": state.modelSelection.ProviderID,
+		"modelId":    state.modelSelection.ModelID,
+		"options": map[string]string{
+			"reasoningLevel": zcodeProtocolReasoningCandidates[state.modelCandidate],
+		},
+	}
+	state.phase = ports.ProviderSessionPhaseModel
+	if err := sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolSetModelIDPrefix+fmt.Sprintf("%d", state.modelCandidate), zcodeProtocolSetModelMethod, map[string]any{
+		"sessionId":                  state.sessionID,
+		"model":                      selection,
+		"persistAsWorkspaceLastUsed": false,
+	}); err != nil {
+		return err
+	}
+	state.modelRequestPending = true
+	return nil
+}
+
+func (state *zcodeProtocolConversation) acceptModelSelection(result json.RawMessage) error {
+	if len(result) == 0 || bytes.Equal(bytes.TrimSpace(result), []byte("null")) {
+		return errors.New("session model selection result is missing")
+	}
+	type wireSelection struct {
+		ProviderID string `json:"providerId"`
+		ModelID    string `json:"modelId"`
+		Options    struct {
+			ReasoningLevel string `json:"reasoningLevel"`
+		} `json:"options"`
+	}
+	var payload struct {
+		Protocol struct {
+			Name    string `json:"name"`
+			Version int    `json:"version"`
+		} `json:"protocol"`
+		Session struct {
+			SessionID string `json:"sessionId"`
+			Model     struct {
+				ProviderID string `json:"providerId"`
+				ModelID    string `json:"modelId"`
+			} `json:"model"`
+		} `json:"session"`
+		Settings struct {
+			Model struct {
+				Current wireSelection `json:"current"`
+			} `json:"model"`
+		} `json:"settings"`
+	}
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return fmt.Errorf("unreadable session model selection result: %w", err)
+	}
+	if payload.Protocol.Name != "ZCode Protocol" || payload.Protocol.Version != 1 || payload.Session.SessionID != state.sessionID {
+		return errors.New("session model selection result has mismatched protocol or session identity")
+	}
+	want := wireSelection{ProviderID: state.modelSelection.ProviderID, ModelID: state.modelSelection.ModelID}
+	want.Options.ReasoningLevel = zcodeProtocolReasoningCandidates[state.modelCandidate]
+	if payload.Settings.Model.Current != want {
+		return errors.New("session model selection result has mismatched model identity")
+	}
+	if payload.Session.Model.ProviderID != want.ProviderID || payload.Session.Model.ModelID != want.ModelID {
+		return errors.New("session model selection result has mismatched session model identity")
+	}
+	return nil
+}
+
+func (state *zcodeProtocolConversation) sendPrompt(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	state.phase = ports.ProviderSessionPhaseSend
+	return sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolSendID, zcodeProtocolSendMethod, map[string]any{
+		"sessionId": state.sessionID,
+		"content":   state.prompt,
+	})
 }
 
 func (state *zcodeProtocolConversation) sendClose(ctx context.Context, exchange ports.ProviderSessionExchange) error {
@@ -500,8 +637,55 @@ type zcodeProtocolMessage struct {
 }
 
 type zcodeProtocolWireError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
+}
+
+func (failure *zcodeProtocolWireError) detailCode() string {
+	if failure == nil || len(failure.Data) == 0 {
+		return ""
+	}
+	var detail struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(failure.Data, &detail) != nil {
+		return ""
+	}
+	return detail.Code
+}
+
+func (failure *zcodeProtocolWireError) retryableModelReasoningRejection() bool {
+	return failure != nil && failure.detailCode() == "invalid_model_request" &&
+		(strings.HasPrefix(failure.Message, "Reasoning effort ") || strings.HasPrefix(failure.Message, "Reasoning level "))
+}
+
+func (failure *zcodeProtocolWireError) modelSelectionUnavailable() bool {
+	if failure == nil {
+		return false
+	}
+	switch failure.detailCode() {
+	case "invalid_model_selection", "model_config_missing", "provider_not_found", "provider_not_configured", "model_not_found":
+		return true
+	default:
+		return false
+	}
+}
+
+func (failure *zcodeProtocolWireError) modelSelectionFailureCause() domain.RuntimeDiagnosticCause {
+	if failure == nil {
+		return domain.DiagnosticCauseProviderExecutionFailed
+	}
+	switch failure.detailCode() {
+	case "model_request_auth_missing":
+		return domain.DiagnosticCauseAuthenticationFailed
+	case "model_rate_limited":
+		return domain.DiagnosticCauseRateLimited
+	case "model_request_timeout":
+		return domain.DiagnosticCauseTimedOut
+	default:
+		return domain.DiagnosticCauseProviderExecutionFailed
+	}
 }
 
 func (message zcodeProtocolMessage) isResponseID(id string) bool {

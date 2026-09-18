@@ -366,6 +366,26 @@ func TestProcessTerminationIsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderSessionPhaseIsClosed(t *testing.T) {
+	for _, phase := range []ProviderSessionPhase{
+		ProviderSessionPhaseCreate,
+		ProviderSessionPhaseModel,
+		ProviderSessionPhaseSend,
+		ProviderSessionPhaseTurn,
+		ProviderSessionPhaseMessages,
+		ProviderSessionPhaseClose,
+	} {
+		if !phase.Valid() {
+			t.Errorf("%q is invalid", phase)
+		}
+	}
+	for _, phase := range []ProviderSessionPhase{"", "model", "Create"} {
+		if phase.Valid() {
+			t.Errorf("%q is valid", phase)
+		}
+	}
+}
 func TestNewProcessSignalValidatesExactFacts(t *testing.T) {
 	signal, err := NewProcessSignal(15, "SIGTERM")
 	if err != nil {

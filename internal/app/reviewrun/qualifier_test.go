@@ -3,6 +3,7 @@ package reviewrun
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,34 @@ import (
 
 func qualificationTestReceipt(kind ReceiptKind, state ReceiptState, expiresAt time.Time, identity Identity) Receipt {
 	return Receipt{Kind: kind, State: state, ExpiresAt: expiresAt, Identity: identity}
+}
+
+func TestZCodeApplicationFloorRejectsBeforeNamespaceOrProviderProbe(t *testing.T) {
+	for _, classification := range []VersionClassification{VersionRed, VersionUnknown} {
+		t.Run(string(classification), func(t *testing.T) {
+			candidate := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
+			candidate.Profile.applicationVersionClassification = classification
+			qualifierCalls := 0
+			factory, err := NewQualifiedRunFactory(CurrentQualifierFunc(func(context.Context, CurrentQualificationRequest) (CurrentQualificationResult, error) {
+				qualifierCalls++
+				return CurrentQualificationResult{}, errors.New("provider probe must not run")
+			}), qualifierRegistryFactory{registry: newAuthorityRegistry(t)}, qualifierClock{now: time.Now().UTC()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{candidate})
+			if err != nil || len(groups) != 1 {
+				t.Fatalf("family groups = %#v, %v", groups, err)
+			}
+			admission, err := factory.admitFamilyQualificationGroup(context.Background(), groups[0], time.Now().UTC())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if qualifierCalls != 0 || len(admission.instances) != 0 || len(admission.failures) != 1 || admission.failures[0].ReasonCode() != "application_version_incompatible" {
+				t.Fatalf("early application rejection = calls %d instances %v failures %#v", qualifierCalls, admission.instances, admission.failures)
+			}
+		})
+	}
 }
 
 type qualifierClock struct{ now time.Time }
@@ -130,7 +159,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy("codex", "codex-main", "", "/private/bin/codex", qualifierTestSHA, "/private/bin/codex", qualifierTestSHA, "codex-default", "profile-generation", "policy-identity", []string{"/private/bin/codex"}, transport, nil, "/private/work", time.Second)
+	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy("codex", "codex-main", "", "/private/bin/codex", qualifierTestSHA, "/private/bin/codex", qualifierTestSHA, "", "", "codex-default", "profile-generation", "policy-identity", []string{"/private/bin/codex"}, transport, nil, "/private/work", time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,6 +237,7 @@ func terminalEvidence(instance string) qualifiedProviderEvidence {
 		Family: FamilyZCode, Instance: instance, ProfileGeneration: "profile-generation", AdapterProfile: "zcode-default",
 		Version: "0.16.5", Executable: "/private/bin/zcode", ExecutableSHA256: qualifierTestSHA,
 		Launcher: "/private/bin/zcode", LauncherSHA256: qualifierTestSHA, SnapshotManifest: "snapshot-manifest",
+		ApplicationVersion: "3.12.3", ApplicationMetadata: "/Applications/ZCode.app/Contents/Info.plist", ApplicationMetadataSHA256: "sha256:" + strings.Repeat("b", 64),
 		NamespaceLease: instance + ":generation", NamespaceGeneration: "generation",
 	}
 	return qualifiedProviderEvidence{

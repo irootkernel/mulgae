@@ -233,6 +233,7 @@ func (qualifier *ProviderCurrentQualifier) rolesFor(request CurrentQualification
 	if request.Namespace == nil || definition.Instance() == "" || request.Profile.Family() != Family(definition.Family()) ||
 		request.Profile.Executable() != definition.Executable() || request.Profile.SHA256() != definition.ExecutableSHA256() ||
 		request.Profile.Launcher() != definition.Launcher() || request.Profile.LauncherSHA256() != definition.LauncherSHA256() ||
+		request.Profile.ApplicationVersion() != definition.ApplicationVersion() || request.Profile.ApplicationMetadata() != definition.ApplicationMetadata() || request.Profile.ApplicationMetadataSHA256() != definition.ApplicationMetadataSHA256() ||
 		request.Namespace.ProviderInstance() != definition.Instance() || request.Namespace.Generation() == "" ||
 		request.Namespace.RuntimeSafetyPolicyIdentity() != definition.RuntimeSafetyPolicyIdentity() ||
 		identity.Family != Family(definition.Family()) || identity.Instance != definition.Instance() ||
@@ -240,6 +241,7 @@ func (qualifier *ProviderCurrentQualifier) rolesFor(request CurrentQualification
 		identity.Version != definition.Version() || identity.Executable != definition.Executable() ||
 		identity.ExecutableSHA256 != definition.ExecutableSHA256() || identity.Launcher != definition.Launcher() ||
 		identity.LauncherSHA256 != definition.LauncherSHA256() ||
+		identity.ApplicationVersion != definition.ApplicationVersion() || identity.ApplicationMetadata != definition.ApplicationMetadata() || identity.ApplicationMetadataSHA256 != definition.ApplicationMetadataSHA256() ||
 		identity.NamespaceLease != definition.Instance()+":"+request.Namespace.Generation() ||
 		identity.NamespaceGeneration != request.Namespace.Generation() {
 		return nil, fmt.Errorf("review run: current qualification request binding drift")
@@ -326,12 +328,21 @@ func drainProbeFixtures(fixtures []ports.ProviderQualificationFixtureLease) erro
 // transient provider execution failure. Format, evidence, transport, lifecycle,
 // security, login, configuration, and cancellation failures are never retried.
 func retryableOperationalProbeFailure(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, ports.ErrProviderLoginRequired) {
+	if err == nil || errors.Is(err, ports.ErrProviderLoginRequired) {
 		return false
 	}
 	var failure *domain.Failure
 	if !errors.As(err, &failure) {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	// A typed provider-local timeout may use context.DeadlineExceeded as its
+	// underlying cause while the enclosing qualification context still has
+	// budget. The caller checks ctx.Err() before reaching this predicate, so only
+	// a bare deadline or a differently typed failure remains non-retryable here.
+	if errors.Is(err, context.DeadlineExceeded) && failure.Class() != domain.FailureTimeout {
 		return false
 	}
 	switch failure.Class() {

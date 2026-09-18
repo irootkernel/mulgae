@@ -23,9 +23,9 @@ The ZCode family's one-shot print invocation launched
 and parsed a terminal JSON envelope from stdout. The print surface is a
 headless compatibility mode: it cannot express the protocol's session
 lifecycle, it interleaves provider narration with the result frame, and it
-pins the packet transport to a single argv index. The installed ZCode 0.16.5
-instead ships a stable app-server protocol over stdio, which is the surfaces
-its own TUI and desktop clients consume.
+pins the packet transport to a single argv index. The installed ZCode app's
+bundled launcher protocol 0.16.5 instead ships a stable app-server protocol
+over stdio. Its own TUI and desktop clients use that surface.
 
 ## Decision
 
@@ -34,13 +34,19 @@ remove the print path, `zcodeContent`, and `zcodeResponseText` in one atomic
 change. Review execution, the qualification capability probe, and the
 shareable-profile identity switch together so a certified route never
 diverges from the executed route. The qualification version floor rises to
-0.16.5, the first locally verified app-server-capable release.
+0.16.5, the first locally verified app-server-capable release at the time of
+this decision. The current certification floor is recorded separately below.
 
 The staged-file report transport, prompt output-destination layer, manifest
 `transport` value `staged_file`, sealed workspace capture, and disposable
 credential namespaces are unchanged. The AGY, Kimi, and Codex transports are
 unchanged. No user-facing transport configuration is introduced; the transport
 stays adapter-owned.
+
+The installed app bundle is the only configured launch authority. Mulgae derives
+its Electron runtime and `zcode.cjs`, starts
+`[runtime, launcher, app-server, --stdio]` with `ELECTRON_RUN_AS_NODE=1`, and
+does not depend on an external Node.js installation.
 
 The conversation runs on TASK-009's runner contract: one dedicated process
 group, one request timeout across the whole exchange, a tee-spooled protocol
@@ -50,7 +56,7 @@ correlation, and accepted-operation receipts. The runner owns process facts.
 
 ## Wire shapes pinned by the live spike
 
-The live wire-shape spike against the installed ZCode 0.16.5 pinned the
+The live wire-shape spike against bundled launcher protocol 0.16.5 pinned the
 following facts, verified end to end including one real model turn:
 
 - Framing is newline-delimited JSON over the child's stdin and stdout. Requests
@@ -84,8 +90,8 @@ following facts, verified end to end including one real model turn:
   qualification probe's controlled evidence, which never appears in the
   protocol transcript itself.
 - `session/close` returns `{"closed":true}`, and the server exits 0 after its
-  stdin closes. No `--stdio` flag is required; `app-server` speaks the protocol
-  on its standard pipes by default.
+  stdin closes. In the 0.16.5 spike, no `--stdio` flag was required;
+  `app-server` used its standard pipes by default.
 - The plan flow persists `plan-<session>.md` under the workspace's `.zcode`
   area through the plan tools, and session startup can rehydrate plan files
   for persisted sessions found in the credential home. Disposable namespaces
@@ -101,10 +107,15 @@ following facts, verified end to end including one real model turn:
 
 ## Consequences
 
+The current adapter passes `--stdio` explicitly in its app-owned launch shape.
+This makes the selected wire visible in the fixed argv even though the original
+0.16.5 observation showed that standard pipes were already the default.
+
 - Protocol-native failure classification is typed: an unparseable message is
   an output decode failure, a reported `turn-failed` or a missing turn
-  completion is a provider turn failure, and a failed create, send, messages,
-  or close exchange is a provider execution failure. Stderr token
+  completion is a provider turn failure, an unavailable selected model is a
+  configuration failure, and a failed create, send, messages, or close exchange
+  is a provider execution failure. Stderr token
   classification remains the fallback, notably for login-required states the
   protocol does not represent on the wire.
 - A protocol conversation succeeds through its driver: the bounded teardown
@@ -122,3 +133,22 @@ following facts, verified end to end including one real model turn:
 - Qualification evidence moved from stdout envelope parsing to the
   conversation's captured assistant text, preserving the controlled
   nonce/link/role proof.
+
+## Current certification
+
+ZCode app 3.12.3 is the minimum and currently verified app release for this
+adapter. Newer app releases remain eligible as `newer_than_verified`. Mulgae
+reads `Contents/Info.plist` without launching the app, binds its
+`CFBundleShortVersionString`, path, and SHA-256 identity into qualification, and
+revalidates the metadata identity immediately before every provider spawn. Its
+bundled `zcode.cjs --version` reports launcher protocol 0.16.5; that protocol
+version is what provider qualification observes, so 0.16.5 remains both the
+runtime minimum and verified-latest guidance. Certification covers the
+app-owned Electron runtime, explicit `zcode.cjs app-server --stdio` launch
+shape, projection of API-key personal provider configuration, and
+`session/setModel` after create and before the prompt. Mulgae tries the bounded
+ZCode reasoning-level vocabulary from strongest to weakest until the selected
+provider/model is admitted. No prompt is sent if the selection is unavailable;
+that is a configuration failure rather than a registry-order fallback. The app
+release and launcher protocol version are distinct axes and must not be compared
+or substituted for one another.

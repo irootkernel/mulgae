@@ -591,7 +591,7 @@ func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx
 func (source *configuredProductionCandidateSource) productionCandidateSource(ctx context.Context) (*reviewrun.ProductionQualifiedRunCandidateSource, error) {
 	configured := make(map[reviewrun.Family][]string, source.config.Providers.Count())
 	if provider := source.config.Providers.ZCode; provider != nil {
-		configured[reviewrun.FamilyZCode] = []string{provider.NodeExecutable, provider.Launcher}
+		configured[reviewrun.FamilyZCode] = []string{provider.AppBundle}
 	}
 	if provider := source.config.Providers.Grok; provider != nil {
 		configured[reviewrun.FamilyGrok] = []string{provider.Executable}

@@ -459,8 +459,8 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	positionals, options, err := parseOptions(arguments, map[string]bool{
 		"--project-root": true, "--name": true, "--context": true, "--providers": true, "--roles": true,
 		"--project-kind": true, "--artist-brief": true, "--artist-design-specs": true,
-		"--native-home":           true,
-		"--zcode-node-executable": true, "--zcode-launcher": true,
+		"--native-home":      true,
+		"--zcode-app-bundle": true,
 		"--output":           true,
 		"--grok-executable":  true,
 		"--codex-executable": true, "--codex-model": true, "--codex-reasoning-effort": true,
@@ -552,7 +552,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 			request.providerIDs = canonicalProviderOrder(providers)
 		}
 	}
-	for flag, destination := range map[string]*string{"--zcode-node-executable": &request.zcodeNodeExecutable, "--zcode-launcher": &request.zcodeLauncher, "--grok-executable": &request.grokExecutable, "--codex-executable": &request.codexExecutable, "--codex-model": &request.codexModel, "--codex-reasoning-effort": &request.codexReasoningEffort} {
+	for flag, destination := range map[string]*string{"--zcode-app-bundle": &request.zcodeAppBundle, "--grok-executable": &request.grokExecutable, "--codex-executable": &request.codexExecutable, "--codex-model": &request.codexModel, "--codex-reasoning-effort": &request.codexReasoningEffort} {
 		if value, present := options[flag]; present {
 			*destination = value
 		}
@@ -564,7 +564,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		request.nativeHome = value
 		request.hasNativeHome = true
 	}
-	for _, value := range []string{request.zcodeNodeExecutable, request.zcodeLauncher, request.grokExecutable, request.codexExecutable} {
+	for _, value := range []string{request.zcodeAppBundle, request.grokExecutable, request.codexExecutable} {
 		if value != "" && !validAbsoluteRoot(value) {
 			return Invocation{}, usageError("provider path is not canonical")
 		}
@@ -577,7 +577,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	}
 	if request.selectionMode == "selected" {
 		selected := request.providerIDs
-		if !containsString(selected, "zcode") && (request.zcodeNodeExecutable != "" || request.zcodeLauncher != "") {
+		if !containsString(selected, "zcode") && request.zcodeAppBundle != "" {
 			return Invocation{}, usageError("ZCode override requires ZCode selection")
 		}
 		if !containsString(selected, "grok") && request.grokExecutable != "" {
@@ -596,8 +596,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		ProviderIDs []string `json:"provider_ids,omitempty"`
 	}
 	type overridesJSON struct {
-		ZCodeNodeExecutable  string `json:"zcode_node_executable,omitempty"`
-		ZCodeLauncher        string `json:"zcode_launcher,omitempty"`
+		ZCodeAppBundle       string `json:"zcode_app_bundle,omitempty"`
 		GrokExecutable       string `json:"grok_executable,omitempty"`
 		CodexExecutable      string `json:"codex_executable,omitempty"`
 		CodexModel           string `json:"codex_model,omitempty"`
@@ -619,7 +618,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		RefreshLocal *bool         `json:"refresh_local,omitempty"`
 		OutputFormat OutputFormat  `json:"output_format"`
 	}{
-		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{ZCodeNodeExecutable: request.zcodeNodeExecutable, ZCodeLauncher: request.zcodeLauncher, GrokExecutable: request.grokExecutable, CodexExecutable: request.codexExecutable, CodexModel: request.codexModel, CodexReasoningEffort: request.codexReasoningEffort}, Overwrite: false, RefreshLocal: optionalBool(request.refreshLocal), OutputFormat: outputFormat,
+		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{ZCodeAppBundle: request.zcodeAppBundle, GrokExecutable: request.grokExecutable, CodexExecutable: request.codexExecutable, CodexModel: request.codexModel, CodexReasoningEffort: request.codexReasoningEffort}, Overwrite: false, RefreshLocal: optionalBool(request.refreshLocal), OutputFormat: outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err

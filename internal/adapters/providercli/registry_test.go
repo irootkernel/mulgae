@@ -63,7 +63,7 @@ func TestZCodeReviewArgvIsTheBareAppServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/private/bin/zcode", "app-server"}
+	want := []string{"/private/bin/zcode", "app-server", "--stdio"}
 	if !equalStrings(argv, want) {
 		t.Fatalf("ZCode review argv = %q, want %q", argv, want)
 	}
@@ -388,6 +388,42 @@ func (runner *workspaceRunnerFake) Run(_ context.Context, request ports.ProcessR
 	return runner.observation, runner.err
 }
 
+func (runner *workspaceRunnerFake) Converse(ctx context.Context, request ports.ProcessRequest, _ ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	return runner.Run(ctx, request)
+}
+
+func TestRegistryObserveSecurityBoundaryOutranksConcurrentInterruption(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		postErr  error
+		closeErr error
+	}{
+		{name: "post-execution drift", postErr: errors.New("workspace changed")},
+		{name: "guard close failure", closeErr: errors.New("guard close failed")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root, identity := testWorkspaceRoot(t)
+			events := []string{}
+			guard := &workspaceGuardFake{root: root, identity: identity, events: &events, postErr: test.postErr, closeErr: test.closeErr}
+			authority := &workspaceAuthorityFake{identity: identity, guard: guard, events: &events}
+			runner := &workspaceRunnerFake{
+				observation: protocolInterruptedObservation(t, ports.ProcessTerminationTimedOut),
+				err:         ports.ErrProviderSessionExchangeClosed,
+				events:      &events,
+			}
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed, observeErr := registry.Observe(context.Background(), testWorkspaceInvocation(t, "grok_default", authority))
+			if observeErr == nil || observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
+				observed.PrimaryCause() != domain.DiagnosticCauseWorkspaceRevalidationFailed {
+				t.Fatalf("security boundary result = status %q cause %q err %v", observed.Status(), observed.PrimaryCause(), observeErr)
+			}
+		})
+	}
+}
+
 func testWorkspaceRoot(t *testing.T) (ports.ValidatedWorkspaceRoot, ports.WorkspaceSnapshotIdentity) {
 	t.Helper()
 	path := t.TempDir()
@@ -666,6 +702,7 @@ func testProductionSafetyProfile(t *testing.T, family, policyIdentity string) Ru
 	executable := "/private/bin/" + family
 	profile, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		family, family+"_production", "", executable, "executable-sha256", executable, "executable-sha256",
+		"", "",
 		family+"_production", "generation-1", policyIdentity, []string{executable}, transport, nil,
 		"/private/work", time.Second)
 
@@ -685,6 +722,15 @@ type stagedOutputRunnerFake struct {
 	protocolLines []string
 	request       ports.ProcessRequest
 	calls         int
+}
+
+type zcodeSelectionNamespaceLease struct {
+	ports.ProviderNamespaceLease
+	selection *zcodeModelSelection
+}
+
+func (lease zcodeSelectionNamespaceLease) zcodeSessionSelection() *zcodeModelSelection {
+	return cloneZCodeModelSelection(lease.selection)
 }
 
 func (runner *stagedOutputRunnerFake) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
@@ -841,6 +887,82 @@ func protocolSignaledObservationWithoutTeardownRequest(t *testing.T, stdout []by
 	return observation
 }
 
+func protocolInterruptedObservation(t *testing.T, termination ports.ProcessTermination) ports.ProcessObservation {
+	t.Helper()
+	packet := []byte("review bytes")
+	packetIdentity, err := ports.NewProviderPacketIdentity(len(packet), testStdinDigest(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := ports.NewProviderPacketTransportReceipt(ports.ProviderPacketChannelProtocol, packetIdentity, "", "", ports.ProviderPacketIdentity{}, ports.ProviderPacketIdentity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := ports.NewStdinWriteReceipt(0, 0, testStdinDigest(nil), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signal, err := ports.NewProcessSignal(9, "SIGKILL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := ports.ProcessGroupSignalRequestCancellation
+	if termination == ports.ProcessTerminationTimedOut {
+		reason = ports.ProcessGroupSignalRequestTimeout
+	}
+	request, err := ports.NewAcceptedProcessGroupSignalRequestReceipt(reason, signal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewSignaledProcessFinalTermination(signal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := ports.NewProcessLifecycleReceipt(final, true, []ports.ProcessGroupSignalRequestReceipt{request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := ports.NewStartedProviderProcessObservation(nil, nil, termination, stdin, transport, lifecycle, time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
+}
+
+func TestRegistryObserveInterruptionOutranksZCodeModelSelectionFailureAndRetainsSession(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		termination ports.ProcessTermination
+		runnerErr   error
+		status      ports.ProviderExecutionStatus
+		diagnostic  string
+	}{
+		{name: "cancelled", termination: ports.ProcessTerminationCancelled, runnerErr: ports.ErrProviderSessionExchangeClosed, status: ports.ProviderExecutionStatusCancelled, diagnostic: "process_cancelled"},
+		{name: "timed out", termination: ports.ProcessTerminationTimedOut, runnerErr: ports.ErrProviderSessionExchangeClosed, status: ports.ProviderExecutionStatusTimedOut, diagnostic: "process_timeout"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &stagedOutputRunnerFake{
+				observation: protocolInterruptedObservation(t, test.termination), err: test.runnerErr,
+				protocolLines: []string{protocolCreateResult, `{"id":"mulgae-model-0","error":{"code":-32603,"message":"Provider not found","data":{"code":"provider_not_found"}}}`},
+			}
+			registry, invocation, destination := stagedZcodeRegistry(t, runner)
+			registry.namespaces["zcode_default"] = zcodeSelectionNamespaceLease{ProviderNamespaceLease: registry.namespaces["zcode_default"], selection: &zcodeModelSelection{ProviderID: "missing", ModelID: "model"}}
+			observed, err := registry.Observe(context.Background(), invocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observed.Status() != test.status || observed.DiagnosticCode() != test.diagnostic {
+				t.Fatalf("interruption = status %q diagnostic %q", observed.Status(), observed.DiagnosticCode())
+			}
+			session, ok := observed.SessionObservation()
+			if !ok || session.ProviderSessionID() != "sess_script" || session.Terminal() != ports.ProviderSessionFailed || !session.Input().HasProviderErrorCode {
+				t.Fatalf("retained session = %#v, present = %t", session.Input(), ok)
+			}
+			requireStagingRemoved(t, destination)
+		})
+	}
+}
+
 // TestRegistryObserveAcceptsSignaledConversationTeardownAsStagedSuccess pins
 // the live-e2e regression: a protocol conversation whose app-server was ended
 // by the runner's receipt-proven teardown after completing its turn still
@@ -893,6 +1015,67 @@ func TestRegistryObservePreservesFailedZCodeConversationTeardown(t *testing.T) {
 		t.Fatalf("session = %#v, present = %t", session.Input(), ok)
 	}
 	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObserveProjectsZCodeModelSelectionFailureAsConfiguration(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: protocolTeardownObservation(t, []byte("protocol transcript")),
+		protocolLines: []string{
+			protocolCreateResult,
+			`{"id":"mulgae-model-0","error":{"code":-32603,"message":"Provider not found","data":{"code":"provider_not_found"}}}`,
+		},
+	}
+	registry, invocation, destination := stagedZcodeRegistry(t, runner)
+	registry.namespaces["zcode_default"] = zcodeSelectionNamespaceLease{
+		ProviderNamespaceLease: registry.namespaces["zcode_default"],
+		selection:              &zcodeModelSelection{ProviderID: "missing", ModelID: "model"},
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed.Status() != ports.ProviderExecutionStatusConfigurationViolation ||
+		observed.DiagnosticCode() != "zcode_model_selection" ||
+		observed.PrimaryCause() != domain.DiagnosticCauseObservationInvalid {
+		t.Fatalf("status = %q, diagnostic = %q, cause = %q", observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause())
+	}
+	session, ok := observed.SessionObservation()
+	if !ok || session.ProviderSessionID() != "sess_script" || session.Terminal() != ports.ProviderSessionFailed || !session.Input().CreateAccepted ||
+		!session.Input().HasProviderErrorCode || session.Input().ProviderErrorCode != -32603 {
+		t.Fatalf("session = %#v, present = %t", session.Input(), ok)
+	}
+	requireStagingRemoved(t, destination)
+}
+
+func TestRegistryObservePreservesModelSelectionEvidenceWhenProcessIsIncoherent(t *testing.T) {
+	runner := &stagedOutputRunnerFake{
+		observation: protocolSignaledObservationWithoutTeardownRequest(t, []byte("protocol transcript")),
+		protocolLines: []string{
+			protocolCreateResult,
+			`{"id":"mulgae-model-0","error":{"code":-32603,"message":"Provider not found","data":{"code":"provider_not_found"}}}`,
+		},
+	}
+	registry, invocation, _ := stagedZcodeRegistry(t, runner)
+	registry.namespaces["zcode_default"] = zcodeSelectionNamespaceLease{
+		ProviderNamespaceLease: registry.namespaces["zcode_default"],
+		selection:              &zcodeModelSelection{ProviderID: "missing", ModelID: "model"},
+	}
+
+	observed, err := registry.Observe(context.Background(), invocation)
+	var invariant *ports.ProviderObservationInvariantError
+	if !errors.As(err, &invariant) || observed.Validate() == nil {
+		t.Fatalf("registry invariant result = observation %#v, error %v", observed, err)
+	}
+	if invariant.Status() != ports.ProviderExecutionStatusConfigurationViolation ||
+		invariant.Cause() != domain.DiagnosticCauseObservationInvalid ||
+		invariant.ProcessObservation().Termination() != ports.ProcessTerminationSignaled ||
+		invariant.SessionObservation().ProviderSessionID() != "sess_script" ||
+		!invariant.SessionObservation().Input().HasProviderErrorCode ||
+		invariant.SessionObservation().Input().ProviderErrorCode != -32603 {
+		t.Fatalf("registry invariant evidence = status %q cause %q process %q session %#v",
+			invariant.Status(), invariant.Cause(), invariant.ProcessObservation().Termination(), invariant.SessionObservation().Input())
+	}
 }
 
 func TestRegistryObservePreservesRateLimitedZCodeConversationTeardown(t *testing.T) {

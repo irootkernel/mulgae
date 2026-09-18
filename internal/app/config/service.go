@@ -86,10 +86,10 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 	return Resolution{config: resolved, sha256: sha256, canonical: canonical, provenance: provenanceRows(decoded), source: source}, nil
 }
 
-// BundleSHA256 returns the stable identity of an ordered Config v3 pair.
+// BundleSHA256 returns the stable identity of an ordered Config v4 pair.
 func BundleSHA256(project, local []byte) string {
 	digest := sha256.New()
-	digest.Write([]byte("Mulgae-CONFIG-v3\x00project\x00"))
+	digest.Write([]byte("Mulgae-CONFIG-v4\x00project\x00"))
 	var size [8]byte
 	binary.BigEndian.PutUint64(size[:], uint64(len(project)))
 	digest.Write(size[:])
@@ -104,7 +104,7 @@ func BundleSHA256(project, local []byte) string {
 func provenanceRows(config Config) []ProvenanceRow {
 	fields := []string{
 		"version", "project.name", "project.root", "project.context", "native_user.home",
-		"providers.zcode.configured", "providers.zcode.node_executable", "providers.zcode.launcher", "providers.zcode.timeout",
+		"providers.zcode.configured", "providers.zcode.app_bundle", "providers.zcode.timeout",
 		"providers.grok.configured", "providers.grok.executable", "providers.grok.timeout",
 		"providers.codex.configured", "providers.codex.executable", "providers.codex.default_credential_profile", "providers.codex.credential_homes", "providers.codex.model", "providers.codex.reasoning_effort", "providers.codex.timeout",
 		"execution.workspace_access",
@@ -121,7 +121,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 	rows := make([]ProvenanceRow, 0, len(fields))
 	for _, field := range fields {
 		source, disposition, class := "project", "configured", "policy"
-		if field == "native_user.home" || strings.HasSuffix(field, ".executable") || field == "providers.zcode.node_executable" || field == "providers.zcode.launcher" || field == "providers.codex.credential_homes" {
+		if field == "native_user.home" || strings.HasSuffix(field, ".executable") || field == "providers.zcode.app_bundle" || field == "providers.codex.credential_homes" {
 			source, class = "local", "machine"
 		}
 		if field == "project.root" || len(field) >= 10 && (field[:10] == "execution." && field != "execution.workspace_access") || len(field) >= 8 && field[:8] == "runtime." || len(field) >= 9 && field[:9] == "provider." || len(field) >= 10 && field[:10] == "artifacts." || len(field) >= 7 && field[:7] == "safety." {

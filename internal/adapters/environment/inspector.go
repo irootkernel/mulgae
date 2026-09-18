@@ -528,7 +528,7 @@ func canonicalDirectoryIdentity(path string) (executableSnapshot, error) {
 	defer func() { _ = unix.Close(fd) }()
 	if path != "/" {
 		for _, component := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
-			next, openErr := unix.Openat(fd, component, unix.O_EVTONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+			next, openErr := openCanonicalDirectoryComponent(fd, component)
 			if openErr != nil {
 				return executableSnapshot{}, openErr
 			}
@@ -557,7 +557,7 @@ func observeNativeHomeIdentity(ctx context.Context, path string) (ports.NativeHo
 	defer func() { _ = unix.Close(fd) }()
 	if path != "/" {
 		for _, component := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
-			next, openErr := unix.Openat(fd, component, unix.O_EVTONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+			next, openErr := openCanonicalDirectoryComponent(fd, component)
 			if openErr != nil {
 				return ports.NativeHomeLaunchAuthority{}, identitySecurity("native home descriptor traversal failed")
 			}
@@ -636,6 +636,13 @@ func (inspector *FrozenInspector) ObserveReadableFileIdentity(ctx context.Contex
 		return ports.FileIdentityObservation{}, errors.New("frozen readable file observation unavailable")
 	}
 	return observeReadableFileIdentity(ctx, name)
+}
+
+func (inspector *FrozenInspector) ObserveApplicationMetadata(ctx context.Context, name string) (ports.ApplicationMetadataObservation, error) {
+	if inspector == nil || inspector.environment == nil {
+		return ports.ApplicationMetadataObservation{}, errors.New("frozen application metadata observation unavailable")
+	}
+	return observeApplicationMetadata(ctx, name)
 }
 
 func (inspector *FrozenInspector) ObserveExecutableIdentity(ctx context.Context, name string) (ports.ExecutableObservation, error) {

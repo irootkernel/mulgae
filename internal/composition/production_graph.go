@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strconv"
 
@@ -76,7 +75,7 @@ func composeProductionRuntimeGraph(
 	if err := ports.ValidateResourceLimits(); err != nil {
 		return nil, fmt.Errorf("production graph: %w", err)
 	}
-	installedUser, err := user.Current()
+	installedUser, err := environment.InstalledUser()
 	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) || filepath.Clean(installedUser.HomeDir) != installedUser.HomeDir {
 		return nil, fmt.Errorf("production graph: installed user home")
 	}
@@ -84,11 +83,12 @@ func composeProductionRuntimeGraph(
 	if err != nil || int(installedUID) != os.Geteuid() {
 		return nil, fmt.Errorf("production graph: installed user identity")
 	}
+	nativeHome := installedUser.HomeDir
 	policy, err := resolveProductionRunPolicy(ctx, root, projectReader)
 	if err != nil {
 		return nil, err
 	}
-	if policy.config.NativeUser.Home != installedUser.HomeDir {
+	if policy.config.NativeUser.Home != nativeHome {
 		return nil, reviewCompositionFailure(domain.FailureSecurityPolicy, "configured native home does not match installed user", nil)
 	}
 	tempRoot, err := startupTempRoot()
@@ -190,7 +190,7 @@ func composeProductionRuntimeGraph(
 			return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
 		}
 	}
-	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithProjectRoot(namespaces, installedUser.HomeDir, root.String(), instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
+	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithProjectRoot(namespaces, nativeHome, root.String(), instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: credential namespaces: %w", err)
 	}

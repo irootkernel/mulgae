@@ -1,9 +1,6 @@
-version: 3
+version: 4
 native_user:
   home: "/Users/example"
 providers:
   zcode:
-    node_executable: "/opt/homebrew/bin/node"
-    launcher: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"
-  agy:
-    executable: "/opt/homebrew/bin/agy"
+    app_bundle: "/Applications/ZCode.app"

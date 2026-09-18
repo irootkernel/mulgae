@@ -83,14 +83,16 @@ type ProviderNamespaceFactory interface {
 type CredentialProjectionDestination string
 
 const (
-	CredentialProjectionZCodeConfig CredentialProjectionDestination = "zcode_config"
-	CredentialProjectionGrokAuth    CredentialProjectionDestination = "grok_auth"
-	CredentialProjectionCodexAuth   CredentialProjectionDestination = "codex_auth"
+	CredentialProjectionZCodeConfig         CredentialProjectionDestination = "zcode_config"
+	CredentialProjectionZCodeProviderConfig CredentialProjectionDestination = "zcode_provider_config"
+	CredentialProjectionGrokAuth            CredentialProjectionDestination = "grok_auth"
+	CredentialProjectionCodexAuth           CredentialProjectionDestination = "codex_auth"
 )
 
 func (destination CredentialProjectionDestination) Valid() bool {
 	switch destination {
-	case CredentialProjectionZCodeConfig, CredentialProjectionGrokAuth, CredentialProjectionCodexAuth:
+	case CredentialProjectionZCodeConfig, CredentialProjectionZCodeProviderConfig,
+		CredentialProjectionGrokAuth, CredentialProjectionCodexAuth:
 		return true
 	default:
 		return false
@@ -1670,6 +1672,7 @@ type ProviderSessionPhase string
 
 const (
 	ProviderSessionPhaseCreate   ProviderSessionPhase = "create"
+	ProviderSessionPhaseModel    ProviderSessionPhase = "model_selection"
 	ProviderSessionPhaseSend     ProviderSessionPhase = "send"
 	ProviderSessionPhaseTurn     ProviderSessionPhase = "turn"
 	ProviderSessionPhaseMessages ProviderSessionPhase = "messages"
@@ -1678,7 +1681,7 @@ const (
 
 func (phase ProviderSessionPhase) Valid() bool {
 	switch phase {
-	case ProviderSessionPhaseCreate, ProviderSessionPhaseSend, ProviderSessionPhaseTurn,
+	case ProviderSessionPhaseCreate, ProviderSessionPhaseModel, ProviderSessionPhaseSend, ProviderSessionPhaseTurn,
 		ProviderSessionPhaseMessages, ProviderSessionPhaseClose:
 		return true
 	default:

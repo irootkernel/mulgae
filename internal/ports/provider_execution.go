@@ -404,8 +404,9 @@ func NewFailedProviderExecutionObservationWithCause(
 
 // NewFailedProtocolProviderExecutionObservationWithCause records a protocol
 // driver's terminal failure together with the process teardown it caused.
-// Receipt-proven conversation teardown is compatible with provider-native and
-// artifact failure statuses without weakening one-shot signal handling.
+// Receipt-proven conversation teardown is compatible with provider-native,
+// configuration, and artifact failure statuses without weakening one-shot
+// signal handling.
 func NewFailedProtocolProviderExecutionObservationWithCause(
 	status ProviderExecutionStatus,
 	invocation ProviderInvocation,
@@ -720,7 +721,8 @@ func (observation ProviderExecutionObservation) Validate() error {
 		return fmt.Errorf("provider execution observation: failed status has no failure class")
 	}
 	if observation.hasProcess && !providerExecutionStatusMatchesProcessObservation(observation.status, canonicalProcess) {
-		if !observation.failedProtocolConversationMatches(canonicalProcess) {
+		if !observation.failedProtocolConversationMatches(canonicalProcess) &&
+			!(observation.status == ProviderExecutionStatusSecurityViolation && providerSecurityCauseMayOverrideTermination(observation.primaryCause)) {
 			return fmt.Errorf("provider execution observation: status does not match process termination")
 		}
 	}
@@ -731,6 +733,23 @@ func (observation ProviderExecutionObservation) Validate() error {
 		return fmt.Errorf("provider execution observation: unexpected protocol observation")
 	}
 	return nil
+}
+
+func providerSecurityCauseMayOverrideTermination(cause domain.RuntimeDiagnosticCause) bool {
+	switch cause {
+	case domain.DiagnosticCauseTransportVerificationFailed,
+		domain.DiagnosticCausePromptFilePreStartFailed,
+		domain.DiagnosticCausePromptFilePostEndFailed,
+		domain.DiagnosticCauseTransportReceiptMismatch,
+		domain.DiagnosticCauseLifecycleReceiptInvalid,
+		domain.DiagnosticCauseOutputFrameMismatch,
+		domain.DiagnosticCauseSignalReceiptMismatch,
+		domain.DiagnosticCauseWorkspaceRevalidationFailed,
+		domain.DiagnosticCauseProviderOutputStagingViolation:
+		return true
+	default:
+		return false
+	}
 }
 
 func (observation ProviderExecutionObservation) failedProtocolConversationMatches(process ProcessObservation) bool {
@@ -756,7 +775,8 @@ func (observation ProviderExecutionObservation) failedProtocolConversationMatche
 	switch observation.status {
 	case ProviderExecutionStatusUnavailable, ProviderExecutionStatusAuthentication,
 		ProviderExecutionStatusQuota, ProviderExecutionStatusRateLimit,
-		ProviderExecutionStatusTimedOut, ProviderExecutionStatusArtifactFailure:
+		ProviderExecutionStatusTimedOut, ProviderExecutionStatusArtifactFailure,
+		ProviderExecutionStatusConfigurationViolation:
 		return true
 	default:
 		return false

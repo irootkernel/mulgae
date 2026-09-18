@@ -268,6 +268,22 @@ func (factory *QualifiedRunFactory) admitFamilyQualificationGroup(ctx context.Co
 		generations:   make(map[string]string, len(group.candidates)),
 		closedReceipt: make(map[string]ports.ProviderRunTerminalReceipt, len(group.candidates)),
 	}
+	if len(group.candidates) > 0 && group.candidates[group.representative].Profile.Family() == FamilyZCode &&
+		(group.candidates[group.representative].Profile.ApplicationVersionClassification() == VersionRed ||
+			group.candidates[group.representative].Profile.ApplicationVersionClassification() == VersionUnknown) {
+		cause, err := domain.NewFailure("reviewrun.qualification", domain.FailureConfiguration, "ZCode application version is incompatible", nil)
+		if err != nil {
+			return admission, err
+		}
+		for _, candidate := range group.candidates {
+			failure, err := NewProviderQualificationFailure(candidate.Definition.Instance(), FamilyZCode, "application_version_incompatible", cause)
+			if err != nil {
+				return admission, err
+			}
+			admission.failures = append(admission.failures, failure)
+		}
+		return admission, nil
+	}
 	release := func(instance string) error {
 		registry, ok := admission.admitted[instance]
 		if !ok {
@@ -475,7 +491,7 @@ func validateQualifiedRunCandidate(candidate QualifiedRunCandidate, seen map[str
 		return fmt.Errorf("review run: invalid qualified run candidate: %w", err)
 	}
 	definition := candidate.Definition
-	if Family(definition.Family()) != candidate.Profile.Family() || definition.Instance() == "" || definition.Executable() != candidate.Profile.Executable() || definition.ExecutableSHA256() != candidate.Profile.SHA256() || definition.Launcher() != candidate.Profile.Launcher() || definition.LauncherSHA256() != candidate.Profile.LauncherSHA256() {
+	if Family(definition.Family()) != candidate.Profile.Family() || definition.Instance() == "" || definition.Executable() != candidate.Profile.Executable() || definition.ExecutableSHA256() != candidate.Profile.SHA256() || definition.Launcher() != candidate.Profile.Launcher() || definition.LauncherSHA256() != candidate.Profile.LauncherSHA256() || definition.ZCodeProviderConfig() != candidate.Profile.ZCodeProviderConfig() || definition.ZCodeProviderConfigSHA256() != candidate.Profile.ZCodeProviderConfigSHA256() || definition.ApplicationVersion() != candidate.Profile.ApplicationVersion() || definition.ApplicationMetadata() != candidate.Profile.ApplicationMetadata() || definition.ApplicationMetadataSHA256() != candidate.Profile.ApplicationMetadataSHA256() {
 		return fmt.Errorf("review run: discovered profile does not match production definition")
 	}
 	if _, duplicate := seen[definition.Instance()]; duplicate {
@@ -490,6 +506,7 @@ func qualificationIdentity(candidate QualifiedRunCandidate, definition ports.Pro
 		Family: Family(definition.Family()), Instance: definition.Instance(), ProfileGeneration: definition.ProfileGeneration(),
 		AdapterProfile: definition.ProfileID(), Version: definition.Version(), Executable: definition.Executable(),
 		ExecutableSHA256: definition.ExecutableSHA256(), Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
+		ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 		SnapshotManifest: candidate.SnapshotManifest, NamespaceLease: definition.Instance() + ":" + generation, NamespaceGeneration: generation,
 	}
 }
@@ -523,19 +540,21 @@ func admittedEvidenceFromQualification(identity Identity, result CurrentQualific
 }
 
 func qualificationReceiptID(receipt Receipt) string {
-	return fmt.Sprintf("qualification:%x", sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s",
+	return fmt.Sprintf("qualification:%x", sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s",
 		receipt.Kind, receipt.State, receipt.ExpiresAt.UTC().Format(time.RFC3339Nano), receipt.Identity.Family, receipt.Identity.Instance,
 		receipt.Identity.ProfileGeneration, receipt.Identity.AdapterProfile, receipt.Identity.Version, receipt.Identity.Executable,
-		receipt.Identity.ExecutableSHA256, receipt.Identity.Launcher, receipt.Identity.LauncherSHA256, receipt.Identity.SnapshotManifest,
+		receipt.Identity.ExecutableSHA256, receipt.Identity.Launcher, receipt.Identity.LauncherSHA256, receipt.Identity.ApplicationVersion,
+		receipt.Identity.ApplicationMetadata, receipt.Identity.ApplicationMetadataSHA256, receipt.Identity.SnapshotManifest,
 		receipt.Identity.NamespaceLease, receipt.Identity.NamespaceGeneration, receipt.AuthorityID, receipt.AuthorityScope,
 		receipt.Provenance.Version, receipt.Provenance.Path, receipt.Provenance.SHA256, receipt.Provenance.Profile))))
 }
 
 func currentRoleReceiptID(receipt CurrentRoleReceipt) string {
-	return fmt.Sprintf("role:%x", sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s",
+	return fmt.Sprintf("role:%x", sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s",
 		receipt.Role, receipt.State, receipt.Identity.Family, receipt.Identity.Instance, receipt.Identity.ProfileGeneration,
 		receipt.Identity.AdapterProfile, receipt.Identity.Version, receipt.Identity.Executable, receipt.Identity.ExecutableSHA256,
-		receipt.Identity.Launcher, receipt.Identity.LauncherSHA256, receipt.Identity.SnapshotManifest, receipt.Identity.NamespaceLease,
+		receipt.Identity.Launcher, receipt.Identity.LauncherSHA256, receipt.Identity.ApplicationVersion, receipt.Identity.ApplicationMetadata,
+		receipt.Identity.ApplicationMetadataSHA256, receipt.Identity.SnapshotManifest, receipt.Identity.NamespaceLease,
 		receipt.Identity.NamespaceGeneration))))
 }
 
