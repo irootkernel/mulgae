@@ -30,10 +30,10 @@ families are not supported by the initial release.
 
 ### Use Codex from Mulgae
 
-Install Codex CLI 0.149.0 or newer and sign in with the CLI before initializing
-Mulgae. A legacy single-profile configuration uses Codex's native
-`~/.codex/auth.json` login state. Mulgae does not accept an API-key environment
-variable or a project-configured credential.
+Install Codex CLI 0.154.0 or newer and sign in with the CLI before initializing
+Mulgae with Codex as a review provider. A legacy single-profile configuration
+uses Codex's native `~/.codex/auth.json` login state. Mulgae does not accept an
+API-key environment variable or a project-configured credential.
 
 ```bash
 codex --version
@@ -51,11 +51,13 @@ mulgae init --providers codex \
   --codex-reasoning-effort high
 ```
 
-Codex receives the review packet on stdin and returns its final report on
-stdout. Each invocation uses a disposable `CODEX_HOME`, a descriptor-anchored
-copy of `auth.json`, the immutable captured workspace, a read-only permission
-profile, and disabled web, app, plugin, browser, hook, image-generation, and
-multi-agent features. Project instructions and user configuration are ignored.
+Mulgae starts one ephemeral Codex app-server thread and turn per invocation over
+stdio. It accepts the final assistant message as the role report after successful
+turn completion. Each invocation uses a disposable `CODEX_HOME`, a
+descriptor-anchored copy of `auth.json`, the immutable captured workspace, a
+read-only permission profile, and disabled web, app, plugin, browser, hook,
+image-generation, and multi-agent features. Project instructions and user
+configuration are ignored.
 
 To use more than one authenticated Codex environment, declare the default
 credential profile in the Git-shareable project policy and bind each profile to
@@ -436,7 +438,8 @@ observable through this command,” not `required = false`; `config.toml` remain
 the authority for the configured value. Mulgae does not claim a minimum Codex
 version for observing `required`: the compatibility test accepts either an
 absent field or an observed literal `true`, and rejects an observed false value.
-Mulgae's supported Codex minimum is 0.149.0.
+The Codex MCP client minimum is 0.149.0; using Codex as a Mulgae review provider
+requires 0.154.0 or newer.
 
 Codex also supports `codex mcp add mulgae -- /absolute/path/to/mulgae mcp
 --project-root /absolute/path/to/repository`; add the timeout to the resulting
