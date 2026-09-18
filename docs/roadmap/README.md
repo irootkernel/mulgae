@@ -24,7 +24,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-002](#epic-002-composite-recovery-for-incomplete-multi-role-reviews) | Completed | Recover missing required-role coverage by composing exact same-target rerun results into one authoritative immutable review. |
 | [EPIC-003](#epic-003-zcode-app-server-provider-transport) | Completed | Drive ZCode review and qualification through the ZCode app-server wire protocol instead of one-shot print invocations. |
 | [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | Completed | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
-| [EPIC-005](#epic-005-codex-app-server-provider-transport) | In Review | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
+| [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 
 ## EPIC-001: Token-efficient review waiting
 
@@ -143,7 +143,7 @@ release evidence.
 
 ## EPIC-005: Codex app-server provider transport
 
-Status: In Review
+Status: Completed
 
 Goal: move Codex review, extraction, and qualification to one ephemeral
 app-server thread and turn per invocation, retaining immutable capture,
