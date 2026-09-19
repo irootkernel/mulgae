@@ -6,69 +6,53 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
-- Add Grok as an explicitly selected text-role provider with ACP v1 isolation,
-  staged review output, typed capability failures, and an exact-binary live
-  review target while rejecting artist assignments before provider execution.
-- Add typed retirement for configuration and direct or transitive artifact
-  references to removed provider families.
+- Add Grok as an explicitly selected text-role provider with ACP v1 isolation, staged review output, typed capability
+  failures, and an exact-binary live review target while rejecting artist assignments before provider execution.
+- Add typed retirement for configuration and direct or
+  transitive artifact references to removed provider families.
 
 ### Changed
 
-- Move explicitly selected Codex reviews, extraction, and qualification to the app-server
-  protocol with ephemeral threads, keeping read-only isolation and `stdout`
-  role-report compatibility. Require Codex 0.154.0 for the provider route.
-- Keep sequential `start_review` admission in one attached MCP process by
-  discarding oldest terminal identities, and emit `invocation_limit_reached`
-  only when 64 reviews are still running.
-- Set the supported provider order to ZCode, Grok, and Codex. Automatic init now
-  configures ZCode and Grok and assigns every default role to ZCode.
-- Require one reports-only ZCode/Grok two-role review and independent capability
-  certification in `make test`; keep deeper workflows deterministic and the
-  two-profile Codex live scenario behind `MULGAE_E2E_OPT_IN=1`.
-- Publish command-result v11, doctor-result v5, provider-contract-evidence v4,
-  provider-heartbeat-result v3, and review-preflight v5.
-- Make the ZCode app bundle the sole machine-local launch authority, derive its
-  Electron runtime and app-server launcher, and remove the external Node.js and
-  launcher-path configuration. Publish Config v4 for the clean-break
-  configuration and init-discovery contracts.
-- Enforce ZCode app 3.12.3 as an independent minimum, retain higher app
-  releases as eligible but newer than verified, and bind descriptor-observed
-  `Info.plist` version identity through qualification and every provider spawn.
-- Certify ZCode app 3.12.3 for provider import, explicit `--stdio`, model
-  selection, and reasoning-level fallback while retaining the bundled
-  launcher's 0.16.5 protocol version as qualification guidance.
+- Move explicitly selected Codex reviews, extraction, and qualification to the app-server protocol with ephemeral threads,
+  keeping read-only isolation and `stdout` role-report compatibility. Require Codex 0.154.0 for the provider route.
+- Keep sequential `start_review` admission in one attached MCP process by discarding oldest
+  terminal identities, and emit `invocation_limit_reached` only when 64 reviews are still running.
+- Set the supported provider order to ZCode, Grok, and Codex. Automatic init
+  now configures ZCode and Grok and assigns every default role to ZCode.
+- Require one reports-only ZCode/Grok two-role review and independent capability certification in `make test`;
+  keep deeper workflows deterministic and the two-profile Codex live scenario behind `MULGAE_E2E_OPT_IN=1`.
+- Publish command-result v11, doctor-result v5, provider-contract-evidence
+  v4, provider-heartbeat-result v3, and review-preflight v5.
+- Make the ZCode app bundle the sole machine-local launch authority, derive its Electron runtime and app-server launcher, and remove the
+  external Node.js and launcher-path configuration. Publish Config v4 for the clean-break configuration and init-discovery contracts.
+- Enforce ZCode app 3.12.3 as an independent minimum, retain higher app releases as eligible but newer than verified,
+  and bind descriptor-observed `Info.plist` version identity through qualification and every provider spawn.
+- Certify ZCode app 3.12.3 for provider import, explicit `--stdio`, model selection, and reasoning-level
+  fallback while retaining the bundled launcher's 0.16.5 protocol version as qualification guidance.
 
 ### Fixed
 
-- Keep source-distributed agent guidance on doctor-result v5 and document the
-  GitHub Release publication boundary in the manual release procedure.
-- Keep retired-provider doctor results schema-valid, report unsupported init
-  role assignments as typed capability failures, and stop the standalone Grok
-  target when capability certification fails.
-- Preserve ZCode legacy API-key provider and model selection by linking built-in
-  provider templates, applying last-wins import behavior to unselected provider
-  ID collisions, rejecting missing or ambiguous selected entries, and applying
-  the admitted model before any review prompt is sent.
-- Preserve model-selection configuration failures through qualification and
-  runtime observation, and match ZCode's exact-key legacy config decoding while
-  rejecting unsupported provider kinds and npm-backed providers.
-- Require exact certified `session/setModel` success payloads, keep
-  authentication, rate-limit, timeout, and internal errors out of configuration
-  classification, and let coherent cancellation or deadlines outrank a
-  concurrent protocol error while retaining session evidence.
-- Match ECMAScript object-key enumeration when importing numeric legacy ZCode
-  providers, preserve the v1 Grok/Codex profile generation, and make release
-  fixture cleanup operate only on validated directories created by the gate.
-- Classify failures between accepted review planning and the coordinator's
-  durably recorded run start as internal preparation failures, changing the CLI
-  result from readiness exit `4` with `provider_unavailable` to exit `10` with
-  `review_preparation_failed`; retain their closed diagnostic stage and direct
-  operators to the exact diagnostic run instead of `mulgae doctor`.
+- Keep Grok provider evidence satisfiable, restrict current preflight permission modes to the supported
+  runtime value, and register deterministic release evidence for internal review-preparation failures.
+- Keep source-distributed agent guidance on doctor-result v5 and document
+  the GitHub Release publication boundary in the manual release procedure.
+- Keep retired-provider doctor results schema-valid, report unsupported init role assignments as
+  typed capability failures, and stop the standalone Grok target when capability certification fails.
+- Preserve ZCode legacy API-key provider and model selection by linking built-in provider templates, applying last-wins import behavior to unselected
+  provider ID collisions, rejecting missing or ambiguous selected entries, and applying the admitted model before any review prompt is sent.
+- Preserve model-selection configuration failures through qualification and runtime observation, and match
+  ZCode's exact-key legacy config decoding while rejecting unsupported provider kinds and npm-backed providers.
+- Require exact certified `session/setModel` success payloads, keep authentication, rate-limit, timeout, and internal errors out of
+  configuration classification, and let coherent cancellation or deadlines outrank a concurrent protocol error while retaining session evidence.
+- Match ECMAScript object-key enumeration when importing numeric legacy ZCode providers, preserve the v1 Grok/Codex
+  profile generation, and make release fixture cleanup operate only on validated directories created by the gate.
+- Classify failures between accepted review planning and the coordinator's durably recorded run start as internal preparation failures, changing the CLI result from readiness exit `4` with
+  `provider_unavailable` to exit `10` with `review_preparation_failed`; retain their closed diagnostic stage and direct operators to the exact diagnostic run instead of `mulgae doctor`.
 
 ### Removed
 
-- Remove the Kimi and AGY runtime, configuration, discovery, credential,
-  transport, help, and release-test paths.
+- Remove the Kimi and AGY runtime, configuration, discovery,
+  credential, transport, help, and release-test paths.
 
 ## v0.1.21 - 2026-09-12
 

@@ -61,10 +61,56 @@ func generate() error {
 	if err := sanitizeCommandJSON(commandSchema); err != nil {
 		return err
 	}
+	if err := restrictCommandPermissionModes(commandSchema); err != nil {
+		return err
+	}
 	if err := addCommandDoctorApplicationCompatibility(commandSchema, true); err != nil {
 		return err
 	}
 	return writeCommandExample(assets)
+}
+
+func restrictCommandPermissionModes(filename string) error {
+	contents, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	var document any
+	if err := json.Unmarshal(contents, &document); err != nil {
+		return err
+	}
+	count := 0
+	var visit func(any)
+	visit = func(value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				if key == "permission_mode" {
+					property, ok := child.(map[string]any)
+					if ok {
+						if _, exists := property["enum"]; exists {
+							property["enum"] = []any{"not_applicable"}
+							count++
+						}
+					}
+				}
+				visit(child)
+			}
+		case []any:
+			for _, child := range typed {
+				visit(child)
+			}
+		}
+	}
+	visit(document)
+	if count != 1 {
+		return fmt.Errorf("init contract generator: command permission mode count = %d, want 1", count)
+	}
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeIfChanged(filename, append(encoded, '\n'))
 }
 
 func seedCommandSchema(assets, target string) error {

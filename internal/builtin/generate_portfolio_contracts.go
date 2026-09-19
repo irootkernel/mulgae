@@ -136,6 +136,16 @@ func generatePair(root string, pair contractPair) error {
 			return fmt.Errorf("portfolio contract generator: decode %s: %w", item.source, err)
 		}
 		document = transformPortfolio(document, pair.oldVersion, pair.newVersion, item.schema)
+		if item.schema && pair.newVersion == "mulgae-provider-contract-evidence.v4" {
+			if err := admitCurrentProviderFamilies(document); err != nil {
+				return err
+			}
+		}
+		if item.schema && pair.newVersion == "mulgae-review-preflight.v5" {
+			if count := restrictPermissionModes(document); count != 1 {
+				return fmt.Errorf("portfolio contract generator: review-preflight permission mode count = %d, want 1", count)
+			}
+		}
 		if pair.newVersion == "mulgae-doctor-result.v5" {
 			addDoctorApplicationCompatibility(document, item.schema)
 		}
@@ -152,6 +162,44 @@ func generatePair(root string, pair contractPair) error {
 		}
 	}
 	return nil
+}
+
+func admitCurrentProviderFamilies(document any) error {
+	root := document.(map[string]any)
+	definitions := root["$defs"].(map[string]any)
+	providerBase := definitions["provider_base"].(map[string]any)
+	properties := providerBase["properties"].(map[string]any)
+	family := properties["family"].(map[string]any)
+	family["enum"] = []any{"zcode", "grok", "codex"}
+	return nil
+}
+
+func restrictPermissionModes(value any) int {
+	count := 0
+	var visit func(any)
+	visit = func(current any) {
+		switch typed := current.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				if key == "permission_mode" {
+					property, ok := child.(map[string]any)
+					if ok {
+						if _, exists := property["enum"]; exists {
+							property["enum"] = []any{"not_applicable"}
+							count++
+						}
+					}
+				}
+				visit(child)
+			}
+		case []any:
+			for _, child := range typed {
+				visit(child)
+			}
+		}
+	}
+	visit(value)
+	return count
 }
 
 func addDoctorApplicationCompatibility(document any, schema bool) {

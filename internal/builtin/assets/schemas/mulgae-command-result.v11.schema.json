@@ -6811,9 +6811,7 @@
               },
               "permission_mode": {
                 "enum": [
-                  "not_applicable",
-                  "safe",
-                  "dangerously-skip-permissions"
+                  "not_applicable"
                 ]
               },
               "provider_family": {

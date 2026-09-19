@@ -20,6 +20,7 @@ decisions, implementation guidance, operations ownership, and delivery state.
 | Architecture | [`architecture/README.md`](architecture/README.md) | Current components, dependency direction, runtime flow, and responsibility boundaries |
 | Architecture decision records | [`architecture-decision-records/README.md`](architecture-decision-records/README.md) | Accepted, superseded, deprecated, and rejected structural decisions with rationale |
 | Implementation tips | [`implementation-tips/README.md`](implementation-tips/README.md) | Non-normative development, testing, asset-generation, and release guidance |
+| Release design gates | [`gating-rules.md`](gating-rules.md) | Offline executable evidence for internal release invariants that valid public input cannot reach |
 | Operations | [`ops/README.md`](ops/README.md) | Real-environment operation, diagnosis, recovery, and the bounded absence of an independently operated surface |
 | Roadmap | [`roadmap/README.md`](roadmap/README.md) | Epic and task identity, ordering, dependencies, lifecycle vocabulary, and current status |
 | TODO | [`todo/README.md`](todo/README.md) | Future epic-sized candidates and temporary dossiers for adopted active epics |
