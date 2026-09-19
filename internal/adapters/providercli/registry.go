@@ -1332,13 +1332,18 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}
 	observation, err := conversationRunner.Converse(ctx, request, session)
+	evidence := session.AssistantEvidenceText()
+	if cleanupErr := releaseProtocolTranscript(observation); cleanupErr != nil {
+		err = errors.Join(err, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid,
+			fmt.Errorf("provider registry: %w", cleanupErr)))
+	}
 	if err != nil {
 		if sessionObservation, ok := session.SessionObservation(); ok {
 			err = &protocolConversationFailure{observation: sessionObservation, err: err}
 		}
 		return observation, nil, fmt.Errorf("provider registry: process runner: %w", err)
 	}
-	return observation, session.AssistantEvidenceText(), nil
+	return observation, evidence, nil
 }
 
 func (r *Registry) runLegacy(

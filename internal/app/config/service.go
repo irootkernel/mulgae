@@ -133,6 +133,9 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "providers.zcode.timeout" && config.Providers.ZCode == nil || field == "providers.grok.timeout" && config.Providers.Grok == nil || strings.HasPrefix(field, "providers.codex.") && field != "providers.codex.configured" && config.Providers.Codex == nil {
 			disposition = "absent"
 		}
+		if field == "providers.zcode.app_bundle" && config.Providers.ZCode == nil || field == "providers.grok.executable" && config.Providers.Grok == nil {
+			disposition = "absent"
+		}
 		if config.Providers.Codex != nil && (field == "providers.codex.model" && config.Providers.Codex.Model == "" || field == "providers.codex.reasoning_effort" && config.Providers.Codex.ReasoningEffort == "") {
 			source, disposition = "default", "defaulted"
 		}

@@ -535,10 +535,16 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	} else {
 		observation, err = probe.runner.Run(ctx, request)
 	}
+	var transcriptCleanupErr error
+	if protocolSession != nil {
+		protocolEvidence = protocolSession.AssistantEvidenceText()
+		transcriptCleanupErr = releaseProtocolTranscript(observation)
+	}
 	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
-		return observation, nil, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
+		return observation, nil, errors.Join(securityProbeFailure("fixture", "post-execution fixture drift", postErr), transcriptCleanupErr)
 	}
 	if err != nil {
+		err = errors.Join(err, transcriptCleanupErr)
 		if interruption := qualificationInterruptionFailure(observation, err); interruption != nil {
 			if errors.Is(interruption, context.Canceled) {
 				return observation, nil, interruption
@@ -547,8 +553,8 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		}
 		return observation, nil, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
 	}
-	if protocolSession != nil {
-		protocolEvidence = protocolSession.AssistantEvidenceText()
+	if transcriptCleanupErr != nil {
+		return observation, nil, probeFailure("process", domain.FailureArtifact, "protocol transcript cleanup failed", transcriptCleanupErr)
 	}
 	return observation, protocolEvidence, nil
 }

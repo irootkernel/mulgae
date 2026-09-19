@@ -46,6 +46,40 @@ func TestBuildArgvUsesIsolatedCodexAppServerProfile(t *testing.T) {
 	}
 }
 
+func TestRegistryReleasesProtocolTranscript(t *testing.T) {
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := newTestProfileWithTransport(t, FamilyCodex, "codex-logic", []string{"/private/bin/codex"}, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := definition(profile)
+	base := currentProbeCapabilityProtocolObservation(t, &currentProbeFixture{}, []byte("protocol transcript"))
+	observation, lease := observationWithTrackingLease(t, base)
+	runner := &observationRunner{observation: observation}
+	registry := &Registry{runner: runner, namespaces: map[string]ports.ProviderNamespaceLease{}}
+	packet, err := ports.NewProviderPacketFromBytes([]byte("review packet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := ports.NewProtocolProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ports.NewProviderProtocolProcessRequest(definition.executable, definition.baseArgv, nil, definition.workingDirectory, binding, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registry.executeProviderProcess(context.Background(), definition, packet, request, ports.ProviderInvocationInitial, nil); err != nil {
+		t.Fatal(err)
+	}
+	if lease.closes != 1 {
+		t.Fatalf("protocol transcript closes = %d, want 1", lease.closes)
+	}
+}
+
 // TestZCodeReviewArgvIsTheBareAppServer pins the exact review argv of the
 // protocol transport: the write grant and read-only denylist travel inside the
 // session conversation, never on the argv.

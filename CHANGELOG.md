@@ -25,8 +25,9 @@ This file records concise shipped outcomes and the planned next stable release.
   v4, provider-heartbeat-result v3, and review-preflight v5.
 - Make the ZCode app bundle the sole machine-local launch authority, derive its Electron runtime and app-server launcher, and remove
   external Node.js and launcher-path configuration.
-- Publish Config v4 as a clean break. Migrate v3 by setting both version fields to `4`, replacing ZCode `node_executable` and `launcher`
-  with `app_bundle`, then running `init --refresh-local` after the shared policy is valid.
+- Publish Config v4 as a clean break. For a v3 ZCode setup, set both version fields to `4`, replace `node_executable` and `launcher`
+  with `app_bundle`, then run `init --refresh-local` after the shared policy is valid. A v3 setup that uses Kimi or AGY must remove or reassign
+  those providers, or deliberately reinitialize with the supported ZCode/Grok policy.
 - Enforce ZCode app 3.12.3 as an independent minimum, retain higher app releases as eligible but newer than verified,
   and bind descriptor-observed `Info.plist` version identity through qualification and every provider spawn.
 - Certify ZCode app 3.12.3 for provider import, explicit `--stdio`, model selection, and reasoning-level
@@ -34,6 +35,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Release private protocol transcript spools after qualification and provider execution, including failed conversations.
+- Report machine fields for unconfigured ZCode and Grok providers as absent in configuration provenance.
 - Allow review preflight to validate named Codex credential-profile instances while preserving the legacy singleton instance and rejecting
   malformed profiles, role mismatches, and profile-bearing non-Codex routes.
 - Keep Grok provider evidence satisfiable, restrict current preflight permission modes to the supported

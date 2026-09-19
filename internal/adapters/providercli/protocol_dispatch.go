@@ -121,3 +121,18 @@ func protocolPurposeForReview(purpose ports.ProviderInvocationPurpose) protocolI
 	}
 	return protocolPurposeReview
 }
+
+func releaseProtocolTranscript(observation ports.ProcessObservation) error {
+	artifact, ok := observation.StdoutArtifact()
+	if !ok {
+		return nil
+	}
+	lease, ok := artifact.(ports.ContentLease)
+	if !ok || lease == nil {
+		return fmt.Errorf("protocol transcript: missing cleanup authority")
+	}
+	if err := lease.Close(); err != nil {
+		return fmt.Errorf("protocol transcript: cleanup: %w", err)
+	}
+	return nil
+}

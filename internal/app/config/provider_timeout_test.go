@@ -56,3 +56,25 @@ func TestExtractionProvenanceDistinguishesConfiguredAndDefaulted(t *testing.T) {
 		})
 	}
 }
+
+func TestAbsentProviderMachineFieldsRemainAbsent(t *testing.T) {
+	rows := provenanceRows(Config{})
+	want := map[string]bool{
+		"providers.zcode.app_bundle": false,
+		"providers.grok.executable":  false,
+	}
+	for _, row := range rows {
+		if _, ok := want[row.Field]; !ok {
+			continue
+		}
+		if row.Source != "local" || row.Disposition != "absent" || row.ValueClass != "machine" {
+			t.Fatalf("%s provenance = %#v", row.Field, row)
+		}
+		want[row.Field] = true
+	}
+	for field, found := range want {
+		if !found {
+			t.Fatalf("missing provider machine provenance for %s", field)
+		}
+	}
+}

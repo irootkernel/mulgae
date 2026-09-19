@@ -57,10 +57,16 @@ func TestClassifyCodexProbeFailurePreservesQuotaSignalFromStderr(t *testing.T) {
 type currentProbeNamespace struct {
 	environment []ports.EnvironmentVariable
 	nativeHome  ports.NativeHomeLaunchAuthority
+	instance    string
 }
 
-func (currentProbeNamespace) ProviderInstance() string { return "zcode_current" }
-func (currentProbeNamespace) Generation() string       { return "generation" }
+func (namespace currentProbeNamespace) ProviderInstance() string {
+	if namespace.instance != "" {
+		return namespace.instance
+	}
+	return "zcode_current"
+}
+func (currentProbeNamespace) Generation() string { return "generation" }
 func (n currentProbeNamespace) Environment() []ports.EnvironmentVariable {
 	return append([]ports.EnvironmentVariable(nil), n.environment...)
 }
@@ -134,6 +140,42 @@ type currentProbeRunner struct {
 	// protocol, when set, is driven by Converse so protocol-channel tests
 	// exercise the real session driver against a scripted exchange.
 	protocol ports.ProviderSessionExchange
+}
+
+type trackingContentLease struct {
+	identity ports.ContentIdentity
+	body     []byte
+	closes   int
+	closeErr error
+}
+
+func newTrackingContentLease(t *testing.T, body []byte) *trackingContentLease {
+	t.Helper()
+	digest := sha256.Sum256(body)
+	identity, err := ports.NewContentIdentity("sha256:"+hex.EncodeToString(digest[:]), int64(len(body)), "application/octet-stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &trackingContentLease{identity: identity, body: append([]byte(nil), body...)}
+}
+
+func (lease *trackingContentLease) Identity() ports.ContentIdentity { return lease.identity }
+func (lease *trackingContentLease) Open(context.Context) (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(lease.body)), nil
+}
+func (lease *trackingContentLease) Close() error {
+	lease.closes++
+	return lease.closeErr
+}
+
+func observationWithTrackingLease(t *testing.T, observation ports.ProcessObservation) (ports.ProcessObservation, *trackingContentLease) {
+	t.Helper()
+	lease := newTrackingContentLease(t, observation.Stdout())
+	bound, err := ports.NewProcessObservationWithStdoutArtifact(observation, lease, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bound, lease
 }
 
 func (r *currentProbeRunner) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
@@ -409,6 +451,39 @@ func TestCodexCapabilityUsesProtocolTransport(t *testing.T) {
 	}
 	if len(request.Stdin()) != 0 || packetOccurrences(request.Argv(), string(packet.Bytes())) != 0 {
 		t.Fatalf("Codex capability packet binding = argv %q stdin %q", request.Argv(), request.Stdin())
+	}
+}
+
+func TestCurrentProbeReleasesProtocolTranscript(t *testing.T) {
+	root, identity := testWorkspaceRoot(t)
+	fixture := &currentProbeFixture{root: root, identity: identity, role: domain.RoleLogic}
+	observation, lease := observationWithTrackingLease(t, currentProbeCapabilityProtocolObservation(t, fixture, []byte("protocol transcript")))
+	frames := codexSuccessFrames()
+	frames[3] = `{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"id":"item-1","type":"agentMessage","phase":"final_answer","text":"{\"root\":\"nonce\",\"link\":\"linked\",\"role\":\"logic\"}"}}}`
+	runner := &currentProbeRunner{observations: []ports.ProcessObservation{observation}, protocol: &scriptedCodexExchange{lines: frames}}
+	verifier := &currentProbeVerifier{}
+	probe, err := NewCurrentProbe(runner, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := newTestProfileWithTransport(t, FamilyCodex, "codex_current", []string{"/private/bin/codex"}, transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet, err := ports.NewProviderPacketFromBytes(fixture.Packet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := appendCodexProtocolServerArgv(definition.BaseArgv(), "", "")
+	if _, _, err := probe.runBound(context.Background(), definition, currentProbeNamespace{instance: "codex_current"}, fixture, argv, nil, time.Second, &packet); err != nil {
+		t.Fatal(err)
+	}
+	if lease.closes != 1 {
+		t.Fatalf("protocol transcript closes = %d, want 1", lease.closes)
 	}
 }
 
