@@ -246,6 +246,9 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	}
 	config, err := candidateConfig(request, roleDefaults, candidates)
 	if err != nil {
+		if errors.Is(err, appconfig.ErrRoleProviderUnsupported) {
+			return result, newFailure(domain.FailureProviderUnavailable, "provider_capability_unsupported", false, err)
+		}
 		return result, newFailure(domain.FailureInternal, "init_role_catalog_invalid", false, err)
 	}
 	if projectPresent {
@@ -771,6 +774,8 @@ func initFailureMessage(code string) string {
 		return "Automatic initialization requires ZCode and Grok."
 	case "init_provider_unavailable":
 		return "A selected provider is unavailable."
+	case "provider_capability_unsupported":
+		return "A selected role is unsupported by the configured providers."
 	case "init_private_dir_raced":
 		return "The private Mulgae directory changed during initialization."
 	case "init_private_dir_commit_unconfirmed":

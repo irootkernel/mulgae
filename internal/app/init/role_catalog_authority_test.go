@@ -136,6 +136,32 @@ func TestInitializeProjectFailsClosedWhenRoleCatalogIsUnreadable(t *testing.T) {
 	}
 }
 
+func TestInitializeProjectClassifiesUnsupportedArtistProvider(t *testing.T) {
+	service, root, _ := initServiceWithCatalog(t, builtin.NewCatalog())
+	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
+		ProjectRoot: root,
+		ProjectName: "project",
+		ProjectKind: adapterconfig.ProjectKindUI,
+		NativeHome:  "/Users/test",
+		Selection:   Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}},
+		RoleIDs:     []string{"logic", "artist"},
+		Overrides:   Overrides{GrokExecutable: "/bin/grok"},
+	})
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("initialize project error = %v, want typed failure", err)
+	}
+	if failure.Code() != "provider_capability_unsupported" || failure.Class() != domain.FailureProviderUnavailable || failure.Retryable() {
+		t.Fatalf("failure = %s/%s retryable=%t, want provider_capability_unsupported/provider_unavailable retryable=false", failure.Code(), failure.Class(), failure.Retryable())
+	}
+	if result.WriteState != "not_attempted" || result.ConfigSHA256 != "" || result.Committed {
+		t.Fatalf("result = %+v, want an untouched not_attempted outcome", result)
+	}
+	if _, statErr := os.Stat(filepath.Join(root.String(), ".mulgae")); !os.IsNotExist(statErr) {
+		t.Fatalf("stat .mulgae = %v, want it to be absent", statErr)
+	}
+}
+
 // TestInitializeProjectRejectsRoleCatalogMissingArtistDefaults proves the artist
 // input defaults are sourced from the document rather than restated in Go.
 func TestInitializeProjectRejectsRoleCatalogMissingArtistDefaults(t *testing.T) {

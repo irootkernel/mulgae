@@ -184,7 +184,7 @@ test-grok:
 	case "$$grok_bin" in /*) ;; *) echo "test-grok requires an absolute Grok executable" >&2; exit 1;; esac; \
 	MULGAE_LIVE_GROK_BIN="$$grok_bin" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLiveGrokCapability$$' ./internal/adapters/providercli; \
+		-run '^TestLiveGrokCapability$$' ./internal/adapters/providercli && \
 	MULGAE_E2E_BINARY="$$grok_binary" MULGAE_E2E_GROK_EXECUTABLE="$$grok_bin" \
 		$(GO) test -v -tags='live_e2e live_grok' -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestE2EGrokReleaseBinaryReview$$' ./test/e2e

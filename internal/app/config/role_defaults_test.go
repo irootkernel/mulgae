@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"errors"
 	"testing"
 
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
@@ -218,5 +219,14 @@ func TestCanonicalRolesConfigSeedsArtistInputsFromDefaults(t *testing.T) {
 	}
 	if len(roles.Artist.Inputs.DesignSpecGlobs) != 2 || roles.Artist.Inputs.DesignSpecGlobs[0] != "mocks/**/*.webp" {
 		t.Fatalf("artist globs = %v, want the supplied globs", roles.Artist.Inputs.DesignSpecGlobs)
+	}
+}
+
+func TestCanonicalRolesConfigClassifiesUnsupportedArtistProvider(t *testing.T) {
+	t.Parallel()
+
+	_, err := appconfig.CanonicalRolesConfigForUI(syntheticDefaults(t, nil), []string{"grok"})
+	if !errors.Is(err, appconfig.ErrRoleProviderUnsupported) {
+		t.Fatalf("canonical UI roles error = %v, want ErrRoleProviderUnsupported", err)
 	}
 }

@@ -324,6 +324,11 @@ func TestMakefileContract(t *testing.T) {
 			t.Errorf("test-grok missing exact-binary review token %q", required)
 		}
 	}
+	capabilityEnd := strings.Index(grokTarget, "./internal/adapters/providercli &&")
+	reviewStart := strings.Index(grokTarget, "MULGAE_E2E_BINARY=")
+	if capabilityEnd < 0 || reviewStart <= capabilityEnd {
+		t.Fatal("test-grok does not stop before the exact-binary review when capability certification fails")
+	}
 	capability := strings.Index(e2eTarget, "-tags=liveprovider")
 	workflow := strings.Index(e2eTarget, "-tags=live_e2e")
 	if workflow < 0 || capability <= workflow {

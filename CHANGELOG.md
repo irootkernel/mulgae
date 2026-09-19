@@ -40,6 +40,9 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Keep retired-provider doctor results schema-valid, report unsupported init
+  role assignments as typed capability failures, and stop the standalone Grok
+  target when capability certification fails.
 - Preserve ZCode legacy API-key provider and model selection by linking built-in
   provider templates, applying last-wins import behavior to unselected provider
   ID collisions, rejecting missing or ambiguous selected entries, and applying

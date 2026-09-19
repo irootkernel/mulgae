@@ -9,6 +9,10 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
+// ErrRoleProviderUnsupported identifies a valid role selection that none of the
+// configured provider families can run.
+var ErrRoleProviderUnsupported = errors.New("role provider unsupported")
+
 // Config is the admitted effective value merged from Config v4's project and
 // machine-local authorities.
 type Config struct {
@@ -291,7 +295,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 			return RolesConfig{}, err
 		}
 		if assignment.PrimaryProvider == "" {
-			return RolesConfig{}, fmt.Errorf("canonical role assignments: artist requires zcode or codex")
+			return RolesConfig{}, fmt.Errorf("canonical role assignments: %w: %s", ErrRoleProviderUnsupported, domain.RoleArtist)
 		}
 		artist = assignment
 		artist.Enabled = true

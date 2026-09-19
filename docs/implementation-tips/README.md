@@ -141,6 +141,7 @@ defines these commands:
 | `release` | `make test-release` | `generic` | `go`, `release` | 1,800s |
 | `e2e` | `make test-e2e` | `go-test` | `go`, `e2e`, `live` | 11,400s |
 | `e2e-opt-in` | `make test-e2e-opt-in` | `go-test` | `go`, `e2e`, `live`, `codex`, `multi-profile` | 7,200s |
+| `grok` | `make test-grok` | `go-test` | `go`, `e2e`, `live`, `grok` | 6,000s |
 | `full` | `make test` | `generic` | `go`, `full`, `live` | 28,800s |
 
 Use argv arrays for the wrapped commands and configure these RE2 redaction

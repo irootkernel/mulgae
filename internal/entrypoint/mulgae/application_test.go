@@ -1098,6 +1098,37 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	}
 }
 
+func TestApplicationInitRejectsUnsupportedArtistProvider(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root := testAnchoredRoot(t)
+	result := fixture.application.Run(context.Background(), []string{
+		"init", "--providers", "grok", "--grok-executable", "/bin/sh",
+		"--project-kind", "ui", "--roles", "artist", "--output", "json",
+	}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeReadiness)
+	var envelope struct {
+		Reasons []struct {
+			Category  string `json:"category"`
+			Code      string `json:"code"`
+			Retryable bool   `json:"retryable"`
+		} `json:"reasons"`
+		Result appinit.InitializeProjectResult `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Category != "readiness" ||
+		envelope.Reasons[0].Code != "provider_capability_unsupported" || envelope.Reasons[0].Retryable {
+		t.Fatalf("init reasons = %#v", envelope.Reasons)
+	}
+	if envelope.Result.WriteState != "not_attempted" || envelope.Result.ConfigSHA256 != "" || envelope.Result.Committed {
+		t.Fatalf("init result = %#v, want an untouched not_attempted outcome", envelope.Result)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".mulgae")); !os.IsNotExist(err) {
+		t.Fatalf("stat .mulgae = %v, want it to be absent", err)
+	}
+}
+
 func TestApplicationInitRefreshLocalPreservesSharedPolicy(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
@@ -1855,30 +1886,50 @@ func TestApplicationDoctorDistinguishesMissingMachineConfig(t *testing.T) {
 
 func TestApplicationDoctorClassifiesProviderIdentityAndRoleMappingConfigurationFailures(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func([]byte) []byte
-		reason string
+		name           string
+		mutate         func([]byte) []byte
+		reason         string
+		providerStatus string
 	}{
 		{
 			name: "invalid provider identity",
 			mutate: func(contents []byte) []byte {
 				return bytes.Replace(contents, []byte("grok:"), []byte("unknown_provider:"), 1)
 			},
-			reason: "config_provider_identity_invalid",
+			reason:         "config_provider_identity_invalid",
+			providerStatus: "failed",
 		},
 		{
 			name: "invalid role mapping",
 			mutate: func(contents []byte) []byte {
 				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "zcode"`), 1)
 			},
-			reason: "config_role_mapping_invalid",
+			reason:         "config_role_mapping_invalid",
+			providerStatus: "failed",
 		},
 		{
 			name: "incomplete role mapping",
 			mutate: func(contents []byte) []byte {
 				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: ""`), 1)
 			},
-			reason: "config_role_mapping_invalid",
+			reason:         "config_role_mapping_invalid",
+			providerStatus: "failed",
+		},
+		{
+			name: "retired provider",
+			mutate: func(contents []byte) []byte {
+				return bytes.Replace(contents, []byte("providers:\n"), []byte("providers:\n  kimi:\n    executable: /bin/kimi\n"), 1)
+			},
+			reason:         "config_provider_retired",
+			providerStatus: "unverifiable",
+		},
+		{
+			name: "retired role provider",
+			mutate: func(contents []byte) []byte {
+				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "agy"`), 1)
+			},
+			reason:         "config_provider_retired",
+			providerStatus: "unverifiable",
 		},
 	}
 	for _, test := range tests {
@@ -1909,8 +1960,16 @@ func TestApplicationDoctorClassifiesProviderIdentityAndRoleMappingConfigurationF
 			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 				t.Fatal(err)
 			}
-			if envelope.Result.Doctor.ProviderIdentity.Status != "failed" || !reflect.DeepEqual(envelope.Result.Doctor.ProviderIdentity.ReasonCodes, []string{test.reason}) || !reflect.DeepEqual(envelope.Result.Doctor.Readiness.ReasonCodes, []string{test.reason}) {
+			if envelope.Result.Doctor.ProviderIdentity.Status != test.providerStatus || !reflect.DeepEqual(envelope.Result.Doctor.ProviderIdentity.ReasonCodes, []string{test.reason}) || !reflect.DeepEqual(envelope.Result.Doctor.Readiness.ReasonCodes, []string{test.reason}) {
 				t.Fatalf("doctor config classification = %#v", envelope.Result.Doctor)
+			}
+			contents, err = json.Marshal(envelope.Result.Doctor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			doctorSchema := mustFoundationAssetID(t, doctorResultSchema)
+			if err := fixture.validator.Validate(context.Background(), doctorSchema, contents); err != nil {
+				t.Fatalf("doctor result is not schema-valid: %v", err)
 			}
 		})
 	}

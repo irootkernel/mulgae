@@ -609,7 +609,8 @@
                     "config_size_invalid",
                     "config_provider_timeout_invalid",
                     "config_provider_identity_invalid",
-                    "config_role_mapping_invalid"
+                    "config_role_mapping_invalid",
+                    "config_provider_retired"
                   ]
                 }
               ]

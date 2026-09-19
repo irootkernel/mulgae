@@ -164,6 +164,24 @@ func addDoctorApplicationCompatibility(document any, schema bool) {
 		properties["application_compatible"] = map[string]any{"$ref": "#/$defs/cli_compatibility"}
 		required := provider["required"].([]any)
 		provider["required"] = append(required, "application_compatible")
+		rootProperties := root["properties"].(map[string]any)
+		config := rootProperties["config"].(map[string]any)
+		var invalidConfig map[string]any
+		for _, branch := range config["oneOf"].([]any) {
+			candidate := branch.(map[string]any)
+			candidateProperties := candidate["properties"].(map[string]any)
+			status := candidateProperties["status"].(map[string]any)
+			if status["const"] == "invalid" {
+				invalidConfig = candidate
+				break
+			}
+		}
+		invalidProperties := invalidConfig["properties"].(map[string]any)
+		reasonCodes := invalidProperties["reason_codes"].(map[string]any)
+		prefixItems := reasonCodes["prefixItems"].([]any)
+		reasonCode := prefixItems[0].(map[string]any)
+		enum := reasonCode["enum"].([]any)
+		reasonCode["enum"] = append(enum, "config_provider_retired")
 		return
 	}
 	root := document.(map[string]any)
