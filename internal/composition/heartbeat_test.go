@@ -3,11 +3,74 @@
 package composition
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
+
+type stableHeartbeatLocalityAttestor struct{}
+
+func (stableHeartbeatLocalityAttestor) Attest(context.Context, ports.ConfigLocalityRequest) (ports.ConfigLocalityContext, error) {
+	return ports.ConfigLocalityContext{}, nil
+}
+
+func (stableHeartbeatLocalityAttestor) Revalidate(context.Context, ports.ConfigLocalityRequest, ports.ConfigLocalityContext) error {
+	return nil
+}
+
+func TestHeartbeatBindsSyntheticQualificationLocality(t *testing.T) {
+	rootPath := canonicalTestTempDir(t)
+	if err := os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), []byte(compositionProjectConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", "local.yaml"), []byte(compositionLocalConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := adapterconfig.NewLocalConfigSource(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := local.Observation().Proof()
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ports.NewConfigLocalityRequest(root, proof, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &configuredProductionCandidateSource{
+		source: local, attestor: stableHeartbeatLocalityAttestor{}, staticRequest: request,
+	}
+	ctx, err := source.bindSyntheticQualifiedRunContext(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := &recordingReviewSpawnVerifier{}
+	verifier, err := boundLocalitySpawnVerifier(ctx, inner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.VerifyProviderSpawn(ctx, providercli.RuntimeDefinition{}); err != nil {
+		t.Fatal(err)
+	}
+	if !inner.called {
+		t.Fatal("synthetic qualification did not reach the bound spawn verifier")
+	}
+}
 
 func TestHeartbeatFailureClassification(t *testing.T) {
 	tests := []struct {

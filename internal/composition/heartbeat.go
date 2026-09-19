@@ -74,7 +74,11 @@ func (graph *productionRuntimeGraph) probeHeartbeat(ctx context.Context, request
 	if err != nil {
 		return result, nil
 	}
-	run, err := graph.qualified.NewQualifiedRun(ctx, []reviewrun.QualifiedRunCandidate{candidate})
+	qualifiedContext, err := graph.candidates.bindSyntheticQualifiedRunContext(ctx)
+	if err != nil {
+		return result, nil
+	}
+	run, err := graph.qualified.NewQualifiedRun(qualifiedContext, []reviewrun.QualifiedRunCandidate{candidate})
 	if err != nil {
 		result.Attempted = heartbeatLiveAttempted(err)
 		result.Status, result.ReasonCode = heartbeatFailure(err)

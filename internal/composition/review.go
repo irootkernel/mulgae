@@ -489,6 +489,20 @@ type configuredProductionCandidateSource struct {
 	staticContext    ports.ConfigLocalityContext
 }
 
+func (source *configuredProductionCandidateSource) bindSyntheticQualifiedRunContext(ctx context.Context) (context.Context, error) {
+	if source == nil || ctx == nil || source.source == nil || source.attestor == nil {
+		return nil, fmt.Errorf("configured provider locality: invalid synthetic request")
+	}
+	if err := revalidateProductionLocality(ctx, source.source, source.attestor, source.staticRequest, source.staticContext); err != nil {
+		return nil, fmt.Errorf("configured provider locality: synthetic request drift: %w", err)
+	}
+	binding := reviewLocalityBinding{
+		source: source.source, attestor: source.attestor,
+		request: source.staticRequest, expected: source.staticContext,
+	}
+	return context.WithValue(ctx, reviewLocalityContextKey{}, binding), nil
+}
+
 func (source *configuredProductionCandidateSource) BindQualifiedRunContext(ctx context.Context, captured reviewrun.CapturedRunInput) (context.Context, error) {
 	if source == nil || ctx == nil || source.source == nil || source.attestor == nil || !captured.Input().Target().Valid() {
 		return nil, fmt.Errorf("configured provider locality: invalid request")

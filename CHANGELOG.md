@@ -35,6 +35,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Bind synthetic heartbeat qualification to the admitted configuration locality so provider readiness reaches the configured runtime.
 - Release private protocol transcript spools after qualification and provider execution, including failed conversations.
 - Report machine fields for unconfigured ZCode and Grok providers as absent in configuration provenance.
 - Allow review preflight to validate named Codex credential-profile instances while preserving the legacy singleton instance and rejecting
