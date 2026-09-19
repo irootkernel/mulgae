@@ -17,14 +17,16 @@ This file records concise shipped outcomes and the planned next stable release.
   keeping read-only isolation and `stdout` role-report compatibility. Require Codex 0.154.0 for the provider route.
 - Keep sequential `start_review` admission in one attached MCP process by discarding oldest
   terminal identities, and emit `invocation_limit_reached` only when 64 reviews are still running.
-- Set the supported provider order to ZCode, Grok, and Codex. Automatic init
-  now configures ZCode and Grok and assigns every default role to ZCode.
+- Set the supported provider order to ZCode, Grok, and Codex. Automatic init requires an authenticated Grok CLI 1.0.30
+  or newer, configures ZCode and Grok, and assigns every default role to ZCode.
 - Require one reports-only ZCode/Grok two-role review and independent capability certification in `make test`;
   keep deeper workflows deterministic and the two-profile Codex live scenario behind `MULGAE_E2E_OPT_IN=1`.
 - Publish command-result v11, doctor-result v5, provider-contract-evidence
   v4, provider-heartbeat-result v3, and review-preflight v5.
-- Make the ZCode app bundle the sole machine-local launch authority, derive its Electron runtime and app-server launcher, and remove the
-  external Node.js and launcher-path configuration. Publish Config v4 for the clean-break configuration and init-discovery contracts.
+- Make the ZCode app bundle the sole machine-local launch authority, derive its Electron runtime and app-server launcher, and remove
+  external Node.js and launcher-path configuration.
+- Publish Config v4 as a clean break. Migrate v3 by setting both version fields to `4`, replacing ZCode `node_executable` and `launcher`
+  with `app_bundle`, then running `init --refresh-local` after the shared policy is valid.
 - Enforce ZCode app 3.12.3 as an independent minimum, retain higher app releases as eligible but newer than verified,
   and bind descriptor-observed `Info.plist` version identity through qualification and every provider spawn.
 - Certify ZCode app 3.12.3 for provider import, explicit `--stdio`, model selection, and reasoning-level
@@ -32,6 +34,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Allow review preflight to validate named Codex credential-profile instances while preserving the legacy singleton instance and rejecting
+  malformed profiles, role mismatches, and profile-bearing non-Codex routes.
 - Keep Grok provider evidence satisfiable, restrict current preflight permission modes to the supported
   runtime value, and register deterministic release evidence for internal review-preparation failures.
 - Keep source-distributed agent guidance on doctor-result v5 and document

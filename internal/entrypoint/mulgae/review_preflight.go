@@ -311,16 +311,17 @@ func (result ReviewPreflightResult) Validate() (err error) {
 	lastRole := -1
 	for _, transmission := range result.Transmissions {
 		role := domain.Role(transmission.Role)
+		family := reviewrun.Family(transmission.ProviderFamily)
 		ordinal := preflightRoleOrdinal(role)
 		if ordinal < 0 || ordinal <= lastRole || transmission.RouteKind != "primary" ||
-			transmission.ProviderInstance != transmission.ProviderFamily+"-"+transmission.Role ||
+			!reviewrun.RoleProviderInstanceMatches(family, role, transmission.ProviderInstance) ||
 			transmission.TargetChannel != "prompt" || transmission.FileSetID != fileSet.ID {
 			return fmt.Errorf("review preflight: invalid transmission order")
 		}
 		if _, err := appconfig.ParseProviderTimeout(transmission.ConfiguredTimeout); err != nil {
 			return fmt.Errorf("review preflight: invalid transmission timeout")
 		}
-		if !activePreflightFamily(reviewrun.Family(transmission.ProviderFamily)) || transmission.PermissionMode != "not_applicable" {
+		if !activePreflightFamily(family) || transmission.PermissionMode != "not_applicable" {
 			return fmt.Errorf("review preflight: invalid transmission provider")
 		}
 		lastRole = ordinal

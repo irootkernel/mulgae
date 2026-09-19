@@ -85,6 +85,16 @@ func TestReviewPreflightValidateWarningsAndNoChange(t *testing.T) {
 	}
 }
 
+func TestReviewPreflightValidateAcceptsCodexCredentialProfileInstance(t *testing.T) {
+	result := loadReviewPreflightExample(t)
+	result.Transmissions[0].ProviderFamily = "codex"
+	result.Transmissions[0].ProviderInstance = "codex-work-logic"
+	result.Budget.RolePaths[0].ProviderInstance = "codex-work-logic"
+	if err := result.Validate(); err != nil {
+		t.Fatalf("named Codex credential profile rejected: %v", err)
+	}
+}
+
 func TestReviewPreflightValidateAcceptsEmptyTextFile(t *testing.T) {
 	result := loadReviewPreflightExample(t)
 	file := &result.FileSets[0].Files[1]

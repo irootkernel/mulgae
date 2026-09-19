@@ -138,6 +138,27 @@ func (assignment RoleProviderAssignment) ProviderInstance() string {
 	return string(assignment.primary) + "-" + string(assignment.role)
 }
 
+// RoleProviderInstanceMatches reports whether an instance is the configured
+// production identity for one family and role.
+func RoleProviderInstanceMatches(family Family, role domain.Role, instance string) bool {
+	if !family.Valid() || !role.Valid() {
+		return false
+	}
+	if instance == string(family)+"-"+string(role) {
+		_, err := NewRoleProviderAssignment(role, family)
+		return err == nil
+	}
+	if family != FamilyCodex {
+		return false
+	}
+	profile, ok := codexCredentialProfileFromInstance(instance, role)
+	if !ok || profile == "" {
+		return false
+	}
+	assignment, err := NewRoleProviderAssignmentWithCredentialProfile(role, family, profile)
+	return err == nil && assignment.ProviderInstance() == instance
+}
+
 func validCredentialProfile(value string) bool {
 	if len(value) == 0 || len(value) > 32 || value[0] < 'a' || value[0] > 'z' {
 		return false

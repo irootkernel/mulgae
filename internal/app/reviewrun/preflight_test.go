@@ -61,3 +61,27 @@ func TestPreflightConfiguredPlanBindsCodexCredentialProfileToInstance(t *testing
 		t.Fatalf("provider instance = %q", got)
 	}
 }
+
+func TestRoleProviderInstanceMatchesConfiguredAssignment(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		family   Family
+		role     domain.Role
+		instance string
+		want     bool
+	}{
+		{name: "legacy zcode", family: FamilyZCode, role: domain.RoleLogic, instance: "zcode-logic", want: true},
+		{name: "legacy codex", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-logic", want: true},
+		{name: "profile codex", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-work-logic", want: true},
+		{name: "profile on non codex", family: FamilyGrok, role: domain.RoleLogic, instance: "grok-work-logic"},
+		{name: "unsupported grok artist", family: FamilyGrok, role: domain.RoleArtist, instance: "grok-artist"},
+		{name: "wrong role", family: FamilyCodex, role: domain.RoleSecurity, instance: "codex-work-logic"},
+		{name: "invalid profile", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-WORK-logic"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := RoleProviderInstanceMatches(test.family, test.role, test.instance); got != test.want {
+				t.Fatalf("RoleProviderInstanceMatches(%q, %q, %q) = %t, want %t", test.family, test.role, test.instance, got, test.want)
+			}
+		})
+	}
+}
