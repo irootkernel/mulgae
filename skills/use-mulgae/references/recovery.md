@@ -204,10 +204,10 @@ mutation-level retry decision.
   prerequisite with explicit authorization. Do not use this path for
   `provider_rate_limited` or for a CLI `provider_qualification_failed` whose
   listed reasons are all `rate_limit`.
-- For doctor v2, diagnose `binary_available` and `cli_compatible` reason codes
-  per configured provider. Do not treat absent static evidence, an unobserved
-  field from an older schema, heartbeat state, or prior review evidence as an
-  offline failure.
+- For `mulgae-doctor-result.v5`, diagnose `binary_available` and
+  `cli_compatible` reason codes per configured provider. Do not treat absent
+  static evidence, a field unobserved in an older schema, heartbeat state, or
+  prior review evidence as an offline failure.
 - If shared `.mulgae/config.yaml` exists but `.mulgae/local.yaml` is missing,
   bootstrap it with authorized `mulgae init`. If local provider paths are stale
   or no longer match the shared provider set, use authorized

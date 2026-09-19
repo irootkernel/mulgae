@@ -40,6 +40,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Keep source-distributed agent guidance on doctor-result v5 and document the
+  GitHub Release publication boundary in the manual release procedure.
 - Keep retired-provider doctor results schema-valid, report unsupported init
   role assignments as typed capability failures, and stop the standalone Grok
   target when capability certification fails.

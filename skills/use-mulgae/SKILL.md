@@ -87,11 +87,11 @@ identities. Cancellation never rolls back an already committed publication.
    mulgae config --mode provenance --output json
    ```
 
-   Use `mulgae doctor --output json` for offline setup readiness. In doctor v2,
-   consume `config_v3`, `local_configuration`, `provider_identity`, each
-   configured provider's `binary_available` and `cli_compatible`, and
-   `configured_readiness` independently. Static admission and prior review
-   qualification do not gate this state.
+   Use `mulgae doctor --output json` for offline setup readiness. In
+   `mulgae-doctor-result.v5`, consume `config_v3`, `local_configuration`, and
+   `provider_identity` independently. For each configured provider, consume
+   `binary_available` and `cli_compatible`, then read `configured_readiness`.
+   Static admission and prior review qualification do not gate this state.
 
 5. Derive the next action from current Mulgae output, never from conversation
    memory. Preserve exact session (`s_...`), run (`r_...`), attempt (`a_...`),

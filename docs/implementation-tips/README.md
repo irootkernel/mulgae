@@ -240,9 +240,12 @@ The repository intentionally has no GitHub Actions release workflow:
 6. verify `mulgae version`, `mulgae --help`, and project initialization;
 7. tag the exact verified commit;
 8. push the commit and tag as a separate explicit operation;
-9. after publication, immediately open the next planned release cycle in a
-   separate change by advancing `RELEASE_VERSION` and its architecture assertion
-   and prepending an empty `Unreleased` changelog section.
+9. create and publish the GitHub Release for that exact tag as a separate
+   explicit operation, using the settled changelog entries;
+10. after verifying the hosted Release, immediately open the next planned
+    release cycle in a separate change by advancing `RELEASE_VERSION` and its
+    architecture assertion and prepending an empty `Unreleased` changelog
+    section.
 
 During development, record concise user-visible outcomes under `Added`,
 `Changed`, or `Fixed` in the current `Unreleased` section.
