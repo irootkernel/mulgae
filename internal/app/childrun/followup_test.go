@@ -88,4 +88,22 @@ func TestFollowupObservationFailurePreservesProviderOutputCause(t *testing.T) {
 	if state != domain.RunFailed || cause != domain.DiagnosticCauseOutputDecodeFailed {
 		t.Fatalf("terminal decision = state %q cause %q", state, cause)
 	}
+	protocolObservation, err := ports.NewFailedProviderExecutionObservationWithCause(
+		ports.ProviderExecutionStatusArtifactFailure, invocation, process, "invalid_provider_output",
+		domain.DiagnosticCauseProtocolEventDecodeFailed, "",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocolErr := followupObservationFailure("zcode-security", domain.RoleSecurity, protocolObservation, errors.New("safe protocol failure"))
+	protocolFailures, ok := reviewrun.ProviderExecutionFailuresFromError(protocolErr)
+	if !ok || len(protocolFailures) != 1 ||
+		protocolFailures[0].ReasonCode() != string(review.AttemptConditionProtocolEventDecodeFailed) ||
+		protocolFailures[0].FailureClass() != domain.FailureInvalidOutput {
+		t.Fatalf("protocol provider failures = %#v, present=%t", protocolFailures, ok)
+	}
+	state, cause = childDiagnosticTerminalDecision(protocolErr)
+	if state != domain.RunFailed || cause != domain.DiagnosticCauseProtocolEventDecodeFailed {
+		t.Fatalf("protocol terminal decision = state %q cause %q", state, cause)
+	}
 }

@@ -36,6 +36,7 @@ const (
 	AttemptConditionProviderTimeout            AttemptCondition = "provider_timeout"
 	AttemptConditionProviderOutputMissing      AttemptCondition = "provider_output_missing"
 	AttemptConditionProviderOutputDecodeFailed AttemptCondition = "provider_output_decode_failed"
+	AttemptConditionProtocolEventDecodeFailed  AttemptCondition = "provider_protocol_event_decode_failed"
 )
 
 // TerminalProjection is the terminal role projection selected when this
@@ -203,6 +204,14 @@ var transitionPolicyRows = [...]transitionPolicyRow{
 		terminalProjection: TerminalProjectionFailed,
 		action:             transitionActionFailClosed,
 		reasonCode:         string(AttemptConditionProviderOutputDecodeFailed),
+	},
+	{
+		condition:          AttemptConditionProtocolEventDecodeFailed,
+		precedence:         conditionPrecedenceInvalidOutput,
+		terminalClass:      domain.FailureInvalidOutput,
+		terminalProjection: TerminalProjectionFailed,
+		action:             transitionActionFailClosed,
+		reasonCode:         string(AttemptConditionProtocolEventDecodeFailed),
 	},
 	{
 		condition:          AttemptConditionInvalidEvidenceClaim,

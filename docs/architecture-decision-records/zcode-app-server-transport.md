@@ -112,10 +112,13 @@ This makes the selected wire visible in the fixed argv even though the original
 0.16.5 observation showed that standard pipes were already the default.
 
 - Protocol-native failure classification is typed: an unparseable message is
-  an output decode failure, a reported `turn-failed` or a missing turn
-  completion is a provider turn failure, an unavailable selected model is a
-  configuration failure, and a failed create, send, messages, or close exchange
-  is a provider execution failure. Stderr token
+  `provider_output_decode_failed`, an unreadable payload on a recognized
+  `computer-use/operation-event` is
+  `provider_protocol_event_decode_failed`, a reported `turn-failed` or a missing
+  turn completion is a provider turn failure, an unavailable selected model is
+  a configuration failure, and a failed create, send, messages, or close exchange
+  is a provider execution failure. Additive notifications with other method
+  names are inert, regardless of their provider-owned payload shape. Stderr token
   classification remains the fallback, notably for login-required states the
   protocol does not represent on the wire.
 - A protocol conversation succeeds through its driver: the bounded teardown

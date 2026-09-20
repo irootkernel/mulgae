@@ -490,7 +490,7 @@ func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, 
 		SessionID string `json:"sessionId"`
 	}
 	if len(params) > 0 && json.Unmarshal(params, &event) != nil {
-		return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputDecodeFailed,
+		return true, zcodeProtocolFailure(domain.DiagnosticCauseProtocolEventDecodeFailed,
 			errors.New("unreadable protocol event payload"))
 	}
 	switch event.Kind {

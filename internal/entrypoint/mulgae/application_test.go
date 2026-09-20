@@ -3375,6 +3375,7 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 		{name: "provider permission denied", code: "provider_permission_denied", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderPermissionDenied, domain.FailureAuthentication), provider: true},
 		{name: "provider output missing", code: "provider_output_missing", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderOutputMissing, domain.FailureInvalidOutput), provider: true},
 		{name: "provider output decode failed", code: "provider_output_decode_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderOutputDecodeFailed, domain.FailureInvalidOutput), provider: true},
+		{name: "provider protocol event decode failed", code: "provider_protocol_event_decode_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProtocolEventDecodeFailed, domain.FailureInvalidOutput), provider: true},
 		{name: "candidate validation failed", code: "candidate_validation_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionSemanticContradiction, domain.FailureInvalidOutput), provider: true},
 		{name: "provider spawn failed", code: "provider_spawn_failed", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderSpawnFailed, domain.FailureProviderUnavailable), provider: true},
 	}
@@ -5995,6 +5996,7 @@ func TestProviderFailureHintRoutesByRemediation(t *testing.T) {
 		review.AttemptConditionProviderTimeout:            rerun,
 		review.AttemptConditionProviderOutputMissing:      rerun,
 		review.AttemptConditionProviderOutputDecodeFailed: rerun,
+		review.AttemptConditionProtocolEventDecodeFailed:  rerun,
 		review.AttemptConditionInvalidProviderOutput:      rerun,
 		review.AttemptConditionSemanticContradiction:      rerun,
 		// Not the provider's fault; doctor stays the conservative entry point.

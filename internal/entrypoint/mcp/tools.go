@@ -13,6 +13,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
@@ -420,6 +421,13 @@ func publicToolError(err error, tool string) ToolError {
 	if errors.Is(err, errInvalidToolArguments) {
 		return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "invalid_arguments", Stage: "admission", Message: "The tool arguments are invalid.", Retryable: false})
 	}
+	if (tool == toolRunReview || tool == toolAwaitReview) &&
+		allProviderExecutionFailuresHaveReason(err, string(review.AttemptConditionProtocolEventDecodeFailed)) {
+		return finalizePublicToolError(err, tool, ToolError{
+			Class: "readiness", Code: "provider_protocol_event_decode_failed", Stage: "execution",
+			Message: "The configured provider returned an unreadable protocol event.", Retryable: false,
+		})
+	}
 	if preparationStage, _, preparationFailed := reviewrun.ReviewPreparationFailureFromError(err); preparationFailed &&
 		(tool == toolRunReview || tool == toolAwaitReview) {
 		if _, _, hasIdentity := reviewrun.RuntimeDiagnosticIdentityFromError(err); hasIdentity {
@@ -462,6 +470,19 @@ func publicToolError(err error, tool string) ToolError {
 
 func allQualificationFailuresHaveReason(err error, reason string) bool {
 	failures, ok := reviewrun.ProviderQualificationFailuresFromError(err)
+	if !ok || len(failures) == 0 {
+		return false
+	}
+	for _, failure := range failures {
+		if failure.ReasonCode() != reason {
+			return false
+		}
+	}
+	return true
+}
+
+func allProviderExecutionFailuresHaveReason(err error, reason string) bool {
+	failures, ok := reviewrun.ProviderExecutionFailuresFromError(err)
 	if !ok || len(failures) == 0 {
 		return false
 	}

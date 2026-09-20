@@ -1725,7 +1725,8 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		domain.DiagnosticCauseProviderOutputStagingViolation:
 		return ports.ProviderExecutionStatusSecurityViolation, "process_security"
 	case domain.DiagnosticCauseOutputFrameMissing, domain.DiagnosticCauseOutputEnvelopeInvalid,
-		domain.DiagnosticCauseOutputDecodeFailed, domain.DiagnosticCauseResultBindingFailed,
+		domain.DiagnosticCauseOutputDecodeFailed, domain.DiagnosticCauseProtocolEventDecodeFailed,
+		domain.DiagnosticCauseResultBindingFailed,
 		domain.DiagnosticCauseOutputMissing,
 		// A missing or unusable staged file is an ordinary operational output
 		// outcome, so repair stays available to the application.

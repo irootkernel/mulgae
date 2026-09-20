@@ -233,6 +233,8 @@ func diagnosticCauseForCondition(condition AttemptCondition) domain.RuntimeDiagn
 		return domain.DiagnosticCauseOutputMissing
 	case AttemptConditionProviderOutputDecodeFailed:
 		return domain.DiagnosticCauseOutputDecodeFailed
+	case AttemptConditionProtocolEventDecodeFailed:
+		return domain.DiagnosticCauseProtocolEventDecodeFailed
 	case AttemptConditionInvalidProviderOutput, AttemptConditionUnrepairableProviderOutput,
 		AttemptConditionInvalidEvidenceClaim, AttemptConditionUnrepairableEvidence, AttemptConditionSemanticContradiction:
 		return domain.DiagnosticCauseCandidateValidationFailed

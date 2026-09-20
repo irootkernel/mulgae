@@ -997,6 +997,9 @@ func TestObservedUnparseableProviderOutputIsUnrepairable(t *testing.T) {
 	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, domain.DiagnosticCauseOutputMissing); got != AttemptConditionProviderOutputMissing {
 		t.Fatalf("missing provider output condition = %q", got)
 	}
+	if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, domain.DiagnosticCauseProtocolEventDecodeFailed); got != AttemptConditionProtocolEventDecodeFailed {
+		t.Fatalf("protocol event decode condition = %q", got)
+	}
 	for _, cause := range []domain.RuntimeDiagnosticCause{domain.DiagnosticCauseObservationInvalid, domain.DiagnosticCauseProviderExecutionFailed} {
 		if got := observedStatusCondition(ports.ProviderExecutionStatusArtifactFailure, cause); got != AttemptConditionArtifactFailure {
 			t.Fatalf("artifact cause %q condition = %q", cause, got)
@@ -1070,6 +1073,7 @@ func TestRuntimeCauseConditionPreservesValidationAndSpawnStages(t *testing.T) {
 		want  AttemptCondition
 	}{
 		{domain.DiagnosticCauseOutputDecodeFailed, AttemptConditionProviderOutputDecodeFailed},
+		{domain.DiagnosticCauseProtocolEventDecodeFailed, AttemptConditionProtocolEventDecodeFailed},
 		{domain.DiagnosticCauseCandidateValidationFailed, AttemptConditionSemanticContradiction},
 		{domain.DiagnosticCauseCandidateRepairPlanInvalid, AttemptConditionSemanticContradiction},
 		{domain.DiagnosticCauseProviderSpawnFailed, AttemptConditionProviderSpawnFailed},
@@ -1087,6 +1091,9 @@ func TestRuntimeCauseConditionPreservesValidationAndSpawnStages(t *testing.T) {
 	}
 	if got := diagnosticCauseForCondition(AttemptConditionSemanticContradiction); got != domain.DiagnosticCauseCandidateValidationFailed {
 		t.Fatalf("semantic diagnostic cause = %q", got)
+	}
+	if got := diagnosticCauseForCondition(AttemptConditionProtocolEventDecodeFailed); got != domain.DiagnosticCauseProtocolEventDecodeFailed {
+		t.Fatalf("protocol event diagnostic cause = %q", got)
 	}
 }
 

@@ -1893,6 +1893,8 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		// ordinary decode failure rather than a boundary breach.
 		domain.DiagnosticCauseProviderOutputFileInvalid:
 		return AttemptConditionProviderOutputDecodeFailed
+	case domain.DiagnosticCauseProtocolEventDecodeFailed:
+		return AttemptConditionProtocolEventDecodeFailed
 	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
 		// Staging Mulgae cannot prove it removed is an artifact fact: fail closed
 		// rather than reuse the attempt through repair.
@@ -1964,6 +1966,8 @@ func observedStatusCondition(status ports.ProviderExecutionStatus, cause domain.
 		domain.DiagnosticCauseResultBindingFailed,
 		domain.DiagnosticCauseProviderOutputFileInvalid:
 		return AttemptConditionProviderOutputDecodeFailed
+	case domain.DiagnosticCauseProtocolEventDecodeFailed:
+		return AttemptConditionProtocolEventDecodeFailed
 	case domain.DiagnosticCausePermissionDenied:
 		return AttemptConditionProviderPermissionDenied
 	case domain.DiagnosticCauseProviderOutputStagingViolation:

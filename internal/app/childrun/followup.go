@@ -495,6 +495,9 @@ func followupObservationFailure(provider string, role domain.Role, observation p
 		domain.DiagnosticCauseProviderOutputFileInvalid:
 		class = domain.FailureInvalidOutput
 		condition = review.AttemptConditionProviderOutputDecodeFailed
+	case domain.DiagnosticCauseProtocolEventDecodeFailed:
+		class = domain.FailureInvalidOutput
+		condition = review.AttemptConditionProtocolEventDecodeFailed
 	case domain.DiagnosticCausePermissionDenied:
 		class = domain.FailureAuthentication
 		condition = review.AttemptConditionProviderPermissionDenied

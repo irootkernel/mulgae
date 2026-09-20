@@ -405,9 +405,9 @@ func TestZCodeProtocolDriveClassifiesFailureBranches(t *testing.T) {
 			wantText:    "unexpected session messages response",
 		},
 		{
-			name:        "unreadable notification params are an output decode failure",
+			name:        "unreadable recognized event params are a protocol event decode failure",
 			serverLines: []string{protocolCreateResult, protocolSendAck, `{"method":"computer-use/operation-event","params":{"kind":42}}`},
-			wantCause:   domain.DiagnosticCauseOutputDecodeFailed,
+			wantCause:   domain.DiagnosticCauseProtocolEventDecodeFailed,
 			wantText:    "unreadable protocol event payload",
 		},
 	} {

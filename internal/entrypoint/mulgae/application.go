@@ -2148,6 +2148,8 @@ func providerExecutionFailureCode(failure reviewrun.ProviderExecutionFailure) st
 		return "provider_output_missing"
 	case string(review.AttemptConditionProviderOutputDecodeFailed):
 		return "provider_output_decode_failed"
+	case string(review.AttemptConditionProtocolEventDecodeFailed):
+		return "provider_protocol_event_decode_failed"
 	case string(review.AttemptConditionInvalidProviderOutput),
 		string(review.AttemptConditionUnrepairableProviderOutput),
 		string(review.AttemptConditionSemanticContradiction),

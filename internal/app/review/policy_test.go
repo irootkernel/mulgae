@@ -249,6 +249,7 @@ func TestAttemptConditionsAreExactAndExhaustivelyValidated(t *testing.T) {
 		AttemptConditionUnrepairableProviderOutput,
 		AttemptConditionProviderOutputMissing,
 		AttemptConditionProviderOutputDecodeFailed,
+		AttemptConditionProtocolEventDecodeFailed,
 		AttemptConditionInvalidEvidenceClaim,
 		AttemptConditionUnrepairableEvidence,
 		AttemptConditionSemanticContradiction,
@@ -325,6 +326,7 @@ func policyExpectations() []policyExpectation {
 		{condition: AttemptConditionUnrepairableProviderOutput, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionProviderOutputMissing, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionProviderOutputDecodeFailed, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
+		{condition: AttemptConditionProtocolEventDecodeFailed, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionInvalidEvidenceClaim, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed, repairable: true},
 		{condition: AttemptConditionUnrepairableEvidence, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
 		{condition: AttemptConditionSemanticContradiction, terminalClass: domain.FailureInvalidOutput, projection: TerminalProjectionFailed},
@@ -409,6 +411,7 @@ func expectedConditionPrecedence(condition AttemptCondition) int {
 		AttemptConditionUnrepairableProviderOutput,
 		AttemptConditionProviderOutputMissing,
 		AttemptConditionProviderOutputDecodeFailed,
+		AttemptConditionProtocolEventDecodeFailed,
 		AttemptConditionUnrepairableEvidence,
 		AttemptConditionInvalidEvidenceClaim,
 		AttemptConditionInvalidProviderOutput:

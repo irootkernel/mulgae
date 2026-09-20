@@ -7,6 +7,7 @@ This file records concise shipped outcomes and the planned next stable release.
 ### Fixed
 
 - Tolerate additive ZCode telemetry notifications with provider-owned payload shapes during app-server reviews.
+- Distinguish malformed recognized ZCode protocol events with the public `provider_protocol_event_decode_failed` reason.
 
 ## v0.1.22 - 2026-09-19
 

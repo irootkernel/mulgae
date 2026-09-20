@@ -150,6 +150,7 @@ func TestRuntimeDiagnosticClosedCodeSets(t *testing.T) {
 		}
 	}
 	for _, cause := range []RuntimeDiagnosticCause{
+		DiagnosticCauseProtocolEventDecodeFailed,
 		DiagnosticCauseProviderOutputFileMissing,
 		DiagnosticCauseProviderOutputFileInvalid,
 		DiagnosticCauseProviderOutputStagingViolation,

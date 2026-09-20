@@ -18,6 +18,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
@@ -1244,6 +1245,26 @@ func TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation(t *testing.T) {
 	preflightFailure := publicToolError(timeout, toolPreflight)
 	if !preflightFailure.Retryable || preflightFailure.SessionID != nil || preflightFailure.RunID != nil {
 		t.Fatalf("read-only preflight failure = %#v", preflightFailure)
+	}
+}
+
+func TestPublicToolErrorPreservesProtocolEventDecodeFailure(t *testing.T) {
+	fact, err := reviewrun.NewProviderExecutionFailure(
+		"zcode-logic", domain.RoleLogic,
+		string(review.AttemptConditionProtocolEventDecodeFailed), domain.FailureInvalidOutput,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate := reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{fact})
+	failure, err := domain.NewFailure("reviewrun.execute", domain.FailureInvalidOutput, "private", aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := publicToolError(failure, toolRunReview)
+	if projected.Class != "readiness" || projected.Code != "provider_protocol_event_decode_failed" ||
+		projected.Stage != "execution" || projected.Retryable {
+		t.Fatalf("protocol event decode failure = %#v", projected)
 	}
 }
 

@@ -664,6 +664,14 @@ incomplete review also retains the coordinator's `rate_limit` reason. The
 duration of the provider-side rate limit. Qualification-stage rate limits
 instead use `provider_qualification_failed` with `retryable: true`.
 
+Malformed provider frames and general output decoding failures retain the
+`provider_output_decode_failed` reason. If a ZCode frame is valid and names the
+recognized `computer-use/operation-event` method but its payload cannot be
+decoded, Mulgae instead preserves `provider_protocol_event_decode_failed` in
+runtime diagnostics, the failed role report, CLI results, and MCP review-tool
+errors. Both reasons are fail-closed invalid-output outcomes and do not expose
+the provider transcript.
+
 If one of the commands without a rejected-request variant fails before a
 contract-valid request can be frozen, it returns the typed exit and human stderr
 even when `--output json` was requested. For example, `export --run latest` with

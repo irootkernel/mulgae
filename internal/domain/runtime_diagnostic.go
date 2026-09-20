@@ -138,6 +138,7 @@ const (
 	DiagnosticCauseSignalReceiptMismatch                        RuntimeDiagnosticCause = "provider_signal_receipt_mismatch"
 	DiagnosticCauseOutputEnvelopeInvalid                        RuntimeDiagnosticCause = "provider_output_envelope_invalid"
 	DiagnosticCauseOutputDecodeFailed                           RuntimeDiagnosticCause = "provider_output_decode_failed"
+	DiagnosticCauseProtocolEventDecodeFailed                    RuntimeDiagnosticCause = "provider_protocol_event_decode_failed"
 	DiagnosticCauseProviderOutputFileMissing                    RuntimeDiagnosticCause = "provider_output_file_missing"
 	DiagnosticCauseProviderOutputFileInvalid                    RuntimeDiagnosticCause = "provider_output_file_invalid"
 	DiagnosticCauseProviderOutputStagingViolation               RuntimeDiagnosticCause = "provider_output_staging_violation"
@@ -178,7 +179,8 @@ func (cause RuntimeDiagnosticCause) Valid() bool {
 		DiagnosticCauseTransportVerificationFailed, DiagnosticCausePromptFilePreStartFailed, DiagnosticCausePromptFilePostEndFailed,
 		DiagnosticCauseTransportReceiptMismatch, DiagnosticCauseLifecycleReceiptInvalid, DiagnosticCauseOutputFrameMissing, DiagnosticCauseOutputMissing,
 		DiagnosticCauseOutputFrameMismatch, DiagnosticCauseSignalReceiptMismatch, DiagnosticCauseOutputEnvelopeInvalid,
-		DiagnosticCauseOutputDecodeFailed, DiagnosticCauseProviderOutputFileMissing, DiagnosticCauseProviderOutputFileInvalid,
+		DiagnosticCauseOutputDecodeFailed, DiagnosticCauseProtocolEventDecodeFailed,
+		DiagnosticCauseProviderOutputFileMissing, DiagnosticCauseProviderOutputFileInvalid,
 		DiagnosticCauseProviderOutputStagingViolation, DiagnosticCauseProviderOutputStagingCleanupFailed,
 		DiagnosticCauseResultBindingFailed, DiagnosticCauseObservationInvalid,
 		DiagnosticCauseObservationMismatch, DiagnosticCauseCandidateValidationFailed, DiagnosticCauseCandidateRepairPlanInvalid,

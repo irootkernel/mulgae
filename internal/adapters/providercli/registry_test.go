@@ -509,6 +509,13 @@ func TestProviderFailureProjectionKeepsTransportLifecycleSubtypesSecurityClosed(
 	}
 }
 
+func TestProviderFailureProjectionPreservesProtocolEventDecodeCause(t *testing.T) {
+	status, diagnostic := providerFailureProjection(domain.DiagnosticCauseProtocolEventDecodeFailed)
+	if status != ports.ProviderExecutionStatusArtifactFailure || diagnostic != "invalid_provider_output" {
+		t.Fatalf("protocol event decode projection = (%q, %q)", status, diagnostic)
+	}
+}
+
 type barrierRunner struct {
 	started     chan struct{}
 	release     chan struct{}
