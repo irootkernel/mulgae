@@ -25,6 +25,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-003](#epic-003-zcode-app-server-provider-transport) | Completed | Drive ZCode review and qualification through the ZCode app-server wire protocol instead of one-shot print invocations. |
 | [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | Completed | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
+| [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Planned | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 
 ## EPIC-001: Token-efficient review waiting
 
@@ -160,3 +161,116 @@ TASK-015. The Codex provider minimum rises to the verified 0.154.0 release;
 the separate Codex MCP client minimum is unchanged. The complete `make test`
 gate retains optional Codex execution, but this epic requires one actual Codex
 capability probe and two-profile exact-binary review before acceptance.
+
+## EPIC-006: Configurable Grok model and reasoning policy
+
+Status: Planned
+
+Goal: allow projects to select one Git-shareable Grok model and reasoning
+effort for every Grok role and invocation purpose, preserve provider defaults
+when either setting is omitted, and fail closed without automatic model or
+provider substitution.
+
+Design decisions accepted at design time: model and reasoning effort are
+optional provider-wide Config v4 settings. Mulgae validates their syntax and
+Grok owns their supported meanings. Role-level overrides, a Mulgae-owned model
+or reasoning-effort catalog, and a general provider-configuration framework are
+out of scope. Existing role routing, invocation budgets, and provider security
+boundaries remain unchanged.
+
+### Configuration contract
+
+| Surface | Required behavior |
+|---|---|
+| Project policy | Store optional `providers.grok.model` and `providers.grok.reasoning_effort` only in `.mulgae/config.yaml`. Reject these fields in `.mulgae/local.yaml`; executable paths remain machine-local. |
+| Init flags | Expose `--grok-model` and `--grok-reasoning-effort`. Automatic initialization includes Grok and may accept them. Explicit provider selection excluding Grok must reject either flag. |
+| Local refresh | Reject either flag with `init --refresh-local`, including an explicitly empty value. Local refresh must preserve existing project-policy bytes and configured settings. |
+| Omission | Each absent field independently selects that setting's provider default in Mulgae's existing isolated Grok execution. Do not import the operator's ambient Grok configuration or persist a guessed default. |
+| Explicit values | Reject empty strings, YAML nulls, non-string YAML values, whitespace, and control characters. Preserve accepted spelling without trimming or case folding. Remove a project field to restore its default. |
+| Safe tokens | Models use the existing `validModel` grammar: 1–128 ASCII characters, an alphanumeric first character, then alphanumerics or `._/-`, with no absolute path, `//`, or `..` path segment. Effort uses 1–128 ASCII characters, an alphanumeric first character, then alphanumerics or `._-`. These are syntax rules, not supported-value catalogs. |
+| Init provenance | Extend the Grok discovery row with `model_source` and `reasoning_effort_source`, independently set to `override`, `provider_default`, or `not_selected` using the existing init contract conventions. Init validates syntax and records policy; it does not certify provider acceptance or add an implicit live request. |
+
+Existing Config v4 files without these fields must retain their behavior.
+CLI, application admission, YAML decoding, and machine-result contracts must
+agree on these rules. Adding Grok settings must not relax Codex's existing
+model, reasoning-effort, credential-profile, or validation behavior.
+
+### Provider-contract gate
+
+TASK-016 starts with an isolated go/no-go probe. Record the exact Grok binary
+identity and version, option placement or ACP request shapes, selection timing,
+and evidence that both settings are applied before prompting. Passing argv or
+receiving a successful review alone is insufficient; use provider-confirmed
+selection or an equivalent version-specific contract check. Do not rely on the
+model's self-description. If 1.0.30 cannot satisfy the contract, raise the minimum
+to a newer version only after that exact version passes the same checks.
+
+Check an unknown model, an unknown effort, and an unsupported model/effort
+combination where the verified provider contract defines one. Distinguish
+provider rejection from normalization or ignored settings. Mulgae must pass
+admitted values unchanged, preserve typed rejection, and never retry by removing
+or rewriting a setting or substituting another model or provider. Ordinary
+same-policy retry remains subject to existing classification and budgets.
+If selection cannot be established, or provider normalization changes the
+requested policy, record a concrete blocker for master's decision before
+TASK-017. Do not silently weaken the contract, add a catalog, or claim that
+provider rejection was proved by a successful request.
+
+### Invocation and qualification invariants
+
+One admitted settings value must reach review, retry, repair, structured
+extraction, qualification, and heartbeat. Keep heartbeat's existing timeout cap
+and the purpose-specific tool and staged-output permissions. Share only the
+necessary settings representation across application ports and adapters;
+provider-specific validation and invocation encoding remain with their owners.
+
+Bind both settings and their omitted-versus-explicit state into qualification
+identity, not just the generated invocation. Cover both
+`familyRuntimeProfileKeyFor` in `internal/app/reviewrun/family_qualification.go`
+and `equivalentFamilyRuntimeProfiles` in
+`internal/adapters/providercli/qualifier.go`, together with the resulting
+execution-authority receipt and runtime matching. A model-only or effort-only
+change must prevent qualification sharing and authority reuse. Omission is not
+equivalent to an explicit value merely because today's provider default matches
+it. Identical settings must retain existing eligible same-command role sharing;
+do not force a separate live probe for every role. Preserve settings through
+qualification and execution so a qualified route cannot execute another policy.
+
+### Tasks
+
+| Task | Status | Outcome | Verification |
+|---|---|---|---|
+| TASK-016 | Planned | Complete the provider-contract gate, record the supported version and application evidence, then bind settings into internal Grok invocations and both qualification boundaries without public configuration exposure. | Prove exact argv and any selection messages, independent omission, typed rejection without fallback, settings-sensitive grouping and authority matching, preserved same-settings sharing, and unchanged sandbox, tool, credential, staged-output, and Codex behavior. Run focused deterministic checks and the isolated live contract probe. |
+| TASK-017 | Planned | Activate the configuration contract through split-config admission, init, production composition, and machine results; update affected documentation and embedded assets; certify the configured release binary. | Prove configuration round trips, flag restrictions and provenance, all invocation paths including heartbeat, old-config compatibility, generator idempotence, exact-binary configured Grok review, and the complete `make test` gate. |
+
+The tasks remain sequential. TASK-016 records its verified contract and resolves
+any blocker before TASK-017 starts. This plan defines acceptance criteria; it is
+not implementation or provider-certification evidence.
+
+### Epic acceptance
+
+- Deterministic tests cover neither field, model only, effort only, and both
+  fields across configuration and invocation construction. Cover invalid syntax,
+  provider rejection, refresh-local and unselected-provider rejection,
+  qualification partitioning, and unchanged ZCode/Codex behavior. Use targeted
+  retry, repair, extraction, and heartbeat regressions rather than duplicating
+  the entire matrix for every path.
+- Live evidence covers applied explicit settings and rejection behavior from
+  TASK-016, followed by one exact-release-binary Grok review using the project
+  settings. Keep live calls bounded to evidence the deterministic tests cannot
+  supply; do not require every configuration combination as a separate live run.
+  Unsupported-combination evidence may be marked not applicable only when the
+  verified contract provides no such combination, with the reason recorded.
+- Update the [public contracts](../specs/contracts.md), affected
+  [architecture](../architecture/README.md) and
+  [security requirements](../specs/security.md), public README, source-distributed
+  `use-mulgae` configuration guidance, and affected help, schemas, paired
+  examples, and generated assets in their owning changes. Record the verified
+  provider version, selection semantics, limitations, and failure behavior in
+  the contracts. Preserve existing historical contract readers and follow the
+  existing machine-result versioning policy.
+- Run both documented generators twice when embedded assets change; the second
+  pass must produce no diff. Require the complete `make test` gate and the
+  configured Grok exact-binary evidence before explicit epic acceptance. Report
+  skipped or blocked checks without treating them as passes. Stop when these
+  criteria are met; no additional review loop or unrelated cleanup is required.
