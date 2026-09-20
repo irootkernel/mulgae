@@ -303,7 +303,7 @@ type zcodeProtocolConversation struct {
 func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange ports.ProviderSessionExchange, message zcodeProtocolMessage) (bool, error) {
 	if message.Method != "" {
 		if len(message.ID) == 0 {
-			return state.handleNotification(ctx, exchange, message.Params)
+			return state.handleNotification(ctx, exchange, message.Method, message.Params)
 		}
 		return false, state.handleServerRequest(ctx, exchange, message)
 	}
@@ -480,7 +480,10 @@ func (state *zcodeProtocolConversation) sendClose(ctx context.Context, exchange 
 	})
 }
 
-func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, exchange ports.ProviderSessionExchange, params json.RawMessage) (bool, error) {
+func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, exchange ports.ProviderSessionExchange, method string, params json.RawMessage) (bool, error) {
+	if method != "computer-use/operation-event" {
+		return false, nil
+	}
 	var event struct {
 		Kind      string `json:"kind"`
 		TurnID    string `json:"turnId"`

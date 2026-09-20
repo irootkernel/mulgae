@@ -604,6 +604,20 @@ func TestZCodeProtocolDriveCompletesAndPreservesEvidence(t *testing.T) {
 			t.Fatalf("Drive failed with inert uncorrelated responses: %v", err)
 		}
 	})
+	t.Run("additive telemetry notifications stay inert", func(t *testing.T) {
+		session := mustReviewSession(t)
+		err, _ := driveScripted(t, session,
+			protocolCreateResult,
+			protocolSendAck,
+			`{"method":"process/resourceSample","params":{"rssKbTotal":1024}}`,
+			`{"method":"process/mcpResourceSamples","params":[{"mcpId":"one"},{"mcpId":"two"},{"mcpId":"three"}]}`,
+			protocolTurnDone,
+			protocolCloseResult,
+		)
+		if err != nil {
+			t.Fatalf("Drive failed with inert telemetry notifications: %v", err)
+		}
+	})
 	t.Run("stream end after turn completion preserves captured evidence", func(t *testing.T) {
 		session := mustCapabilitySession(t)
 		// The stream ends after the messages result but before the close
