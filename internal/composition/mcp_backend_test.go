@@ -211,7 +211,26 @@ func (fake *mcpCompositeReviewFake) ComposeReview(_ context.Context, request rev
 	return fake.result, nil
 }
 
+type mcpReviewRunFake struct {
+	result mulgaeentry.ReviewRunResult
+	calls  int
+}
+
+func (fake *mcpReviewRunFake) StartReviewRun(context.Context, mulgaeentry.ReviewRequest, ports.AnchoredRoot) (mulgaeentry.ReviewRunResult, error) {
+	fake.calls++
+	return fake.result, nil
+}
+
 func newMCPTestApplication(t *testing.T, queries mulgaeentry.PublicationQueryService, composite mulgaeentry.CompositeReviewService) *mulgaeentry.Application {
+	return newMCPTestApplicationWithReviewRuns(t, queries, composite, nil)
+}
+
+func newMCPTestApplicationWithReviewRuns(
+	t *testing.T,
+	queries mulgaeentry.PublicationQueryService,
+	composite mulgaeentry.CompositeReviewService,
+	reviewRuns mulgaeentry.ReviewRunService,
+) *mulgaeentry.Application {
 	t.Helper()
 	catalog := builtin.NewCatalog()
 	validator, err := jsonschema.New(context.Background(), catalog)
@@ -225,7 +244,7 @@ func newMCPTestApplication(t *testing.T, queries mulgaeentry.PublicationQuerySer
 	application, err := mulgaeentry.NewApplication(mulgaeentry.Dependencies{
 		Clock: mcpTestClock{}, RequestIDGenerator: mcpTestRequestIDs{}, Catalog: catalog, JSONSchemaValidator: validator,
 		SecureWriter: filesystem.NewSecureWriter(), TrustedProjectReader: reader, EnvironmentInspector: environment.NewInspector(),
-		PublicationQueries: queries, PublicationReports: &mcpReportFake{}, CompositeReviews: composite,
+		ReviewRuns: reviewRuns, PublicationQueries: queries, PublicationReports: &mcpReportFake{}, CompositeReviews: composite,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -290,6 +309,65 @@ func TestMCPBackendClassifiesCanonicalReviewGrammarRejection(t *testing.T) {
 	var failure *domain.Failure
 	if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
 		t.Fatalf("review grammar failure = %v", err)
+	}
+}
+
+func TestMCPBackendRunReviewPreservesCommittedProviderReasons(t *testing.T) {
+	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
+	artifactPath := filepath.Join(projectRoot.String(), ".mulgae")
+	if err := os.Mkdir(artifactPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	artifactRoot := mustMCPRoot(t, artifactPath)
+	const sessionID = "s_019f596a-cf80-7c67-b265-f37053d51ccf"
+	const runID = "r_019f596a-cfe4-7c9c-b82e-7149158243ba"
+	reasonCodes := []string{"provider_protocol_event_decode_failed", "provider_output_decode_failed"}
+	reasons := make([]domain.ExitReason, len(reasonCodes))
+	for index, reasonCode := range reasonCodes {
+		var err error
+		reasons[index], err = domain.NewExitReason(domain.ExitIncompleteCoverage, reasonCode)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	exitInput, err := domain.NewOperationalExitInput(reasons)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := domain.ReduceOperationalExit(exitInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := ".mulgae/" + sessionID + "/" + runID + "/"
+	reviewRuns := &mcpReviewRunFake{result: mulgaeentry.NewReviewRunResult(
+		sessionID, runID, prefix+"manifest.json", prefix+"review_test.json", decision,
+	)}
+	application := newMCPTestApplicationWithReviewRuns(t, &mcpQueryFake{}, nil, reviewRuns)
+	backend, err := newMCPBackend(
+		projectRoot, artifactRoot, application, &mcpQueryFake{}, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := backend.RunReview(context.Background(), "i_019f596a-cf80-7c67-b265-f37053d51ccf", mcpentry.RunReviewInput{
+		Target: mcpentry.ReviewTarget{Kind: "workspace"}, Roles: []string{"logic", "security"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, ok := result.Data["reasons"].([]any)
+	if !ok || len(projected) != len(reasonCodes) {
+		t.Fatalf("MCP review reasons = %#v", result.Data["reasons"])
+	}
+	for index, reasonCode := range reasonCodes {
+		row, ok := projected[index].(map[string]any)
+		if !ok || row["code"] != reasonCode || row["exit_code"] != int(domain.ExitIncompleteCoverage) {
+			t.Fatalf("MCP review reason %d = %#v", index, projected[index])
+		}
+	}
+	if result.Data["terminal_exit_code"] != int(domain.ExitIncompleteCoverage) || reviewRuns.calls != 1 {
+		t.Fatalf("MCP review result = %#v, calls = %d", result, reviewRuns.calls)
 	}
 }
 

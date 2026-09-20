@@ -1248,7 +1248,7 @@ func TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation(t *testing.T) {
 	}
 }
 
-func TestPublicToolErrorPreservesProtocolEventDecodeFailure(t *testing.T) {
+func TestPublicToolErrorProviderReasonDoesNotOverrideArtifactPrecedence(t *testing.T) {
 	fact, err := reviewrun.NewProviderExecutionFailure(
 		"zcode-logic", domain.RoleLogic,
 		string(review.AttemptConditionProtocolEventDecodeFailed), domain.FailureInvalidOutput,
@@ -1256,15 +1256,21 @@ func TestPublicToolErrorPreservesProtocolEventDecodeFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aggregate := reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{fact})
-	failure, err := domain.NewFailure("reviewrun.execute", domain.FailureInvalidOutput, "private", aggregate)
+	providerFailure, err := domain.NewFailure(
+		"reviewrun.execute", domain.FailureInvalidOutput, "private provider failure",
+		reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{fact}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	projected := publicToolError(failure, toolRunReview)
-	if projected.Class != "readiness" || projected.Code != "provider_protocol_event_decode_failed" ||
+	artifactFailure, err := domain.NewFailure("reviewrun.cleanup", domain.FailureArtifact, "private cleanup failure", errors.New("private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := publicToolError(errors.Join(providerFailure, artifactFailure), toolRunReview)
+	if projected.Class != "artifact" || projected.Code != "artifact_unavailable" ||
 		projected.Stage != "execution" || projected.Retryable {
-		t.Fatalf("protocol event decode failure = %#v", projected)
+		t.Fatalf("joined provider and artifact failure = %#v", projected)
 	}
 }
 
