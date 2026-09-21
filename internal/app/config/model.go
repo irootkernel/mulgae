@@ -3,7 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"path"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -46,8 +49,10 @@ type ZCodeProviderConfig struct {
 	Timeout   string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type GrokProviderConfig struct {
-	Executable string `yaml:"executable" json:"executable"`
-	Timeout    string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Executable      string `yaml:"executable" json:"executable"`
+	Model           string `yaml:"model,omitempty" json:"model,omitempty"`
+	ReasoningEffort string `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+	Timeout         string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type CodexProviderConfig struct {
 	Executable               string                      `yaml:"executable" json:"executable"`
@@ -140,6 +145,31 @@ const (
 	ProjectKindNonUI        = "non_ui"
 	ProjectKindUI           = "ui"
 )
+
+var (
+	grokModelPattern           = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
+	grokReasoningEffortPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+)
+
+// ValidGrokModel reports whether value has the exact Config v4 Grok model
+// grammar. The spelling is validated as supplied and is never normalized.
+func ValidGrokModel(value string) bool {
+	if !grokModelPattern.MatchString(value) || path.IsAbs(value) || strings.Contains(value, "//") {
+		return false
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidGrokReasoningEffort reports whether value has the exact Config v4
+// Grok reasoning-effort grammar.
+func ValidGrokReasoningEffort(value string) bool {
+	return grokReasoningEffortPattern.MatchString(value)
+}
 
 // ParseProviderTimeout resolves an optional Config v4 provider timeout. An
 // omitted value uses the fixed 60-minute default, which is also the admitted

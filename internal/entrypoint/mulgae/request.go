@@ -278,26 +278,30 @@ func (request HelpRequest) Topic() string { return request.topic }
 // InitRequest contains the executable init fields. ContextPath is absent unless
 // the user explicitly supplied --context.
 type InitRequest struct {
-	projectRoot          string
-	projectName          string
-	contextPath          string
-	hasContextPath       bool
-	projectKind          string
-	hasProjectKind       bool
-	artistBriefPath      string
-	artistDesignGlobs    []string
-	selectionMode        string
-	providerIDs          []string
-	roleIDs              []string
-	nativeHome           string
-	hasNativeHome        bool
-	zcodeAppBundle       string
-	grokExecutable       string
-	codexExecutable      string
-	codexModel           string
-	codexReasoningEffort string
-	refreshLocal         bool
-	projectPolicyOptions bool
+	projectRoot            string
+	projectName            string
+	contextPath            string
+	hasContextPath         bool
+	projectKind            string
+	hasProjectKind         bool
+	artistBriefPath        string
+	artistDesignGlobs      []string
+	selectionMode          string
+	providerIDs            []string
+	roleIDs                []string
+	nativeHome             string
+	hasNativeHome          bool
+	zcodeAppBundle         string
+	grokExecutable         string
+	grokModel              string
+	grokReasoningEffort    string
+	hasGrokModel           bool
+	hasGrokReasoningEffort bool
+	codexExecutable        string
+	codexModel             string
+	codexReasoningEffort   string
+	refreshLocal           bool
+	projectPolicyOptions   bool
 }
 
 // ProjectRoot returns the canonical project root selected for initialization.
@@ -330,6 +334,9 @@ func (request InitRequest) NativeHome() (string, bool) {
 }
 func (request InitRequest) ZCodeAppBundle() string { return request.zcodeAppBundle }
 func (request InitRequest) GrokExecutable() string { return request.grokExecutable }
+func (request InitRequest) GrokOverrides() (string, string, string, bool, bool) {
+	return request.grokExecutable, request.grokModel, request.grokReasoningEffort, request.hasGrokModel, request.hasGrokReasoningEffort
+}
 func (request InitRequest) CodexOverrides() (string, string, string) {
 	return request.codexExecutable, request.codexModel, request.codexReasoningEffort
 }

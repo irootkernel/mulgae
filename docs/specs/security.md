@@ -175,6 +175,10 @@ say that no provider ever holds it.
   staged report destination; shell, web, subagent, sibling, traversal, symlink,
   repeated-write, and unrecognized requests fail closed. Qualification and
   extraction receive no write authority. Grok is admitted only for text roles.
+  Optional model and reasoning-effort values are admitted only from shared
+  project policy, never from machine-local config or ambient provider config.
+  The adapter requires exact ACP acknowledgement before prompting and does not
+  substitute a model or effort when Grok rejects or normalizes the request.
 - Codex launches one stdio app-server process and one ephemeral thread per
   invocation. Mulgae disables approvals and applies its read-only permission
   profile over the immutable workspace. The projected `~/.codex` directory is

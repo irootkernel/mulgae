@@ -34,6 +34,8 @@ func DiscoverySourceSpecs() []DiscoverySourceSpec {
 		}},
 		{Family: "grok", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
+			{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},
+			{JSONName: "reasoning_effort_source", Values: []string{"override", "provider_default", "not_selected"}},
 		}},
 		{Family: "codex", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},

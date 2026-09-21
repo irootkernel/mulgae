@@ -43,8 +43,11 @@ mulgae init [--project-root PATH] [--name NAME]
 available. It assigns every default role to ZCode. Select any supported family
 explicitly to choose a different portfolio. Grok accepts a
 machine-local `--grok-executable` override and an optional shared-policy
-`providers.grok.timeout`; its model and reasoning settings are provider defaults
-and are not configurable through Mulgae.
+`providers.grok.timeout`. `--grok-model` and `--grok-reasoning-effort` record
+optional project-policy values; automatic initialization may also accept these
+two flags. Explicit provider selection that excludes Grok rejects either flag,
+and `init --refresh-local` rejects them even when the supplied value is empty.
+Omitting either dimension independently preserves the provider default.
 
 ZCode uses the standard `/Applications/ZCode.app` bundle by default. An app
 installed elsewhere accepts the machine-local `--zcode-app-bundle` override.
@@ -102,6 +105,21 @@ providers:
 
 Executable and ZCode app-bundle paths belong only in `local.yaml`.
 Provider stdout and stderr have no configuration field or product byte ceiling.
+
+Grok accepts optional project-policy `model` and `reasoning_effort` fields and
+a machine-local `executable`. Model values are 1-128 ASCII characters, start
+with an alphanumeric character, use only alphanumerics plus `._/-`, and cannot
+be absolute or contain `//` or a `..` path segment. Reasoning-effort values are
+1-128 ASCII characters, start with an alphanumeric character, and use only
+alphanumerics plus `._-`. Mulgae preserves exact spelling and does not maintain
+a provider-owned catalog. For example:
+
+```yaml
+providers:
+  grok:
+    model: "grok-4.5"
+    reasoning_effort: "high"
+```
 
 Codex accepts optional project-policy `model` and `reasoning_effort` fields and
 a machine-local `executable`. Valid reasoning efforts are `minimal`, `low`,

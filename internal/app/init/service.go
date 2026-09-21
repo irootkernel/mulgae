@@ -30,11 +30,15 @@ type Selection struct {
 	ProviderIDs []string
 }
 type Overrides struct {
-	ZCodeAppBundle       string
-	GrokExecutable       string
-	CodexExecutable      string
-	CodexModel           string
-	CodexReasoningEffort string
+	ZCodeAppBundle         string
+	GrokExecutable         string
+	GrokModel              string
+	GrokReasoningEffort    string
+	GrokModelSet           bool
+	GrokReasoningEffortSet bool
+	CodexExecutable        string
+	CodexModel             string
+	CodexReasoningEffort   string
 }
 type InitializeProjectRequest struct {
 	ProjectRoot           ports.AnchoredRoot
@@ -556,8 +560,20 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 					row.ExecutableSource = "startup_path"
 				}
 			}
+			row.ModelSource = "provider_default"
+			if request.Overrides.GrokModelSet || request.Overrides.GrokModel != "" {
+				row.ModelSource = "override"
+			}
+			row.ReasoningEffortSource = "provider_default"
+			if request.Overrides.GrokReasoningEffortSet || request.Overrides.GrokReasoningEffort != "" {
+				row.ReasoningEffortSource = "override"
+			}
 			if executable != "" {
-				found.grok = &appconfig.GrokProviderConfig{Executable: executable, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
+				found.grok = &appconfig.GrokProviderConfig{
+					Executable: executable, Model: request.Overrides.GrokModel,
+					ReasoningEffort: request.Overrides.GrokReasoningEffort,
+					Timeout:         appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout),
+				}
 				row.Candidate = true
 				row.Status = "candidate"
 			}
@@ -613,6 +629,8 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 		row.AppBundleSource = "not_selected"
 	case "grok":
 		row.ExecutableSource = "not_selected"
+		row.ModelSource = "not_selected"
+		row.ReasoningEffortSource = "not_selected"
 	case "codex":
 		row.ExecutableSource = "not_selected"
 		row.ModelSource = "not_selected"
@@ -723,7 +741,7 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 	if !contains(selected, "zcode") && overrides.ZCodeAppBundle != "" {
 		return nil, fmt.Errorf("zcode override")
 	}
-	if !contains(selected, "grok") && overrides.GrokExecutable != "" {
+	if !contains(selected, "grok") && (overrides.GrokExecutable != "" || overrides.GrokModelSet || overrides.GrokModel != "" || overrides.GrokReasoningEffortSet || overrides.GrokReasoningEffort != "") {
 		return nil, fmt.Errorf("grok override")
 	}
 	if !contains(selected, "codex") && (overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "") {

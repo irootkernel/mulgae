@@ -971,7 +971,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	mode, providerIDs := request.Selection()
 	selection := appinit.Selection{Mode: appinit.SelectionMode(mode), ProviderIDs: providerIDs}
 	zcodeAppBundle := request.ZCodeAppBundle()
-	grokExecutable := request.GrokExecutable()
+	grokExecutable, grokModel, grokReasoningEffort, grokModelSet, grokReasoningEffortSet := request.GrokOverrides()
 	codexExecutable, codexModel, codexReasoningEffort := request.CodexOverrides()
 
 	// Destination proof precedes native-account inspection so create-once init
@@ -1076,10 +1076,15 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	}
 	initialized, err := service.InitializeProject(ctx, appinit.InitializeProjectRequest{
 		ProjectRoot: root, ProjectName: request.ProjectName(), ContextPath: contextPath, ProjectKind: projectKind, ArtistBriefPath: artistBriefPath, ArtistDesignSpecGlobs: artistDesignGlobs, NativeHome: nativeHome,
-		NativeHomeAsserted:   nativeHomeAsserted,
-		Selection:            selection,
-		RoleIDs:              request.Roles(),
-		Overrides:            appinit.Overrides{ZCodeAppBundle: zcodeAppBundle, GrokExecutable: grokExecutable, CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort},
+		NativeHomeAsserted: nativeHomeAsserted,
+		Selection:          selection,
+		RoleIDs:            request.Roles(),
+		Overrides: appinit.Overrides{
+			ZCodeAppBundle: zcodeAppBundle, GrokExecutable: grokExecutable,
+			GrokModel: grokModel, GrokReasoningEffort: grokReasoningEffort,
+			GrokModelSet: grokModelSet, GrokReasoningEffortSet: grokReasoningEffortSet,
+			CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort,
+		},
 		RefreshLocal:         request.RefreshLocal(),
 		ProjectPolicyOptions: request.ProjectPolicyOptions(),
 	})

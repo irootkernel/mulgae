@@ -7,6 +7,7 @@ This file records concise shipped outcomes and the planned next stable release.
 ### Changed
 
 - Require Grok CLI 1.0.34 or newer and bind configured model and reasoning effort to ACP sessions and qualification identity, failing before prompting when Grok rejects or normalizes the requested policy.
+- Add Git-shareable Grok model and reasoning-effort policy, init flags and provenance, production propagation through every invocation path, and command-result v12 while retaining v11 for backward reads.
 
 ### Fixed
 

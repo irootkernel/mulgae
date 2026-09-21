@@ -33,7 +33,9 @@ type projectZCodeConfig struct {
 }
 
 type projectGrokConfig struct {
-	Timeout string `yaml:"timeout,omitempty"`
+	Model           string `yaml:"model,omitempty"`
+	ReasoningEffort string `yaml:"reasoning_effort,omitempty"`
+	Timeout         string `yaml:"timeout,omitempty"`
 }
 
 type projectCodexConfig struct {
@@ -184,7 +186,10 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 		config.Providers.ZCode = &ZCodeProviderConfig{AppBundle: local.Providers.ZCode.AppBundle, Timeout: project.Providers.ZCode.Timeout}
 	}
 	if project.Providers.Grok != nil {
-		config.Providers.Grok = &GrokProviderConfig{Executable: local.Providers.Grok.Executable, Timeout: project.Providers.Grok.Timeout}
+		config.Providers.Grok = &GrokProviderConfig{
+			Executable: local.Providers.Grok.Executable, Model: project.Providers.Grok.Model,
+			ReasoningEffort: project.Providers.Grok.ReasoningEffort, Timeout: project.Providers.Grok.Timeout,
+		}
 	}
 	if project.Providers.Codex != nil {
 		credentialHomes := make([]CodexCredentialHomeConfig, 0, len(local.Providers.Codex.CredentialHomes))
@@ -238,10 +243,19 @@ func encodeProjectConfig(config Config) []byte {
 	}
 	if provider := config.Providers.Grok; provider != nil {
 		out.WriteString("  grok:")
-		if provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
+		if provider.Model == "" && provider.ReasoningEffort == "" && provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString(" {}\n")
 		} else {
-			out.WriteString("\n    timeout: " + q(provider.Timeout) + "\n")
+			out.WriteString("\n")
+			if provider.Model != "" {
+				out.WriteString("    model: " + q(provider.Model) + "\n")
+			}
+			if provider.ReasoningEffort != "" {
+				out.WriteString("    reasoning_effort: " + q(provider.ReasoningEffort) + "\n")
+			}
+			if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+				out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
+			}
 		}
 	}
 	if provider := config.Providers.Codex; provider != nil {

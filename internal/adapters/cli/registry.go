@@ -9,7 +9,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v11.schema.json"
+const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v12.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
 const fixedCommandSpecCount = 19

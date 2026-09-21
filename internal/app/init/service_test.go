@@ -812,7 +812,8 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode", "grok"}},
 		Overrides: Overrides{
 			ZCodeAppBundle: appBundle,
-			GrokExecutable: "/bin/grok",
+			GrokExecutable: "/bin/grok", GrokModel: "grok-4.5", GrokReasoningEffort: "high-precision",
+			GrokModelSet: true, GrokReasoningEffortSet: true,
 		},
 	})
 	if err != nil {
@@ -820,7 +821,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 	}
 	want := []DiscoveryRow{
 		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override"},
-		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override"},
+		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "override", ReasoningEffortSource: "override"},
 		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}
 	if !reflect.DeepEqual(result.Discovery, want) {
@@ -1070,7 +1071,7 @@ func (validator *recordingPrevalidator) PrevalidateInitOutcome(_ context.Context
 func admittedGrokDiscoveryRows() []DiscoveryRow {
 	grok := DiscoveryRow{
 		Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate",
-		ExecutableSource: "override",
+		ExecutableSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default",
 	}
 	return []DiscoveryRow{notSelectedDiscoveryRow("zcode"), grok, notSelectedDiscoveryRow("codex")}
 }

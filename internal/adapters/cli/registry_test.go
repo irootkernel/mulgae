@@ -8,7 +8,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const testCommandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v11.schema.json"
+const testCommandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v12.schema.json"
 
 func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 	want := []struct {

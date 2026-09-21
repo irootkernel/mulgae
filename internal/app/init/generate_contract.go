@@ -43,7 +43,7 @@ func generate() error {
 		return err
 	}
 	assets := filepath.Join(root, "internal", "builtin", "assets")
-	commandSchema := filepath.Join(assets, "schemas", "mulgae-command-result.v11.schema.json")
+	commandSchema := filepath.Join(assets, "schemas", "mulgae-command-result.v12.schema.json")
 	if err := seedCommandSchema(assets, commandSchema); err != nil {
 		return err
 	}
@@ -61,6 +61,9 @@ func generate() error {
 	if err := sanitizeCommandJSON(commandSchema); err != nil {
 		return err
 	}
+	if err := addCommandGrokPolicyOptions(commandSchema); err != nil {
+		return err
+	}
 	if err := restrictCommandPermissionModes(commandSchema); err != nil {
 		return err
 	}
@@ -68,6 +71,54 @@ func generate() error {
 		return err
 	}
 	return writeCommandExample(assets)
+}
+
+func addCommandGrokPolicyOptions(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		return err
+	}
+	definitions, ok := document["$defs"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("init contract generator: command definitions unavailable")
+	}
+	requests, ok := definitions["requests"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("init contract generator: command requests unavailable")
+	}
+	accepted, ok := requests["init_accepted"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("init contract generator: accepted init request unavailable")
+	}
+	properties, ok := accepted["properties"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("init contract generator: accepted init properties unavailable")
+	}
+	overrides, ok := properties["overrides"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("init contract generator: init overrides unavailable")
+	}
+	overrideProperties, ok := overrides["properties"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("init contract generator: init override properties unavailable")
+	}
+	overrideProperties["grok_model"] = map[string]any{
+		"type": "string", "minLength": 1, "maxLength": 128,
+		"pattern": `^(?!/)(?!.*//)(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`,
+	}
+	overrideProperties["grok_reasoning_effort"] = map[string]any{
+		"type": "string", "minLength": 1, "maxLength": 128,
+		"pattern": `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`,
+	}
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeIfChanged(filename, append(encoded, '\n'))
 }
 
 func restrictCommandPermissionModes(filename string) error {
@@ -119,19 +170,19 @@ func seedCommandSchema(assets, target string) error {
 	if err != nil {
 		return err
 	}
-	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v11"))
-	contents = bytes.ReplaceAll(contents, []byte("Mulgae Command Result v9"), []byte("Mulgae Command Result v11"))
+	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v12"))
+	contents = bytes.ReplaceAll(contents, []byte("Mulgae Command Result v9"), []byte("Mulgae Command Result v12"))
 	return writeIfChanged(target, contents)
 }
 
 func writeCommandExample(assets string) error {
 	source := filepath.Join(assets, "examples", "command-result.v9.valid.json")
-	target := filepath.Join(assets, "examples", "command-result.v11.valid.json")
+	target := filepath.Join(assets, "examples", "command-result.v12.valid.json")
 	contents, err := os.ReadFile(source)
 	if err != nil {
 		return err
 	}
-	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v11"))
+	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v12"))
 	if err := writeIfChanged(target, contents); err != nil {
 		return err
 	}

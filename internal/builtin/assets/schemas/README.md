@@ -9,6 +9,7 @@ Draft 2020-12 and a canonical
 
 | Schema | Valid example |
 |---|---|
+| `mulgae-command-result.v12` | `../examples/command-result.v12.valid.json` |
 | `mulgae-command-result.v11` | `../examples/command-result.v11.valid.json` |
 | `mulgae-command-result.v9` | `../examples/command-result.v9.valid.json` |
 | `mulgae-command-result.v10` | `../examples/command-result.v10.valid.json` |

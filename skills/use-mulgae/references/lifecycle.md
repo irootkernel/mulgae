@@ -98,7 +98,7 @@ provider family such as `zcode`.
 Run child workflows from the canonical Git worktree root. They do not discover
 an enclosing root automatically and have no common `--repo` override. A
 rejected child command with `--output json` still returns a
-`mulgae-command-result.v11` envelope. Interpret the pre-execution failures as
+`mulgae-command-result.v12` envelope. Interpret the pre-execution failures as
 follows:
 
 | Reason code | Exit | `request_state` | Next action |

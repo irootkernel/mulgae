@@ -47,7 +47,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v11.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v12.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -520,7 +520,7 @@ func TestApplicationComposeUnavailableReturnsV8ReconciliationEnvelope(t *testing
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v11" || envelope.Result["kind"] != "composite_failed" ||
+	if envelope.SchemaVersion != "mulgae-command-result.v12" || envelope.Result["kind"] != "composite_failed" ||
 		envelope.Result["root_run_id"] == nil || envelope.Result["reconciliation_state"] != "not_committed" || envelope.Result["retry_safe"] != true {
 		t.Fatalf("compose failure envelope = %#v", envelope)
 	}
@@ -1053,7 +1053,7 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	root := testAnchoredRoot(t)
 	ctx := context.Background()
-	argv := []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}
+	argv := []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--grok-model", "grok-4.5", "--grok-reasoning-effort", "high-precision", "--output", "json"}
 	if _, ok := fixture.application.writer.(ports.ConfigInstaller); !ok {
 		t.Fatal("fixture writer does not implement ConfigInstaller")
 	}
@@ -1065,6 +1065,14 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	assertFoundationEnvelope(t, fixture, first, app.ExitCodeSuccess)
 	if _, err := os.Stat(filepath.Join(root, ".mulgae", "config.yaml")); err != nil {
 		t.Fatal(err)
+	}
+	projectPolicy, err := os.ReadFile(filepath.Join(root, ".mulgae", "config.yaml"))
+	if err != nil || !bytes.Contains(projectPolicy, []byte(`model: "grok-4.5"`)) || !bytes.Contains(projectPolicy, []byte(`reasoning_effort: "high-precision"`)) {
+		t.Fatalf("configured Grok policy = %q, %v", projectPolicy, err)
+	}
+	localPolicy, err := os.ReadFile(filepath.Join(root, ".mulgae", "local.yaml"))
+	if err != nil || bytes.Contains(localPolicy, []byte("model:")) || bytes.Contains(localPolicy, []byte("reasoning_effort:")) {
+		t.Fatalf("machine-local config contains Grok policy = %q, %v", localPolicy, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".gitignore")); !os.IsNotExist(err) {
 		t.Fatalf("init mutated .gitignore or stat failed: %v", err)

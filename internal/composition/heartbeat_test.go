@@ -72,6 +72,22 @@ func TestHeartbeatBindsSyntheticQualificationLocality(t *testing.T) {
 	}
 }
 
+func TestConfiguredProviderSettingsReachSharedReviewAndHeartbeatSource(t *testing.T) {
+	source := &configuredProductionCandidateSource{config: adapterconfig.Config{Providers: adapterconfig.ProvidersConfig{
+		Grok:  &adapterconfig.GrokProviderConfig{Model: "grok-4.5", ReasoningEffort: "high-precision"},
+		Codex: &adapterconfig.CodexProviderConfig{Model: "gpt-5.3-codex", ReasoningEffort: "high"},
+	}}}
+	grokModel, grokEffort, codexModel, codexEffort := source.providerSettings()
+	if grokModel != "grok-4.5" || grokEffort != "high-precision" || codexModel != "gpt-5.3-codex" || codexEffort != "high" {
+		t.Fatalf("provider settings = %q/%q/%q/%q", grokModel, grokEffort, codexModel, codexEffort)
+	}
+	heartbeatSource := *source
+	heartbeatGrokModel, heartbeatGrokEffort, _, _ := heartbeatSource.providerSettings()
+	if heartbeatGrokModel != grokModel || heartbeatGrokEffort != grokEffort {
+		t.Fatalf("heartbeat settings = %q/%q, want %q/%q", heartbeatGrokModel, heartbeatGrokEffort, grokModel, grokEffort)
+	}
+}
+
 func TestHeartbeatFailureClassification(t *testing.T) {
 	tests := []struct {
 		class      domain.FailureClass

@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"golang.org/x/text/unicode/norm"
 	"gopkg.in/yaml.v3"
 )
@@ -473,6 +474,12 @@ func validate(config *Config) error {
 	if config.Providers.Grok != nil {
 		if !canonicalAbsolute(config.Providers.Grok.Executable) {
 			return fmt.Errorf("grok executable")
+		}
+		if model := config.Providers.Grok.Model; model != "" && !appconfig.ValidGrokModel(model) {
+			return fmt.Errorf("grok model")
+		}
+		if effort := config.Providers.Grok.ReasoningEffort; effort != "" && !appconfig.ValidGrokReasoningEffort(effort) {
+			return fmt.Errorf("grok reasoning effort")
 		}
 		timeout, err := ParseProviderTimeout(config.Providers.Grok.Timeout)
 		if err != nil {

@@ -34,26 +34,42 @@ func TestConfigV4SplitKeepsMachinePathsOutOfProjectPolicy(t *testing.T) {
 	}
 }
 
-func TestConfigV4SplitKeepsGrokExecutableMachineLocalAndTimeoutShared(t *testing.T) {
+func TestConfigV4SplitKeepsGrokExecutableMachineLocalAndPolicyShared(t *testing.T) {
 	config := validConfig()
-	config.Providers = ProvidersConfig{Grok: &GrokProviderConfig{Executable: "/opt/grok/bin/grok", Timeout: "25m"}}
+	config.Providers = ProvidersConfig{Grok: &GrokProviderConfig{Executable: "/opt/grok/bin/grok", Model: "grok-4.5", ReasoningEffort: "high-precision", Timeout: "25m"}}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
 	project, local, err := EncodeSplit(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(project, []byte(config.Providers.Grok.Executable)) || !bytes.Contains(project, []byte(`timeout: "25m"`)) {
+	if bytes.Contains(project, []byte(config.Providers.Grok.Executable)) || !bytes.Contains(project, []byte(`model: "grok-4.5"`)) || !bytes.Contains(project, []byte(`reasoning_effort: "high-precision"`)) || !bytes.Contains(project, []byte(`timeout: "25m"`)) {
 		t.Fatalf("Grok project policy authority is invalid:\n%s", project)
 	}
-	if !bytes.Contains(local, []byte(`executable: "/opt/grok/bin/grok"`)) || bytes.Contains(local, []byte("timeout:")) {
+	if !bytes.Contains(local, []byte(`executable: "/opt/grok/bin/grok"`)) || bytes.Contains(local, []byte("model:")) || bytes.Contains(local, []byte("reasoning_effort:")) || bytes.Contains(local, []byte("timeout:")) {
 		t.Fatalf("Grok machine-path authority is invalid:\n%s", local)
 	}
 	decoded, err := DecodeSplit(project, local)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Providers.Grok == nil || decoded.Providers.Grok.Executable != config.Providers.Grok.Executable || decoded.Providers.Grok.Timeout != "25m" {
+	if decoded.Providers.Grok == nil || decoded.Providers.Grok.Executable != config.Providers.Grok.Executable || decoded.Providers.Grok.Model != "grok-4.5" || decoded.Providers.Grok.ReasoningEffort != "high-precision" || decoded.Providers.Grok.Timeout != "25m" {
 		t.Fatalf("Grok split round trip = %#v", decoded.Providers.Grok)
+	}
+}
+
+func TestConfigV4SplitRejectsGrokPolicyInMachineAuthority(t *testing.T) {
+	config := validConfig()
+	config.Providers = ProvidersConfig{Grok: &GrokProviderConfig{Executable: "/opt/grok/bin/grok"}}
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
+	project, local, err := EncodeSplit(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"model: grok-4.5\n", "reasoning_effort: high\n"} {
+		candidate := bytes.Replace(local, []byte("  grok:\n    executable: "), []byte("  grok:\n    "+field+"    executable: "), 1)
+		if _, err := DecodeSplit(project, candidate); err == nil {
+			t.Fatalf("machine-local Grok policy %q was accepted", field)
+		}
 	}
 }
 

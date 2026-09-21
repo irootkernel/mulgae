@@ -139,7 +139,21 @@ mulgae init --providers grok --grok-executable "$(command -v grok)"
 mulgae providers --include-unverified
 ```
 
-Grok uses ACP v1 with its model and reasoning defaults unchanged. Mulgae copies
+Omitting model or reasoning effort preserves Grok's current provider default.
+Projects that require an exact shared policy can set either dimension
+independently during initialization:
+
+```bash
+mulgae init --providers grok \
+  --grok-executable "$(command -v grok)" \
+  --grok-model grok-4.5 \
+  --grok-reasoning-effort high
+```
+
+The values are stored only in `.mulgae/config.yaml`; the executable remains in
+untracked `.mulgae/local.yaml`. Mulgae preserves their exact spelling and
+requires Grok to acknowledge the configured selection before it sends a prompt.
+Grok uses ACP v1. Mulgae copies
 only the native Grok authentication file into a disposable home, suppresses
 project and user configuration, disables MCP servers, and installs an
 adapter-owned workspace policy. A text-role review may authorize one correlated

@@ -502,8 +502,12 @@ over stdio. Review output is accepted only from the exact staged
 session, tool-call ID, edit kind, `Write` variant, and absolute destination.
 Qualification and extraction use only correlated assistant-message chunks.
 Protocol negotiation, authentication, session completion, permission denial,
-and teardown failures retain typed provider causes. Grok uses its own model and
-reasoning defaults; the public configuration exposes no setting for either.
+and teardown failures retain typed provider causes. Optional
+`providers.grok.model` and `providers.grok.reasoning_effort` values come only
+from Git-shareable project policy. Omitted dimensions preserve Grok's provider
+defaults independently. Mulgae preserves configured spelling, binds both values
+to qualification identity, and requires exact ACP acknowledgement before any
+prompt; rejection or normalization fails closed without fallback.
 
 Codex review, extraction, and qualification use one ephemeral app-server thread
 and one turn per invocation over stdio. Mulgae sends `initialize`,
@@ -643,7 +647,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v11` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v12` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -652,7 +656,7 @@ can fail before execution. Child selector failures preserve cancellation and
 typed artifact or security exits; only an unclassified resolver failure uses
 exit `10` and `selector_resolution_failed`.
 
-Command-result v5 through v10 remain readable but are never emitted by the
+Command-result v5 through v11 remain readable but are never emitted by the
 current command surface. Other commands do not have rejected-request variants
 in v9.
 For the top-level `review` command, attributed provider execution details in v9

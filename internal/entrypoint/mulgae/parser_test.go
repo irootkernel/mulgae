@@ -136,12 +136,13 @@ func TestParseInitForms(t *testing.T) {
 		t.Fatalf("invalid Codex reasoning effort error = %v, want usage", err)
 	}
 
-	grok := mustParse(t, []string{"init", "--providers", "grok", "--grok-executable", "/opt/homebrew/bin/grok"})
+	grok := mustParse(t, []string{"init", "--providers", "grok", "--grok-executable", "/opt/homebrew/bin/grok", "--grok-model", "grok-4.5", "--grok-reasoning-effort", "high-precision"})
 	grokRequest, ok := grok.Init()
-	if !ok || grokRequest.GrokExecutable() != "/opt/homebrew/bin/grok" {
+	grokExecutable, grokModel, grokEffort, grokModelSet, grokEffortSet := grokRequest.GrokOverrides()
+	if !ok || grokExecutable != "/opt/homebrew/bin/grok" || grokModel != "grok-4.5" || grokEffort != "high-precision" || !grokModelSet || !grokEffortSet {
 		t.Fatalf("Grok init request = %#v, %t", grokRequest, ok)
 	}
-	assertRequestJSON(t, grok, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["grok"]},"roles":["logic"],"overrides":{"grok_executable":"/opt/homebrew/bin/grok"},"overwrite":false,"output_format":"human"}`)
+	assertRequestJSON(t, grok, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["grok"]},"roles":["logic"],"overrides":{"grok_executable":"/opt/homebrew/bin/grok","grok_model":"grok-4.5","grok_reasoning_effort":"high-precision"},"overwrite":false,"output_format":"human"}`)
 
 	automatic := mustParse(t, []string{"init", "--providers", "auto", "--grok-executable", "/opt/homebrew/bin/grok"})
 	automaticRequest, ok := automatic.Init()
@@ -178,6 +179,19 @@ func TestParseInitForms(t *testing.T) {
 		{"init", "--refresh-local", "--providers", "agy"},
 		{"init", "--refresh-local", "--roles", "logic,security"},
 		{"init", "--refresh-local", "--agy-permission-mode", "safe"},
+		{"init", "--refresh-local", "--grok-model", "grok-4.5"},
+		{"init", "--refresh-local", "--grok-reasoning-effort", ""},
+	} {
+		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)
+		}
+	}
+	for _, arguments := range [][]string{
+		{"init", "--providers", "zcode", "--grok-model", "grok-4.5"},
+		{"init", "--providers", "zcode", "--grok-reasoning-effort", ""},
+		{"init", "--providers", "grok", "--grok-model", ""},
+		{"init", "--providers", "grok", "--grok-model", "../grok"},
+		{"init", "--providers", "grok", "--grok-reasoning-effort", "high/precision"},
 	} {
 		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)

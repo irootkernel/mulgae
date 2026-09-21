@@ -27,7 +27,7 @@ func TestCurrentPreflightContractsRejectRetiredPermissionModes(t *testing.T) {
 
 	for _, relative := range []string{
 		"schemas/mulgae-review-preflight.v5.schema.json",
-		"schemas/mulgae-command-result.v11.schema.json",
+		"schemas/mulgae-command-result.v12.schema.json",
 	} {
 		document := readAssetJSON(t, relative)
 		modes := collectPermissionModeEnums(document)

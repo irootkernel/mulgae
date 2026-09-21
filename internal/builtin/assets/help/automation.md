@@ -1,7 +1,7 @@
 # Automation, CI, and exit codes
 
-Use `--output json` for a `mulgae-command-result.v11` envelope. Command-result
-v5 through v10 remain available for explicit backward reads; v2/v3/v4 and review-preflight
+Use `--output json` for a `mulgae-command-result.v12` envelope. Command-result
+v5 through v11 remain available for explicit backward reads; v2/v3/v4 and review-preflight
 v2 are not accepted by this revision. Process exit codes
 remain authoritative:
 
