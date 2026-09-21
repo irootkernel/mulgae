@@ -19,7 +19,9 @@ func TestLocalConfigSourceReadsConfigV2PairAndDetectsDrift(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	data, localData, _ := EncodeSplit(validConfig())
+	config := validConfig()
+	config.Providers.Grok = &GrokProviderConfig{Executable: "/usr/local/bin/grok", Model: "grok-4.7", ReasoningEffort: "high"}
+	data, localData, _ := EncodeSplit(config)
 	path := filepath.Join(rootPath, ".mulgae", "config.yaml")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
@@ -41,6 +43,10 @@ func TestLocalConfigSourceReadsConfigV2PairAndDetectsDrift(t *testing.T) {
 	}
 	if len(got) == 0 || !identity.Valid() || identity.SHA256() == "" {
 		t.Fatal("local source mismatch")
+	}
+	decoded, err := Decode(got)
+	if err != nil || decoded.Providers.Grok == nil || decoded.Providers.Grok.Model != "grok-4.7" || decoded.Providers.Grok.ReasoningEffort != "high" {
+		t.Fatalf("local source lost Grok policy: config=%#v err=%v", decoded.Providers.Grok, err)
 	}
 	if err := os.WriteFile(path, append(data, ' '), 0o600); err != nil {
 		t.Fatal(err)

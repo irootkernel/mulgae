@@ -57,7 +57,7 @@ contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a future schema version. Command-result v5 through v10
-schemas remain available for explicit backward reads while commands emit v11.
+Breaking changes require a future schema version. Command-result v5 through v11
+schemas remain available for explicit backward reads while commands emit v12.
 Published review, run-manifest, and composite v1 contracts remain readable
 alongside the v2 contracts for recovery-derived artifacts.

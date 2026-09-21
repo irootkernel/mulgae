@@ -1023,6 +1023,6 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5/v6/v7/v8/v9 schema examples remain available
-along with v10 for explicit backward validation; current CLI envelopes use v11. MCP retains its v1
+retry loop is introduced. CLI v5 through v11 schema examples remain available
+for explicit backward validation; current CLI envelopes use v12. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.

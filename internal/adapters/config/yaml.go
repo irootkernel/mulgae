@@ -727,6 +727,12 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	}
 	if provider := config.Providers.Grok; provider != nil {
 		out.WriteString("  grok:\n    executable: " + q(provider.Executable) + "\n")
+		if provider.Model != "" {
+			out.WriteString("    model: " + q(provider.Model) + "\n")
+		}
+		if provider.ReasoningEffort != "" {
+			out.WriteString("    reasoning_effort: " + q(provider.ReasoningEffort) + "\n")
+		}
 		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}

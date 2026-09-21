@@ -112,7 +112,7 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{
 		ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app", Timeout: "30m"},
-		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok", Timeout: "25m"},
+		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok", Model: "grok-4.7", ReasoningEffort: "high", Timeout: "25m"},
 		Codex: &CodexProviderConfig{Executable: "/usr/local/bin/codex", Model: "gpt-5.3-codex", ReasoningEffort: "high", Timeout: "20m"},
 	}
 	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
@@ -122,10 +122,13 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`timeout: "30m"`, `timeout: "25m"`, `timeout: "20m"`, `model: "gpt-5.3-codex"`, `reasoning_effort: "high"`} {
+	for _, field := range []string{`timeout: "30m"`, `timeout: "25m"`, `timeout: "20m"`, `model: "grok-4.7"`, `model: "gpt-5.3-codex"`} {
 		if !bytes.Contains(canonical, []byte(field)) {
 			t.Fatalf("canonical config omitted %s:\n%s", field, canonical)
 		}
+	}
+	if got := bytes.Count(canonical, []byte(`reasoning_effort: "high"`)); got != 2 {
+		t.Fatalf("canonical config reasoning effort count = %d, want 2:\n%s", got, canonical)
 	}
 	decoded, err := Decode(canonical)
 	if err != nil {

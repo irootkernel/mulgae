@@ -27,9 +27,16 @@ mulgae init --providers zcode,grok \
   --roles logic,security,maintainability,product,documentation,testing \
   --output json
 mulgae init --providers grok --roles logic,security \
-  --grok-executable /absolute/path/to/grok --output json
+  --grok-executable /absolute/path/to/grok \
+  --grok-model grok-4.7 --grok-reasoning-effort high --output json
 mulgae init --providers codex --roles logic,security --output json
 ```
+
+New projects that select Grok write `grok-4.7` and `high` when either value is
+not supplied explicitly. The two flags override those dimensions independently.
+An existing Config v4 file that omits either field continues to use Grok's
+provider default for that dimension; initialization and local refresh must not
+silently add the generated defaults to it.
 
 Add the seventh role, `artist`, only with `--project-kind ui`; artist inputs
 require the artist role. Initialization never overwrites an existing complete
