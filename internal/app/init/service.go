@@ -25,20 +25,27 @@ const (
 
 var familyOrder = []string{"zcode", "grok", "codex"}
 
+const (
+	defaultGrokModel           = "grok-4.7"
+	defaultGrokReasoningEffort = "high"
+)
+
 type Selection struct {
 	Mode        SelectionMode
 	ProviderIDs []string
 }
 type Overrides struct {
-	ZCodeAppBundle         string
-	GrokExecutable         string
-	GrokModel              string
-	GrokReasoningEffort    string
-	GrokModelSet           bool
-	GrokReasoningEffortSet bool
-	CodexExecutable        string
-	CodexModel             string
-	CodexReasoningEffort   string
+	ZCodeAppBundle               string
+	GrokExecutable               string
+	GrokModel                    string
+	GrokReasoningEffort          string
+	GrokModelSet                 bool
+	GrokReasoningEffortSet       bool
+	GrokModelDefaulted           bool
+	GrokReasoningEffortDefaulted bool
+	CodexExecutable              string
+	CodexModel                   string
+	CodexReasoningEffort         string
 }
 type InitializeProjectRequest struct {
 	ProjectRoot           ports.AnchoredRoot
@@ -235,6 +242,9 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	selected, err = validateSelection(request.Selection, request.Overrides)
 	if err != nil {
 		return result, newFailure(domain.FailureConfiguration, "init_selection_invalid", false, err)
+	}
+	if !projectPresent && contains(selected, "grok") {
+		request.Overrides = withDefaultGrokPolicy(request.Overrides)
 	}
 	result.SelectedProviderIDs = append([]string{}, selected...)
 	result.DestinationState = ports.ConfigDestinationAbsent
@@ -561,11 +571,15 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				}
 			}
 			row.ModelSource = "provider_default"
-			if request.Overrides.GrokModelSet || request.Overrides.GrokModel != "" {
+			if request.Overrides.GrokModelDefaulted {
+				row.ModelSource = "mulgae_default"
+			} else if request.Overrides.GrokModelSet || request.Overrides.GrokModel != "" {
 				row.ModelSource = "override"
 			}
 			row.ReasoningEffortSource = "provider_default"
-			if request.Overrides.GrokReasoningEffortSet || request.Overrides.GrokReasoningEffort != "" {
+			if request.Overrides.GrokReasoningEffortDefaulted {
+				row.ReasoningEffortSource = "mulgae_default"
+			} else if request.Overrides.GrokReasoningEffortSet || request.Overrides.GrokReasoningEffort != "" {
 				row.ReasoningEffortSource = "override"
 			}
 			if executable != "" {
@@ -620,6 +634,18 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 		}
 	}
 	return found, rows, nil
+}
+
+func withDefaultGrokPolicy(overrides Overrides) Overrides {
+	if !overrides.GrokModelSet && overrides.GrokModel == "" {
+		overrides.GrokModel = defaultGrokModel
+		overrides.GrokModelDefaulted = true
+	}
+	if !overrides.GrokReasoningEffortSet && overrides.GrokReasoningEffort == "" {
+		overrides.GrokReasoningEffort = defaultGrokReasoningEffort
+		overrides.GrokReasoningEffortDefaulted = true
+	}
+	return overrides
 }
 
 func notSelectedDiscoveryRow(family string) DiscoveryRow {

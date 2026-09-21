@@ -114,6 +114,12 @@ role-to-provider assignment and artist input defaults that `mulgae init` writes.
 That is a generation-time default only: once the shared file exists, its policy
 is never re-derived from embedded bytes.
 
+For a new project that selects Grok, init writes `grok-4.7` and `high` as the
+project-owned model and reasoning-effort policy unless that dimension has an
+explicit init override. This generation-time default does not reinterpret an
+existing Config v4 file: an absent field there continues to select Grok's
+provider default independently.
+
 See the complete shared
 [`project-config.yaml`](../../internal/builtin/assets/examples/project-config.yaml)
 and machine-local
@@ -505,8 +511,10 @@ Protocol negotiation, authentication, session completion, permission denial,
 and teardown failures retain typed provider causes. Optional
 `providers.grok.model` and `providers.grok.reasoning_effort` values come only
 from Git-shareable project policy. Omitted dimensions preserve Grok's provider
-defaults independently. Mulgae preserves configured spelling, binds both values
-to qualification identity, and requires exact ACP acknowledgement before any
+defaults independently in an existing Config v4 file. New initialization writes
+`grok-4.7` and `high` unless the corresponding dimension is explicitly
+overridden. Mulgae preserves configured spelling, binds both values to
+qualification identity, and requires exact ACP acknowledgement before any
 prompt; rejection or normalization fails closed without fallback.
 
 Codex review, extraction, and qualification use one ephemeral app-server thread
@@ -850,6 +858,11 @@ through the ACP conversation: after `session/new`, Mulgae sends
 `_meta.reasoningEffort`. Omitting a setting leaves that dimension at the
 provider default; an effort-only request reuses the current model reported by
 `session/new` without guessing or persisting it.
+
+Grok CLI 1.0.40 also acknowledges the `grok-4.7` model with `high` reasoning
+effort exactly before prompting. Mulgae uses that pair only as the policy written
+for newly initialized projects; existing Config v4 omission retains the generic
+provider-default behavior above.
 
 Mulgae does not send `session/prompt` until the `session/set_model` result and
 the following `config_option_update` confirm the requested model and reasoning

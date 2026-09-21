@@ -177,6 +177,8 @@ say that no provider ever holds it.
   extraction receive no write authority. Grok is admitted only for text roles.
   Optional model and reasoning-effort values are admitted only from shared
   project policy, never from machine-local config or ambient provider config.
+  New initialization writes the Mulgae-owned `grok-4.7` and `high` defaults into
+  that shared authority instead of injecting them later at runtime.
   The adapter requires exact ACP acknowledgement before prompting and does not
   substitute a model or effort when Grok rejects or normalizes the request.
 - Codex launches one stdio app-server process and one ephemeral thread per

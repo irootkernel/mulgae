@@ -532,6 +532,53 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 				t.Fatalf("mask %d %s timeout=%q", mask, family, timeout)
 			}
 		}
+		if decoded.Providers.Grok != nil && (decoded.Providers.Grok.Model != defaultGrokModel || decoded.Providers.Grok.ReasoningEffort != defaultGrokReasoningEffort) {
+			t.Fatalf("mask %d Grok defaults=%#v", mask, decoded.Providers.Grok)
+		}
+	}
+}
+
+func TestInitializeProjectDefaultsNewGrokPolicyIndependently(t *testing.T) {
+	tests := []struct {
+		name         string
+		overrides    Overrides
+		wantModel    string
+		wantEffort   string
+		modelSource  string
+		effortSource string
+	}{
+		{name: "both defaults", overrides: Overrides{GrokExecutable: "/bin/grok"}, wantModel: defaultGrokModel, wantEffort: defaultGrokReasoningEffort, modelSource: "mulgae_default", effortSource: "mulgae_default"},
+		{name: "model override", overrides: Overrides{GrokExecutable: "/bin/grok", GrokModel: "custom-model", GrokModelSet: true}, wantModel: "custom-model", wantEffort: defaultGrokReasoningEffort, modelSource: "override", effortSource: "mulgae_default"},
+		{name: "effort override", overrides: Overrides{GrokExecutable: "/bin/grok", GrokReasoningEffort: "low", GrokReasoningEffortSet: true}, wantModel: defaultGrokModel, wantEffort: "low", modelSource: "mulgae_default", effortSource: "override"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			_ = os.Chmod(rootPath, 0o700)
+			root, _ := ports.NewAnchoredRoot(rootPath)
+			service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
+				ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
+				Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}}, Overrides: test.overrides,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			config, err := readInstalledConfig(rootPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config.Providers.Grok.Model != test.wantModel || config.Providers.Grok.ReasoningEffort != test.wantEffort {
+				t.Fatalf("Grok policy=%#v", config.Providers.Grok)
+			}
+			row := result.Discovery[1]
+			if row.ModelSource != test.modelSource || row.ReasoningEffortSource != test.effortSource {
+				t.Fatalf("Grok provenance=%#v", row)
+			}
+		})
 	}
 }
 
@@ -781,6 +828,9 @@ func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T)
 	}
 	if current, _ := os.ReadFile(projectPath); !bytes.Equal(current, project) {
 		t.Fatal("bootstrap changed project policy")
+	}
+	if result.Discovery[1].ModelSource != "provider_default" || result.Discovery[1].ReasoningEffortSource != "provider_default" {
+		t.Fatalf("existing project Grok provenance=%#v", result.Discovery[1])
 	}
 	request.RefreshLocal = true
 	request.Overrides.GrokExecutable = "/opt/grok"

@@ -78,7 +78,7 @@ func TestLiveGrokACPSmoke(t *testing.T) {
 
 func TestLiveGrokACPConfiguredSelectionContract(t *testing.T) {
 	t.Run("applies exact model and effort", func(t *testing.T) {
-		driver, observation, err := runLiveGrokConfiguredSelection(t, grokInvocationSettings{model: "grok-4.5", reasoningEffort: "low"})
+		driver, observation, err := runLiveGrokConfiguredSelection(t, grokInvocationSettings{model: "grok-4.7", reasoningEffort: "high"})
 		if err != nil {
 			t.Fatalf("configured Grok ACP conversation: %v (stderr=%s)", err, observation.Stderr())
 		}

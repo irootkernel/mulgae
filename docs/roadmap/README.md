@@ -168,15 +168,17 @@ Status: Completed
 
 Goal: allow projects to select one Git-shareable Grok model and reasoning
 effort for every Grok role and invocation purpose, preserve provider defaults
-when either setting is omitted, and fail closed without automatic model or
-provider substitution.
+for omitted fields in existing configurations, and fail closed without
+automatic model or provider substitution.
 
 Design decisions accepted at design time: model and reasoning effort are
-optional provider-wide Config v4 settings. Mulgae validates their syntax and
-Grok owns their supported meanings. Role-level overrides, a Mulgae-owned model
-or reasoning-effort catalog, and a general provider-configuration framework are
-out of scope. Existing role routing, invocation budgets, and provider security
-boundaries remain unchanged.
+optional provider-wide Config v4 settings. New initialization writes the
+Mulgae-owned `grok-4.7` and `high` generation defaults, while existing Config v4
+omission retains provider-default behavior. Mulgae validates syntax and Grok
+owns supported meanings beyond that pinned pair. Role-level overrides, a
+general provider model catalog, and a general provider-configuration framework
+are out of scope. Existing role routing, invocation budgets, and provider
+security boundaries remain unchanged.
 
 ### Configuration contract
 
@@ -185,15 +187,20 @@ boundaries remain unchanged.
 | Project policy | Store optional `providers.grok.model` and `providers.grok.reasoning_effort` only in `.mulgae/config.yaml`. Reject these fields in `.mulgae/local.yaml`; executable paths remain machine-local. |
 | Init flags | Expose `--grok-model` and `--grok-reasoning-effort`. Automatic initialization includes Grok and may accept them. Explicit provider selection excluding Grok must reject either flag. |
 | Local refresh | Reject either flag with `init --refresh-local`, including an explicitly empty value. Local refresh must preserve existing project-policy bytes and configured settings. |
-| Omission | Each absent field independently selects that setting's provider default in Mulgae's existing isolated Grok execution. Do not import the operator's ambient Grok configuration or persist a guessed default. |
+| Omission | New project initialization writes `grok-4.7` and `high` for dimensions without an explicit override. Each absent field in an existing Config v4 file independently selects the provider default. Never import the operator's ambient Grok configuration. |
 | Explicit values | Reject empty strings, YAML nulls, non-string YAML values, whitespace, and control characters. Preserve accepted spelling without trimming or case folding. Remove a project field to restore its default. |
 | Safe tokens | Models use the existing `validModel` grammar: 1–128 ASCII characters, an alphanumeric first character, then alphanumerics or `._/-`, with no absolute path, `//`, or `..` path segment. Effort uses 1–128 ASCII characters, an alphanumeric first character, then alphanumerics or `._-`. These are syntax rules, not supported-value catalogs. |
-| Init provenance | Extend the Grok discovery row with `model_source` and `reasoning_effort_source`, independently set to `override`, `provider_default`, or `not_selected` using the existing init contract conventions. Init validates syntax and records policy; it does not certify provider acceptance or add an implicit live request. |
+| Init provenance | The Grok discovery row reports each model and effort source independently as `override`, `mulgae_default`, `provider_default`, or `not_selected`. Init validates syntax and records policy; it does not certify provider acceptance or add an implicit live request. |
 
 Existing Config v4 files without these fields must retain their behavior.
 CLI, application admission, YAML decoding, and machine-result contracts must
 agree on these rules. Adding Grok settings must not relax Codex's existing
 model, reasoning-effort, credential-profile, or validation behavior.
+
+After the epic completed, the v0.1.23 release pinned new-project generation to
+`grok-4.7` with `high` effort after Grok CLI 1.0.40 acknowledged both settings
+exactly before prompting. This did not change the omission semantics of an
+already configured project.
 
 ### Provider-contract gate
 

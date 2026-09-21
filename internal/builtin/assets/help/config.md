@@ -44,10 +44,12 @@ available. It assigns every default role to ZCode. Select any supported family
 explicitly to choose a different portfolio. Grok accepts a
 machine-local `--grok-executable` override and an optional shared-policy
 `providers.grok.timeout`. `--grok-model` and `--grok-reasoning-effort` record
-optional project-policy values; automatic initialization may also accept these
-two flags. Explicit provider selection that excludes Grok rejects either flag,
+project-policy values; automatic initialization may also accept these two
+flags. New projects write `grok-4.7` and `high` when the corresponding flag is
+omitted. Explicit provider selection that excludes Grok rejects either flag,
 and `init --refresh-local` rejects them even when the supplied value is empty.
-Omitting either dimension independently preserves the provider default.
+An existing Config v4 file that omits either dimension independently preserves
+the provider default.
 
 ZCode uses the standard `/Applications/ZCode.app` bundle by default. An app
 installed elsewhere accepts the machine-local `--zcode-app-bundle` override.
@@ -117,7 +119,7 @@ a provider-owned catalog. For example:
 ```yaml
 providers:
   grok:
-    model: "grok-4.5"
+    model: "grok-4.7"
     reasoning_effort: "high"
 ```
 

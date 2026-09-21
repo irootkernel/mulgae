@@ -759,6 +759,7 @@
         "model_source": {
           "enum": [
             "override",
+            "mulgae_default",
             "provider_default",
             "not_selected"
           ]
@@ -772,6 +773,7 @@
         "reasoning_effort_source": {
           "enum": [
             "override",
+            "mulgae_default",
             "provider_default",
             "not_selected"
           ]

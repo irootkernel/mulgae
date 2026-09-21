@@ -139,8 +139,8 @@ mulgae init --providers grok --grok-executable "$(command -v grok)"
 mulgae providers --include-unverified
 ```
 
-Omitting model or reasoning effort preserves Grok's current provider default.
-Projects that require an exact shared policy can set either dimension
+New projects default Grok to `grok-4.7` with `high` reasoning effort and record
+both values in Git-shareable policy. Either dimension can be overridden
 independently during initialization:
 
 ```bash
@@ -153,6 +153,9 @@ mulgae init --providers grok \
 The values are stored only in `.mulgae/config.yaml`; the executable remains in
 untracked `.mulgae/local.yaml`. Mulgae preserves their exact spelling and
 requires Grok to acknowledge the configured selection before it sends a prompt.
+Existing Config v4 projects that omit either field continue to use Grok's
+provider default for that dimension; removing a generated field restores that
+behavior.
 Grok uses ACP v1. Mulgae copies
 only the native Grok authentication file into a disposable home, suppresses
 project and user configuration, disables MCP servers, and installs an

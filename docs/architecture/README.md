@@ -219,6 +219,9 @@ contains private machine paths, while the remaining `.mulgae/` tree contains
 durable review state. Temporary provider workspaces and namespaces live outside
 the project and are removed after use. Grok model and reasoning-effort policy
 belongs only to the shared file; its executable belongs only to the local file.
+For a new project, init writes `grok-4.7` and `high` unless explicitly
+overridden. It never re-derives an existing shared policy, so an omitted field in
+an existing Config v4 file retains provider-default behavior.
 Production composition resolves the shared values once into the Grok runtime
 template used by review, retry, repair, extraction, qualification, and
 heartbeat paths.
