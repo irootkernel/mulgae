@@ -25,7 +25,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-003](#epic-003-zcode-app-server-provider-transport) | Completed | Drive ZCode review and qualification through the ZCode app-server wire protocol instead of one-shot print invocations. |
 | [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | Completed | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
-| [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Planned | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
+| [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 
 ## EPIC-001: Token-efficient review waiting
 
@@ -164,7 +164,7 @@ capability probe and two-profile exact-binary review before acceptance.
 
 ## EPIC-006: Configurable Grok model and reasoning policy
 
-Status: Planned
+Status: Completed
 
 Goal: allow projects to select one Git-shareable Grok model and reasoning
 effort for every Grok role and invocation purpose, preserve provider defaults
