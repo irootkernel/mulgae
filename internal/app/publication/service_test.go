@@ -169,7 +169,7 @@ func TestRunSupportContractAcceptsOnlyCanonicalRuntimeInventoryPaths(t *testing.
 	}
 }
 
-func TestPublicationSourceSizedSupportPathsUseCanonicalKindPolicy(t *testing.T) {
+func TestPublicationVariableSizedSupportPathsUseCanonicalKindPolicy(t *testing.T) {
 	t.Parallel()
 	candidate := publicationTestCandidate(t, false)
 	base := candidate.sessionID.String() + "/" + candidate.runID.String() + "/"
@@ -185,6 +185,8 @@ func TestPublicationSourceSizedSupportPathsUseCanonicalKindPolicy(t *testing.T) 
 		{base + "inputs/artist-brief.md", true},
 		{base + "inputs/artist-visual-assets.json", true},
 		{base + "prompts/" + attemptID + "/001-initial.stdin", true},
+		{base + "attempts/" + attemptID + "/invocations/001-initial/stdout.raw", true},
+		{base + "attempts/" + attemptID + "/invocations/001-initial/stderr.raw", true},
 		{base + "support/index.json", true},
 		{base + "prompts/" + attemptID + "/001-initial.manifest.json", false},
 		{base + "role-reports/logic.md", false},
@@ -194,8 +196,8 @@ func TestPublicationSourceSizedSupportPathsUseCanonicalKindPolicy(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := publicationSourceSizedSupportPath(path); got != test.want {
-			t.Fatalf("publicationSourceSizedSupportPath(%q) = %t, want %t", test.path, got, test.want)
+		if got := publicationVariableSizedSupportPath(path); got != test.want {
+			t.Fatalf("publicationVariableSizedSupportPath(%q) = %t, want %t", test.path, got, test.want)
 		}
 	}
 }

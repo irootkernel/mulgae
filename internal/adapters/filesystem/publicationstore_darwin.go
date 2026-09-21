@@ -477,7 +477,7 @@ func authorizedUnscannedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
 }
 
 func variableSizedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
-	return kind.IsSourceSized() || kind == ports.RunSupportArtifactRoleReport
+	return kind.IsVariableSized() || kind == ports.RunSupportArtifactRoleReport
 }
 
 func (store *PublicationStore) ReadAuxiliaryArtifact(ctx context.Context, request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {

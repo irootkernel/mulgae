@@ -1097,9 +1097,11 @@ func TestClassifyRunSupportArtifactPathRequiresCanonicalSupportIndex(t *testing.
 	}
 }
 
-func TestRunSupportArtifactKindSourceSizedPolicy(t *testing.T) {
+func TestRunSupportArtifactKindVariableSizedPolicy(t *testing.T) {
 	t.Parallel()
-	sourceSized := map[RunSupportArtifactKind]bool{
+	variableSized := map[RunSupportArtifactKind]bool{
+		RunSupportArtifactInvocationStdout: true,
+		RunSupportArtifactInvocationStderr: true,
 		RunSupportArtifactTargetBytes:      true,
 		RunSupportArtifactTargetManifest:   true,
 		RunSupportArtifactCapturedArchive:  true,
@@ -1132,8 +1134,8 @@ func TestRunSupportArtifactKindSourceSizedPolicy(t *testing.T) {
 		RunSupportArtifactRecoveryManifest,
 		RunSupportArtifactRecoveryBlob,
 	} {
-		if got, want := kind.IsSourceSized(), sourceSized[kind]; got != want {
-			t.Fatalf("%q IsSourceSized() = %t, want %t", kind, got, want)
+		if got, want := kind.IsVariableSized(), variableSized[kind]; got != want {
+			t.Fatalf("%q IsVariableSized() = %t, want %t", kind, got, want)
 		}
 	}
 }

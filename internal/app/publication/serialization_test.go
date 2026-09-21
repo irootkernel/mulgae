@@ -461,6 +461,27 @@ func TestPublicationBundleAcceptsDeduplicatedLargeCapture(t *testing.T) {
 	}
 }
 
+func TestPublicationBundleAcceptsLargeProviderStreams(t *testing.T) {
+	t.Parallel()
+	candidate := publicationRuntimeCandidate(t)
+	invocation := &candidate.roles[0].attempts[0].invocations[0]
+	largeStream := bytes.Repeat([]byte("provider output\n"), 600_000)
+	if int64(len(largeStream)) <= ports.PublicationStructuredMemberMaxBytes {
+		t.Fatal("provider stream fixture does not exceed the structured member limit")
+	}
+	invocation.artifacts = append(invocation.artifacts,
+		preparedAttemptArtifact{kind: ports.AttemptArtifactStdout, bytes: largeStream},
+		preparedAttemptArtifact{kind: ports.AttemptArtifactStderr, bytes: largeStream},
+	)
+	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePublicationBundleSize(bundle, ports.PublicationStructuredMemberMaxBytes); err != nil {
+		t.Fatalf("provider streams were capped as structured members: %v", err)
+	}
+}
+
 func TestRuntimeArtifactsPersistAndBindArtistInputs(t *testing.T) {
 	t.Parallel()
 	candidate := publicationRuntimeCandidate(t)

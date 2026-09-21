@@ -581,12 +581,12 @@ func (kind RunSupportArtifactKind) Valid() bool {
 	}
 }
 
-// IsSourceSized reports whether the artifact stores source input or metadata
-// whose size is determined by the captured source rather than by a structured
-// publication-control limit.
-func (kind RunSupportArtifactKind) IsSourceSized() bool {
+// IsVariableSized reports whether the artifact stores source or provider
+// content that is not subject to a structured publication-control limit.
+func (kind RunSupportArtifactKind) IsVariableSized() bool {
 	switch kind {
-	case RunSupportArtifactRecoveryBlob, RunSupportArtifactTargetBytes,
+	case RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
+		RunSupportArtifactRecoveryBlob, RunSupportArtifactTargetBytes,
 		RunSupportArtifactTargetManifest,
 		RunSupportArtifactCapturedArchive,
 		RunSupportArtifactCapturedBlob,

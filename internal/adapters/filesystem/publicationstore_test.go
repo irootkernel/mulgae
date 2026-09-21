@@ -370,25 +370,31 @@ func TestPublicationStoreAllowsOnlyVariableSizedRunSupportAboveFixedLimit(t *tes
 	fixture := newPublicationStoreFixture(t)
 	payload := bytes.Repeat([]byte("s"), int(publicationMaximumReadBytes)+1)
 	base := fixture.run.SessionID().String() + "/" + fixture.run.RunID().String() + "/"
-
-	sourcePath := mustRelativePath(t, base+"support/index.json")
-	source, err := ports.NewImmutablePublicationArtifact(sourcePath, publicationSHA256(payload), payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	persistSource, err := ports.NewPersistRunSupportArtifactRequest(fixture.run, source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fixture.store.PersistAuxiliaryArtifact(context.Background(), persistSource); err != nil {
-		t.Fatalf("source-sized support artifact was capped: %v", err)
-	}
-	readSource, err := ports.NewReadRunSupportArtifactRequest(fixture.run, sourcePath, source.SHA256(), int64(len(payload)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observed, err := fixture.store.ReadAuxiliaryArtifact(context.Background(), readSource); err != nil || !bytes.Equal(observed.Bytes(), payload) {
-		t.Fatalf("source-sized support artifact reread = %d bytes, %v", len(observed.Bytes()), err)
+	attemptID := "a_019f596a-d048-79e7-b2b7-59822f012273"
+	for _, relative := range []string{
+		"support/index.json",
+		"attempts/" + attemptID + "/invocations/001-initial/stdout.raw",
+		"attempts/" + attemptID + "/invocations/001-initial/stderr.raw",
+	} {
+		path := mustRelativePath(t, base+relative)
+		artifact, err := ports.NewImmutablePublicationArtifact(path, publicationSHA256(payload), payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		persist, err := ports.NewPersistRunSupportArtifactRequest(fixture.run, artifact)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.store.PersistAuxiliaryArtifact(context.Background(), persist); err != nil {
+			t.Fatalf("variable-sized support artifact %q was capped: %v", relative, err)
+		}
+		read, err := ports.NewReadRunSupportArtifactRequest(fixture.run, path, artifact.SHA256(), int64(len(payload)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if observed, err := fixture.store.ReadAuxiliaryArtifact(context.Background(), read); err != nil || !bytes.Equal(observed.Bytes(), payload) {
+			t.Fatalf("variable-sized support artifact %q reread = %d bytes, %v", relative, len(observed.Bytes()), err)
+		}
 	}
 
 	controlPath := mustRelativePath(t, base+"excerpts/F001.json")

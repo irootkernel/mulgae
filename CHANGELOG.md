@@ -11,6 +11,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Preserve complete provider stdout and stderr larger than 8 MiB as variable-sized publication support instead of rejecting an otherwise valid review.
 - Tolerate additive ZCode telemetry notifications with provider-owned payload shapes during app-server reviews.
 - Distinguish malformed recognized ZCode protocol events with the public `provider_protocol_event_decode_failed` reason.
 

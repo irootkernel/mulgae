@@ -1274,7 +1274,7 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		}
 		seen[path.String()] = struct{}{}
 		readMaximum := service.maxBytes
-		if publicationSourceSizedSupportPath(path) {
+		if publicationVariableSizedSupportPath(path) {
 			readMaximum = math.MaxInt64 - 1
 		}
 		if reportLength := roleReportLengths[path.String()]; reportLength > readMaximum {
@@ -1786,7 +1786,7 @@ func validatePublicationBundleSize(bundle PublicationBundle, maximum int64) erro
 		{name: "status", bytes: bundle.Status().Bytes()},
 	}
 	for index, excerpt := range bundle.Excerpts() {
-		if publicationRoleReportPath(excerpt.Path()) || publicationSourceSizedSupportPath(excerpt.Path()) {
+		if publicationRoleReportPath(excerpt.Path()) || publicationVariableSizedSupportPath(excerpt.Path()) {
 			continue
 		}
 		members = append(members, struct {
@@ -1805,9 +1805,9 @@ func validatePublicationBundleSize(bundle PublicationBundle, maximum int64) erro
 	return nil
 }
 
-func publicationSourceSizedSupportPath(path ports.SafeRelativePath) bool {
+func publicationVariableSizedSupportPath(path ports.SafeRelativePath) bool {
 	kind, ok := publicationSupportArtifactKind(path)
-	return ok && kind.IsSourceSized()
+	return ok && kind.IsVariableSized()
 }
 
 func publicationSupportArtifactKind(path ports.SafeRelativePath) (ports.RunSupportArtifactKind, bool) {
