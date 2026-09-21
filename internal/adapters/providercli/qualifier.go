@@ -276,6 +276,9 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.TransportReference() != right.TransportReference() {
 		return false
 	}
+	if left.grokModel != right.grokModel || left.grokReasoningEffort != right.grokReasoningEffort || left.grokSettingsIdentity != right.grokSettingsIdentity {
+		return false
+	}
 	if left.Family() == FamilyCodex {
 		leftNamed := left.ProfileID() != left.Instance()
 		rightNamed := right.ProfileID() != right.Instance()
@@ -498,7 +501,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, root.Path(), binding, timeout)
 		}
 		if requestErr == nil {
-			configuration, configurationErr := protocolConfigurationForNamespace(definition.family, namespace)
+			configuration, configurationErr := protocolConfigurationForNamespace(definition.family, definition.grokModel, definition.grokReasoningEffort, namespace)
 			if configurationErr != nil {
 				return ports.ProcessObservation{}, nil, configurationErr
 			}
@@ -709,6 +712,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		Launcher, LauncherSHA256, ApplicationVersion, ApplicationMetadata         string
 		ApplicationMetadataSHA256, ZCodeProviderConfig, ZCodeProviderConfigSHA256 string
 		ProfileGeneration, RuntimeSafetyPolicyIdentity, ProfileID                 string
+		GrokModel, GrokReasoningEffort, GrokSettingsIdentity                      string
 		BaseArgv, Environment                                                     []string
 		TransportChannel, TransportReference                                      string
 		TransportArgvIndex                                                        int
@@ -728,7 +732,9 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		ZCodeProviderConfig:       definition.zcodeProviderConfig, ZCodeProviderConfigSHA256: definition.zcodeProviderConfigSHA256,
 		ProfileGeneration: definition.profileGeneration, RuntimeSafetyPolicyIdentity: definition.runtimeSafetyPolicyIdentity,
 		ProfileID: definition.profileID,
-		BaseArgv:  append([]string(nil), definition.baseArgv...), Environment: environmentValues,
+		GrokModel: definition.grokModel, GrokReasoningEffort: definition.grokReasoningEffort,
+		GrokSettingsIdentity: definition.grokSettingsIdentity,
+		BaseArgv:             append([]string(nil), definition.baseArgv...), Environment: environmentValues,
 		TransportChannel: string(definition.transport.channel), TransportReference: definition.transport.reference,
 		TransportArgvIndex: definition.transport.argvIndex, WorkingDirectory: definition.workingDirectory,
 		TimeoutNanoseconds: definition.timeout.Nanoseconds(), HasPostOutputLifecycle: hasLifecycle,

@@ -81,6 +81,13 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	definition.applicationVersion = spec.ApplicationVersion
 	definition.applicationMetadata = spec.ApplicationMetadata
 	definition.applicationMetadataSHA256 = spec.ApplicationMetadataSHA256
+	if spec.Family == FamilyGrok {
+		definition.grokModel = spec.GrokModel
+		definition.grokReasoningEffort = spec.GrokReasoningEffort
+		definition.grokSettingsIdentity = grokSettingsIdentity(spec.GrokModel, spec.GrokReasoningEffort)
+	} else if spec.GrokModel != "" || spec.GrokReasoningEffort != "" {
+		return nil, fmt.Errorf("provider runtime builder: Grok settings are bound to another family")
+	}
 	if err := definition.validate(); err != nil {
 		return nil, fmt.Errorf("provider runtime builder: %w", err)
 	}

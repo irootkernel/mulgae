@@ -4,6 +4,10 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.23 - Unreleased
 
+### Changed
+
+- Require Grok CLI 1.0.34 or newer and bind configured model and reasoning effort to ACP sessions and qualification identity, failing before prompting when Grok rejects or normalizes the requested policy.
+
 ### Fixed
 
 - Tolerate additive ZCode telemetry notifications with provider-owned payload shapes during app-server reviews.

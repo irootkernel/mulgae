@@ -39,14 +39,19 @@ type providerProtocolDriverConstructor interface {
 
 type protocolSessionConfiguration struct {
 	zcodeSelection *zcodeModelSelection
+	grokSettings   grokInvocationSettings
 }
 
 type zcodeSessionSelectionAuthority interface {
 	zcodeSessionSelection() *zcodeModelSelection
 }
 
-func protocolConfigurationForNamespace(family string, namespace any) (protocolSessionConfiguration, error) {
-	configuration := protocolSessionConfiguration{}
+func protocolConfigurationForNamespace(family, grokModel, grokReasoningEffort string, namespace any) (protocolSessionConfiguration, error) {
+	configuration := protocolSessionConfiguration{
+		grokSettings: grokInvocationSettings{
+			model: grokModel, reasoningEffort: grokReasoningEffort,
+		},
+	}
 	if family != FamilyZcode {
 		return configuration, nil
 	}
@@ -78,8 +83,8 @@ func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 
 type grokACPProtocolDriverConstructor struct{}
 
-func (grokACPProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, _ protocolSessionConfiguration) (providerProtocolSession, error) {
-	return newGrokACPProtocolSession(workspacePath, prompt, purpose, writeAuthority)
+func (grokACPProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
+	return newGrokACPProtocolSession(workspacePath, prompt, purpose, writeAuthority, configuration.grokSettings)
 }
 
 type codexProtocolDriverConstructor struct{}

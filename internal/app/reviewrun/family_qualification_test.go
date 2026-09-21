@@ -295,6 +295,16 @@ func TestGrokInstancesShareEquivalentFamilyProfileKey(t *testing.T) {
 	}
 }
 
+func TestGrokSettingsPartitionFamilyQualification(t *testing.T) {
+	providerDefault := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
+	configured := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleSecurity), func(d *testRuntimeMutation) {
+		d.grokSettingsIdentity = "sha256:" + strings.Repeat("c", 64)
+	})
+	if familyRuntimeProfileKeyFor(providerDefault.Definition) == familyRuntimeProfileKeyFor(configured.Definition) {
+		t.Fatal("different Grok settings shared qualification key")
+	}
+}
+
 func TestCodexCredentialProfilesPartitionFamilyQualification(t *testing.T) {
 	logic := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic), func(d *testRuntimeMutation) {
 		d.family, d.instance, d.profileID = string(FamilyCodex), "codex-personal-logic", "codex-personal"
@@ -318,7 +328,7 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 	instance := string(family) + "-" + string(role)
 	// Sibling role routes must share capability-relevant runtime fields, including
 	// working directory, so family-profile deduplication can be exercised.
-	version := "1.0.30"
+	version := "1.0.34"
 	if familyGuidance, ok := Guidance(family); ok {
 		version = familyGuidance.VerifiedLatest
 	}
@@ -359,6 +369,7 @@ type testRuntimeMutation struct {
 	profileGeneration           string
 	profileID                   string
 	runtimeSafetyPolicyIdentity string
+	grokSettingsIdentity        string
 	baseArgv                    []string
 	transportChannel            ports.ProviderPacketChannel
 	transportArgvIndex          int
@@ -385,6 +396,7 @@ func (d testRuntimeMutation) ProfileGeneration() string         { return d.profi
 func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
+func (d testRuntimeMutation) GrokSettingsIdentity() string { return d.grokSettingsIdentity }
 func (d testRuntimeMutation) ProfileID() string {
 	if d.profileID != "" {
 		return d.profileID
@@ -417,8 +429,9 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 		zcodeProviderConfig: definition.ZCodeProviderConfig(), zcodeProviderConfigSHA256: definition.ZCodeProviderConfigSHA256(),
 		applicationVersion: definition.ApplicationVersion(), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 		profileGeneration: definition.ProfileGeneration(), profileID: definition.ProfileID(), runtimeSafetyPolicyIdentity: definition.RuntimeSafetyPolicyIdentity(),
-		baseArgv:         append([]string(nil), definition.BaseArgv()...),
-		transportChannel: definition.TransportChannel(), transportArgvIndex: definition.TransportArgvIndex(),
+		grokSettingsIdentity: definition.GrokSettingsIdentity(),
+		baseArgv:             append([]string(nil), definition.BaseArgv()...),
+		transportChannel:     definition.TransportChannel(), transportArgvIndex: definition.TransportArgvIndex(),
 		transportReference: definition.TransportReference(), environment: append([]ports.EnvironmentVariable(nil), definition.Environment()...),
 		workingDirectory: definition.WorkingDirectory(), hasLifecycle: hasLifecycle, lifecycle: lifecycle,
 	}
@@ -468,7 +481,7 @@ func syntheticFamilyQualificationResult(t *testing.T, request CurrentQualificati
 	t.Helper()
 	version := request.Definition.Version()
 	if version == "" {
-		version = "1.0.30"
+		version = "1.0.34"
 	}
 	identity := request.Identity
 	identity.Version = version

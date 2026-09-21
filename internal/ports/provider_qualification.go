@@ -25,6 +25,7 @@ type ProviderRuntimeDefinition interface {
 	ApplicationMetadataSHA256() string
 	ProfileGeneration() string
 	RuntimeSafetyPolicyIdentity() string
+	GrokSettingsIdentity() string
 	ProfileID() string
 	BaseArgv() []string
 	Environment() []EnvironmentVariable
@@ -57,6 +58,8 @@ type ProviderRuntimeSpec struct {
 	RuntimeSafetyPolicyIdentity string
 	CodexModel                  string
 	CodexReasoningEffort        string
+	GrokModel                   string
+	GrokReasoningEffort         string
 	BaseArgv                    []string
 	TransportChannel            ProviderPacketChannel
 	TransportArgvIndex          int

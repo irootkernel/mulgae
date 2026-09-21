@@ -250,6 +250,36 @@ func TestProductionCandidatesBindConfiguredCodexRuntimeSettings(t *testing.T) {
 	}
 }
 
+func TestProductionCandidatesBindConfiguredGrokRuntimeSettings(t *testing.T) {
+	profiles := []DiscoveredProviderProfile{{
+		family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok",
+		argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery",
+	}}
+	identities := map[Family]string{FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy", FamilyCodex: "codex-policy"}
+	timeouts := map[Family]time.Duration{FamilyZCode: 15 * time.Minute, FamilyGrok: 20 * time.Minute, FamilyCodex: 15 * time.Minute}
+	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndProviderSettingsAndTimeouts(
+		providercli.RuntimeBuilder{}, profiles, identities, "grok-4.5", "low", "", "", nil, timeouts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := NewRunSelection([]domain.Role{domain.RoleLogic}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("configured Grok settings were not bound: %#v", candidates)
+	}
+	definition, ok := candidates[0].Definition.(providercli.RuntimeDefinition)
+	if !ok || definition.GrokModel() != "grok-4.5" || definition.GrokReasoningEffort() != "low" || definition.GrokSettingsIdentity() == "" {
+		t.Fatalf("configured Grok settings were not bound: %#v", candidates)
+	}
+}
+
 func TestCanonicalSelectedRolesUsesFixedOrderAndLogicBasePriority(t *testing.T) {
 	roles := canonicalSelectedRoles([]domain.Role{domain.RoleTesting, domain.RoleLogic, domain.RoleSecurity})
 	want := []domain.Role{domain.RoleLogic, domain.RoleSecurity, domain.RoleTesting}

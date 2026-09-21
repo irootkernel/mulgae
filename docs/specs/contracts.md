@@ -837,6 +837,27 @@ rejects an observed false value when the configuration requested true.
 
 ## Provider qualification readiness
 
+Grok CLI 1.0.34 is the minimum release for configurable selection and 1.0.40
+is the latest verified release. The verified Apple Silicon binaries identify
+themselves as `grok 1.0.34 (3736acbc8658) [stable]` and
+`grok 1.0.40 (eb1a2256660d) [stable]`. Both releases accept selection only
+through the ACP conversation: after `session/new`, Mulgae sends
+`session/set_model` with the exact `modelId` and, when configured,
+`_meta.reasoningEffort`. Omitting a setting leaves that dimension at the
+provider default; an effort-only request reuses the current model reported by
+`session/new` without guessing or persisting it.
+
+Mulgae does not send `session/prompt` until the `session/set_model` result and
+the following `config_option_update` confirm the requested model and reasoning
+effort exactly. Provider rejection remains a provider-execution failure;
+normalization or an ignored setting is an invalid output envelope. Neither
+case removes or rewrites a setting, retries with provider defaults, or changes
+providers. Unknown models are rejected by the verified provider. Unknown
+reasoning-effort tokens are currently normalized by Grok, so Mulgae detects
+the mismatch and fails before prompting. The verified ACP contract does not
+publish a model/effort compatibility catalog, so an unsupported-combination
+case is not separately defined.
+
 Review and child-run qualification preserve private request packets and nonempty
 version/capability stdout and stderr under the diagnostic run before fixture
 cleanup. Runtime events retain process exit/termination facts and typed rejection

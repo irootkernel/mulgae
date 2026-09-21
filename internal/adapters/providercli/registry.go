@@ -98,6 +98,9 @@ type RuntimeDefinition struct {
 	runtimeSafetyPolicyIdentity                             string
 	codexModel                                              string
 	codexReasoningEffort                                    string
+	grokModel                                               string
+	grokReasoningEffort                                     string
+	grokSettingsIdentity                                    string
 	profileID                                               string
 	baseArgv                                                []string
 	transport                                               RuntimeTransport
@@ -155,6 +158,9 @@ func NewRuntimeDefinitionWithTransport(
 		protocolDriver:   authority.protocolDriver,
 		environment:      append([]ports.EnvironmentVariable(nil), environment...),
 		workingDirectory: workingDirectory, timeout: timeout,
+	}
+	if family == FamilyGrok {
+		definition.grokSettingsIdentity = grokSettingsIdentity("", "")
 	}
 	if err := definition.validate(); err != nil {
 		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
@@ -283,6 +289,9 @@ func (d RuntimeDefinition) RuntimeSafetyPolicyIdentity() string {
 }
 func (d RuntimeDefinition) CodexModel() string           { return d.codexModel }
 func (d RuntimeDefinition) CodexReasoningEffort() string { return d.codexReasoningEffort }
+func (d RuntimeDefinition) GrokModel() string            { return d.grokModel }
+func (d RuntimeDefinition) GrokReasoningEffort() string  { return d.grokReasoningEffort }
+func (d RuntimeDefinition) GrokSettingsIdentity() string { return d.grokSettingsIdentity }
 func (d RuntimeDefinition) Transport() RuntimeTransport  { return d.transport }
 func (d RuntimeDefinition) BaseArgv() []string           { return append([]string(nil), d.baseArgv...) }
 func (d RuntimeDefinition) Environment() []ports.EnvironmentVariable {
@@ -367,6 +376,14 @@ func (d RuntimeDefinition) validate() error {
 	}
 	if d.codexReasoningEffort != "" && !validCodexReasoningEffort(d.codexReasoningEffort) {
 		return fmt.Errorf("invalid Codex reasoning effort")
+	}
+	if d.family != FamilyGrok && (d.grokModel != "" || d.grokReasoningEffort != "" || d.grokSettingsIdentity != "") {
+		return fmt.Errorf("Grok settings are bound to another family")
+	}
+	if d.family == FamilyGrok {
+		if !validGrokSettings(d.grokModel, d.grokReasoningEffort) || d.grokSettingsIdentity != grokSettingsIdentity(d.grokModel, d.grokReasoningEffort) {
+			return fmt.Errorf("invalid Grok settings")
+		}
 	}
 	authority, authorityErr := adapterAuthorityForFamily(d.family)
 	if authorityErr != nil {
@@ -1323,7 +1340,7 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("provider registry: process runner cannot converse"))
 	}
-	configuration, err := protocolConfigurationForNamespace(definition.family, r.namespaces[definition.instance])
+	configuration, err := protocolConfigurationForNamespace(definition.family, definition.grokModel, definition.grokReasoningEffort, r.namespaces[definition.instance])
 	if err != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}

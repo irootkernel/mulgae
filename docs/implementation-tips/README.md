@@ -13,6 +13,10 @@ Codex provider execution requires CLI 0.154.0 or newer for the app-server
 route. The separate Codex MCP-client compatibility check retains its own
 minimum version.
 
+Grok provider execution requires CLI 1.0.34 or newer. Version 1.0.40 is the
+latest release verified for the exact ACP model and reasoning-effort selection
+contract; later versions remain eligible but require current qualification.
+
 ZCode app 3.12.3 is the minimum and currently verified app release for the app-owned
 Electron plus bundled `zcode.cjs app-server --stdio` route. That bundle's
 launcher reports protocol version 0.16.5; provider qualification observes that

@@ -76,6 +76,79 @@ func TestLiveGrokACPSmoke(t *testing.T) {
 	}
 }
 
+func TestLiveGrokACPConfiguredSelectionContract(t *testing.T) {
+	t.Run("applies exact model and effort", func(t *testing.T) {
+		driver, observation, err := runLiveGrokConfiguredSelection(t, grokInvocationSettings{model: "grok-4.5", reasoningEffort: "low"})
+		if err != nil {
+			t.Fatalf("configured Grok ACP conversation: %v (stderr=%s)", err, observation.Stderr())
+		}
+		if !strings.Contains(string(driver.AssistantEvidenceText()), "MULGAE_GROK_SELECTION_OK") {
+			t.Fatalf("configured Grok ACP assistant evidence = %q", driver.AssistantEvidenceText())
+		}
+	})
+
+	t.Run("rejects unknown model before prompt", func(t *testing.T) {
+		driver, _, err := runLiveGrokConfiguredSelection(t, grokInvocationSettings{model: "mulgae-unknown-model"})
+		var failure *grokACPError
+		if err == nil || !errors.As(err, &failure) || failure.Cause() != domain.DiagnosticCauseProviderExecutionFailed {
+			t.Fatalf("unknown model error = %v", err)
+		}
+		if len(driver.AssistantEvidenceText()) != 0 {
+			t.Fatalf("unknown model reached prompt: %q", driver.AssistantEvidenceText())
+		}
+	})
+
+	t.Run("rejects normalized unknown effort before prompt", func(t *testing.T) {
+		driver, _, err := runLiveGrokConfiguredSelection(t, grokInvocationSettings{reasoningEffort: "mulgae-unknown-effort"})
+		var failure *grokACPError
+		if err == nil || !errors.As(err, &failure) || failure.Cause() != domain.DiagnosticCauseOutputEnvelopeInvalid {
+			t.Fatalf("unknown effort error = %v", err)
+		}
+		if len(driver.AssistantEvidenceText()) != 0 {
+			t.Fatalf("unknown effort reached prompt: %q", driver.AssistantEvidenceText())
+		}
+	})
+}
+
+func runLiveGrokConfiguredSelection(t *testing.T, settings grokInvocationSettings) (*grokACPProtocolSession, ports.ProcessObservation, error) {
+	t.Helper()
+	executable := copyLiveGrokExecutable(t, filepath.Join(mustLiveGrokHome(t), ".grok", "bin", "grok"))
+	workspace := mustCanonicalLiveTempDir(t)
+	liveProject := mustCanonicalLiveTempDir(t)
+	lease := mustLiveGrokNamespace(t, liveProject)
+	t.Cleanup(func() { drainLiveGrokNamespace(t, lease) })
+	environment, err := isolatedProcessEnvironment(FamilyGrok, nil, lease.Environment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv, err := grokACPArgv(executable, protocolPurposeQualification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet, err := ports.NewProviderPacketFromBytes([]byte("Reply with exactly MULGAE_GROK_SELECTION_OK and no other text."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := ports.NewProtocolProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ports.NewProviderProtocolProcessRequest(executable, argv, environment, workspace, binding, 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, err := newGrokACPProtocolSession(workspace, packet.Bytes(), protocolPurposeQualification, nil, settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := processadapter.NewRunner(runtimeadapter.SystemClock{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, runErr := runner.Converse(context.Background(), request, driver)
+	return driver, observation, runErr
+}
+
 func TestLiveGrokACPEnforcementGate(t *testing.T) {
 	executable := copyLiveGrokExecutable(t, filepath.Join(mustLiveGrokHome(t), ".grok", "bin", "grok"))
 	workspace := mustCanonicalLiveTempDir(t)
@@ -392,7 +465,7 @@ func TestLiveGrokACPVersionAndExecutableIdentity(t *testing.T) {
 		t.Fatal("qualified and execution Grok binaries differ")
 	}
 	output, err := exec.Command(copy, "--version").CombinedOutput()
-	if err != nil || !strings.Contains(string(output), "1.0.30") {
+	if err != nil || !strings.Contains(string(output), "1.0.40") {
 		t.Fatalf("Grok version = %q, %v", output, err)
 	}
 }

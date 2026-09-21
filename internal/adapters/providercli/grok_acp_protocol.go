@@ -18,12 +18,14 @@ const (
 	grokACPInitializeID = "mulgae-initialize"
 	grokACPAuthID       = "mulgae-authenticate"
 	grokACPNewID        = "mulgae-session-new"
+	grokACPSetModelID   = "mulgae-session-set-model"
 	grokACPPromptID     = "mulgae-session-prompt"
 	grokACPCloseID      = "mulgae-session-close"
 
 	grokACPAuthMethod          = "authenticate"
 	grokACPInitializeMethod    = "initialize"
 	grokACPSessionNewMethod    = "session/new"
+	grokACPSessionSetModel     = "session/set_model"
 	grokACPSessionPromptMethod = "session/prompt"
 	grokACPSessionCloseMethod  = "session/close"
 	grokACPSessionUpdateMethod = "session/update"
@@ -34,6 +36,7 @@ const (
 	grokACPAgentMessageChunk = "agent_message_chunk"
 	grokACPToolCall          = "tool_call"
 	grokACPToolCallUpdate    = "tool_call_update"
+	grokACPConfigUpdate      = "config_option_update"
 )
 
 type grokACPError struct {
@@ -69,6 +72,7 @@ type grokACPProtocolSession struct {
 	prompt         string
 	purpose        protocolInvocationPurpose
 	writeAuthority protocolWriteAuthority
+	settings       grokInvocationSettings
 
 	assistantEvidence []string
 	observation       ports.ProviderSessionObservation
@@ -77,9 +81,19 @@ type grokACPProtocolSession struct {
 	mcpObserved       bool
 }
 
-func newGrokACPProtocolSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority) (*grokACPProtocolSession, error) {
+func newGrokACPProtocolSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, providedSettings ...grokInvocationSettings) (*grokACPProtocolSession, error) {
 	if !validCanonicalAbsolute(workspacePath) || len(prompt) == 0 {
 		return nil, fmt.Errorf("grok ACP: invalid session request")
+	}
+	if len(providedSettings) > 1 {
+		return nil, fmt.Errorf("grok ACP: invalid settings request")
+	}
+	settings := grokInvocationSettings{}
+	if len(providedSettings) == 1 {
+		settings = providedSettings[0]
+	}
+	if !validGrokSettings(settings.model, settings.reasoningEffort) {
+		return nil, fmt.Errorf("grok ACP: invalid settings request")
 	}
 	switch purpose {
 	case protocolPurposeReview:
@@ -98,6 +112,7 @@ func newGrokACPProtocolSession(workspacePath string, prompt []byte, purpose prot
 		prompt:         string(prompt),
 		purpose:        purpose,
 		writeAuthority: writeAuthority,
+		settings:       settings,
 	}, nil
 }
 
@@ -121,7 +136,7 @@ func (session *grokACPProtocolSession) Drive(ctx context.Context, exchange ports
 	}
 	state := grokACPConversation{
 		purpose: session.purpose, prompt: session.prompt, workspacePath: session.workspacePath,
-		writeAuthority: session.writeAuthority, phase: ports.ProviderSessionPhaseCreate,
+		writeAuthority: session.writeAuthority, settings: session.settings, phase: ports.ProviderSessionPhaseCreate,
 		toolLocations: make(map[string]string), toolVariants: make(map[string]bool), deniedLocations: make(map[string]bool),
 	}
 	defer func() {
@@ -186,19 +201,22 @@ type grokACPConversation struct {
 	prompt         string
 	workspacePath  string
 	writeAuthority protocolWriteAuthority
+	settings       grokInvocationSettings
 	phase          ports.ProviderSessionPhase
 
-	initialized, authenticated, sessionCreated, promptSent bool
-	promptCompleted, messageReceived, closeSent            bool
-	closeAccepted, permissionGranted                       bool
-	sessionID, turnID                                      string
-	providerErrorCode                                      int
-	hasProviderErrorCode                                   bool
-	assistantEvidence                                      []string
-	toolLocations                                          map[string]string
-	toolVariants                                           map[string]bool
-	deniedLocations                                        map[string]bool
-	mcpObserved                                            bool
+	initialized, authenticated, sessionCreated, setModelSent      bool
+	setModelAccepted, modelConfirmed, effortConfirmed, promptSent bool
+	promptCompleted, messageReceived, closeSent                   bool
+	closeAccepted, permissionGranted                              bool
+	sessionID, turnID                                             string
+	providerErrorCode                                             int
+	hasProviderErrorCode                                          bool
+	assistantEvidence                                             []string
+	toolLocations                                                 map[string]string
+	toolVariants                                                  map[string]bool
+	deniedLocations                                               map[string]bool
+	mcpObserved                                                   bool
+	currentModel                                                  string
 }
 
 func (state *grokACPConversation) handle(ctx context.Context, exchange ports.ProviderSessionExchange, message grokACPMessage) (bool, error) {
@@ -206,10 +224,10 @@ func (state *grokACPConversation) handle(ctx context.Context, exchange ports.Pro
 		if len(message.ID) != 0 {
 			return false, state.handleServerRequest(ctx, exchange, message)
 		}
-		return false, state.handleNotification(message)
+		return false, state.handleNotification(ctx, exchange, message)
 	}
 	if message.Error != nil {
-		if !message.correlatesTo(grokACPInitializeID, grokACPAuthID, grokACPNewID, grokACPPromptID, grokACPCloseID) {
+		if !message.correlatesTo(grokACPInitializeID, grokACPAuthID, grokACPNewID, grokACPSetModelID, grokACPPromptID, grokACPCloseID) {
 			return false, nil
 		}
 		state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
@@ -234,16 +252,30 @@ func (state *grokACPConversation) handle(ctx context.Context, exchange ports.Pro
 		if err := state.acceptSessionNew(message.Result); err != nil {
 			return true, grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
 		}
-		state.phase = ports.ProviderSessionPhaseSend
-		if err := sendGrokACPRequest(ctx, exchange, grokACPPromptID, grokACPSessionPromptMethod, map[string]any{
-			"sessionId": state.sessionID,
-			"prompt":    []map[string]string{{"type": "text", "text": state.prompt}},
-		}); err != nil {
+		if !state.settings.configured() {
+			return false, state.startPrompt(ctx, exchange)
+		}
+		model := state.settings.model
+		if model == "" {
+			model = state.currentModel
+		}
+		if model == "" {
+			return true, grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("session/new result without a current model"))
+		}
+		params := map[string]any{"sessionId": state.sessionID, "modelId": model}
+		if state.settings.reasoningEffort != "" {
+			params["_meta"] = map[string]string{"reasoningEffort": state.settings.reasoningEffort}
+		}
+		state.setModelSent = true
+		if err := sendGrokACPRequest(ctx, exchange, grokACPSetModelID, grokACPSessionSetModel, params); err != nil {
 			return true, err
 		}
-		state.promptSent = true
-		state.phase = ports.ProviderSessionPhaseTurn
 		return false, nil
+	case message.isResponseID(grokACPSetModelID):
+		if err := state.acceptSetModel(message.Result); err != nil {
+			return true, grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, err)
+		}
+		return false, state.maybeStartPrompt(ctx, exchange)
 	case message.isResponseID(grokACPPromptID):
 		if err := state.acceptPrompt(message.Result); err != nil {
 			return true, grokACPFailure(domain.DiagnosticCauseProviderTurnFailed, err)
@@ -264,6 +296,32 @@ func (state *grokACPConversation) handle(ctx context.Context, exchange ports.Pro
 	default:
 		return false, nil
 	}
+}
+
+func (state *grokACPConversation) startPrompt(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	if !state.sessionCreated || state.promptSent {
+		return grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("unexpected session/prompt start"))
+	}
+	state.phase = ports.ProviderSessionPhaseSend
+	if err := sendGrokACPRequest(ctx, exchange, grokACPPromptID, grokACPSessionPromptMethod, map[string]any{
+		"sessionId": state.sessionID,
+		"prompt":    []map[string]string{{"type": "text", "text": state.prompt}},
+	}); err != nil {
+		return err
+	}
+	state.promptSent = true
+	state.phase = ports.ProviderSessionPhaseTurn
+	return nil
+}
+
+func (state *grokACPConversation) maybeStartPrompt(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	if state.promptSent {
+		return nil
+	}
+	if !state.setModelAccepted || !state.modelConfirmed || (state.settings.reasoningEffort != "" && !state.effortConfirmed) {
+		return nil
+	}
+	return state.startPrompt(ctx, exchange)
 }
 
 func (state *grokACPConversation) acceptInitialize(result json.RawMessage) error {
@@ -297,6 +355,9 @@ func (state *grokACPConversation) acceptSessionNew(result json.RawMessage) error
 	}
 	var payload struct {
 		SessionID string `json:"sessionId"`
+		Models    struct {
+			CurrentModelID string `json:"currentModelId"`
+		} `json:"models"`
 	}
 	if err := json.Unmarshal(result, &payload); err != nil {
 		return fmt.Errorf("unreadable session/new result: %w", err)
@@ -305,7 +366,33 @@ func (state *grokACPConversation) acceptSessionNew(result json.RawMessage) error
 		return errors.New("session/new result without a safe session id")
 	}
 	state.sessionID = payload.SessionID
+	state.currentModel = payload.Models.CurrentModelID
 	state.sessionCreated = true
+	return nil
+}
+
+func (state *grokACPConversation) acceptSetModel(result json.RawMessage) error {
+	if !state.sessionCreated || !state.setModelSent || state.setModelAccepted {
+		return errors.New("unexpected session/set_model response")
+	}
+	var payload struct {
+		Meta struct {
+			Model struct {
+				OK string `json:"Ok"`
+			} `json:"model"`
+		} `json:"_meta"`
+	}
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return fmt.Errorf("unreadable session/set_model result: %w", err)
+	}
+	want := state.settings.model
+	if want == "" {
+		want = state.currentModel
+	}
+	if payload.Meta.Model.OK != want {
+		return fmt.Errorf("session/set_model selected an unexpected model")
+	}
+	state.setModelAccepted = true
 	return nil
 }
 
@@ -325,7 +412,7 @@ func (state *grokACPConversation) acceptPrompt(result json.RawMessage) error {
 	return nil
 }
 
-func (state *grokACPConversation) handleNotification(message grokACPMessage) error {
+func (state *grokACPConversation) handleNotification(ctx context.Context, exchange ports.ProviderSessionExchange, message grokACPMessage) error {
 	switch message.Method {
 	case grokACPMCPServersUpdated:
 		var params struct {
@@ -359,7 +446,11 @@ func (state *grokACPConversation) handleNotification(message grokACPMessage) err
 			Content       json.RawMessage `json:"content"`
 			RawInput      json.RawMessage `json:"rawInput"`
 			Status        string          `json:"status"`
-			Locations     []struct {
+			ConfigOptions []struct {
+				ID           string `json:"id"`
+				CurrentValue string `json:"currentValue"`
+			} `json:"configOptions"`
+			Locations []struct {
 				Path string `json:"path"`
 			} `json:"locations"`
 		} `json:"update"`
@@ -371,6 +462,34 @@ func (state *grokACPConversation) handleNotification(message grokACPMessage) err
 		return grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("uncorrelated ACP session update"))
 	}
 	switch params.Update.SessionUpdate {
+	case grokACPConfigUpdate:
+		wantModel := state.settings.model
+		if wantModel == "" {
+			wantModel = state.currentModel
+		}
+		modelObserved, effortObserved := false, false
+		for _, option := range params.Update.ConfigOptions {
+			switch option.ID {
+			case "model":
+				modelObserved = true
+				if option.CurrentValue != wantModel {
+					return grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("Grok model selection was not applied"))
+				}
+				state.modelConfirmed = true
+			case "reasoning_effort":
+				if state.settings.reasoningEffort != "" {
+					effortObserved = true
+					if option.CurrentValue != state.settings.reasoningEffort {
+						return grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("Grok reasoning effort was not applied"))
+					}
+					state.effortConfirmed = true
+				}
+			}
+		}
+		if state.setModelSent && (!modelObserved || state.settings.reasoningEffort != "" && !effortObserved) {
+			return grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("Grok selection confirmation is incomplete"))
+		}
+		return state.maybeStartPrompt(ctx, exchange)
 	case grokACPAgentMessageChunk:
 		var content struct {
 			Type string `json:"type"`

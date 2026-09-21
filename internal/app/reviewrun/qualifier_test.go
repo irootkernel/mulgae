@@ -316,7 +316,7 @@ func TestQualifiedRunDrainDoesNotConstructReceiptOnCloseFailure(t *testing.T) {
 func TestQualifiedRunFactoryRejectsEveryNonPassReceiptState(t *testing.T) {
 	for _, state := range []ReceiptState{ReceiptMissing, ReceiptStale, ReceiptSkipped, ReceiptInconclusive, ReceiptFailed} {
 		t.Run(string(state), func(t *testing.T) {
-			input := completeInput(t, FamilyGrok, "1.0.30")
+			input := completeInput(t, FamilyGrok, "1.0.34")
 			input.Receipts[len(input.Receipts)-1].State = state
 			qualification := ValidateQualification(input)
 			if qualification.Available() || qualification.Reason() != "non_passing_receipt" {
@@ -327,7 +327,7 @@ func TestQualifiedRunFactoryRejectsEveryNonPassReceiptState(t *testing.T) {
 }
 
 func TestValidateQualificationRequiresSharedReceiptExpiry(t *testing.T) {
-	input := completeInput(t, FamilyGrok, "1.0.30")
+	input := completeInput(t, FamilyGrok, "1.0.34")
 	input.Receipts[1].ExpiresAt = input.Receipts[1].ExpiresAt.Add(time.Second)
 	qualification := ValidateQualification(input)
 	if qualification.Available() || qualification.Reason() != "expiry_mismatch" {

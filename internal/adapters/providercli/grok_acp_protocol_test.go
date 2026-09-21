@@ -15,6 +15,7 @@ const (
 	grokInitializeResult = `{"jsonrpc":"2.0","id":"mulgae-initialize","result":{"protocolVersion":1,"authMethods":[{"id":"cached_token","name":"Cached token"}],"agentCapabilities":{"promptCapabilities":{"image":false}}}}`
 	grokAuthResult       = `{"jsonrpc":"2.0","id":"mulgae-authenticate","result":null}`
 	grokNewResult        = `{"jsonrpc":"2.0","id":"mulgae-session-new","result":{"sessionId":"session-script"}}`
+	grokNewModelResult   = `{"jsonrpc":"2.0","id":"mulgae-session-new","result":{"sessionId":"session-script","models":{"currentModelId":"grok-4.6"}}}`
 	grokPromptResult     = `{"jsonrpc":"2.0","id":"mulgae-session-prompt","result":{"stopReason":"end_turn"}}`
 	grokCloseResult      = `{"jsonrpc":"2.0","id":"mulgae-session-close","result":null}`
 )
@@ -32,6 +33,19 @@ func mustGrokSession(t *testing.T, purpose protocolInvocationPurpose) *grokACPPr
 		authority = lease
 	}
 	session, err := newGrokACPProtocolSession("/private/work", []byte("review packet"), purpose, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func mustGrokSessionWithSettings(t *testing.T, purpose protocolInvocationPurpose, model, effort string) *grokACPProtocolSession {
+	t.Helper()
+	settings, err := newGrokInvocationSettings(model, effort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := newGrokACPProtocolSession("/private/work", []byte("review packet"), purpose, nil, settings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +110,110 @@ func TestGrokACPDriveRequestShapesAndExtractionSelection(t *testing.T) {
 	observation, ok := session.SessionObservation()
 	if !ok || observation.Terminal() != ports.ProviderSessionCompleted {
 		t.Fatalf("session observation = %#v, present=%t", observation.Input(), ok)
+	}
+}
+
+func TestGrokACPDriveAppliesConfiguredSelectionBeforePrompt(t *testing.T) {
+	for _, test := range []struct {
+		name, model, effort, selectedModel string
+		wantMeta                           bool
+	}{
+		{name: "model", model: "grok-4.5", selectedModel: "grok-4.5"},
+		{name: "effort", effort: "low", selectedModel: "grok-4.6", wantMeta: true},
+		{name: "model and effort", model: "grok-4.5", effort: "low", selectedModel: "grok-4.5", wantMeta: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := mustGrokSessionWithSettings(t, protocolPurposeExtraction, test.model, test.effort)
+			setResult := `{"jsonrpc":"2.0","id":"mulgae-session-set-model","result":{"_meta":{"model":{"Ok":"` + test.selectedModel + `"}}}}`
+			configUpdate := `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"model","currentValue":"` + test.selectedModel + `"},{"id":"reasoning_effort","currentValue":"` + test.effort + `"}]}}}`
+			message := `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"selected"}}}}`
+			err, sent := driveGrokScripted(t, session, grokInitializeResult, grokAuthResult, grokNewModelResult, setResult, configUpdate, message, grokPromptResult, grokCloseResult)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(sent) != 6 {
+				t.Fatalf("sent message count = %d, want 6", len(sent))
+			}
+			var request struct {
+				Method string `json:"method"`
+				Params struct {
+					SessionID string `json:"sessionId"`
+					ModelID   string `json:"modelId"`
+					Meta      *struct {
+						ReasoningEffort string `json:"reasoningEffort"`
+					} `json:"_meta"`
+				} `json:"params"`
+			}
+			if err := json.Unmarshal(sent[3], &request); err != nil {
+				t.Fatal(err)
+			}
+			if request.Method != grokACPSessionSetModel || request.Params.SessionID != "session-script" || request.Params.ModelID != test.selectedModel {
+				t.Fatalf("set_model request = %s", sent[3])
+			}
+			if test.wantMeta != (request.Params.Meta != nil) || request.Params.Meta != nil && request.Params.Meta.ReasoningEffort != test.effort {
+				t.Fatalf("set_model metadata = %#v", request.Params.Meta)
+			}
+			var prompt struct {
+				Method string `json:"method"`
+			}
+			if err := json.Unmarshal(sent[4], &prompt); err != nil || prompt.Method != grokACPSessionPromptMethod {
+				t.Fatalf("prompt request = %s", sent[4])
+			}
+		})
+	}
+}
+
+func TestGrokACPDriveRejectsUnacceptedConfiguredSelectionBeforePrompt(t *testing.T) {
+	t.Run("unknown model", func(t *testing.T) {
+		session := mustGrokSessionWithSettings(t, protocolPurposeQualification, "grok-unknown", "")
+		err, sent := driveGrokScripted(t, session, grokInitializeResult, grokAuthResult, grokNewModelResult,
+			`{"jsonrpc":"2.0","id":"mulgae-session-set-model","error":{"code":-32602,"message":"unknown model id"}}`)
+		if err == nil || grokCause(t, err) != domain.DiagnosticCauseProviderExecutionFailed {
+			t.Fatalf("error = %v", err)
+		}
+		if len(sent) != 4 {
+			t.Fatalf("sent message count = %d, want no prompt", len(sent))
+		}
+	})
+
+	t.Run("normalized effort", func(t *testing.T) {
+		session := mustGrokSessionWithSettings(t, protocolPurposeQualification, "", "unknown-effort")
+		err, sent := driveGrokScripted(t, session, grokInitializeResult, grokAuthResult, grokNewModelResult,
+			`{"jsonrpc":"2.0","id":"mulgae-session-set-model","result":{"_meta":{"model":{"Ok":"grok-4.6"}}}}`,
+			`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"model","currentValue":"grok-4.6"},{"id":"reasoning_effort","currentValue":"high"}]}}}`)
+		if err == nil || grokCause(t, err) != domain.DiagnosticCauseOutputEnvelopeInvalid {
+			t.Fatalf("error = %v", err)
+		}
+		if len(sent) != 4 {
+			t.Fatalf("sent message count = %d, want no prompt", len(sent))
+		}
+	})
+
+	t.Run("incomplete confirmation", func(t *testing.T) {
+		session := mustGrokSessionWithSettings(t, protocolPurposeQualification, "grok-4.5", "low")
+		err, sent := driveGrokScripted(t, session, grokInitializeResult, grokAuthResult, grokNewModelResult,
+			`{"jsonrpc":"2.0","id":"mulgae-session-set-model","result":{"_meta":{"model":{"Ok":"grok-4.5"}}}}`,
+			`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"reasoning_effort","currentValue":"low"}]}}}`)
+		if err == nil || grokCause(t, err) != domain.DiagnosticCauseOutputEnvelopeInvalid {
+			t.Fatalf("error = %v", err)
+		}
+		if len(sent) != 4 {
+			t.Fatalf("sent message count = %d, want no prompt", len(sent))
+		}
+	})
+}
+
+func TestGrokACPDriveAcceptsMatchingConfigurationUpdateAfterPromptStarts(t *testing.T) {
+	session := mustGrokSessionWithSettings(t, protocolPurposeExtraction, "grok-4.5", "low")
+	setResult := `{"jsonrpc":"2.0","id":"mulgae-session-set-model","result":{"_meta":{"model":{"Ok":"grok-4.5"}}}}`
+	configUpdate := `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"model","currentValue":"grok-4.5"},{"id":"reasoning_effort","currentValue":"low"}]}}}`
+	message := `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"selected"}}}}`
+	err, sent := driveGrokScripted(t, session, grokInitializeResult, grokAuthResult, grokNewModelResult, setResult, configUpdate, configUpdate, message, grokPromptResult, grokCloseResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 6 {
+		t.Fatalf("sent message count = %d, want one prompt", len(sent))
 	}
 }
 

@@ -129,7 +129,9 @@ state is not projected into the disposable review home.
 
 ### Use Grok from Mulgae
 
-Install Grok CLI 1.0.30 or newer and sign in before selecting it explicitly:
+Install Grok CLI 1.0.34 or newer and sign in before selecting it explicitly.
+Version 1.0.40 is the latest release verified for Mulgae's exact ACP selection
+contract; newer releases remain eligible but require a current qualification:
 
 ```bash
 grok --version
