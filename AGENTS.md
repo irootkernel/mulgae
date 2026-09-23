@@ -18,7 +18,7 @@ caution over speed; apply them proportionally for trivial work.
 
 - Read the requested code, its relevant tests, and the nearest authoritative
   document or machine contract before changing anything.
-- Resolve discoverable facts from the repository before asking master. Reuse
+- Resolve discoverable facts from the repository before asking Master. Reuse
   established facts instead of reading or searching for them again; recheck only
   affected information when state changes, evidence conflicts, or missing context
   makes it unreliable.
@@ -30,7 +30,7 @@ caution over speed; apply them proportionally for trivial work.
   complexity or risk.
 - Ask a focused question when unresolved ambiguity would materially change the
   result. Push back when a request conflicts with repository authority, product
-  boundaries, safety, or master's stated goal.
+  boundaries, safety, or Master's stated goal.
 
 ### 3. Act on Sufficient Evidence
 
@@ -113,10 +113,10 @@ caution over speed; apply them proportionally for trivial work.
 
 - Use English for internal planning, but never reveal private chain-of-thought.
   Provide concise conclusions and useful evidence instead.
-- Respond to master in Korean using polite speech. When directly addressing the
-  user, use exactly `master`.
+- Respond to Master in Korean using polite speech. When directly addressing the
+  user, use exactly `Master`.
 - Keep code, comments, documentation, prompts, templates, CLI/help text, logs,
-  reports, schemas, and artifacts in English unless master explicitly requests
+  reports, schemas, and artifacts in English unless Master explicitly requests
   another language.
 
 ## Aquarium Development Guide
@@ -167,6 +167,7 @@ caution over speed; apply them proportionally for trivial work.
   use a reviewed `aquarium.promoted-evidence/v1` package under
   `evidence/aquarium/` only when a downstream consumer requires retention.
 - Repository-specific rules below override defaults from the referenced skills.
+- Use `$use-sorage` only when Master explicitly requests a broker operation. Check only the requested inbox or outbox; Project registration does not authorize discovery. Resolve Handoff, review, revision, retention, deletion, and Vault operations through that skill; never edit the managed Vault or derived `.sorage/INBOX.md` directly.
 
 ## Project Configuration
 
@@ -332,10 +333,10 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   race-instrumented unit and integration tests, exact release-binary checks, and
   mandatory live ZCode/Grok certification through one mixed-provider two-role
   review plus independent capability probes.
-- A patch-only release may use a reduced exact-commit gate when master explicitly
+- A patch-only release may use a reduced exact-commit gate when Master explicitly
   states that `make test` has already passed, accepts responsibility for relying
   on that result, and explicitly requests release after only a patch-version
-  increment. Treat master's statement as the authoritative verification waiver;
+  increment. Treat Master's statement as the authoritative verification waiver;
   do not require prior artifacts, reconstruct the earlier run, or rerun
   `make test`. The diff since the user-accepted result must be limited to the
   release-version declaration, its matching test assertion, release notes, and
@@ -345,7 +346,7 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   `make test-unit`, and `make test-int`, then build the exact commit into an
   isolated temporary `GOBIN` and verify both `mulgae version` and
   `mulgae version --json` report the new version. The public version result does
-  not expose the build revision. Report that master waived a repeated full gate
+  not expose the build revision. Report that Master waived a repeated full gate
   and that release-binary and live E2E targets were not rerun. If any condition
   is not satisfied, run `make test`.
 - `make test` calls `make test-e2e-opt-in` after the mandatory E2E target. It
@@ -371,7 +372,7 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
 
 The standard test and release requirements in
 `docs/implementation-tips/README.md` are authoritative for the normal workflow.
-The explicit patch-only waiver above is an agent-specific override when master
+The explicit patch-only waiver above is an agent-specific override when Master
 supplies the required authorization.
 Gaori is an optional local execution and evidence-compression adapter, not an
 additional test gate or acceptance authority.
@@ -399,7 +400,7 @@ commands require `.gaori/tester.yaml`. If the binary or local config is
 unavailable, run the underlying command documented in
 `docs/implementation-tips/README.md` and report that Gaori evidence compression
 was unavailable. Do not install or upgrade Gaori or change its local state unless
-master explicitly asks.
+Master explicitly asks.
 
 The wrapped command's exit code is authoritative for pass/fail.
 `extractor_status` describes evidence quality only. Tags do not select a parser,

@@ -4,6 +4,7 @@ project:
 providers:
   zcode: {}
   grok: {}
+  codex: {}
 execution:
   workspace_access: "none"
 roles:
