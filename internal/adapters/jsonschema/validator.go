@@ -840,7 +840,7 @@ func isNilCatalog(catalog ports.ContractCatalog) bool {
 	}
 	value := reflect.ValueOf(catalog)
 	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return value.IsNil()
 	default:
 		return false

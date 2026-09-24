@@ -4,11 +4,9 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.24 - Unreleased
 
-### Added
-
 ### Changed
 
-### Fixed
+- Require Go 1.27.1 or newer and update Mulgae's direct dependencies and pinned development checks for Go 1.27.
 
 ## v0.1.23 - 2026-09-22
 

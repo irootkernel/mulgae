@@ -167,7 +167,7 @@ prompt support, so assigning it to `artist` fails before provider execution with
 
 ## Install
 
-Mulgae requires Go 1.26.6 or newer.
+Mulgae requires Go 1.27.1 or newer.
 
 ```bash
 go install github.com/irootkernel/mulgae@latest

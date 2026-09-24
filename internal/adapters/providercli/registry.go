@@ -116,7 +116,7 @@ type RuntimeDefinition struct {
 }
 
 // NewRuntimeDefinition constructs a supported family runtime profile using the
-// argv-literal print transport of the current provider families.
+// default transport of the current provider family.
 func NewRuntimeDefinition(
 	family, instance, version, executable, executableSHA256 string,
 	profileID string,
@@ -125,7 +125,7 @@ func NewRuntimeDefinition(
 	workingDirectory string,
 	timeout time.Duration,
 ) (RuntimeDefinition, error) {
-	transport, err := defaultRuntimeTransport(family, len(baseArgv))
+	transport, err := defaultRuntimeTransport(family)
 	if err != nil {
 		return RuntimeDefinition{}, err
 	}
@@ -338,7 +338,7 @@ func (d RuntimeDefinition) validate() error {
 	if err := d.transport.validate(); err != nil {
 		return fmt.Errorf("invalid runtime transport: %w", err)
 	}
-	if err := validateRuntimeTransportShape(d.family, d.baseArgv, d.transport); err != nil {
+	if err := validateRuntimeTransportShape(d.family, d.transport); err != nil {
 		return err
 	}
 	for _, variable := range d.environment {
@@ -1589,7 +1589,7 @@ func nilProviderNamespaceFactory(factory ports.ProviderNamespaceFactory) bool {
 		return true
 	}
 	value := reflect.ValueOf(factory)
-	return value.Kind() == reflect.Ptr && value.IsNil()
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 func nilProviderNamespaceLease(lease ports.ProviderNamespaceLease) bool {
@@ -1597,7 +1597,7 @@ func nilProviderNamespaceLease(lease ports.ProviderNamespaceLease) bool {
 		return true
 	}
 	value := reflect.ValueOf(lease)
-	return value.Kind() == reflect.Ptr && value.IsNil()
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 func isolatedProcessEnvironment(
@@ -1771,7 +1771,7 @@ func nilWorkspaceExecutionGuard(guard ports.WorkspaceExecutionGuard) bool {
 		return true
 	}
 	value := reflect.ValueOf(guard)
-	return value.Kind() == reflect.Ptr && value.IsNil()
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 func providerProcessRequest(definition definition, packet ports.ProviderPacket, workingDirectory string) ([]string, ports.ProviderPacketBinding, error) {
@@ -2125,51 +2125,19 @@ func cloneDefinition(definition definition) definition {
 	definition.environment = append([]ports.EnvironmentVariable(nil), definition.environment...)
 	return definition
 }
-func defaultRuntimeTransport(family string, baseArgvLength int) (RuntimeTransport, error) {
+func defaultRuntimeTransport(family string) (RuntimeTransport, error) {
 	authority, err := adapterAuthorityForFamily(family)
 	if err != nil {
 		return RuntimeTransport{}, err
 	}
-	if authority.defaultChannel == ports.ProviderPacketChannelProtocol {
-		// ZCode speaks only the app-server protocol; the print transport is
-		// gone without a fallback.
-		return NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
-	}
-	if authority.defaultChannel == ports.ProviderPacketChannelStdin {
-		return NewRuntimeTransport(ports.ProviderPacketChannelStdin, -1, "")
-	}
-	index, err := runtimeTransportArgvIndex(family, baseArgvLength)
-	if err != nil {
-		return RuntimeTransport{}, err
-	}
-	return NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, index, "")
+	return NewRuntimeTransport(authority.defaultChannel, -1, "")
 }
 
-func validateRuntimeTransportShape(family string, baseArgv []string, transport RuntimeTransport) error {
+func validateRuntimeTransportShape(family string, transport RuntimeTransport) error {
 	if transport.channel == ports.ProviderPacketChannelStdin || transport.channel == ports.ProviderPacketChannelProtocol {
 		return nil
 	}
-	index, err := runtimeTransportArgvIndex(family, len(baseArgv))
-	if err != nil {
-		return err
-	}
-	if transport.argvIndex != index {
-		return fmt.Errorf("packet transport argv index does not match %s print profile", family)
-	}
-	return nil
-}
-
-func runtimeTransportArgvIndex(family string, baseArgvLength int) (int, error) {
-	switch family {
-	case FamilyZcode:
-		return 0, fmt.Errorf("zcode requires the protocol transport")
-	case FamilyGrok:
-		return 0, fmt.Errorf("grok requires the protocol transport")
-	case FamilyCodex:
-		return 0, fmt.Errorf("codex requires protocol transport")
-	default:
-		return 0, fmt.Errorf("unsupported family")
-	}
+	return fmt.Errorf("%s requires the protocol transport", family)
 }
 
 func validPromptFileReference(value string) bool {
@@ -2190,7 +2158,7 @@ func nilSpawnVerifier(verifier SpawnVerifier) bool {
 		return true
 	}
 	value := reflect.ValueOf(verifier)
-	return value.Kind() == reflect.Ptr && value.IsNil()
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 func validCanonicalAbsolute(value string) bool {
 	return value != "" && filepath.IsAbs(value) && filepath.Clean(value) == value && strings.IndexByte(value, 0) < 0

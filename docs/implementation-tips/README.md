@@ -3,7 +3,7 @@
 ## Requirements
 
 - macOS on Apple silicon for the complete release gate
-- Go 1.26.6 or newer
+- Go 1.27.1 or newer
 - Git
 - a ZCode app bundle with an API-key personal provider, plus an authenticated
   Grok installation, for the mandatory live tests

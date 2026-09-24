@@ -937,7 +937,7 @@ func nilInterface(value any) bool {
 	}
 	ref := reflect.ValueOf(value)
 	switch ref.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return ref.IsNil()
 	}
 	return false

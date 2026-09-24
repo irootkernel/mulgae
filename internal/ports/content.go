@@ -160,7 +160,7 @@ func isNilContentArtifact(artifact ContentArtifact) bool {
 	}
 	value := reflect.ValueOf(artifact)
 	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return value.IsNil()
 	default:
 		return false

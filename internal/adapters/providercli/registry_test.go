@@ -84,7 +84,7 @@ func TestRegistryReleasesProtocolTranscript(t *testing.T) {
 // protocol transport: the write grant and read-only denylist travel inside the
 // session conversation, never on the argv.
 func TestZCodeReviewArgvIsTheBareAppServer(t *testing.T) {
-	transport, err := defaultRuntimeTransport(FamilyZcode, 1)
+	transport, err := defaultRuntimeTransport(FamilyZcode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,11 @@ func TestZCodeReviewArgvIsTheBareAppServer(t *testing.T) {
 	if occurrences := packetOccurrences(argv, "review bytes"); occurrences != 0 {
 		t.Fatalf("ZCode review argv carries %d packet occurrences, want 0", occurrences)
 	}
-	if _, err := runtimeTransportArgvIndex(FamilyZcode, 1); err == nil {
+	printTransport, err := NewRuntimeTransport(ports.ProviderPacketChannelArgvLiteral, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRuntimeTransportShape(FamilyZcode, printTransport); err == nil {
 		t.Fatal("zcode print transport index is still admitted")
 	}
 }
@@ -736,7 +740,7 @@ func (testSpawnVerifier) VerifyProviderSpawn(context.Context, RuntimeDefinition)
 
 func testProductionSafetyProfile(t *testing.T, family, policyIdentity string) RuntimeDefinition {
 	t.Helper()
-	transport, err := defaultRuntimeTransport(family, 1)
+	transport, err := defaultRuntimeTransport(family)
 	if err != nil {
 		t.Fatal(err)
 	}

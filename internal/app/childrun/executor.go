@@ -479,7 +479,7 @@ func nilInterface(value any) bool {
 	}
 	reflected := reflect.ValueOf(value)
 	switch reflected.Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Interface, reflect.Func, reflect.Chan:
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Interface, reflect.Func, reflect.Chan:
 		return reflected.IsNil()
 	default:
 		return false

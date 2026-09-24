@@ -3602,7 +3602,7 @@ func nilSchemaValidator(validator SchemaValidator) bool {
 	}
 	value := reflect.ValueOf(validator)
 	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return value.IsNil()
 	default:
 		return false

@@ -449,7 +449,7 @@ func nilInterface(value any) bool {
 		return true
 	}
 	v := reflect.ValueOf(value)
-	return (v.Kind() == reflect.Ptr || v.Kind() == reflect.Map || v.Kind() == reflect.Slice || v.Kind() == reflect.Interface || v.Kind() == reflect.Func || v.Kind() == reflect.Chan) && v.IsNil()
+	return (v.Kind() == reflect.Pointer || v.Kind() == reflect.Map || v.Kind() == reflect.Slice || v.Kind() == reflect.Interface || v.Kind() == reflect.Func || v.Kind() == reflect.Chan) && v.IsNil()
 }
 
 func validatePlan(plan ExecutionPlan, requestedRoles []domain.Role) (review.RunBudgetReceipt, error) {
