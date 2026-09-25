@@ -4,11 +4,9 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.24 - Unreleased
 
-### Added
-
-### Changed
-
 ### Fixed
+
+- Require `use-mulgae` to verify an attached MCP server's project root before provider execution and use the native CLI when that binding is unproven.
 
 ## v0.1.23 - 2026-09-22
 
