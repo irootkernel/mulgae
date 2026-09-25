@@ -25,6 +25,8 @@ type ProviderRuntimeDefinition interface {
 	ApplicationMetadataSHA256() string
 	ProfileGeneration() string
 	RuntimeSafetyPolicyIdentity() string
+	ZCodeModel() string
+	ZCodeReasoningEffort() string
 	GrokSettingsIdentity() string
 	ProfileID() string
 	BaseArgv() []string
@@ -56,6 +58,8 @@ type ProviderRuntimeSpec struct {
 	ProfileID                   string
 	ProfileGeneration           string
 	RuntimeSafetyPolicyIdentity string
+	ZCodeModel                  string
+	ZCodeReasoningEffort        string
 	CodexModel                  string
 	CodexReasoningEffort        string
 	GrokModel                   string

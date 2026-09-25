@@ -5,8 +5,8 @@
 - macOS on Apple silicon for the complete release gate
 - Go 1.27.1 or newer
 - Git
-- a ZCode app bundle with an API-key personal provider, plus an authenticated
-  Grok installation, for the mandatory live tests
+- a ZCode app bundle with a current Z.AI Individual Coding Plan connection,
+  plus an authenticated Grok installation, for the mandatory live tests
 - two distinct authenticated Codex homes only for the opt-in profile E2E
 
 Codex provider execution requires CLI 0.154.0 or newer for the app-server

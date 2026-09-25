@@ -261,10 +261,11 @@ type namespaceLease struct {
 	directoryInfo                 map[string]os.FileInfo
 	nativeHome                    string
 	nativeHomeInfo                os.FileInfo
+	zcodeNativeHome               string
+	zcodeNativeHomeInfo           os.FileInfo
 	seedMu                        sync.RWMutex
 	nativeHomeLaunchAuthority     ports.NativeHomeLaunchAuthority
 	seeds                         map[ports.CredentialProjectionDestination]credentialSeed
-	zcodeSelection                *zcodeModelSelection
 	policyMu                      sync.RWMutex
 	policy                        RuntimeSafetyPolicy
 	grokBoundary                  *grokBoundaryBundle
@@ -289,6 +290,21 @@ type namespaceLease struct {
 
 var _ ports.ProviderNamespaceLease = (*namespaceLease)(nil)
 
+func (lease *namespaceLease) zcodeAccountRuntime(builtinPath, configuredModel string) (*zcodeAccountRuntime, error) {
+	if lease == nil || lease.zcodeNativeHome == "" {
+		return nil, nil
+	}
+	info, err := os.Lstat(lease.zcodeNativeHome)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(info, lease.zcodeNativeHomeInfo) {
+		return nil, fmt.Errorf("zcode account runtime: native home authority drift")
+	}
+	activeBuiltinPath, err := zcodeActiveBuiltinPath(filepath.Join(lease.root, "home"))
+	if err != nil {
+		return nil, err
+	}
+	return loadZCodeAccountRuntimeForSource(lease.zcodeNativeHome, builtinPath, activeBuiltinPath, configuredModel)
+}
+
 // zcodeRuntimeTempDirectory is the short shared temp directory for ZCode
 // app-server conversations. The server binds a per-process unix socket under
 // os.tmpdir(), and a namespace-rooted temp path exceeds the kernel socket
@@ -307,7 +323,7 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 	}
 	directories := []string{
 		"home",
-		"home/.zcode", "home/.zcode/cli", "home/.zcode/v2", "home/.gemini", "home/.gemini/antigravity-cli",
+		"home/.zcode", "home/.zcode/v2", "home/.gemini", "home/.gemini/antigravity-cli",
 		"home/.codex", "home/.grok",
 		"settings", "auth", "cache", "tmp", "scratch",
 	}

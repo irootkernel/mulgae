@@ -20,9 +20,9 @@ provider families:
 - Grok CLI
 - Codex CLI
 
-The default `mulgae init` topology requires a ZCode app bundle with an API-key
-personal provider and an authenticated Grok installation, and assigns every
-default role to ZCode. Codex remains available
+The default `mulgae init` topology requires a ZCode app bundle with a current
+Z.AI Individual Coding Plan connection and an authenticated Grok installation,
+and assigns every default role to ZCode. Codex remains available
 through explicit `--providers codex` selection. Mulgae records
 provider identity and capabilities at runtime and fails closed when a required
 capability is unavailable. Other operating systems, architectures, and provider
@@ -98,8 +98,8 @@ for every profile rather than a wrapper that rewrites `CODEX_HOME`.
 ZCode is distributed as a macOS app rather than as a `zcode` executable on
 `PATH`. Mulgae runs the app's own Electron runtime and bundled app-server
 launcher, so a separate Node.js installation, wrapper, or symlink is not
-required. Install ZCode and configure at least one API-key personal provider in
-`~/.zcode/cli/config.json`. ZCode app 3.12.3 is the minimum and currently
+required. Install ZCode, sign in to Z.AI, and select the Individual Coding Plan
+in the app. ZCode app 3.12.3 is the minimum and currently
 verified app release; newer app versions remain eligible but are reported as
 newer than verified. Its bundled launcher reports protocol version 0.16.5,
 which has its own independent minimum and verified-latest value. Then initialize Mulgae:
@@ -120,12 +120,19 @@ mulgae init --providers zcode \
 Mulgae derives the app runtime and launcher from that bundle, binds their exact
 identities and the bundled provider config, and invokes app-server with
 `ELECTRON_RUN_AS_NODE=1`. The certified provider catalog is
-`Contents/Resources/config/provider/zcode-builtin.json`. For a live invocation,
-it copies the legacy ZCode user config into a disposable home and materializes
-the current personal-provider format that app-server requires.
-It validates that the selected provider and model were imported, then applies
-that selection before sending the review prompt. Desktop and account sign-in
-state is not projected into the disposable review home.
+`Contents/Resources/config/provider/zcode-builtin.json`. Mulgae reads the
+current account connection and credential from ZCode's v2 app state and bridges
+them to app-server without copying credentials into the disposable review home.
+Mulgae does not read or migrate `~/.zcode/cli/config.json`.
+An optional shared model and reasoning effort can be recorded independently:
+
+```bash
+mulgae init --providers zcode \
+  --zcode-model account:zai-individual-coding-plan/GLM-5.3 \
+  --zcode-reasoning-effort high
+```
+
+If either value is omitted, app-server keeps its default for that dimension.
 
 ### Use Grok from Mulgae
 

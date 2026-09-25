@@ -39,46 +39,64 @@ type providerProtocolDriverConstructor interface {
 
 type protocolSessionConfiguration struct {
 	zcodeSelection *zcodeModelSelection
+	zcodeEffort    string
+	zcodeAccount   *zcodeAccountRuntime
 	grokSettings   grokInvocationSettings
 }
 
-type zcodeSessionSelectionAuthority interface {
-	zcodeSessionSelection() *zcodeModelSelection
+type zcodeAccountRuntimeAuthority interface {
+	zcodeAccountRuntime(string, string) (*zcodeAccountRuntime, error)
 }
 
-func protocolConfigurationForNamespace(family, grokModel, grokReasoningEffort string, namespace any) (protocolSessionConfiguration, error) {
+func protocolConfigurationForNamespace(definition RuntimeDefinition, namespace any) (protocolSessionConfiguration, error) {
 	configuration := protocolSessionConfiguration{
 		grokSettings: grokInvocationSettings{
-			model: grokModel, reasoningEffort: grokReasoningEffort,
+			model: definition.grokModel, reasoningEffort: definition.grokReasoningEffort,
 		},
 	}
-	if family != FamilyZcode {
+	if definition.family != FamilyZcode {
 		return configuration, nil
 	}
-	authority, ok := namespace.(zcodeSessionSelectionAuthority)
+	selection, err := parseZCodeModelSelection(definition.zcodeModel)
+	if err != nil {
+		return protocolSessionConfiguration{}, err
+	}
+	configuration.zcodeSelection = selection
+	configuration.zcodeEffort = definition.zcodeReasoningEffort
+	authority, ok := namespace.(zcodeAccountRuntimeAuthority)
 	if !ok || authority == nil {
-		// Provider-neutral qualification doubles have no credential projection
-		// metadata. Production namespaces are concrete namespace leases and carry
-		// the admitted selection when the legacy config declares one.
+		// Provider-neutral qualification doubles carry no native account authority.
 		return configuration, nil
 	}
-	configuration.zcodeSelection = authority.zcodeSessionSelection()
+	account, err := authority.zcodeAccountRuntime(definition.zcodeProviderConfig, definition.zcodeModel)
+	if err != nil {
+		return protocolSessionConfiguration{}, err
+	}
+	configuration.zcodeAccount = account
 	return configuration, nil
 }
 
 type zcodeProtocolDriverConstructor struct{}
 
 func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, _ protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
+	var session *zcodeProtocolSession
+	var err error
 	switch purpose {
 	case protocolPurposeReview:
-		return newZcodeReviewProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
+		session, err = newZcodeReviewProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 	case protocolPurposeExtraction:
-		return newZcodeExtractionProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
+		session, err = newZcodeExtractionProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 	case protocolPurposeQualification:
-		return newZcodeCapabilityProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
+		session, err = newZcodeCapabilityProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 	default:
 		return nil, fmt.Errorf("zcode protocol: unsupported invocation purpose")
 	}
+	if err != nil {
+		return nil, err
+	}
+	session.reasoningEffort = configuration.zcodeEffort
+	session.account = configuration.zcodeAccount
+	return session, nil
 }
 
 type grokACPProtocolDriverConstructor struct{}

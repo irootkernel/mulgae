@@ -885,7 +885,7 @@ func TestCredentialProjectionRequestAuthority(t *testing.T) {
 	digest := fmt.Sprintf("%064x", 1)
 	request, err := NewCredentialProjectionRequestWithAuthority(
 		"provider", "generation", file.Name(), file, digest, 0, 0600,
-		CredentialProjectionZCodeConfig, testCredentialSourceAuthority{},
+		CredentialProjectionGrokAuth, testCredentialSourceAuthority{},
 	)
 	if err != nil {
 		t.Fatal(err)

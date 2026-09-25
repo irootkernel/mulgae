@@ -56,10 +56,14 @@ installed elsewhere accepts the machine-local `--zcode-app-bundle` override.
 Mulgae derives the app-owned Electron runtime, bundled app-server launcher, and
 built-in provider configuration from that one canonical absolute bundle path;
 it does not require an external Node.js executable.
-ZCode reviews import only API-key personal providers from the installed user's
-`~/.zcode/cli/config.json`. Desktop and account sign-in state is not projected
-into the disposable review home. The selected imported provider and model are
-applied before Mulgae sends a review prompt.
+ZCode requires the app's current Z.AI Individual Coding Plan connection.
+`--zcode-model` accepts a provider-qualified shared-policy value such as
+`account:zai-individual-coding-plan/GLM-5.3`, and
+`--zcode-reasoning-effort` records an independently optional thought level.
+Omitting either value preserves app-server's default for that dimension. Mulgae
+reads ZCode's v2 app state and answers app-server's account-auth request
+without copying credentials into the disposable review home; it never reads
+`~/.zcode/cli/config.json`.
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.
@@ -102,6 +106,8 @@ such as the following are preserved canonically:
 ```yaml
 providers:
   zcode:
+    model: "account:zai-individual-coding-plan/GLM-5.3"
+    reasoning_effort: "high"
     timeout: "30m"
 ```
 

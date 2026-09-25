@@ -1,0 +1,50 @@
+{
+  "command": "compose",
+  "completed_at": "2026-09-04T06:00:00Z",
+  "exit": {
+    "code": 0,
+    "kind": "success"
+  },
+  "reasons": [],
+  "request": {
+    "command": "compose",
+    "output_format": "json",
+    "recovery_run_ids": [
+      "r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e"
+    ],
+    "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e",
+    "root_run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba"
+  },
+  "result": {
+    "ci_decision": "pass",
+    "content_verdict": "no_findings",
+    "coverage_status": "complete",
+    "kind": "composite_published",
+    "publication_status": "committed",
+    "reconciliation_state": "created",
+    "recovered_roles": [
+      "logic"
+    ],
+    "recovery_action": "reconstruct_completed_status",
+    "recovery_run_ids": [
+      "r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e"
+    ],
+    "retry_safe": true,
+    "review_artifact_uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-f101-7aae-8eb5-a94ba65b3e58/review_019f596a-f102-7aae-8eb5-a94ba65b3e58.json",
+    "review_id": "019f596a-f102-7aae-8eb5-a94ba65b3e58",
+    "role_report_uris": [
+      {
+        "role": "logic",
+        "uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-f101-7aae-8eb5-a94ba65b3e58/role-reports/logic.md"
+      }
+    ],
+    "root_run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+    "run_id": "r_019f596a-f101-7aae-8eb5-a94ba65b3e58",
+    "run_manifest_uri": ".mulgae/s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-f101-7aae-8eb5-a94ba65b3e58/manifest.json",
+    "run_type": "composite",
+    "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+    "structured_extraction_status": "structured",
+    "target_sha256": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "schema_version": "mulgae-command-result.v13"
+}

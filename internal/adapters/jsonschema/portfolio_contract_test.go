@@ -22,12 +22,39 @@ func TestCurrentProviderEvidenceBaseAdmitsEveryPublishedFamily(t *testing.T) {
 	}
 }
 
+func TestCurrentInitZCodeModelPatternRejectsTrailingSlash(t *testing.T) {
+	document := readAssetJSON(t, "schemas/mulgae-command-result.v13.schema.json").(map[string]any)
+	definitions := document["$defs"].(map[string]any)
+	requests := definitions["requests"].(map[string]any)
+	accepted := requests["init_accepted"].(map[string]any)
+	properties := accepted["properties"].(map[string]any)
+	overrides := properties["overrides"].(map[string]any)["properties"].(map[string]any)
+	pattern := overrides["zcode_model"].(map[string]any)["pattern"].(string)
+	regexp, err := compileECMARegexp(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{
+		{"account:zai-individual-coding-plan/GLM-5.3", true},
+		{"account:zai-individual-coding-plan/GLM-5.3/variant", true},
+		{"account:zai-individual-coding-plan/GLM-5.3/", false},
+	} {
+		if got := regexp.MatchString(test.value); got != test.want {
+			t.Fatalf("zcode_model pattern matches %q = %t, want %t", test.value, got, test.want)
+		}
+	}
+}
+
 func TestCurrentPreflightContractsRejectRetiredPermissionModes(t *testing.T) {
 	t.Parallel()
 
 	for _, relative := range []string{
 		"schemas/mulgae-review-preflight.v5.schema.json",
 		"schemas/mulgae-command-result.v12.schema.json",
+		"schemas/mulgae-command-result.v13.schema.json",
 	} {
 		document := readAssetJSON(t, relative)
 		modes := collectPermissionModeEnums(document)

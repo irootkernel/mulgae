@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	adaptercli "github.com/irootkernel/mulgae/internal/adapters/cli"
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -26,6 +27,43 @@ import (
 )
 
 const productName = "mulgae"
+
+func currentCommandResultContractURI(t *testing.T) string {
+	t.Helper()
+	var contractURI string
+	for _, specification := range adaptercli.CommandSpecs() {
+		requestURI, fragment, found := strings.Cut(specification.RequestContractURI(), "#")
+		wantFragment := "/$defs/requests/" + string(specification.Command())
+		if !found || requestURI == "" || fragment != wantFragment {
+			t.Fatalf("command %q request contract = %q, want current command-result request fragment %q", specification.Command(), specification.RequestContractURI(), wantFragment)
+		}
+		if contractURI == "" {
+			contractURI = requestURI
+		} else if requestURI != contractURI {
+			t.Fatalf("command %q request contract base = %q, want %q", specification.Command(), requestURI, contractURI)
+		}
+		declaredOutput := false
+		for _, outputURI := range specification.OutputContractURIs() {
+			if outputURI == contractURI {
+				declaredOutput = true
+				break
+			}
+		}
+		if !declaredOutput {
+			t.Fatalf("command %q does not declare current command-result output contract %q", specification.Command(), contractURI)
+		}
+	}
+	if contractURI == "" {
+		t.Fatal("CLI registry has no command-result contract authority")
+	}
+	return contractURI
+}
+
+func TestCurrentCommandResultContractAuthority(t *testing.T) {
+	if _, err := ports.ParseAssetID(currentCommandResultContractURI(t)); err != nil {
+		t.Fatalf("current command-result contract URI is invalid: %v", err)
+	}
+}
 
 type versionOutput struct {
 	Name    string `json:"name"`
@@ -867,7 +905,8 @@ func buildFakeZCodeWithStagedOutput(t *testing.T, root, binary, launcher, logPat
 func buildFakeZCodeWithStagedOutputAndBarrier(t *testing.T, root, binary, launcher, logPath, mode, staged, barrier string) {
 	t.Helper()
 	mustWriteTestFile(t, launcher, []byte("// offline fake ZCode launcher\n"))
-	mustWriteTestFile(t, filepath.Join(filepath.Dir(launcher), "..", "config", "provider", "zcode-builtin.json"), []byte("{}\n"))
+	mustWriteTestFile(t, filepath.Join(filepath.Dir(launcher), "..", "config", "provider", "zcode-builtin.json"), []byte(`{"schemaVersion":1,"revision":30,"config":{"providerConfigRules":{"providerRules":[{"providerId":"account:zai-individual-coding-plan","config":{"builtinModelIds":["GLM-5.3","GLM-5.3-Flash"],"access":{"type":"zhipu-account","mode":"individual-coding-plan","accountType":"zai"}}}]}}}
+`))
 	mustWriteTestFile(t, filepath.Join(filepath.Dir(filepath.Dir(binary)), "Info.plist"), []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>3.12.3</string></dict></plist>
 `))
@@ -915,7 +954,7 @@ func main() {
 func serve(argv []string) {
 	sessionID := "sess_fake"
 	var prompt, mode, denylist, proof string
-	capability := false
+	capability, accountConfigured, authAccepted, modelSelected := false, false, false, false
 	stdout := bufio.NewWriter(os.Stdout)
 	defer stdout.Flush()
 	reply := func(id json.RawMessage, result any) {
@@ -960,33 +999,86 @@ func serve(argv []string) {
 			panic("unparseable protocol message")
 		}
 		if message.Method == "" {
-			// A client response to a server-initiated request carries no
-			// method; the fake requires no answer beyond the preferences
-			// acknowledgment.
+			var response struct {
+				ID string ` + "`json:\"id\"`" + `
+				Result struct {
+					HeadersApplied bool ` + "`json:\"headersApplied\"`" + `
+					RequestAuth struct { APIKey string ` + "`json:\"apiKey\"`" + ` } ` + "`json:\"requestAuth\"`" + `
+				} ` + "`json:\"result\"`" + `
+			}
+			if json.Unmarshal([]byte(line), &response) != nil {
+				panic("unparseable protocol response")
+			}
+			if response.ID == "server-auth" {
+				if !response.Result.HeadersApplied || response.Result.RequestAuth.APIKey != "fake-zcode-api-key" {
+					panic("invalid ZCode runtime auth response")
+				}
+				authAccepted = true
+			}
 			continue
 		}
 		switch message.Method {
+		case "provider/updateAccountConfig":
+			var params struct {
+				Revision string ` + "`json:\"revision\"`" + `
+				States map[string]struct { Current bool ` + "`json:\"current\"`" + ` } ` + "`json:\"states\"`" + `
+			}
+			if json.Unmarshal(message.Params, &params) != nil || params.Revision == "" || !params.States["account:zai-individual-coding-plan"].Current {
+				panic("non-canonical ZCode account configuration")
+			}
+			accountConfigured = true
+			reply(message.ID, map[string]any{"receivedRevision": params.Revision, "providerCount": 1})
 		case "session/create":
 			var params struct {
 				Mode         string   ` + "`json:\"mode\"`" + `
 				ToolDenylist []string ` + "`json:\"toolDenylist\"`" + `
 			}
-			if json.Unmarshal(message.Params, &params) != nil || params.Mode == "" || len(params.ToolDenylist) == 0 {
+			if json.Unmarshal(message.Params, &params) != nil || params.Mode == "" || len(params.ToolDenylist) == 0 || !accountConfigured {
 				panic("non-canonical ZCode session create")
 			}
 			mode = params.Mode
 			denylist = strings.Join(params.ToolDenylist, ",")
+			modelSelected = true
 			serverRequest("server-1", "session/requestRuntimePreferences", map[string]any{
 				"sessionId": sessionID,
 				"scope":     "runtime-materialization",
 			})
-			reply(message.ID, map[string]any{"session": map[string]any{"sessionId": sessionID}})
+			serverRequest("server-auth", "interaction/requestProviderRuntimeHeaders", map[string]any{
+				"providerId": "account:zai-individual-coding-plan",
+				"accountAccess": map[string]any{"type": "zhipu-account", "mode": "individual-coding-plan", "accountType": "zai"},
+			})
+			reply(message.ID, map[string]any{
+				"session": map[string]any{"sessionId": sessionID},
+				"settings": map[string]any{"model": map[string]any{"available": []any{
+					map[string]any{"ref": map[string]any{"providerId": "account:zai-individual-coding-plan", "modelId": "GLM-5.3"}, "reasoning": map[string]any{"defaultLevel": "max"}},
+					map[string]any{"ref": map[string]any{"providerId": "account:zai-individual-coding-plan", "modelId": "GLM-5.3-Flash"}, "reasoning": map[string]any{"defaultLevel": "max"}},
+				}}},
+			})
+		case "session/setModel":
+			var params struct {
+				SessionID string ` + "`json:\"sessionId\"`" + `
+				Model struct {
+					ProviderID string ` + "`json:\"providerId\"`" + `
+					ModelID string ` + "`json:\"modelId\"`" + `
+					Options struct { ReasoningLevel string ` + "`json:\"reasoningLevel\"`" + ` } ` + "`json:\"options\"`" + `
+				} ` + "`json:\"model\"`" + `
+			}
+			if json.Unmarshal(message.Params, &params) != nil || params.SessionID != sessionID || params.Model.ProviderID != "account:zai-individual-coding-plan" || params.Model.ModelID == "" || params.Model.Options.ReasoningLevel != "max" {
+				panic("non-canonical ZCode model selection")
+			}
+			modelSelected = true
+			selection := map[string]any{"providerId": params.Model.ProviderID, "modelId": params.Model.ModelID, "options": map[string]any{"reasoningLevel": params.Model.Options.ReasoningLevel}}
+			reply(message.ID, map[string]any{
+				"protocol": map[string]any{"name": "ZCode Protocol", "version": 1},
+				"session": map[string]any{"sessionId": sessionID, "model": selection},
+				"settings": map[string]any{"model": map[string]any{"current": selection}},
+			})
 		case "session/send":
 			var params struct {
 				SessionID string ` + "`json:\"sessionId\"`" + `
 				Content   string ` + "`json:\"content\"`" + `
 			}
-			if json.Unmarshal(message.Params, &params) != nil || params.Content == "" {
+			if json.Unmarshal(message.Params, &params) != nil || params.Content == "" || !authAccepted || !modelSelected {
 				panic("non-canonical ZCode session send")
 			}
 			prompt = params.Content
@@ -1307,10 +1399,30 @@ func integrationNativeHome(t *testing.T, binary string) string {
 	t.Helper()
 	isolated := binary + ".native-home"
 	if info, err := os.Stat(isolated); err == nil && info.IsDir() {
+		writeFakeZCodeAccountState(t, isolated)
 		return isolated
 	}
 	t.Fatalf("isolated native home unavailable beside E2E binary: %q", isolated)
 	return ""
+}
+
+func writeFakeZCodeAccountState(t *testing.T, home string) {
+	t.Helper()
+	v2 := filepath.Join(home, ".zcode", "v2")
+	if err := os.MkdirAll(v2, 0700); err != nil {
+		t.Fatalf("create fake ZCode account state: %v", err)
+	}
+	mustWriteTestFile(t, filepath.Join(v2, "setting.json"), []byte(`{"providerFamilyDomain":"zai","providerFamilyConnectionSelections":{"zai":{"kind":"individual-coding-plan"}}}
+`))
+	credentials := map[string]string{
+		"oauth:zai:user_info": `{"user_id":"fake-account"}`,
+		"account-provider:coding-plan:account:zai-individual-coding-plan:account:fake-account:api-key": "fake-zcode-api-key",
+	}
+	encoded, err := json.Marshal(credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteTestFile(t, filepath.Join(v2, "credentials.json"), encoded)
 }
 
 func mustAssetID(t *testing.T, value string) ports.AssetID {

@@ -30,6 +30,25 @@ func TestProviderTimeoutProvenanceDistinguishesConfiguredAndDefaulted(t *testing
 	}
 }
 
+func TestZCodeProviderDefaultProvenance(t *testing.T) {
+	rows := provenanceRows(Config{Providers: ProvidersConfig{ZCode: &ZCodeProviderConfig{}}})
+	want := map[string]bool{"providers.zcode.model": false, "providers.zcode.reasoning_effort": false}
+	for _, row := range rows {
+		if _, ok := want[row.Field]; !ok {
+			continue
+		}
+		if row.Source != "provider" || row.Disposition != "defaulted" || row.ValueClass != "policy" {
+			t.Fatalf("%s provenance = %#v", row.Field, row)
+		}
+		want[row.Field] = true
+	}
+	for field, found := range want {
+		if !found {
+			t.Fatalf("missing ZCode provider default provenance for %s", field)
+		}
+	}
+}
+
 func TestExtractionProvenanceDistinguishesConfiguredAndDefaulted(t *testing.T) {
 	for _, test := range []struct {
 		name        string

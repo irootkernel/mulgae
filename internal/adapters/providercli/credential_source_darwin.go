@@ -61,10 +61,7 @@ type credentialSourceAuthority struct {
 }
 
 var credentialSources = map[CredentialSourceFamily][]credentialSource{
-	CredentialSourceZCode: {
-		{ports.CredentialProjectionZCodeConfig, []string{".zcode", "cli", "config.json"}},
-		{ports.CredentialProjectionZCodeProviderConfig, []string{".zcode", "cli", "config.json"}},
-	},
+	CredentialSourceZCode: {},
 	CredentialSourceGrok: {
 		{ports.CredentialProjectionGrokAuth, []string{".grok", "auth.json"}},
 	},
@@ -220,6 +217,10 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 	if err := concrete.installRuntimeSafetyPolicy(policy); err != nil {
 		_, _ = lease.DrainTerminal(context.Background())
 		return nil, err
+	}
+	if family == CredentialSourceZCode {
+		concrete.zcodeNativeHome = factory.runtimeHome
+		concrete.zcodeNativeHomeInfo = factory.runtimeHomeInfo
 	}
 	if family == CredentialSourceGrok {
 		if factory.projectRoot != "" {

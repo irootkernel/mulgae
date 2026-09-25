@@ -111,7 +111,7 @@ func TestDecodeTracksStructuredExtractionPresence(t *testing.T) {
 func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	config := validConfig()
 	config.Providers = ProvidersConfig{
-		ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app", Timeout: "30m"},
+		ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app", Model: "account:zai-individual-coding-plan/GLM-5.3", ReasoningEffort: "high", Timeout: "30m"},
 		Grok:  &GrokProviderConfig{Executable: "/usr/local/bin/grok", Model: "grok-4.7", ReasoningEffort: "high", Timeout: "25m"},
 		Codex: &CodexProviderConfig{Executable: "/usr/local/bin/codex", Model: "gpt-5.3-codex", ReasoningEffort: "high", Timeout: "20m"},
 	}
@@ -122,13 +122,13 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`timeout: "30m"`, `timeout: "25m"`, `timeout: "20m"`, `model: "grok-4.7"`, `model: "gpt-5.3-codex"`} {
+	for _, field := range []string{`timeout: "30m"`, `timeout: "25m"`, `timeout: "20m"`, `model: "account:zai-individual-coding-plan/GLM-5.3"`, `model: "grok-4.7"`, `model: "gpt-5.3-codex"`} {
 		if !bytes.Contains(canonical, []byte(field)) {
 			t.Fatalf("canonical config omitted %s:\n%s", field, canonical)
 		}
 	}
-	if got := bytes.Count(canonical, []byte(`reasoning_effort: "high"`)); got != 2 {
-		t.Fatalf("canonical config reasoning effort count = %d, want 2:\n%s", got, canonical)
+	if got := bytes.Count(canonical, []byte(`reasoning_effort: "high"`)); got != 3 {
+		t.Fatalf("canonical config reasoning effort count = %d, want 3:\n%s", got, canonical)
 	}
 	decoded, err := Decode(canonical)
 	if err != nil {
@@ -143,6 +143,9 @@ func TestProviderTimeoutNonDefaultsRoundTripCanonically(t *testing.T) {
 	}
 	if timeout, _ := ParseProviderTimeout(decoded.Providers.ZCode.Timeout); timeout != 30*time.Minute {
 		t.Fatalf("zcode timeout = %s", timeout)
+	}
+	if decoded.Providers.ZCode.Model != "account:zai-individual-coding-plan/GLM-5.3" || decoded.Providers.ZCode.ReasoningEffort != "high" {
+		t.Fatalf("ZCode settings = %#v", decoded.Providers.ZCode)
 	}
 	if decoded.Providers.Codex.Model != "gpt-5.3-codex" || decoded.Providers.Codex.ReasoningEffort != "high" {
 		t.Fatalf("Codex settings = %#v", decoded.Providers.Codex)

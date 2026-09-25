@@ -43,7 +43,7 @@ func generate() error {
 		return err
 	}
 	assets := filepath.Join(root, "internal", "builtin", "assets")
-	commandSchema := filepath.Join(assets, "schemas", "mulgae-command-result.v12.schema.json")
+	commandSchema := filepath.Join(assets, "schemas", "mulgae-command-result.v13.schema.json")
 	if err := seedCommandSchema(assets, commandSchema); err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func generate() error {
 	if err := sanitizeCommandJSON(commandSchema); err != nil {
 		return err
 	}
-	if err := addCommandGrokPolicyOptions(commandSchema); err != nil {
+	if err := addCommandProviderPolicyOptions(commandSchema); err != nil {
 		return err
 	}
 	if err := restrictCommandPermissionModes(commandSchema); err != nil {
@@ -73,7 +73,7 @@ func generate() error {
 	return writeCommandExample(assets)
 }
 
-func addCommandGrokPolicyOptions(filename string) error {
+func addCommandProviderPolicyOptions(filename string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return err
@@ -111,6 +111,14 @@ func addCommandGrokPolicyOptions(filename string) error {
 		"pattern": `^(?!/)(?!.*//)(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`,
 	}
 	overrideProperties["grok_reasoning_effort"] = map[string]any{
+		"type": "string", "minLength": 1, "maxLength": 128,
+		"pattern": `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`,
+	}
+	overrideProperties["zcode_model"] = map[string]any{
+		"type": "string", "minLength": 1, "maxLength": 257,
+		"pattern": `^account:zai-individual-coding-plan/(?!/)(?!.*//)(?!.*(?:^|/)\.\.(?:/|$))(?!.*\/$)[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`,
+	}
+	overrideProperties["zcode_reasoning_effort"] = map[string]any{
 		"type": "string", "minLength": 1, "maxLength": 128,
 		"pattern": `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`,
 	}
@@ -170,19 +178,19 @@ func seedCommandSchema(assets, target string) error {
 	if err != nil {
 		return err
 	}
-	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v12"))
-	contents = bytes.ReplaceAll(contents, []byte("Mulgae Command Result v9"), []byte("Mulgae Command Result v12"))
+	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v13"))
+	contents = bytes.ReplaceAll(contents, []byte("Mulgae Command Result v9"), []byte("Mulgae Command Result v13"))
 	return writeIfChanged(target, contents)
 }
 
 func writeCommandExample(assets string) error {
 	source := filepath.Join(assets, "examples", "command-result.v9.valid.json")
-	target := filepath.Join(assets, "examples", "command-result.v12.valid.json")
+	target := filepath.Join(assets, "examples", "command-result.v13.valid.json")
 	contents, err := os.ReadFile(source)
 	if err != nil {
 		return err
 	}
-	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v12"))
+	contents = bytes.ReplaceAll(contents, []byte("mulgae-command-result.v9"), []byte("mulgae-command-result.v13"))
 	if err := writeIfChanged(target, contents); err != nil {
 		return err
 	}

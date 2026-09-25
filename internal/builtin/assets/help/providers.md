@@ -1,8 +1,8 @@
 # Providers and role paths
 
 Mulgae supports the `zcode`, `grok`, and `codex` provider families. ZCode must
-be installed as an app bundle with an API-key personal provider configured;
-Grok and Codex use their own authenticated installations.
+be installed as an app bundle with a current Z.AI Individual Coding Plan
+connection; Grok and Codex use their own authenticated installations.
 
 Automatic initialization selects ZCode and Grok, requires both to be available,
 and assigns every default role to ZCode. Codex remains explicit-only.

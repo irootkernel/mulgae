@@ -465,6 +465,12 @@ func validate(config *Config) error {
 		if !canonicalAbsolute(config.Providers.ZCode.AppBundle) {
 			return fmt.Errorf("zcode app bundle")
 		}
+		if model := config.Providers.ZCode.Model; model != "" && !appconfig.ValidZCodeModel(model) {
+			return fmt.Errorf("zcode model")
+		}
+		if effort := config.Providers.ZCode.ReasoningEffort; effort != "" && !appconfig.ValidZCodeReasoningEffort(effort) {
+			return fmt.Errorf("zcode reasoning effort")
+		}
 		timeout, err := ParseProviderTimeout(config.Providers.ZCode.Timeout)
 		if err != nil {
 			return fmt.Errorf("zcode timeout: %w: %v", errProviderTimeoutInvalid, err)
@@ -721,6 +727,12 @@ func EncodeCanonical(config Config) ([]byte, error) {
 	out.WriteString("native_user:\n  home: " + q(config.NativeUser.Home) + "\nproviders:\n")
 	if provider := config.Providers.ZCode; provider != nil {
 		out.WriteString("  zcode:\n    app_bundle: " + q(provider.AppBundle) + "\n")
+		if provider.Model != "" {
+			out.WriteString("    model: " + q(provider.Model) + "\n")
+		}
+		if provider.ReasoningEffort != "" {
+			out.WriteString("    reasoning_effort: " + q(provider.ReasoningEffort) + "\n")
+		}
 		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}

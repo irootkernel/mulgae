@@ -268,6 +268,8 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.LauncherSHA256() != right.LauncherSHA256() ||
 		left.ZCodeProviderConfig() != right.ZCodeProviderConfig() ||
 		left.ZCodeProviderConfigSHA256() != right.ZCodeProviderConfigSHA256() ||
+		left.ZCodeModel() != right.ZCodeModel() ||
+		left.ZCodeReasoningEffort() != right.ZCodeReasoningEffort() ||
 		left.ProfileGeneration() != right.ProfileGeneration() ||
 		left.RuntimeSafetyPolicyIdentity() != right.RuntimeSafetyPolicyIdentity() ||
 		left.WorkingDirectory() != right.WorkingDirectory() ||
@@ -501,7 +503,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, root.Path(), binding, timeout)
 		}
 		if requestErr == nil {
-			configuration, configurationErr := protocolConfigurationForNamespace(definition.family, definition.grokModel, definition.grokReasoningEffort, namespace)
+			configuration, configurationErr := protocolConfigurationForNamespace(definition, namespace)
 			if configurationErr != nil {
 				return ports.ProcessObservation{}, nil, configurationErr
 			}
@@ -712,6 +714,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		Launcher, LauncherSHA256, ApplicationVersion, ApplicationMetadata         string
 		ApplicationMetadataSHA256, ZCodeProviderConfig, ZCodeProviderConfigSHA256 string
 		ProfileGeneration, RuntimeSafetyPolicyIdentity, ProfileID                 string
+		ZCodeModel, ZCodeReasoningEffort                                          string
 		GrokModel, GrokReasoningEffort, GrokSettingsIdentity                      string
 		BaseArgv, Environment                                                     []string
 		TransportChannel, TransportReference                                      string
@@ -730,6 +733,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		ApplicationVersion: definition.applicationVersion, ApplicationMetadata: definition.applicationMetadata,
 		ApplicationMetadataSHA256: definition.applicationMetadataSHA256,
 		ZCodeProviderConfig:       definition.zcodeProviderConfig, ZCodeProviderConfigSHA256: definition.zcodeProviderConfigSHA256,
+		ZCodeModel: definition.zcodeModel, ZCodeReasoningEffort: definition.zcodeReasoningEffort,
 		ProfileGeneration: definition.profileGeneration, RuntimeSafetyPolicyIdentity: definition.runtimeSafetyPolicyIdentity,
 		ProfileID: definition.profileID,
 		GrokModel: definition.grokModel, GrokReasoningEffort: definition.grokReasoningEffort,

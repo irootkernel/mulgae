@@ -73,11 +73,11 @@ following facts, verified end to end including one real model turn:
   `runtime-materialization`, and again at `user-execution` before the first
   turn). The client must answer with an object; `null` is rejected. Mulgae
   answers with a fixed local-only preference object.
-- The server also issues non-essential interaction requests such as
-  `interaction/requestOfficialMcpAuthHeaders`. Left unanswered they time out
-  harmlessly; Mulgae deliberately does not answer them, and a turn that never
-  completes fails closed through the conversation's own terminal
-  classification.
+- Before session creation, Mulgae sends `provider/updateAccountConfig` with the
+  current, secret-free Z.AI Individual Coding Plan overlay. Model requests issue
+  `interaction/requestProviderRuntimeHeaders`; Mulgae revalidates the current
+  v2 account identity and responds with the matching API key for that request
+  only. Other interaction requests remain unanswered unless separately owned.
 - `session/send` takes `{"sessionId","content"}` and returns an immediate
   acceptance `{"accepted":true,"sessionId","stateRevision"}`. The turn's
   outcome arrives as notifications: `state.updated` with reason
@@ -148,10 +148,18 @@ bundled `zcode.cjs --version` reports launcher protocol 0.16.5; that protocol
 version is what provider qualification observes, so 0.16.5 remains both the
 runtime minimum and verified-latest guidance. Certification covers the
 app-owned Electron runtime, explicit `zcode.cjs app-server --stdio` launch
-shape, projection of API-key personal provider configuration, and
-`session/setModel` after create and before the prompt. Mulgae tries the bounded
-ZCode reasoning-level vocabulary from strongest to weakest until the selected
-provider/model is admitted. No prompt is sent if the selection is unavailable;
-that is a configuration failure rather than a registry-order fallback. The app
-release and launcher protocol version are distinct axes and must not be compared
-or substituted for one another.
+shape, v2 Z.AI Individual Coding Plan account bridging, and optional exact
+`session/setModel` and `session/setThoughtLevel` calls after create and before
+the prompt. The model and thought level are independently optional. For an
+explicit model, `session/setModel` uses that model's `reasoning.defaultLevel`
+from `session/create`, which the app-server requires even when no thought level
+was configured. An explicit thought level is applied afterward. The account
+overlay binds to app-server's endpoint-scoped active
+catalog identity; the certified bundled launcher materializes that identity
+under its internal `0.0.0-dev` registry version rather than the desktop app
+version. Mulgae does not invent a reasoning value or retry a fallback
+vocabulary. No prompt is sent if an explicitly selected model or thought level
+is unavailable; that is a configuration failure rather than a registry-order
+fallback. The app release
+and launcher protocol version are distinct axes and must not be compared or
+substituted for one another.

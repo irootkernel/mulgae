@@ -2,35 +2,14 @@ package providercli
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
-
-func testZCodeLegacyConfig(apiKey string) string {
-	encoded, err := json.Marshal(map[string]any{
-		"model": "zai/GLM-5.2",
-		"provider": map[string]any{
-			"zai": map[string]any{
-				"kind": "anthropic", "name": "Z.ai",
-				"options": map[string]any{"apiKey": apiKey, "baseURL": "https://api.z.ai/api/anthropic"},
-				"models":  map[string]any{"GLM-5.2": map[string]any{"limit": map[string]any{"context": 1_000_000}}},
-			},
-		},
-	})
-	if err != nil {
-		panic(err)
-	}
-	return string(encoded)
-}
 
 func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 	if runtime.GOOS != "darwin" {
@@ -44,7 +23,6 @@ func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 		contents    string
 		wantSeeds   int
 	}{
-		{"zcode_config", CredentialSourceZCode, ".zcode/cli/config.json", ports.CredentialProjectionZCodeConfig, testZCodeLegacyConfig("secret"), 2},
 		{"grok_auth", CredentialSourceGrok, ".grok/auth.json", ports.CredentialProjectionGrokAuth, "declared", 1},
 		{"codex_auth", CredentialSourceCodex, ".codex/auth.json", ports.CredentialProjectionCodexAuth, "declared", 1},
 	}
@@ -79,18 +57,6 @@ func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 			if len(concrete.seeds) != test.wantSeeds {
 				t.Fatalf("projected %d files, want %d", len(concrete.seeds), test.wantSeeds)
 			}
-			if test.family == CredentialSourceZCode {
-				providerPath, _ := credentialDestination(ports.CredentialProjectionZCodeProviderConfig)
-				providerBytes, readErr := os.ReadFile(filepath.Join(concrete.root, providerPath))
-				want := `{"schemaVersion":1,"config":{"providerConfigRules":{"providerRules":[{"providerId":"zai","providerName":"Z.ai","config":{"group":"standard-personal","access":{"type":"api-key","apiKey":"secret"},"api":{"type":"anthropic-messages","baseUrl":"https://api.z.ai/api/anthropic"},"personalModelIds":["GLM-5.2"],"modelOrder":["GLM-5.2"]}}]},"modelConfigRules":{"providerModelRules":[{"modelId":"GLM-5.2","config":{"properties":{"contextWindow":1000000}},"providerId":"zai"}],"manualProviderModelRules":[]},"defaultModelSelection":{"providerId":"zai","modelId":"GLM-5.2"}}}`
-				if readErr != nil || string(providerBytes) != want {
-					t.Fatalf("ZCode personal provider projection = %s, %v; want %s", providerBytes, readErr, want)
-				}
-				selection := concrete.zcodeSessionSelection()
-				if selection == nil || selection.ProviderID != "zai" || selection.ModelID != "GLM-5.2" {
-					t.Fatalf("ZCode session selection = %#v", selection)
-				}
-			}
 		})
 	}
 }
@@ -120,27 +86,6 @@ func TestGrokCredentialProjectionRejectsNonPrivateAuth(t *testing.T) {
 	}
 	if _, err := factory.AcquireProviderNamespace(context.Background(), "grok", FamilyGrok); err == nil {
 		t.Fatalf("non-private Grok auth error = %v", err)
-	}
-}
-
-func TestCredentialSourceFactoryPreservesSelectedZCodeConfigurationFailure(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	home := credentialSourceTempDir(t)
-	writeCredentialSource(t, home, ".zcode/cli/config.json", `{"model":"zai/model","provider":{"zai":{"options":{"apiKeyRequired":false}}}}`)
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := NewCredentialProjectingNamespaceFactory(base, home, map[string]CredentialSourceFamily{"zcode": CredentialSourceZCode})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = factory.AcquireProviderNamespace(context.Background(), "zcode", FamilyZcode)
-	var failure *domain.Failure
-	if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
-		t.Fatalf("factory error = %v, want configuration_violation", err)
 	}
 }
 
@@ -189,23 +134,22 @@ func mustCredentialSourcePolicy(t *testing.T, family CredentialSourceFamily) Run
 	return policy
 }
 
-func TestCredentialSourceRejectsSymlinksAndAllowsAbsentFiles(t *testing.T) {
+func TestZCodeCredentialSourceIgnoresRetiredLegacyPaths(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Darwin descriptor traversal is required")
 	}
 	for _, test := range []struct {
 		name  string
 		setup func(t *testing.T, home string)
-		want  bool
 	}{
-		{"absent", func(*testing.T, string) {}, true},
-		{"intermediate_symlink", func(t *testing.T, home string) { mustSymlink(t, t.TempDir(), filepath.Join(home, ".zcode")) }, false},
+		{"absent", func(*testing.T, string) {}},
+		{"intermediate_symlink", func(t *testing.T, home string) { mustSymlink(t, t.TempDir(), filepath.Join(home, ".zcode")) }},
 		{"final_symlink", func(t *testing.T, home string) {
 			if err := os.MkdirAll(filepath.Join(home, ".zcode", "cli"), 0700); err != nil {
 				t.Fatal(err)
 			}
 			mustSymlink(t, filepath.Join(t.TempDir(), "config.json"), filepath.Join(home, ".zcode", "cli", "config.json"))
-		}, false},
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := credentialSourceTempDir(t)
@@ -219,107 +163,17 @@ func TestCredentialSourceRejectsSymlinksAndAllowsAbsentFiles(t *testing.T) {
 				t.Fatal(err)
 			}
 			lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode)
-			if test.want {
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer lease.DrainTerminal(context.Background())
-				if len(lease.(*namespaceLease).seeds) != 0 {
-					t.Fatal("absent source was projected")
-				}
-			} else if err == nil {
-				lease.DrainTerminal(context.Background())
-				t.Fatal("symlink source accepted")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lease.DrainTerminal(context.Background())
+			if len(lease.(*namespaceLease).seeds) != 0 {
+				t.Fatal("retired legacy source was projected")
 			}
 		})
 	}
 }
 
-func TestCredentialSourceUsesExplicitHomeAndDetectsSourceDrift(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	home, ambient := credentialSourceTempDir(t), t.TempDir()
-	trusted := testZCodeLegacyConfig("trusted")
-	writeCredentialSource(t, home, ".zcode/cli/config.json", trusted)
-	writeCredentialSource(t, ambient, ".zcode/cli/config.json", testZCodeLegacyConfig("ambient"))
-	t.Setenv("HOME", ambient)
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := NewCredentialProjectingNamespaceFactory(base, home, map[string]CredentialSourceFamily{"provider": CredentialSourceZCode})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lease.DrainTerminal(context.Background())
-	concrete := lease.(*namespaceLease)
-	if strings.Contains(concrete.Environment()[0].Value(), ambient) {
-		t.Fatal("ambient home leaked into namespace")
-	}
-	path, ok := credentialDestination(ports.CredentialProjectionZCodeConfig)
-	if !ok {
-		t.Fatal("unknown destination")
-	}
-	bytes, err := os.ReadFile(filepath.Join(concrete.root, path))
-	if err != nil || string(bytes) != trusted {
-		t.Fatalf("explicit home source was not used: %v", err)
-	}
-	writeCredentialSource(t, home, ".zcode/cli/config.json", testZCodeLegacyConfig("changed"))
-	if err := lease.ValidateForSpawn(); err == nil {
-		t.Fatal("source drift accepted")
-	}
-}
-func TestCredentialSourceRejectsPostProjectionIntermediateDirectorySwap(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	home := credentialSourceTempDir(t)
-	writeCredentialSource(t, home, ".zcode/cli/config.json", testZCodeLegacyConfig("credential"))
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := NewCredentialProjectingNamespaceFactory(base, home, map[string]CredentialSourceFamily{"provider": CredentialSourceZCode})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lease.DrainTerminal(context.Background())
-	if err := os.Rename(filepath.Join(home, ".zcode"), filepath.Join(home, ".zcode-original")); err != nil {
-		t.Fatal(err)
-	}
-	writeCredentialSource(t, home, ".zcode/cli/config.json", testZCodeLegacyConfig("credential"))
-	if err := lease.ValidateForSpawn(); err == nil {
-		t.Fatal("intermediate source-directory swap accepted")
-	}
-}
-
-func TestCredentialSourceProjectionFailureDrainsLease(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	home := credentialSourceTempDir(t)
-	writeCredentialSource(t, home, ".zcode/cli/config.json", testZCodeLegacyConfig("credential"))
-	lease := newFailingProjectionLease(t)
-	factory, err := NewCredentialProjectingNamespaceFactory(staticLeaseFactory{lease}, home, map[string]CredentialSourceFamily{"provider": CredentialSourceZCode})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := factory.AcquireProviderNamespace(context.Background(), "provider", FamilyZcode); err == nil {
-		t.Fatal("projection failure accepted")
-	}
-	if !lease.drained {
-		t.Fatal("failed projection did not drain lease")
-	}
-}
 func TestCredentialProjectingNamespaceFactoryWithPoliciesRejectsPolicyDrift(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Darwin descriptor traversal is required")

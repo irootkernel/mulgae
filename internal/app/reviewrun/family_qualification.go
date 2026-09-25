@@ -62,6 +62,8 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		definition.ApplicationMetadataSHA256(),
 		definition.ProfileGeneration(),
 		definition.RuntimeSafetyPolicyIdentity(),
+		definition.ZCodeModel(),
+		definition.ZCodeReasoningEffort(),
 		definition.GrokSettingsIdentity(),
 		strings.Join(definition.BaseArgv(), "\x1e"),
 		string(definition.TransportChannel()),

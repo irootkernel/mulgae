@@ -144,6 +144,14 @@ func TestParseInitForms(t *testing.T) {
 	}
 	assertRequestJSON(t, grok, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["grok"]},"roles":["logic"],"overrides":{"grok_executable":"/opt/homebrew/bin/grok","grok_model":"grok-4.5","grok_reasoning_effort":"high-precision"},"overwrite":false,"output_format":"human"}`)
 
+	zcode := mustParse(t, []string{"init", "--providers", "zcode", "--zcode-model", "account:zai-individual-coding-plan/GLM-5.3", "--zcode-reasoning-effort", "high"})
+	zcodeRequest, ok := zcode.Init()
+	_, zcodeModel, zcodeEffort, zcodeModelSet, zcodeEffortSet := zcodeRequest.ZCodeOverrides()
+	if !ok || zcodeModel != "account:zai-individual-coding-plan/GLM-5.3" || zcodeEffort != "high" || !zcodeModelSet || !zcodeEffortSet {
+		t.Fatalf("ZCode init request = %#v, %t", zcodeRequest, ok)
+	}
+	assertRequestJSON(t, zcode, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["zcode"]},"roles":["logic"],"overrides":{"zcode_model":"account:zai-individual-coding-plan/GLM-5.3","zcode_reasoning_effort":"high"},"overwrite":false,"output_format":"human"}`)
+
 	automatic := mustParse(t, []string{"init", "--providers", "auto", "--grok-executable", "/opt/homebrew/bin/grok"})
 	automaticRequest, ok := automatic.Init()
 	if !ok || automaticRequest.GrokExecutable() != "/opt/homebrew/bin/grok" {
@@ -181,6 +189,7 @@ func TestParseInitForms(t *testing.T) {
 		{"init", "--refresh-local", "--agy-permission-mode", "safe"},
 		{"init", "--refresh-local", "--grok-model", "grok-4.5"},
 		{"init", "--refresh-local", "--grok-reasoning-effort", ""},
+		{"init", "--refresh-local", "--zcode-model", "account:zai-individual-coding-plan/GLM-5.3"},
 	} {
 		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)
@@ -192,6 +201,10 @@ func TestParseInitForms(t *testing.T) {
 		{"init", "--providers", "grok", "--grok-model", ""},
 		{"init", "--providers", "grok", "--grok-model", "../grok"},
 		{"init", "--providers", "grok", "--grok-reasoning-effort", "high/precision"},
+		{"init", "--providers", "grok", "--zcode-model", "account:zai-individual-coding-plan/GLM-5.3"},
+		{"init", "--providers", "zcode", "--zcode-model", "zai/GLM-5.3"},
+		{"init", "--providers", "zcode", "--zcode-model", "account:zai-individual-coding-plan/GLM-5.3/"},
+		{"init", "--providers", "zcode", "--zcode-reasoning-effort", "high/precision"},
 	} {
 		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)

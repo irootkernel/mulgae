@@ -65,20 +65,23 @@ skills, plugins, or other contents. When the named fields are absent, the
 legacy singleton uses `<native_user.home>/.codex`. Named and legacy forms are
 both Config v4; partially named or unmatched pairs are rejected.
 
-For ZCode, Mulgae descriptor-anchors the native
-`<native_user.home>/.zcode/cli/config.json` source. When present, each isolated
-invocation receives an exact legacy copy plus a generated
-`.zcode/v2/provider_config.json` containing the equivalent supported personal
-provider, model, and default-selection rules. Unselected provider-ID collisions
-follow ZCode's last-wins import behavior; a collision involving the selected
-provider fails closed as ambiguous. Mulgae rejects a selected provider or model
-that cannot be imported and applies the admitted selection before it sends the
-review prompt. Desktop and account sign-in state is not projected.
-This conversion is required because current ZCode app-server does not run the
-launcher's standalone legacy import. The local
-authority records only the canonical ZCode app bundle. Mulgae derives and binds
-the app-owned Electron runtime, bundled `zcode.cjs`, and built-in provider
+For ZCode, the local authority records only the canonical app bundle. The
+project authority may independently declare `model` and `reasoning_effort`.
+`model` is a provider-qualified Z.AI Individual Coding Plan selection such as
+`account:zai-individual-coding-plan/GLM-5.3`; either field may be omitted to
+preserve app-server's default for that dimension. Mulgae derives and binds the
+app-owned Electron runtime, bundled `zcode.cjs`, and built-in provider
 configuration, then launches app-server with `ELECTRON_RUN_AS_NODE=1`.
+
+Each invocation verifies that Z.AI and `individual-coding-plan` are current in
+`<native_user.home>/.zcode/v2/setting.json`, resolves the selected model against
+the bundled catalog, and reads only the current account profile and matching
+plan credential from `.zcode/v2/credentials.json`. It sends a secret-free
+`provider/updateAccountConfig` overlay before session creation and returns the
+API key only in response to app-server's
+`interaction/requestProviderRuntimeHeaders` request. Credentials are never
+projected into the disposable home. Mulgae does not read or convert
+`.zcode/cli/config.json`.
 
 `mulgae init` creates both files in a new project. When a clone already has the
 shared file, init creates only the missing local file and rejects project-policy
@@ -107,7 +110,8 @@ The existing `config_uri` remains `.mulgae/config.yaml` as the stable public
 project-policy URI. Configuration SHA-256 fields bind a domain-separated,
 ordered framing of both canonical files so a change to either authority changes
 the effective configuration identity. Provenance uses `project`, `local`,
-`default`, and `code` sources.
+`default`, `provider`, and `code` sources. `provider` marks ZCode model and
+reasoning values left to app-server defaults.
 
 The build-owned role document at `assets/roles.yaml` supplies the *initial*
 role-to-provider assignment and artist input defaults that `mulgae init` writes.
@@ -655,7 +659,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v12` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v13` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only

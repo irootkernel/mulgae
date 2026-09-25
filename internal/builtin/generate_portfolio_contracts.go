@@ -37,7 +37,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	commandPair := contractPair{"schemas/mulgae-command-result.v11.schema.json", "schemas/mulgae-command-result.v12.schema.json", "examples/command-result.v11.valid.json", "examples/command-result.v12.valid.json", "mulgae-command-result.v11", "mulgae-command-result.v12"}
+	commandPair := contractPair{"schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v13.schema.json", "examples/command-result.v12.valid.json", "examples/command-result.v13.valid.json", "mulgae-command-result.v12", "mulgae-command-result.v13"}
 	if err := updateFileCatalog(assets, append(pairs, commandPair)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

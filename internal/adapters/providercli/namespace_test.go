@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
@@ -377,26 +376,6 @@ func TestCredentialProjectionSafeAndTerminallyZeroesAndUnlinks(t *testing.T) {
 	}
 }
 
-func TestZCodeProviderProjectionClassifiesInvalidSelectedLegacyProviderAsConfiguration(t *testing.T) {
-	factory, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "zcode_logic", FamilyZcode)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, request := declaredCredentialRequest(t, lease, `{"model":"zai/model","provider":{"zai":{"options":{"apiKeyRequired":false}}}}`, ports.CredentialProjectionZCodeProviderConfig)
-	_, err = lease.ProjectCredential(context.Background(), request)
-	var failure *domain.Failure
-	if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
-		t.Fatalf("projection error = %v, want configuration_violation", err)
-	}
-	if _, drainErr := lease.DrainTerminal(context.Background()); drainErr != nil {
-		t.Fatal(drainErr)
-	}
-}
-
 func TestCredentialProjectionDrainAcceptsProviderOwnedAtomicRefresh(t *testing.T) {
 	factory, err := NewNamespaceFactory(t.TempDir())
 	if err != nil {
@@ -627,8 +606,8 @@ func TestCredentialProjectionDrainRemovesNamespaceAfterReplacementCleanupFailure
 		t.Fatal(err)
 	}
 	for _, destination := range []ports.CredentialProjectionDestination{
-		ports.CredentialProjectionZCodeConfig,
-		ports.CredentialProjectionZCodeProviderConfig,
+		ports.CredentialProjectionGrokAuth,
+		ports.CredentialProjectionCodexAuth,
 	} {
 		_, request := declaredCredentialRequest(t, lease, `{"provider":{}}`, destination)
 		if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
@@ -636,7 +615,7 @@ func TestCredentialProjectionDrainRemovesNamespaceAfterReplacementCleanupFailure
 		}
 	}
 	concrete := lease.(*namespaceLease)
-	destination := filepath.Join(concrete.root, "home", ".zcode", "cli", "config.json")
+	destination := filepath.Join(concrete.root, "home", ".grok", "auth.json")
 	if err := os.Remove(destination); err != nil {
 		t.Fatal(err)
 	}
@@ -811,7 +790,6 @@ func TestCredentialProjectionUsesOnlyProviderHomePaths(t *testing.T) {
 	}{
 		{ports.CredentialProjectionCodexAuth, ".codex/auth.json"},
 		{ports.CredentialProjectionGrokAuth, ".grok/auth.json"},
-		{ports.CredentialProjectionZCodeConfig, ".zcode/cli/config.json"},
 	}
 	home := namespaceEnvironmentMap(t, lease.Environment())["HOME"]
 	stub := filepath.Join(t.TempDir(), "provider-cli")
@@ -1016,11 +994,11 @@ func TestNamespaceDrainFinishesTeardownAfterPartialSeedCleanup(t *testing.T) {
 	if _, err := lease.ProjectCredential(context.Background(), config); err != nil {
 		t.Fatal(err)
 	}
-	_, credentials := declaredCredentialRequest(t, lease, "second", ports.CredentialProjectionZCodeConfig)
+	_, credentials := declaredCredentialRequest(t, lease, "second", ports.CredentialProjectionCodexAuth)
 	if _, err := lease.ProjectCredential(context.Background(), credentials); err != nil {
 		t.Fatal(err)
 	}
-	credentialsDirectory := filepath.Join(concrete.root, "home", ".zcode", "cli")
+	credentialsDirectory := filepath.Join(concrete.root, "home", ".codex")
 	movedCredentialsDirectory := credentialsDirectory + ".moved"
 	if err := os.Rename(credentialsDirectory, movedCredentialsDirectory); err != nil {
 		t.Fatal(err)

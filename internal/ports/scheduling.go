@@ -83,16 +83,13 @@ type ProviderNamespaceFactory interface {
 type CredentialProjectionDestination string
 
 const (
-	CredentialProjectionZCodeConfig         CredentialProjectionDestination = "zcode_config"
-	CredentialProjectionZCodeProviderConfig CredentialProjectionDestination = "zcode_provider_config"
-	CredentialProjectionGrokAuth            CredentialProjectionDestination = "grok_auth"
-	CredentialProjectionCodexAuth           CredentialProjectionDestination = "codex_auth"
+	CredentialProjectionGrokAuth  CredentialProjectionDestination = "grok_auth"
+	CredentialProjectionCodexAuth CredentialProjectionDestination = "codex_auth"
 )
 
 func (destination CredentialProjectionDestination) Valid() bool {
 	switch destination {
-	case CredentialProjectionZCodeConfig, CredentialProjectionZCodeProviderConfig,
-		CredentialProjectionGrokAuth, CredentialProjectionCodexAuth:
+	case CredentialProjectionGrokAuth, CredentialProjectionCodexAuth:
 		return true
 	default:
 		return false

@@ -104,7 +104,7 @@ func BundleSHA256(project, local []byte) string {
 func provenanceRows(config Config) []ProvenanceRow {
 	fields := []string{
 		"version", "project.name", "project.root", "project.context", "native_user.home",
-		"providers.zcode.configured", "providers.zcode.app_bundle", "providers.zcode.timeout",
+		"providers.zcode.configured", "providers.zcode.app_bundle", "providers.zcode.model", "providers.zcode.reasoning_effort", "providers.zcode.timeout",
 		"providers.grok.configured", "providers.grok.executable", "providers.grok.timeout",
 		"providers.codex.configured", "providers.codex.executable", "providers.codex.default_credential_profile", "providers.codex.credential_homes", "providers.codex.model", "providers.codex.reasoning_effort", "providers.codex.timeout",
 		"execution.workspace_access",
@@ -130,7 +130,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "project.context" && config.Project.Context == "" || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.grok.configured" && config.Providers.Grok == nil || field == "providers.codex.configured" && config.Providers.Codex == nil {
 			disposition = "absent"
 		}
-		if field == "providers.zcode.timeout" && config.Providers.ZCode == nil || field == "providers.grok.timeout" && config.Providers.Grok == nil || strings.HasPrefix(field, "providers.codex.") && field != "providers.codex.configured" && config.Providers.Codex == nil {
+		if strings.HasPrefix(field, "providers.zcode.") && field != "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.grok.timeout" && config.Providers.Grok == nil || strings.HasPrefix(field, "providers.codex.") && field != "providers.codex.configured" && config.Providers.Codex == nil {
 			disposition = "absent"
 		}
 		if field == "providers.zcode.app_bundle" && config.Providers.ZCode == nil || field == "providers.grok.executable" && config.Providers.Grok == nil {
@@ -138,6 +138,9 @@ func provenanceRows(config Config) []ProvenanceRow {
 		}
 		if config.Providers.Codex != nil && (field == "providers.codex.model" && config.Providers.Codex.Model == "" || field == "providers.codex.reasoning_effort" && config.Providers.Codex.ReasoningEffort == "") {
 			source, disposition = "default", "defaulted"
+		}
+		if config.Providers.ZCode != nil && (field == "providers.zcode.model" && config.Providers.ZCode.Model == "" || field == "providers.zcode.reasoning_effort" && config.Providers.ZCode.ReasoningEffort == "") {
+			source, disposition = "provider", "defaulted"
 		}
 		if config.Providers.Codex != nil && config.Providers.Codex.DefaultCredentialProfile == "" && (field == "providers.codex.default_credential_profile" || field == "providers.codex.credential_homes") {
 			disposition = "absent"

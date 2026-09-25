@@ -32,6 +32,8 @@ func (qualificationRuntimeDefinitionStub) ApplicationMetadata() string         {
 func (qualificationRuntimeDefinitionStub) ApplicationMetadataSHA256() string   { return "" }
 func (qualificationRuntimeDefinitionStub) ProfileGeneration() string           { return "generation" }
 func (qualificationRuntimeDefinitionStub) RuntimeSafetyPolicyIdentity() string { return "policy" }
+func (qualificationRuntimeDefinitionStub) ZCodeModel() string                  { return "" }
+func (qualificationRuntimeDefinitionStub) ZCodeReasoningEffort() string        { return "" }
 func (qualificationRuntimeDefinitionStub) GrokSettingsIdentity() string        { return "grok-policy" }
 func (qualificationRuntimeDefinitionStub) ProfileID() string                   { return "profile" }
 func (qualificationRuntimeDefinitionStub) KimiModel() string                   { return "" }

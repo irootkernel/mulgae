@@ -769,15 +769,6 @@ type stagedOutputRunnerFake struct {
 	calls         int
 }
 
-type zcodeSelectionNamespaceLease struct {
-	ports.ProviderNamespaceLease
-	selection *zcodeModelSelection
-}
-
-func (lease zcodeSelectionNamespaceLease) zcodeSessionSelection() *zcodeModelSelection {
-	return cloneZCodeModelSelection(lease.selection)
-}
-
 func (runner *stagedOutputRunnerFake) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
 	runner.calls++
 	runner.request = request
@@ -988,10 +979,12 @@ func TestRegistryObserveInterruptionOutranksZCodeModelSelectionFailureAndRetains
 		t.Run(test.name, func(t *testing.T) {
 			runner := &stagedOutputRunnerFake{
 				observation: protocolInterruptedObservation(t, test.termination), err: test.runnerErr,
-				protocolLines: []string{protocolCreateResult, `{"id":"mulgae-model-0","error":{"code":-32603,"message":"Provider not found","data":{"code":"provider_not_found"}}}`},
+				protocolLines: []string{protocolCreateResultForModel(zcodeIndividualPlanProviderID, "missing", "max"), `{"id":"mulgae-model-0","error":{"code":-32603,"message":"Provider not found","data":{"code":"provider_not_found"}}}`},
 			}
 			registry, invocation, destination := stagedZcodeRegistry(t, runner)
-			registry.namespaces["zcode_default"] = zcodeSelectionNamespaceLease{ProviderNamespaceLease: registry.namespaces["zcode_default"], selection: &zcodeModelSelection{ProviderID: "missing", ModelID: "model"}}
+			definition := registry.definitions["zcode_default"]
+			definition.zcodeModel = zcodeIndividualPlanProviderID + "/missing"
+			registry.definitions["zcode_default"] = definition
 			observed, err := registry.Observe(context.Background(), invocation)
 			if err != nil {
 				t.Fatal(err)
@@ -1066,15 +1059,14 @@ func TestRegistryObserveProjectsZCodeModelSelectionFailureAsConfiguration(t *tes
 	runner := &stagedOutputRunnerFake{
 		observation: protocolTeardownObservation(t, []byte("protocol transcript")),
 		protocolLines: []string{
-			protocolCreateResult,
+			protocolCreateResultForModel(zcodeIndividualPlanProviderID, "missing", "max"),
 			`{"id":"mulgae-model-0","error":{"code":-32603,"message":"Provider not found","data":{"code":"provider_not_found"}}}`,
 		},
 	}
 	registry, invocation, destination := stagedZcodeRegistry(t, runner)
-	registry.namespaces["zcode_default"] = zcodeSelectionNamespaceLease{
-		ProviderNamespaceLease: registry.namespaces["zcode_default"],
-		selection:              &zcodeModelSelection{ProviderID: "missing", ModelID: "model"},
-	}
+	definition := registry.definitions["zcode_default"]
+	definition.zcodeModel = zcodeIndividualPlanProviderID + "/missing"
+	registry.definitions["zcode_default"] = definition
 
 	observed, err := registry.Observe(context.Background(), invocation)
 	if err != nil {
@@ -1097,15 +1089,14 @@ func TestRegistryObservePreservesModelSelectionEvidenceWhenProcessIsIncoherent(t
 	runner := &stagedOutputRunnerFake{
 		observation: protocolSignaledObservationWithoutTeardownRequest(t, []byte("protocol transcript")),
 		protocolLines: []string{
-			protocolCreateResult,
+			protocolCreateResultForModel(zcodeIndividualPlanProviderID, "missing", "max"),
 			`{"id":"mulgae-model-0","error":{"code":-32603,"message":"Provider not found","data":{"code":"provider_not_found"}}}`,
 		},
 	}
 	registry, invocation, _ := stagedZcodeRegistry(t, runner)
-	registry.namespaces["zcode_default"] = zcodeSelectionNamespaceLease{
-		ProviderNamespaceLease: registry.namespaces["zcode_default"],
-		selection:              &zcodeModelSelection{ProviderID: "missing", ModelID: "model"},
-	}
+	definition := registry.definitions["zcode_default"]
+	definition.zcodeModel = zcodeIndividualPlanProviderID + "/missing"
+	registry.definitions["zcode_default"] = definition
 
 	observed, err := registry.Observe(context.Background(), invocation)
 	var invariant *ports.ProviderObservationInvariantError

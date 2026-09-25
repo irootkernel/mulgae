@@ -617,9 +617,10 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 	if err != nil {
 		return nil, err
 	}
-	grokModel, grokReasoningEffort, codexModel, codexReasoningEffort := source.providerSettings()
-	return reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndProviderSettingsAndTimeouts(
+	zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort := source.providerSettings()
+	return reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts(
 		providercli.RuntimeBuilder{}, profiles, source.policyIdentities,
+		zcodeModel, zcodeReasoningEffort,
 		grokModel, grokReasoningEffort,
 		codexModel, codexReasoningEffort,
 		configuredCodexCredentialProfiles(source.config),
@@ -627,9 +628,12 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 	)
 }
 
-func (source *configuredProductionCandidateSource) providerSettings() (grokModel, grokReasoningEffort, codexModel, codexReasoningEffort string) {
+func (source *configuredProductionCandidateSource) providerSettings() (zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort string) {
 	if source == nil {
-		return "", "", "", ""
+		return "", "", "", "", "", ""
+	}
+	if provider := source.config.Providers.ZCode; provider != nil {
+		zcodeModel, zcodeReasoningEffort = provider.Model, provider.ReasoningEffort
 	}
 	if provider := source.config.Providers.Grok; provider != nil {
 		grokModel, grokReasoningEffort = provider.Model, provider.ReasoningEffort
@@ -637,7 +641,7 @@ func (source *configuredProductionCandidateSource) providerSettings() (grokModel
 	if provider := source.config.Providers.Codex; provider != nil {
 		codexModel, codexReasoningEffort = provider.Model, provider.ReasoningEffort
 	}
-	return grokModel, grokReasoningEffort, codexModel, codexReasoningEffort
+	return zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort
 }
 
 func (source *configuredProductionCandidateSource) newHeartbeatCandidate(ctx context.Context, workspace ports.WorkspaceSnapshotIdentity, family reviewrun.Family, credentialProfile string) (reviewrun.QualifiedRunCandidate, error) {

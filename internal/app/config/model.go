@@ -45,8 +45,10 @@ type ProvidersConfig struct {
 	Codex *CodexProviderConfig `yaml:"codex,omitempty" json:"codex,omitempty"`
 }
 type ZCodeProviderConfig struct {
-	AppBundle string `yaml:"app_bundle" json:"app_bundle"`
-	Timeout   string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	AppBundle       string `yaml:"app_bundle" json:"app_bundle"`
+	Model           string `yaml:"model,omitempty" json:"model,omitempty"`
+	ReasoningEffort string `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+	Timeout         string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 type GrokProviderConfig struct {
 	Executable      string `yaml:"executable" json:"executable"`
@@ -147,9 +149,32 @@ const (
 )
 
 var (
+	zcodeProviderPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	zcodeModelPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 	grokModelPattern           = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 	grokReasoningEffortPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 )
+
+// ValidZCodeModel reports whether value is one provider-qualified ZCode model
+// selection in the exact provider/model form consumed by app-server.
+func ValidZCodeModel(value string) bool {
+	provider, model, found := strings.Cut(value, "/")
+	if !found || provider != "account:zai-individual-coding-plan" || model == "" || !zcodeProviderPattern.MatchString(provider) || !zcodeModelPattern.MatchString(model) || path.IsAbs(model) || strings.Contains(model, "//") {
+		return false
+	}
+	for _, segment := range strings.Split(model, "/") {
+		if segment == "" || segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidZCodeReasoningEffort reports whether value is a syntactically valid
+// app-server thought level. Availability remains owned by the selected model.
+func ValidZCodeReasoningEffort(value string) bool {
+	return grokReasoningEffortPattern.MatchString(value)
+}
 
 // ValidGrokModel reports whether value has the exact Config v4 Grok model
 // grammar. The spelling is validated as supplied and is never normalized.

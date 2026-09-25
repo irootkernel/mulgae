@@ -74,17 +74,18 @@ func TestHeartbeatBindsSyntheticQualificationLocality(t *testing.T) {
 
 func TestConfiguredProviderSettingsReachSharedReviewAndHeartbeatSource(t *testing.T) {
 	source := &configuredProductionCandidateSource{config: adapterconfig.Config{Providers: adapterconfig.ProvidersConfig{
+		ZCode: &adapterconfig.ZCodeProviderConfig{Model: "account:zai-individual-coding-plan/GLM-5.3", ReasoningEffort: "high"},
 		Grok:  &adapterconfig.GrokProviderConfig{Model: "grok-4.5", ReasoningEffort: "high-precision"},
 		Codex: &adapterconfig.CodexProviderConfig{Model: "gpt-5.3-codex", ReasoningEffort: "high"},
 	}}}
-	grokModel, grokEffort, codexModel, codexEffort := source.providerSettings()
-	if grokModel != "grok-4.5" || grokEffort != "high-precision" || codexModel != "gpt-5.3-codex" || codexEffort != "high" {
-		t.Fatalf("provider settings = %q/%q/%q/%q", grokModel, grokEffort, codexModel, codexEffort)
+	zcodeModel, zcodeEffort, grokModel, grokEffort, codexModel, codexEffort := source.providerSettings()
+	if zcodeModel != "account:zai-individual-coding-plan/GLM-5.3" || zcodeEffort != "high" || grokModel != "grok-4.5" || grokEffort != "high-precision" || codexModel != "gpt-5.3-codex" || codexEffort != "high" {
+		t.Fatalf("provider settings = %q/%q/%q/%q/%q/%q", zcodeModel, zcodeEffort, grokModel, grokEffort, codexModel, codexEffort)
 	}
 	heartbeatSource := *source
-	heartbeatGrokModel, heartbeatGrokEffort, _, _ := heartbeatSource.providerSettings()
-	if heartbeatGrokModel != grokModel || heartbeatGrokEffort != grokEffort {
-		t.Fatalf("heartbeat settings = %q/%q, want %q/%q", heartbeatGrokModel, heartbeatGrokEffort, grokModel, grokEffort)
+	heartbeatZCodeModel, heartbeatZCodeEffort, heartbeatGrokModel, heartbeatGrokEffort, _, _ := heartbeatSource.providerSettings()
+	if heartbeatZCodeModel != zcodeModel || heartbeatZCodeEffort != zcodeEffort || heartbeatGrokModel != grokModel || heartbeatGrokEffort != grokEffort {
+		t.Fatalf("heartbeat settings = %q/%q/%q/%q", heartbeatZCodeModel, heartbeatZCodeEffort, heartbeatGrokModel, heartbeatGrokEffort)
 	}
 }
 

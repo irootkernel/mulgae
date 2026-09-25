@@ -12,7 +12,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
@@ -68,18 +67,6 @@ func (lease *namespaceLease) ProjectCredential(ctx context.Context, request port
 	}
 	defer zeroBytes(bytes)
 	destinationBytes := bytes
-	var zcodeSelection *zcodeModelSelection
-	if request.Destination() == ports.CredentialProjectionZCodeProviderConfig {
-		destinationBytes, zcodeSelection, err = materializeZCodePersonalProviderConfigWithSelection(bytes)
-		if err != nil {
-			failure, failureErr := domain.NewFailure("credential_projection", domain.FailureConfiguration, "invalid ZCode legacy provider config", err)
-			if failureErr != nil {
-				return ports.CredentialProjectionReceipt{}, fmt.Errorf("credential projection: invalid ZCode config")
-			}
-			return ports.CredentialProjectionReceipt{}, failure
-		}
-		defer zeroBytes(destinationBytes)
-	}
 	if _, err := safeDeclaredSource(request.SourcePath(), source, request.Size(), request.Mode()); err != nil {
 		return ports.CredentialProjectionReceipt{}, fmt.Errorf("credential projection: source drift")
 	}
@@ -135,27 +122,11 @@ func (lease *namespaceLease) ProjectCredential(ctx context.Context, request port
 		destinationSize: int64(len(destinationBytes)),
 		authority:       request.SourceAuthority(),
 	}
-	if request.Destination() == ports.CredentialProjectionZCodeProviderConfig {
-		lease.zcodeSelection = cloneZCodeModelSelection(zcodeSelection)
-	}
 	return ports.NewCredentialProjectionReceipt(request.Destination())
-}
-
-func (lease *namespaceLease) zcodeSessionSelection() *zcodeModelSelection {
-	if lease == nil {
-		return nil
-	}
-	lease.seedMu.RLock()
-	defer lease.seedMu.RUnlock()
-	return cloneZCodeModelSelection(lease.zcodeSelection)
 }
 
 func credentialDestination(destination ports.CredentialProjectionDestination) (string, bool) {
 	switch destination {
-	case ports.CredentialProjectionZCodeConfig:
-		return "home/.zcode/cli/config.json", true
-	case ports.CredentialProjectionZCodeProviderConfig:
-		return "home/.zcode/v2/provider_config.json", true
 	case ports.CredentialProjectionGrokAuth:
 		return "home/.grok/auth.json", true
 	case ports.CredentialProjectionCodexAuth:

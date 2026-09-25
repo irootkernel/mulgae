@@ -29,7 +29,6 @@ import (
 )
 
 const (
-	liveCommandSchema  = "https://mulgae.local/schemas/mulgae-command-result.v12.schema.json"
 	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
 	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 )
@@ -278,6 +277,8 @@ func configureLiveMixedReview(t *testing.T, project string) {
 	if config.Providers.ZCode == nil || config.Providers.Grok == nil {
 		t.Fatalf("automatic init omitted required providers: %#v", config.Providers)
 	}
+	config.Providers.ZCode.Model = "account:zai-individual-coding-plan/GLM-5.3"
+	config.Providers.ZCode.ReasoningEffort = "high"
 	config.Roles.Logic.PrimaryProvider = "zcode"
 	config.Roles.Security.PrimaryProvider = "grok"
 	config.Review.RequiredRoles = []string{"logic", "security"}
@@ -508,7 +509,7 @@ func runLiveMulgaeAllowed(t *testing.T, validator *jsonschema.Validator, environ
 	if !containsLiveExit(allowedExits, exitCode) {
 		t.Fatalf("mulgae %s exit = %d, allowed %v; stdout=%s", arguments[0], exitCode, allowedExits, stdout.String())
 	}
-	validateLiveJSON(t, validator, liveCommandSchema, stdout.Bytes(), arguments[0]+" command envelope")
+	validateLiveJSON(t, validator, currentCommandResultContractURI(t), stdout.Bytes(), arguments[0]+" command envelope")
 	var envelope liveCommandEnvelope
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode mulgae %s envelope: %v", arguments[0], err)
@@ -1150,6 +1151,9 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 func assertLiveMixedReviewConfig(t *testing.T, project string) {
 	t.Helper()
 	config := readE2EConfig(t, project)
+	if config.Providers.ZCode == nil || config.Providers.ZCode.Model != "account:zai-individual-coding-plan/GLM-5.3" || config.Providers.ZCode.ReasoningEffort != "high" {
+		t.Fatalf("mixed-review ZCode model selection = %#v", config.Providers.ZCode)
+	}
 	if config.Resources.MaxActiveLanes != 2 || config.Resources.PrimaryRepairAttempts != 0 ||
 		config.Resources.RoleMaxInvocations != 2 || config.Resources.RunMaxInvocations != 4 ||
 		config.Validation.Repair.Enabled || config.Validation.Extraction.Enabled {

@@ -61,7 +61,7 @@ func TestLiveZCodeCapability(t *testing.T) {
 		appBundleEnv: "MULGAE_LIVE_ZCODE_APP_BUNDLE", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
 		minimumVersion: [3]int{0, 16, 5},
 		protectedPaths: func(home, _ string) []string {
-			return []string{filepath.Join(home, ".zcode", "cli", "config.json")}
+			return []string{filepath.Join(home, ".zcode", "v2", "setting.json"), filepath.Join(home, ".zcode", "v2", "credentials.json")}
 		},
 	}
 	if err := certifyLiveCapability(t, config); err != nil {

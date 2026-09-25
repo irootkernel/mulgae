@@ -29,7 +29,9 @@ type projectProvidersConfig struct {
 }
 
 type projectZCodeConfig struct {
-	Timeout string `yaml:"timeout,omitempty"`
+	Model           string `yaml:"model,omitempty"`
+	ReasoningEffort string `yaml:"reasoning_effort,omitempty"`
+	Timeout         string `yaml:"timeout,omitempty"`
 }
 
 type projectGrokConfig struct {
@@ -183,7 +185,7 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 		return Config{}, fmt.Errorf("provider sets differ")
 	}
 	if project.Providers.ZCode != nil {
-		config.Providers.ZCode = &ZCodeProviderConfig{AppBundle: local.Providers.ZCode.AppBundle, Timeout: project.Providers.ZCode.Timeout}
+		config.Providers.ZCode = &ZCodeProviderConfig{AppBundle: local.Providers.ZCode.AppBundle, Model: project.Providers.ZCode.Model, ReasoningEffort: project.Providers.ZCode.ReasoningEffort, Timeout: project.Providers.ZCode.Timeout}
 	}
 	if project.Providers.Grok != nil {
 		config.Providers.Grok = &GrokProviderConfig{
@@ -235,10 +237,19 @@ func encodeProjectConfig(config Config) []byte {
 	out.WriteString("providers:\n")
 	if provider := config.Providers.ZCode; provider != nil {
 		out.WriteString("  zcode:")
-		if provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
+		if provider.Model == "" && provider.ReasoningEffort == "" && provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString(" {}\n")
 		} else {
-			out.WriteString("\n    timeout: " + q(provider.Timeout) + "\n")
+			out.WriteString("\n")
+			if provider.Model != "" {
+				out.WriteString("    model: " + q(provider.Model) + "\n")
+			}
+			if provider.ReasoningEffort != "" {
+				out.WriteString("    reasoning_effort: " + q(provider.ReasoningEffort) + "\n")
+			}
+			if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+				out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
+			}
 		}
 	}
 	if provider := config.Providers.Grok; provider != nil {

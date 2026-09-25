@@ -396,6 +396,8 @@ func (d testRuntimeMutation) ProfileGeneration() string         { return d.profi
 func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
+func (d testRuntimeMutation) ZCodeModel() string           { return "" }
+func (d testRuntimeMutation) ZCodeReasoningEffort() string { return "" }
 func (d testRuntimeMutation) GrokSettingsIdentity() string { return d.grokSettingsIdentity }
 func (d testRuntimeMutation) ProfileID() string {
 	if d.profileID != "" {

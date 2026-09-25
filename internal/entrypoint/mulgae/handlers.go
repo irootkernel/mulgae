@@ -970,7 +970,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	}
 	mode, providerIDs := request.Selection()
 	selection := appinit.Selection{Mode: appinit.SelectionMode(mode), ProviderIDs: providerIDs}
-	zcodeAppBundle := request.ZCodeAppBundle()
+	zcodeAppBundle, zcodeModel, zcodeReasoningEffort, zcodeModelSet, zcodeReasoningEffortSet := request.ZCodeOverrides()
 	grokExecutable, grokModel, grokReasoningEffort, grokModelSet, grokReasoningEffortSet := request.GrokOverrides()
 	codexExecutable, codexModel, codexReasoningEffort := request.CodexOverrides()
 
@@ -1080,7 +1080,8 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		Selection:          selection,
 		RoleIDs:            request.Roles(),
 		Overrides: appinit.Overrides{
-			ZCodeAppBundle: zcodeAppBundle, GrokExecutable: grokExecutable,
+			ZCodeAppBundle: zcodeAppBundle, ZCodeModel: zcodeModel, ZCodeReasoningEffort: zcodeReasoningEffort,
+			ZCodeModelSet: zcodeModelSet, ZCodeReasoningEffortSet: zcodeReasoningEffortSet, GrokExecutable: grokExecutable,
 			GrokModel: grokModel, GrokReasoningEffort: grokReasoningEffort,
 			GrokModelSet: grokModelSet, GrokReasoningEffortSet: grokReasoningEffortSet,
 			CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort,

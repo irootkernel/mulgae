@@ -31,6 +31,8 @@ func DiscoverySourceSpecs() []DiscoverySourceSpec {
 	specs := []DiscoverySourceSpec{
 		{Family: "zcode", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "app_bundle_source", Values: []string{"override", "standard", "not_discovered", "not_selected"}},
+			{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},
+			{JSONName: "reasoning_effort_source", Values: []string{"override", "provider_default", "not_selected"}},
 		}},
 		{Family: "grok", Fields: []DiscoverySourceFieldSpec{
 			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},

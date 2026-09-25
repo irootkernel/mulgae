@@ -96,6 +96,8 @@ type RuntimeDefinition struct {
 	applicationVersion, applicationMetadata                 string
 	applicationMetadataSHA256                               string
 	runtimeSafetyPolicyIdentity                             string
+	zcodeModel                                              string
+	zcodeReasoningEffort                                    string
 	codexModel                                              string
 	codexReasoningEffort                                    string
 	grokModel                                               string
@@ -287,6 +289,8 @@ func (d RuntimeDefinition) ProfileGeneration() string         { return d.profile
 func (d RuntimeDefinition) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
+func (d RuntimeDefinition) ZCodeModel() string           { return d.zcodeModel }
+func (d RuntimeDefinition) ZCodeReasoningEffort() string { return d.zcodeReasoningEffort }
 func (d RuntimeDefinition) CodexModel() string           { return d.codexModel }
 func (d RuntimeDefinition) CodexReasoningEffort() string { return d.codexReasoningEffort }
 func (d RuntimeDefinition) GrokModel() string            { return d.grokModel }
@@ -373,6 +377,12 @@ func (d RuntimeDefinition) validate() error {
 	}
 	if d.family != FamilyCodex && (d.codexModel != "" || d.codexReasoningEffort != "") {
 		return fmt.Errorf("Codex settings are bound to another family")
+	}
+	if d.family != FamilyZcode && (d.zcodeModel != "" || d.zcodeReasoningEffort != "") {
+		return fmt.Errorf("ZCode settings are bound to another family")
+	}
+	if d.family == FamilyZcode && !validZCodeSettings(d.zcodeModel, d.zcodeReasoningEffort) {
+		return fmt.Errorf("invalid ZCode settings")
 	}
 	if d.codexReasoningEffort != "" && !validCodexReasoningEffort(d.codexReasoningEffort) {
 		return fmt.Errorf("invalid Codex reasoning effort")
@@ -479,12 +489,12 @@ func (namespace retainedQualificationNamespace) Environment() []ports.Environmen
 	return namespace.lease.Environment()
 }
 
-func (namespace retainedQualificationNamespace) zcodeSessionSelection() *zcodeModelSelection {
-	authority, ok := namespace.lease.(zcodeSessionSelectionAuthority)
+func (namespace retainedQualificationNamespace) zcodeAccountRuntime(builtinPath, configuredModel string) (*zcodeAccountRuntime, error) {
+	authority, ok := namespace.lease.(zcodeAccountRuntimeAuthority)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	return authority.zcodeSessionSelection()
+	return authority.zcodeAccountRuntime(builtinPath, configuredModel)
 }
 
 func (namespace retainedQualificationNamespace) RuntimeSafetyPolicyIdentity() string {
@@ -1340,7 +1350,7 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("provider registry: process runner cannot converse"))
 	}
-	configuration, err := protocolConfigurationForNamespace(definition.family, definition.grokModel, definition.grokReasoningEffort, r.namespaces[definition.instance])
+	configuration, err := protocolConfigurationForNamespace(RuntimeDefinition(definition), r.namespaces[definition.instance])
 	if err != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}

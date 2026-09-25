@@ -870,7 +870,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []DiscoveryRow{
-		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override"},
+		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default"},
 		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "override", ReasoningEffortSource: "override"},
 		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}
