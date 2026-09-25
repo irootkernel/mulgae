@@ -147,6 +147,12 @@ run ID and inspect it afterward:
 mulgae status --run r_... --output json
 ```
 
+A host-imposed deadline may send the same signals. If the host merely stops
+waiting, continue on the original process handle; if it signals the process or
+the signal effect is unknown, treat the run as cancelled or uncertain and do
+not start a replacement review. An exit `9` is terminal cancellation, not an
+observer-only timeout.
+
 Do not report cancellation as publication rollback; protected artifact,
 security, and internal failures may take precedence.
 

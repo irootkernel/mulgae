@@ -1,6 +1,6 @@
 ---
 name: use-mulgae
-description: Start Mulgae reviews asynchronously through MCP and await completion without status polling. Use for authorized code reviews, run inspection, finding follow-up, configuration diagnosis, cleanup planning, and partial-failure recovery through exact reruns and composition. Use foreground MCP or CLI execution when the async lifecycle is unavailable.
+description: Start Mulgae reviews through MCP after verifying its project root, or through the CLI from the requested root. Use for authorized code reviews, run inspection, finding follow-up, configuration diagnosis, cleanup planning, and partial-failure recovery through exact reruns and composition. Await asynchronous MCP completion without status polling.
 ---
 
 # Use Mulgae
@@ -8,9 +8,11 @@ description: Start Mulgae reviews asynchronously through MCP and await completio
 ## Default: start once, await completion
 
 For a new root review, prefer attached Mulgae MCP when `start_review`,
-`await_review`, and `cancel_review` are all connected for the canonical project.
-Complete [preparation](#establish-current-authority) before starting. Select
-exactly one authorized target: `workspace`, `stage`, `dirty`, `diff`, or `patch`.
+`await_review`, and `cancel_review` are all connected and the live server's
+canonical project root is proven to be the requested root. Complete
+[preparation](#establish-current-authority) and [target binding](#bind-the-review-target)
+before starting. Select exactly one authorized target: `workspace`, `stage`,
+`dirty`, `diff`, or `patch`.
 MCP stdin is transport-only. Use the same target, objective, and roles for
 preflight and execution; the staged target below is illustrative:
 
@@ -97,6 +99,41 @@ identities. Cancellation never rolls back an already committed publication.
    memory. Preserve exact session (`s_...`), run (`r_...`), attempt (`a_...`),
    and finding (`F...`) IDs.
 
+## Bind the review target
+
+Before any provider execution, establish the requested canonical Git worktree
+root and the complete authorized target selector, objective, and roles. An
+attached MCP server keeps the project root selected at its launch; the current
+working directory does not retarget it. Use MCP only when trusted launch-time
+evidence for this live server gives its canonical root and it equals the
+requested root. A tool name, a successful MCP preflight, the current MCP
+registration or configuration, and `target.sha256` alone do not prove that
+binding. Identical target bytes can occur in different repositories. If the
+server root is absent, ambiguous, or different, select the native CLI from the
+requested root before starting any MCP review. Do not start another MCP server
+to change roots.
+
+Build the complete Review Brief as one objective line, using explicit separators
+between sections without dropping content. Reject a remaining NUL, CR, or LF.
+Count UTF-8 bytes, not characters: MCP accepts at most 4096 objective bytes;
+the native CLI accepts at most 12000. If the complete line exceeds the MCP
+limit but fits the CLI limit, select the CLI before starting. If it exceeds the
+CLI limit, stop and report the size constraint; do not truncate the brief or
+split it into another review. Preserve the selected roles, provider routing,
+and source-transmission scope on either path.
+
+For a bound MCP path, run the native CLI preflight from the requested root with
+the same selector, objective, and roles as the MCP preflight. Compare MCP
+`data.target` with CLI `result.preflight.target`: `requested_kind`,
+`captured_kind`, `git_mode`, `sha256`, and `size` must match. Compare the
+file-set IDs and policy identities, and the role-to-provider transmissions.
+A difference or an observed target change stops the review before provider
+transmission.
+Matching target fields check the captured content; they do not replace the
+launch-root proof. Use the exact same arguments for execution. Preflight cannot
+atomically pin a mutable stage or worktree until execution captures it, so do
+not claim that its digest proves the later execution bytes.
+
 ## Advise on durable artifact retention
 
 Before executing `review`, `followup`, `delta`, or `rerun`, check retention once
@@ -170,9 +207,11 @@ anything, as described in the CLI workflow below.
 ## Fallbacks
 
 Choose the execution path before starting a new review. State the concrete tool
-or host limitation once. Slowness, a pending handle, or an unknown host timeout
-alone does not justify abandoning the async lifecycle. Never switch an
-already-started invocation to `run_review` or CLI execution.
+or host limitation once. An unproven MCP root or an objective above 4096 bytes
+that still fits the CLI limit requires the CLI path. Slowness, a pending handle,
+or an unknown host timeout alone does not justify abandoning the async
+lifecycle. Never switch an already-started invocation to `run_review` or CLI
+execution.
 
 ### Foreground MCP
 
@@ -194,16 +233,26 @@ reconcile the outcome as described in [recovery.md](references/recovery.md).
 ### CLI execution and host waiting
 
 Use the CLI when Mulgae MCP tools are unavailable, when the authorized target
-is stdin, or for commands outside the MCP surface such as follow-up, report, and
-export. Do not start a second MCP server from a shell when an attached server is
-already available. The CLI is also a fallback when no usable MCP execution path
-can be selected before starting.
+is stdin, when the attached server's root cannot be bound to the requested root,
+when the complete objective exceeds the MCP limit, or for commands outside the
+MCP surface such as follow-up, report, and export. Do not start a second MCP
+server from a shell when an attached server is already available. The CLI is
+also a fallback when no usable MCP execution path can be selected before
+starting.
 
 Run the command once and await completion through the host's process-wait
 facility. Preserve any returned process handle and wait on that same handle,
 using the longest waits permitted by the host and higher-priority instructions.
 This also applies to CLI-only child workflows. A CLI process has no MCP
 invocation ID; never start another review to obtain one.
+
+A passive host wait timeout leaves the same CLI process running; continue
+waiting on its preserved handle. A host deadline that interrupts or terminates
+the process instead requests cancellation or leaves the outcome uncertain. It
+is not a harmless observer timeout. Preserve the process handle and any exact
+returned run ID, reconcile the terminal result when possible, and never start
+a duplicate review to recover from that deadline. Interrupt the process
+yourself only on explicit user intent; see [lifecycle.md](references/lifecycle.md#cancel-foreground-work).
 
 Only if the host provides no completion-wait facility and exposes only a
 nonblocking process-handle status check, use that check as a last resort. After
