@@ -516,8 +516,23 @@ Copy this minimal project-wide template into the reviewed project's
   and run status. Select exactly one review target (`--diff BASE...HEAD`,
   `--stage`, `--dirty`, `--workspace`, `--patch`, or `--stdin`) and use
   `--output json`.
-- Prefer attached Mulgae MCP tools when available: call `preflight_review`, then,
-  only when `start_review`, `await_review`, and `cancel_review` are all present,
+- Before provider execution, identify the requested canonical Git worktree root,
+  complete objective, and roles. Use an attached MCP server only with trusted
+  launch-time evidence that this live server's canonical root equals the
+  requested root. Tool availability, current registration, a successful
+  preflight, and a matching target hash do not prove the server's root. If the
+  root is unproven, ambiguous, or different, use the CLI from the requested
+  root; do not start another MCP server to retarget it.
+- Keep the complete Review Brief on one objective line with explicit separators.
+  Reject NUL, CR, or LF and count UTF-8 bytes. MCP admits at most 4096 bytes;
+  use the CLI for 4097 through 12000 bytes, and stop above 12000 without truncating.
+- For a bound MCP server, run its `preflight_review` and a CLI preflight from
+  the requested root with the same target, objective, and roles. Require matching
+  `requested_kind`, `captured_kind`, `git_mode`, `sha256`, and `size`, plus
+  file-set and policy identities and role-to-provider transmissions. Stop before
+  execution on a difference, and use the same arguments for execution.
+- Prefer attached Mulgae MCP tools after those checks: only when `start_review`,
+  `await_review`, and `cancel_review` are all present,
   call `start_review` once and preserve its exact invocation ID. Call
   `await_review` on that identity until completion. If the host defers the call,
   wait on the same pending handle for up to five minutes at a time, or the
@@ -544,9 +559,27 @@ Copy this minimal project-wide template into the reviewed project's
   completion waiting is unavailable, with 50 seconds between checks. If timed
   waiting is unavailable, stop automated polling and report the limitation.
   Never switch an already-started invocation to another execution path.
+- A passive CLI wait timeout leaves its process running; continue on the same
+  handle. If a host deadline signals the process or its effect is unknown,
+  treat the run as cancelled or uncertain, preserve any returned run ID, and
+  never start a replacement review.
 - After terminal completion, preserve the exact returned run ID and inspect it
-  with `get_run`. Call `list_findings` only for publication-backed status and
-  follow resource `nextURI` values exactly.
+  from the same canonical project root. Use `get_run` and `list_findings` only
+  when the attached MCP server is proven to serve that root. Otherwise run
+  `mulgae status --run r_... --output json` and
+  `mulgae findings --run r_... --severity low --output json` through the CLI
+  from that root. Compare the committed status's `final_artifact_uri` with the
+  findings result's `review_artifact_uri`; stop on a mismatch. Matching URIs do
+  not prove one publication snapshot across the two queries. The CLI findings
+  JSON gives a verified count, not IDs or content; direct artifact reads are
+  not bound to the CLI's integrity check. Query findings only for
+  publication-backed status. On a bound MCP server, follow resource `nextURI`
+  values exactly. The CLI has no read-only rendered report command; run
+  `mulgae report` only with authorization for its required output path. Treat
+  that report as advisory; for ordinary runs, verify selected findings through
+  `mulgae excerpt` and current code. Composite findings have no CLI excerpt:
+  report the limit and stop ID-dependent judgments or follow-up on that path.
+  Keep recovery and child workflows bound to the same root.
 - Read the JSON envelope even when Mulgae exits `1`: exit `1` is a policy
   outcome, not an execution failure. Treat other non-zero exits per
   `mulgae help exit-codes`. Preserve returned run IDs and inspect runs with

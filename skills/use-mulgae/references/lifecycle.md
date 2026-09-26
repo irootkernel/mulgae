@@ -98,7 +98,7 @@ provider family such as `zcode`.
 Run child workflows from the canonical Git worktree root. They do not discover
 an enclosing root automatically and have no common `--repo` override. A
 rejected child command with `--output json` still returns a
-`mulgae-command-result.v12` envelope. Interpret the pre-execution failures as
+`mulgae-command-result.v13` envelope. Interpret the pre-execution failures as
 follows:
 
 | Reason code | Exit | `request_state` | Next action |
@@ -146,6 +146,12 @@ run ID and inspect it afterward:
 ```bash
 mulgae status --run r_... --output json
 ```
+
+A host-imposed deadline may send the same signals. If the host merely stops
+waiting, continue on the original process handle; if it signals the process or
+the signal effect is unknown, treat the run as cancelled or uncertain and do
+not start a replacement review. An exit `9` is terminal cancellation, not an
+observer-only timeout.
 
 Do not report cancellation as publication rollback; protected artifact,
 security, and internal failures may take precedence.

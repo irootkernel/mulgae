@@ -10,6 +10,10 @@ This file records concise shipped outcomes and the planned next stable release.
 - Use ZCode's v2 desktop Individual Coding Plan state instead of legacy CLI config, add optional project model and
   reasoning settings, and publish command-result v13.
 
+### Fixed
+
+- Require `use-mulgae` to verify an attached MCP server's project root before provider execution and use the native CLI when that binding is unproven.
+
 ## v0.1.23 - 2026-09-22
 
 ### Changed

@@ -104,7 +104,10 @@ from draft or experimental support alone.
 
 ## Implemented agent workflow
 
-The TASK-003 skill directs an attached agent to:
+The TASK-003 lifecycle below applies only after the current skill proves that
+the live MCP server's canonical launch root equals the requested root. If that
+binding is unavailable or differs, the current skill uses the CLI from the
+requested root instead. On a bound server, the agent:
 
 1. Run `preflight_review` with the exact intended target, objective, and roles.
 2. Call `start_review` once with those same arguments and preserve its exact
@@ -116,7 +119,8 @@ The TASK-003 skill directs an attached agent to:
    the same invocation only after confirming the MCP session is still alive.
    Never replace it with another start.
 5. After the terminal envelope returns, inspect its exact durable run identity
-   with `get_run` and query findings only when publication authority permits.
+   with `get_run` on that same bound server and query findings only when
+   publication authority permits.
 6. Call `cancel_review` only on explicit user intent, then await the terminal
    result instead of treating cancellation acknowledgement as completion.
 

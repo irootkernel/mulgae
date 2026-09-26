@@ -27,6 +27,14 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 
+## Maintenance tasks
+
+Standalone maintenance tasks sit outside the completed Epics.
+
+| Task | Status | Outcome | Verification |
+|---|---|---|---|
+| TASK-018 | Completed | Bind `use-mulgae` execution to the requested canonical root before provider transmission; use the native CLI when the attached MCP root cannot be proven, and carry the complete Review Brief within native input limits. Clarify CLI cancellation and audit result-field guidance. | Rehearse wrong-root and equal-content roots without provider execution; check same-root selection, objective boundaries, and timeout behavior; validate skill references and run the complete `make test` gate. |
+
 ## EPIC-001: Token-efficient review waiting
 
 Status: Completed

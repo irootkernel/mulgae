@@ -17,7 +17,9 @@ a live invocation snapshot, and start need not return a durable run ID.
 1. Stop issuing mutations. Preserve the complete command envelope, exit code,
    and any exact session, run, and attempt IDs already returned.
 2. Re-read the exact run, including an identity returned on a failed MCP
-   `run_review`, with MCP `get_run`. When MCP is unavailable, use:
+   `run_review`, with `get_run` only on an MCP server proven to serve the
+   requested canonical root. When MCP is unavailable or its root is unproven
+   or different, run the CLI from the requested root:
 
    ```bash
    mulgae status --run r_... --output json
@@ -43,9 +45,10 @@ Never retry an uncertain `start_review`: a second start creates another review.
 Invocation state is process-local and is lost when that server exits. On
 disconnect, `invocation_not_found`, or `invocation_registry_closed`, stop
 automated waiting. Do not guess an invocation identity or claim that a new
-server can recover it. Reconcile an exact returned run ID through `get_run` when
-one is available; without one, report the outcome as unknown. Do not use repeated
-`list_runs`, status-file checks, or OS process scans to reconstruct live state.
+server can recover it. Reconcile an exact returned run ID through the status
+query above from the requested root. Without an ID, report the outcome as
+unknown. Do not use repeated `list_runs`, status-file checks, or OS process
+scans to reconstruct live state.
 
 The registry retains at most 64 identities. Oldest terminal identities may be
 discarded to admit a new start, so await of a discarded ID is
@@ -108,7 +111,8 @@ maintainability. Do not change `required_roles` to work around a failed result.
    an earlier failed rerun. A content finding or CI rejection is distinct from
    failure to deliver an accepted role result.
 4. Once every missing selected role has an accepted recovery, compose once using
-   attached MCP `compose_review` with `root_run_id` and `recovery_run_ids`, or CLI:
+   `compose_review` on an MCP server proven to serve the requested root, with
+   `root_run_id` and `recovery_run_ids`, or use the CLI from that root:
 
    ```bash
    mulgae compose --root-run "$root_run_id" --recovery-run "$recovery_run_id" \
@@ -148,7 +152,8 @@ failure handling completes provider drain and workspace cleanup. Forced process
 termination and power loss have no recovery guarantee. A present corrupt source
 fails closed; never edit it or promote diagnostic reports into accepted results.
 
-MCP inspection example (replace the ID with the exact returned value):
+Inspection example for an MCP server proven to serve the requested root
+(replace the ID with the exact returned value):
 
 ```json
 {"name":"get_run","arguments":{"run_id":"r_..."}}

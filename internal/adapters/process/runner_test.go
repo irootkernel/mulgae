@@ -2391,11 +2391,15 @@ func TestRunnerHelperProcess(t *testing.T) {
 		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
 			os.Exit(2)
 		}
+		// Let the signal terminate the process before the fallback exit.
+		time.Sleep(2 * processTestExecutionTimeout)
 		os.Exit(2)
 	case "signal-kill":
 		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
 			os.Exit(2)
 		}
+		// Let the signal terminate the process before the fallback exit.
+		time.Sleep(2 * processTestExecutionTimeout)
 		os.Exit(2)
 	case "barrier":
 		if len(arguments) != 5 || !helperWritePID(arguments[1]) || !waitForHelperRelease(arguments[2]) {
