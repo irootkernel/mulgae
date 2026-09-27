@@ -1,0 +1,13 @@
+{
+  "schema_version": "mulgae-command-result.v18",
+  "command": "inspect",
+  "result": {
+    "capture_availability": "capture_identity_unavailable",
+    "capture_identity": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "exit": {
+    "code": 0,
+    "kind": "success"
+  },
+  "reasons": []
+}

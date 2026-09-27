@@ -115,9 +115,13 @@ is never accepted. Preserve the returned deterministic composite `run_id`. If
 the result says `status_required`, inspect that ID with `status` instead of
 blindly retrying the mutation.
 
-Composite findings remain available through `findings`, but they do not support
-CLI `excerpt` reads or MCP current-target evidence resources. Composite
-`status`, `report`, and `export` reads remain supported.
+New composites support receipt-bound finding, report, and indexed evidence
+reads through the CLI and MCP. They retain exact original findings, portable
+source receipts, and copied evidence, so allowed source-run cleanup does not
+break those reads. A failed recovery source carries its recovery manifest digest
+and attempt identity, without claiming a published review. Historical composites
+may return `evidence_unavailable`; they are never upgraded in place. Existing
+`status`, `report`, and redacted `export` behavior remains available.
 
 For MCP, an uncertain `compose_review` publication returns
 `composite_publication_incomplete`, non-null `session_id` and `run_id` values,
@@ -187,25 +191,47 @@ The server retains its startup directory descriptors and rejects a lookup after
 root or Git-directory replacement. It cannot select another root per request.
 Canonical path aliases agree; separate checkouts and linked worktrees differ.
 Both lookups are read-only and need no Mulgae configuration or provider setup.
-Project binding, execution guards, capture identity, inspection, finding pages
-and finding details advertise `v1`. Other capability fields remain empty until
-their corresponding surfaces are implemented.
+Context advertises `v1` for project binding, execution guards, capture identity,
+inspection, finding pages and details, report content, indexed evidence, and
+composite evidence. Check each needed field; an empty value means unavailable.
+Historical evidence can remain unavailable even when the reader supports it.
+
+For an attached server with matching binding and guard support, call
+`preflight_review` with `expected_project_binding`. Reuse its exact target,
+objective, roles, and other selectors on `start_review`, adding
+the same `expected_project_binding` and the preflight
+`request_receipt.request_digest` as `expected_request_digest`. Call start once,
+preserve its invocation ID, and await it. Guard mismatches stop before provider work; a second accepted
+start creates another run. The complete capture identity covers retained source
+material independently of request-only inputs such as objective or roles.
+
+When the attached client cannot expose a required native capability, select the
+CLI from the independently chosen root before execution. Do not retarget the
+attached server or restart an uncertain review. Older clients and binaries keep
+their legacy reads, but separate status/count queries and later raw artifact
+reads do not establish one publication snapshot. Report which guarantees the
+legacy output cannot provide.
 
 ### Verified finding pages and details
 
 `inspect` defaults to severity `low`; `findings` still requires `--severity`.
 Both accept `--limit` (1 to 1,000, default 100), `--cursor`,
 `--expected-project-binding` and `--expected-publication-receipt`.
-`finding_count` is the filtered total. Follow `next_cursor` with unchanged
-selectors to read another page from the same verified publication.
+`finding_count` is the filtered total. Follow `next_cursor` with the same command,
+unchanged selectors, and expected receipt to read another page from the same
+verified publication. An empty cursor ends the result.
 
 `read-finding` returns complete finding JSON through bounded UTF-8 chunks.
 For the next chunk, pass the returned `next_offset` as `--offset`, together with
 `--expected-publication-receipt` and `--expected-content-sha256`. The MCP finding
 `detail` resource returns the corresponding continuation URI. Stop when
 `next_offset` is null. A changed receipt, digest or project fails the read.
-Diagnostic-only runs have no publication receipt. Historical capture support
-can be unavailable even when the final review remains readable.
+Inspection reports publication authority, coverage, structured extraction, and
+CI separately. Reports-only output can have no structured findings while its
+original role reports remain available. Diagnostic-only runs have no publication
+receipt. Historical capture support can be unavailable even when the final review
+remains readable. A missing bound capture or evidence artifact is corruption,
+not historical unavailability.
 
 ### Lossless reports and indexed evidence
 

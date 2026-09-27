@@ -235,31 +235,31 @@ Tasks record release notes when those capabilities become available.
 
 **Implement**
 
-- [ ] Exercise requested-root lookup, guarded preflight/start, event-driven wait,
+- [x] Exercise requested-root lookup, guarded preflight/start, event-driven wait,
       coherent inspection, full report reads, and composite evidence as one
       isolated workflow using the exact release binary.
-- [ ] Update public README, affected embedded help/examples, and
+- [x] Update public README, affected embedded help/examples, and
       `skills/use-mulgae` to use proven native checks. Retain safe CLI/legacy
       fallback for clients that cannot expose the new capabilities.
-- [ ] Freeze consumer fixtures/decoders independently of producer generation and
+- [x] Freeze consumer fixtures/decoders independently of producer generation and
       test both CLI and attached MCP consumption. Include complete capture versus
       request identity, no-change provenance, and historical unavailability.
       Update canonical docs and requirement checkboxes only from verified outcomes.
 
 **Do not**
 
-- [ ] Rewrite host configuration, migrate providers, claim unsupported client
+- [x] Rewrite host configuration, migrate providers, claim unsupported client
       behavior, begin EPIC-008, or claim Epic acceptance from unit tests alone.
 
 **Verify and complete**
 
-- [ ] Run the complete `make test` gate under repository authorization and
+- [x] Run the complete `make test` gate under repository authorization and
       credential rules. Its mandatory live ZCode/Grok checks remain mandatory;
       do not create an unrelated live matrix or require opt-in Codex by default.
-- [ ] Exercise the new tool schemas and waiting behavior with supported attached
+- [x] Exercise the new tool schemas and waiting behavior with supported attached
       client versions; distinguish registration-only checks from actual client
       calls. Record blocked/unavailable client evidence honestly.
-- [ ] Review the whole diff and `git status`; require `git diff --check`.
+- [x] Review the whole diff and `git status`; require `git diff --check`.
       Report exact candidate, gates, and limitations without committing or
       publishing unless separately authorized.
 

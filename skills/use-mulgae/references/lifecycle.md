@@ -10,6 +10,7 @@ Use read-only machine output first:
 ```bash
 command -v mulgae
 mulgae version --json
+mulgae context --output json
 mulgae doctor --output json
 mulgae config --mode effective --output json
 mulgae providers --include-unverified --output json
@@ -98,8 +99,8 @@ provider family such as `zcode`.
 Run child workflows from the canonical Git worktree root. They do not discover
 an enclosing root automatically and have no common `--repo` override. A
 rejected child command with `--output json` still returns a
-`mulgae-command-result.v13` envelope. Interpret the pre-execution failures as
-follows:
+versioned command-result envelope (v18 in current source). Interpret its
+pre-execution failures as follows:
 
 | Reason code | Exit | `request_state` | Next action |
 |---|---:|---|---|
@@ -131,8 +132,9 @@ Do not delete or rewrite state to simulate one.
 For a committed incomplete review or an available failed-run recovery, follow
 [partial-failure recovery](recovery.md#recover-a-partially-failed-review) to rerun
 failed roles and compose their results with the exact original root. A rerun
-alone does not complete the original multi-role review. Read `status` or MCP
-`get_run` first: `failed_run_recovery.retry_attempts` is the exact retry inventory,
+alone does not complete the original multi-role review. Use native inspection
+for publication and capture state, and `status` or MCP `get_run` for recovery
+attempt inventory. `failed_run_recovery.retry_attempts` is the exact retry inventory,
 and `accepted_roles` must be preserved. A failed rerun may return its allocated
 run identity with no prompt manifest; inspect that exact run before retrying.
 
@@ -167,7 +169,9 @@ mulgae clean --all --dry-run --output json
 
 Apply only the reviewed selector, without `--dry-run`, after authorization.
 Mulgae protects active, incomplete, corrupt, unknown, and required-lineage
-state; never bypass those protections by deleting `.mulgae/` manually.
+state, including protected failed-recovery roots; never bypass those protections
+by deleting `.mulgae/` manually. Self-contained composite evidence does not
+authorize source deletion. Only the native cleanup plan establishes eligibility.
 
 ## Unsupported lifecycle controls
 

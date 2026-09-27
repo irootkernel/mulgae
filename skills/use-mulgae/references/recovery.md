@@ -58,11 +58,21 @@ are discarded without recovery when the server exits.
 `invocation_registry_closed` is non-retryable and means that the
 server session is ending rather than that one observer timed out.
 
+Native `inspect_review` or CLI `inspect` can provide coherent publication,
+capture and finding state when available. Use the expected project binding and
+follow [verified reads](verified-reads.md). Exact `get_run`/`status` remains useful
+for recovery attempt inventory. Neither route is a live progress query, and an
+additional status read does not extend an inspection's publication receipt.
+Guard mismatches stop before execution; do not retry without the expected values
+or refresh them automatically to bypass drift.
+
 ## Respect idempotency boundaries
 
 Read-only `version`, `doctor`, `config`, `providers`, `roles`, `status`,
-`findings`, and review `--preflight` calls may be repeated. `clean --dry-run` is
-also read-only. Repeatability does not make run queries a live polling interface.
+`context`, `inspect`, `findings`, `read-finding`, `read-report`, `excerpt`, and
+review `--preflight` calls may be repeated. Preserve expected bindings, receipts
+and content digests across continuations; a mismatch stops that read.
+`clean --dry-run` is also read-only. Repeatability does not make run queries a live polling interface.
 
 `init`, `review`, `followup`, `delta`, `rerun`, `report`/`export` writes (each
 requires `--run` and `--output-path`), and clean apply mutate durable or
@@ -84,11 +94,12 @@ maintainability. Do not change `required_roles` to work around a failed result.
 
 1. Inspect the exact root status. For an available failed-run source, use
    `failed_run_recovery.retry_attempts` and preserve `accepted_roles` and
-   `manifest_sha256`. For a committed incomplete root, inspect its referenced
-   committed artifacts to identify each failed role's exact attempt. Retain
-   accepted root roles; composition
-   rejects attempts to replace them. A skipped role without a failed attempt
-   cannot supply the required rerun lineage; report that concrete limitation.
+   `manifest_sha256`. For a committed incomplete root, inspect its
+   public status/recovery inventory to identify each failed role's exact attempt.
+   If the available surface omits the needed identity, report that limit instead
+   of guessing or reading private artifacts. Preserve accepted root roles;
+   composition rejects attempts to replace them. A skipped role without a failed
+   attempt cannot supply the required rerun lineage; report that concrete limitation.
 2. Within existing authorization for recovery, run one exact rerun per failed
    role from the canonical project root and await each command's terminal result.
    In these examples, set shell variables from the exact observed IDs:
@@ -127,7 +138,10 @@ maintainability. Do not change `required_roles` to work around a failed result.
    role coverage, and CI independently. Report the composite ID as the combined
    result. `complete` coverage does not imply CI pass or merge approval, and an
    accepted degraded report retains the existing degraded-role CI behavior.
-   Query composite findings normally, but do not request composite excerpts.
+   Use native [verified reads](verified-reads.md) for composite finding details
+   and every supported evidence index. Copied evidence is self-contained; older
+   items can still return `evidence_unavailable`. Do not read source runs or the
+   current tree to fill missing evidence.
 
 On `composite_recovery_incomplete`, identify the unrecovered role or incomplete
 recovery instead of repeating the same mapping. On `composite_role_not_required`,
@@ -161,8 +175,9 @@ Inspection example for an MCP server proven to serve the requested root
 
 Read `data.failed_run_recovery`; rerun remains CLI-only. Once every missing role
 is recovered, call the existing `compose_review` tool with the exact root and
-committed recovery run IDs. The MCP v1 envelope and CLI v11 envelope carry their
-own documented data shapes; do not infer one from the other's version.
+committed recovery run IDs. MCP retains its v1 envelope; current CLI source
+emits command-result v18 and retains historical schemas. Consume each surface
+according to its own contract.
 
 ## Recover the smallest supported unit
 
@@ -194,7 +209,7 @@ mutation-level retry decision.
   For `attempt_selector_unavailable`, prefer the exact attempt ID or re-read the
   run to obtain the persisted provider instance. Neither failure establishes a
   configuration problem.
-- For `selector_resolution_failed`, preserve the v11 envelope request ID and
+- For `selector_resolution_failed`, preserve the command envelope request ID and
   bounded reason, stop mutations, and report the failure. Do not treat the
   generic internal exit as evidence that doctor will find a problem.
 - For selector resolution that returns `request_cancelled`, retain exit `9`

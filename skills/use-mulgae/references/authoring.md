@@ -103,7 +103,11 @@ mulgae review --stage --preflight --output json
 ```
 
 The final command is execution-free and confirms current role routing, provider
-timeouts, permission mode, and budgets for the selected target.
+timeouts, permission mode, and budgets for the selected target. Configuration
+changes invalidate an earlier request receipt. Before an authorized review,
+obtain a fresh native binding/preflight receipt and use paired execution guards
+as described in [SKILL.md](../SKILL.md#bind-the-review-target); do not reuse the
+pre-change digest or silently remove a requested guard.
 
 Keep this root-anchored Git policy:
 

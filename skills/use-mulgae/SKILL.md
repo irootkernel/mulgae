@@ -1,6 +1,6 @@
 ---
 name: use-mulgae
-description: Start Mulgae reviews through MCP after verifying its project root, or through the CLI from the requested root. Use for authorized code reviews, run inspection, finding follow-up, configuration diagnosis, cleanup planning, and partial-failure recovery through exact reruns and composition. Await asynchronous MCP completion without status polling.
+description: Run authorized Mulgae reviews with project and preflight guards, await MCP completion without polling, and inspect verified findings, reports and evidence. Also supports finding follow-up, configuration diagnosis, cleanup planning and exact partial-failure recovery, with capability-aware CLI and legacy fallbacks.
 ---
 
 # Use Mulgae
@@ -9,26 +9,39 @@ description: Start Mulgae reviews through MCP after verifying its project root, 
 
 For a new root review, prefer attached Mulgae MCP when `start_review`,
 `await_review`, and `cancel_review` are all connected and the live server's
-canonical project root is proven to be the requested root. Complete
+project binding matches the independently established requested root. Complete
 [preparation](#establish-current-authority) and [target binding](#bind-the-review-target)
 before starting. Select exactly one authorized target: `workspace`, `stage`,
 `dirty`, `diff`, or `patch`.
-MCP stdin is transport-only. Use the same target, objective, and roles for
-preflight and execution; the staged target below is illustrative:
+MCP stdin is transport-only. Select the path from observed capabilities and
+connected tools, not the version string alone. With native `project_binding`
+and `execution_guard` capabilities at `v1`, use the same target, objective,
+roles and explicit/default selections for preflight and execution:
 
 ```text
-preflight_review({"target": {"kind": "stage"}})
-# Inspect capture, routing, warnings, and budget.run_deadline; check retention below.
-start_review({"target": {"kind": "stage"}})
-# Preserve the exact returned invocation_id; do not invent or substitute an ID.
-await_review({"invocation_id": "<returned invocation_id>"})
-# Only after the terminal envelope returns, inspect its exact run ID.
+# Obtain expected binding independently with CLI context from the requested root.
+get_context({})
+# Compare project_binding to that expectation before continuing.
+preflight_review({"target":{"kind":"stage"},"expected_project_binding":"<CLI binding>"})
+# Inspect capture, request_receipt, routing, warnings and budget.run_deadline.
+# Check retention below, then preserve both guard values from this preflight.
+start_review({"target":{"kind":"stage"},"expected_project_binding":"<CLI binding>","expected_request_digest":"<request_receipt.request_digest>"})
+await_review({"invocation_id":"<returned invocation_id>"})
+# After the terminal response, inspect the exact returned run ID.
 ```
+
+These are supported server contracts, not proof that every installed host
+exposes the tools and resources. If a needed surface is unavailable, select a
+supported CLI or [legacy path](references/legacy.md) before starting. Never
+remove a requested guard to make a call succeed.
 
 Call start exactly once. A successful start or a pending await is not a completed
 review and does not guarantee a durable run ID. Keep one `await_review` pending
 on the returned invocation until completion. Never repeat an uncertain start or
 start another review to change transports.
+Run preflight, start and await sequentially, waiting for each preceding response.
+Never put start and await in the same tool batch or invent the invocation ID
+before start returns it.
 On non-retryable `invocation_limit_reached`, 64 reviews are still running in
 that MCP session. Follow [recovery.md](references/recovery.md) rather than
 retrying start or bypassing the concurrent bound through another execution path.
@@ -42,9 +55,9 @@ higher-priority host instructions require it. Required progress reports do not
 require a new Mulgae status call. Waiting on the same pending handle is not
 Mulgae status polling.
 
-Do not repeatedly call `get_run`, `list_runs`, CLI `status`, inspect status-file
-existence, or poll OS processes while waiting. Mulgae has no bounded-wait or
-invocation-snapshot tool: `get_run` reads publication-backed or completed
+Do not repeatedly call `get_run`, `list_runs`, `inspect_review`, CLI `status` or
+`inspect`, inspect status-file existence, or poll OS processes while waiting.
+Mulgae has no bounded-wait or invocation-snapshot tool: `get_run` reads publication-backed or completed
 failed/cancelled diagnostic state, not live invocation progress. If the user
 asks for progress, report the known pending state and observation limits;
 do not replace the await with a recurring query loop.
@@ -78,11 +91,13 @@ identities. Cancellation never rolls back an already committed publication.
 1. Work from the canonical Git repository root.
 2. Confirm availability with `command -v mulgae` and `mulgae version --json`.
    Do not install or upgrade Mulgae automatically.
-3. Check for both `.mulgae/config.yaml` and `.mulgae/local.yaml`. If either is
-   absent, stop unless the user explicitly requested initialization; then read
+3. Before execution or configuration work, check for both `.mulgae/config.yaml`
+   and `.mulgae/local.yaml`. If either is absent, stop that workflow unless the
+   user explicitly requested initialization; then read
    [lifecycle.md](references/lifecycle.md). The first file is shared project
-   policy; the second is private machine configuration.
-4. Read admitted configuration with:
+   policy; the second is private machine configuration. Native context and verified
+   reads do not require initialization or provider readiness.
+4. For execution or configuration diagnosis, read admitted configuration with:
 
    ```bash
    mulgae config --mode effective --output json
@@ -101,67 +116,48 @@ identities. Cancellation never rolls back an already committed publication.
 
 ## Bind the review target
 
-Before any provider execution, establish the requested canonical Git worktree
-root and the complete authorized target selector, objective, and roles. An
-attached MCP server keeps the project root selected at its launch; the current
-working directory does not retarget it. Use MCP only when trusted launch-time
-evidence for this live server gives its canonical root and it equals the
-requested root. A tool name, a successful MCP preflight, the current MCP
-registration or configuration, and `target.sha256` alone do not prove that
-binding. Identical target bytes can occur in different repositories. If the
-server root is absent, ambiguous, or different, select the native CLI from the
-requested root before starting any MCP review. Do not start another MCP server
-to change roots.
+Establish the requested canonical Git worktree root independently, then run:
 
-Keep status, findings, resource reads, recovery, and child workflows bound to
-that same root. When the attached MCP root is unproven or different, use the
-CLI from the requested root for those operations too; a returned run ID does
-not retarget the MCP server.
+```bash
+mulgae context --output json
+```
 
-CLI `findings --output json` returns a verified count and
-`review_artifact_uri`, not finding IDs. After successful CLI status and
-findings queries for one committed run, compare status's
-`result.final_artifact_uri` with findings' `result.review_artifact_uri` and
-stop on a mismatch. Matching URIs do not bind the independently verified
-queries to one publication snapshot. Do not parse human findings output or
-read the artifact at the returned URI as a substitute for structured IDs:
-the CLI result does not bind the bytes read later to a committed digest.
+This read observes local identity without initializing configuration, reading
+credentials or invoking providers. For attached MCP, compare its `get_context`
+`data.project_binding` with CLI `result.project_binding`. Do not obtain the
+expected value by copying the server's own response. Equal source bytes or
+patch hashes do not identify a worktree, and changing the shell directory does
+not retarget an attached server. Keep every subsequent operation on that root.
+A mismatch or root drift stops the guarded operation; do not suppress the error.
 
-MCP report and evidence resources require the same proven server root. The CLI
-has no read-only rendered-report command: `mulgae report` writes to its required
-`--output-path`. If the rendered report is required, obtain authorization for
-one safe relative output path before running `mulgae report`. Its rendered
-file can supply candidate finding IDs, descriptions, and the target digest,
-but the CLI response does not bind a later read of that file to its bytes.
-Treat its content as advisory. For an ordinary run, verify each selected
-finding with CLI `excerpt` against the captured target, then check current
-code. Composite findings have no CLI excerpt: report that verification limit
-and stop ID-dependent judgments or follow-up from the CLI result. Without an
-authorized report write or another trusted source for the exact IDs and target digest,
-report the limitation and stop any ID-dependent workflow. Do not read final
-or role-report files directly as verified CLI results.
-Never read a resource from an unbound MCP server.
+Read each required capability independently. Empty, missing or unknown versions
+are unsupported. If native binding is absent, use the restricted
+[legacy binding procedure](references/legacy.md#legacy-root-and-preflight-binding)
+or the CLI from the requested root. A failed native binding check is not an
+invitation to retry without it.
 
-Build the complete Review Brief as one objective line, using explicit separators
-between sections without dropping content. Reject a remaining NUL, CR, or LF.
-Count UTF-8 bytes, not characters: MCP accepts at most 4096 objective bytes;
-the native CLI accepts at most 12000. If the complete line exceeds the MCP
-limit but fits the CLI limit, select the CLI before starting. If it exceeds the
-CLI limit, stop and report the size constraint; do not truncate the brief or
-split it into another review. Preserve the selected roles, provider routing,
-and source-transmission scope on either path.
+Build the complete review objective as one line, with explicit section separators
+and no remaining NUL, CR or LF. Count UTF-8 bytes: MCP accepts at most 4096;
+CLI accepts at most 12000. Select CLI before starting when the complete objective
+fits only its limit. If neither limit fits, stop without truncating or splitting
+the review. Preserve roles, provider routing and source-transmission scope.
 
-For a bound MCP path, run the native CLI preflight from the requested root with
-the same selector, objective, and roles as the MCP preflight. Compare MCP
-`data.target` with CLI `result.preflight.target`: `requested_kind`,
-`captured_kind`, `git_mode`, `sha256`, and `size` must match. Compare the
-file-set IDs and policy identities, and the role-to-provider transmissions.
-A difference or an observed target change stops the review before provider
-transmission.
-Matching target fields check the captured content; they do not replace the
-launch-root proof. Use the exact same arguments for execution. Preflight cannot
-atomically pin a mutable stage or worktree until execution captures it, so do
-not claim that its digest proves the later execution bytes.
+Run preflight on the selected execution path with the independently obtained
+expected binding. Inspect the admitted target, complete capture, request receipt,
+role transmissions, warnings and budget. Pass its `request_receipt.request_digest`
+with the same binding to execution. The paired guards reject project or request
+drift before provider work. Execution captures and plans once, checks that
+request against the receipt, and consumes the same admitted snapshot and plan.
+Guards do not grant idempotency or provider availability. Preserve omitted versus
+explicit selectors; do not recompute or splice component digests yourself.
+
+Native guards replace the legacy duplicate CLI/MCP preflight comparison. On
+`project_binding_mismatch` or `request_digest_mismatch`, stop and explain the
+changed input; obtain a new deliberate preflight decision within the authorized
+scope. Do not silently adopt a new digest. `guard_incomplete`, `guard_invalid`
+and `contract_unsupported` require correcting the request or selecting a path
+that supports the required contract, never dropping a guard. Non-Git workspaces
+retain their unguarded compatibility path; they cannot satisfy a requested guard.
 
 ## Advise on durable artifact retention
 
@@ -202,10 +198,12 @@ before treating an unpublished run as diagnostic-only; never repeat accepted
 roles. A missing source cannot be reconstructed from runtime logs.
 
 Preserve the exact returned run ID, including one attached to a failed review.
-Only after terminal completion, inspect that ID with `get_run` on a server
-proven to serve the requested root, or with CLI `status` from that root.
-Use the same root for the status and findings queries below. If no run ID was
-returned, report the terminal outcome without inventing one.
+Only after terminal completion, prefer `inspect_review` or CLI `inspect` with
+the expected project binding when `inspection: v1` is supported. This returns
+status, capture availability and a finding page under one publication receipt.
+Use `get_run` or CLI `status` when recovery needs its attempt inventory, or when
+inspection is unavailable; those separate reads do not establish a page receipt.
+If no run ID was returned, report the terminal outcome without inventing one.
 
 When `run_review` or terminal `await_review` returns the error code
 `provider_rate_limited`, every qualification failure recorded for the selected
@@ -225,18 +223,20 @@ completes `run_review` or terminal `await_review` with `outcome: success`,
 incomplete review, not a successful review verdict. Inspect the exact run once,
 then follow partial-failure recovery without repeating accepted roles.
 
-Query findings only when the status has publication authority, using
-`list_findings` on that bound MCP server or CLI `findings` from that root for
-the count only.
-Diagnostic-only status has no findings. Treat `run_status_unavailable` as an
-allocated identity without durable status and stop rather than retrying the
-review. Use MCP `minimum_severity: low` or CLI `--severity low` for the broadest
-permitted finding query.
-On a bound MCP server, follow a resource's canonical `nextURI` exactly until
-`complete` is true when the report or verified evidence is needed; do not
-invent offsets or paths.
-Verify findings against the captured target and current code before changing
-anything, as described in the CLI workflow below.
+Read findings only under committed publication authority. Use the returned
+`publication_receipt` for pages, details, reports and every supported evidence
+index, following [verified-reads.md](references/verified-reads.md). CLI has
+native read-only `inspect`, `read-finding` and `read-report` surfaces; a report
+write is unnecessary for supported verified reads. Composite evidence is
+available per item when retained; legacy absence is explicit.
+
+Diagnostic-only results have no publication receipt or findings. Check
+`failed_run_recovery` before deciding whether exact recovery is available.
+Treat `run_status_unavailable` as an allocated identity without durable status;
+stop rather than retrying the review. Preserve coverage, extraction, publication
+and CI as independent axes. Zero extracted findings in `reports_only` or `mixed`
+output does not establish a clean report. Verify advisory findings against the
+captured evidence and current code before changing anything.
 
 ## Fallbacks
 
@@ -250,11 +250,12 @@ execution.
 ### Foreground MCP
 
 If any of the three lifecycle tools is unavailable, use one foreground
-`run_review` with the preflight arguments only when the host's hard tool-call
-timeout is verified to exceed preflight's `budget.run_deadline`, allowing
-transport overhead. If that timeout is insufficient or cannot be verified,
-choose the CLI before starting instead. Cancelling a foreground MCP request cancels the review,
-unlike cancelling an `await_review` observer; a host timeout can therefore cancel
+`run_review` with the same admitted inputs and both execution guards when
+supported. The host's hard tool-call timeout must be verified to exceed
+preflight's `budget.run_deadline`, allowing transport overhead. If that timeout
+is insufficient or cannot be verified, choose the CLI before starting instead.
+Cancelling a foreground MCP request cancels the review, unlike cancelling an
+`await_review` observer; a host timeout can therefore cancel
 execution or leave its outcome unknown. For an admitted foreground call, use the
 same pending-handle wait policy as above. A lost or uncertain foreground call is
 not safe to retry.
@@ -268,10 +269,11 @@ reconcile the outcome as described in [recovery.md](references/recovery.md).
 
 Use the CLI when Mulgae MCP tools are unavailable, when the authorized target
 is stdin, when the attached server's root cannot be bound to the requested root,
-when the complete objective exceeds the MCP limit, or for commands outside the
-MCP surface such as follow-up, report, and export. Do not start a second MCP
-server from a shell when an attached server is already available. The CLI is
-also a fallback when no usable MCP execution path can be selected before
+when the complete objective exceeds the MCP limit, or for CLI-only commands
+such as follow-up and report/export writes. A host that cannot read MCP resources
+can use receipt-bound CLI content reads from the same independently bound root.
+Do not start a second MCP server from a shell when an attached server is already
+available. The CLI is also a fallback when no usable MCP execution path can be selected before
 starting.
 
 Run the command once and await completion through the host's process-wait
@@ -297,91 +299,51 @@ report the limitation. Stop on terminal completion, a lost handle, or an
 operational error; use recovery for an uncertain outcome. Never use Mulgae run
 queries, file existence, or OS process scans as substitutes.
 
-1. Match exactly one target to the authorized scope: `--diff RANGE`, `--stage`,
-   `--dirty`, `--workspace`, `--patch PATH`, or `--stdin`.
-2. Inspect the immutable capture and routing plan before provider work:
+Use exactly one authorized selector: `--diff RANGE`, `--stage`, `--dirty`,
+`--workspace`, `--patch PATH`, or `--stdin`. With native guard support, run from
+the requested root and populate these variables from structured native output:
 
-   ```bash
-   mulgae review --stage --preflight --output json
-   ```
+```bash
+mulgae review --stage --preflight \
+  --expected-project-binding "$project_binding" --output json
+mulgae review --stage --expected-project-binding "$project_binding" \
+  --expected-request-digest "$request_digest" --output json
+```
 
-   Replace `--stage` with the selected target. Preflight creates no session,
-   run, diagnostic, publication, or provider invocation, and cannot be
-   combined with `--session`.
-3. Perform the requested external review before claiming it happened:
+Keep the complete objective and role arguments identical across both commands.
+Preflight creates no run, diagnostics, publication or provider invocation and
+cannot be combined with `--session`. Read the complete versioned JSON envelope,
+including when the process exits nonzero. Current source emits
+`mulgae-command-result.v18`; preserve supported historical decoding. Exit `1`
+is a content-policy outcome. Use stable typed reasons for failures, as described
+in [lifecycle.md](references/lifecycle.md), rather than parsing provider prose.
 
-   ```bash
-   mulgae review --diff origin/main...HEAD \
-     --objective "Review this change before merge." \
-     --output json
-   ```
+After completion, read the exact run through
+[verified-reads.md](references/verified-reads.md). If an authorized fix is present
+in the selected target, a follow-up uses the original run and verified exact
+finding ID:
 
-4. Read the complete `mulgae-command-result.v13` JSON envelope even when the
-   process exits nonzero. Exit `1` is a policy outcome. A rejected `followup`,
-   `delta`, `rerun`, or `compose` request still has a machine envelope:
-   `request_state` `invalid` means syntax rejection, while `unresolved` applies
-   only to `followup`, `delta`, and `rerun` when pre-execution selector or
-   project-root resolution failed. Use the stable reason code and bounded
-   message; JSON does not expose raw internal errors or require a public stage
-   or remediation field. Treat exits `2`, `4`, `7`, `8`, `9`, and `10` by that
-   envelope rather than prose or provider output. Read
-   [lifecycle.md](references/lifecycle.md) for child-workflow selector failures.
-   For composite recovery, follow
-   [partial-failure recovery](references/recovery.md#recover-a-partially-failed-review)
-   and call `compose_review` or `mulgae compose` with one exact root and every
-   exact recovery run. Preserve its deterministic run ID. For CLI, `status_required` means inspect that ID and never blindly
-   retry. For MCP, apply the same rule when
-   `composite_publication_incomplete` returns non-null `session_id` and
-   `run_id` with `retryable: false`.
-5. After command completion, re-read status using the exact returned run ID.
-   Query findings only if that status has publication authority:
+```bash
+mulgae followup --run r_... --finding F001 --dirty \
+  --objective "Check whether the original finding is resolved." --output json
+```
 
-   ```bash
-   mulgae status --run r_... --output json
-   mulgae findings --run r_... --severity low --output json
-   ```
+Await that child command and inspect its returned run. A rerun or follow-up does
+not rewrite the original result. For partial failure, follow
+[recovery.md](references/recovery.md#recover-a-partially-failed-review), preserving
+the deterministic composite run ID and reconciling `status_required` or
+`composite_publication_incomplete` before any retry.
 
-   `--severity` sets the minimum reported severity; `low` is the broadest
-   query and omits `info`-level findings. Its JSON result has no finding list.
+Only when shareable files are requested, use explicit safe relative destinations:
 
-6. Treat findings as advisory hypotheses. A finding may have been transcribed
-   from a role's free-form report by Mulgae's structured extraction pass, so
-   verify each finding against the captured target and current code before
-   changing anything. The CLI count alone cannot select an excerpt. An
-   authorized CLI report can supply candidate IDs and the target digest for an
-   ordinary run; verify each selected ID and digest through this command. A
-   verified bound MCP result for the same root and run can also supply them.
-   Do not request an excerpt for a composite finding:
+```bash
+mulgae report --run r_... --output-path reports/review.md --output json
+mulgae export --run r_... --output-path exports/review.zip --output json
+```
 
-   ```bash
-   mulgae excerpt --run r_... --finding F001 \
-     --current-target-sha256 sha256:... --output json
-   ```
-
-   Record only claims supported by current evidence, and report each inspected
-   finding to the user as valid, invalid, or out of scope. If only the CLI count
-   is available, or the selected excerpt is unavailable, report that limitation
-   and stop ID-dependent judgment and follow-up instead of judging the finding.
-7. After an authorized fix exists in the selected target, check it with the
-   original run and a trusted exact finding ID whose excerpt was verified:
-
-   ```bash
-   mulgae followup --run r_... --finding F001 --dirty \
-     --objective "Check whether the original finding is resolved." \
-     --output json
-   ```
-
-   Re-read the new run's status after the command.
-
-8. Produce shareable artifacts from a committed run only when the user asks:
-
-   ```bash
-   mulgae report --run r_... --output-path reports/review.md --output json
-   mulgae export --run r_... --output-path exports/review.zip --output json
-   ```
-
-   `report` renders the human-readable report; `export` writes the redacted
-   review bundle. Both require a safe relative `--output-path`.
+These are writes. The redacted export allowlist excludes additional copied
+composite source findings, receipts, captures and evidence bodies; local verified
+read access does not authorize exporting private support.
 
 ## Apply safety boundaries
 
@@ -410,7 +372,7 @@ queries, file existence, or OS process scans as substitutes.
 - Read [recovery.md](references/recovery.md) when state is stale, a mutation's
   outcome is unknown, publication is incomplete, or a provider failed.
 - Re-read effective configuration after configuration changes and exact run
-  status after review completion. Start and cancellation acknowledgements must
+  inspection after review completion. Start and cancellation acknowledgements must
   be followed by terminal awaiting, not immediate run-status queries.
 - Never weaken path, locality, capture, validation, evidence, or publication
   fences. Never edit manifests, attempts, diagnostics, or final artifacts.

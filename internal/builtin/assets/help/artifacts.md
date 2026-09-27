@@ -22,6 +22,7 @@ commit.
       role-reports/
         <role>.md
       target/
+        capture-manifest.json
         target.bytes
         target-manifest.json
         captured-review.json
@@ -51,6 +52,17 @@ layout:
         <role>.md
       support/
         index.json
+        composite.json
+        findings/
+          F001.json
+        sources/
+          <role>/target/
+            capture-manifest.json
+            captured-review.json
+            blobs/
+              sha256-<hex>
+      excerpts/
+        F001_1.md
       target/
         target.bytes
         target-manifest.json
@@ -65,13 +77,24 @@ layout:
       e_<uuidv7>.json
 ```
 
-The composite copies every selected role report and the verified target support
-needed to remain readable after its source runs are cleaned. It has no
-provider runtime stream or attempts because composition does not execute
-providers or revalidate provider output. `validation/final-candidate.json`
-retains the immutable publication candidate for interruption recovery.
-`captured-review.json` and
-its blobs are present when the source review retained a captured archive.
+The composite copies every selected role report, original finding, available
+evidence index, and complete source capture so reads remain independent of the
+source runs after allowed cleanup. `support/composite.json` binds finding ID
+remapping, evidence identities, and portable source receipts. Ordinary source
+receipts retain publication hashes and epoch; failed recovery sources retain a
+recovery manifest digest and attempt identity without claiming publication.
+Neither includes the local project binding. Per-role capture files appear only
+when complete source material is available; otherwise metadata records
+`capture_identity_unavailable`. A common composite capture identity requires all
+selected role sources to verify the same identity, including roles with no
+findings.
+
+Composition does not execute providers or revalidate their output, so the
+composite has no provider runtime stream or attempts.
+`validation/final-candidate.json` retains the immutable publication candidate
+for interruption recovery. The root `target/captured-review.json` and its blobs
+remain present when the source review retained that archive. Historical
+composites retain their existing layout and can report evidence unavailable.
 
 For an ordinary run, `manifest.json` records lineage, target identity, attempts,
 outcome axes, role-report inventory, and artifact hashes. Successful selected
@@ -111,9 +134,16 @@ publication-not-found lookup may use the bounded diagnostic-only status under
 `.mulgae/diagnostics/`. It does not expose raw provider streams or runtime event
 logs.
 
-Use `status`, `findings`, and `report` to inspect a run. `clean --older-than 30d`
-removes safely deletable terminal runs older than 30 whole days; add `--dry-run`
-for a read-only summary. `clean --all` removes every safely deletable terminal
+Use `inspect` for publication state and a finding page from one verified
+snapshot. Continue its pages with the same command, selectors, and receipt.
+`findings` also provides its own paged query. `read-finding`, `read-report`, and
+indexed `excerpt` return complete content in bounded chunks without writing files. Preserve the expected
+project binding, publication receipt, and full-content digest through
+continuations. `status` and `report --output-path` retain their separate status
+and file-writing behavior.
+
+`clean --older-than 30d` removes safely deletable terminal runs older than 30
+whole days; add `--dry-run` for a read-only summary. `clean --all` removes every safely deletable terminal
 run regardless of age. Active, incomplete, corrupt, unknown, and required lineage
 state remains protected.
 `export --run <id>` creates a redacted bundle and its manifest beneath
@@ -128,3 +158,8 @@ reference archive and raw blobs, bound by support-index v2. This includes
 no-change reviews, which still have no provider attempts. Reads verify the full
 capture inventory; missing bound support is corruption. Historical artifacts
 without complete support do not acquire a capture identity from their patch.
+
+Composite support stays local. Availability for verified reads does not admit
+source receipts, capture archives, or original finding support into a redacted
+export bundle. Existing explicit export options and redaction rules remain in
+force.

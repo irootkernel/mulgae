@@ -3,8 +3,9 @@
 This specification defines the requirements and implemented contracts for
 [EPIC-007](../roadmap/README.md#epic-007-verified-review-contracts).
 The [contracts](contracts.md) describe the current runtime surfaces. TASK-025
-still owns verification through the exact supported client and the operating-guidance
-update; these requirements alone do not establish that acceptance.
+verified the integrated contracts through independent consumers, the complete
+repository gate, and actual supported clients, and updated the operating guidance.
+Epic acceptance remains a separate roadmap decision.
 The [development dossier](../todo/EPIC-007-verified-review-contracts.md) owns
 temporary implementation sequencing; the roadmap alone owns delivery status.
 
@@ -21,20 +22,20 @@ followup, provider changes, a new daemon, or MCP Tasks migration.
 
 ## Required behavior
 
-- [ ] VRC-001: expose a read-only, independently comparable local project binding.
-- [ ] VRC-002: distinguish complete capture identity from request identity, bind
+- [x] VRC-001: expose a read-only, independently comparable local project binding.
+- [x] VRC-002: distinguish complete capture identity from request identity, bind
       preflight to the effective request, and reject mismatched execution
       preconditions before any provider request.
-- [ ] VRC-003: return status and a bounded finding page under one verified
+- [x] VRC-003: return status and a bounded finding page under one verified
       publication receipt, including capture identity availability, extraction,
       and coverage state.
-- [ ] VRC-004: expose actual structured findings and read-only report content
+- [x] VRC-004: expose actual structured findings and read-only report content
       through the CLI, with equivalent MCP semantics and lossless pagination.
-- [ ] VRC-005: provide verified, self-contained finding evidence for newly
+- [x] VRC-005: provide verified, self-contained finding evidence for newly
       published composites without inventing evidence for historical artifacts.
-- [ ] VRC-006: preserve legacy command behavior where unchanged, declare new
+- [x] VRC-006: preserve legacy command behavior where unchanged, declare new
       capabilities explicitly, and keep all new reads provider-free.
-- [ ] VRC-007: replace agent-side verification steps only after native checks and
+- [x] VRC-007: replace agent-side verification steps only after native checks and
       supported-client acceptance demonstrate equivalent or stronger guarantees.
 
 These checkboxes track requirement verification, not Epic or Task lifecycle.
@@ -188,13 +189,11 @@ findings is not proof that the primary reports contain no concerns. The new
 inspection exposes these existing axes rather than synthesizing a clean verdict.
 Review outcome, coverage, publication, and execution failure remain separate.
 
-## Planned public surfaces
+## Public surfaces
 
-The implementation status of these surfaces is recorded in the writer and reader
-matrix below.
-TASK-019 freezes their complete grammar, result versions, errors, and paired
-examples before production wiring. Do not allocate speculative future versions
-in existing runtime schemas during documentation planning.
+The writer and reader matrix below records the implemented transport and storage
+contracts. TASK-019 established their grammar, encodings and compatibility
+boundaries before the runtime owners wired the public surfaces.
 
 | CLI target | MCP target | Contract |
 |---|---|---|

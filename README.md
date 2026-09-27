@@ -344,9 +344,28 @@ Run `mulgae context --output json` from the requested repository to obtain its
 local `project_binding`. Compare that value with MCP `get_context` before using
 an attached server. Both return only the binding digest and capability versions;
 they do not read configuration or credentials, invoke providers, or write files.
-Only `capabilities.project_binding` currently advertises `v1`; empty capability
-fields are unavailable. The digest identifies this local worktree, so a separate
-checkout differs even when its files match. It is not portable authentication.
+The context advertises `v1` for project binding, execution guards, capture
+identity, inspection, finding pages and details, report content, indexed
+evidence, and composite evidence. An empty capability is unavailable; choose a
+supported transport before starting. A historical review can remain readable
+even when its capture or evidence is unavailable. The binding identifies this local worktree, so separate checkouts differ even
+when their files match. It is not portable authentication.
+
+Preflight returns a `request_receipt` for the selected target, objective, roles,
+and effective execution plan. Save its `request_digest` and the independently
+checked `project_binding`, then pass both to execution:
+
+```bash
+mulgae review --stage --preflight --expected-project-binding "$binding" --output json
+mulgae review --stage --expected-project-binding "$binding" --expected-request-digest "$request_digest" --output json
+```
+
+Use the same target, objective, roles, and other selectors for both calls.
+Execution rejects a changed project or request before provider work. The
+`capture_identity` covers retained source material; request-only changes such as
+a different objective can change the request digest while preserving that
+capture identity. A target patch digest alone cannot establish either guarantee.
+Guards do not make a second accepted start idempotent.
 
 An MCP client can start one attached stdio server for the current canonical
 project root, or select another root explicitly:
@@ -362,7 +381,7 @@ flow prefers MCP protocol `2026-07-28`. Legacy `initialize` negotiates
 back to `2025-11-25`. Older versions fail with a structured unsupported-version
 error.
 Diagnostics use stderr. The process fixes the canonical project root at startup
-and exits when its client closes stdin. It exposes ten bounded tools:
+and exits when its client closes stdin. It exposes eleven bounded tools:
 
 - `get_context` returns the startup worktree binding and implemented capability versions.
 - `preflight_review` captures and summarizes the execution-free target,
@@ -384,15 +403,43 @@ and exits when its client closes stdin. It exposes ten bounded tools:
   from 1 through 100 and an opaque continuation cursor.
 - `get_run` returns verified publication state and public artifact identities,
   or a bounded diagnostic-only status when that run never published.
-- `list_findings` returns at most 1,000 committed finding summaries at or above
-  a selected severity; it does not return report or source bodies.
+- `inspect_review` returns publication state, coverage, extraction state, and a
+  finding page from one verified snapshot with its publication receipt.
+- `list_findings` pages through committed finding summaries at or above a
+  selected severity, with a limit from 1 through 1,000 and a receipt-bound cursor.
+  It does not return report or source bodies.
 
-Committed run and finding results include `mulgae://` resource URIs. The
-`verified_review_report` and `verified_finding_evidence` templates read only
-integrity-checked content and return at most 16 KiB per request. Resource
-metadata includes the full-content SHA-256, byte offset, total byte length,
-completion flag, and a canonical `nextURI` when another chunk exists. Reports
-are UTF-8 Markdown; evidence chunks preserve exact bytes.
+Inspection and finding pages include `mulgae://` resource URIs for full finding
+JSON, original role reports, and each available evidence index. For the rendered
+report, use the advertised `verified_review_report` resource template with the
+exact run ID, project binding, and publication receipt, or CLI `read-report`.
+Resources return at most 16 KiB per request, with the publication receipt,
+full-content SHA-256, byte offset, total byte length, and a canonical
+`io.mulgae/nextURI` when another chunk exists. Follow that URI unchanged. Reports
+are UTF-8 Markdown; evidence chunks preserve exact bytes. The CLI provides the
+same reads without writing a report file:
+
+```bash
+mulgae inspect --run r_... --expected-project-binding "$binding" --output json
+mulgae read-finding --run r_... --finding F001 --expected-project-binding "$binding" --expected-publication-receipt "$receipt" --output json
+mulgae read-report --run r_... --role logic --expected-project-binding "$binding" --expected-publication-receipt "$receipt" --output json
+mulgae excerpt --run r_... --finding F001 --current-target-sha256 "$target" --evidence-index 0 --expected-project-binding "$binding" --expected-publication-receipt "$receipt" --output json
+```
+
+Obtain the exact finding ID, target digest, and publication receipt from
+inspection. Omit `--role` to read the rendered report. Read every chunk until
+`next_offset` is null, carrying the returned offset and both
+`--expected-publication-receipt` and `--expected-content-sha256` to the next call.
+For finding pages, follow `next_cursor` with the same command, query selectors,
+and receipt until the cursor is empty. The default `low` severity excludes `info`.
+
+New composites retain original finding content, portable source provenance, and
+all copied evidence indices. These reads survive allowed source-run cleanup.
+Historical items can return `evidence_unavailable` or
+`capture_identity_unavailable`; corrupt bound support fails the read. Capability
+support and complete coverage do not establish verification of an unavailable
+item. Legacy resource URIs retain their original continuation behavior and do not gain
+publication receipt binding.
 
 Every call returns the common `mulgae-mcp-tool-result.v1` structured envelope.
 `request_changes` is a completed review outcome, while failures use bounded,
@@ -525,25 +572,30 @@ Copy this minimal project-wide template into the reviewed project's
   and run status. Select exactly one review target (`--diff BASE...HEAD`,
   `--stage`, `--dirty`, `--workspace`, `--patch`, or `--stdin`) and use
   `--output json`.
-- Before provider execution, identify the requested canonical Git worktree root,
-  complete objective, and roles. Use an attached MCP server only with trusted
-  launch-time evidence that this live server's canonical root equals the
-  requested root. Tool availability, current registration, a successful
-  preflight, and a matching target hash do not prove the server's root. If the
-  root is unproven, ambiguous, or different, use the CLI from the requested
-  root; do not start another MCP server to retarget it.
+- Independently select the requested canonical Git worktree root. From that
+  root, run `mulgae context --output json` and compare `result.project_binding`
+  with attached MCP `get_context`'s `data.project_binding`. Require matching
+  bindings and the needed `v1` capabilities before using the attached server.
+  A target hash or tool registration does not prove the server root. On a
+  mismatch or unavailable binding support, choose the CLI from the requested
+  root before starting; do not retarget by starting another MCP server.
 - Keep the complete Review Brief on one objective line with explicit separators.
   Reject NUL, CR, or LF and count UTF-8 bytes. MCP admits at most 4096 bytes;
   use the CLI for 4097 through 12000 bytes, and stop above 12000 without truncating.
-- For a bound MCP server, run its `preflight_review` and a CLI preflight from
-  the requested root with the same target, objective, and roles. Require matching
-  `requested_kind`, `captured_kind`, `git_mode`, `sha256`, and `size`, plus
-  file-set and policy identities and role-to-provider transmissions. Stop before
-  execution on a difference, and use the same arguments for execution.
+- Preflight the selected target, objective, and roles with
+  `expected_project_binding`. Preserve `request_receipt.request_digest` and use
+  those same arguments with both `expected_project_binding` and
+  `expected_request_digest` on `start_review` or `run_review`. The CLI equivalents
+  are `--expected-project-binding` and `--expected-request-digest`. Stop on a
+  guard mismatch; never silently remove guards or treat them as idempotency keys.
+  A guarded native preflight/start does not require a second preflight on the
+  other transport.
 - Prefer attached Mulgae MCP tools after those checks: only when `start_review`,
   `await_review`, and `cancel_review` are all present,
   call `start_review` once and preserve its exact invocation ID. Call
-  `await_review` on that identity until completion. If the host defers the call,
+  `await_review` on that identity until completion. Wait for the start response
+  before calling await; never batch these dependent calls or invent an ID.
+  If the host defers the call,
   wait on the same pending handle for up to five minutes at a time, or the
   longest shorter duration the host and higher-priority instructions permit.
   Do not poll `get_run`, `list_runs`, CLI status, files, or OS processes.
@@ -572,23 +624,35 @@ Copy this minimal project-wide template into the reviewed project's
   handle. If a host deadline signals the process or its effect is unknown,
   treat the run as cancelled or uncertain, preserve any returned run ID, and
   never start a replacement review.
-- After terminal completion, preserve the exact returned run ID and inspect it
-  from the same canonical project root. Use `get_run` and `list_findings` only
-  when the attached MCP server is proven to serve that root. Otherwise run
-  `mulgae status --run r_... --output json` and
-  `mulgae findings --run r_... --severity low --output json` through the CLI
-  from that root. Compare the committed status's `final_artifact_uri` with the
-  findings result's `review_artifact_uri`; stop on a mismatch. Matching URIs do
-  not prove one publication snapshot across the two queries. The CLI findings
-  JSON gives a verified count, not IDs or content; direct artifact reads are
-  not bound to the CLI's integrity check. Query findings only for
-  publication-backed status. On a bound MCP server, follow resource `nextURI`
-  values exactly. The CLI has no read-only rendered report command; run
-  `mulgae report` only with authorization for its required output path. Treat
-  that report as advisory; for ordinary runs, verify selected findings through
-  `mulgae excerpt` and current code. Composite findings have no CLI excerpt:
-  report the limit and stop ID-dependent judgments or follow-up on that path.
+- After terminal completion, inspect the exact returned run with
+  `inspect_review` and `expected_project_binding`, or CLI `inspect --run r_...`
+  with `--expected-project-binding` and `--output json`. Check publication
+  authority, coverage, structured extraction, and CI independently. An incomplete
+  or diagnostic-only result is not a completed review verdict; preserve its
+  recovery information. No returned run ID means there is no exact run to query.
+- Use the inspection's finding IDs, publication receipt, and content references.
+  Follow finding cursors with the same command, selectors, and expected receipt; the
+  broadest severity query is `low`, which excludes `info`. Read full finding
+  details, original role reports, and each available evidence index through the
+  returned MCP resource URIs or CLI `read-finding`, `read-report`, and indexed
+  `excerpt`. Read the rendered report with CLI `read-report` without `--role`,
+  or the advertised MCP report template with the exact run, binding, and receipt.
+  Follow MCP `io.mulgae/nextURI` unchanged.
+  CLI chunks continue with `next_offset`, the expected publication receipt, and
+  the expected full-content digest until `next_offset` is null. Keep the expected
+  project binding on every read. These commands need no output-file write.
+- Treat per-item historical unavailability separately from corruption. Newly
+  published composites expose copied evidence; legacy composites may not.
+  Stop an evidence-dependent judgment when its evidence is unavailable, and
+  never replace a failed integrity check with a live-file or raw artifact read.
   Keep recovery and child workflows bound to the same root.
+- If a client cannot expose a needed native capability, use the CLI from the
+  requested root. With an older CLI, report its verification limits: count-only
+  findings and separate status reads do not form one snapshot, and a written
+  report supplies only advisory candidate IDs. Use an authorized `report` write
+  and an ordinary finding's verified legacy `excerpt` only when that path is
+  available; otherwise stop ID-dependent judgment or follow-up. Do not infer
+  support from the binary version or install an upgrade automatically.
 - Read the JSON envelope even when Mulgae exits `1`: exit `1` is a policy
   outcome, not an execution failure. Treat other non-zero exits per
   `mulgae help exit-codes`. Preserve returned run IDs and inspect runs with
@@ -705,10 +769,12 @@ mulgae compose --root-run r_... --recovery-run r_... --output json
 
 The same exact mapping is idempotent. If publication returns
 `reconciliation_state: status_required`, inspect the returned composite
-`run_id`; do not blindly retry an uncertain mutation. Composite findings remain
-available through `findings`, but they do not support CLI `excerpt` reads or MCP
-current-target evidence resources. Composite `status`, `report`, and `export`
-reads remain supported.
+`run_id`; do not blindly retry an uncertain mutation. Use `inspect` to obtain
+composite finding IDs and availability, then `read-finding`, `read-report`, or
+indexed `excerpt` for receipt-bound content. Attached MCP exposes the equivalent
+inspection and resources. Newly published composites retain copied evidence;
+historical composites can report it unavailable. Existing `status`, `report`,
+and redacted `export` behavior remains supported.
 
 The MCP `compose_review` equivalent reports an uncertain publication as
 `composite_publication_incomplete` with deterministic non-null `session_id`

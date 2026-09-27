@@ -339,7 +339,7 @@ completed capability; it does not supply a missing identity implementation.
 | TASK-022 | Completed | Add one-receipt inspection with verified capture identity/availability, structured finding pages, detail reads, and CLI/MCP parity. | Coherent paging under corruption, cleanup, epoch/filter changes, unavailable historical capture support versus damaged support, and reports-only/diagnostic-only results. |
 | TASK-023 | Completed | Add lossless read-only rendered and original role-report access, plus indexed evidence reads under the same receipt. | Full-content reassembly, UTF-8/binary boundaries, all supported indices, stale/malformed offsets, no writes/provider calls, and release-binary fixtures. |
 | TASK-024 | Completed | Publish self-contained composite finding evidence and per-source capture provenance while preserving old composites and exact mapping idempotence. | Ordinary/failed-recovery sources, no false common identity for unequal captures, remapped IDs, interrupted publication, source cleanup, historical absence, integrity, export, and replay. |
-| TASK-025 | Planned | Certify the integrated native workflow, simplify source-distributed agent guidance, and prepare explicit Epic acceptance. | Frozen consumer fixtures, exact release-binary and actual supported-client behavior, complete `make test`, canonical-document readback, and `git diff --check`. |
+| TASK-025 | Completed | Certify the integrated native workflow, simplify source-distributed agent guidance, and prepare explicit Epic acceptance. | Frozen consumer fixtures, exact release-binary and actual supported-client behavior, complete `make test`, canonical-document readback, and `git diff --check`. |
 
 ### Requirement ownership
 

@@ -1,0 +1,30 @@
+{
+  "schema_version": "mulgae-command-result.v18",
+  "command": "inspect",
+  "result": {
+    "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243bb",
+    "capture_availability": "verified",
+    "capture_identity": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "publication_receipt": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "capabilities": {
+      "capture_identity": "v1",
+      "inspection": "v1"
+    },
+    "finding_count": 0,
+    "returned_count": 0,
+    "findings": []
+  },
+  "exit": {
+    "code": 7,
+    "kind": "artifact"
+  },
+  "reasons": [
+    {
+      "category": "artifact",
+      "code": "artifact_integrity",
+      "message": "Bound support is corrupt",
+      "retryable": false,
+      "artifact_uri": null
+    }
+  ]
+}

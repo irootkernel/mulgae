@@ -16,6 +16,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Changed
 
+- Use native project/request guards and receipt-bound result reads in the distributed `use-mulgae` skill, README and help, with explicit legacy and client-capability fallbacks.
 - Require Go 1.27.1 or newer and update Mulgae's direct dependencies and pinned development checks for Go 1.27.
 - Use ZCode's v2 desktop Individual Coding Plan state instead of legacy CLI config, add optional project model and
   reasoning settings, and publish command-result v13.

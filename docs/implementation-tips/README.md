@@ -135,6 +135,25 @@ not count as model turns. Record client versions, target SHA-256, invocation and
 run identities, elapsed await behavior, publication/coverage state, and finding
 count without committing client transcripts or `.mulgae/` artifacts.
 
+The integrated review fixture uses independently maintained consumer
+decoders and frozen response projections under `test/e2e/testdata/verified-consumer/`.
+Keep these fixtures outside the producer generators: changing a public envelope
+must require a deliberate consumer compatibility decision. The release fixture
+connects project lookup, guarded admission, one start/await pair, recovery and
+composition, coherent inspection, and complete report/evidence reads. It also
+checks no-change provenance and the difference between capture and request
+identity. Frozen historical projections test consumer behavior; the owning query tests
+establish historical artifact verification. Complete runtime envelopes pass
+through the same decoders in the integrated fixture.
+
+For actual client checks, use invocation-only MCP configuration and existing
+authentication with a disposable project. A transparent stdio recorder may
+capture discovery and request/response boundaries without changing messages.
+Combine that protocol evidence with the client's own timestamped event stream;
+protocol logs alone cannot prove that the model remained idle during await.
+Record resource access separately when a client exposes tools but no resource
+reader. The native CLI fallback does not certify that client's resource support.
+
 ### Optional Gaori evidence compression
 
 Gaori can wrap long or noisy local test commands so coding agents and developers
