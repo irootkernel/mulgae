@@ -112,6 +112,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-command-result.v14.schema.json",
+      "path": "sot/examples/command-result.v14.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v14.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "command-result-validator"
       ],
       "disposition": "ADDED",
@@ -882,6 +894,18 @@
       "pair": "sot/examples/command-result.v13.valid.json",
       "path": "sot/schemas/mulgae-command-result.v13.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v13.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/command-result.v14.valid.json",
+      "path": "sot/schemas/mulgae-command-result.v14.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v14.schema.json"
     },
     {
       "checksum_inclusion": true,

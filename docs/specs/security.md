@@ -87,6 +87,22 @@ Standard MCP request cancellation still reaches the existing foreground
 registry-owned executions to the process context so SIGINT or SIGTERM cancels
 provider and publication work instead of merely closing transport around it.
 
+### Local project binding
+
+CLI `context` and MCP `get_context` inspect directory descriptors and Git-location
+metadata without reading project policy, credentials, or provider state. The
+root, worktree Git directory, common Git directory, and Git-location pointers
+must be owned by the current user and not group- or world-writable. Git pointers
+must be regular files with one link; symbolic links in Git metadata fail closed.
+The requested root may be a canonical path alias. Its resolved location, device,
+inode, and birth time form the private input to the public binding digest.
+
+MCP retains the startup descriptors and rejects changed anchors on context
+lookup. The caller compares this digest with an independent CLI lookup from the
+requested root. The digest does not authenticate an untrusted host or grant
+permission to retarget the server. Execution guards are a separate contract;
+`context` advertises only implemented capabilities.
+
 ## Provider isolation
 
 Default setup and inspection are non-live. `doctor` may execute only the exact

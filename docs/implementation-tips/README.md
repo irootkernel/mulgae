@@ -71,7 +71,8 @@ make test-mcp-clients
 version and revision link flags and checks that exact installed artifact through
 `internal/releasecheck`. It separately builds an isolated recovery-scenario
 fixture with the test-only native-home override. The fixture exercises recovery
-without reading the operator's real home; it is not the installed release
+and read-only CLI/MCP project-context parity without reading the operator's real
+home; it is not the installed release
 artifact and does not replace the releasecheck evidence.
 
 `make test-grok` builds the exact current release binary and runs one authorized

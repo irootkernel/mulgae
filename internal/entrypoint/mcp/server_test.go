@@ -259,7 +259,7 @@ func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) 
 			t.Fatalf("compose_review must not advertise blind-retry idempotence: %#v", tool["annotations"])
 		}
 	}
-	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
+	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_context,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
 		t.Fatalf("tool names = %v", names)
 	}
 
@@ -1503,5 +1503,27 @@ func TestPublicToolErrorPreservesPrimaryFailureWithRecoveryDescription(t *testin
 		if actual.Class != original.Class || actual.Code != original.Code || actual.Stage != original.Stage || actual.Retryable != original.Retryable || strings.Contains(actual.Message, "retention") {
 			t.Fatalf("recovery changed public failure: %+v", actual)
 		}
+	}
+}
+
+func (*toolBackendFake) GetContext(context.Context) (map[string]any, error) {
+	return map[string]any{"project_binding": "sha256:" + strings.Repeat("1", 64)}, nil
+}
+
+func TestGetContextAcceptsOnlyEmptyArguments(t *testing.T) {
+	for _, arguments := range []string{`{}`, `{"project_root":"/foreign"}`, `{"run_id":"latest"}`} {
+		t.Run(arguments, func(t *testing.T) {
+			requests := []string{latestRequest(1, "server/discover", `{}`), latestRequest(2, "tools/call", `{"name":"get_context","arguments":`+arguments+`}`)}
+			responses := serveRequestsWithConfig(t, toolTestConfig(t, &toolBackendFake{}), requests...)
+			response := decodeResponse(t, responses[len(responses)-1])
+			result, ok := response["result"].(map[string]any)
+			if arguments == `{}` {
+				if !ok || result["structuredContent"].(map[string]any)["outcome"] != "success" {
+					t.Fatalf("context rejected: %#v", response)
+				}
+			} else if response["error"] == nil && (!ok || result["isError"] != true) {
+				t.Fatalf("context admitted selectors: %#v", response)
+			}
+		})
 	}
 }

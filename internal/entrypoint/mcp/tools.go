@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	toolGetContext    = "get_context"
 	toolRunReview     = "run_review"
 	toolStartReview   = "start_review"
 	toolAwaitReview   = "await_review"
@@ -35,6 +36,7 @@ const (
 // Backend is the application-facing MCP tool boundary. Implementations own
 // project-root confinement and return only public, bounded values.
 type Backend interface {
+	GetContext(context.Context) (map[string]any, error)
 	RunReview(context.Context, string, RunReviewInput) (BackendResult, error)
 	ComposeReview(context.Context, string, ComposeReviewInput) (BackendResult, error)
 	PreflightReview(context.Context, string, RunReviewInput) (BackendResult, error)
@@ -98,6 +100,15 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 	if server == nil || backend == nil || registry == nil || newRequestID == nil || len(outputSchema) == 0 {
 		return
 	}
+	addTool(server, toolGetContext, "Read the fixed startup project's binding and implemented capabilities without configuration or provider access.", json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`), outputSchema, true, true,
+		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
+			var input struct{}
+			if err := decodeArguments(raw, &input); err != nil {
+				return "", nil, err
+			}
+			data, err := backend.GetContext(ctx)
+			return "success", data, err
+		}, newRequestID)
 	addTool(server, toolRunReview, "Capture and run one foreground Mulgae review for this server's fixed project root.", json.RawMessage(runReviewInputSchema), outputSchema, false, false,
 		func(ctx context.Context, requestID string, raw json.RawMessage, startProgress func()) (string, map[string]any, error) {
 			var input RunReviewInput

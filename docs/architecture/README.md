@@ -133,7 +133,7 @@ failed transport uses exit 10, and invalid command grammar uses exit 2.
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,
 `start_review`, `await_review`, `cancel_review`, `compose_review`, `list_runs`,
-`get_run`, and `list_findings`, plus bounded verified report and
+`get_context`, `get_run`, and `list_findings`, plus bounded verified report and
 finding-evidence resource templates. The MCP package owns strict tool and URI
 grammar, chunk limits, and the common result envelope; composition binds those
 surfaces to the same preflight, review, report, and verified publication-query
@@ -286,3 +286,18 @@ receipt vector, including followups unrelated to the current page. An unreadable
 selected publication fails that page; conflicting intact assessments produce
 unverified with stable reasons and preserved evidence. These policies belong in
 the application use case, not separate CLI/MCP reducers.
+
+
+### Project-context ownership
+
+`query.ProjectContextService` serves CLI `context` and MCP `get_context` through
+`ports.ProjectBindingObserver`. The Git adapter opens descriptors for the root,
+worktree Git directory, and common Git directory without invoking Git. The
+adapter derives canonical filesystem path spelling from each descriptor with
+Darwin `F_GETPATH`, so case aliases resolve to the same identity. The
+application hashes the versioned observation; transports expose only that digest
+and implemented capability versions. MCP retains the startup lease until
+shutdown. Revalidation compares the held descriptors and freshly resolved
+anchors, including device, inode, and birth time, while ordinary file changes
+do not change the binding. Directory and metadata admission rejects symlinks in
+Git metadata, unsafe ownership or writable anchors, and malformed pointers.

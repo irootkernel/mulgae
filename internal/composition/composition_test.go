@@ -108,7 +108,7 @@ func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
 	for _, raw := range tools {
 		names = append(names, raw.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
+	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_context,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
 		t.Fatalf("production MCP tools = %v", names)
 	}
 	response = request(3, "resources/templates/list")

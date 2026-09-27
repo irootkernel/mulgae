@@ -78,6 +78,8 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 	}
 	remaining := arguments[1:]
 	switch command {
+	case app.CommandContext:
+		return parseContext(remaining, requestID)
 	case app.CommandHelp:
 		return parseHelp(remaining, requestID)
 	case app.CommandInit:
@@ -385,7 +387,7 @@ func selectorOption(arguments []string, flag string) (string, bool, error) {
 func parseCommand(value string) (app.CommandName, error) {
 	command := app.CommandName(value)
 	switch command {
-	case app.CommandInit,
+	case app.CommandContext, app.CommandInit,
 		app.CommandDoctor,
 		app.CommandReview,
 		app.CommandFollowup,
@@ -812,6 +814,32 @@ func parseHeartbeat(arguments []string, defaultProjectRoot, requestID string) (I
 		return Invocation{}, err
 	}
 	return Invocation{command: app.CommandHeartbeat, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, heartbeat: &request}, nil
+}
+
+func parseContext(arguments []string, requestID string) (Invocation, error) {
+	positionals, options, err := parseOptions(arguments, map[string]bool{"--output": true})
+	if err != nil {
+		return Invocation{}, err
+	}
+	if len(positionals) != 0 {
+		return Invocation{}, usageError("context accepts no positional arguments")
+	}
+	outputFormat, err := optionOutputFormat(options)
+	if err != nil {
+		return Invocation{}, err
+	}
+	requestJSON, err := marshalRequest(struct {
+		RequestID    string       `json:"request_id"`
+		Command      string       `json:"command"`
+		OutputFormat OutputFormat `json:"output_format"`
+	}{requestID, string(app.CommandContext), outputFormat})
+	if err != nil {
+		return Invocation{}, err
+	}
+	return Invocation{
+		command: app.CommandContext, availability: AvailabilityFoundation, requestID: requestID,
+		outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true,
+	}, nil
 }
 
 func parseRoles(arguments []string, requestID string) (Invocation, error) {

@@ -1040,6 +1040,7 @@ type HeartbeatService interface {
 // be supplied as one complete pair. EvidenceReader is optional and absent
 // authority evidence remains unverified.
 type Dependencies struct {
+	ProjectContexts         *appquery.ProjectContextService
 	Clock                   ports.Clock
 	RequestIDGenerator      RequestIDGenerator
 	RequestResolver         RequestResolver
@@ -1067,6 +1068,7 @@ type Dependencies struct {
 // process state and only reaches the filesystem, Git, and environment through
 // the injected ports.
 type Application struct {
+	projectContexts    *appquery.ProjectContextService
 	clock              ports.Clock
 	requestIDs         RequestIDGenerator
 	requestResolver    RequestResolver
@@ -1260,6 +1262,7 @@ func newApplication(
 		return nil, fmt.Errorf("mulgae application: command envelope renderer: %w", err)
 	}
 	application := &Application{
+		projectContexts:    dependencies.ProjectContexts,
 		clock:              dependencies.Clock,
 		requestIDs:         dependencies.RequestIDGenerator,
 		requestResolver:    dependencies.RequestResolver,
@@ -1697,6 +1700,8 @@ func humanFailureHint(failure executionFailure) string {
 
 func failureResultJSON(invocation Invocation) ([]byte, error) {
 	switch invocation.Command() {
+	case app.CommandContext:
+		return []byte(`{"project_binding":null,"capabilities":null}`), nil
 	case app.CommandHelp:
 		request, available := invocation.Help()
 		if !available {
@@ -2289,6 +2294,7 @@ func requestedExit(class domain.FailureClass) app.ExitCode {
 
 func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool {
 	allowed := map[app.CommandName]map[app.ExitCode]bool{
+		app.CommandContext:   {app.ExitCodeUsage: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandInit:      {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandDoctor:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true},
 		app.CommandStatus:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},

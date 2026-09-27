@@ -38,7 +38,7 @@ func main() {
 		}
 	}
 	commandPair := contractPair{"schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v13.schema.json", "examples/command-result.v12.valid.json", "examples/command-result.v13.valid.json", "mulgae-command-result.v12", "mulgae-command-result.v13"}
-	if err := updateFileCatalog(assets, append(pairs, commandPair)); err != nil {
+	if err := updateFileCatalog(assets, append(pairs, commandPair, contractPair{"schemas/mulgae-command-result.v13.schema.json", "schemas/mulgae-command-result.v14.schema.json", "examples/command-result.v13.valid.json", "examples/command-result.v14.valid.json", "mulgae-command-result.v13", "mulgae-command-result.v14"})); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

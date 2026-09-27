@@ -500,9 +500,9 @@ reader can still return `evidence_unavailable` for a legacy item.
 
 ### Writer and reader matrix
 
-| Contract | TASK-019 writer / reader | Subsequent owning Task |
+| Contract | Current writer / reader | Owning Task and next change |
 |---|---|---|
-| CLI command envelope | v13 emission; v5-v13 schemas retained unchanged | TASK-020 introduces v14 for context; later changed projections allocate the next version when wired. Strict old readers may reject it. |
+| CLI command envelope | v14 emission, including context; v5-v13 schemas retained unchanged | TASK-020 implements context; later changed projections allocate the next version when wired. Strict old readers may reject it. |
 | Preflight | v5 emission; v3-v5 fixtures retained | TASK-021 introduces v6 with request/capture receipt; v5 remains readable without asserting guard support. |
 | MCP tool envelope | v1 unchanged | Keep the outer v1 envelope; data contracts and advertised capabilities distinguish new projections. |
 | Capture/request/publication/cursor | Four v1 schema/example pairs; tested value-only APIs, no runtime emission | TASK-020/021/022 wire their owned values. Unknown versions fail closed. |

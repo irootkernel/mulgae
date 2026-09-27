@@ -670,7 +670,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v13` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v14` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -679,7 +679,7 @@ can fail before execution. Child selector failures preserve cancellation and
 typed artifact or security exits; only an unclassified resolver failure uses
 exit `10` and `selector_resolution_failed`.
 
-Command-result v5 through v12 remain readable but are never emitted by the
+Command-result v5 through v13 remain readable but are never emitted by the
 current command surface. Other commands do not have rejected-request variants
 in v9.
 For the top-level `review` command, attributed provider execution details in v9
@@ -1038,6 +1038,26 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5 through v12 schema examples remain available
-for explicit backward validation; current CLI envelopes use v13. MCP retains its v1
+retry loop is introduced. CLI v5 through v13 schema examples remain available
+for explicit backward validation; current CLI envelopes use v14. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.
+
+
+## Read-only project context
+
+`mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
+accepts an empty argument object. CLI command-result v14 `result` and MCP v1
+`data` contain identical `project_binding` and `capabilities` objects. The binding
+is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
+Only `project_binding: "v1"` is currently advertised in capabilities; every other
+capability field is the empty string. A failed CLI lookup returns null binding
+and capabilities with a typed security, cancellation, or internal exit. MCP uses
+its existing error envelope. No private paths or descriptor facts are returned.
+
+The caller obtains its expectation independently by running the CLI from the
+requested worktree. The server pins descriptors at startup and revalidates them
+on each context lookup. It never adopts a replacement directory. Failed startup
+binding remains unavailable for that server; creating a repository afterward
+does not retarget it. Lookup reads only directory and Git-location metadata,
+without configuration, credentials, provider discovery, capture, or writes.
+Execution-guard admission is tracked separately in TASK-021.

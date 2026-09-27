@@ -340,6 +340,14 @@ Patch/stdin input containing only excluded control changes fails with
 Use `mulgae version --json` for the machine-readable name and version. Workflow
 commands use `--output json` when integrating Mulgae with another tool.
 
+Run `mulgae context --output json` from the requested repository to obtain its
+local `project_binding`. Compare that value with MCP `get_context` before using
+an attached server. Both return only the binding digest and capability versions;
+they do not read configuration or credentials, invoke providers, or write files.
+Only `capabilities.project_binding` currently advertises `v1`; empty capability
+fields are unavailable. The digest identifies this local worktree, so a separate
+checkout differs even when its files match. It is not portable authentication.
+
 An MCP client can start one attached stdio server for the current canonical
 project root, or select another root explicitly:
 
@@ -354,8 +362,9 @@ flow prefers MCP protocol `2026-07-28`. Legacy `initialize` negotiates
 back to `2025-11-25`. Older versions fail with a structured unsupported-version
 error.
 Diagnostics use stderr. The process fixes the canonical project root at startup
-and exits when its client closes stdin. It exposes nine bounded tools:
+and exits when its client closes stdin. It exposes ten bounded tools:
 
+- `get_context` returns the startup worktree binding and implemented capability versions.
 - `preflight_review` captures and summarizes the execution-free target,
   transmission plan, and budget without invoking providers or publishing a run.
 - `run_review` captures and completes one foreground review for `workspace`,

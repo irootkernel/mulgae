@@ -23,7 +23,7 @@ func TestCurrentProviderEvidenceBaseAdmitsEveryPublishedFamily(t *testing.T) {
 }
 
 func TestCurrentInitZCodeModelPatternRejectsTrailingSlash(t *testing.T) {
-	document := readAssetJSON(t, "schemas/mulgae-command-result.v13.schema.json").(map[string]any)
+	document := readAssetJSON(t, "schemas/mulgae-command-result.v14.schema.json").(map[string]any)
 	definitions := document["$defs"].(map[string]any)
 	requests := definitions["requests"].(map[string]any)
 	accepted := requests["init_accepted"].(map[string]any)
@@ -55,6 +55,7 @@ func TestCurrentPreflightContractsRejectRetiredPermissionModes(t *testing.T) {
 		"schemas/mulgae-review-preflight.v5.schema.json",
 		"schemas/mulgae-command-result.v12.schema.json",
 		"schemas/mulgae-command-result.v13.schema.json",
+		"schemas/mulgae-command-result.v14.schema.json",
 	} {
 		document := readAssetJSON(t, relative)
 		modes := collectPermissionModeEnums(document)

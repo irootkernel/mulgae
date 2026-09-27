@@ -46,7 +46,7 @@ type BuildOverrides struct {
 
 // Run composes and executes the production command, returning its process exit
 // code to the thin package-main wrapper.
-func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides BuildOverrides) int {
+func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides BuildOverrides) (exitCode int) {
 	arguments := []string(nil)
 	if len(argv) > 0 {
 		arguments = argv[1:]
@@ -214,7 +214,13 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	publicationQueries := mulgae.NewPublicationQueryService(queryService)
 	publicationReports := mulgae.NewPublicationReportService(reportService)
 	diagnosticQueries := filesystem.NewDiagnosticStatusReader()
+	projectContexts, err := appquery.NewProjectContextService(gittarget.ProjectBindingObserver{})
+	if err != nil {
+		writeDiagnostic(stderr, "mulgae: project context is unavailable\n")
+		return 10
+	}
 	application, err := mulgae.NewApplication(mulgae.Dependencies{
+		ProjectContexts:         projectContexts,
 		Clock:                   clock,
 		RequestIDGenerator:      ids,
 		RequestResolver:         g008Dependencies.RequestResolver,
@@ -249,6 +255,18 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		if err != nil {
 			writeDiagnostic(stderr, "mulgae: MCP application services are unavailable\n")
 			return 10
+		}
+		backend.projectContexts = projectContexts
+		backend.contextLease, backend.contextError = projectContexts.Open(ctx, root)
+		if backend.contextLease != nil {
+			defer func() {
+				if err := backend.contextLease.Close(); err != nil {
+					writeDiagnostic(stderr, "mulgae: project context cleanup failed\n")
+					if exitCode == 0 {
+						exitCode = 10
+					}
+				}
+			}()
 		}
 		schemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json")
 		if err != nil {

@@ -57,6 +57,9 @@ func (application *Application) execute(ctx context.Context, invocation Invocati
 
 func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler {
 	return map[app.CommandName]applicationCommandHandler{
+		app.CommandContext: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
+			return application.handleContext(ctx, invocation, root)
+		},
 		app.CommandHelp: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
 			return application.handleHelp(ctx, invocation)
 		},
@@ -2773,4 +2776,23 @@ func typedHandlerFailure(stage string, class domain.FailureClass, reason string,
 		return errors.New("handler failure invariant")
 	}
 	return failure
+}
+
+func (application *Application) handleContext(ctx context.Context, invocation Invocation, root string) execution {
+	if application.projectContexts == nil {
+		return execution{failure: executionFailureFor(invocation.Command(), errors.New("context service unavailable"), domain.FailureInternal)}
+	}
+	anchor, err := ports.NewAnchoredRoot(root)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureSecurityPolicy)}
+	}
+	result, err := application.projectContexts.Read(ctx, anchor)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureSecurityPolicy)}
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
+	}
+	return execution{data: data, human: []byte("project binding: " + result.ProjectBinding), exit: app.ExitCodeSuccess}
 }

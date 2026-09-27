@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/domain"
 	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
@@ -20,13 +21,16 @@ import (
 )
 
 type mcpBackend struct {
-	projectRoot  ports.AnchoredRoot
-	artifactRoot ports.AnchoredRoot
-	application  *mulgaeentry.Application
-	queries      mulgaeentry.PublicationQueryService
-	diagnostics  ports.RuntimeDiagnosticQuery
-	reports      mulgaeentry.PublicationReportService
-	enumerator   *filesystem.RunSelector
+	projectContexts *query.ProjectContextService
+	contextLease    ports.ProjectBindingLease
+	contextError    error
+	projectRoot     ports.AnchoredRoot
+	artifactRoot    ports.AnchoredRoot
+	application     *mulgaeentry.Application
+	queries         mulgaeentry.PublicationQueryService
+	diagnostics     ports.RuntimeDiagnosticQuery
+	reports         mulgaeentry.PublicationReportService
+	enumerator      *filesystem.RunSelector
 }
 
 func newMCPBackend(
@@ -483,4 +487,21 @@ func newMCPFailure(stage string, class domain.FailureClass, reason string, cause
 		return errors.New("MCP failure invariant")
 	}
 	return failure
+}
+
+func (backend *mcpBackend) GetContext(ctx context.Context) (map[string]any, error) {
+	if err := backend.preflight(ctx); err != nil {
+		return nil, err
+	}
+	if backend.contextError != nil {
+		return nil, backend.contextError
+	}
+	if backend.projectContexts == nil {
+		return nil, newMCPFailure("query.context", domain.FailureInternal, "project context unavailable", nil)
+	}
+	result, err := backend.projectContexts.ReadLease(ctx, backend.contextLease)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"project_binding": result.ProjectBinding, "capabilities": result.Capabilities}, nil
 }

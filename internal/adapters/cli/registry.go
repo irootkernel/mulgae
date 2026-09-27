@@ -9,10 +9,10 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v13.schema.json"
+const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v14.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
-const fixedCommandSpecCount = 19
+const fixedCommandSpecCount = 20
 
 const (
 	failedRunRecoveryContractURI         = "https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json"
@@ -65,7 +65,7 @@ func (spec CommandSpec) TypedExits() []app.ExitCode {
 	return cloneExitCodes(spec.typedExits)
 }
 
-// CommandSpecs returns a fresh copy of the canonical, ordered 19-command registry.
+// CommandSpecs returns a fresh copy of the canonical, ordered 20-command registry.
 func CommandSpecs() []CommandSpec {
 	return canonicalCommandSpecs()
 }
@@ -120,6 +120,7 @@ func canonicalCommandSpecs() []CommandSpec {
 		newCommandSpec(app.CommandClean, "internal/app/clean", "CleanRuns", []string{cleanPlanContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
 		newCommandSpec(app.CommandExport, "internal/app/export", "ExportRedactedRun", []string{exportManifestContractURI, commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}),
 		newCommandSpec(app.CommandHelp, "internal/app/help", "RenderHelp", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}),
+		newCommandSpec(app.CommandContext, "internal/app/query", "ReadProjectContext", []string{commandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}),
 	}
 }
 

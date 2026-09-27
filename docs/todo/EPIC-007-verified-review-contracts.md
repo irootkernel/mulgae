@@ -91,26 +91,26 @@ Tasks record release notes when those capabilities become available.
 
 **Implement**
 
-- [ ] Add descriptor-backed local worktree identity and revalidation through an
+- [x] Add descriptor-backed local worktree identity and revalidation through an
       application port; keep filesystem details in the adapter.
-- [ ] Wire read-only CLI `context` and MCP `get_context` to that shared service.
+- [x] Wire read-only CLI `context` and MCP `get_context` to that shared service.
       Publish only implemented binding capabilities and redacted identity.
-- [ ] Test independently obtaining the expected identity from the requested root
+- [x] Test independently obtaining the expected identity from the requested root
       rather than trusting the server's self-reported identity as its own proof.
 
 **Do not**
 
-- [ ] Retarget an attached server, initialize configuration, read credentials,
+- [x] Retarget an attached server, initialize configuration, read credentials,
       invoke a provider, or expose absolute paths through the new response.
 
 **Verify and complete**
 
-- [ ] Cover same root, canonical aliases, equal-content distinct checkouts,
+- [x] Cover same root, canonical aliases, equal-content distinct checkouts,
       linked worktrees, directory replacement, unavailable roots, and unsafe
       path/metadata failures with zero provider and persistent-write calls.
-- [ ] Add CLI/MCP parity and release-binary fixture coverage. Run focused tests,
+- [x] Add CLI/MCP parity and release-binary fixture coverage. Run focused tests,
       `make test-unit`, and `make test-int` for affected ownership boundaries.
-- [ ] Complete when identity is independently comparable and root drift fails
+- [x] Complete when identity is independently comparable and root drift fails
       before subsequent guarded operations can use a foreign root.
 
 ## TASK-021: Bind preflight to execution admission

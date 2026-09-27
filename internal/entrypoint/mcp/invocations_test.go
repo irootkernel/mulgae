@@ -3,6 +3,7 @@ package mcpentry
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -316,4 +317,8 @@ func (*invocationBackendFake) ListFindings(context.Context, ListFindingsInput) (
 }
 func (*invocationBackendFake) ReadResource(context.Context, ResourceRequest) (ResourceContent, error) {
 	return ResourceContent{}, nil
+}
+
+func (*invocationBackendFake) GetContext(context.Context) (map[string]any, error) {
+	return map[string]any{"project_binding": "sha256:" + strings.Repeat("1", 64)}, nil
 }

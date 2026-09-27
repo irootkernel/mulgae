@@ -1,0 +1,29 @@
+{
+  "command": "context",
+  "completed_at": "2026-09-04T06:00:00Z",
+  "exit": {
+    "code": 0,
+    "kind": "success"
+  },
+  "reasons": [],
+  "request": {
+    "command": "context",
+    "output_format": "json",
+    "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e"
+  },
+  "result": {
+    "capabilities": {
+      "capture_identity": "",
+      "composite_evidence": "",
+      "execution_guard": "",
+      "finding_details": "",
+      "finding_pages": "",
+      "indexed_evidence": "",
+      "inspection": "",
+      "project_binding": "v1",
+      "report_content": ""
+    },
+    "project_binding": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "schema_version": "mulgae-command-result.v14"
+}

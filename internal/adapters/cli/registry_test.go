@@ -8,7 +8,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const testCommandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v13.schema.json"
+const testCommandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v14.schema.json"
 
 func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 	want := []struct {
@@ -38,11 +38,12 @@ func TestCommandSpecsMatchCompleteSOTContract(t *testing.T) {
 		{app.CommandClean, "internal/app/clean", "CleanRuns", testCommandResultContractURI + "#/$defs/requests/clean", []string{"https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}},
 		{app.CommandExport, "internal/app/export", "ExportRedactedRun", testCommandResultContractURI + "#/$defs/requests/export", []string{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeArtifact, app.ExitCodeSecurity}},
 		{app.CommandHelp, "internal/app/help", "RenderHelp", testCommandResultContractURI + "#/$defs/requests/help", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage}},
+		{app.CommandContext, "internal/app/query", "ReadProjectContext", testCommandResultContractURI + "#/$defs/requests/context", []string{testCommandResultContractURI}, []app.ExitCode{app.ExitCodeUsage, app.ExitCodeSecurity, app.ExitCodeCancellation, app.ExitCodeInternal}},
 	}
 
 	got := CommandSpecs()
-	if len(got) != 19 {
-		t.Fatalf("CommandSpecs length = %d, want 19", len(got))
+	if len(got) != 20 {
+		t.Fatalf("CommandSpecs length = %d, want 20", len(got))
 	}
 	if len(got) != len(want) {
 		t.Fatalf("CommandSpecs length = %d, want %d", len(got), len(want))

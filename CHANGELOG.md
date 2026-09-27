@@ -4,6 +4,10 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.24 - Unreleased
 
+### Added
+
+- Add read-only CLI `context` and MCP `get_context` for independent local worktree identity comparison, reject changed server roots, and emit command-result v14 while retaining earlier schemas.
+
 ### Changed
 
 - Require Go 1.27.1 or newer and update Mulgae's direct dependencies and pinned development checks for Go 1.27.

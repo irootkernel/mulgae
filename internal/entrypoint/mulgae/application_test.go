@@ -47,7 +47,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v13.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v14.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -391,8 +391,8 @@ func TestApplicationCommandHandlersMatchCanonicalRegistry(t *testing.T) {
 	specs := cli.CommandSpecs()
 	handlers := applicationCommandHandlers()
 
-	if len(specs) != 19 {
-		t.Fatalf("canonical registry has %d commands, want 19", len(specs))
+	if len(specs) != 20 {
+		t.Fatalf("canonical registry has %d commands, want 20", len(specs))
 	}
 	if err := validateApplicationCommandHandlers(specs, handlers); err != nil {
 		t.Fatalf("application handler map is not complete: %v", err)
@@ -520,7 +520,7 @@ func TestApplicationComposeUnavailableReturnsV8ReconciliationEnvelope(t *testing
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v13" || envelope.Result["kind"] != "composite_failed" ||
+	if envelope.SchemaVersion != "mulgae-command-result.v14" || envelope.Result["kind"] != "composite_failed" ||
 		envelope.Result["root_run_id"] == nil || envelope.Result["reconciliation_state"] != "not_committed" || envelope.Result["retry_safe"] != true {
 		t.Fatalf("compose failure envelope = %#v", envelope)
 	}
