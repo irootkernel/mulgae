@@ -231,6 +231,74 @@ tests in the owning application package.
 - Keep unrelated changes out of the commit.
 - Run the complete gate before release.
 
+## Verification for the adopted review Epics
+
+The planned [EPIC-007 dossier](../todo/EPIC-007-verified-review-contracts.md)
+and [EPIC-008 dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
+define per-Task implementation, exclusions, checks, and completion conditions.
+The [roadmap](../roadmap/README.md#adopted-execution-order) owns the strictly
+sequential order. Do not begin EPIC-008 before explicit EPIC-007 acceptance.
+
+For each implementation Task, read current code and the nearest contract, add
+focused behavioral/negative tests, and run the applicable existing Make targets.
+Use explicit packages and anchored test names for narrow Go test selections.
+Do not add prose-only tests as a substitute for native behavior. Contract-only
+foundations need schema examples and semantic tests before production wiring;
+new capabilities remain unadvertised until their runtime path exists.
+
+Keep provider-free guarantees observable with writer/provider spies and exact
+binary fixtures. Test root confusion and drift before qualification, one capture
+per admitted execution, receipt/cursor consistency, historical capability gaps,
+reports-only output, and immutable parent artifacts. Freeze old/new consumer
+fixtures independently of producer generators so regeneration cannot erase a
+compatibility failure. When embedded assets change, follow the two-pass generator
+procedure above.
+
+The plan review adds four required deterministic regression groups, owned by
+existing Tasks rather than new Epics or live campaigns:
+
+| Group | Required checks |
+|---|---|
+| No-change Brief evaluation | Empty stage/dirty/diff in both modes with/without requirements; invalid input/guard rejection first; zero qualification/review calls; exact Brief and unverified/no_change_target results retained and readable after restart; explicit workspace remains a separate request. |
+| Complete capture identity | Keep patch bytes equal while changing unchanged support files, binary content, paths, sides, or context; identities must differ. Equal captures with different objectives/roles must remain comparable for resolution. Prove historical unavailability differs from corrupt support. |
+| All-followup receipt paging | Keep before/after fixed while only a selected followup is deleted, replaced, or corrupted between pages; fail the page, including followups used on later pages. Reject changed selection and duplicate IDs; permutations preserve scope. |
+| Conflicting claims | Test differing conclusive followup verdicts and conflicts with after observations; preserve all evidence and stable reasons. Separate unclear/missing answers from negative claims. Vary input order and timestamps without selecting a winner or increasing confidence. |
+
+TASK-019/021/022/024 establish the capture foundation. TASK-026 freezes the
+remaining semantics, TASK-027/028/029 cover no-change admission/publication/reads,
+TASK-030/031 retain batch current-capture identity, TASK-032 covers comparison,
+and TASK-033 verifies the integrated boundary matrix. Use existing no-change
+service/publication fixtures as compatibility anchors, not tests that assume
+all future no-change formats have an empty support index.
+
+Run the complete `make test` gate before each Epic's integrated acceptance.
+Retain the existing mandatory live ZCode/Grok and optional Codex policy; do not
+multiply live runs to cover cases deterministic fixtures can prove. Registration
+inspection alone cannot certify an actual client invocation or await behavior.
+Record exact binary/client identities and distinguish mock, release-binary,
+actual-client, and live-provider evidence.
+
+EPIC-008 additionally calls for one bounded, explicitly authorized live initial
+Brief review and one selected batch recheck through existing routes. Reuse that
+campaign's outputs for provider-free inspection and comparison checks. Missing
+structured coverage is not a successful feature demonstration. A failure is a
+specific blocker/remediation item, not permission to repeat reviews until clean.
+Neither dossier authorizes credential, provider, host-config, installation, or
+release changes. Keep runtime evidence local unless a reviewed promoted-evidence
+package is explicitly required.
+
+For this documentation-only adoption, read back changed files, validate links,
+IDs, dependencies, requirement ownership, and proposed-command labeling, and run
+`git diff --check`. No runtime gate or provider call is necessary to verify that
+planning change. Do not mark feature requirements or Tasks complete from these
+document checks.
+
+At Epic closeout, promote durable outcomes to canonical owners, remove its
+temporary dossier and index entry, repair all dossier links (including this
+section), and replace Detailed SOT with Canonical Outcomes before changing the
+Epic status. Stop at the accepted scope; no additional feature or unlimited
+review cycle is an acceptance condition.
+
 ## Manual release
 
 The repository intentionally has no GitHub Actions release workflow:

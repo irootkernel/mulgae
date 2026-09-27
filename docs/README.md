@@ -32,6 +32,23 @@ public README rather than a separate documentation role. Versioned runtime
 schemas, prompts, roles, examples, and help remain owned by
 `internal/builtin/assets`.
 
+## Adopted next development
+
+Implement the next work as two sequential Epics:
+
+| Order | Required behavior | Temporary development detail |
+|---|---|---|
+| First | [Verified review contracts](specs/verified-review-contracts.md): native project/preflight binding and coherent public result reads | [EPIC-007 dossier](todo/EPIC-007-verified-review-contracts.md) |
+| Second | [Review completeness and iteration](specs/review-completeness-and-iteration.md): Briefs, requirements assessment, bounded batch followup, and exact-run comparison | [EPIC-008 dossier](todo/EPIC-008-review-completeness-and-iteration.md) |
+
+The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
+execution order, dependencies, and status. The
+[design decision](architecture-decision-records/verified-review-iteration.md)
+records the grouping and responsibility boundaries. These are adopted plans,
+not a statement that current binaries expose the proposed commands. Existing
+runtime contracts remain authoritative until each owning implementation change
+updates them with source, tests, and embedded assets.
+
 ## Source-of-truth precedence
 
 Current source and tests are authoritative for implemented runtime behavior.

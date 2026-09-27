@@ -377,6 +377,61 @@ failures never authorize repair or publication.
 
 Mulgae output remains advisory after every technical check passes.
 
+## Adopted extension security requirements
+
+The following requirements apply to the planned
+[verified review contracts](verified-review-contracts.md) and
+[review completeness and iteration](review-completeness-and-iteration.md).
+They do not claim additional current-binary capabilities.
+
+- Native binding must distinguish equal-content worktrees using independently
+  established local identity. A server's own response is not its own proof of
+  matching the requested root. Revalidate the anchored root and keep absolute
+  paths and credentials out of public receipts and portable exports.
+- Guard comparison must precede qualification and every provider transmission.
+  Compare and execute the same admitted immutable capture/plan; preserve existing
+  spawn-time isolation checks. A matching guard does not authorize duplicate
+  starts or authenticate a malicious host.
+- Keep complete capture identity separate from the existing patch digest and
+  request identity. Bind target kinds/sides, all file paths and exact digests,
+  capture policy, and support context to retained verification material. Missing
+  historical support is unavailable, not permission to compare patches alone;
+  damaged bound support remains an integrity error.
+- Verified inspection and continuations must remain bound to exact publication
+  identities and fail on corruption, replacement, or cleanup. New reads cannot
+  write reports, repair old artifacts, or invoke a provider. Per-page limits
+  cannot become source, prompt, or report-content ceilings.
+- New composite evidence must be hash-bound and self-contained. Historical
+  evidence absence cannot authorize a read of current files or an implicit
+  upgrade. Export redaction remains separate from local evidence-read access.
+- Review Briefs and criteria are untrusted data. Validate Unicode, duplicate IDs,
+  role ownership, paths, exclusions, and captured-side references. Explicit file
+  selection does not bypass ignore or control-path restrictions. No test,
+  command, network fetch, or provider permission follows from Brief prose.
+- Assessment and batch output cannot assign trusted identity, manufacture
+  verification, or promote missing evidence to success. Keep malformed optional
+  assessment sections isolated from valid ordinary findings, while protected
+  failures retain their current publication-denial precedence.
+- Empty Git diffs with a Brief must still validate inputs and guards, then retain
+  zero provider calls and explicit unverified/no_change_target results. Persist
+  the exact Brief and selected requirements without fabricated attempts/reports.
+  Never silently select workspace, rewrite references, or infer met from no findings.
+- Batch execution reuses one target and existing invocation ceilings; observer
+  cancellation stays separate from execution cancellation. No per-finding retry
+  loop, provider substitution, implicit recovery, or parent-artifact mutation.
+- Comparison verifies exact source-finding binding and full evaluated-current/
+  after capture equality before transferring a followup resolution. Before and
+  after may differ; distinct review objectives do not require distinct captures.
+- Bind every comparison continuation to before/after and the complete selected
+  followup ID/receipt set, filters, and contract versions. Revalidate all of it on
+  every page; deletion, replacement, or corruption fails the page rather than
+  silently dropping evidence or returning a semantic unverified row.
+- Preserve conflicting intact followup verdicts and after observations under
+  stable unverified conflict reasons. Do not settle them by ordering, recency,
+  provider preference, or votes; distinguish inconclusive claims from negative
+  verdicts. Non-observation, changed requirements, absent extraction, and
+  ambiguous correspondence cannot silently become resolved or met.
+
 ## Reporting vulnerabilities
 
 Do not open a public issue containing credentials, private source, raw provider

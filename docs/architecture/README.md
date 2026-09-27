@@ -229,3 +229,60 @@ heartbeat paths.
 Runtime assets are ordinary files under `internal/builtin/assets`, included with
 `go:embed`. `CHECKSUMS.sha256` is generated from those files and validated
 before the catalog serves any asset.
+
+## Planned extension ownership
+
+The [accepted two-Epic design](../architecture-decision-records/verified-review-iteration.md)
+and [roadmap](../roadmap/README.md#adopted-execution-order) adopt the following
+changes. They are future structure, not additional current runtime components.
+
+```text
+EPIC-007: independent project identity
+            -> native preflight/execution guard
+            -> existing immutable capture and provider execution
+            -> verified publication receipt
+            -> coherent CLI/MCP inspection and content reads
+
+EPIC-008: captured Review Brief
+            -> assigned requirements assessment
+            -> immutable review result
+            -> one selected-finding batch against one new target
+            -> provider-free comparison of exact results
+```
+
+| Concern | Application and boundary ownership |
+|---|---|
+| Local project identity | Domain/app typed binding and inward port; descriptor/Git observation in filesystem/workspace adapters; transport never decides root equality |
+| Complete capture identity | Shared application-owned canonical target/sides/file-set/context identity, distinct from patch and request digests; `publication` retains verification support and `query` verifies it |
+| Native guard | `reviewrun` capture/planning admission before qualification; request identity includes the complete capture and request-only policy, objective, and route dimensions |
+| Verified reads | `query` owns coherent publication receipt and provenance; `report` renders admitted content; CLI/MCP only parse and project bounded pages |
+| Composite evidence | `reviewcompose` selects exact sources; `publication` owns copied support and atomic commit; query does not chase live source runs |
+| Brief capture and framing | Existing review input/archive and prompt owners; project-authored requirements stay untrusted data |
+| Assessment | `validation` checks assigned IDs and captured support; `publication` retains normal assessments or provider-free no-change unverified records; `query`/`report` expose evaluation state separately from findings |
+| Batch followup | A focused source/selection use case reuses `followup`/`childrun` and the existing coordinator/lane budget; one captured target and one immutable run |
+| Comparison | A provider-free application query revalidates before/after and every selected followup receipt on each page, checks complete capture equality for resolution transfer, and reduces conflicts without choosing a winner |
+
+Reuse existing typed values and ports where their meaning matches. Introduce a
+small use-case owner only when a new responsibility requires one; do not build a
+generic execution framework, parallel storage authority, or infrastructure
+abstraction merely to accommodate these features. Architecture tests must keep
+CLI/MCP, provider process, filesystem, and domain dependency boundaries intact.
+
+EPIC-007 must close independently with current objective/context input. EPIC-008
+extends its request identity for Briefs and batch selections after acceptance.
+The existing invocation registry remains the lifecycle owner; a batch start
+reuses await/cancel without adding durable job recovery or a second scheduler.
+
+Brief-aware empty Git diffs remain on the existing provider-free no-change
+branch, after input and guard validation. `publication` must retain the Brief
+and selected unverified requirements without attempts or role reports; preflight
+and reads expose evaluation not run. A workspace assessment requires an explicit
+new request, not an alternate provider path hidden inside completion mode.
+
+Before/after comparison does not require equal captures. Transferring a followup
+resolution does require equal complete evaluated-current and after captures,
+not equal request digests. Comparison continuations bind the complete selected
+receipt vector, including followups unrelated to the current page. An unreadable
+selected publication fails that page; conflicting intact assessments produce
+unverified with stable reasons and preserved evidence. These policies belong in
+the application use case, not separate CLI/MCP reducers.

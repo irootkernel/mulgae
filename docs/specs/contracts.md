@@ -1,5 +1,16 @@
 # Contracts and artifacts
 
+## Adopted extensions, not yet implemented
+
+[Verified review contracts](verified-review-contracts.md) defines the EPIC-007
+project/preflight guard and verified-read requirements.
+[Review completeness and iteration](review-completeness-and-iteration.md)
+defines the EPIC-008 Brief, assessment, batch-followup, and comparison requirements.
+Those specifications describe future behavior; the sections below remain the
+implemented contract baseline. Update each affected section and its source,
+tests, embedded schemas, examples, and help in the owning implementation Task.
+Do not infer new command support or rewrite historical artifacts from this plan.
+
 ## Versioning
 
 The public contract surface starts at v1. Configuration uses `version: 4`;

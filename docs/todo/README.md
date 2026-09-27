@@ -10,7 +10,15 @@ None.
 
 ## Adopted active dossiers
 
-None.
+- [EPIC-007: Verified review contracts](EPIC-007-verified-review-contracts.md)
+  develops native project/preflight guards and coherent verified result reads.
+- [EPIC-008: Review completeness and iteration](EPIC-008-review-completeness-and-iteration.md)
+  develops structured requirements review, bounded batch followup, and exact-run
+  comparison after explicit EPIC-007 acceptance.
+
+Execute the Epics and their Tasks in the order owned by the
+[roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply
+that implementation has begun or that the planned interfaces are available.
 
 When a candidate is adopted with tasks, identify its epic here and link the
 dossier from the roadmap as `Detailed SOT`. Epic closeout promotes durable

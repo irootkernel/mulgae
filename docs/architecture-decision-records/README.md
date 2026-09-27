@@ -18,3 +18,11 @@ explain why durable choices were made.
   its live spike pinned.
 - [Codex app-server transport](codex-app-server-transport.md) records the
   ephemeral Codex protocol route and its report and isolation boundaries.
+
+## Accepted design for planned implementation
+
+- [Native review contracts before review completeness and iteration](verified-review-iteration.md)
+  records why EPIC-007 groups native binding with verified inspection, and why
+  EPIC-008 groups requirements assessment with bounded followup and comparison.
+  Design acceptance does not mean the new capabilities are implemented; the
+  roadmap owns delivery status.
