@@ -152,27 +152,27 @@ Tasks record release notes when those capabilities become available.
 
 **Implement**
 
-- [ ] Extend the verified query owner to return one reobserved publication
+- [x] Extend the verified query owner to return one reobserved publication
       receipt with status, capture identity/availability, coverage, extraction
       state, and finding page. Verify capture support, not just a stored digest.
-- [ ] Wire CLI `inspect`, MCP `inspect_review`, and versioned finding-list
+- [x] Wire CLI `inspect`, MCP `inspect_review`, and versioned finding-list
       projections, preserving total-count semantics and canonical ordering.
-- [ ] Provide bounded verified finding details and cursor-bound continuation;
+- [x] Provide bounded verified finding details and cursor-bound continuation;
       keep report/source bodies out of unbounded summary arrays.
 
 **Do not**
 
-- [ ] Stitch public status and findings queries together, read raw final JSON
+- [x] Stitch public status and findings queries together, read raw final JSON
       after an unrelated check, or equate reports-only zero findings with clean.
 
 **Verify and complete**
 
-- [ ] Cover empty, multi-page, exact-boundary, final-page, mixed, reports-only,
+- [x] Cover empty, multi-page, exact-boundary, final-page, mixed, reports-only,
       diagnostic-only, and historical-capability cases. Missing historical
       capture support is unavailable; corrupted bound support fails the read.
-- [ ] Inject corruption, cleanup, epoch replacement, filter changes, and foreign
+- [x] Inject corruption, cleanup, epoch replacement, filter changes, and foreign
       cursors; prove failure without mixing snapshots or choosing another run.
-- [ ] Run query/projection tests and applicable unit/integration gates. Complete
+- [x] Run query/projection tests and applicable unit/integration gates. Complete
       when an agent can obtain IDs and verified details without private IO.
 
 ## TASK-023: Add lossless read-only report and evidence access

@@ -79,7 +79,7 @@ func TestProjectContextRedactionCapabilitiesAndFailure(t *testing.T) {
 			if _, err := domain.ParseProjectBinding(result.ProjectBinding); err != nil {
 				t.Fatal(err)
 			}
-			if result.Capabilities != (VerifiedReadCapabilities{ProjectBinding: "v1", ExecutionGuard: "v1", CaptureIdentity: "v1"}) {
+			if result.Capabilities != ImplementedReadCapabilities() {
 				t.Fatal("unexpected capability advertisement")
 			}
 			data, _ := json.Marshal(result)

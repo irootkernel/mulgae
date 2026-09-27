@@ -43,9 +43,10 @@ type RequestIDGenerator interface {
 // G006 query API. It deliberately accepts an already anchored artifact root so
 // command handlers cannot discover publication files themselves.
 type PublicationQueryService interface {
+	Inspect(context.Context, ports.PublicationRun, domain.ProjectBinding, appquery.InspectionRequest) (appquery.Inspection, error)
+	ReadFinding(context.Context, ports.PublicationRun, domain.ProjectBinding, string, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	ResolveRun(context.Context, ports.AnchoredRoot, domain.RunID) (ports.PublicationRun, error)
 	ReadRunStatus(context.Context, ports.PublicationRun) (RunStatusView, error)
-	ListFindings(context.Context, ports.PublicationRun, domain.Severity) (FindingsView, error)
 	RenderExcerpt(context.Context, ports.PublicationRun, string, string) ([]byte, error)
 }
 
@@ -70,22 +71,6 @@ type RunStatusView struct {
 	RoleReportURIs       []RoleReportURI
 	DiagnosticSummary    ports.RuntimeDiagnosticSummary
 	HasDiagnosticSummary bool
-}
-
-// FindingView is one finding in the query service's preserved final order.
-type FindingView struct {
-	ID          string
-	Severity    domain.Severity
-	Title       string
-	HasEvidence bool
-}
-
-// FindingsView is a committed finding selection and its committed review URI.
-type FindingsView struct {
-	RunID             string
-	Findings          []FindingView
-	ReviewArtifactURI string
-	TargetSHA256      string
 }
 
 // PublicationReportService is the command-facing projection of the G006 report
@@ -158,36 +143,6 @@ func (adapter publicationQueryAdapter) ReadRunStatus(
 		}
 		for _, report := range status.RoleReportURIs() {
 			view.RoleReportURIs = append(view.RoleReportURIs, RoleReportURI{Role: report.Role, URI: report.URI})
-		}
-	}
-	return view, nil
-}
-
-func (adapter publicationQueryAdapter) ListFindings(
-	ctx context.Context,
-	run ports.PublicationRun,
-	minimum domain.Severity,
-) (FindingsView, error) {
-	review, err := adapter.service.ReadCommitted(ctx, run)
-	if err != nil {
-		return FindingsView{}, err
-	}
-	findings, err := adapter.service.ListFindings(ctx, run, minimum)
-	if err != nil {
-		return FindingsView{}, err
-	}
-	view := FindingsView{
-		RunID:             review.RunID().String(),
-		Findings:          make([]FindingView, len(findings)),
-		ReviewArtifactURI: ".mulgae/" + review.FinalPath().String(),
-		TargetSHA256:      review.TargetSHA256(),
-	}
-	for index, finding := range findings {
-		view.Findings[index] = FindingView{
-			ID:          finding.ID(),
-			Severity:    finding.Severity(),
-			Title:       finding.Title(),
-			HasEvidence: len(finding.Evidence()) > 0,
 		}
 	}
 	return view, nil
@@ -1347,6 +1302,10 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 			}
 			return application.renderRejectedChildWorkflow(ctx, requestID, command, state, outputFormat, failure)
 		}
+		var readError appquery.ReadContractError
+		if errors.As(err, &readError) {
+			return errorResult(app.ExitCodeUsage, "mulgae: "+readError.Error())
+		}
 		if code, ok := reviewrun.GuardReason(err); ok {
 			return errorResult(app.ExitCodeUsage, "mulgae: "+code)
 		}
@@ -1838,6 +1797,8 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			Kind      string  `json:"kind"`
 			ReportURI *string `json:"report_uri"`
 		}{"report_failed", nil})
+	case app.CommandInspect, app.CommandReadFinding:
+		return json.Marshal(map[string]any{"kind": "verified_read_failed"})
 	case app.CommandFindings:
 		request, available := invocation.Findings()
 		if !available {
@@ -1907,8 +1868,12 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			failure.diagnosticURI = uri.String()
 		}
 	}()
-	if code, ok := reviewrun.GuardReason(err); ok && reducedFailureClass(err, fallback) == domain.FailureConfiguration {
+	if code, ok := reviewrun.GuardReason(err); ok && reducedFailureClass(err, domain.FailureConfiguration) == domain.FailureConfiguration {
 		return &executionFailure{class: domain.FailureConfiguration, code: code, message: "Review admission rejected the request.", humanMessage: "mulgae: " + code, stage: "review.admission", exit: app.ExitCodeUsage, retryable: false, hasRetryable: true, recommendedNextCommand: "repeat preflight for the intended project and request"}
+	}
+	var readError appquery.ReadContractError
+	if errors.As(err, &readError) && reducedFailureClass(err, domain.FailureConfiguration) == domain.FailureConfiguration {
+		return &executionFailure{class: domain.FailureConfiguration, code: readError.Error(), message: "The verified read selectors no longer match the publication.", humanMessage: "mulgae: " + readError.Error(), stage: "query", exit: app.ExitCodeUsage, retryable: false, hasRetryable: true}
 	}
 	var composite interface{ ReasonCode() string }
 	if command == app.CommandCompose && errors.As(err, &composite) && domain.ValidCompositeReasonCode(composite.ReasonCode()) {
@@ -2329,24 +2294,26 @@ func requestedExit(class domain.FailureClass) app.ExitCode {
 
 func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool {
 	allowed := map[app.CommandName]map[app.ExitCode]bool{
-		app.CommandContext:   {app.ExitCodeUsage: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandInit:      {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandDoctor:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true},
-		app.CommandStatus:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandReport:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandFindings:  {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandExcerpt:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandProviders: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
-		app.CommandHeartbeat: {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandRoles:     {app.ExitCodeUsage: true},
-		app.CommandReview:    {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandFollowup:  {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandDelta:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandRerun:     {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandCompose:   {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandClean:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
-		app.CommandExport:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
-		app.CommandConfig:    {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandContext:     {app.ExitCodeUsage: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandInit:        {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandDoctor:      {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true},
+		app.CommandStatus:      {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandReport:      {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandInspect:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandReadFinding: {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandFindings:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandExcerpt:     {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandProviders:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandHeartbeat:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandRoles:       {app.ExitCodeUsage: true},
+		app.CommandReview:      {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandFollowup:    {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandDelta:       {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandRerun:       {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandCompose:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandClean:       {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandExport:      {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
+		app.CommandConfig:      {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 	}
 	return allowed[command][requested]
 }

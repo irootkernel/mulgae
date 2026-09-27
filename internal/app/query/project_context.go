@@ -68,7 +68,7 @@ func (service *ProjectContextService) ReadLease(ctx context.Context, lease ports
 	if err != nil {
 		return ProjectContext{}, projectContextFailure(err)
 	}
-	return ProjectContext{ProjectBinding: binding.String(), Capabilities: VerifiedReadCapabilities{ProjectBinding: "v1", ExecutionGuard: "v1", CaptureIdentity: "v1"}}, nil
+	return ProjectContext{ProjectBinding: binding.String(), Capabilities: ImplementedReadCapabilities()}, nil
 }
 
 func projectContextFailure(cause error) error {

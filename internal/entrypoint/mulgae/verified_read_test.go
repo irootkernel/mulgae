@@ -1,0 +1,164 @@
+package mulgae
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"github.com/irootkernel/mulgae/internal/app"
+	"math"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
+	"github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
+	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
+)
+
+func (fake *g006QueryFake) Inspect(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, request query.InspectionRequest) (query.Inspection, error) {
+	view, err := fake.ListFindings(ctx, run, request.MinimumSeverity)
+	if err != nil {
+		return query.Inspection{}, err
+	}
+	page := query.Inspection{FailedRunRecovery: recovery.UnavailableStatus("published_review"), RunID: view.RunID, ReviewArtifactURI: view.ReviewArtifactURI, FindingCount: len(view.Findings), ReturnedCount: len(view.Findings), Findings: []query.FindingSummary{}, RoleReports: []query.InspectionRoleReport{}}
+	for _, f := range view.Findings {
+		page.Findings = append(page.Findings, query.FindingSummary{ID: f.ID, Title: f.Title, Severity: string(f.Severity), Evidence: []query.FindingEvidenceReference{}})
+	}
+	return page, nil
+}
+func (fake *g006QueryFake) ReadFinding(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected finding detail read")
+}
+
+func mustVerifiedReadContexts(t *testing.T) *query.ProjectContextService {
+	t.Helper()
+	service, err := query.NewProjectContextService(gittarget.ProjectBindingObserver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
+
+func TestVerifiedReadParserSelectors(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("1", 64)
+	invocation, err := Parse([]string{"inspect", "--run", testRunID, "--limit", "2", "--cursor", "opaque", "--expected-project-binding", digest, "--expected-publication-receipt", digest, "--output", "json"}, "/project", "i_01234567-89ab-7cde-8f01-23456789abcd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.verifiedRead.Page.Limit != 2 || invocation.verifiedRead.Page.MinimumSeverity != domain.SeverityLow || invocation.verifiedRead.Page.Cursor != "opaque" || invocation.verifiedRead.ExpectedProjectBinding != digest {
+		t.Fatalf("lost selectors: %+v", invocation.verifiedRead)
+	}
+	for _, arguments := range [][]string{
+		{"inspect", "--run", testRunID, "--limit", "1001"},
+		{"inspect", "--run", "latest"},
+		{"read-finding", "--run", testRunID, "--finding", "F001", "--offset", "01"},
+		{"read-finding", "--run", testRunID, "--finding", "F001", "--offset", "9223372036854775808"},
+		{"findings", "--run", testRunID},
+	} {
+		if _, err := Parse(arguments, "/project", "i_01234567-89ab-7cde-8f01-23456789abcd"); err == nil {
+			t.Fatalf("accepted %v", arguments)
+		}
+	}
+	invocation, err = Parse([]string{"read-finding", "--run", testRunID, "--finding", "F1000", "--offset", "9223372036854775807", "--expected-publication-receipt", digest, "--expected-content-sha256", digest}, "/project", "i_01234567-89ab-7cde-8f01-23456789abcd")
+	if err != nil || invocation.verifiedRead.Continuation.Offset != math.MaxInt64 {
+		t.Fatalf("64-bit offset: %v", err)
+	}
+}
+
+func TestVerifiedReadBindingAndContinuationRejectBeforeQuery(t *testing.T) {
+	fake := newG006QueryFake()
+	fixture := newG006Fixture(t, fake, newG006ReportFake())
+	root := testAnchoredRoot(t)
+	result := fixture.application.Run(context.Background(), []string{"inspect", "--run", testRunID, "--expected-project-binding", "sha256:" + strings.Repeat("9", 64), "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeUsage)
+	if len(fake.resolveRoots) != 0 || !bytes.Contains(result.Stdout(), []byte("project_binding_mismatch")) {
+		t.Fatalf("binding guard did not precede query: %s", result.Stdout())
+	}
+	result = fixture.application.Run(context.Background(), []string{"read-finding", "--run", testRunID, "--finding", "F001", "--offset", "16384"}, root)
+	if result.ExitCode() != app.ExitCodeUsage || !bytes.Contains(result.Stderr(), []byte("read_continuation_incomplete")) || len(fake.resolveRoots) != 0 {
+		t.Fatalf("incomplete continuation: %d %s", result.ExitCode(), result.Stderr())
+	}
+}
+
+func TestInspectionDiagnosticFallbackDoesNotHideCorruption(t *testing.T) {
+	fake := &g006QueryFake{resolveErr: ports.ErrPublicationRunNotFound}
+	fixture := newG006Fixture(t, fake, newG006ReportFake())
+	root := testAnchoredRoot(t)
+	session, _ := domain.ParseSessionID(g006SessionID)
+	run, _ := domain.ParseRunID(testRunID)
+	now := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: session, RunID: run, State: domain.RunFailed, StartedAt: now, UpdatedAt: now, CompletedAt: now, HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleLogic}, RolePathTotal: 1, RolePathFailed: 1, LastSequence: 1, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.application.diagnosticQueries = diagnosticQueryFake{status: status}
+	argv := []string{"inspect", "--run", testRunID, "--output", "json"}
+	result := fixture.application.Run(context.Background(), argv, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+	if commandResultKind(t, result.Stdout()) != "diagnostic_status_read" || bytes.Contains(result.Stdout(), []byte("publication_receipt")) {
+		t.Fatalf("diagnostic authority: %s", result.Stdout())
+	}
+	fake.resolveErr = errors.Join(ports.ErrPublicationRunNotFound, errors.New("corrupt publication"))
+	result = fixture.application.Run(context.Background(), argv, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+	if commandResultKind(t, result.Stdout()) == "diagnostic_status_read" {
+		t.Fatal("corruption fell back to diagnostic status")
+	}
+}
+
+// FindingView is one finding in the query service's preserved final order.
+type FindingView struct {
+	ID          string
+	Severity    domain.Severity
+	Title       string
+	HasEvidence bool
+}
+
+// FindingsView is a committed finding selection and its committed review URI.
+type FindingsView struct {
+	RunID             string
+	Findings          []FindingView
+	ReviewArtifactURI string
+	TargetSHA256      string
+}
+
+func TestVerifiedReadEnvelopeRejectsUnknownContractFields(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	schema := mustFoundationAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v16.schema.json")
+	exampleID := mustFoundationAssetID(t, "example:command-result.v16.valid.json")
+	_, raw, err := fixture.catalog.Read(context.Background(), exampleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = fixture.validator.Validate(context.Background(), schema, raw); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"unknown page field": func(doc map[string]any) { doc["result"].(map[string]any)["raw_final"] = map[string]any{} },
+		"unimplemented capability": func(doc map[string]any) {
+			doc["result"].(map[string]any)["capabilities"].(map[string]any)["report_content"] = "v1"
+		},
+		"unknown receipt version": func(doc map[string]any) {
+			doc["result"].(map[string]any)["receipt"].(map[string]any)["schema_version"] = "mulgae-publication-receipt.v999"
+		},
+		"oversized page": func(doc map[string]any) { doc["request"].(map[string]any)["limit"] = 1001 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var doc map[string]any
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				t.Fatal(err)
+			}
+			mutate(doc)
+			changed, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = fixture.validator.Validate(context.Background(), schema, changed); err == nil {
+				t.Fatal("invalid public contract accepted")
+			}
+		})
+	}
+}

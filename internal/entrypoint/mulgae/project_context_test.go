@@ -35,7 +35,7 @@ func TestApplicationProjectContext(t *testing.T) {
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.Capabilities != (query.VerifiedReadCapabilities{ProjectBinding: "v1", ExecutionGuard: "v1", CaptureIdentity: "v1"}) || strings.Contains(string(result.Stdout()), root) {
+	if envelope.Result.Capabilities != query.ImplementedReadCapabilities() || strings.Contains(string(result.Stdout()), root) {
 		t.Fatalf("unsafe context: %s", result.Stdout())
 	}
 	failure := fixture.application.Run(context.Background(), []string{"context", "--output", "json"}, testAnchoredRoot(t)+"/missing")

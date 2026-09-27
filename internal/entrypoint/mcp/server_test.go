@@ -259,7 +259,7 @@ func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) 
 			t.Fatalf("compose_review must not advertise blind-retry idempotence: %#v", tool["annotations"])
 		}
 	}
-	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_context,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
+	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_context,get_run,inspect_review,list_findings,list_runs,preflight_review,run_review,start_review" {
 		t.Fatalf("tool names = %v", names)
 	}
 
@@ -1082,8 +1082,8 @@ func TestServePreflightAndBoundedResourceTemplates(t *testing.T) {
 		t.Fatalf("preflight result = %#v, calls = %d", preflight, backend.preflightCalls)
 	}
 	templates := decodeResponse(t, responses[2])["result"].(map[string]any)["resourceTemplates"].([]any)
-	if len(templates) != 2 || templates[0].(map[string]any)["uriTemplate"] != evidenceResourceTemplate ||
-		templates[1].(map[string]any)["uriTemplate"] != reportResourceTemplate {
+	if len(templates) != 3 || templates[1].(map[string]any)["uriTemplate"] != evidenceResourceTemplate ||
+		templates[2].(map[string]any)["uriTemplate"] != reportResourceTemplate {
 		t.Fatalf("resource templates = %#v", templates)
 	}
 	contents := decodeResponse(t, responses[3])["result"].(map[string]any)["contents"].([]any)

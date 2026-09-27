@@ -264,7 +264,8 @@ describes transport and run completion, not a successful review verdict.
 
 The tool grammar comprises `preflight_review`, `run_review`,
 `start_review`, `await_review`, `cancel_review`, `compose_review`, `list_runs`,
-`get_run`, and `list_findings`. An uncertain `compose_review` publication
+`get_context`, `get_run`, `inspect_review`, and `list_findings`. An uncertain
+`compose_review` publication
 returns `composite_publication_incomplete`, the deterministic non-null
 `session_id` and `run_id`, and `retryable: false`; clients inspect that exact
 run before deciding whether to repeat the same mapping. An admission rejection
@@ -670,7 +671,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v15` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v16` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -1038,19 +1039,20 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5 through v14 schema examples remain available
-for explicit backward validation; current CLI envelopes use v15. MCP retains its v1
+retry loop is introduced. CLI v5 through v15 schema examples remain available
+for explicit backward validation; current CLI envelopes use v16. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.
 
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v15 `result` and MCP v1
+accepts an empty argument object. CLI command-result v16 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
-The `project_binding`, `execution_guard`, and `capture_identity` capabilities
-are `"v1"`; the remaining fields are empty strings. A failed CLI lookup returns
+The `project_binding`, `execution_guard`, `capture_identity`, `inspection`,
+`finding_pages`, and `finding_details` capabilities are `"v1"`; the remaining
+fields are empty strings. A failed CLI lookup returns
 null binding and capabilities with a typed security, cancellation, or internal exit. MCP uses
 its existing error envelope. No private paths or descriptor facts are returned.
 
@@ -1098,3 +1100,39 @@ stable P2 observation. Missing or corrupt bound support is an artifact failure.
 Historical support remains readable. An exact historical child replay that lacks
 complete capture sides retains unavailable identity rather than deriving it from
 patch bytes. Local project bindings and request receipts are not exported.
+
+## Coherent inspection and finding content
+
+`inspect --run ID` and MCP `inspect_review` verify one P2 publication, its
+manifest-bound support and retained capture before returning a publication
+receipt. CLI `findings` and MCP `list_findings` use the same query owner. The
+receipt binds project, run, review, final, manifest, support, lineage and epoch.
+Every successful read reobserves the publication and revalidates the project
+lease before returning. Corruption or concurrent cleanup fails the read.
+
+Page selectors, cursor scope, finding summaries and continuation fields follow
+[verified review contracts](verified-review-contracts.md#transport-grammar-and-result-fields).
+The default page contains at most 100 findings; an explicit limit accepts 1 to
+1,000. `finding_count` remains the filtered total, while `returned_count` counts
+the current page. Empty results contain `findings: []` and `next_cursor: ""`.
+The retained `evidence_resource_uri` field points to the first verified legacy
+excerpt when available; `evidence` gives the canonical indices and availability.
+Summary pages never include finding descriptions or report bodies. MCP finding-page
+envelopes have a 32 MiB bound, sufficient for a maximum-size page; other tool
+envelopes retain their 1 MiB bound.
+Provider reports and source content have no total-byte ceiling.
+
+`read-finding --run ID --finding ID` and the MCP `detail` resource return
+complete committed finding JSON in UTF-8 chunks of at most 16,384 source bytes.
+A nonzero offset requires both the expected publication receipt and complete
+content digest. Returned boundaries never split UTF-8. Wrong receipts, digests,
+cursors or boundaries fail with the native typed read reason. Requesting another
+project fails before publication access.
+
+Inspection preserves `reports_only`, `mixed`, coverage and CI axes. A run with
+only diagnostic evidence keeps its non-authoritative status projection and
+cannot claim a receipt, findings or reports. Valid historical support without a
+capture manifest reports `capture_identity_unavailable`; damaged bound support
+is an artifact failure. Current capabilities advertise inspection, finding pages
+and finding details as `v1`. Report-content and indexed-evidence capabilities
+remain unavailable until their readers are implemented.

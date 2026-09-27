@@ -99,8 +99,8 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseHeartbeat(remaining, defaultProjectRoot, requestID)
 	case app.CommandRoles:
 		return parseRoles(remaining, requestID)
-	case app.CommandFindings:
-		return parseFindings(remaining, requestID)
+	case app.CommandInspect, app.CommandReadFinding, app.CommandFindings:
+		return parseVerifiedRead(command, remaining, requestID)
 	case app.CommandExcerpt:
 		return parseExcerpt(remaining, requestID)
 	case app.CommandConfig:
@@ -388,7 +388,7 @@ func selectorOption(arguments []string, flag string) (string, bool, error) {
 func parseCommand(value string) (app.CommandName, error) {
 	command := app.CommandName(value)
 	switch command {
-	case app.CommandContext, app.CommandInit,
+	case app.CommandInspect, app.CommandReadFinding, app.CommandContext, app.CommandInit,
 		app.CommandDoctor,
 		app.CommandReview,
 		app.CommandFollowup,
@@ -1167,65 +1167,6 @@ func parseReport(arguments []string, requestID string) (Invocation, error) {
 		requestJSON:    requestJSON,
 		hasRequestJSON: true,
 		report:         &request,
-	}, nil
-}
-
-func parseFindings(arguments []string, requestID string) (Invocation, error) {
-	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--run":      true,
-		"--severity": true,
-		"--output":   true,
-	})
-	if err != nil {
-		return Invocation{}, err
-	}
-	if len(positionals) != 0 {
-		return Invocation{}, usageError("findings accepts no positional arguments")
-	}
-	runID, err := optionRunID(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	severity, present := options["--severity"]
-	if !present {
-		return Invocation{}, usageError("findings requires --severity")
-	}
-	minimumSeverity := domain.Severity(severity)
-	if !validMinimumSeverity(minimumSeverity) {
-		return Invocation{}, usageError("unsupported minimum severity")
-	}
-	outputFormat, err := optionOutputFormat(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	request := FindingsRequest{
-		runID:           runID,
-		minimumSeverity: minimumSeverity,
-	}
-	requestJSON, err := marshalRequest(struct {
-		RequestID       string          `json:"request_id"`
-		Command         string          `json:"command"`
-		RunID           string          `json:"run_id"`
-		MinimumSeverity domain.Severity `json:"minimum_severity"`
-		OutputFormat    OutputFormat    `json:"output_format"`
-	}{
-		RequestID:       requestID,
-		Command:         string(app.CommandFindings),
-		RunID:           request.runID,
-		MinimumSeverity: request.minimumSeverity,
-		OutputFormat:    outputFormat,
-	})
-	if err != nil {
-		return Invocation{}, err
-	}
-	return Invocation{
-		command:        app.CommandFindings,
-		availability:   AvailabilityFoundation,
-		requestID:      requestID,
-		outputFormat:   outputFormat,
-		requestJSON:    requestJSON,
-		hasRequestJSON: true,
-		findings:       &request,
 	}, nil
 }
 

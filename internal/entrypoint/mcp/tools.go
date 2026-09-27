@@ -13,6 +13,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
@@ -27,10 +28,12 @@ const (
 	toolListRuns      = "list_runs"
 	toolGetRun        = "get_run"
 	toolListFindings  = "list_findings"
+	toolInspectReview = "inspect_review"
 	toolComposeReview = "compose_review"
 
-	maxToolArgumentsBytes = 64 << 10
-	maxToolResultBytes    = 1 << 20
+	maxToolArgumentsBytes     = 64 << 10
+	maxToolResultBytes        = 1 << 20
+	maxFindingPageResultBytes = 32 << 20
 )
 
 // Backend is the application-facing MCP tool boundary. Implementations own
@@ -42,6 +45,7 @@ type Backend interface {
 	PreflightReview(context.Context, string, RunReviewInput) (BackendResult, error)
 	ListRuns(context.Context, ListRunsInput) (map[string]any, error)
 	GetRun(context.Context, GetRunInput) (map[string]any, error)
+	InspectReview(context.Context, ListFindingsInput) (map[string]any, error)
 	ListFindings(context.Context, ListFindingsInput) (map[string]any, error)
 	ReadResource(context.Context, ResourceRequest) (ResourceContent, error)
 }
@@ -88,8 +92,12 @@ type GetRunInput struct {
 
 // ListFindingsInput selects committed findings at or above one severity.
 type ListFindingsInput struct {
-	RunID           string `json:"run_id"`
-	MinimumSeverity string `json:"minimum_severity,omitempty"`
+	ExpectedProjectBinding     *string `json:"expected_project_binding,omitempty"`
+	ExpectedPublicationReceipt string  `json:"expected_publication_receipt,omitempty"`
+	Limit                      int     `json:"limit,omitempty"`
+	Cursor                     string  `json:"cursor,omitempty"`
+	RunID                      string  `json:"run_id"`
+	MinimumSeverity            string  `json:"minimum_severity,omitempty"`
 }
 
 // InvocationInput selects one exact invocation owned by the current MCP
@@ -229,16 +237,30 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 			data, err := backend.GetRun(ctx, input)
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
-	addTool(server, toolListFindings, "List bounded committed finding summaries without returning report or source bodies.", json.RawMessage(listFindingsInputSchema), outputSchema, true, true,
-		func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
-			input := ListFindingsInput{MinimumSeverity: "low"}
-			if err := decodeArguments(raw, &input); err != nil || !matches(runIDPattern, input.RunID) ||
-				!oneOf(input.MinimumSeverity, "low", "medium", "high", "critical", "blocker") {
-				return "", nil, errInvalidToolArguments
-			}
-			data, err := backend.ListFindings(ctx, input)
-			return toolOutcomeSuccess, data, err
-		}, newRequestID)
+	for _, name := range []string{toolInspectReview, toolListFindings} {
+		addTool(server, name, "Inspect one verified publication and a receipt-bound finding page.", json.RawMessage(listFindingsInputSchema), outputSchema, true, true,
+			func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
+				input := ListFindingsInput{MinimumSeverity: "low"}
+				if err := decodeArguments(raw, &input); err != nil || !matches(runIDPattern, input.RunID) || !oneOf(input.MinimumSeverity, "low", "medium", "high", "critical", "blocker") {
+					return "", nil, errInvalidToolArguments
+				}
+				if input.Limit < 0 || input.Limit > query.MaxFindingPageSize || len(input.Cursor) > 4096 {
+					return "", nil, errInvalidToolArguments
+				}
+				if input.ExpectedProjectBinding != nil && !validSHA256(*input.ExpectedProjectBinding) || input.ExpectedPublicationReceipt != "" && !validSHA256(input.ExpectedPublicationReceipt) {
+					return "", nil, errInvalidToolArguments
+				}
+				var data map[string]any
+				var err error
+				if name == toolInspectReview {
+					data, err = backend.InspectReview(ctx, input)
+				} else {
+					data, err = backend.ListFindings(ctx, input)
+				}
+				return toolOutcomeSuccess, data, err
+			}, newRequestID)
+	}
+
 }
 
 type toolCall func(context.Context, string, json.RawMessage, func()) (string, map[string]any, error)
@@ -293,8 +315,12 @@ func addTool(
 }
 
 func renderToolResult(result ToolResult) (*mcpsdk.CallToolResult, error) {
+	limit := maxToolResultBytes
+	if result.Tool == toolInspectReview || result.Tool == toolListFindings {
+		limit = maxFindingPageResultBytes
+	}
 	raw, err := json.Marshal(result)
-	if err != nil || len(raw) > maxToolResultBytes {
+	if err != nil || len(raw) > limit {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "Mulgae tool result is unavailable"}
 	}
 	return &mcpsdk.CallToolResult{
@@ -410,6 +436,13 @@ func invocationSnapshotData(snapshot invocationSnapshot) map[string]any {
 }
 
 func publicToolError(err error, tool string) ToolError {
+	var readError query.ReadContractError
+	if errors.As(err, &readError) {
+		class, present := reducedToolFailureClass(err)
+		if !present || class == domain.FailureConfiguration {
+			return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: readError.Error(), Stage: "query", Message: "The verified read selectors no longer match the publication.", Retryable: false})
+		}
+	}
 	var composite interface{ ReasonCode() string }
 	if tool == toolComposeReview && errors.As(err, &composite) && domain.ValidCompositeReasonCode(composite.ReasonCode()) {
 		class := "artifact"
@@ -597,7 +630,7 @@ const (
 	invocationInputSchema    = `{"type":"object","additionalProperties":false,"required":["invocation_id"],"properties":{"invocation_id":{"type":"string","pattern":"^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	listRunsInputSchema      = `{"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":100,"default":20},"cursor":{"type":"string","pattern":"^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	getRunInputSchema        = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
-	listFindingsInputSchema  = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"minimum_severity":{"enum":["low","medium","high","critical","blocker"],"default":"low"}}}`
+	listFindingsInputSchema  = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"minimum_severity":{"enum":["low","medium","high","critical","blocker"],"default":"low"},"limit":{"type":"integer","minimum":1,"maximum":1000},"cursor":{"type":"string","maxLength":4096},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expected_publication_receipt":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
 )
 
 const preflightReviewInputSchema = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","dirty"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["diff","patch"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`

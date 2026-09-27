@@ -108,12 +108,21 @@ func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
 	for _, raw := range tools {
 		names = append(names, raw.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_context,get_run,list_findings,list_runs,preflight_review,run_review,start_review" {
+	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_context,get_run,inspect_review,list_findings,list_runs,preflight_review,run_review,start_review" {
 		t.Fatalf("production MCP tools = %v", names)
 	}
 	response = request(3, "resources/templates/list")
 	templates := response["result"].(map[string]any)["resourceTemplates"].([]any)
-	if len(templates) != 2 {
+	var resourceURIs []string
+	for _, template := range templates {
+		resourceURIs = append(resourceURIs, template.(map[string]any)["uriTemplate"].(string))
+	}
+	wantResourceURIs := []string{
+		"mulgae://runs/{run_id}/findings/{finding_id}/detail{?project_binding,publication_receipt,content_sha256,offset}",
+		"mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,offset}",
+		"mulgae://runs/{run_id}/report{?offset}",
+	}
+	if strings.Join(resourceURIs, "\n") != strings.Join(wantResourceURIs, "\n") {
 		t.Fatalf("production MCP resource templates = %#v", templates)
 	}
 	if err := input.Close(); err != nil {

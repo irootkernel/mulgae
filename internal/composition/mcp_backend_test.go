@@ -98,7 +98,7 @@ func TestMCPComposeReviewUsesCanonicalCLIGrammar(t *testing.T) {
 	service := &mcpCompositeReviewFake{result: result}
 	queries := &mcpMultiQueryFake{root: artifactRoot, sessionID: result.SessionID()}
 	application := newMCPTestApplication(t, queries, service)
-	backend, err := newMCPBackend(projectRoot, artifactRoot, application, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, application, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,17 +137,17 @@ func TestMCPCompositeStatusAndFindingsAgreeWithCLI(t *testing.T) {
 		ContentVerdict: result.ContentVerdict(), CoverageStatus: result.CoverageStatus(), CIDecision: result.CIDecision(), HasAxes: true,
 		RoleReportURIs: []mulgaeentry.RoleReportURI{{Role: string(domain.RoleLogic), URI: prefix + "role-reports/logic.md"}},
 	}
-	findingsView := mulgaeentry.FindingsView{
+	findingsView := mcpFixtureFindings{
 		RunID: runID.String(), ReviewArtifactURI: statusView.FinalArtifactURI, TargetSHA256: result.TargetSHA256(),
-		Findings: []mulgaeentry.FindingView{{ID: "F001", Severity: domain.SeverityHigh, Title: "Composite boundary", HasEvidence: false}},
+		Findings: []mcpFixtureFinding{{ID: "F001", Severity: domain.SeverityHigh, Title: "Composite boundary", HasEvidence: false}},
 	}
 	queries := &mcpMultiQueryFake{
 		root: artifactRoot, sessionID: result.SessionID(),
 		statuses: map[domain.RunID]mulgaeentry.RunStatusView{runID: statusView},
-		findings: map[domain.RunID]mulgaeentry.FindingsView{runID: findingsView},
+		findings: map[domain.RunID]mcpFixtureFindings{runID: findingsView},
 	}
 	application := newMCPTestApplication(t, queries, nil)
-	backend, err := newMCPBackend(projectRoot, artifactRoot, application, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, application, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,8 @@ func newMCPTestApplicationWithReviewRuns(
 	application, err := mulgaeentry.NewApplication(mulgaeentry.Dependencies{
 		Clock: mcpTestClock{}, RequestIDGenerator: mcpTestRequestIDs{}, Catalog: catalog, JSONSchemaValidator: validator,
 		SecureWriter: filesystem.NewSecureWriter(), TrustedProjectReader: reader, EnvironmentInspector: environment.NewInspector(),
-		ReviewRuns: reviewRuns, PublicationQueries: queries, PublicationReports: &mcpReportFake{}, CompositeReviews: composite,
+		ReviewRuns: reviewRuns, ProjectContexts: inspectionContexts(),
+		PublicationQueries: queries, PublicationReports: &mcpReportFake{}, CompositeReviews: composite,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +298,7 @@ func mcpCompositePublishedResult(t *testing.T) reviewcompose.PublishedResult {
 func TestMCPBackendClassifiesCanonicalReviewGrammarRejection(t *testing.T) {
 	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
 	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
-	backend, err := newMCPBackend(
+	backend, err := newMCPBoundTestBackend(
 		projectRoot, artifactRoot, &mulgaeentry.Application{}, &mcpQueryFake{}, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector(),
 	)
 	if err != nil {
@@ -343,7 +344,7 @@ func TestMCPBackendRunReviewPreservesCommittedProviderReasons(t *testing.T) {
 		sessionID, runID, prefix+"manifest.json", prefix+"review_test.json", decision,
 	)}
 	application := newMCPTestApplicationWithReviewRuns(t, &mcpQueryFake{}, nil, reviewRuns)
-	backend, err := newMCPBackend(
+	backend, err := newMCPBoundTestBackend(
 		projectRoot, artifactRoot, application, &mcpQueryFake{}, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector(),
 	)
 	if err != nil {
@@ -417,13 +418,13 @@ func TestMCPBackendListsAndReadsOnlyVerifiedPublicViews(t *testing.T) {
 			FinalArtifactURI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/review_test.json", HasFinalArtifact: true,
 			ContentVerdict: domain.ContentNoFindings, CoverageStatus: domain.CoverageComplete, CIDecision: domain.CIPass, HasAxes: true,
 		},
-		findings: mulgaeentry.FindingsView{
+		findings: mcpFixtureFindings{
 			RunID: runID.String(), ReviewArtifactURI: ".mulgae/review_test.json",
 			TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			Findings:     []mulgaeentry.FindingView{{ID: "F001", Severity: domain.SeverityHigh, Title: "Boundary regression", HasEvidence: true}},
+			Findings:     []mcpFixtureFinding{{ID: "F001", Severity: domain.SeverityHigh, Title: "Boundary regression", HasEvidence: true}},
 		},
 	}
-	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,13 +478,13 @@ func TestMCPBackendRejectsMalformedPublicProjections(t *testing.T) {
 			FinalArtifactURI: ".mulgae/review.json", HasFinalArtifact: true,
 			ContentVerdict: domain.ContentNoFindings, CoverageStatus: domain.CoverageComplete, CIDecision: domain.CIPass, HasAxes: true,
 		},
-		findings: mulgaeentry.FindingsView{
+		findings: mcpFixtureFindings{
 			RunID: runID.String(), ReviewArtifactURI: ".mulgae/review.json",
 			TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			Findings:     []mulgaeentry.FindingView{{ID: "F001", Severity: domain.SeverityLow, Title: "Below threshold"}},
+			Findings:     []mcpFixtureFinding{{ID: "F001", Severity: domain.SeverityLow, Title: "Below threshold"}},
 		},
 	}
-	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +517,7 @@ func TestMCPBackendReturnsVerifiedReportAndEvidenceContent(t *testing.T) {
 	evidenceBytes := bytes.Repeat([]byte{0x00, 0xff, 0x7f}, mcpentry.MaxResourceChunkBytes/3+10)
 	queries := &mcpQueryFake{run: run, excerpt: evidenceBytes}
 	reports := &mcpReportFake{rendered: mulgaeentry.RenderedReport{Markdown: reportBytes, RunID: runID.String()}}
-	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, reports, filesystem.NewRunSelector())
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, &mcpDiagnosticQueryFake{}, reports, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,7 +563,7 @@ func TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus(t *testing.T) {
 	}
 	queries := &mcpQueryFake{resolveErr: ports.ErrPublicationRunNotFound}
 	diagnostics := &mcpDiagnosticQueryFake{status: status}
-	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, diagnostics, &mcpReportFake{}, filesystem.NewRunSelector())
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, diagnostics, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +619,7 @@ func TestMCPBackendGetRunMergesSessionBoundDiagnosticSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	diagnostics := &mcpDiagnosticQueryFake{status: diagnosticStatus}
-	backend, err := newMCPBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, diagnostics, &mcpReportFake{}, filesystem.NewRunSelector())
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, diagnostics, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -653,7 +654,7 @@ func TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity(t *testing.T) {
 	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
 	sessionID := mustMCPSessionID(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf")
 	runID := mustMCPRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba")
-	backend, err := newMCPBackend(
+	backend, err := newMCPBoundTestBackend(
 		projectRoot, artifactRoot, &mulgaeentry.Application{},
 		&mcpQueryFake{resolveErr: ports.ErrPublicationRunNotFound},
 		&mcpDiagnosticQueryFake{err: ports.ErrRuntimeDiagnosticRunNotFound},
@@ -686,7 +687,7 @@ func TestMCPBackendGetRunPreservesSoleDiagnosticCancellation(t *testing.T) {
 	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
 	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
 	runID := mustMCPRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba")
-	backend, err := newMCPBackend(
+	backend, err := newMCPBoundTestBackend(
 		projectRoot, artifactRoot, &mulgaeentry.Application{},
 		&mcpQueryFake{resolveErr: ports.ErrPublicationRunNotFound},
 		&mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector(),
@@ -732,7 +733,7 @@ type mcpQueryFake struct {
 	run            ports.PublicationRun
 	resolveErr     error
 	status         mulgaeentry.RunStatusView
-	findings       mulgaeentry.FindingsView
+	findings       mcpFixtureFindings
 	excerpt        []byte
 	excerptErr     error
 	excerptFinding string
@@ -743,7 +744,7 @@ type mcpMultiQueryFake struct {
 	root      ports.AnchoredRoot
 	sessionID domain.SessionID
 	statuses  map[domain.RunID]mulgaeentry.RunStatusView
-	findings  map[domain.RunID]mulgaeentry.FindingsView
+	findings  map[domain.RunID]mcpFixtureFindings
 }
 
 func (fake *mcpMultiQueryFake) ResolveRun(_ context.Context, root ports.AnchoredRoot, runID domain.RunID) (ports.PublicationRun, error) {
@@ -761,10 +762,10 @@ func (fake *mcpMultiQueryFake) ReadRunStatus(_ context.Context, run ports.Public
 	return status, nil
 }
 
-func (fake *mcpMultiQueryFake) ListFindings(_ context.Context, run ports.PublicationRun, _ domain.Severity) (mulgaeentry.FindingsView, error) {
+func (fake *mcpMultiQueryFake) ListFindings(_ context.Context, run ports.PublicationRun, _ domain.Severity) (mcpFixtureFindings, error) {
 	findings, ok := fake.findings[run.RunID()]
 	if !ok {
-		return mulgaeentry.FindingsView{}, errors.New("findings unavailable")
+		return mcpFixtureFindings{}, errors.New("findings unavailable")
 	}
 	return findings, nil
 }
@@ -810,7 +811,7 @@ func (fake *mcpQueryFake) ReadRunStatus(context.Context, ports.PublicationRun) (
 	return fake.status, nil
 }
 
-func (fake *mcpQueryFake) ListFindings(context.Context, ports.PublicationRun, domain.Severity) (mulgaeentry.FindingsView, error) {
+func (fake *mcpQueryFake) ListFindings(context.Context, ports.PublicationRun, domain.Severity) (mcpFixtureFindings, error) {
 	return fake.findings, nil
 }
 

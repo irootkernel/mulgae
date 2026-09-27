@@ -88,7 +88,7 @@ func TestMCPContractProjectionOwnership(t *testing.T) {
 			"func ParseResourceURI", "func projectResource", "func resourceChunkEnd",
 		},
 		filepath.Join(root, "internal", "entrypoint", "mcp", "projection.go"): {
-			"func ProjectRunStatus", "func ProjectFindings",
+			"func ProjectRunStatus", "func ProjectInspection",
 		},
 	} {
 		data, err := os.ReadFile(path)

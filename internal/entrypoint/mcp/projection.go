@@ -1,10 +1,13 @@
 package mcpentry
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -202,57 +205,31 @@ func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expecte
 	return data, nil
 }
 
-// FindingProjection is one verified finding summary selected by application policy.
-type FindingProjection struct {
-	ID          string
-	Severity    domain.Severity
-	Title       string
-	HasEvidence bool
-}
-
-// FindingsProjection is the typed input to the bounded MCP finding result.
-type FindingsProjection struct {
-	RunID             string
-	MinimumSeverity   domain.Severity
-	TargetSHA256      string
-	ReviewArtifactURI string
-	Findings          []FindingProjection
-}
-
-// ProjectFindings validates and renders one bounded MCP finding result.
-func ProjectFindings(view FindingsProjection) (map[string]any, error) {
-	if _, err := domain.ParseRunID(view.RunID); err != nil || !validSHA256(view.TargetSHA256) || len(view.Findings) > 1000 {
-		return nil, fmt.Errorf("MCP findings projection is invalid")
+// ProjectInspection preserves the query owner's page and receipt without a
+// second publication read. JSON numbers retain their exact integer spelling.
+func ProjectInspection(page query.Inspection, runID, minimum, kind string) (map[string]any, error) {
+	if page.RunID != runID || page.ReturnedCount != len(page.Findings) || page.FindingCount < page.ReturnedCount || len(page.Findings) > query.MaxFindingPageSize || kind != "inspect" && kind != "findings" {
+		return nil, fmt.Errorf("MCP inspection projection is invalid")
 	}
-	artifactPath, err := ports.NewSafeRelativePath(view.ReviewArtifactURI)
-	if err != nil || artifactPath.String() != view.ReviewArtifactURI || !strings.HasPrefix(view.ReviewArtifactURI, ".mulgae/") {
-		return nil, fmt.Errorf("MCP findings projection is invalid")
-	}
-	if view.MinimumSeverity != "" && !view.MinimumSeverity.Valid() {
-		return nil, fmt.Errorf("MCP finding severity is invalid")
-	}
-	findings := make([]any, 0, len(view.Findings))
-	for _, finding := range view.Findings {
-		if !validFindingID(finding.ID) || !finding.Severity.Valid() || finding.Severity.Rank() < view.MinimumSeverity.Rank() ||
-			finding.Title == "" || strings.ContainsAny(finding.Title, "\x00\r\n") {
+	for _, finding := range page.Findings {
+		if !validFindingID(finding.ID) || !domain.Severity(finding.Severity).Valid() || domain.Severity(finding.Severity).Rank() < domain.Severity(minimum).Rank() || finding.Title == "" || strings.ContainsAny(finding.Title, "\x00\r\n") {
 			return nil, fmt.Errorf("MCP finding projection is invalid")
 		}
-		var evidenceURI any
-		if finding.HasEvidence {
-			uri, err := NewEvidenceResourceURI(view.RunID, finding.ID, view.TargetSHA256)
-			if err != nil {
-				return nil, fmt.Errorf("MCP finding resource URI is invalid")
-			}
-			evidenceURI = uri
-		}
-		findings = append(findings, map[string]any{
-			"id": finding.ID, "severity": string(finding.Severity), "title": finding.Title,
-			"evidence_resource_uri": evidenceURI,
-		})
 	}
-	return map[string]any{
-		"run_id": view.RunID, "minimum_severity": string(view.MinimumSeverity),
-		"target_sha256": view.TargetSHA256, "finding_count": len(findings),
-		"findings": findings, "review_artifact_uri": view.ReviewArtifactURI,
-	}, nil
+	encoded, err := json.Marshal(page)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	if err = decoder.Decode(&data); err != nil {
+		return nil, err
+	}
+	data["finding_count"], data["returned_count"] = page.FindingCount, page.ReturnedCount
+	data["kind"] = "review_inspected"
+	if kind == "findings" {
+		data["kind"] = "findings_listed"
+	}
+	return data, nil
 }

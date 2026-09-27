@@ -4,7 +4,6 @@ import "fmt"
 
 // VerifiedReadCapabilities is a closed version advertisement. An empty field
 // means unavailable; a consumer must not infer support from a binary version.
-// TASK-019 defines this value without advertising any new runtime surface.
 type VerifiedReadCapabilities struct {
 	ProjectBinding    string `json:"project_binding"`
 	ExecutionGuard    string `json:"execution_guard"`
@@ -24,4 +23,9 @@ func (capabilities VerifiedReadCapabilities) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ImplementedReadCapabilities advertises only wired native read contracts.
+func ImplementedReadCapabilities() VerifiedReadCapabilities {
+	return VerifiedReadCapabilities{ProjectBinding: "v1", ExecutionGuard: "v1", CaptureIdentity: "v1", Inspection: "v1", FindingPages: "v1", FindingDetails: "v1"}
 }

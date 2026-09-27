@@ -190,7 +190,8 @@ Review outcome, coverage, publication, and execution failure remain separate.
 
 ## Planned public surfaces
 
-The following names are implementation targets, not commands available today.
+The implementation status of these surfaces is recorded in the writer and reader
+matrix below.
 TASK-019 freezes their complete grammar, result versions, errors, and paired
 examples before production wiring. Do not allocate speculative future versions
 in existing runtime schemas during documentation planning.
@@ -506,14 +507,14 @@ reader can still return `evidence_unavailable` for a legacy item.
 
 | Contract | Current writer / reader | Owning Task and next change |
 |---|---|---|
-| CLI command envelope | v15 emission with context and admission fields; v5-v14 schemas retained unchanged | TASK-021 wires guarded admission. Strict old readers may reject v15. |
+| CLI command envelope | v16 emission with context, admission, inspection and finding-detail fields; v5-v15 schemas retained unchanged | TASK-022 wires verified reads. Strict old readers may reject v16. |
 | Preflight | v6 emission with request/capture receipt; v3-v5 fixtures retained | TASK-021. Historical v5 does not assert guard support. |
 | MCP tool envelope | v1 unchanged | Keep the outer v1 envelope; data contracts and advertised capabilities distinguish new projections. |
-| Capture/request/publication/cursor | Four v1 schema/example pairs; capture and request are emitted | TASK-022 wires publication receipts and cursors. Unknown versions fail closed. |
+| Capture/request/publication/cursor | Four v1 schema/example pairs; capture and request are emitted; inspection emits receipts and cursors | Unknown versions fail closed. |
 | Ordinary/child final and manifest | Current v1 plus existing recovery v2, unchanged | TASK-021 retains complete capture support through support-index v2. |
 | Composite final and manifest | Current v1/v2, unchanged | TASK-024 uses support-index v2 for self-contained evidence and per-source capture support. Existing exact mappings stay unchanged. |
 | Run support index | v2 for complete ordinary/child/no-change captures; historical v1 remains readable | TASK-021 requires the indexed capture manifest and retained material. Historical child replays without complete sides retain unavailable identity. TASK-024 adds composite per-source support. Old strict binaries may reject v2. |
-| Existing content resources | Existing registration, offsets and read behavior unchanged | TASK-022/023 wire receipt-bound details/reports/indexed evidence; legacy URI reads stay supported. |
+| Content resources | Finding detail is receipt-bound; existing report/evidence reads remain supported | TASK-023 adds receipt-bound report and indexed-evidence reads. |
 
 Support-index v2 must hash-bind every added capture manifest and archive/blob,
 and composite provenance/evidence item before publication commits. Its strict

@@ -375,7 +375,7 @@ func (provider *g008RealE2EProvider) Transcript() []g008RealE2EProviderCall {
 func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	t.Helper()
 	ctx := context.Background()
-	projectRoot := t.TempDir()
+	projectRoot := testAnchoredRoot(t)
 	artifactRoot := filepath.Join(projectRoot, ".mulgae")
 	if err := os.Mkdir(artifactRoot, 0o700); err != nil {
 		t.Fatal(err)

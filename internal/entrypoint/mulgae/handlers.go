@@ -57,6 +57,8 @@ func (application *Application) execute(ctx context.Context, invocation Invocati
 
 func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler {
 	return map[app.CommandName]applicationCommandHandler{
+		app.CommandInspect:     (*Application).handleVerifiedRead,
+		app.CommandReadFinding: (*Application).handleVerifiedRead,
 		app.CommandContext: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
 			return application.handleContext(ctx, invocation, root)
 		},
@@ -91,7 +93,7 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 			return application.handleReport(ctx, invocation, root)
 		},
 		app.CommandFindings: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
-			return application.handleFindings(ctx, invocation, root)
+			return application.handleVerifiedRead(ctx, invocation, root)
 		},
 		app.CommandExcerpt: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
 			return application.handleExcerpt(ctx, invocation, root)
@@ -2063,34 +2065,6 @@ func (application *Application) handleReport(ctx context.Context, invocation Inv
 	return execution{human: []byte("report rendered: " + uri), data: data}
 }
 
-func (application *Application) handleFindings(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
-	request, available := invocation.Findings()
-	if !available {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
-	}
-	_, run, err := application.resolvePublicationRun(ctx, canonicalProjectRoot, request.RunID())
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-	}
-	findings, err := application.publicationQueries.ListFindings(ctx, run, request.MinimumSeverity())
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
-	}
-	if err := validateFindingsView(request, findings); err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
-	}
-	data, err := json.Marshal(struct {
-		Kind              string `json:"kind"`
-		RunID             string `json:"run_id"`
-		FindingCount      int    `json:"finding_count"`
-		ReviewArtifactURI string `json:"review_artifact_uri"`
-	}{"findings_listed", findings.RunID, len(findings.Findings), findings.ReviewArtifactURI})
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	return execution{human: findingsHumanOutput(findings), data: data}
-}
-
 func (application *Application) handleExcerpt(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {
 	request, available := invocation.Excerpt()
 	if !available {
@@ -2481,40 +2455,6 @@ func statusHumanOutput(status RunStatusView) []byte {
 			output.WriteString("\nprovider_session_fingerprint: ")
 			output.WriteString(summary.ProviderSessionFingerprint())
 		}
-	}
-	return []byte(output.String())
-}
-
-func validateFindingsView(request FindingsRequest, findings FindingsView) error {
-	if findings.RunID != request.RunID() || len(findings.Findings) > 1_000_000 {
-		return errors.New("findings projection is not bound to the selected run")
-	}
-	path, err := ports.NewSafeRelativePath(findings.ReviewArtifactURI)
-	if err != nil || path.String() != findings.ReviewArtifactURI || !strings.HasPrefix(findings.ReviewArtifactURI, ".mulgae/") {
-		return errors.New("findings projection omitted the committed review artifact URI")
-	}
-	for _, finding := range findings.Findings {
-		if !validFindingID(finding.ID) || !finding.Severity.Valid() ||
-			finding.Title == "" || strings.ContainsAny(finding.Title, "\x00\r\n") {
-			return errors.New("findings projection contains an invalid finding")
-		}
-	}
-	return nil
-}
-
-func findingsHumanOutput(findings FindingsView) []byte {
-	var output strings.Builder
-	output.WriteString("review_artifact_uri: ")
-	output.WriteString(findings.ReviewArtifactURI)
-	output.WriteString("\nfinding_count: ")
-	output.WriteString(strconv.Itoa(len(findings.Findings)))
-	for _, finding := range findings.Findings {
-		output.WriteByte('\n')
-		output.WriteString(finding.ID)
-		output.WriteString(" [")
-		output.WriteString(string(finding.Severity))
-		output.WriteString("] ")
-		output.WriteString(finding.Title)
 	}
 	return []byte(output.String())
 }

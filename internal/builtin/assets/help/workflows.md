@@ -16,7 +16,9 @@ Common commands:
 ```bash
 mulgae review --diff origin/main...HEAD --objective "Review before merge."
 mulgae status --run r_...
-mulgae findings --run r_... --severity high
+mulgae inspect --run r_... --limit 100 --output json
+mulgae findings --run r_... --severity high --limit 100 --output json
+mulgae read-finding --run r_... --finding F001 --output json
 mulgae report --run r_... --output-path reports/review.md
 ```
 
@@ -135,7 +137,7 @@ client closes stdin. Every nonempty input record must end with LF; a partial
 final record is rejected without dispatch. The project root is fixed at startup.
 It provides
 `preflight_review`, `run_review`, `start_review`, `await_review`,
-`cancel_review`, `compose_review`, `get_context`, `list_runs`, `get_run`, and `list_findings`.
+`cancel_review`, `compose_review`, `get_context`, `list_runs`, `get_run`, `inspect_review`, and `list_findings`.
 Preflight is execution-free and returns a bounded plan summary. `run_review`
 completes in the foreground and accepts workspace, stage, dirty, diff, or patch
 targets; stdin is reserved for JSON-RPC and cannot carry review content.
@@ -183,5 +185,22 @@ The server retains its startup directory descriptors and rejects a lookup after
 root or Git-directory replacement. It cannot select another root per request.
 Canonical path aliases agree; separate checkouts and linked worktrees differ.
 Both lookups are read-only and need no Mulgae configuration or provider setup.
-Only `capabilities.project_binding` advertises `v1`; all other capability fields
-are empty until their corresponding surfaces are implemented.
+Project binding, execution guards, capture identity, inspection, finding pages
+and finding details advertise `v1`. Other capability fields remain empty until
+their corresponding surfaces are implemented.
+
+### Verified finding pages and details
+
+`inspect` defaults to severity `low`; `findings` still requires `--severity`.
+Both accept `--limit` (1 to 1,000, default 100), `--cursor`,
+`--expected-project-binding` and `--expected-publication-receipt`.
+`finding_count` is the filtered total. Follow `next_cursor` with unchanged
+selectors to read another page from the same verified publication.
+
+`read-finding` returns complete finding JSON through bounded UTF-8 chunks.
+For the next chunk, pass the returned `next_offset` as `--offset`, together with
+`--expected-publication-receipt` and `--expected-content-sha256`. The MCP finding
+`detail` resource returns the corresponding continuation URI. Stop when
+`next_offset` is null. A changed receipt, digest or project fails the read.
+Diagnostic-only runs have no publication receipt. Historical capture support
+can be unavailable even when the final review remains readable.

@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -32,19 +33,22 @@ var errInvalidResourceURI = errors.New("invalid MCP resource URI")
 type ResourceKind string
 
 const (
-	ResourceReport   ResourceKind = "report"
-	ResourceEvidence ResourceKind = "evidence"
+	ResourceFindingDetail ResourceKind = "detail"
+	ResourceReport        ResourceKind = "report"
+	ResourceEvidence      ResourceKind = "evidence"
 )
 
 // ResourceRequest is one canonical project-confined resource selector parsed by
 // the MCP entrypoint. Accessors expose only values needed by the backend query.
 type ResourceRequest struct {
-	rawURI       string
-	kind         ResourceKind
-	runID        string
-	findingID    string
-	targetSHA256 string
-	offset       int
+	projectBinding string
+	continuation   query.ContentContinuation
+	rawURI         string
+	kind           ResourceKind
+	runID          string
+	findingID      string
+	targetSHA256   string
+	offset         int
 }
 
 // URI returns the canonical resource URI supplied by the client.
@@ -68,9 +72,11 @@ func (request ResourceRequest) Offset() int { return request.offset }
 // ResourceContent is verified full content returned by the project-confined
 // backend before MCP-owned chunk projection.
 type ResourceContent struct {
-	MIMEType string
-	Bytes    []byte
-	Text     bool
+	Chunk          *query.ContentChunk
+	ProjectBinding string
+	MIMEType       string
+	Bytes          []byte
+	Text           bool
 }
 
 // ResourceResult is one verified bounded resource chunk and its continuation
@@ -83,6 +89,9 @@ type ResourceResult struct {
 	Meta     map[string]any
 }
 
+func (request ResourceRequest) ProjectBinding() string                  { return request.projectBinding }
+func (request ResourceRequest) Continuation() query.ContentContinuation { return request.continuation }
+
 func registerResources(server *mcpsdk.Server, backend Backend) {
 	if server == nil || backend == nil {
 		return
@@ -91,6 +100,10 @@ func registerResources(server *mcpsdk.Server, backend Backend) {
 	handler := func(ctx context.Context, request *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
 		selector, err := ParseResourceURI(request.Params.URI)
 		if err != nil {
+			var readError query.ReadContractError
+			if errors.As(err, &readError) {
+				return nil, publicResourceError(err)
+			}
 			return nil, publicResourceError(errInvalidResourceURI)
 		}
 		content, err := backend.ReadResource(ctx, selector)
@@ -109,6 +122,7 @@ func registerResources(server *mcpsdk.Server, backend Backend) {
 			Blob: append([]byte(nil), result.Blob...), Meta: cloneMap(result.Meta),
 		}}}, nil
 	}
+	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{Name: "verified_finding_detail", Title: "Verified Mulgae finding detail", Description: "Read complete finding JSON in receipt-bound UTF-8 chunks.", MIMEType: "application/json", URITemplate: "mulgae://runs/{run_id}/findings/{finding_id}/detail{?project_binding,publication_receipt,content_sha256,offset}", Annotations: annotations}, handler)
 	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		Name: "verified_review_report", Title: "Verified Mulgae review report",
 		Description: "Read a verified committed review report in bounded UTF-8 chunks.",
@@ -163,6 +177,9 @@ func ParseResourceURI(raw string) (ResourceRequest, error) {
 	query, err := url.ParseQuery(parsed.RawQuery)
 	if err != nil {
 		return ResourceRequest{}, fmt.Errorf("resource URI query is invalid")
+	}
+	if len(segments) == 4 && segments[1] == "findings" && segments[3] == "detail" {
+		return parseFindingDetailURI(raw, segments[0], segments[2], query)
 	}
 	offset, err := parseResourceOffset(query)
 	if err != nil {
@@ -225,6 +242,9 @@ func evidenceResourceURI(runID, findingID, targetSHA256 string, offset int) stri
 }
 
 func projectResource(request ResourceRequest, content ResourceContent) (ResourceResult, error) {
+	if content.Chunk != nil {
+		return projectFindingChunk(request, content)
+	}
 	if content.MIMEType == "" || len(content.Bytes) == 0 || content.Text && !utf8.Valid(content.Bytes) {
 		return ResourceResult{}, fmt.Errorf("MCP resource content is invalid")
 	}
@@ -288,7 +308,7 @@ func resourceChunkEnd(contents []byte, text bool, offset int) int {
 }
 
 func validFindingID(value string) bool {
-	if len(value) < 4 || len(value) > 5 || value[0] != 'F' {
+	if len(value) < 4 || len(value) > 64 || value[0] != 'F' {
 		return false
 	}
 	for _, character := range value[1:] {

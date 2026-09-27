@@ -77,6 +77,7 @@ type Invocation struct {
 	status         *StatusRequest
 	report         *ReportRequest
 	findings       *FindingsRequest
+	verifiedRead   *VerifiedReadRequest
 	excerpt        *ExcerptRequest
 	followup       *FollowupRequest
 	review         *ReviewRequest

@@ -1,0 +1,80 @@
+{
+  "command": "inspect",
+  "completed_at": "2026-09-04T06:00:00Z",
+  "exit": {
+    "code": 0,
+    "kind": "success"
+  },
+  "reasons": [],
+  "request": {
+    "command": "inspect",
+    "output_format": "json",
+    "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e",
+    "run_id": "r_01900000-0000-7000-8000-000000000002",
+    "minimum_severity": "low"
+  },
+  "result": {
+    "session_id": "s_01900000-0000-7000-8000-000000000001",
+    "run_id": "r_01900000-0000-7000-8000-000000000002",
+    "review_id": "01900000-0000-7000-8000-000000000003",
+    "run_type": "review",
+    "target_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "capture_identity": "sha256:0077fd8c88bc3c0ce7a4847e7db10f202e79c7371a9ae9ce7fc8a53dec48391c",
+    "capture_availability": "verified",
+    "kind": "review_inspected",
+    "run_state": "completed",
+    "publication_state": "committed",
+    "publication_authority": "P2",
+    "recovery_action": "reconstruct_completed_status",
+    "content_verdict": "no_findings",
+    "coverage_status": "complete",
+    "structured_extraction_status": "structured",
+    "ci_decision": "pass",
+    "review_artifact_uri": ".mulgae/s_01900000-0000-7000-8000-000000000001/r_01900000-0000-7000-8000-000000000002/review_01900000-0000-7000-8000-000000000003.json",
+    "publication_receipt": "sha256:6a81f52e8c1091fc68d436f091e9f3da9aad38c5d022e45a15927875cac4ac1a",
+    "receipt": {
+      "schema_version": "mulgae-publication-receipt.v1",
+      "project_binding": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "session_id": "s_01900000-0000-7000-8000-000000000001",
+      "run_id": "r_01900000-0000-7000-8000-000000000002",
+      "review_id": "01900000-0000-7000-8000-000000000003",
+      "run_type": "review",
+      "target_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "final_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "manifest_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "support_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "lineage_sha256": "",
+      "epoch": 1,
+      "capture_identity": "sha256:0077fd8c88bc3c0ce7a4847e7db10f202e79c7371a9ae9ce7fc8a53dec48391c",
+      "capture_availability": "verified"
+    },
+    "capabilities": {
+      "capture_identity": "v1",
+      "composite_evidence": "",
+      "execution_guard": "v1",
+      "finding_details": "v1",
+      "finding_pages": "v1",
+      "indexed_evidence": "",
+      "inspection": "v1",
+      "project_binding": "v1",
+      "report_content": ""
+    },
+    "role_reports": [],
+    "minimum_severity": "low",
+    "finding_count": 0,
+    "returned_count": 0,
+    "findings": [],
+    "next_cursor": "",
+    "diagnostic_only": false,
+    "failed_run_recovery": {
+      "available": false,
+      "manifest_sha256": null,
+      "retry_attempts": [],
+      "accepted_roles": [],
+      "unavailable_reason": "published_review",
+      "run_id": null,
+      "source_kind": null
+    }
+  },
+  "schema_version": "mulgae-command-result.v16"
+}

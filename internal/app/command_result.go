@@ -15,26 +15,28 @@ import (
 type CommandName string
 
 const (
-	CommandContext   CommandName = "context"
-	CommandInit      CommandName = "init"
-	CommandDoctor    CommandName = "doctor"
-	CommandReview    CommandName = "review"
-	CommandFollowup  CommandName = "followup"
-	CommandDelta     CommandName = "delta"
-	CommandRerun     CommandName = "rerun"
-	CommandCompose   CommandName = "compose"
-	CommandStatus    CommandName = "status"
-	CommandReport    CommandName = "report"
-	CommandFindings  CommandName = "findings"
-	CommandExcerpt   CommandName = "excerpt"
-	CommandProviders CommandName = "providers"
-	CommandHeartbeat CommandName = "heartbeat"
-	CommandRoles     CommandName = "roles"
-	CommandConfig    CommandName = "config"
-	CommandSchema    CommandName = "schema"
-	CommandClean     CommandName = "clean"
-	CommandExport    CommandName = "export"
-	CommandHelp      CommandName = "help"
+	CommandInspect     CommandName = "inspect"
+	CommandReadFinding CommandName = "read-finding"
+	CommandContext     CommandName = "context"
+	CommandInit        CommandName = "init"
+	CommandDoctor      CommandName = "doctor"
+	CommandReview      CommandName = "review"
+	CommandFollowup    CommandName = "followup"
+	CommandDelta       CommandName = "delta"
+	CommandRerun       CommandName = "rerun"
+	CommandCompose     CommandName = "compose"
+	CommandStatus      CommandName = "status"
+	CommandReport      CommandName = "report"
+	CommandFindings    CommandName = "findings"
+	CommandExcerpt     CommandName = "excerpt"
+	CommandProviders   CommandName = "providers"
+	CommandHeartbeat   CommandName = "heartbeat"
+	CommandRoles       CommandName = "roles"
+	CommandConfig      CommandName = "config"
+	CommandSchema      CommandName = "schema"
+	CommandClean       CommandName = "clean"
+	CommandExport      CommandName = "export"
+	CommandHelp        CommandName = "help"
 )
 
 // ParseCommandName validates a command from the fixed command surface.
@@ -49,7 +51,7 @@ func ParseCommandName(value string) (CommandName, error) {
 // Valid reports whether command belongs to the fixed command surface.
 func (command CommandName) Valid() bool {
 	switch command {
-	case CommandContext, CommandInit, CommandDoctor, CommandReview, CommandFollowup, CommandDelta,
+	case CommandInspect, CommandReadFinding, CommandContext, CommandInit, CommandDoctor, CommandReview, CommandFollowup, CommandDelta,
 		CommandRerun, CommandCompose, CommandStatus, CommandReport, CommandFindings, CommandExcerpt,
 		CommandProviders, CommandHeartbeat, CommandRoles, CommandConfig, CommandSchema, CommandClean,
 		CommandExport, CommandHelp:

@@ -118,6 +118,7 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 	application, err := NewApplication(Dependencies{
 		Clock: fixture.clock, RequestIDGenerator: fixture.ids, RequestResolver: dependencies.RequestResolver, Catalog: builtin.NewCatalog(), JSONSchemaValidator: fixture.validator,
 		SecureWriter: fixture.writer, TrustedProjectReader: reader, EnvironmentInspector: environment.NewInspector(),
+		ProjectContexts:    mustVerifiedReadContexts(t),
 		PublicationQueries: NewPublicationQueryService(fixture.queries), PublicationReports: mustG008RealReportService(t, fixture),
 		ReviewRuns:   &reviewRunFake{result: NewReviewRunResult(root.SessionID.String(), root.RunID.String(), root.RunManifestURI, root.ReviewArtifactURI, root.TerminalExit)},
 		FollowupRuns: dependencies.FollowupRuns, DeltaRuns: dependencies.DeltaRuns, Reruns: dependencies.Reruns, Exports: dependencies.Exports,
@@ -147,6 +148,8 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 	}
 	for _, query := range [][]string{
 		{"status", "--run", root.RunID.String(), "--output", "json"},
+		{"inspect", "--run", root.RunID.String(), "--limit", "1", "--output", "json"},
+		{"read-finding", "--run", root.RunID.String(), "--finding", "F001", "--output", "json"},
 		{"findings", "--run", root.RunID.String(), "--severity", "low", "--output", "json"},
 	} {
 		result := application.Run(context.Background(), query, projectRoot)

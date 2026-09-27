@@ -133,9 +133,10 @@ failed transport uses exit 10, and invalid command grammar uses exit 2.
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,
 `start_review`, `await_review`, `cancel_review`, `compose_review`, `list_runs`,
-`get_context`, `get_run`, and `list_findings`, plus bounded verified report and
-finding-evidence resource templates. The MCP package owns strict tool and URI
-grammar, chunk limits, and the common result envelope; composition binds those
+`get_context`, `get_run`, `inspect_review`, and `list_findings`, plus bounded
+verified report, finding-detail and finding-evidence resource templates. The MCP
+package owns strict tool and URI grammar, chunk limits, and the common result
+envelope; composition binds those
 surfaces to the same preflight, review, report, and verified publication-query
 services used by the CLI. `compose_review` and CLI `compose` call the same
 provider-free application mutation, so exact admission, deterministic identity,
@@ -301,3 +302,11 @@ shutdown. Revalidation compares the held descriptors and freshly resolved
 anchors, including device, inode, and birth time, while ordinary file changes
 do not change the binding. Directory and metadata admission rejects symlinks in
 Git metadata, unsafe ownership or writable anchors, and malformed pointers.
+
+Receipt-bound inspection belongs to `internal/app/query`. It verifies a single
+publication observation, complete retained capture support and ordered finding
+pages. CLI and MCP supply a revalidated project lease and project binding. They
+project that result without independently reopening final files or combining
+status and finding reads. Finding-detail chunks share query-owned digest and
+continuation policy; the MCP resource layer only maps content and continuation
+URIs to the protocol envelope.

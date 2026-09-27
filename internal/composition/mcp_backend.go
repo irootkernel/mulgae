@@ -392,37 +392,93 @@ func solelyWraps(err, target error) bool {
 	return false
 }
 
+func (backend *mcpBackend) InspectReview(ctx context.Context, input mcpentry.ListFindingsInput) (map[string]any, error) {
+	return backend.inspect(ctx, input, "inspect")
+}
 func (backend *mcpBackend) ListFindings(ctx context.Context, input mcpentry.ListFindingsInput) (map[string]any, error) {
+	return backend.inspect(ctx, input, "findings")
+}
+func (backend *mcpBackend) inspect(ctx context.Context, input mcpentry.ListFindingsInput, kind string) (map[string]any, error) {
 	if err := backend.preflight(ctx); err != nil {
+		return nil, err
+	}
+	binding, err := backend.readBinding(ctx, input.ExpectedProjectBinding)
+	if err != nil {
 		return nil, err
 	}
 	run, err := backend.resolveRun(ctx, input.RunID)
 	if err != nil {
+		if kind == "inspect" && input.Cursor == "" && input.ExpectedPublicationReceipt == "" && solelyWraps(err, ports.ErrPublicationRunNotFound) {
+			runID, _ := domain.ParseRunID(input.RunID)
+			status, e := backend.diagnostics.ReadRunStatus(ctx, backend.artifactRoot, runID)
+			if e != nil {
+				return nil, e
+			}
+			data, e := mcpentry.ProjectDiagnosticRunStatus(status, status.SessionID(), runID)
+			if e != nil {
+				return nil, e
+			}
+			if _, e = backend.resolveRun(ctx, input.RunID); !solelyWraps(e, ports.ErrPublicationRunNotFound) {
+				return nil, newMCPFailure("query.inspect", domain.FailureArtifact, "publication changed during diagnostic inspection", e)
+			}
+			if _, e = backend.readBinding(ctx, input.ExpectedProjectBinding); e != nil {
+				return nil, e
+			}
+			return data, nil
+		}
 		return nil, err
 	}
-	view, err := backend.queries.ListFindings(ctx, run, domain.Severity(input.MinimumSeverity))
+	page, err := backend.queries.Inspect(ctx, run, binding, query.InspectionRequest{QueryKind: kind, MinimumSeverity: domain.Severity(input.MinimumSeverity), Limit: input.Limit, Cursor: input.Cursor, ExpectedPublicationReceipt: input.ExpectedPublicationReceipt})
 	if err != nil {
 		return nil, err
 	}
-	if view.RunID != input.RunID {
-		return nil, fmt.Errorf("MCP findings projection is invalid")
+	if _, err := backend.readBinding(ctx, input.ExpectedProjectBinding); err != nil {
+		return nil, err
 	}
-	projection := mcpentry.FindingsProjection{
-		RunID: view.RunID, MinimumSeverity: domain.Severity(input.MinimumSeverity),
-		TargetSHA256: view.TargetSHA256, ReviewArtifactURI: view.ReviewArtifactURI,
-		Findings: make([]mcpentry.FindingProjection, 0, len(view.Findings)),
+	return mcpentry.ProjectInspection(page, input.RunID, input.MinimumSeverity, kind)
+}
+
+func (backend *mcpBackend) readBinding(ctx context.Context, expected *string) (domain.ProjectBinding, error) {
+	observed, err := backend.GetContext(ctx)
+	if err != nil {
+		return domain.ProjectBinding{}, err
 	}
-	for _, finding := range view.Findings {
-		projection.Findings = append(projection.Findings, mcpentry.FindingProjection{
-			ID: finding.ID, Severity: finding.Severity, Title: finding.Title, HasEvidence: finding.HasEvidence,
-		})
+	raw, ok := observed["project_binding"].(string)
+	if !ok {
+		return domain.ProjectBinding{}, newMCPFailure("query.context", domain.FailureSecurityPolicy, "project binding unavailable", nil)
 	}
-	return mcpentry.ProjectFindings(projection)
+	if expected != nil && raw != *expected {
+		return domain.ProjectBinding{}, newMCPFailure("query.context", domain.FailureConfiguration, "project_binding_mismatch", reviewrun.ErrProjectBindingMismatch)
+	}
+	return domain.ParseProjectBinding(raw)
 }
 
 func (backend *mcpBackend) ReadResource(ctx context.Context, request mcpentry.ResourceRequest) (mcpentry.ResourceContent, error) {
 	if err := backend.preflight(ctx); err != nil {
 		return mcpentry.ResourceContent{}, err
+	}
+	if request.Kind() == mcpentry.ResourceFindingDetail {
+		var expected *string
+		if request.ProjectBinding() != "" {
+			value := request.ProjectBinding()
+			expected = &value
+		}
+		binding, err := backend.readBinding(ctx, expected)
+		if err != nil {
+			return mcpentry.ResourceContent{}, err
+		}
+		run, err := backend.resolveRun(ctx, request.RunID())
+		if err != nil {
+			return mcpentry.ResourceContent{}, err
+		}
+		chunk, err := backend.queries.ReadFinding(ctx, run, binding, request.FindingID(), request.Continuation())
+		if err != nil {
+			return mcpentry.ResourceContent{}, err
+		}
+		if _, err := backend.readBinding(ctx, expected); err != nil {
+			return mcpentry.ResourceContent{}, err
+		}
+		return mcpentry.ResourceContent{Chunk: &chunk, ProjectBinding: binding.String()}, nil
 	}
 	run, err := backend.resolveRun(ctx, request.RunID())
 	if err != nil {
