@@ -43,6 +43,8 @@ type RequestIDGenerator interface {
 // G006 query API. It deliberately accepts an already anchored artifact root so
 // command handlers cannot discover publication files themselves.
 type PublicationQueryService interface {
+	ReadReport(context.Context, ports.PublicationRun, domain.ProjectBinding, string, appquery.ContentContinuation) (appquery.ContentChunk, error)
+	ReadEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	Inspect(context.Context, ports.PublicationRun, domain.ProjectBinding, appquery.InspectionRequest) (appquery.Inspection, error)
 	ReadFinding(context.Context, ports.PublicationRun, domain.ProjectBinding, string, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	ResolveRun(context.Context, ports.AnchoredRoot, domain.RunID) (ports.PublicationRun, error)
@@ -1797,7 +1799,7 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			Kind      string  `json:"kind"`
 			ReportURI *string `json:"report_uri"`
 		}{"report_failed", nil})
-	case app.CommandInspect, app.CommandReadFinding:
+	case app.CommandInspect, app.CommandReadFinding, app.CommandReadReport:
 		return json.Marshal(map[string]any{"kind": "verified_read_failed"})
 	case app.CommandFindings:
 		request, available := invocation.Findings()
@@ -1811,6 +1813,9 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			ReviewArtifactURI *string `json:"review_artifact_uri"`
 		}{"findings_failed", request.RunID(), nil, nil})
 	case app.CommandExcerpt:
+		if invocation.verifiedRead != nil {
+			return json.Marshal(map[string]any{"kind": "verified_read_failed"})
+		}
 		return json.Marshal(struct {
 			Kind          string  `json:"kind"`
 			EvidenceState string  `json:"evidence_state"`
@@ -2301,6 +2306,7 @@ func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool 
 		app.CommandReport:      {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandInspect:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandReadFinding: {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
+		app.CommandReadReport:  {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandFindings:    {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandExcerpt:     {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandProviders:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},

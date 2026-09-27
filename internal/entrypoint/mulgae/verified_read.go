@@ -10,6 +10,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -18,6 +19,9 @@ import (
 type VerifiedReadRequest struct {
 	RunID                  string
 	FindingID              string
+	Role                   string
+	TargetSHA256           string
+	EvidenceIndex          int
 	ExpectedProjectBinding string
 	Page                   query.InspectionRequest
 	Continuation           query.ContentContinuation
@@ -25,14 +29,24 @@ type VerifiedReadRequest struct {
 
 func parseVerifiedRead(command app.CommandName, arguments []string, requestID string) (Invocation, error) {
 	allowed := map[string]bool{"--run": true, "--output": true, "--expected-project-binding": true, "--expected-publication-receipt": true}
-	if command == app.CommandReadFinding {
-		for _, key := range []string{"--finding", "--offset", "--expected-content-sha256"} {
+	if command == app.CommandReadFinding || command == app.CommandReadReport || command == app.CommandExcerpt {
+		for _, key := range []string{"--offset", "--expected-content-sha256"} {
 			allowed[key] = true
 		}
 	} else {
 		for _, key := range []string{"--severity", "--limit", "--cursor"} {
 			allowed[key] = true
 		}
+	}
+	if command == app.CommandReadFinding || command == app.CommandExcerpt {
+		allowed["--finding"] = true
+	}
+	if command == app.CommandReadReport {
+		allowed["--role"] = true
+	}
+	if command == app.CommandExcerpt {
+		allowed["--current-target-sha256"] = true
+		allowed["--evidence-index"] = true
 	}
 	positional, options, err := parseOptions(arguments, allowed)
 	if err != nil {
@@ -58,10 +72,30 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 		}
 	}
 	invocation := Invocation{command: command, availability: AvailabilityFoundation, requestID: requestID, outputFormat: output, hasRequestJSON: true}
-	if command == app.CommandReadFinding {
+	if command == app.CommandReadFinding || command == app.CommandReadReport || command == app.CommandExcerpt {
 		request.FindingID = options["--finding"]
-		if !queryFindingID(request.FindingID) {
+		if command != app.CommandReadReport && !queryFindingID(request.FindingID) {
 			return Invocation{}, usageError("read-finding requires a canonical --finding")
+		}
+		if role, present := options["--role"]; present {
+			if !domain.Role(role).Valid() {
+				return Invocation{}, usageError("invalid role")
+			}
+			request.Role = role
+		}
+		if command == app.CommandExcerpt {
+			request.TargetSHA256 = options["--current-target-sha256"]
+			if !validSHA256Identifier(request.TargetSHA256) {
+				return Invocation{}, usageError("excerpt requires canonical --current-target-sha256")
+			}
+			if raw, present := options["--evidence-index"]; present {
+				n, err := strconv.Atoi(raw)
+				if err != nil || n < 0 || n >= 20 || strconv.Itoa(n) != raw {
+					return Invocation{}, usageError("invalid evidence index")
+				}
+				request.EvidenceIndex = n
+			}
+			invocation.excerpt = &ExcerptRequest{runID: run, findingID: request.FindingID, currentTargetSHA256: request.TargetSHA256}
 		}
 		request.Continuation = query.ContentContinuation{PublicationReceipt: options["--expected-publication-receipt"], ContentSHA256: options["--expected-content-sha256"]}
 		if raw, ok := options["--offset"]; ok {
@@ -114,7 +148,10 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 		Limit                      int          `json:"limit,omitempty"`
 		Cursor                     string       `json:"cursor,omitempty"`
 		Offset                     int64        `json:"offset,omitempty"`
-	}{requestID, string(command), run, string(request.Page.MinimumSeverity), request.FindingID, output, request.ExpectedProjectBinding, options["--expected-publication-receipt"], options["--expected-content-sha256"], request.Page.Limit, request.Page.Cursor, request.Continuation.Offset})
+		Role                       string       `json:"role,omitempty"`
+		CurrentTargetSHA256        string       `json:"current_target_sha256,omitempty"`
+		EvidenceIndex              int          `json:"evidence_index,omitempty"`
+	}{requestID, string(command), run, string(request.Page.MinimumSeverity), request.FindingID, output, request.ExpectedProjectBinding, options["--expected-publication-receipt"], options["--expected-content-sha256"], request.Page.Limit, request.Page.Cursor, request.Continuation.Offset, request.Role, request.TargetSHA256, request.EvidenceIndex})
 	return invocation, err
 }
 
@@ -135,6 +172,13 @@ func (adapter publicationQueryAdapter) Inspect(ctx context.Context, run ports.Pu
 }
 func (adapter publicationQueryAdapter) ReadFinding(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, id string, continuation query.ContentContinuation) (query.ContentChunk, error) {
 	return adapter.service.ReadFinding(ctx, run, binding, id, continuation)
+}
+
+func (adapter publicationQueryAdapter) ReadReport(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, role string, continuation query.ContentContinuation) (query.ContentChunk, error) {
+	return report.ReadContent(ctx, adapter.service, run, binding, role, continuation)
+}
+func (adapter publicationQueryAdapter) ReadEvidence(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, finding, target string, index int, continuation query.ContentContinuation) (query.ContentChunk, error) {
+	return adapter.service.ReadEvidence(ctx, run, binding, finding, target, index, continuation)
 }
 
 func (application *Application) handleVerifiedRead(ctx context.Context, invocation Invocation, root string) (result execution) {
@@ -185,8 +229,17 @@ func (application *Application) handleVerifiedRead(ctx context.Context, invocati
 	}
 	var value any
 	human := ""
-	if invocation.Command() == app.CommandReadFinding {
-		chunk, e := application.publicationQueries.ReadFinding(ctx, run, binding, request.FindingID, request.Continuation)
+	if invocation.Command() == app.CommandReadFinding || invocation.Command() == app.CommandReadReport || invocation.Command() == app.CommandExcerpt {
+		var chunk query.ContentChunk
+		var e error
+		switch invocation.Command() {
+		case app.CommandReadFinding:
+			chunk, e = application.publicationQueries.ReadFinding(ctx, run, binding, request.FindingID, request.Continuation)
+		case app.CommandReadReport:
+			chunk, e = application.publicationQueries.ReadReport(ctx, run, binding, request.Role, request.Continuation)
+		case app.CommandExcerpt:
+			chunk, e = application.publicationQueries.ReadEvidence(ctx, run, binding, request.FindingID, request.TargetSHA256, request.EvidenceIndex, request.Continuation)
+		}
 		if e != nil {
 			return fail(e)
 		}

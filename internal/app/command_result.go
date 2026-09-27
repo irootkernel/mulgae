@@ -17,6 +17,7 @@ type CommandName string
 const (
 	CommandInspect     CommandName = "inspect"
 	CommandReadFinding CommandName = "read-finding"
+	CommandReadReport  CommandName = "read-report"
 	CommandContext     CommandName = "context"
 	CommandInit        CommandName = "init"
 	CommandDoctor      CommandName = "doctor"
@@ -51,7 +52,7 @@ func ParseCommandName(value string) (CommandName, error) {
 // Valid reports whether command belongs to the fixed command surface.
 func (command CommandName) Valid() bool {
 	switch command {
-	case CommandInspect, CommandReadFinding, CommandContext, CommandInit, CommandDoctor, CommandReview, CommandFollowup, CommandDelta,
+	case CommandInspect, CommandReadFinding, CommandReadReport, CommandContext, CommandInit, CommandDoctor, CommandReview, CommandFollowup, CommandDelta,
 		CommandRerun, CommandCompose, CommandStatus, CommandReport, CommandFindings, CommandExcerpt,
 		CommandProviders, CommandHeartbeat, CommandRoles, CommandConfig, CommandSchema, CommandClean,
 		CommandExport, CommandHelp:

@@ -99,7 +99,7 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseHeartbeat(remaining, defaultProjectRoot, requestID)
 	case app.CommandRoles:
 		return parseRoles(remaining, requestID)
-	case app.CommandInspect, app.CommandReadFinding, app.CommandFindings:
+	case app.CommandInspect, app.CommandReadFinding, app.CommandReadReport, app.CommandFindings:
 		return parseVerifiedRead(command, remaining, requestID)
 	case app.CommandExcerpt:
 		return parseExcerpt(remaining, requestID)
@@ -388,7 +388,7 @@ func selectorOption(arguments []string, flag string) (string, bool, error) {
 func parseCommand(value string) (app.CommandName, error) {
 	command := app.CommandName(value)
 	switch command {
-	case app.CommandInspect, app.CommandReadFinding, app.CommandContext, app.CommandInit,
+	case app.CommandInspect, app.CommandReadFinding, app.CommandReadReport, app.CommandContext, app.CommandInit,
 		app.CommandDoctor,
 		app.CommandReview,
 		app.CommandFollowup,
@@ -1171,6 +1171,12 @@ func parseReport(arguments []string, requestID string) (Invocation, error) {
 }
 
 func parseExcerpt(arguments []string, requestID string) (Invocation, error) {
+	for _, argument := range arguments {
+		switch strings.SplitN(argument, "=", 2)[0] {
+		case "--evidence-index", "--offset", "--expected-project-binding", "--expected-publication-receipt", "--expected-content-sha256":
+			return parseVerifiedRead(app.CommandExcerpt, arguments, requestID)
+		}
+	}
 	positionals, options, err := parseOptions(arguments, map[string]bool{
 		"--run":                   true,
 		"--finding":               true,

@@ -162,7 +162,7 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 	end := min(offset+uint64(request.Limit), uint64(len(filtered)))
 	result := Inspection{FailedRunRecovery: recovery.UnavailableStatus("published_review"), SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), RunState: string(review.RunState()), PublicationState: string(domain.PublicationCommitted), PublicationAuthority: string(domain.PublicationAuthorityP2), RecoveryAction: string(observation.decision.Action()), ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), CIDecision: string(review.CIDecision()), TargetSHA256: review.TargetSHA256(), ReviewArtifactURI: ".mulgae/" + review.FinalPath().String(), PublicationReceipt: identity.String(), Receipt: &receipt, CaptureIdentity: receipt.CaptureIdentity, CaptureAvailability: receipt.CaptureAvailability, Capabilities: ImplementedReadCapabilities(), MinimumSeverity: string(request.MinimumSeverity), FindingCount: len(filtered), Findings: make([]FindingSummary, 0, end-offset), RoleReports: []InspectionRoleReport{}}
 	for _, report := range review.RoleReports() {
-		result.RoleReports = append(result.RoleReports, InspectionRoleReport{report.Role(), ".mulgae/" + run.SessionID().String() + "/" + run.RunID().String() + "/" + report.Path(), report.SHA256(), report.ByteLength()})
+		result.RoleReports = append(result.RoleReports, InspectionRoleReport{report.Role(), ReportContentURI(run.RunID().String(), report.Role(), binding.String(), identity.String(), report.SHA256(), 0), report.SHA256(), report.ByteLength()})
 	}
 	for _, finding := range filtered[offset:end] {
 		summary := FindingSummary{ID: finding.ID(), Fingerprint: finding.Fingerprint(), Role: string(finding.Role()), Provider: finding.ProviderInstance(), Severity: string(finding.Severity()), Title: finding.Title(), Confidence: string(finding.Confidence()), Lifecycle: string(finding.Lifecycle()), DetailURI: FindingDetailURI(run.RunID().String(), finding.ID(), binding.String(), identity.String(), "", 0), Evidence: []FindingEvidenceReference{}}
@@ -176,10 +176,8 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 				if _, err := service.readCommittedFindingExcerpt(ctx, run, review, finding.ID(), i+1, item, support); err != nil {
 					return Inspection{}, err
 				}
-				if i == 0 {
-					reference.URI = "mulgae://runs/" + run.RunID().String() + "/findings/" + finding.ID() + "/evidence?target_sha256=" + url.QueryEscape(review.TargetSHA256())
-					reference.Availability = "verified"
-				}
+				reference.URI = EvidenceContentURI(run.RunID().String(), finding.ID(), review.TargetSHA256(), i, binding.String(), identity.String(), support[path.String()], 0)
+				reference.Availability = "verified"
 			}
 			if i == 0 && reference.URI != "" {
 				uri := reference.URI

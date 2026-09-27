@@ -181,9 +181,17 @@ only target identity, file-set counts and byte totals, generated paths,
 transmission routes, and execution budget. Committed report and evidence bytes
 are re-verified for every resource read and divided into canonical byte-offset
 chunks no larger than 16 KiB. UTF-8 report chunks never split a code point;
-evidence uses the MCP blob form to preserve exact bytes. Full-content digest,
+text evidence uses UTF-8 and binary content uses the MCP blob form. Full-content digest,
 offset, total length, completion, and continuation URI travel as resource
 metadata rather than being mixed into the content.
+
+Query owns the observation for report and indexed-evidence reads. It supplies
+a snapshot-bound reader to the existing report renderer, then reobserves P2
+before returning a content chunk. Original role reports and every excerpt are
+verified against that same support index. CLI adapters and MCP backends share
+these reads, including receipt and complete-byte digest checks. Legacy MCP
+URI mode preserves its prior continuation boundaries; it cannot silently
+switch to the new receipt-bound mode. Report-to-file remains a separate writer.
 
 ## Concurrency, cancellation, and storage
 

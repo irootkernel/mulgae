@@ -162,3 +162,76 @@ func TestVerifiedReadEnvelopeRejectsUnknownContractFields(t *testing.T) {
 		})
 	}
 }
+
+func (fake *g006QueryFake) ReadReport(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected report content read")
+}
+func (fake *g006QueryFake) ReadEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected indexed evidence read")
+}
+
+func TestVerifiedContentParserPreservesSelectorsAndLegacyExcerpt(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("1", 64)
+	requestID := "i_01234567-89ab-7cde-8f01-23456789abcd"
+	base := []string{"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", digest}
+	legacy, err := Parse(base, "/project", requestID)
+	if err != nil || legacy.verifiedRead != nil || legacy.excerpt == nil {
+		t.Fatalf("legacy excerpt changed: %v", err)
+	}
+	for _, index := range []string{"0", "19"} {
+		arguments := append(append([]string{}, base...), "--evidence-index", index)
+		invocation, err := Parse(arguments, "/project", requestID)
+		if err != nil || invocation.verifiedRead == nil || invocation.verifiedRead.TargetSHA256 != digest {
+			t.Fatalf("lost indexed selector: %v", err)
+		}
+	}
+	for _, arguments := range [][]string{
+		append(append([]string{}, base...), "--evidence-index", "20"),
+		append(append([]string{}, base...), "--evidence-index", "01"),
+		append(append([]string{}, base...), "--offset", "16384"),
+		{"read-report", "--run", testRunID, "--role", "unknown"},
+		{"read-report", "--run", testRunID, "--output-path", "report.md"},
+		{"read-report", "--run", testRunID, "--offset", "16384"},
+	} {
+		if _, err := Parse(arguments, "/project", requestID); err == nil {
+			t.Fatalf("accepted %v", arguments)
+		}
+	}
+	invocation, err := Parse([]string{"read-report", "--run", testRunID, "--role", "logic", "--offset", "16384", "--expected-publication-receipt", digest, "--expected-content-sha256", digest}, "/project", requestID)
+	if err != nil || invocation.verifiedRead.Role != "logic" || invocation.verifiedRead.Continuation.Offset != 16384 {
+		t.Fatalf("lost report selectors: %v", err)
+	}
+}
+
+func TestVerifiedContentEnvelopeRejectsInvalidSelectorsAndFields(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	schema := mustFoundationAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v17.schema.json")
+	_, raw, err := fixture.catalog.Read(context.Background(), mustFoundationAssetID(t, "example:command-result.v17.valid.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.validator.Validate(context.Background(), schema, raw); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"unknown report role":  func(doc map[string]any) { doc["request"].(map[string]any)["role"] = "unknown" },
+		"write selector":       func(doc map[string]any) { doc["request"].(map[string]any)["output_path"] = "report.md" },
+		"unknown result field": func(doc map[string]any) { doc["result"].(map[string]any)["raw_final"] = true },
+		"oversized chunk":      func(doc map[string]any) { doc["result"].(map[string]any)["returned_bytes"] = 16385 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var doc map[string]any
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				t.Fatal(err)
+			}
+			mutate(doc)
+			changed, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.validator.Validate(context.Background(), schema, changed); err == nil {
+				t.Fatal("invalid content contract accepted")
+			}
+		})
+	}
+}

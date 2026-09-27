@@ -6,6 +6,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
+- Add lossless read-only CLI/MCP report and indexed-evidence access with receipt-bound continuation, original role reports, and command-result v17.
+
 - Add coherent CLI/MCP inspection, receipt-bound finding pages and complete finding-detail chunks, with verified capture availability and command-result v16.
 - Bind review execution to preflight with paired project/request guards, retain complete capture evidence for new publications including no-change reviews, and expose preflight v6 and command-result v15.
 - Add read-only CLI `context` and MCP `get_context` for independent local worktree identity comparison, reject changed server roots, and emit command-result v14 while retaining earlier schemas.

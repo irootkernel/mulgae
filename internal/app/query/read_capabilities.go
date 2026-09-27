@@ -27,5 +27,5 @@ func (capabilities VerifiedReadCapabilities) Validate() error {
 
 // ImplementedReadCapabilities advertises only wired native read contracts.
 func ImplementedReadCapabilities() VerifiedReadCapabilities {
-	return VerifiedReadCapabilities{ProjectBinding: "v1", ExecutionGuard: "v1", CaptureIdentity: "v1", Inspection: "v1", FindingPages: "v1", FindingDetails: "v1"}
+	return VerifiedReadCapabilities{ProjectBinding: "v1", ExecutionGuard: "v1", CaptureIdentity: "v1", Inspection: "v1", FindingPages: "v1", FindingDetails: "v1", ReportContent: "v1", IndexedEvidence: "v1"}
 }

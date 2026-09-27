@@ -17,12 +17,11 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/domain"
-	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	reportResourceTemplate   = "mulgae://runs/{run_id}/report{?offset}"
-	evidenceResourceTemplate = "mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,offset}"
+	reportResourceTemplate   = "mulgae://runs/{run_id}/report{?role,project_binding,publication_receipt,content_sha256,offset}"
+	evidenceResourceTemplate = "mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}"
 	// MaxResourceChunkBytes bounds every report and evidence resource read.
 	MaxResourceChunkBytes = 16 << 10
 )
@@ -41,6 +40,9 @@ const (
 // ResourceRequest is one canonical project-confined resource selector parsed by
 // the MCP entrypoint. Accessors expose only values needed by the backend query.
 type ResourceRequest struct {
+	verified       bool
+	role           string
+	evidenceIndex  int
 	projectBinding string
 	continuation   query.ContentContinuation
 	rawURI         string
@@ -89,6 +91,10 @@ type ResourceResult struct {
 	Meta     map[string]any
 }
 
+func (request ResourceRequest) Verified() bool     { return request.verified }
+func (request ResourceRequest) Role() string       { return request.role }
+func (request ResourceRequest) EvidenceIndex() int { return request.evidenceIndex }
+
 func (request ResourceRequest) ProjectBinding() string                  { return request.projectBinding }
 func (request ResourceRequest) Continuation() query.ContentContinuation { return request.continuation }
 
@@ -130,7 +136,7 @@ func registerResources(server *mcpsdk.Server, backend Backend) {
 	}, handler)
 	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		Name: "verified_finding_evidence", Title: "Verified Mulgae finding evidence",
-		Description: "Read one current-target-verified finding excerpt in bounded binary chunks.",
+		Description: "Read any supported committed evidence index with receipt-bound continuation; legacy URIs retain binary chunks.",
 		MIMEType:    "application/octet-stream", URITemplate: evidenceResourceTemplate, Annotations: annotations,
 	}, handler)
 }
@@ -181,6 +187,11 @@ func ParseResourceURI(raw string) (ResourceRequest, error) {
 	if len(segments) == 4 && segments[1] == "findings" && segments[3] == "detail" {
 		return parseFindingDetailURI(raw, segments[0], segments[2], query)
 	}
+	for _, key := range []string{"role", "evidence_index", "project_binding", "publication_receipt", "content_sha256"} {
+		if _, present := query[key]; present {
+			return parseVerifiedContentURI(raw, segments, query)
+		}
+	}
 	offset, err := parseResourceOffset(query)
 	if err != nil {
 		return ResourceRequest{}, err
@@ -215,11 +226,11 @@ func parseResourceOffset(query url.Values) (int, error) {
 	if !present {
 		return 0, nil
 	}
-	if len(values) != 1 || values[0] == "" || len(values[0]) > 8 {
+	if len(values) != 1 || values[0] == "" {
 		return 0, fmt.Errorf("resource offset is invalid")
 	}
 	offset, err := strconv.Atoi(values[0])
-	if err != nil || offset < 0 || int64(offset) > ports.PublicationStoreMaxReadBytes {
+	if err != nil || offset < 0 {
 		return 0, fmt.Errorf("resource offset is invalid")
 	}
 	return offset, nil
@@ -243,7 +254,7 @@ func evidenceResourceURI(runID, findingID, targetSHA256 string, offset int) stri
 
 func projectResource(request ResourceRequest, content ResourceContent) (ResourceResult, error) {
 	if content.Chunk != nil {
-		return projectFindingChunk(request, content)
+		return projectVerifiedChunk(request, content)
 	}
 	if content.MIMEType == "" || len(content.Bytes) == 0 || content.Text && !utf8.Valid(content.Bytes) {
 		return ResourceResult{}, fmt.Errorf("MCP resource content is invalid")

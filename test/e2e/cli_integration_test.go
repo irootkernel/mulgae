@@ -904,6 +904,11 @@ func buildFakeZCodeWithStagedOutput(t *testing.T, root, binary, launcher, logPat
 
 func buildFakeZCodeWithStagedOutputAndBarrier(t *testing.T, root, binary, launcher, logPath, mode, staged, barrier string) {
 	t.Helper()
+	buildFakeZCodeWithReport(t, root, binary, launcher, logPath, mode, staged, barrier, fakeZCodeStagedReportTemplate)
+}
+
+func buildFakeZCodeWithReport(t *testing.T, root, binary, launcher, logPath, mode, staged, barrier, reportBody string) {
+	t.Helper()
 	mustWriteTestFile(t, launcher, []byte("// offline fake ZCode launcher\n"))
 	mustWriteTestFile(t, filepath.Join(filepath.Dir(launcher), "..", "config", "provider", "zcode-builtin.json"), []byte(`{"schemaVersion":1,"revision":30,"config":{"providerConfigRules":{"providerRules":[{"providerId":"account:zai-individual-coding-plan","config":{"builtinModelIds":["GLM-5.3","GLM-5.3-Flash"],"access":{"type":"zhipu-account","mode":"individual-coding-plan","accountType":"zai"}}}]}}}
 `))
@@ -1293,7 +1298,7 @@ func stage(destination, body string) {
 `
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_DESTINATION_MARKER__", stagedOutputDestinationMarker)
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_BARRIER__", strconv.Quote(barrier))
-	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STAGED_BODY__", strconv.Quote(fakeZCodeStagedReportTemplate))
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STAGED_BODY__", strconv.Quote(reportBody))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STDOUT__", strconv.Quote(fakeZCodeIgnoredStdout))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_MODE__", mode)

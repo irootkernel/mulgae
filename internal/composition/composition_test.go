@@ -119,8 +119,8 @@ func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
 	}
 	wantResourceURIs := []string{
 		"mulgae://runs/{run_id}/findings/{finding_id}/detail{?project_binding,publication_receipt,content_sha256,offset}",
-		"mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,offset}",
-		"mulgae://runs/{run_id}/report{?offset}",
+		"mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}",
+		"mulgae://runs/{run_id}/report{?role,project_binding,publication_receipt,content_sha256,offset}",
 	}
 	if strings.Join(resourceURIs, "\n") != strings.Join(wantResourceURIs, "\n") {
 		t.Fatalf("production MCP resource templates = %#v", templates)

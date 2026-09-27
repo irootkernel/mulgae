@@ -179,25 +179,25 @@ Tasks record release notes when those capabilities become available.
 
 **Implement**
 
-- [ ] Reuse committed report rendering for CLI read-only report chunks and
+- [x] Reuse committed report rendering for CLI read-only report chunks and
       equivalent MCP resources, including original per-role reports.
-- [ ] Bind all report/detail/evidence continuations to their receipt and complete
+- [x] Bind all report/detail/evidence continuations to their receipt and complete
       content digest; expose every supported evidence index, not only the first.
-- [ ] Preserve legacy report-to-file as a separate explicit mutation.
+- [x] Preserve legacy report-to-file as a separate explicit mutation.
 
 **Do not**
 
-- [ ] Create report files during reads, cap total provider report size, truncate
+- [x] Create report files during reads, cap total provider report size, truncate
       content silently, or fall back to current working-tree evidence.
 
 **Verify and complete**
 
-- [ ] Cover empty valid files where supported, large reports, UTF-8 boundaries,
+- [x] Cover empty valid files where supported, large reports, UTF-8 boundaries,
       exact binary bytes, out-of-range offsets/indices, missing support, and
       mid-pagination tamper. Reassemble all chunks to the exact original bytes.
-- [ ] Prove no writer or provider invocation through new reads, and ordinary
+- [x] Prove no writer or provider invocation through new reads, and ordinary
       CLI/MCP evidence parity. Run focused and release-binary fixture tests.
-- [ ] Complete when every supported normal-run content item is fully retrievable
+- [x] Complete when every supported normal-run content item is fully retrievable
       through its public verified read path.
 
 ## TASK-024: Publish self-contained composite evidence

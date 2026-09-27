@@ -73,6 +73,10 @@ func (service *Service) ReadCommittedRoleReport(ctx context.Context, run ports.P
 	if err != nil {
 		return nil, err
 	}
+	return service.readRoleReportSnapshot(ctx, run, review, report, index)
+}
+
+func (service *Service) readRoleReportSnapshot(ctx context.Context, run ports.PublicationRun, review CommittedReview, report RoleReport, index map[string]string) ([]byte, error) {
 	path, err := runSupportPath(run, report.Path())
 	if err != nil {
 		return nil, typedFailure(readRoleReportStage, domain.FailureArtifact, "role report path is invalid", err)

@@ -59,6 +59,7 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 	return map[app.CommandName]applicationCommandHandler{
 		app.CommandInspect:     (*Application).handleVerifiedRead,
 		app.CommandReadFinding: (*Application).handleVerifiedRead,
+		app.CommandReadReport:  (*Application).handleVerifiedRead,
 		app.CommandContext: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
 			return application.handleContext(ctx, invocation, root)
 		},
@@ -96,6 +97,9 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 			return application.handleVerifiedRead(ctx, invocation, root)
 		},
 		app.CommandExcerpt: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
+			if invocation.verifiedRead != nil {
+				return application.handleVerifiedRead(ctx, invocation, root)
+			}
 			return application.handleExcerpt(ctx, invocation, root)
 		},
 		app.CommandReview: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
@@ -1969,7 +1973,8 @@ func (application *Application) handleRoles(invocation Invocation) execution {
 	return execution{human: []byte(human.String()), data: data}
 }
 
-// MaxReportMarkdownBytes is the shared bound for rendered report projections.
+// MaxReportMarkdownBytes bounds the legacy report-to-file mutation.
+// Read-only content chunks have no total-report ceiling.
 const MaxReportMarkdownBytes int64 = 8 << 20
 
 func (application *Application) handleStatus(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {

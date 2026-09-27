@@ -457,7 +457,7 @@ func (backend *mcpBackend) ReadResource(ctx context.Context, request mcpentry.Re
 	if err := backend.preflight(ctx); err != nil {
 		return mcpentry.ResourceContent{}, err
 	}
-	if request.Kind() == mcpentry.ResourceFindingDetail {
+	if request.Verified() {
 		var expected *string
 		if request.ProjectBinding() != "" {
 			value := request.ProjectBinding()
@@ -471,7 +471,17 @@ func (backend *mcpBackend) ReadResource(ctx context.Context, request mcpentry.Re
 		if err != nil {
 			return mcpentry.ResourceContent{}, err
 		}
-		chunk, err := backend.queries.ReadFinding(ctx, run, binding, request.FindingID(), request.Continuation())
+		var chunk query.ContentChunk
+		switch request.Kind() {
+		case mcpentry.ResourceFindingDetail:
+			chunk, err = backend.queries.ReadFinding(ctx, run, binding, request.FindingID(), request.Continuation())
+		case mcpentry.ResourceReport:
+			chunk, err = backend.queries.ReadReport(ctx, run, binding, request.Role(), request.Continuation())
+		case mcpentry.ResourceEvidence:
+			chunk, err = backend.queries.ReadEvidence(ctx, run, binding, request.FindingID(), request.TargetSHA256(), request.EvidenceIndex(), request.Continuation())
+		default:
+			return mcpentry.ResourceContent{}, newMCPFailure("mcp.resource", domain.FailureConfiguration, "MCP resource kind is invalid", nil)
+		}
 		if err != nil {
 			return mcpentry.ResourceContent{}, err
 		}
@@ -493,7 +503,7 @@ func (backend *mcpBackend) ReadResource(ctx context.Context, request mcpentry.Re
 		if renderErr != nil {
 			return mcpentry.ResourceContent{}, renderErr
 		}
-		if rendered.RunID != request.RunID() || len(rendered.Markdown) == 0 || int64(len(rendered.Markdown)) > mulgaeentry.MaxReportMarkdownBytes || !utf8.Valid(rendered.Markdown) {
+		if rendered.RunID != request.RunID() || len(rendered.Markdown) == 0 || !utf8.Valid(rendered.Markdown) {
 			return mcpentry.ResourceContent{}, newMCPFailure("mcp.resource", domain.FailureArtifact, "verified report projection is invalid", nil)
 		}
 		contents, mimeType, text = rendered.Markdown, "text/markdown", true
@@ -502,7 +512,7 @@ func (backend *mcpBackend) ReadResource(ctx context.Context, request mcpentry.Re
 		if err != nil {
 			return mcpentry.ResourceContent{}, err
 		}
-		if len(contents) == 0 || int64(len(contents)) > ports.PublicationStoreMaxReadBytes {
+		if len(contents) == 0 {
 			return mcpentry.ResourceContent{}, newMCPFailure("mcp.resource", domain.FailureArtifact, "verified evidence projection is invalid", nil)
 		}
 	default:

@@ -202,6 +202,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-command-result.v14.schema.json", "example:command-result.v14.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v15.schema.json", "example:command-result.v15.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v16.schema.json", "example:command-result.v16.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-command-result.v17.schema.json", "example:command-result.v17.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v11.schema.json", "example:command-result.v11.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v10.schema.json", "example:command-result.v10.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v9.schema.json", "example:command-result.v9.valid.json"},

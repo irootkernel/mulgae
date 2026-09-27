@@ -315,18 +315,23 @@ channel, and `cancel_review` only acknowledges the cancellation request. The
 terminal await remains authoritative even when cancellation was requested.
 
 The `verified_review_report` template uses
-`mulgae://runs/{run_id}/report{?offset}`. The
-`verified_finding_evidence` template uses
-`mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,offset}`.
-Every read re-resolves the project-confined run and reuses the verified report
-or current-target excerpt service. A response contains at most 16 KiB and
-publishes the full-content SHA-256, byte offset, chunk byte length, total byte
-length, completion flag, and canonical next URI in `io.mulgae/*` metadata.
-Offsets are zero-based byte offsets and must be a canonical continuation; a
-report offset cannot split UTF-8. Evidence is returned as an exact-byte blob.
-Composite finding summaries set `evidence_resource_uri` to `null` because
-composite runs do not publish current-target evidence excerpts; their status,
-findings, report, and export surfaces remain available.
+`mulgae://runs/{run_id}/report{?role,project_binding,publication_receipt,content_sha256,offset}`.
+The `verified_finding_evidence` template uses
+`mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}`.
+New selectors choose receipt-bound reads through the shared query service.
+Original role reports use `role`; evidence indices are zero-based. Every
+continuation carries the publication receipt, complete-content digest and
+project binding. Responses contain at most 16 KiB of source bytes; text uses
+UTF-8 without splitting code points, and binary content uses the MCP blob form.
+The complete content has no product size ceiling.
+
+Legacy report URIs containing only an optional offset and evidence URIs
+containing only a target digest and optional offset retain their historical
+verification and `io.mulgae/*` metadata. Their continuations stay in legacy
+mode, including raw-byte evidence boundaries; they do not acquire receipt
+binding implicitly. New reads return the native content metadata and
+`io.mulgae/nextURI`. All URI parameters must use canonical order and encoding.
+Historical composites without copied evidence retain explicit unavailability.
 
 Schema validation is necessary but not sufficient. Services also enforce
 trusted field ownership, identity relationships, state transitions, path
@@ -671,7 +676,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v16` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v17` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -1039,20 +1044,20 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5 through v15 schema examples remain available
-for explicit backward validation; current CLI envelopes use v16. MCP retains its v1
+retry loop is introduced. CLI v5 through v16 schema examples remain available
+for explicit backward validation; current CLI envelopes use v17. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.
 
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v16 `result` and MCP v1
+accepts an empty argument object. CLI command-result v17 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `project_binding`, `execution_guard`, `capture_identity`, `inspection`,
-`finding_pages`, and `finding_details` capabilities are `"v1"`; the remaining
-fields are empty strings. A failed CLI lookup returns
+`finding_pages`, `finding_details`, `report_content`, and `indexed_evidence`
+capabilities are `"v1"`; `composite_evidence` remains an empty string. A failed CLI lookup returns
 null binding and capabilities with a typed security, cancellation, or internal exit. MCP uses
 its existing error envelope. No private paths or descriptor facts are returned.
 
@@ -1115,7 +1120,7 @@ Page selectors, cursor scope, finding summaries and continuation fields follow
 The default page contains at most 100 findings; an explicit limit accepts 1 to
 1,000. `finding_count` remains the filtered total, while `returned_count` counts
 the current page. Empty results contain `findings: []` and `next_cursor: ""`.
-The retained `evidence_resource_uri` field points to the first verified legacy
+The retained `evidence_resource_uri` field points to the first receipt-bound
 excerpt when available; `evidence` gives the canonical indices and availability.
 Summary pages never include finding descriptions or report bodies. MCP finding-page
 envelopes have a 32 MiB bound, sufficient for a maximum-size page; other tool
@@ -1133,6 +1138,33 @@ Inspection preserves `reports_only`, `mixed`, coverage and CI axes. A run with
 only diagnostic evidence keeps its non-authoritative status projection and
 cannot claim a receipt, findings or reports. Valid historical support without a
 capture manifest reports `capture_identity_unavailable`; damaged bound support
-is an artifact failure. Current capabilities advertise inspection, finding pages
-and finding details as `v1`. Report-content and indexed-evidence capabilities
-remain unavailable until their readers are implemented.
+is an artifact failure. Current capabilities advertise inspection, finding pages, finding details,
+report content and indexed evidence as `v1`. Composite evidence remains
+unavailable until self-contained composite support is implemented.
+
+## Lossless report and evidence reads
+
+`read-report --run ID` returns rendered Markdown without creating a report file.
+Adding `--role ROLE` selects the exact original role report. Rendering reuses the
+existing report service against a query-owned snapshot: final data and every
+excerpt come from the same verified publication, which is reobserved before
+returning. Original report bytes are checked against the manifest and support
+index before chunking.
+
+`excerpt` accepts `--evidence-index N` (zero-based, 0 through 19) and the native
+content selectors. Supplying any new selector chooses receipt-bound chunk
+output; a legacy invocation retains its existing excerpt result and human
+output. The target digest remains required. An unbound index is invalid; a
+historical item without retained support is `evidence_unavailable`, and missing
+or damaged bound support is an integrity failure. Current persisted excerpts
+are nonempty verified UTF-8 quotes. Raster capture support does not create a
+separate image resource selector.
+
+Both commands accept `--offset`, `--expected-project-binding`,
+`--expected-publication-receipt` and `--expected-content-sha256`. Nonzero offsets
+require both expected digests. Only issued byte boundaries are valid, and the
+last response has `next_offset: null`. The content digest hashes complete raw
+bytes, distinct from the domain-separated evidence identity. Empty content is
+supported by the chunk contract where the underlying item permits it; existing
+role-report and excerpt contracts require nonempty content. Legacy
+`report --output-path PATH` remains the explicit file-writing operation.

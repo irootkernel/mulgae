@@ -19,6 +19,8 @@ mulgae status --run r_...
 mulgae inspect --run r_... --limit 100 --output json
 mulgae findings --run r_... --severity high --limit 100 --output json
 mulgae read-finding --run r_... --finding F001 --output json
+mulgae read-report --run r_... --role logic --output json
+mulgae excerpt --run r_... --finding F001 --current-target-sha256 sha256:... --evidence-index 0 --output json
 mulgae report --run r_... --output-path reports/review.md
 ```
 
@@ -204,3 +206,20 @@ For the next chunk, pass the returned `next_offset` as `--offset`, together with
 `next_offset` is null. A changed receipt, digest or project fails the read.
 Diagnostic-only runs have no publication receipt. Historical capture support
 can be unavailable even when the final review remains readable.
+
+### Lossless reports and indexed evidence
+
+`read-report --run ID` reads rendered Markdown; add `--role ROLE` for an
+original role report. It creates no file. `excerpt` keeps the required
+`--current-target-sha256` and accepts zero-based `--evidence-index` plus the
+same content selectors as `read-finding`. Supplying a new selector chooses
+receipt-bound chunks. Legacy excerpt calls and `report --output-path` retain
+their existing behavior.
+
+Read every chunk until `next_offset` is null, preserving both returned digests
+and the expected project binding. MCP inspection returns role-report and
+indexed-evidence URIs; follow `io.mulgae/nextURI` without rebuilding it. Text
+chunks preserve UTF-8 and exact bytes. A complete report has no size ceiling.
+Legacy resource URIs keep their historical continuation mode and do not gain
+receipt binding. Missing historical evidence is unavailable; corrupt bound
+support fails rather than falling back to the working tree.
