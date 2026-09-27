@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-publication-receipt.v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_binding",
+    "session_id",
+    "run_id",
+    "review_id",
+    "run_type",
+    "target_sha256",
+    "final_sha256",
+    "manifest_sha256",
+    "support_sha256",
+    "lineage_sha256",
+    "epoch",
+    "capture_identity",
+    "capture_availability"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-publication-receipt.v1"
+    },
+    "project_binding": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "not": {
+        "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "review_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "run_type": {
+      "type": "string",
+      "enum": [
+        "review",
+        "followup",
+        "delta",
+        "rerun",
+        "composite"
+      ]
+    },
+    "target_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "not": {
+        "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "final_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "not": {
+        "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "not": {
+        "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "support_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "not": {
+        "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "lineage_sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "not": {
+            "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        {
+          "const": ""
+        }
+      ]
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "capture_identity": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "not": {
+            "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        {
+          "const": ""
+        }
+      ]
+    },
+    "capture_availability": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "capture_identity_unavailable"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "capture_availability": {
+            "const": "verified"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "capture_identity": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "not": {
+              "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "capture_identity": {
+            "const": ""
+          }
+        }
+      }
+    }
+  ]
+}

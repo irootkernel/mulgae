@@ -49,39 +49,43 @@ Do not weaken TASK-018 guidance before the native replacement is accepted.
 
 **Implement**
 
-- [ ] Inventory existing machine schemas, historical readers, relevant command
+- [x] Inventory existing machine schemas, historical readers, relevant command
       grammar, P2 receipts, and composite support formats.
-- [ ] Define typed project binding, complete capture identity, request identity,
+- [x] Define typed project binding, complete capture identity, request identity,
       guard, publication receipt, cursor, and capabilities in the existing
       domain/app/port owners. Freeze canonical encoding and mismatch precedence.
-- [ ] Separate target kind/sides, complete file inventory, capture policy, and
+- [x] Separate target kind/sides, complete file inventory, capture policy, and
       support context from request-only objective, roles, provider policy, and
       workflow source inputs. Preserve the existing patch-only target SHA-256.
-- [ ] Define retained canonical capture support and historical availability,
+- [x] Define retained canonical capture support and historical availability,
       including ordinary, no-change, existing child, and composite publications.
       Reuse file-set computation under an application owner, not CLI-only policy.
-- [ ] Freeze every planned CLI/MCP surface in the specification, including
+- [x] Freeze every planned CLI/MCP surface in the specification, including
       finding detail access, role reports, evidence index, and diagnostic-only
       behavior. Allocate only the next versions actually needed by this Task.
-- [ ] Add affected new contract schemas, paired examples, and semantic tests;
+- [x] Add affected new contract schemas, paired examples, and semantic tests;
       record an old/new writer-reader matrix and inactive-feature boundaries.
 
 **Do not**
 
-- [ ] Advertise unimplemented tools, persist a global project ID, introduce a
+- [x] Advertise unimplemented tools, persist a global project ID, introduce a
       capability-token service, or break legacy result meanings silently.
 
 **Verify and complete**
 
-- [ ] Test encoding separation, omitted versus explicit input, cursor binding,
+- [x] Test encoding separation, omitted versus explicit input, cursor binding,
       unsupported capability, old fixture reads, and malformed new examples.
-- [ ] Prove identical patches with different unchanged support files, logical
+- [x] Prove identical patches with different unchanged support files, logical
       sides, or context have different capture identities. Prove request-only
       changes can preserve capture identity while changing request identity.
-- [ ] Complete the documented generator checks when assets change, plus focused
+- [x] Complete the documented generator checks when assets change, plus focused
       tests and `make test-prepare`. Read back the contracts and diff.
-- [ ] Finish only when later Tasks have no unresolved wire identity, read-size,
+- [x] Finish only when later Tasks have no unresolved wire identity, read-size,
       compatibility, or public surface decision. A concrete blocker stops here.
+
+TASK-019 release-note decision: intentional no-note. These inactive contract
+foundations add no user-facing command or runtime capability. The later owning
+Tasks record release notes when those capabilities become available.
 
 ## TASK-020: Implement independently comparable project binding
 

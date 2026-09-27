@@ -679,7 +679,7 @@ can fail before execution. Child selector failures preserve cancellation and
 typed artifact or security exits; only an unclassified resolver failure uses
 exit `10` and `selector_resolution_failed`.
 
-Command-result v5 through v11 remain readable but are never emitted by the
+Command-result v5 through v12 remain readable but are never emitted by the
 current command surface. Other commands do not have rejected-request variants
 in v9.
 For the top-level `review` command, attributed provider execution details in v9
@@ -1038,6 +1038,6 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5 through v11 schema examples remain available
-for explicit backward validation; current CLI envelopes use v12. MCP retains its v1
+retry loop is introduced. CLI v5 through v12 schema examples remain available
+for explicit backward validation; current CLI envelopes use v13. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.

@@ -275,3 +275,250 @@ patches with different unchanged support files, side/policy/context differences,
 request-only differences over an identical capture, and historical incomplete
 capture metadata. See the dossier for task-owned tests and the explicit Epic
 closeout gate.
+
+## Frozen TASK-019 contracts
+
+TASK-019 supplies value types, validation, canonical encodings, schemas, and
+examples. It does not register a command, MCP tool or resource, publish capture
+support, or advertise a capability. The following transport and storage rules
+are implementation obligations for TASK-020 through TASK-025.
+
+### Encoding and ownership
+
+All four identities are `sha256:` followed by 64 lowercase hexadecimal digits;
+the all-zero digest is invalid. Hash `version + NUL + canonical JSON bytes`.
+JSON uses the declared Go DTO field order, no insignificant whitespace, decimal
+integers, UTF-8 strings with Go `encoding/json` escaping, and no omitted fields.
+Empty strings, empty arrays, and explicit presence booleans remain distinct.
+There is no Unicode normalization. Readers reject duplicate, unknown, missing,
+reordered, or alternatively encoded fields; whitespace in stored JSON is allowed.
+The paired embedded examples pin the canonical hash inputs independently of the
+producer. Cursor payloads require the compact encoding exactly.
+
+| Value and owner | Canonical fields, in order |
+|---|---|
+| Project binding, `reviewrun.NewProjectBinding` | Version `mulgae-project-binding.v1`; `root`, `git_directory`, `common_directory`, `root_identity`, `git_identity`, `common_identity`. Each private directory identity contains `device`, `inode`, `birth_seconds`, `birth_nanoseconds`. |
+| Capture, `reviewrun.CaptureManifest` | Version `mulgae-capture-manifest.v1`; `schema_version`, `target`, `policy_identity`, `sides`, `files`, `context`. |
+| Request, `reviewrun.RequestReceipt` | Version `mulgae-request-receipt.v1`; `schema_version`, `project_binding`, `capture_identity`, `components`. The serialized `request_digest` is excluded from its own hash. |
+| Publication, `query.InspectionReceipt` | Version `mulgae-publication-receipt.v1`; `schema_version`, `project_binding`, `session_id`, `run_id`, `review_id`, `run_type`, `target_sha256`, `final_sha256`, `manifest_sha256`, `support_sha256`, `lineage_sha256`, `epoch`, `capture_identity`, `capture_availability`. |
+
+`ports.ProjectBindingObserver` returns a descriptor lease and private observation;
+the application computes the binding. The filesystem adapter resolves canonical
+aliases, observes the worktree root, Git directory and common Git directory, and
+rejects path or descriptor drift on revalidation. A linked worktree has its own
+root and Git directory even when the common directory is shared. No descriptor
+metadata is serialized in a public result or persisted as a project ID.
+
+The capture target fields are `kind`, `git_mode`, `sha256`, `size`,
+`base_object_id`, `head_object_id`, `head_tree_object_id`, `index_tree_object_id`.
+They preserve the existing target identity, excluding its local repository ID.
+Git object IDs are canonical nonzero 40- or 64-digit hex values. Stage mode
+requires its index-tree ID; missing historical identity is unavailable. Non-Git captures
+carry empty Git fields. The target digest and length refer to exact target bytes,
+including an empty Git patch. `policy_identity` is the admitted snapshot policy.
+
+Logical sides are sorted lexically. Every capture includes `snapshot`; Git also
+requires `base` and its selected after-side (`head`, `index`, or `worktree`),
+workspace requires `worktree`, and patch/stdin requires `head`. An admitted empty
+side has an entry in `sides` and no files; an absent side cannot stand in for it.
+Each file has `side`, `path`, `media_type`, `disposition`, `size`, `sha256`, sorted
+by side then path. Reject unsafe paths, duplicates, case-fold collisions and
+file/directory collisions within a side. Text uses `text/plain` and `text`;
+binary uses `binary_preserved` with its admitted raster or octet-stream type.
+Context has `present`, `size`, `sha256`; absence is `false`, zero, empty string,
+while present empty context hashes empty bytes. Verification rebuilds this entire
+inventory from the retained immutable archive, including target and context,
+and compares both the manifest and expected identity. A digest alone is not
+verification. The existing preflight file-set encoding remains byte-for-byte
+unchanged under `reviewrun.PreflightFileSetID`.
+
+Request component fields are `target_selection`, `objective`, `roles`, `policy`,
+`routes`, `assets`, `budget`, `workflow`. Each hashes
+`mulgae-request-receipt.v1/NAME + NUL + canonical component bytes`. Objective is
+`{"present":boolean,"text":string}` with exact admitted text. Roles are
+`{"explicit":boolean,"roles":[...]}` with unique role names sorted lexically.
+The other six components use the following exact shapes. Object keys are sorted
+recursively; all shown fields are required. Empty lists use `[]`. `S` means a
+UTF-8 string, `D` a digest, `N` an integer, and `B` a boolean. A selected string
+is always `{"explicit":B,"value":S}`; absent selectors use false and an empty
+value, while resolved defaults are recorded in the corresponding effective field.
+
+| Component | Complete JSON shape |
+|---|---|
+| `target_selection` | `{"requested_kind":S,"captured_kind":S,"git_mode":S,"base":{"explicit":B,"value":S},"head":{"explicit":B,"value":S},"resolved":{"base_object_id":S,"head_object_id":S,"head_tree_object_id":S,"index_tree_object_id":S}}` |
+| `policy` | `{"configuration_sha256":D,"snapshot_policy":S,"exclusions":[{"path":S,"reason":S}]}` |
+| `routes` | `{"roles":[{"role":S,"provider_instance":S,"provider_family":S,"model":{"explicit":B,"value":S},"effort":{"explicit":B,"value":S},"profile":{"explicit":B,"value":S},"effective_model":S,"effective_effort":S,"effective_profile":S,"launcher_path":S,"profile_path":S,"permission_mode":S,"target_channel":S,"configured_timeout_ns":N}]}` |
+| `assets` | `{"contracts":[{"name":S,"version":S}],"contents":[{"name":S,"sha256":D}]}` |
+| `budget` | `{"eligible":B,"reason_code":S,"max_active_lanes":N,"total_invocations":N,"critical_path_deadline_ns":N,"run_deadline_ns":N,"ceilings":{"provider_timeout_ns":N,"role_path_deadline_ns":N,"run_deadline_ns":N,"max_invocations_per_role":N,"max_invocations_per_run":N},"role_paths":[{"role":S,"provider_instance":S,"invocation_count":N,"transition_count":N,"invocation_timeouts_ns":N,"deadline_ns":N}]}` |
+| `workflow` | `{"kind":S,"sources":[{"run_id":S,"attempt_id":S,"finding_ids":[S],"content_sha256":D}],"prompt_inputs":[{"name":S,"sha256":D}],"artist":{"present":B,"automatic":B,"brief_path":S,"design_spec_globs":[S]}}` |
+
+`configuration_sha256` is the existing `config.Resolution.SHA256()` over the
+exact admitted project and local Config v4 source bytes. `BundleSHA256` hashes
+`Mulgae-CONFIG-v4 + NUL + project + NUL`, the project byte length as an unsigned
+64-bit big-endian integer, the project bytes, `NUL + local + NUL`, the local
+byte length in the same encoding, and the local bytes, in that order. Here
+`project` and `local` in the framing strings are literal labels. The result uses
+the `sha256:` prefix and lowercase hexadecimal. Admission canonicalizes the
+merged configuration for resolution; it does not replace either source byte
+sequence in this hash. Accepted comment or formatting changes therefore alter
+the configuration hash and request identity even when effective policy is
+unchanged. Effective route values and budget operands bind resolved defaults
+separately. Credentials and provider-home contents never enter any preimage.
+
+Exclusion rows use admitted project-relative paths and existing reason codes,
+sorted by path then reason.
+An empty exclusion list means no admitted exclusion decisions, not unknown data.
+
+Route and budget rows are sorted by role, asset rows by name, source rows by
+run/attempt ID, and source finding IDs lexically; reject duplicates. Preserve
+prompt-input order and artist glob order. A missing provider model, effort or
+profile remains an empty effective string when that provider exposes no such
+setting. Configured selectors preserve their explicit/default distinction.
+Private resolved launcher/profile paths enter only the route preimage. Runtime
+temporary paths, invocation IDs and wall-clock timestamps are excluded.
+
+Asset rows include every selected prompt, role and schema content digest and
+contract version; unrelated catalog entries are excluded. Budget fields project
+the existing admitted `review.RunBudgetReceipt` and role paths, with durations
+as integer nanoseconds. Ordinary workflow has kind `review`, empty sources and
+prompt inputs, and its actual artist selectors (or false, false, empty string,
+empty globs when absent). Child workflows bind their selected immutable source
+provenance and exact workflow-only prompt inputs. Artist files that are captured
+normally remain in the capture inventory. Workflow-only inputs do not alter
+complete-capture equality.
+
+Production construction must derive every component from the admitted plan;
+the foundation's component-hash helper alone makes no completeness claim.
+The request receipt contains only the component digests. Capture support stays
+portable; a local project binding or request receipt is not exported by default.
+
+### Admission and read failures
+
+Transport syntax and version validation precede application work. A paired
+execution guard is either absent or complete; half guards return
+`guard_incomplete`, malformed digests `guard_invalid`, and unsupported versions
+`contract_unsupported`. After checking descriptor safety, compare project binding
+before capture (`project_binding_mismatch`). Capture and plan once, then compare
+request identity (`request_digest_mismatch`) before qualification or any provider
+construction. Execution consumes those same captured values. Revalidate the
+lease at admission and preserve the existing spawn-time checks. Neither guard
+comparison nor a preflight creates a run. Repeated accepted starts remain
+separate executions; guards are not idempotency keys.
+
+Reads validate selectors, revalidate project identity, and verify the selected
+publication, support and epoch before comparing an expected receipt. They then
+validate cursor scope or content identity and reobserve the same publication
+before returning. Integrity and security failures retain their existing typed
+failure class; they never become receipt mismatches, historical unavailability,
+or diagnostic fallback. Use `publication_receipt_mismatch`, `cursor_invalid`,
+`cursor_mismatch`, `content_digest_mismatch`, and
+`read_continuation_incomplete` for validly observed contract failures. Missing
+historical support uses `capture_identity_unavailable` or
+`evidence_unavailable`; missing bound support is an artifact-integrity failure.
+Invalid offsets/indices use the existing invalid-input projection. Existing CLI
+exit-class and MCP error-envelope mappings remain authoritative.
+
+Publication receipts bind the P2-observed final, manifest, support-index and
+optional lineage digests with the nonzero epoch and current local binding.
+Absent lineage is an empty string. Capture availability is either `verified`
+with an identity or `capture_identity_unavailable` with an empty identity.
+Construction validates a value; only the query service can establish its P2
+provenance. Diagnostic-only inspection returns its existing non-authoritative
+status with an empty receipt and no page or content references.
+
+### Transport grammar and result fields
+
+All CLI surfaces below accept the existing `--output json` convention. IDs must
+name an exact run; continuations never fall back to the latest run. Optional
+`--expected-project-binding DIGEST` applies to preflight and new reads. Execution
+uses both that flag and `--expected-request-digest DIGEST`, or neither. MCP uses
+`expected_project_binding` and `expected_request_digest` with the same rules.
+Existing review selectors, objective, roles and provider restrictions remain.
+
+| Surface | Additional selectors | Result |
+|---|---|---|
+| CLI `context`, MCP `get_context` | None | `project_binding`, `capabilities` |
+| CLI `review --preflight`, MCP `preflight_review` | Expected binding only | Existing preflight fields plus `project_binding`, `capture_identity`, `request_receipt`, `capabilities` |
+| CLI `review`, MCP `run_review` / `start_review` | Paired execution guard | Existing lifecycle envelope plus `guarded`, admitted `project_binding`, `capture_identity`, `request_digest` |
+| CLI `inspect --run ID`, MCP `inspect_review` | `--severity LEVEL` (default low), `--limit N`, `--cursor TOKEN`, `--expected-publication-receipt DIGEST` | Coherent existing status/coverage/extraction axes, `publication_receipt`, capture identity/availability, capabilities, finding page |
+| CLI `findings --run ID --severity LEVEL`, MCP `list_findings` | Same page/receipt selectors; MCP retains its default low severity | Existing total `finding_count`, `returned_count`, `findings`, `next_cursor`, `publication_receipt`, capture identity/availability |
+| CLI `read-finding --run ID --finding ID` | Content selectors below | Canonical complete committed finding JSON bytes |
+| CLI `read-report --run ID` | Optional `--role ROLE`, content selectors | Rendered Markdown, or exact original selected role report |
+| CLI `excerpt --run ID --finding ID` | Existing target digest selector plus `--evidence-index N` (zero-based, default zero), content selectors | Exact selected committed evidence bytes and metadata |
+
+MCP page selectors are `run_id`, `minimum_severity`, `limit`, `cursor`,
+`expected_publication_receipt`. Page responses preserve canonical committed
+finding order after filtering. A summary contains finding ID, fingerprint, role,
+provider, severity, title, confidence, lifecycle, detail URI and indexed evidence
+references; it omits description, rationale, suggested fix and report bodies.
+The total count is the count after filtering, independent of page size. Empty
+pages use `[]`, zero returned count and an empty `next_cursor`. Page size defaults
+to 100 and accepts 1 through 1,000. CLI severity remains required on `findings`;
+the historical low floor excludes info findings and is not relabeled.
+
+A cursor is unpadded base64url of compact `mulgae-finding-cursor.v1` JSON, a dot,
+and the lowercase SHA-256 of its domain-separated payload. Its fields are
+`schema_version`, `scope`, `offset`; scope fields are `project_binding`,
+`publication_receipt`, `run_id`, `query_kind`, `minimum_severity`, `limit`.
+Query kind is `inspect` or `findings`. The offset is a positive multiple of the
+bound limit and must identify a nonempty next page in the verified result.
+Reject a changed limit, filter, run, project or receipt and tokens above 4,096
+bytes. The checksum detects malformed tokens; it grants no authority.
+
+Content selectors are `--offset N` (default zero),
+`--expected-publication-receipt DIGEST`, and `--expected-content-sha256 DIGEST`.
+Both expected digests are mandatory for any nonzero offset. The response fields
+are `publication_receipt`, `content_sha256`, `media_type`, `encoding`, `offset`,
+`total_bytes`, `returned_bytes`, `next_offset`, `content`, and the selected
+run/finding/role/evidence identities. `encoding` is `utf8` for finding JSON and
+reports, `base64` for binary evidence; text evidence uses `utf8`. Hash exact
+complete bytes before encoding. `next_offset` is null at EOF. Empty content at
+offset zero returns zero bytes and null continuation. Reject out-of-range or
+non-issued chunk boundaries; returned offsets always advance. Chunks contain at
+most 16,384 source bytes and never split UTF-8. Integer offsets cover signed
+64-bit nonnegative byte positions; there is no product total-content ceiling.
+
+MCP content resources retain `mulgae://runs/R/report` and
+`mulgae://runs/R/findings/F/evidence`, and add
+`mulgae://runs/R/findings/F/detail`. Optional query parameters, in canonical
+order, are `target_sha256` (evidence only), `role` (report only), `evidence_index`
+(evidence only), `project_binding`, `publication_receipt`, `content_sha256`,
+`offset`. Values use canonical URL encoding; path IDs must be literal canonical
+IDs. Unknown, duplicate, wrongly ordered or encoded-alias parameters fail.
+Omit default offset/index zero; nonzero values use decimal without leading zeros.
+Continuations carry both receipt and content digest. Existing report/evidence
+URIs without new parameters retain their historical meaning and verification.
+New response metadata and returned continuation URIs bind the selected content.
+Transport projections call shared query/report policy; they never read a final
+file independently or write a rendered report file.
+
+`capabilities` contains the closed fields defined by
+`query.VerifiedReadCapabilities`. Each value is empty (unavailable) or `v1`.
+Advertise a field only after its owning implementation and verification land.
+Per-artifact evidence availability is separate from binary support; a supported
+reader can still return `evidence_unavailable` for a legacy item.
+
+### Writer and reader matrix
+
+| Contract | TASK-019 writer / reader | Subsequent owning Task |
+|---|---|---|
+| CLI command envelope | v13 emission; v5-v13 schemas retained unchanged | TASK-020 introduces v14 for context; later changed projections allocate the next version when wired. Strict old readers may reject it. |
+| Preflight | v5 emission; v3-v5 fixtures retained | TASK-021 introduces v6 with request/capture receipt; v5 remains readable without asserting guard support. |
+| MCP tool envelope | v1 unchanged | Keep the outer v1 envelope; data contracts and advertised capabilities distinguish new projections. |
+| Capture/request/publication/cursor | Four v1 schema/example pairs; tested value-only APIs, no runtime emission | TASK-020/021/022 wire their owned values. Unknown versions fail closed. |
+| Ordinary/child final and manifest | Current v1 plus existing recovery v2, unchanged | Keep final meanings; add capture support through support-index v2 in TASK-021. |
+| Composite final and manifest | Current v1/v2, unchanged | TASK-024 uses support-index v2 for self-contained evidence and per-source capture support. Existing exact mappings stay unchanged. |
+| Run support index | v1 unchanged, including canonical empty no-change index | v2 requires indexed capture manifest and retained material for new ordinary/child/no-change publications; composite entries include per-source availability and copied support. Old strict binaries may reject v2. |
+| Existing content resources | Existing registration, offsets and read behavior unchanged | TASK-022/023 wire receipt-bound details/reports/indexed evidence; legacy URI reads stay supported. |
+
+Support-index v2 must hash-bind every added capture manifest and archive/blob,
+and composite provenance/evidence item before publication commits. Its strict
+v2 reader verifies complete inventory and never upgrades v1 in place. Existing
+v1 archives can establish capture identity only if they independently satisfy
+the complete v1 capture encoding; an old no-change empty index cannot. New
+composites carry each selected source's capture manifest/material or explicit
+unavailability, plus exact copied evidence identities. A common capture exists
+only when all selected role sources verify the same complete identity. Recovery
+source receipts retain their existing attempt provenance rather than claiming
+an uncommitted source has a publication receipt. These rules preserve cleanup,
+recovery, replay and export boundaries while versioning the new support meaning.

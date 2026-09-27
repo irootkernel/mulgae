@@ -3,7 +3,6 @@ package mulgae
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -54,13 +53,7 @@ type ReviewPreflightFileSet struct {
 	Files          []ReviewPreflightFile `json:"files"`
 }
 
-type ReviewPreflightFile struct {
-	Path        string `json:"path"`
-	MediaType   string `json:"media_type"`
-	Size        int64  `json:"size"`
-	SHA256      string `json:"sha256"`
-	Disposition string `json:"disposition"`
-}
+type ReviewPreflightFile = reviewrun.PreflightFile
 
 type ReviewPreflightGeneratedFile struct {
 	Path        string `json:"path"`
@@ -500,15 +493,7 @@ func activePreflightFamily(family reviewrun.Family) bool {
 }
 
 func reviewPreflightFileSetID(policy string, files []ReviewPreflightFile) (string, error) {
-	bytes, err := json.Marshal(struct {
-		Policy string                `json:"policy"`
-		Files  []ReviewPreflightFile `json:"files"`
-	}{policy, files})
-	if err != nil {
-		return "", fmt.Errorf("review preflight: file set identity: %w", err)
-	}
-	sum := sha256.Sum256(bytes)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return reviewrun.PreflightFileSetID(policy, files)
 }
 
 func renderReviewPreflightHuman(result ReviewPreflightResult) []byte {

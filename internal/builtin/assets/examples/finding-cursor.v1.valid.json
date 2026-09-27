@@ -1,0 +1,12 @@
+{
+  "schema_version": "mulgae-finding-cursor.v1",
+  "scope": {
+    "project_binding": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "publication_receipt": "sha256:6a81f52e8c1091fc68d436f091e9f3da9aad38c5d022e45a15927875cac4ac1a",
+    "run_id": "r_01900000-0000-7000-8000-000000000002",
+    "query_kind": "findings",
+    "minimum_severity": "low",
+    "limit": 100
+  },
+  "offset": 100
+}

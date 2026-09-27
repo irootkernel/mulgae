@@ -1,0 +1,25 @@
+{
+  "schema_version": "mulgae-capture-manifest.v1",
+  "target": {
+    "kind": "git",
+    "git_mode": "diff",
+    "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0,
+    "base_object_id": "1111111111111111111111111111111111111111",
+    "head_object_id": "1111111111111111111111111111111111111111",
+    "head_tree_object_id": "1111111111111111111111111111111111111111",
+    "index_tree_object_id": ""
+  },
+  "policy_identity": "mulgae-capture-policy.v1:fixture",
+  "sides": [
+    "base",
+    "head",
+    "snapshot"
+  ],
+  "files": [],
+  "context": {
+    "present": false,
+    "size": 0,
+    "sha256": ""
+  }
+}

@@ -192,6 +192,11 @@ type schemaExamplePair struct {
 }
 
 var authoritativePairs = []schemaExamplePair{
+	{"https://mulgae.local/schemas/mulgae-capture-manifest.v1.schema.json", "example:capture-manifest.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json", "example:request-receipt.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-publication-receipt.v1.schema.json", "example:publication-receipt.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-finding-cursor.v1.schema.json", "example:finding-cursor.v1.valid.json"},
+
 	{"https://mulgae.local/schemas/mulgae-command-result.v12.schema.json", "example:command-result.v12.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v13.schema.json", "example:command-result.v13.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v11.schema.json", "example:command-result.v11.valid.json"},

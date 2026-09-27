@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-capture-manifest.v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target",
+    "policy_identity",
+    "sides",
+    "files",
+    "context"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-capture-manifest.v1"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "git_mode",
+        "sha256",
+        "size",
+        "base_object_id",
+        "head_object_id",
+        "head_tree_object_id",
+        "index_tree_object_id"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "git",
+            "workspace",
+            "patch",
+            "stdin"
+          ]
+        },
+        "git_mode": {
+          "type": "string",
+          "enum": [
+            "",
+            "diff",
+            "stage",
+            "dirty"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "not": {
+            "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "base_object_id": {
+          "type": "string",
+          "pattern": "^(|[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "head_object_id": {
+          "type": "string",
+          "pattern": "^(|[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "head_tree_object_id": {
+          "type": "string",
+          "pattern": "^(|[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "index_tree_object_id": {
+          "type": "string",
+          "pattern": "^(|[0-9a-f]{40}|[0-9a-f]{64})$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "git"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "git_mode": {
+                "enum": [
+                  "diff",
+                  "stage",
+                  "dirty"
+                ]
+              },
+              "base_object_id": {
+                "type": "string",
+                "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+                "not": {
+                  "enum": [
+                    "0000000000000000000000000000000000000000",
+                    "0000000000000000000000000000000000000000000000000000000000000000"
+                  ]
+                }
+              },
+              "head_object_id": {
+                "type": "string",
+                "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+                "not": {
+                  "enum": [
+                    "0000000000000000000000000000000000000000",
+                    "0000000000000000000000000000000000000000000000000000000000000000"
+                  ]
+                }
+              },
+              "head_tree_object_id": {
+                "type": "string",
+                "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+                "not": {
+                  "enum": [
+                    "0000000000000000000000000000000000000000",
+                    "0000000000000000000000000000000000000000000000000000000000000000"
+                  ]
+                }
+              },
+              "index_tree_object_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+                    "not": {
+                      "enum": [
+                        "0000000000000000000000000000000000000000",
+                        "0000000000000000000000000000000000000000000000000000000000000000"
+                      ]
+                    }
+                  },
+                  {
+                    "const": ""
+                  }
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "git_mode": {
+                "const": ""
+              },
+              "base_object_id": {
+                "const": ""
+              },
+              "head_object_id": {
+                "const": ""
+              },
+              "head_tree_object_id": {
+                "const": ""
+              },
+              "index_tree_object_id": {
+                "const": ""
+              },
+              "size": {
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "git_mode": {
+                "const": "stage"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "index_tree_object_id": {
+                "minLength": 40
+              }
+            }
+          }
+        }
+      ]
+    },
+    "policy_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sides": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "base",
+          "head",
+          "index",
+          "snapshot",
+          "worktree"
+        ]
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "side",
+          "path",
+          "media_type",
+          "disposition",
+          "size",
+          "sha256"
+        ],
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": [
+              "base",
+              "head",
+              "index",
+              "snapshot",
+              "worktree"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "text/plain",
+              "application/octet-stream",
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ]
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "text",
+              "binary_preserved"
+            ]
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "not": {
+              "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            }
+          }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "present",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            {
+              "const": ""
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "present": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "size": {
+                "const": 0
+              },
+              "sha256": {
+                "const": ""
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "not": {
+                  "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

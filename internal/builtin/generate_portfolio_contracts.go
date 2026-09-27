@@ -88,6 +88,22 @@ func updateFileCatalog(assets string, pairs []contractPair) error {
 			byPath[targetPath] = clone
 		}
 	}
+	// Inactive EPIC-007 value contracts are catalogued independently of runtime
+	// command versions. Their source schemas and examples are hand-authored.
+	for _, name := range []string{"capture-manifest", "request-receipt", "publication-receipt", "finding-cursor"} {
+		schema := "sot/schemas/mulgae-" + name + ".v1.schema.json"
+		example := "sot/examples/" + name + ".v1.valid.json"
+		for path, pair := range map[string]string{schema: example, example: schema} {
+			if _, exists := byPath[path]; exists {
+				continue
+			}
+			document.Files = append(document.Files, map[string]any{
+				"path": path, "pair": pair, "schema_id": "https://mulgae.local/schemas/mulgae-" + name + ".v1.schema.json",
+				"consumers": []string{"verified-review-contracts"}, "media_type": "application/json",
+				"disposition": "ADDED", "checksum_inclusion": true, "exclusion_reason": nil,
+			})
+		}
+	}
 	sort.Slice(document.Files, func(i, j int) bool {
 		return document.Files[i]["path"].(string) < document.Files[j]["path"].(string)
 	})

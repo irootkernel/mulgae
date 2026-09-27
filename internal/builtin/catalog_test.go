@@ -560,6 +560,11 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 	t.Parallel()
 
 	expected := []schemaExamplePair{
+		{"https://mulgae.local/schemas/mulgae-capture-manifest.v1.schema.json", "schemas/mulgae-capture-manifest.v1.schema.json", "examples/capture-manifest.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json", "schemas/mulgae-request-receipt.v1.schema.json", "examples/request-receipt.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-publication-receipt.v1.schema.json", "schemas/mulgae-publication-receipt.v1.schema.json", "examples/publication-receipt.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-finding-cursor.v1.schema.json", "schemas/mulgae-finding-cursor.v1.schema.json", "examples/finding-cursor.v1.valid.json"},
+
 		{"https://mulgae.local/schemas/mulgae-command-result.v11.schema.json", "schemas/mulgae-command-result.v11.schema.json", "examples/command-result.v11.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v12.schema.json", "examples/command-result.v12.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v13.schema.json", "schemas/mulgae-command-result.v13.schema.json", "examples/command-result.v13.valid.json"},
@@ -605,8 +610,8 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.v1.valid.json"},
 	}
-	if len(expected) != 43 {
-		t.Fatalf("test pair inventory contains %d pairs, want 43", len(expected))
+	if len(expected) != 47 {
+		t.Fatalf("test pair inventory contains %d pairs, want 47", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

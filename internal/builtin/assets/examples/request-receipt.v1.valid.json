@@ -1,0 +1,16 @@
+{
+  "schema_version": "mulgae-request-receipt.v1",
+  "project_binding": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "capture_identity": "sha256:0077fd8c88bc3c0ce7a4847e7db10f202e79c7371a9ae9ce7fc8a53dec48391c",
+  "components": {
+    "target_selection": "sha256:a50ceb95e3fb88a067f57e1af97a3aae21c4b08a7b12732d978632b0cafb50bc",
+    "objective": "sha256:33da63d08d36bf5b9eabedf138fb813161568e697b2c870b3c67ddb9444b9aca",
+    "roles": "sha256:fe17ea3104205d23b6375fdc8297c53b74f45087b5fc07182e6d491cc11fd80b",
+    "policy": "sha256:2d7f173613d05c7046e6b0ffe8498ea3eb6aad6e7440226e14b31bd2c33bf320",
+    "routes": "sha256:599859d101f445eb4f671fca16f714cd4262ae34030b67f97402236fdd7bf642",
+    "assets": "sha256:67fc6b85f0454031aefe62a200040827bd1f7dd3e05bfe3aba91fea6d8bfd3d8",
+    "budget": "sha256:9b59b933a6fa1cbfcfbbb731d220f26dcb34a6f3503a358d7f334a78d5e1cd69",
+    "workflow": "sha256:b1d766c19627bfb691c8027c6988e28320be46392ecfb384bccd7c9f61585f1a"
+  },
+  "request_digest": "sha256:864514e735fb256a11104a6b24783412f8919642a7d798e74e2a0716413eda77"
+}

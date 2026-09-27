@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-finding-cursor.v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scope",
+    "offset"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-finding-cursor.v1"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_binding",
+        "publication_receipt",
+        "run_id",
+        "query_kind",
+        "minimum_severity",
+        "limit"
+      ],
+      "properties": {
+        "project_binding": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "not": {
+            "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "publication_receipt": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "not": {
+            "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "query_kind": {
+          "type": "string",
+          "enum": [
+            "inspect",
+            "findings"
+          ]
+        },
+        "minimum_severity": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "blocker"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    }
+  }
+}

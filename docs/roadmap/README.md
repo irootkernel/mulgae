@@ -26,7 +26,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | Completed | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
-| [EPIC-007](#epic-007-verified-review-contracts) | Planned | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
+| [EPIC-007](#epic-007-verified-review-contracts) | In Progress | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
 | [EPIC-008](#epic-008-review-completeness-and-iteration) | Planned | Assess explicit requirements, recheck selected findings as a bounded batch, and compare exact review results without conflating non-observation with resolution. |
 
 ## Adopted execution order
@@ -308,7 +308,7 @@ not implementation or provider-certification evidence.
 
 ## EPIC-007: Verified review contracts
 
-Status: Planned
+Status: In Progress
 
 Depends on: completed TASK-018 and the existing capture, publication, query,
 composite recovery, and attached-lifecycle baseline. No new external provider,
@@ -333,7 +333,7 @@ completed capability; it does not supply a missing identity implementation.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-019 | Planned | Freeze distinct project/capture/request/publication identities, guards, read/page interfaces, errors, and compatibility contracts. | Equal-patch/different-support and same-capture/different-request tests, canonical encoding/cursors, schema semantics, historical support matrix, generators, and `make test-prepare`. |
+| TASK-019 | Completed | Freeze distinct project/capture/request/publication identities, guards, read/page interfaces, errors, and compatibility contracts. | Equal-patch/different-support and same-capture/different-request tests, canonical encoding/cursors, schema semantics, historical support matrix, generators, and `make test-prepare`. |
 | TASK-020 | Planned | Expose independently comparable, descriptor-backed project binding through CLI context and MCP get_context. | Equal-content different roots, canonical aliases, linked worktrees, replacement detection, redaction, CLI/MCP parity, and zero provider or persistent-write calls. |
 | TASK-021 | Planned | Bind complete preflight input to guarded admission, execute the checked capture/plan, and retain canonical capture verification support in new ordinary/no-change and existing child publications. | Equal-patch support drift, request-only changes, zero provider calls on rejection, retained support integrity, unchanged no-change outcome, legacy guards, and cancellation/await semantics. |
 | TASK-022 | Planned | Add one-receipt inspection with verified capture identity/availability, structured finding pages, detail reads, and CLI/MCP parity. | Coherent paging under corruption, cleanup, epoch/filter changes, unavailable historical capture support versus damaged support, and reports-only/diagnostic-only results. |
