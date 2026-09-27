@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/irootkernel/mulgae/internal/app/capture"
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -228,6 +229,13 @@ func (service *Service) inspectCommitted(ctx context.Context, run ports.Publicat
 		return CommittedReview{}, InspectionReceipt{}, nil, typedFailure("query.inspect", domain.FailureArtifact, "support index binding is absent", err)
 	}
 	receipt := InspectionReceipt{SchemaVersion: InspectionReceiptVersion, ProjectBinding: binding.String(), SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), TargetSHA256: review.TargetSHA256(), FinalSHA256: review.FinalSHA256(), ManifestSHA256: review.ManifestSHA256(), SupportSHA256: envelope.CompositeIdentity.SupportIndex.SHA256, LineageSHA256: review.LineageEdgeSHA256(), Epoch: review.Epoch(), CaptureAvailability: "capture_identity_unavailable"}
+	if review.compositeSupport != nil {
+		if common := review.compositeSupport.CommonCapture(); common != "" {
+			receipt.CaptureIdentity = common
+			receipt.CaptureAvailability = "verified"
+		}
+		return review, receipt, index, nil
+	}
 	path, _ := ports.NewSafeRelativePath(run.SessionID().String() + "/" + run.RunID().String() + "/target/capture-manifest.json")
 	if _, ok := index[path.String()]; ok {
 		artifact, readErr := service.readIndexedRuntimeArtifact(ctx, run, review, index, path)
@@ -321,6 +329,30 @@ func (service *Service) ReadFinding(ctx context.Context, run ports.PublicationRu
 		}
 		if finding.ID != findingID {
 			continue
+		}
+		if review.compositeSupport != nil {
+			var detail map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &detail); err != nil {
+				return ContentChunk{}, err
+			}
+			prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
+			detail["source_finding"] = review.compositeArtifacts[prefix+compositesupport.FindingPath(findingID)].Bytes()
+			for _, copied := range review.compositeSupport.Findings {
+				if copied.ID == findingID {
+					for _, source := range review.compositeSupport.Sources {
+						if source.Role == copied.Role {
+							detail["source_receipt"], err = json.Marshal(source)
+							if err != nil {
+								return ContentChunk{}, err
+							}
+						}
+					}
+				}
+			}
+			raw, err = json.Marshal(detail)
+			if err != nil {
+				return ContentChunk{}, err
+			}
 		}
 		var canonical bytes.Buffer
 		if err = json.Compact(&canonical, raw); err != nil {

@@ -433,13 +433,20 @@ func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.P
 		if classifyErr != nil {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact path is invalid", classifyErr)
 		}
-		if kind == ports.RunSupportArtifactCaptureManifest && index.SchemaVersion != "mulgae-run-support-index.v2" {
+		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && index.SchemaVersion != "mulgae-run-support-index.v2" {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "capture manifest requires support index v2", nil)
 		}
 		if _, duplicate := identities[item.Path]; duplicate {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact is ambiguous", nil)
 		}
 		identities[item.Path] = item.SHA256
+	}
+	if index.SchemaVersion == "mulgae-run-support-index.v2" && review.RunType() == domain.RunTypeComposite {
+		if _, ok := identities[run.SessionID().String()+"/"+run.RunID().String()+"/support/composite.json"]; !ok {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "composite support metadata absent", nil)
+		}
+		// The committed snapshot reader verifies every copied artifact and final binding.
+		return identities, nil
 	}
 	if index.SchemaVersion == "mulgae-run-support-index.v2" {
 		artifacts := make(map[string]ports.ImmutablePublicationArtifact)
@@ -1311,6 +1318,10 @@ func (service *Service) readCommittedSnapshot(
 		review, err := buildCompositeCommittedReview(run, observation.decision, snapshot, finalRecord, manifestRecord)
 		if err != nil {
 			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed composite semantic validation failed", err)
+		}
+		review, err = service.bindCompositeSupport(ctx, run, review)
+		if err != nil {
+			return CommittedReview{}, err
 		}
 		confirmation, err := service.observe(ctx, run, stage)
 		if err != nil {

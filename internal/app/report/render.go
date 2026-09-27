@@ -397,7 +397,14 @@ func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
 			return fmt.Errorf("finding %d does not match the committed query view", index)
 		}
 		evidence := finding.Evidence()
-		if review.RunType() == domain.RunTypeComposite && len(value.Evidence) == 0 && len(evidence) == 0 {
+		if review.RunType() == domain.RunTypeComposite && len(value.Evidence) == 0 {
+			// Composite finals retain their original evidence-free format. Query
+			// binds copied claims separately to the immutable support index.
+			for _, claim := range evidence {
+				if claim.CopiedAvailability() != "verified" && claim.CopiedAvailability() != "evidence_unavailable" {
+					return fmt.Errorf("finding %d composite evidence is not bound to copied support", index)
+				}
+			}
 			continue
 		}
 		items, err := canonicalReportEvidenceItems(value.Evidence)
@@ -798,6 +805,10 @@ func renderMarkdown(
 			writeField(&output, "Current side", string(item.Side()))
 			writeField(&output, "Current path", item.Path().String())
 			writeField(&output, "Current lines", fmt.Sprintf("%d-%d", item.LineStart(), item.LineEnd()))
+			if review.RunType() == domain.RunTypeComposite && item.CopiedAvailability() == "evidence_unavailable" {
+				writeField(&output, "Evidence availability", "evidence_unavailable")
+				continue
+			}
 			writeField(&output, "Committed verification", string(item.Verification()))
 
 			excerpt, err := renderEvidenceExcerpt(ctx, reader, run, finding.ID(), review.TargetSHA256(), evidenceIndex+1)

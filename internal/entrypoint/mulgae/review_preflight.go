@@ -18,7 +18,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v6"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v7"
 
 // ReviewPreflightService projects the exact capture and configured execution
 // envelope without provider discovery, qualification, invocation, or durable
@@ -215,7 +215,7 @@ func NewReviewPreflightResult(
 	}
 	result := ReviewPreflightResult{
 		SchemaVersion:   reviewPreflightSchemaVersion,
-		CaptureIdentity: captureIdentity, Capabilities: query.VerifiedReadCapabilities{CaptureIdentity: "v1"},
+		CaptureIdentity: captureIdentity, Capabilities: query.VerifiedReadCapabilities{CaptureIdentity: "v1", CompositeEvidence: "v1"},
 		Status:        status,
 		Qualification: "not_run",
 		Target: ReviewPreflightTarget{

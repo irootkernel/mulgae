@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/app/capture"
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -354,7 +355,13 @@ func (service *Service) publishCandidate(
 				return PublicationResult{}, publicationFailure("publish.validate", domain.FailureArtifact, "committed composition omitted snapshot", nil)
 			}
 			bound, bindingErr := committedSnapshotValidatedCandidateSHA256(snapshot)
-			if bindingErr != nil || bound != candidateHash {
+			matches := bound == candidateHash
+			if bindingErr == nil && !matches && bound == candidate.(PreparedCompositeCandidate).legacyCandidateSHA256() {
+				// Only an already committed legacy mapping may retain its old
+				// binding. Interrupted and new publications bind every copied byte.
+				matches, bindingErr = service.isLegacyCompositeSupport(ctx, run, snapshot)
+			}
+			if bindingErr != nil || !matches {
 				return PublicationResult{}, publicationFailure("publish.validate", domain.FailureArtifact, "run identity is already bound to different composition inputs", bindingErr)
 			}
 			return service.p2ResultFromDecision(ctx, run, existing, decision, nil, nil, true)
@@ -418,6 +425,39 @@ func (service *Service) publishCandidate(
 	}
 	if err := validatePublicationBundleSize(preflightBundle, service.maxBytes); err != nil {
 		return PublicationResult{}, publicationFailure("publish.preflight", domain.FailureArtifact, "publication bundle exceeds configured byte limits", err)
+	}
+	var pinnedSupportIndex ports.SafeRelativePath
+	if composite, ok := candidate.(PreparedCompositeCandidate); ok && len(composite.input.SourceSupport) > 0 {
+		// Pin the entire copied support inventory before candidate persistence.
+		// Final v1/v2 bytes intentionally omit evidence; they alone cannot bind
+		// an interrupted preparation to its source receipts and copied bytes.
+		for _, artifact := range preflightBundle.SupportArtifacts() {
+			kind, _ := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), artifact.Path())
+			if kind != ports.RunSupportArtifactSupportIndex {
+				continue
+			}
+			pinnedSupportIndex = artifact.Path()
+			adopted, err := preparationStore.AdoptCompositePreparationArtifact(ctx, run, artifact)
+			if err != nil {
+				return PublicationResult{}, service.storeFailure(ctx, "publish.resume", "composite support binding differs or is unsafe", err)
+			}
+			if !adopted {
+				request, err := ports.NewPersistRunSupportArtifactRequest(run, artifact)
+				if err != nil {
+					return PublicationResult{}, err
+				}
+				persisted, err := service.store.PersistAuxiliaryArtifact(ctx, request)
+				if err != nil {
+					return PublicationResult{}, service.storeFailure(ctx, "publish.persist_support", "composite support binding persistence failed", err)
+				}
+				if persisted.Durability() != ports.AuxiliaryArtifactDurable || !persistedAuxiliaryMatches(persisted, run, artifact) {
+					return PublicationResult{}, publicationFailure("publish.persist_support", domain.FailureArtifact, "composite support binding receipt differs", nil)
+				}
+			}
+		}
+		if !pinnedSupportIndex.Valid() {
+			return PublicationResult{}, publicationFailure("publish.preflight", domain.FailureInternal, "composite support index absent", nil)
+		}
 	}
 	if err := service.checkpoint(ctx, "publish.issue_review_id"); err != nil {
 		return PublicationResult{}, err
@@ -524,7 +564,7 @@ func (service *Service) publishCandidate(
 			return PublicationResult{}, err
 		}
 		adopted := false
-		if resumed.Valid() {
+		if resumed.Valid() || support.Path() == pinnedSupportIndex {
 			adopted, err = preparationStore.AdoptCompositePreparationArtifact(ctx, run, support)
 			if err != nil {
 				return PublicationResult{}, service.storeFailure(ctx, "publish.resume", "persisted support differs or is unsafe", err)
@@ -683,6 +723,34 @@ func (service *Service) publishCandidate(
 	}
 	final := bundle.Final().Identity()
 	return service.p2Result(ctx, run, &issued, &final, persistedSupportArtifacts)
+}
+
+func (service *Service) isLegacyCompositeSupport(ctx context.Context, run ports.PublicationRun, snapshot ports.CommittedPublicationSnapshot) (bool, error) {
+	var manifest compositeManifestReadWire
+	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &manifest, "committed composite manifest"); err != nil {
+		return false, err
+	}
+	index := manifest.CompositeIdentity.SupportIndex
+	path, err := ports.NewSafeRelativePath(index.Path)
+	if err != nil {
+		return false, err
+	}
+	request, err := ports.NewReadRunSupportArtifactRequest(run, path, index.SHA256, math.MaxInt64-1)
+	if err != nil {
+		return false, err
+	}
+	artifact, err := service.store.ReadAuxiliaryArtifact(ctx, request)
+	if err != nil {
+		return false, err
+	}
+	if !artifact.Valid() || artifact.Path() != path || artifact.SHA256() != index.SHA256 {
+		return false, fmt.Errorf("legacy support index binding differs")
+	}
+	var support runSupportIndexWire
+	if err := unmarshalCanonicalPublicationRecord(artifact.Bytes(), &support, "committed support index"); err != nil {
+		return false, err
+	}
+	return support.SchemaVersion == "mulgae-run-support-index.v1", nil
 }
 
 // Recover applies only the action selected by a fresh domain classification.
@@ -1298,12 +1366,30 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		if classifyErr != nil {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support path invalid", classifyErr)
 		}
-		if kind == ports.RunSupportArtifactCaptureManifest && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
+		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "capture manifest requires support v2", nil)
 		}
-		if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" && (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCapturedArchive || kind == ports.RunSupportArtifactCapturedBlob) {
+		if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" {
 			captureArtifacts[path.String()] = artifact
 		}
+	}
+	if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" && (envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2") {
+		var final struct {
+			Target struct {
+				SHA256 string `json:"content_sha256"`
+			} `json:"target"`
+		}
+		if err := json.Unmarshal(snapshot.Final().Bytes(), &final); err != nil {
+			return nil, err
+		}
+		doc, err := compositesupport.Verify(run.SessionID(), run.RunID(), final.Target.SHA256, captureArtifacts)
+		if err != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "composite support invalid", err)
+		}
+		if err := compositesupport.VerifyFinal(doc, run.SessionID(), run.RunID(), snapshot.Final().Bytes(), captureArtifacts); err != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "composite source binding invalid", err)
+		}
+		return identities, nil
 	}
 	if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" {
 		var final finalReviewWire

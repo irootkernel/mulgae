@@ -204,31 +204,31 @@ Tasks record release notes when those capabilities become available.
 
 **Implement**
 
-- [ ] Extend new composite support with verified source finding/evidence copies,
+- [x] Extend new composite support with verified source finding/evidence copies,
       source receipts, remapped IDs, per-source capture identity/support, and
       per-item capability metadata. Expose a common capture only when every
       contributing role capture is proved equal; preserve composition admission.
-- [ ] Support published and retained failed-run recovery sources without
+- [x] Support published and retained failed-run recovery sources without
       changing exact same-target composition or replacing accepted roles.
-- [ ] Integrate atomic publication/recovery, query, cleanup, and export policy.
+- [x] Integrate atomic publication/recovery, query, cleanup, and export policy.
       Keep legacy composites readable with explicit evidence unavailability.
-- [ ] Preserve idempotent existing mappings: finding an already published legacy
+- [x] Preserve idempotent existing mappings: finding an already published legacy
       composite returns it unchanged, not a retrofitted artifact at the same ID.
 
 **Do not**
 
-- [ ] Repair old evidence implicitly, read source runs lazily after publication,
+- [x] Repair old evidence implicitly, read source runs lazily after publication,
       include additional private source in exports by default, or weaken replay.
 
 **Verify and complete**
 
-- [ ] Exercise ordinary/recovery sources, missing legacy evidence, ID remapping,
+- [x] Exercise ordinary/recovery sources, missing legacy evidence, ID remapping,
       interrupted support writes, journal replay, corruption, and exact reuse.
-- [ ] Verify newly self-contained evidence and capture identities after source
+- [x] Verify newly self-contained evidence and capture identities after source
       cleanup permitted by the native cleanup contract and working-tree changes.
       Equal patches with unequal or unavailable source captures must not yield
       a falsely verified common capture identity.
-- [ ] Run composition/publication/query/export/cleanup tests and applicable
+- [x] Run composition/publication/query/export/cleanup tests and applicable
       integration/release gates. Complete with old/new artifact fixture coverage.
 
 ## TASK-025: Certify integrated contracts and simplify operating guidance

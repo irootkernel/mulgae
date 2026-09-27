@@ -196,6 +196,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json", "example:request-receipt.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-publication-receipt.v1.schema.json", "example:publication-receipt.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-finding-cursor.v1.schema.json", "example:finding-cursor.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-composite-support.v1.schema.json", "example:composite-support.v1.valid.json"},
 
 	{"https://mulgae.local/schemas/mulgae-command-result.v12.schema.json", "example:command-result.v12.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v13.schema.json", "example:command-result.v13.valid.json"},
@@ -203,6 +204,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-command-result.v15.schema.json", "example:command-result.v15.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v16.schema.json", "example:command-result.v16.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v17.schema.json", "example:command-result.v17.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-command-result.v18.schema.json", "example:command-result.v18.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v11.schema.json", "example:command-result.v11.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v10.schema.json", "example:command-result.v10.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v9.schema.json", "example:command-result.v9.valid.json"},
@@ -241,6 +243,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", "example:review-artifact.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v5.schema.json", "example:review-preflight.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v6.schema.json", "example:review-preflight.v6.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-review-preflight.v7.schema.json", "example:review-preflight.v7.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v4.schema.json", "example:review-preflight.v4.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json", "example:review-preflight.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "example:run-manifest.v1.valid.json"},

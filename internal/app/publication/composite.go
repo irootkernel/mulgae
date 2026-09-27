@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -68,6 +69,7 @@ type CompositeRoleReportInput struct {
 }
 
 type CompositeCandidateInput struct {
+	SourceSupport              []compositesupport.Material
 	SessionID                  domain.SessionID
 	RunID                      domain.RunID
 	Fingerprint                domain.CompositionFingerprint
@@ -92,6 +94,10 @@ type CompositeCandidateInput struct {
 type PreparedCompositeCandidate struct{ input CompositeCandidateInput }
 
 func PrepareCompositeCandidate(input CompositeCandidateInput) (PreparedCompositeCandidate, error) {
+	input.SourceSupport = append([]compositesupport.Material(nil), input.SourceSupport...)
+	for i := range input.SourceSupport {
+		input.SourceSupport[i] = compositesupport.Clone(input.SourceSupport[i])
+	}
 	input.TargetBytes = cloneBytes(input.TargetBytes)
 	input.CapturedArchive = cloneBytes(input.CapturedArchive)
 	input.Sources = append([]CompositeSourceInput(nil), input.Sources...)
@@ -120,6 +126,20 @@ func (candidate PreparedCompositeCandidate) Valid() bool         { return candid
 
 func (candidate PreparedCompositeCandidate) validate() error {
 	in := candidate.input
+	if len(in.SourceSupport) > 0 {
+		if len(in.SourceSupport) != len(in.Sources) {
+			return fmt.Errorf("source support inventory differs")
+		}
+		for i, m := range in.SourceSupport {
+			s := in.Sources[i]
+			if m.Source.Role != s.Role || m.Source.RunID != s.RunID.String() || m.Source.ReviewID != s.ReviewID.String() || m.Source.RecoveryManifestSHA256 != s.RecoveryManifestSHA256 || m.Source.AttemptID != s.AttemptID.String() {
+				return fmt.Errorf("source support identity differs")
+			}
+		}
+		if _, err := compositesupport.Build(in.SessionID, in.RunID, in.SourceSupport); err != nil {
+			return err
+		}
+	}
 	expected, err := in.Fingerprint.RunID()
 	if err != nil || expected != in.RunID {
 		return fmt.Errorf("run ID does not match composition fingerprint")
@@ -235,6 +255,13 @@ func (candidate PreparedCompositeCandidate) ValidatedCandidateSHA256() string {
 	if !candidate.Valid() {
 		return ""
 	}
+	return candidate.candidateSHA256(true)
+}
+
+func (candidate PreparedCompositeCandidate) legacyCandidateSHA256() string {
+	return candidate.candidateSHA256(false)
+}
+func (candidate PreparedCompositeCandidate) candidateSHA256(includeSupport bool) string {
 	digest := sha256.New()
 	write := func(value string) {
 		var size [8]byte
@@ -322,6 +349,18 @@ func (candidate PreparedCompositeCandidate) ValidatedCandidateSHA256() string {
 		}
 		write(finding.SourceAttemptID.String())
 		write(finding.SourceFindingID)
+	}
+	if includeSupport && len(candidate.input.SourceSupport) > 0 {
+		write("Mulgae-COMPOSITE-SUPPORT/1")
+		artifacts, err := compositesupport.Build(candidate.input.SessionID, candidate.input.RunID, candidate.input.SourceSupport)
+		if err != nil {
+			return ""
+		}
+		sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path().String() < artifacts[j].Path().String() })
+		for _, a := range artifacts {
+			write(a.Path().String())
+			write(a.SHA256())
+		}
 	}
 	return "sha256:" + fmt.Sprintf("%x", digest.Sum(nil))
 }
@@ -546,6 +585,19 @@ func (candidate PreparedCompositeCandidate) Build(ctx context.Context, validator
 	if err != nil {
 		return PublicationBundle{}, err
 	}
+	if len(candidate.input.SourceSupport) > 0 {
+		byPath := map[string]ports.ImmutablePublicationArtifact{}
+		for _, a := range support {
+			byPath[a.Path().String()] = a
+		}
+		doc, err := compositesupport.Verify(candidate.input.SessionID, candidate.input.RunID, "sha256:"+candidate.input.Target.SHA256(), byPath)
+		if err != nil {
+			return PublicationBundle{}, err
+		}
+		if err := compositesupport.VerifyFinal(doc, candidate.input.SessionID, candidate.input.RunID, finalBytes, byPath); err != nil {
+			return PublicationBundle{}, err
+		}
+	}
 	finalSchema, _ := ports.ParseAssetID(lineageSchema(compositeFinalSchemaAsset, optionalString(candidate.input.RootRecoveryManifestSHA256)))
 	if err := validator.Validate(ctx, finalSchema, cloneBytes(finalBytes)); err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication composite final schema: %w", err)
@@ -644,6 +696,13 @@ func (candidate PreparedCompositeCandidate) buildCompositeSupport(paths publicat
 		artifacts = append(artifacts, artifact)
 		wires[i] = compositeManifestRoleWire{string(report.Role), relative, artifact.SHA256(), len(report.Bytes), report.AttemptID.String(), report.SourceRunID.String()}
 	}
+	if len(candidate.input.SourceSupport) > 0 {
+		copied, err := compositesupport.Build(candidate.input.SessionID, candidate.input.RunID, candidate.input.SourceSupport)
+		if err != nil {
+			return nil, nil, err
+		}
+		artifacts = append(artifacts, copied...)
+	}
 	return artifacts, wires, nil
 }
 
@@ -655,11 +714,12 @@ func validateCompositeBundleSemantics(bundle PublicationBundle) error {
 		return fmt.Errorf("composite staged final mismatch")
 	}
 	var final struct {
-		SchemaVersion string `json:"schema_version"`
-		SessionID     string `json:"session_id"`
-		RunID         string `json:"run_id"`
-		ReviewID      string `json:"review_id"`
-		RunType       string `json:"run_type"`
+		SchemaVersion string              `json:"schema_version"`
+		SessionID     string              `json:"session_id"`
+		RunID         string              `json:"run_id"`
+		ReviewID      string              `json:"review_id"`
+		RunType       string              `json:"run_type"`
+		Target        compositeTargetWire `json:"target"`
 	}
 	if err := json.Unmarshal(bundle.final.Bytes(), &final); err != nil {
 		return err
@@ -685,6 +745,61 @@ func validateCompositeBundleSemantics(bundle PublicationBundle) error {
 	}
 	if (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2") || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || manifest.RunType != final.RunType || manifest.FinalReview.SHA256 != bundle.final.Identity().SHA256() || manifest.CompositeIdentity.SupportIndex.SHA256 == "" {
 		return fmt.Errorf("invalid composite manifest binding")
+	}
+	session, err := domain.ParseSessionID(final.SessionID)
+	if err != nil {
+		return err
+	}
+	run, err := domain.ParseRunID(final.RunID)
+	if err != nil {
+		return err
+	}
+	artifacts := make(map[string]ports.ImmutablePublicationArtifact, len(bundle.excerpts))
+	for _, artifact := range bundle.excerpts {
+		if !artifact.Valid() {
+			return fmt.Errorf("invalid composite support artifact")
+		}
+		if _, exists := artifacts[artifact.Path().String()]; exists {
+			return fmt.Errorf("duplicate composite support artifact")
+		}
+		artifacts[artifact.Path().String()] = artifact
+	}
+	indexIdentity := manifest.CompositeIdentity.SupportIndex
+	index, ok := artifacts[indexIdentity.Path]
+	if !ok || index.SHA256() != indexIdentity.SHA256 {
+		return fmt.Errorf("composite support index differs")
+	}
+	var support runSupportIndexWire
+	if err := unmarshalCanonicalPublicationRecord(index.Bytes(), &support, "composite support index"); err != nil {
+		return err
+	}
+	if support.SchemaVersion != "mulgae-run-support-index.v1" && support.SchemaVersion != "mulgae-run-support-index.v2" {
+		return fmt.Errorf("invalid composite support version")
+	}
+	seen := map[string]bool{indexIdentity.Path: true}
+	for _, identity := range support.Artifacts {
+		artifact, ok := artifacts[identity.Path]
+		if !ok || seen[identity.Path] || artifact.SHA256() != identity.SHA256 {
+			return fmt.Errorf("composite support binding differs")
+		}
+		seen[identity.Path] = true
+		kind, err := ports.ClassifyRunSupportArtifactPath(session, run, artifact.Path())
+		if err != nil {
+			return err
+		}
+		if support.SchemaVersion == "mulgae-run-support-index.v1" && (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) {
+			return fmt.Errorf("composite provenance requires support v2")
+		}
+	}
+	if len(seen) != len(artifacts) {
+		return fmt.Errorf("unbound composite support artifact")
+	}
+	if support.SchemaVersion == "mulgae-run-support-index.v2" {
+		doc, err := compositesupport.Verify(session, run, final.Target.ContentSHA256, artifacts)
+		if err != nil {
+			return err
+		}
+		return compositesupport.VerifyFinal(doc, session, run, bundle.final.Bytes(), artifacts)
 	}
 	return nil
 }

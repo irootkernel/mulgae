@@ -1,10 +1,10 @@
 # Verified review contracts
 
-This specification defines adopted, not-yet-implemented requirements for
+This specification defines the requirements and implemented contracts for
 [EPIC-007](../roadmap/README.md#epic-007-verified-review-contracts).
-It does not change what an installed binary supports. The existing
-[contracts](contracts.md) remain the implemented baseline until each owning
-Task updates source, tests, embedded contracts, and user guidance together.
+The [contracts](contracts.md) describe the current runtime surfaces. TASK-025
+still owns verification through the exact supported client and the operating-guidance
+update; these requirements alone do not establish that acceptance.
 The [development dossier](../todo/EPIC-007-verified-review-contracts.md) owns
 temporary implementation sequencing; the roadmap alone owns delivery status.
 
@@ -237,12 +237,22 @@ run/attempt/finding identity, per-source complete capture identity and its
 verification support, and any composite finding remapping. A patch-only source
 must not be presented as proving full-capture equality.
 
-After publication, evidence reads must require neither a surviving source run
+TASK-024 implements these copies as `mulgae-composite-support.v1` under
+support-index v2, with unchanged composite final and manifest versions.
+Published source receipts retain P2 identities and epoch. Failed recovery
+receipts carry the recovery manifest digest and attempt with an empty review ID
+and no P2 claim. Local finding details include `source_finding` and
+`source_receipt`; copied provider identities retain retirement provenance.
+
+After publication, evidence reads require neither a surviving source run
 nor the current working tree. Reuse atomic publication and recovery; interrupted
 copies cannot leave a readable final. Integrate cleanup dependency and export
-rules so a permitted source cleanup does not break the new composite. Exports
+rules so a permitted source cleanup does not break the new composite. Failed
+recovery roots remain protected by the existing cleanup policy. Exports
 retain their existing opt-in content/redaction boundaries; evidence support is
-not permission to include extra private source in an export.
+not permission to include extra private source in an export. The existing export
+allowlist excludes the added copied source findings, receipts, capture support
+and evidence bodies.
 
 Old composite versions without evidence stay readable for their existing
 surfaces and explicitly report evidence unavailable. Do not mutate them, infer
@@ -511,14 +521,14 @@ reader can still return `evidence_unavailable` for a legacy item.
 
 | Contract | Current writer / reader | Owning Task and next change |
 |---|---|---|
-| CLI command envelope | v17 emission with context, admission and complete verified content reads; v5-v16 schemas retained unchanged | TASK-023 adds report and indexed-evidence chunks. Strict old readers may reject v17. |
-| Preflight | v6 emission with request/capture receipt; v3-v5 fixtures retained | TASK-021. Historical v5 does not assert guard support. |
+| CLI command envelope | v18 emission with self-contained composite evidence; v5-v17 schemas retained unchanged | TASK-024 advertises composite evidence. Strict old readers may reject v18. |
+| Preflight | v7 emission with request/capture receipt and composite evidence capability; v3-v6 fixtures retained | TASK-024. Historical v5 does not assert guard support. |
 | MCP tool envelope | v1 unchanged | Keep the outer v1 envelope; data contracts and advertised capabilities distinguish new projections. |
 | Capture/request/publication/cursor | Four v1 schema/example pairs; capture and request are emitted; inspection emits receipts and cursors | Unknown versions fail closed. |
 | Ordinary/child final and manifest | Current v1 plus existing recovery v2, unchanged | TASK-021 retains complete capture support through support-index v2. |
 | Composite final and manifest | Current v1/v2, unchanged | TASK-024 uses support-index v2 for self-contained evidence and per-source capture support. Existing exact mappings stay unchanged. |
-| Run support index | v2 for complete ordinary/child/no-change captures; historical v1 remains readable | TASK-021 requires the indexed capture manifest and retained material. Historical child replays without complete sides retain unavailable identity. TASK-024 adds composite per-source support. Old strict binaries may reject v2. |
-| Content resources | Finding detail, report and indexed evidence are receipt-bound; legacy report/evidence URI semantics remain supported | TASK-023 implemented; TASK-024 adds self-contained composite evidence. |
+| Run support index | v2 for complete ordinary/child/no-change captures and new composite support; historical v1 remains readable | TASK-021 requires the indexed capture manifest and retained material. Historical child replays without complete sides retain unavailable identity. TASK-024 retains composite per-source support. Old strict binaries may reject v2. |
+| Content resources | Finding detail, report and indexed evidence are receipt-bound; legacy report/evidence URI semantics remain supported | TASK-023/024 implemented; copied composite evidence uses the same verified reads. |
 
 Support-index v2 must hash-bind every added capture manifest and archive/blob,
 and composite provenance/evidence item before publication commits. Its strict

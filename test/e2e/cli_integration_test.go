@@ -312,7 +312,7 @@ func testReleaseBinaryComposesRecoveredRole(t *testing.T, failedRole string) {
 	logDirectory := canonicalTestTempDir(t)
 	zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
 	zcodeAppBundle, zcodeNode, zcodeLauncher := fakeZCodeAppPaths(providerDirectory)
-	buildFakeZCode(t, root, zcodeNode, zcodeLauncher, zcodeLog, "fail_first_"+failedRole)
+	buildFakeZCodeWithReport(t, root, zcodeNode, zcodeLauncher, zcodeLog, "fail_first_"+failedRole, "write", "", compositeEvidenceReport())
 	environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
 	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", reviewRoles, zcodeAppBundle)
 
@@ -383,6 +383,7 @@ func testReleaseBinaryComposesRecoveredRole(t *testing.T, failedRole string) {
 	if findings.exitCode != 0 || len(findings.stderr) != 0 {
 		t.Fatalf("composite findings = exit %d stdout %q stderr %q", findings.exitCode, findings.stdout, findings.stderr)
 	}
+	assertCompositePortableContent(t, binary, project, environment, *compositeEnvelope.Result.RunID, len(strings.Split(reviewRoles, ",")), false)
 }
 
 // Staging Mulgae did not authorize is a boundary breach: the role publishes
@@ -1169,7 +1170,18 @@ func capabilityProof(prompt string) string {
 // reports whether the conversation failed instead of staging a report.
 func reviewFailureVariant(prompt string) bool {
  role := roleGuide.FindStringSubmatch(prompt)
- if len(role) == 2 && "__FAKE_ZCODE_MODE__" == "wait_twice_documentation" && strings.ToLower(role[1]) == "documentation" {
+ if len(role) == 2 && strings.Contains("__FAKE_ZCODE_MODE__", "wait_twice_documentation") && strings.ToLower(role[1]) == "documentation" {
+  // Finish the first wave with repairable output so the peer logic role is
+  // committed before documentation blocks in its repair invocation.
+  if "__FAKE_ZCODE_MODE__" == "repair_then_wait_twice_documentation" {
+   marker, err := os.OpenFile("__FAKE_ZCODE_LOG__.invalid-documentation", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+   if err == nil {
+    if err := marker.Close(); err != nil { panic(err) }
+    stage(stagedDestination(prompt), "# documentation role report\n\n"+"\x60\x60\x60json\n{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"Repair fixture\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[{\"severity\":\"low\"}]}\n\x60\x60\x60\n")
+    return true
+   }
+   if !os.IsExist(err) { panic(err) }
+  }
   for index := 1; index <= 2; index++ {
    marker, err := os.OpenFile(fmt.Sprintf("__FAKE_ZCODE_LOG__.waiting.%d", index), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
    if err == nil {

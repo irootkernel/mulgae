@@ -137,6 +137,12 @@ func (reader p2ExportProjectionReader) ReadCommittedProjection(_ context.Context
 	}
 	for _, finding := range findings {
 		projection.Findings = append(projection.Findings, appexport.Finding{ID: finding.ID(), Fingerprint: finding.Fingerprint(), Role: string(finding.Role()), Severity: string(finding.Severity()), Title: finding.Title(), Description: finding.Description(), Recommendation: finding.Recommendation(), Confidence: string(finding.Confidence()), Lifecycle: string(finding.Lifecycle())})
+		// Copied composite support serves verified local reads. The existing
+		// export contract does not admit these additional source receipts or
+		// recovery evidence, which deliberately has no published review ID.
+		if committed.RunType() == domain.RunTypeComposite {
+			continue
+		}
 		for _, evidence := range finding.Evidence() {
 			item := appexport.Evidence{FindingID: finding.ID(), SourceSessionID: evidence.SourceSessionID().String(), SourceRunID: evidence.SourceRunID().String(), SourceReviewID: evidence.SourceReviewID().String(), SourceFindingID: evidence.SourceFindingID(), SourceTargetSHA256: evidence.SourceTargetSHA256(), SourceExcerptSHA256: evidence.SourceExcerptSHA256(), TargetSHA256: evidence.TargetSHA256(), CurrentExcerptSHA256: evidence.CurrentExcerptSHA256(), Path: evidence.Path().String(), Side: string(evidence.Side()), LineStart: evidence.LineStart(), LineEnd: evidence.LineEnd(), Verification: string(evidence.Verification())}
 			projection.Evidence = append(projection.Evidence, item)

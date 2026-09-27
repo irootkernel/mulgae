@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -329,8 +330,23 @@ func buildResult(root Source, rootRoles map[domain.Role]Role, recoveries map[dom
 		if reportErr != nil {
 			return Result{}, reportErr
 		}
+		var support *compositesupport.Material
+		if source.Support != nil {
+			value := compositesupport.Clone(*source.Support)
+			value.Source.Role = roleName
+			value.Source.AttemptID = selectedRole.AttemptID.String()
+			findings := value.Findings
+			value.Findings = nil
+			for _, f := range findings {
+				if f.Finding.Role == roleName {
+					value.Findings = append(value.Findings, f)
+				}
+			}
+			support = &value
+		}
 		result.Sources = append(result.Sources, SelectedSource{
-			Kind: kind, Role: roleName, RunID: source.RunID, ReviewID: source.ReviewID, RecoveryManifestSHA256: source.RecoveryManifestSHA256,
+			Support: support,
+			Kind:    kind, Role: roleName, RunID: source.RunID, ReviewID: source.ReviewID, RecoveryManifestSHA256: source.RecoveryManifestSHA256,
 			AttemptID: selectedRole.AttemptID, RoleReport: cloneRoleReport(report),
 		})
 		result.Roles = append(result.Roles, CompositeRole{
@@ -387,6 +403,19 @@ func buildResult(root Source, rootRoles map[domain.Role]Role, recoveries map[dom
 			SourceAttemptID: item.attempt, SourceFindingID: item.finding.ID,
 		})
 		roleFindingIDs[item.finding.Role] = append(roleFindingIDs[item.finding.Role], id)
+	}
+	for i := range result.Sources {
+		support := result.Sources[i].Support
+		if support == nil {
+			continue
+		}
+		for j := range support.Findings {
+			for _, f := range result.Findings {
+				if f.Role == support.Source.Role && f.SourceFindingID == support.Findings[j].Finding.SourceFindingID {
+					support.Findings[j].Finding.ID = f.ID
+				}
+			}
+		}
 	}
 	for index := range result.Roles {
 		result.Roles[index].FindingIDs = roleFindingIDs[result.Roles[index].Role]

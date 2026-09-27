@@ -1,0 +1,108 @@
+{
+  "budget": {
+    "ceilings": {
+      "max_invocations_per_role": 2,
+      "max_invocations_per_run": 14,
+      "provider_timeout": "60m",
+      "role_path_deadline": "14h0m14s",
+      "run_deadline": "14h0m19s"
+    },
+    "critical_path_deadline": "1h0m2s",
+    "eligible": true,
+    "max_active_lanes": 2,
+    "reason_code": "eligible",
+    "role_paths": [
+      {
+        "deadline": "1h0m2s",
+        "invocation_count": 2,
+        "invocation_timeouts": "1h0m0s",
+        "provider_instance": "zcode-logic",
+        "role": "logic",
+        "transition_count": 1
+      }
+    ],
+    "run_deadline": "1h0m7s",
+    "total_invocations": 2
+  },
+  "capabilities": {
+    "capture_identity": "v1",
+    "composite_evidence": "v1",
+    "execution_guard": "v1",
+    "finding_details": "",
+    "finding_pages": "",
+    "indexed_evidence": "",
+    "inspection": "",
+    "project_binding": "v1",
+    "report_content": ""
+  },
+  "capture_identity": "sha256:0077fd8c88bc3c0ce7a4847e7db10f202e79c7371a9ae9ce7fc8a53dec48391c",
+  "file_sets": [
+    {
+      "files": [
+        {
+          "disposition": "binary_preserved",
+          "media_type": "image/png",
+          "path": "client/e2e/screenshots/example.png",
+          "sha256": "sha256:431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+          "size": 68
+        },
+        {
+          "disposition": "text",
+          "media_type": "text/plain",
+          "path": "src/main.go",
+          "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "size": 20
+        }
+      ],
+      "id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e",
+      "policy_identity": "index;git=canonical-v1"
+    }
+  ],
+  "generated_files": [
+    {
+      "disposition": "generated_at_execution",
+      "media_type": "application/json",
+      "path": "._mulgae_workspace_manifest.json"
+    }
+  ],
+  "project_binding": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "qualification": "not_run",
+  "request_receipt": {
+    "capture_identity": "sha256:0077fd8c88bc3c0ce7a4847e7db10f202e79c7371a9ae9ce7fc8a53dec48391c",
+    "components": {
+      "assets": "sha256:67fc6b85f0454031aefe62a200040827bd1f7dd3e05bfe3aba91fea6d8bfd3d8",
+      "budget": "sha256:9b59b933a6fa1cbfcfbbb731d220f26dcb34a6f3503a358d7f334a78d5e1cd69",
+      "objective": "sha256:33da63d08d36bf5b9eabedf138fb813161568e697b2c870b3c67ddb9444b9aca",
+      "policy": "sha256:2d7f173613d05c7046e6b0ffe8498ea3eb6aad6e7440226e14b31bd2c33bf320",
+      "roles": "sha256:fe17ea3104205d23b6375fdc8297c53b74f45087b5fc07182e6d491cc11fd80b",
+      "routes": "sha256:599859d101f445eb4f671fca16f714cd4262ae34030b67f97402236fdd7bf642",
+      "target_selection": "sha256:a50ceb95e3fb88a067f57e1af97a3aae21c4b08a7b12732d978632b0cafb50bc",
+      "workflow": "sha256:b1d766c19627bfb691c8027c6988e28320be46392ecfb384bccd7c9f61585f1a"
+    },
+    "project_binding": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "request_digest": "sha256:864514e735fb256a11104a6b24783412f8919642a7d798e74e2a0716413eda77",
+    "schema_version": "mulgae-request-receipt.v1"
+  },
+  "schema_version": "mulgae-review-preflight.v7",
+  "status": "eligible",
+  "target": {
+    "captured_kind": "git",
+    "git_mode": "stage",
+    "requested_kind": "stage",
+    "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size": 128
+  },
+  "transmissions": [
+    {
+      "configured_timeout": "30m",
+      "file_set_id": "sha256:a9f565d1fe262affc33afa2ff26680eafda5c468be8e3106e90abc6b824b7d6e",
+      "permission_mode": "not_applicable",
+      "provider_family": "zcode",
+      "provider_instance": "zcode-logic",
+      "role": "logic",
+      "route_kind": "primary",
+      "target_channel": "prompt"
+    }
+  ],
+  "warnings": []
+}

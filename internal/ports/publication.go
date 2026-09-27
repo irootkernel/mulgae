@@ -542,6 +542,8 @@ type AuxiliaryArtifactStore = RunSupportArtifactStore
 type RunSupportArtifactKind string
 
 const (
+	RunSupportArtifactCompositeMetadata  RunSupportArtifactKind = "composite_metadata"
+	RunSupportArtifactSourceFinding      RunSupportArtifactKind = "source_finding"
 	RunSupportArtifactExcerpt            RunSupportArtifactKind = "excerpt"
 	RunSupportArtifactAttemptStatus      RunSupportArtifactKind = "attempt_status"
 	RunSupportArtifactInitialCandidate   RunSupportArtifactKind = "initial_candidate"
@@ -568,7 +570,7 @@ const (
 // Valid reports whether kind is a closed run-support artifact kind.
 func (kind RunSupportArtifactKind) Valid() bool {
 	switch kind {
-	case RunSupportArtifactExcerpt, RunSupportArtifactAttemptStatus,
+	case RunSupportArtifactCompositeMetadata, RunSupportArtifactSourceFinding, RunSupportArtifactExcerpt, RunSupportArtifactAttemptStatus,
 		RunSupportArtifactInitialCandidate, RunSupportArtifactRetryCandidate, RunSupportArtifactRepairedCandidate,
 		RunSupportArtifactExtractedCandidate,
 		RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
@@ -829,6 +831,31 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 		return "", fmt.Errorf("artifact path %q is outside the run", value)
 	}
 	relative := strings.TrimPrefix(value, prefix)
+	if relative == "support/composite.json" {
+		return RunSupportArtifactCompositeMetadata, nil
+	}
+	if name, ok := strings.CutPrefix(relative, "support/findings/"); ok {
+		if strings.HasSuffix(name, ".json") && !strings.Contains(name, "_") && canonicalExcerptName(name) {
+			return RunSupportArtifactSourceFinding, nil
+		}
+		return "", fmt.Errorf("composite finding path is not canonical")
+	}
+	if name, ok := strings.CutPrefix(relative, "support/sources/"); ok {
+		role, rest, found := strings.Cut(name, "/")
+		if !found || !domain.Role(role).Valid() || !strings.HasPrefix(rest, "target/") {
+			return "", fmt.Errorf("composite capture path is not canonical")
+		}
+		canonical, err := NewSafeRelativePath(prefix + rest)
+		if err != nil {
+			return "", err
+		}
+		kind, err := classifyCanonicalRunSupportPathValues(sessionID, runID, canonical)
+		if err != nil || kind != RunSupportArtifactCaptureManifest && kind != RunSupportArtifactCapturedArchive && kind != RunSupportArtifactCapturedBlob {
+			return "", fmt.Errorf("composite capture path kind is invalid")
+		}
+		return kind, nil
+	}
+
 	if relative == "recovery/manifest.json" {
 		return RunSupportArtifactRecoveryManifest, nil
 	}

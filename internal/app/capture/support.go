@@ -11,6 +11,11 @@ import (
 // publication artifacts. Callers retain ownership of the stable P2 observation.
 func VerifySupport(session domain.SessionID, run domain.RunID, targetSHA256 string, baseOID, headOID *string, artifacts map[string]ports.ImmutablePublicationArtifact) (domain.CaptureIdentity, error) {
 	prefix := session.String() + "/" + run.String() + "/target/"
+	return VerifySupportAt(prefix, targetSHA256, baseOID, headOID, artifacts)
+}
+
+// VerifySupportAt also verifies the role-specific capture namespace of a composite.
+func VerifySupportAt(prefix, targetSHA256 string, baseOID, headOID *string, artifacts map[string]ports.ImmutablePublicationArtifact) (domain.CaptureIdentity, error) {
 	manifestArtifact, ok := artifacts[prefix+"capture-manifest.json"]
 	if !ok {
 		return domain.CaptureIdentity{}, fmt.Errorf("capture support: manifest absent")

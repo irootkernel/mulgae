@@ -304,7 +304,7 @@ func buildRunSupportIndex(path ports.SafeRelativePath, artifacts []ports.Immutab
 	}
 	version := "mulgae-run-support-index.v1"
 	for _, artifact := range artifacts {
-		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && kind == ports.RunSupportArtifactCaptureManifest {
+		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata) {
 			version = "mulgae-run-support-index.v2"
 		}
 	}

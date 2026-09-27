@@ -242,8 +242,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 136 {
-		t.Fatalf("manifest asset count = %d, want 128", len(manifest.Assets))
+	if len(manifest.Assets) != 142 {
+		t.Fatalf("manifest asset count = %d, want 142", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -328,8 +328,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 125 {
-		t.Fatalf("authoritative runtime source count = %d, want 117", len(authoritativeSources))
+	if len(authoritativeSources) != 131 {
+		t.Fatalf("authoritative runtime source count = %d, want 131", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -564,6 +564,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json", "schemas/mulgae-request-receipt.v1.schema.json", "examples/request-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-publication-receipt.v1.schema.json", "schemas/mulgae-publication-receipt.v1.schema.json", "examples/publication-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-finding-cursor.v1.schema.json", "schemas/mulgae-finding-cursor.v1.schema.json", "examples/finding-cursor.v1.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-composite-support.v1.schema.json", "schemas/mulgae-composite-support.v1.schema.json", "examples/composite-support.v1.valid.json"},
 
 		{"https://mulgae.local/schemas/mulgae-command-result.v11.schema.json", "schemas/mulgae-command-result.v11.schema.json", "examples/command-result.v11.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v12.schema.json", "examples/command-result.v12.valid.json"},
@@ -572,6 +573,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-command-result.v15.schema.json", "schemas/mulgae-command-result.v15.schema.json", "examples/command-result.v15.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v16.schema.json", "schemas/mulgae-command-result.v16.schema.json", "examples/command-result.v16.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v17.schema.json", "schemas/mulgae-command-result.v17.schema.json", "examples/command-result.v17.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v18.schema.json", "schemas/mulgae-command-result.v18.schema.json", "examples/command-result.v18.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v10.schema.json", "schemas/mulgae-command-result.v10.schema.json", "examples/command-result.v10.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v9.schema.json", "schemas/mulgae-command-result.v9.schema.json", "examples/command-result.v9.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v8.schema.json", "schemas/mulgae-command-result.v8.schema.json", "examples/command-result.v8.valid.json"},
@@ -609,14 +611,15 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", "schemas/mulgae-review-artifact.v1.schema.json", "examples/review-artifact.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v5.schema.json", "schemas/mulgae-review-preflight.v5.schema.json", "examples/review-preflight.v5.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v6.schema.json", "schemas/mulgae-review-preflight.v6.schema.json", "examples/review-preflight.v6.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-review-preflight.v7.schema.json", "schemas/mulgae-review-preflight.v7.schema.json", "examples/review-preflight.v7.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v4.schema.json", "schemas/mulgae-review-preflight.v4.schema.json", "examples/review-preflight.v4.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json", "schemas/mulgae-review-preflight.v3.schema.json", "examples/review-preflight.v3.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "schemas/mulgae-run-manifest.v1.schema.json", "examples/run-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.v1.valid.json"},
 	}
-	if len(expected) != 52 {
-		t.Fatalf("test pair inventory contains %d pairs, want 48", len(expected))
+	if len(expected) != 55 {
+		t.Fatalf("test pair inventory contains %d pairs, want 55", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

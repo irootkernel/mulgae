@@ -308,6 +308,25 @@ section), and replace Detailed SOT with Canonical Outcomes before changing the
 Epic status. Stop at the accepted scope; no additional feature or unlimited
 review cycle is an acceptance condition.
 
+## Composite support verification
+
+For changes to self-contained composite support, cover published P2 sources and
+retained failed-run recovery sources separately. Verify original finding copies,
+ID remapping, every evidence index, copied retirement provenance and per-source
+capture reconstruction. A common capture requires all selected roles to agree,
+including roles without findings; missing historical capture remains unavailable.
+
+Exercise missing, corrupt and unlisted support artifacts, interrupted publication
+and replay, and exact reuse of a legacy P2 composite without rewriting it. Verify
+receipt-bound detail, report and evidence reads using only composite-local copies
+after source cleanup permitted by native policy. Keep failed-recovery roots
+protected and check that the export allowlist omits the additional private copies.
+
+Use the focused application tests while iterating, then the applicable Make
+integration and release-binary gates. TASK-025 separately owns the exact supported
+client workflow and complete `make test` gate; TASK-024 support fixtures do not
+establish that integrated acceptance.
+
 ## Manual release
 
 The repository intentionally has no GitHub Actions release workflow:

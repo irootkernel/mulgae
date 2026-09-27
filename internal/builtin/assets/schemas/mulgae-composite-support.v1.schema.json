@@ -1,0 +1,421 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-composite-support.v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sources",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-composite-support.v1"
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 999,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "session_id",
+        "run_id",
+        "review_id",
+        "attempt_id",
+        "recovery_manifest_sha256",
+        "final_sha256",
+        "manifest_sha256",
+        "support_sha256",
+        "lineage_sha256",
+        "epoch",
+        "target_sha256",
+        "provider_identities",
+        "capture_identity",
+        "capture_availability"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "logic",
+            "security",
+            "maintainability",
+            "product",
+            "documentation",
+            "testing",
+            "artist"
+          ]
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "review_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^a_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "recovery_manifest_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "final_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "manifest_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "support_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "lineage_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "target_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "provider_identities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "capture_identity": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "capture_availability": {
+          "enum": [
+            "verified",
+            "capture_identity_unavailable"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "recovery_manifest_sha256": {
+                "const": ""
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "review_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "final_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "manifest_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "support_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "lineage_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "epoch": {
+                "minimum": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "review_id": {
+                "const": ""
+              },
+              "final_sha256": {
+                "const": ""
+              },
+              "manifest_sha256": {
+                "const": ""
+              },
+              "support_sha256": {
+                "const": ""
+              },
+              "lineage_sha256": {
+                "const": ""
+              },
+              "epoch": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capture_availability": {
+                "const": "verified"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "capture_identity": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "capture_identity": {
+                "const": ""
+              }
+            }
+          }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "source_finding_id",
+        "original_sha256",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,63}$"
+        },
+        "role": {
+          "enum": [
+            "logic",
+            "security",
+            "maintainability",
+            "product",
+            "documentation",
+            "testing",
+            "artist"
+          ]
+        },
+        "source_finding_id": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,63}$"
+        },
+        "original_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "availability",
+        "target_sha256",
+        "side",
+        "path",
+        "line_start",
+        "line_end",
+        "excerpt_sha256",
+        "content_sha256"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 19
+        },
+        "availability": {
+          "enum": [
+            "verified",
+            "evidence_unavailable"
+          ]
+        },
+        "target_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "side": {
+          "enum": [
+            "base",
+            "head",
+            "worktree",
+            "index"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "excerpt_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "content_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "const": ""
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "availability": {
+                "const": "verified"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "side": {
+                "enum": [
+                  "base",
+                  "head",
+                  "worktree",
+                  "index"
+                ]
+              },
+              "path": {
+                "minLength": 1
+              },
+              "line_start": {
+                "minimum": 1
+              },
+              "line_end": {
+                "minimum": 1
+              },
+              "excerpt_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "content_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "content_sha256": {
+                "const": ""
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

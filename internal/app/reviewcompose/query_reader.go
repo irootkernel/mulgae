@@ -34,7 +34,24 @@ func (reader *QueryReader) ReadCompositionSource(ctx context.Context, runID doma
 	}
 	snapshot, recoveryErr := reader.queries.ReadFailedRunRecovery(ctx, run)
 	if recoveryErr == nil {
-		return sourceFromRecovery(snapshot)
+		source, err := sourceFromRecovery(snapshot)
+		if err != nil {
+			return Source{}, err
+		}
+		providers, err := reader.queries.ReadRecoveryCompositionProviders(ctx, run)
+		if err != nil {
+			return Source{}, err
+		}
+		source.Support.Source.ProviderIdentities = providers
+		confirmed, err := reader.queries.ReadFailedRunRecovery(ctx, run)
+		if err != nil {
+			return Source{}, err
+		}
+		reference, err := confirmed.Reference()
+		if err != nil || reference.RecoveryManifestSHA256() != source.RecoveryManifestSHA256 {
+			return Source{}, fmt.Errorf("recovery source changed while material was captured")
+		}
+		return source, nil
 	}
 	if !errors.Is(recoveryErr, recovery.ErrUnavailable) {
 		return Source{}, recoveryErr
@@ -61,6 +78,11 @@ func (reader *QueryReader) ReadCompositionSource(ctx context.Context, runID doma
 		}
 		source.RoleReports[index].Bytes = content
 	}
+	support, err := reader.queries.ReadCompositionSupport(ctx, run)
+	if err != nil {
+		return Source{}, err
+	}
+	source.Support = &support
 	confirmed, err := reader.queries.ReadCommitted(ctx, run)
 	if err != nil || confirmed.ReviewID() != review.ReviewID() || confirmed.FinalSHA256() != review.FinalSHA256() || confirmed.ManifestSHA256() != review.ManifestSHA256() || confirmed.Epoch() != review.Epoch() {
 		return Source{}, fmt.Errorf("composition source changed while material was captured")

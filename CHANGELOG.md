@@ -6,6 +6,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
+- Retain composite source findings, receipts, indexed evidence and per-role capture support for verified reads after permitted source cleanup, with command-result v18 and preflight v7.
+
 - Add lossless read-only CLI/MCP report and indexed-evidence access with receipt-bound continuation, original role reports, and command-result v17.
 
 - Add coherent CLI/MCP inspection, receipt-bound finding pages and complete finding-detail chunks, with verified capture availability and command-result v16.

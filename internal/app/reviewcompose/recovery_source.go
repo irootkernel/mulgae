@@ -1,9 +1,12 @@
 package reviewcompose
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
@@ -78,5 +81,34 @@ func sourceFromRecovery(snapshot recovery.Snapshot) (Source, error) {
 	for _, item := range document.Findings {
 		source.Findings = append(source.Findings, SourceFinding{ID: item.ID, Fingerprint: item.Fingerprint, Role: item.Role, ProviderInstance: item.ProviderInstance, Severity: item.Severity, Title: item.Title, Description: item.Description, Recommendation: item.Recommendation, Confidence: item.Confidence, Lifecycle: item.Lifecycle})
 	}
+	support := compositesupport.Material{Source: compositesupport.Source{SessionID: source.SessionID.String(), RunID: source.RunID.String(), RecoveryManifestSHA256: source.RecoveryManifestSHA256, TargetSHA256: source.TargetSHA256, CaptureAvailability: "capture_identity_unavailable"}}
+	providers := map[string]bool{}
+	for _, a := range source.Attempts {
+		providers[a.ProviderInstance] = true
+	}
+	for _, r := range source.Roles {
+		providers[r.ProviderInstance] = true
+	}
+	for p := range providers {
+		support.Source.ProviderIdentities = append(support.Source.ProviderIdentities, p)
+	}
+	sort.Strings(support.Source.ProviderIdentities)
+	if err := compositesupport.RetainCapture(&support, source.CapturedArchive); err != nil {
+		return Source{}, err
+	}
+	for _, f := range document.Findings {
+		raw, err := json.Marshal(f)
+		if err != nil {
+			return Source{}, err
+		}
+		item := compositesupport.FindingMaterial{Finding: compositesupport.Finding{ID: f.ID, Role: f.Role, SourceFindingID: f.ID, OriginalSHA256: compositesupport.SHA256(raw), Evidence: []compositesupport.Evidence{}}, Original: raw, Excerpts: [][]byte{}}
+		for i, e := range f.Evidence {
+			content := []byte(e.Quote)
+			item.Excerpts = append(item.Excerpts, content)
+			item.Finding.Evidence = append(item.Finding.Evidence, compositesupport.Evidence{Index: i, Availability: "verified", TargetSHA256: e.TargetSHA256, Side: e.Side, Path: e.Path, LineStart: e.LineStart, LineEnd: e.LineEnd, ExcerptSHA256: e.ExcerptSHA256, ContentSHA256: compositesupport.SHA256(content)})
+		}
+		support.Findings = append(support.Findings, item)
+	}
+	source.Support = &support
 	return source, nil
 }

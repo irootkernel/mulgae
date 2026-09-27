@@ -5,6 +5,7 @@ package reviewcompose
 import (
 	"context"
 
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
@@ -21,6 +22,7 @@ type Request struct {
 
 // Source is the bounded application projection of one verified committed review.
 type Source struct {
+	Support                      *compositesupport.Material
 	SessionID                    domain.SessionID
 	RunID                        domain.RunID
 	ReviewID                     domain.ReviewID
@@ -114,6 +116,7 @@ type Result struct {
 
 // SelectedSource binds one effective role to its exact accepted source.
 type SelectedSource struct {
+	Support                *compositesupport.Material
 	Kind                   string
 	Role                   domain.Role
 	RunID                  domain.RunID

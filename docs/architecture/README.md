@@ -40,6 +40,7 @@ root.
 | `internal/app/recovery` | Immutable failed-run inputs, accepted partial results, replay admission |
 | `internal/app/publication` | Manifests, attempts, final artifacts, recovery, integrity |
 | `internal/app/reviewcompose` | Exact composite admission, lineage and target verification, recomputation |
+| `internal/app/compositesupport` | Portable copied source receipts, findings, evidence and per-role capture verification |
 | `internal/app/{followup,delta,rerun}` | Child-run lineage and specialized reviews |
 | `internal/app/childrun` | Child-run execution and publication engine |
 | `internal/app/{query,report,clean,export}` | Inspection and artifact lifecycle |
@@ -239,11 +240,27 @@ Runtime assets are ordinary files under `internal/builtin/assets`, included with
 `go:embed`. `CHECKSUMS.sha256` is generated from those files and validated
 before the catalog serves any asset.
 
+## Composite support ownership
+
+`query` collects verified published-source material under a stable P2 observation;
+`reviewcompose` also admits retained failed-run recovery sources through the
+existing recovery reader. It selects one source per role and remaps finding IDs.
+`compositesupport` binds source receipts, original findings, evidence indices,
+provider retirement provenance and complete per-source captures to the final.
+`publication` includes those artifacts in support-index v2 before committing.
+
+Committed composite reads verify these local copies. They require no source-run
+lookup, and expose a common capture only when every selected role has the same
+verified capture identity. Recovery sources retain their recovery-manifest identity without claiming
+P2 publication. Existing cleanup retention and export allowlists remain separate
+application policies; copied private content does not enter exports implicitly.
+
 ## Planned extension ownership
 
 The [accepted two-Epic design](../architecture-decision-records/verified-review-iteration.md)
 and [roadmap](../roadmap/README.md#adopted-execution-order) adopt the following
-changes. They are future structure, not additional current runtime components.
+ownership boundaries. The EPIC-007 identity, admission, verified-read and
+composite-support owners are implemented; EPIC-008 remains planned.
 
 ```text
 EPIC-007: independent project identity
@@ -265,7 +282,7 @@ EPIC-008: captured Review Brief
 | Complete capture identity | `app/capture` owns canonical target/sides/file-set/context identity, distinct from patch and request digests; `reviewrun` owns request admission, `publication` retains verification support, and `query` verifies it |
 | Native guard | `reviewrun` capture/planning admission before qualification; request identity includes the complete capture and request-only policy, objective, and route dimensions |
 | Verified reads | `query` owns coherent publication receipt and provenance; `report` renders admitted content; CLI/MCP only parse and project bounded pages |
-| Composite evidence | `reviewcompose` selects exact sources; `publication` owns copied support and atomic commit; query does not chase live source runs |
+| Composite evidence | `reviewcompose` selects exact sources; `compositesupport` builds and verifies portable copies; `publication` commits them atomically; `query` reads the copies without chasing source runs |
 | Brief capture and framing | Existing review input/archive and prompt owners; project-authored requirements stay untrusted data |
 | Assessment | `validation` checks assigned IDs and captured support; `publication` retains normal assessments or provider-free no-change unverified records; `query`/`report` expose evaluation state separately from findings |
 | Batch followup | A focused source/selection use case reuses `followup`/`childrun` and the existing coordinator/lane budget; one captured target and one immutable run |

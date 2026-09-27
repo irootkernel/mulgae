@@ -10,6 +10,7 @@ import (
 	"io"
 	"unicode/utf8"
 
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -25,34 +26,36 @@ type SchemaValidator interface {
 // CommittedReview is a defensive read view of a semantically verified P2 final
 // review. Exact final and manifest bytes remain available only as copies.
 type CommittedReview struct {
-	sessionID         domain.SessionID
-	runID             domain.RunID
-	reviewID          domain.ReviewID
-	runType           domain.RunType
-	runState          domain.RunState
-	finalPath         ports.SafeRelativePath
-	finalSHA256       string
-	manifestPath      ports.SafeRelativePath
-	manifestSHA256    string
-	lineageEdgePath   ports.SafeRelativePath
-	lineageEdgeSHA    string
-	epoch             uint64
-	epochPath         ports.SafeRelativePath
-	targetSHA256      string
-	severityThreshold domain.Severity
-	content           domain.ContentVerdict
-	coverage          domain.CoverageStatus
-	extraction        domain.StructuredExtractionStatus
-	publication       domain.PublicationStatus
-	ci                domain.CIDecision
-	followupOutcome   *FollowupOutcome
-	roles             []Role
-	roleReports       []RoleReport
-	attempts          []AttemptSummary
-	findings          []Finding
-	finalBytes        []byte
-	manifestBytes     []byte
-	lineage           CommittedLineage
+	compositeSupport   *compositesupport.Document
+	compositeArtifacts map[string]ports.ImmutablePublicationArtifact
+	sessionID          domain.SessionID
+	runID              domain.RunID
+	reviewID           domain.ReviewID
+	runType            domain.RunType
+	runState           domain.RunState
+	finalPath          ports.SafeRelativePath
+	finalSHA256        string
+	manifestPath       ports.SafeRelativePath
+	manifestSHA256     string
+	lineageEdgePath    ports.SafeRelativePath
+	lineageEdgeSHA     string
+	epoch              uint64
+	epochPath          ports.SafeRelativePath
+	targetSHA256       string
+	severityThreshold  domain.Severity
+	content            domain.ContentVerdict
+	coverage           domain.CoverageStatus
+	extraction         domain.StructuredExtractionStatus
+	publication        domain.PublicationStatus
+	ci                 domain.CIDecision
+	followupOutcome    *FollowupOutcome
+	roles              []Role
+	roleReports        []RoleReport
+	attempts           []AttemptSummary
+	findings           []Finding
+	finalBytes         []byte
+	manifestBytes      []byte
+	lineage            CommittedLineage
 }
 
 // RoleReport is one verified committed free-form role-report inventory entry.
@@ -599,6 +602,7 @@ func (finding Finding) Evidence() []Evidence { return cloneEvidence(finding.evid
 
 // Evidence binds one source identity to one current immutable-target claim.
 type Evidence struct {
+	copiedAvailability   string
 	sourceSessionID      domain.SessionID
 	sourceRunID          domain.RunID
 	sourceReviewID       domain.ReviewID
@@ -651,7 +655,13 @@ func (item Evidence) LineStart() int { return item.lineStart }
 // LineEnd returns the inclusive one-based final line.
 func (item Evidence) LineEnd() int { return item.lineEnd }
 
-// Verification returns the final serialized evidence verification state.
+// CopiedAvailability reports verified or evidence_unavailable only for a
+// composite claim whose copied support metadata has been independently verified.
+// Ordinary review claims return an empty string and require a fresh excerpt read.
+func (item Evidence) CopiedAvailability() string { return item.copiedAvailability }
+
+// Verification returns the evidence verification state. A composite claim
+// with no copied evidence is unverifiable.
 func (item Evidence) Verification() evidence.ReceiptStatus { return item.verification }
 
 // RunStatus is the safe status projection of one observed run. Content and final

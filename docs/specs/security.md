@@ -393,6 +393,26 @@ failures never authorize repair or publication.
 
 Mulgae output remains advisory after every technical check passes.
 
+## Composite evidence isolation
+
+New composites bind copied source findings, available evidence, source receipts
+and per-role capture support through support-index v2 before publication.
+Committed reads verify the copies and their final/source mappings without
+reading source runs or the current working tree. Missing bound copies and digest
+mismatches are integrity failures; historical absence remains explicit.
+
+Published source receipts retain verified P2 identities. Failed-run recovery
+receipts retain their recovery-manifest digest and attempt without a fabricated
+review ID or publication epoch. Copied provider provenance preserves retirement
+checks after source cleanup. A common capture requires equal verified captures
+for every selected role, including roles without findings.
+
+Local finding details expose copied `source_finding` and `source_receipt` through
+the receipt-bound read path. The export allowlist excludes the additional copied
+private content. Native cleanup policy still controls source deletion and keeps
+its existing failed-recovery-root protection. Existing legacy P2 composites are
+reused unchanged and gain no evidence through an implicit upgrade.
+
 ## Adopted extension security requirements
 
 The following requirements apply to the planned

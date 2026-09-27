@@ -43,6 +43,8 @@ func main() {
 		contractPair{"schemas/mulgae-command-result.v14.schema.json", "schemas/mulgae-command-result.v15.schema.json", "examples/command-result.v14.valid.json", "examples/command-result.v15.valid.json", "mulgae-command-result.v14", "mulgae-command-result.v15"},
 		contractPair{"schemas/mulgae-command-result.v15.schema.json", "schemas/mulgae-command-result.v16.schema.json", "examples/command-result.v15.valid.json", "examples/command-result.v16.valid.json", "mulgae-command-result.v15", "mulgae-command-result.v16"},
 		contractPair{"schemas/mulgae-command-result.v16.schema.json", "schemas/mulgae-command-result.v17.schema.json", "examples/command-result.v16.valid.json", "examples/command-result.v17.valid.json", "mulgae-command-result.v16", "mulgae-command-result.v17"},
+		contractPair{"schemas/mulgae-command-result.v17.schema.json", "schemas/mulgae-command-result.v18.schema.json", "examples/command-result.v17.valid.json", "examples/command-result.v18.valid.json", "mulgae-command-result.v17", "mulgae-command-result.v18"},
+		contractPair{"schemas/mulgae-review-preflight.v6.schema.json", "schemas/mulgae-review-preflight.v7.schema.json", "examples/review-preflight.v6.valid.json", "examples/review-preflight.v7.valid.json", "mulgae-review-preflight.v6", "mulgae-review-preflight.v7"},
 		contractPair{"schemas/mulgae-review-preflight.v5.schema.json", "schemas/mulgae-review-preflight.v6.schema.json", "examples/review-preflight.v5.valid.json", "examples/review-preflight.v6.valid.json", "mulgae-review-preflight.v5", "mulgae-review-preflight.v6"},
 	)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -94,9 +96,9 @@ func updateFileCatalog(assets string, pairs []contractPair) error {
 			byPath[targetPath] = clone
 		}
 	}
-	// Inactive EPIC-007 value contracts are catalogued independently of runtime
+	// EPIC-007 value contracts are catalogued independently of runtime
 	// command versions. Their source schemas and examples are hand-authored.
-	for _, name := range []string{"capture-manifest", "request-receipt", "publication-receipt", "finding-cursor"} {
+	for _, name := range []string{"capture-manifest", "request-receipt", "publication-receipt", "finding-cursor", "composite-support"} {
 		schema := "sot/schemas/mulgae-" + name + ".v1.schema.json"
 		example := "sot/examples/" + name + ".v1.valid.json"
 		for path, pair := range map[string]string{schema: example, example: schema} {

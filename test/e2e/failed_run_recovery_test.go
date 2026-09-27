@@ -16,6 +16,17 @@ import (
 )
 
 func TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		name := "before_wave_commit"
+		if accepted {
+			name = "after_logic_accepted"
+		}
+		t.Run(name, func(t *testing.T) { testCancelledRecoveryComposite(t, accepted) })
+	}
+}
+
+func testCancelledRecoveryComposite(t *testing.T, acceptedLogic bool) {
+	t.Helper()
 	root := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, root)
 	project := canonicalTestTempDir(t)
@@ -24,7 +35,11 @@ func TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns
 	providers := canonicalTestTempDir(t)
 	logPath := filepath.Join(canonicalTestTempDir(t), "zcode.jsonl")
 	appBundle, node, launcher := fakeZCodeAppPaths(providers)
-	buildFakeZCode(t, root, node, launcher, logPath, "wait_twice_documentation")
+	mode, readyEvent := "wait_twice_documentation", "candidate_validation_succeeded"
+	if acceptedLogic {
+		mode, readyEvent = "repair_then_wait_twice_documentation", "role_completed"
+	}
+	buildFakeZCodeWithReport(t, root, node, launcher, logPath, mode, "write", "", compositeEvidenceReport())
 	environment := isolatedMulgaeEnvWith(t, nativeHome, providers)
 	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic,documentation", appBundle)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -44,7 +59,7 @@ func TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns
 				continue
 			}
 			for _, line := range bytes.Split(data, []byte{'\n'}) {
-				if waitErr == nil && bytes.Contains(line, []byte(`"role":"logic"`)) && bytes.Contains(line, []byte(`"event":"candidate_validation_succeeded"`)) {
+				if waitErr == nil && bytes.Contains(line, []byte(`"role":"logic"`)) && bytes.Contains(line, []byte(`"event":"`+readyEvent+`"`)) {
 					ready = true
 				}
 			}
@@ -85,6 +100,13 @@ func TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns
 	admitted := statusEnvelope.Result.Recovery
 	if status.exitCode != 0 || statusEnvelope.Result.RunState == nil || *statusEnvelope.Result.RunState != "cancelled" || !admitted.Available || statusEnvelope.Result.PublicationStatus != "not_published" || len(admitted.RetryAttempts) == 0 || len(admitted.AcceptedRoles)+len(admitted.RetryAttempts) != 2 {
 		t.Fatalf("recovery status: exit=%d stdout=%s stderr=%s", status.exitCode, status.stdout, status.stderr)
+	}
+	expectedAccepted := 0
+	if acceptedLogic {
+		expectedAccepted = 1
+	}
+	if len(admitted.AcceptedRoles) != expectedAccepted {
+		t.Fatalf("accepted roles = %d, want %d: %s", len(admitted.AcceptedRoles), expectedAccepted, status.stdout)
 	}
 	composeArgs := []string{"compose", "--root-run", runID}
 	for _, attempt := range admitted.RetryAttempts {
@@ -163,6 +185,7 @@ func TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns
 	if repeated.exitCode != 0 || !reflect.DeepEqual(same.Result.RunID, final.Result.RunID) || same.Result.ReconciliationState != "reconciled" {
 		t.Fatalf("same mapping failed: %s", repeated.stdout)
 	}
+	assertCompositePortableContent(t, binary, project, environment, *final.Result.RunID, 2, acceptedLogic)
 	cleaned := runMulgaeBinaryWithEnv(t, binary, project, environment, "clean", "--all", "--output", "json")
 	if cleaned.exitCode != 0 {
 		t.Fatalf("cleanup failed: %s %s", cleaned.stdout, cleaned.stderr)

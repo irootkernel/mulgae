@@ -337,6 +337,43 @@ Schema validation is necessary but not sufficient. Services also enforce
 trusted field ownership, identity relationships, state transitions, path
 locality, evidence freshness, and publication cardinality.
 
+## Self-contained composite support
+
+New composites publish `mulgae-composite-support.v1` at `support/composite.json`
+under `mulgae-run-support-index.v2`. Composite final and manifest v1/v2 meanings
+remain unchanged. Publication binds every copied artifact before committing the
+final; recovery verifies the same inventory and final/source mapping.
+
+Each selected role retains its source session, run and attempt identity,
+original finding IDs, composite ID mappings, evidence indices and provider
+provenance. A published source receipt records its P2 final, manifest, support,
+lineage digests and epoch. A failed-run recovery source records its recovery
+manifest digest and attempt, with an empty review ID and P2 digests and a zero
+epoch.
+
+Each source has a verified complete capture and retained manifest/archive/blobs,
+or explicit `capture_identity_unavailable`. Inspection exposes a common capture
+only when every selected role source, including roles without findings, has the
+same verified capture identity. Equal patch digests alone do not establish it.
+Missing historical evidence remains `evidence_unavailable`; missing or corrupt
+bound copies fail as artifact integrity errors.
+
+New publications persist the immutable support index before the candidate file.
+An interrupted preparation must match that index before it can resume, so equal
+final finding summaries cannot authorize different source receipts or copies.
+
+Verified finding details include `source_finding` and `source_receipt` from the
+composite's own support. Indexed evidence and rendered reports read copied bytes
+without resolving source runs or the working tree. Copied provider provenance
+preserves the existing retirement checks after source cleanup. The current
+export allowlist does not include this additional private content.
+
+An exact mapping already published at P2 returns its existing composite
+unchanged, including legacy composites without copied evidence. Composition
+eligibility, accepted-role selection and failed-recovery retention are unchanged.
+Self-contained reads do not grant permission to delete source runs; native
+cleanup policy still decides which sources may be removed.
+
 ## Field ownership
 
 Providers may propose finding content and evidence claims, but do not assign:
@@ -408,6 +445,17 @@ self-contained delta from the ordinary run layout:
         <role>.md
       support/
         index.json
+        composite.json
+        findings/
+          F<id>.json
+        sources/
+          <role>/target/
+            capture-manifest.json
+            captured-review.json
+            blobs/
+              sha256-<hex>
+      excerpts/
+        F<id>_<one-based-index>.md
       validation/
         final-candidate.json
       target/
@@ -427,9 +475,12 @@ self-contained delta from the ordinary run layout:
 It contains no provider runtime stream, attempts, or provider validation output.
 The `validation/final-candidate.json` file retains the immutable publication
 candidate for interruption recovery; it is not a provider validation result.
-The copied role reports, target support, immutable lineage edge, and epoch make
-the composite readable after its source runs are cleaned. The captured-review
+New composites retain copied role reports, findings, available evidence and
+per-source capture support beneath their own run. The root captured-review
 manifest and blobs are present when the root retained a captured archive.
+Per-source capture files are present only for verified complete captures.
+These copies survive source cleanup when the native cleanup policy permits it;
+failed-recovery roots retain their existing protection.
 
 For an ordinary run, `manifest.json` is the run index and integrity record. A
 completed run has at most one top-level final review. Failed, repaired, and
@@ -449,7 +500,10 @@ repositories should ignore `/.mulgae/*` and re-include only
 Composite exports retain findings without current-target excerpt evidence. Their
 source identity names the committed composite run and review, and their current
 identity contains only the target digest; no finding/excerpt identity is
-fabricated. Export remains available after the source runs have been cleaned.
+fabricated. The export allowlist excludes the added copied source findings,
+receipts, captures and evidence bodies, even though verified local reads can
+access them. Export remains available after source cleanup permitted by the
+native cleanup policy.
 
 `target/captured-review.json` is a reference-only v2 capture manifest. Exact
 target, workspace, project-context, and evidence bytes are stored once under
@@ -676,7 +730,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v17` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v18` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -685,7 +739,7 @@ can fail before execution. Child selector failures preserve cancellation and
 typed artifact or security exits; only an unclassified resolver failure uses
 exit `10` and `selector_resolution_failed`.
 
-Command-result v5 through v13 remain readable but are never emitted by the
+Command-result v5 through v17 remain readable but are never emitted by the
 current command surface. Other commands do not have rejected-request variants
 in v9.
 For the top-level `review` command, attributed provider execution details in v9
@@ -1044,20 +1098,20 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5 through v16 schema examples remain available
-for explicit backward validation; current CLI envelopes use v17. MCP retains its v1
+retry loop is introduced. CLI v5 through v17 schema examples remain available
+for explicit backward validation; current CLI envelopes use v18. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.
 
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v17 `result` and MCP v1
+accepts an empty argument object. CLI command-result v18 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `project_binding`, `execution_guard`, `capture_identity`, `inspection`,
-`finding_pages`, `finding_details`, `report_content`, and `indexed_evidence`
-capabilities are `"v1"`; `composite_evidence` remains an empty string. A failed CLI lookup returns
+`finding_pages`, `finding_details`, `report_content`, `indexed_evidence`, and
+`composite_evidence` capabilities are `"v1"`. A failed CLI lookup returns
 null binding and capabilities with a typed security, cancellation, or internal exit. MCP uses
 its existing error envelope. No private paths or descriptor facts are returned.
 
@@ -1070,11 +1124,12 @@ without configuration, credentials, provider discovery, capture, or writes.
 
 ## Preflight-bound review admission
 
-Preflight v6 adds `project_binding`, `capture_identity`, `request_receipt`, and
-`capabilities`. The request receipt binds the exact admitted configuration bytes,
+Preflight v7 retains `project_binding`, `capture_identity`, `request_receipt`, and
+`capabilities`, and advertises `composite_evidence: "v1"`. The request receipt
+binds the exact admitted configuration bytes,
 selected roles and routes, prompts and schemas, budget, objective, and capture.
 Its component digests expose no credential values or native paths. Preflight v3
-through v5 remain available for historical validation.
+through v6 remain available for historical validation.
 
 `review` accepts `--expected-project-binding DIGEST` together with
 `--expected-request-digest DIGEST`. MCP `run_review` and `start_review` accept the
@@ -1139,8 +1194,8 @@ only diagnostic evidence keeps its non-authoritative status projection and
 cannot claim a receipt, findings or reports. Valid historical support without a
 capture manifest reports `capture_identity_unavailable`; damaged bound support
 is an artifact failure. Current capabilities advertise inspection, finding pages, finding details,
-report content and indexed evidence as `v1`. Composite evidence remains
-unavailable until self-contained composite support is implemented.
+report content, indexed evidence and composite evidence as `v1`. Evidence
+availability remains explicit for each historical or copied item.
 
 ## Lossless report and evidence reads
 
@@ -1156,7 +1211,9 @@ content selectors. Supplying any new selector chooses receipt-bound chunk
 output; a legacy invocation retains its existing excerpt result and human
 output. The target digest remains required. An unbound index is invalid; a
 historical item without retained support is `evidence_unavailable`, and missing
-or damaged bound support is an integrity failure. Current persisted excerpts
+or damaged bound support is an integrity failure. Composite reports label each
+explicitly unavailable historical item and still render the remaining content;
+they do not suppress integrity failures for bound copies. Current persisted excerpts
 are nonempty verified UTF-8 quotes. Raster capture support does not create a
 separate image resource selector.
 

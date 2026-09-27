@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -33,6 +34,9 @@ func (publisher *Publisher) Publish(ctx context.Context, result Result) (publica
 	}
 	input := publication.CompositeCandidateInput{SessionID: result.SessionID, RunID: runID, Fingerprint: result.Fingerprint, RootRunID: result.RootRunID, RootReviewID: result.RootReviewID, RootRecoveryManifestSHA256: result.RootRecoveryManifestSHA256, Target: result.TargetIdentity, TargetBytes: result.TargetBytes, CapturedArchive: result.CapturedArchive, Threshold: result.Threshold, ContentVerdict: result.ContentVerdict, CoverageStatus: result.CoverageStatus, ExtractionStatus: result.ExtractionStatus, CIDecision: result.CIDecision, CIReasonCodes: result.CIReasonCodes}
 	for _, source := range result.Sources {
+		if source.Support != nil {
+			input.SourceSupport = append(input.SourceSupport, compositesupport.Clone(*source.Support))
+		}
 		input.Sources = append(input.Sources, publication.CompositeSourceInput{Kind: source.Kind, Role: source.Role, RunID: source.RunID, ReviewID: source.ReviewID, RecoveryManifestSHA256: source.RecoveryManifestSHA256, AttemptID: source.AttemptID, RoleReportSHA256: source.RoleReport.SHA256})
 		input.RoleReports = append(input.RoleReports, publication.CompositeRoleReportInput{Role: source.Role, AttemptID: source.AttemptID, ProviderInstance: source.RoleReport.ProviderInstance, SHA256: source.RoleReport.SHA256, Bytes: source.RoleReport.Bytes, SourceRunID: source.RunID})
 	}

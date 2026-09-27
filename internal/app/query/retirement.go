@@ -69,6 +69,16 @@ func (service *Service) committedArtifactRetired(ctx context.Context, run ports.
 		}
 	}
 
+	if review.compositeSupport != nil {
+		for _, source := range review.compositeSupport.Sources {
+			for _, provider := range source.ProviderIdentities {
+				if retiredProviderInstance(provider) {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}
 	if review.RunType() == domain.RunTypeComposite {
 		var final compositeFinalDTO
 		if err := decodeStrictDTO(review.FinalBytes(), &final); err != nil {

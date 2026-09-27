@@ -205,8 +205,8 @@ func TestVerifiedContentParserPreservesSelectorsAndLegacyExcerpt(t *testing.T) {
 
 func TestVerifiedContentEnvelopeRejectsInvalidSelectorsAndFields(t *testing.T) {
 	fixture := newFoundationFixture(t)
-	schema := mustFoundationAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v17.schema.json")
-	_, raw, err := fixture.catalog.Read(context.Background(), mustFoundationAssetID(t, "example:command-result.v17.valid.json"))
+	schema := mustFoundationAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v18.schema.json")
+	_, raw, err := fixture.catalog.Read(context.Background(), mustFoundationAssetID(t, "example:command-result.v18.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
