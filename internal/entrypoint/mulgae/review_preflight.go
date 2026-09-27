@@ -5,18 +5,20 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
+	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v5"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v6"
 
 // ReviewPreflightService projects the exact capture and configured execution
 // envelope without provider discovery, qualification, invocation, or durable
@@ -28,15 +30,19 @@ type ReviewPreflightService interface {
 // ReviewPreflightResult is the schema-facing, deterministic execution-free
 // review projection. Every slice is owned by the result.
 type ReviewPreflightResult struct {
-	SchemaVersion  string                         `json:"schema_version"`
-	Status         string                         `json:"status"`
-	Qualification  string                         `json:"qualification"`
-	Target         ReviewPreflightTarget          `json:"target"`
-	Warnings       []string                       `json:"warnings"`
-	FileSets       []ReviewPreflightFileSet       `json:"file_sets"`
-	GeneratedFiles []ReviewPreflightGeneratedFile `json:"generated_files"`
-	Transmissions  []ReviewPreflightTransmission  `json:"transmissions"`
-	Budget         ReviewPreflightBudget          `json:"budget"`
+	Capabilities    query.VerifiedReadCapabilities `json:"capabilities"`
+	ProjectBinding  string                         `json:"project_binding"`
+	CaptureIdentity string                         `json:"capture_identity"`
+	RequestReceipt  *reviewrun.RequestReceipt      `json:"request_receipt"`
+	SchemaVersion   string                         `json:"schema_version"`
+	Status          string                         `json:"status"`
+	Qualification   string                         `json:"qualification"`
+	Target          ReviewPreflightTarget          `json:"target"`
+	Warnings        []string                       `json:"warnings"`
+	FileSets        []ReviewPreflightFileSet       `json:"file_sets"`
+	GeneratedFiles  []ReviewPreflightGeneratedFile `json:"generated_files"`
+	Transmissions   []ReviewPreflightTransmission  `json:"transmissions"`
+	Budget          ReviewPreflightBudget          `json:"budget"`
 }
 
 type ReviewPreflightTarget struct {
@@ -146,6 +152,16 @@ func NewReviewPreflightResult(
 	if !material.Valid() || !workspaceReceipt.Valid() || !budgetReceipt.Eligible() || requestedKind == "" || len(plan.Assignments) == 0 || len(plan.Budgets) != len(plan.Assignments) {
 		return ReviewPreflightResult{}, fmt.Errorf("review preflight: invalid captured plan")
 	}
+	var captureIdentity string
+	if manifest, err := reviewrun.NewCaptureManifest(material); err == nil {
+		identity, identityErr := manifest.Identity()
+		if identityErr != nil {
+			return ReviewPreflightResult{}, identityErr
+		}
+		captureIdentity = identity.String()
+	} else if !errors.Is(err, reviewrun.ErrCaptureIdentityUnavailable) {
+		return ReviewPreflightResult{}, err
+	}
 	providerWorkspace, err := material.ProviderWorkspace()
 	if err != nil {
 		return ReviewPreflightResult{}, fmt.Errorf("review preflight: provider workspace: %w", err)
@@ -198,7 +214,8 @@ func NewReviewPreflightResult(
 		criticalPath, runDeadline, pathRows = "0s", "0s", []ReviewPreflightRolePath{}
 	}
 	result := ReviewPreflightResult{
-		SchemaVersion: reviewPreflightSchemaVersion,
+		SchemaVersion:   reviewPreflightSchemaVersion,
+		CaptureIdentity: captureIdentity, Capabilities: query.VerifiedReadCapabilities{CaptureIdentity: "v1"},
 		Status:        status,
 		Qualification: "not_run",
 		Target: ReviewPreflightTarget{
@@ -256,6 +273,29 @@ func (result ReviewPreflightResult) Validate() (err error) {
 			err = newReviewPreflightValidationFailure("result_projection")
 		}
 	}()
+	if err := result.Capabilities.Validate(); err != nil {
+		return err
+	}
+	if result.CaptureIdentity != "" {
+		if _, err := domain.ParseCaptureIdentity(result.CaptureIdentity); err != nil {
+			return err
+		}
+	}
+	if result.ProjectBinding == "" {
+		if result.RequestReceipt != nil || result.Capabilities.ExecutionGuard != "" || result.Capabilities.ProjectBinding != "" {
+			return fmt.Errorf("review preflight: unavailable binding carries admission")
+		}
+	} else {
+		if result.RequestReceipt == nil {
+			return fmt.Errorf("review preflight: admitted request receipt missing")
+		}
+		if _, err := result.RequestReceipt.Identity(); err != nil {
+			return err
+		}
+		if result.RequestReceipt.ProjectBinding != result.ProjectBinding || result.RequestReceipt.CaptureIdentity != result.CaptureIdentity || result.Capabilities.ExecutionGuard != "v1" || result.Capabilities.ProjectBinding != "v1" {
+			return fmt.Errorf("review preflight: receipt binding mismatch")
+		}
+	}
 	if result.SchemaVersion != reviewPreflightSchemaVersion || result.Qualification != "not_run" ||
 		(result.Status != "eligible" && result.Status != "no_change") || !validPreflightTarget(result.Target) ||
 		len(result.FileSets) != 1 || len(result.GeneratedFiles) != 1 || !result.Budget.Eligible {
@@ -478,8 +518,8 @@ func preflightTransmission(role domain.Role, routeKind string, budget review.Rou
 	family := strings.SplitN(instance, "-", 2)[0]
 	return ReviewPreflightTransmission{
 		Role: string(role), RouteKind: routeKind, ProviderInstance: instance, ProviderFamily: family,
-		ConfiguredTimeout: appconfig.ProviderTimeoutText(budget.Limits().Timeout()), PermissionMode: "not_applicable",
-		TargetChannel: "prompt", FileSetID: fileSetID,
+		ConfiguredTimeout: appconfig.ProviderTimeoutText(budget.Limits().Timeout()), PermissionMode: reviewrun.PreflightPermissionMode,
+		TargetChannel: reviewrun.PreflightTargetChannel, FileSetID: fileSetID,
 	}
 }
 

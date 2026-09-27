@@ -15,6 +15,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/app"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"golang.org/x/text/unicode/norm"
 )
@@ -875,6 +876,7 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		"--diff": true, "--patch": true, "--stdin": true, "--objective": true,
 		"--roles": true, "--artist-brief": true, "--artist-design-specs": true,
 		"--session": true, "--preflight": false, "--output": true,
+		"--expected-project-binding": true, "--expected-request-digest": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -925,6 +927,26 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		request.sessionID, request.hasSessionID = session.String(), true
 	}
 	_, request.preflight = options["--preflight"]
+	request.expectedProjectBinding = options["--expected-project-binding"]
+	request.expectedRequestDigest = options["--expected-request-digest"]
+	binding, hasBinding := options["--expected-project-binding"]
+	digest, hasDigest := options["--expected-request-digest"]
+	if hasBinding && binding == "" || hasDigest && digest == "" {
+		return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, reviewrun.ErrGuardInvalid)
+	}
+	if request.preflight {
+		if hasDigest {
+			return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, reviewrun.ErrGuardIncomplete)
+		}
+		if hasBinding {
+			if _, err := domain.ParseProjectBinding(binding); err != nil {
+				return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, reviewrun.ErrGuardInvalid)
+			}
+		}
+	} else if _, err := reviewrun.NewExecutionGuard(binding, digest); err != nil {
+		return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, err)
+	}
+
 	if request.preflight && request.hasSessionID {
 		return Invocation{}, usageError("review --preflight cannot import a session")
 	}
@@ -933,6 +955,13 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		return Invocation{}, err
 	}
 	var objective, artistBrief, sessionID *string
+	var expectedBinding, expectedDigest *string
+	if hasBinding {
+		expectedBinding = &request.expectedProjectBinding
+	}
+	if hasDigest {
+		expectedDigest = &request.expectedRequestDigest
+	}
 	if request.hasObjective {
 		objective = &request.objective
 	}
@@ -958,19 +987,21 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
 		} `json:"target"`
-		Objective     *string      `json:"objective"`
-		Roles         []string     `json:"roles"`
-		RoleSelection string       `json:"role_selection"`
-		ArtistBrief   *string      `json:"artist_brief"`
-		ArtistDesign  []string     `json:"artist_design_specs"`
-		SessionID     *string      `json:"session_id"`
-		Preflight     *bool        `json:"preflight,omitempty"`
-		OutputFormat  OutputFormat `json:"output_format"`
+		Objective       *string      `json:"objective"`
+		Roles           []string     `json:"roles"`
+		RoleSelection   string       `json:"role_selection"`
+		ArtistBrief     *string      `json:"artist_brief"`
+		ArtistDesign    []string     `json:"artist_design_specs"`
+		SessionID       *string      `json:"session_id"`
+		Preflight       *bool        `json:"preflight,omitempty"`
+		ExpectedBinding *string      `json:"expected_project_binding,omitempty"`
+		ExpectedDigest  *string      `json:"expected_request_digest,omitempty"`
+		OutputFormat    OutputFormat `json:"output_format"`
 	}{
 		requestID, string(app.CommandReview), struct {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
-		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, preflight, outputFormat,
+		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, preflight, expectedBinding, expectedDigest, outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err

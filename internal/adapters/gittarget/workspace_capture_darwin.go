@@ -106,9 +106,18 @@ func (adapter *ReviewTargetAdapter) walkWorkspace(
 	for _, entry := range entries {
 		relative := filepath.ToSlash(filepath.Join(directory, entry.Name()))
 		if reservedReviewPath(relative) {
+			adapter.exclude(relative, "reserved_path")
 			continue
 		}
 		ignored := workspaceIgnored(relative, gitRules) || workspaceIgnored(relative, mulgaeRules)
+		if ignored && !entry.IsDir() {
+			if workspaceIgnored(relative, gitRules) {
+				adapter.exclude(relative, "gitignore")
+			}
+			if workspaceIgnored(relative, mulgaeRules) {
+				adapter.exclude(relative, "mulgaeignore")
+			}
+		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			if !ignored {
 				return fmt.Errorf("workspace path %q is a symlink; add it to .mulgaeignore or replace it with a regular file", relative)
@@ -256,17 +265,29 @@ func capturedMulgaeIgnore(root ports.AnchoredRoot) ([]workspaceIgnoreRule, strin
 	return rules, hex.EncodeToString(digest[:]), nil
 }
 
-func filterMulgaeIgnoredSnapshot(files []ports.WorkspaceSnapshotFile, rules []workspaceIgnoreRule) []ports.WorkspaceSnapshotFile {
+func (adapter *ReviewTargetAdapter) filterMulgaeIgnoredSnapshot(files []ports.WorkspaceSnapshotFile, rules []workspaceIgnoreRule) []ports.WorkspaceSnapshotFile {
 	filtered := make([]ports.WorkspaceSnapshotFile, 0, len(files))
 	for _, file := range files {
 		if !workspaceIgnored(file.Path().String(), rules) {
 			filtered = append(filtered, file)
+		} else {
+			adapter.exclude(file.Path().String(), "mulgaeignore")
 		}
 	}
 	return filtered
 }
 
 func filterReviewPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte, error) {
+	return (&ReviewTargetAdapter{}).filterReviewPatch(patch, rules)
+}
+
+func (adapter *ReviewTargetAdapter) exclude(path, reason string) {
+	if adapter.exclusions != nil {
+		adapter.exclusions[ports.CaptureExclusion{Path: path, Reason: reason}] = struct{}{}
+	}
+}
+
+func (adapter *ReviewTargetAdapter) filterReviewPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte, error) {
 	if len(patch) == 0 {
 		return append([]byte(nil), patch...), nil
 	}
@@ -306,9 +327,13 @@ func filterReviewPatch(patch []byte, rules []workspaceIgnoreRule) ([]byte, error
 			return nil, fmt.Errorf("patch selects an unsafe reserved path")
 		}
 		if admittedIgnoreControlPath(left) || admittedIgnoreControlPath(right) {
+			adapter.exclude(left, "ignore_control")
+			adapter.exclude(right, "ignore_control")
 			continue
 		}
 		if workspaceIgnored(left, rules) || workspaceIgnored(right, rules) {
+			adapter.exclude(left, "mulgaeignore")
+			adapter.exclude(right, "mulgaeignore")
 			continue
 		}
 		filtered = append(filtered, section...)

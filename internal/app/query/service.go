@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	coreapp "github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/capture"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
@@ -413,7 +415,7 @@ func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.P
 	if err := decodeStrictDTO(artifact.Bytes(), &index); err != nil {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index decode failed", err)
 	}
-	if index.SchemaVersion != "mulgae-run-support-index.v1" {
+	if index.SchemaVersion != "mulgae-run-support-index.v1" && index.SchemaVersion != "mulgae-run-support-index.v2" {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index is invalid", nil)
 	}
 	// Empty artifacts is schema-valid for provider-free no-change publications.
@@ -423,13 +425,39 @@ func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.P
 		if pathErr != nil || !validSHA256(item.SHA256) {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact identity is invalid", pathErr)
 		}
-		if _, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path); classifyErr != nil {
+		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+		if classifyErr != nil {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact path is invalid", classifyErr)
+		}
+		if kind == ports.RunSupportArtifactCaptureManifest && index.SchemaVersion != "mulgae-run-support-index.v2" {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "capture manifest requires support index v2", nil)
 		}
 		if _, duplicate := identities[item.Path]; duplicate {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact is ambiguous", nil)
 		}
 		identities[item.Path] = item.SHA256
+	}
+	if index.SchemaVersion == "mulgae-run-support-index.v2" {
+		artifacts := make(map[string]ports.ImmutablePublicationArtifact)
+		for name, digest := range identities {
+			path, _ := ports.NewSafeRelativePath(name)
+			kind, _ := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+			if kind != ports.RunSupportArtifactCaptureManifest && kind != ports.RunSupportArtifactCapturedArchive && kind != ports.RunSupportArtifactCapturedBlob {
+				continue
+			}
+			artifact, err := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, math.MaxInt64-1)
+			if err != nil {
+				return nil, err
+			}
+			artifacts[name] = artifact
+		}
+		final, err := decodeFinalDTO(review.FinalBytes())
+		if err != nil {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed final decode failed", err)
+		}
+		if _, err := capture.VerifySupport(run.SessionID(), run.RunID(), review.TargetSHA256(), final.Target.BaseOID, final.Target.HeadOID, artifacts); err != nil {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed capture support is invalid", err)
+		}
 	}
 	return identities, nil
 }
@@ -461,11 +489,14 @@ func (service *Service) readBoundRuntimeArtifactWithMaximum(ctx context.Context,
 	if !artifact.Valid() || artifact.Path() != path || artifact.SHA256() != digest {
 		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact identity drifted", nil)
 	}
-	observed, err := service.ReadCommitted(context.WithoutCancel(ctx), run)
+	observed, err := service.observe(ctx, run, readRuntimeTargetStage)
 	if err != nil {
 		return ports.ImmutablePublicationArtifact{}, err
 	}
-	if observed.Epoch() != review.Epoch() || !bytes.Equal(observed.FinalBytes(), review.FinalBytes()) || !bytes.Equal(observed.ManifestBytes(), review.ManifestBytes()) {
+	if observed.decision.Status() != domain.PublicationCommitted || observed.decision.Authority() != domain.PublicationAuthorityP2 || observed.storeEpoch != review.Epoch() ||
+		observed.snapshot.Final().Identity().ReviewID() != review.ReviewID() || observed.snapshot.Final().Identity().SHA256() != review.FinalSHA256() ||
+		observed.snapshot.Manifest().SHA256() != review.ManifestSHA256() || observed.snapshot.LineageEdge().SHA256() != review.lineageEdgeSHA ||
+		!bytes.Equal(observed.snapshot.Final().Bytes(), review.FinalBytes()) || !bytes.Equal(observed.snapshot.Manifest().Bytes(), review.ManifestBytes()) {
 		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed source changed during runtime read", nil)
 	}
 	return artifact, nil
@@ -1300,6 +1331,13 @@ func (service *Service) readCommittedSnapshot(
 	review, err := buildCommittedReview(run, observation.decision, snapshot, finalRecord, manifestRecord)
 	if err != nil {
 		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed publication semantic validation failed", err)
+	}
+	// Verify retained capture support before the final P2 re-observation. Older
+	// publications without a support reference retain their historical read path.
+	if manifestRecord.CompositeIdentity.SupportIndex != nil {
+		if _, err := service.readRuntimeSupportIndex(ctx, run, review); err != nil {
+			return CommittedReview{}, err
+		}
 	}
 	confirmation, err := service.observe(ctx, run, stage)
 	if err != nil {

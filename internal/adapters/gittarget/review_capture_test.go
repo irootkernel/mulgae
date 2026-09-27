@@ -136,6 +136,19 @@ func TestReviewCaptureDirtyAcceptsTrackedIgnoreControlsAndExcludesTheirMaterial(
 	writeReviewFile(t, filepath.Join(root, "git-ignored.txt"), "ignored by Git\n")
 
 	material := captureReviewMaterial(t, root, ports.ReviewTargetDirty, "dirty")
+	decisions, present := material.Exclusions()
+	if !present {
+		t.Fatal("capture exclusion decisions absent")
+	}
+	for _, want := range []ports.CaptureExclusion{{Path: "excluded-tracked.txt", Reason: "mulgaeignore"}, {Path: "excluded-untracked.txt", Reason: "mulgaeignore"}, {Path: "git-ignored.txt", Reason: "gitignore"}} {
+		found := false
+		for _, actual := range decisions {
+			found = found || actual == want
+		}
+		if !found {
+			t.Fatalf("missing exclusion %+v in %+v", want, decisions)
+		}
+	}
 	for _, forbidden := range []string{".gitignore", ".mulgaeignore", "excluded-tracked.txt", "excluded-untracked.txt", "git-ignored.txt"} {
 		assertReviewMaterialExcludes(t, material, forbidden, "changed control")
 	}
@@ -763,6 +776,33 @@ func TestReviewCaptureWorkspaceWithoutGitHonorsIgnoreFiles(t *testing.T) {
 	}
 	if _, ok := material.Evidence().Files(ports.CapturedEvidenceWorktree); !ok {
 		t.Fatal("workspace capture has no worktree evidence")
+	}
+	decisions, present := material.Exclusions()
+	if !present {
+		t.Fatal("missing admitted exclusions")
+	}
+	for _, want := range []ports.CaptureExclusion{{Path: "ignored.txt", Reason: "gitignore"}, {Path: "image.bin", Reason: "mulgaeignore"}} {
+		found := false
+		for _, actual := range decisions {
+			found = found || actual == want
+		}
+		if !found {
+			t.Fatalf("missing exclusion %+v in %+v", want, decisions)
+		}
+	}
+	// Reusing the capturer must not retain another capture's policy decisions.
+	if err := os.Remove(filepath.Join(root, "ignored.txt")); err != nil {
+		t.Fatal(err)
+	}
+	next, err := adapter.CaptureReviewTarget(context.Background(), anchored, reviewSelector(t, ports.ReviewTargetWorkspace, "workspace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextDecisions, _ := next.Exclusions()
+	for _, row := range nextDecisions {
+		if row.Path == "ignored.txt" {
+			t.Fatal("exclusions leaked across captures")
+		}
 	}
 }
 

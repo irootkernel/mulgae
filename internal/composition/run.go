@@ -203,7 +203,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		}
 		return composeReviewRuns(reviewContext, build, reviewRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore, requestResolver)
 	}, func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewPreflightService, error) {
-		return composeReviewPreflight(reviewContext, reviewRoot, gitAdapter, requestResolver)
+		return composeReviewPreflight(reviewContext, catalog, reviewRoot, gitAdapter, requestResolver)
 	})
 	heartbeats := deferredHeartbeatService{clock: clock, compose: func(heartbeatContext context.Context, heartbeatRoot ports.AnchoredRoot) (*productionRuntimeGraph, error) {
 		if buildErr != nil {

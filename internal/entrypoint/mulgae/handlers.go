@@ -331,7 +331,11 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 			Role string `json:"role"`
 			URI  string `json:"uri"`
 		} `json:"role_report_uris"`
-	}{"review_started", sessionID, runID, runManifestURI, reviewArtifactURI, roleReportURIs})
+		Guarded         bool   `json:"guarded"`
+		ProjectBinding  string `json:"project_binding"`
+		CaptureIdentity string `json:"capture_identity"`
+		RequestDigest   string `json:"request_digest"`
+	}{"review_started", sessionID, runID, runManifestURI, reviewArtifactURI, roleReportURIs, result.Guarded(), result.ProjectBinding(), result.CaptureIdentity(), result.RequestDigest()})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}

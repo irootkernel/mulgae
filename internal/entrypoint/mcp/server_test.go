@@ -1395,6 +1395,7 @@ type toolBackendFake struct {
 	runReviewOutcome   string
 	runReviewErr       error
 	runReviewCalls     int
+	runReviewInput     RunReviewInput
 	runReviewStarted   chan struct{}
 	runReviewRelease   chan struct{}
 	runReviewCancelled chan error
@@ -1410,8 +1411,9 @@ type toolBackendFake struct {
 	resourceCalls      int
 }
 
-func (fake *toolBackendFake) RunReview(ctx context.Context, _ string, _ RunReviewInput) (BackendResult, error) {
+func (fake *toolBackendFake) RunReview(ctx context.Context, _ string, input RunReviewInput) (BackendResult, error) {
 	fake.runReviewCalls++
+	fake.runReviewInput = input
 	if fake.runReviewStarted != nil {
 		close(fake.runReviewStarted)
 		if fake.runReviewRelease != nil {

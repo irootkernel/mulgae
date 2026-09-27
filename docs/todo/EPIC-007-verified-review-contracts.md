@@ -117,35 +117,35 @@ Tasks record release notes when those capabilities become available.
 
 **Implement**
 
-- [ ] Produce the complete capture and component/request receipts from existing
+- [x] Produce the complete capture and component/request receipts from existing
       capture/planning, covering target, context, policy, routes, assets, and
       budgets without hashing temporary paths or run-specific metadata.
-- [ ] Bind the capture identity and canonical verification manifest into new
+- [x] Bind the capture identity and canonical verification manifest into new
       ordinary/no-change and existing child publications. Preserve no-change
       zero-provider behavior and version new support without rewriting old files.
-- [ ] Accept paired expected-binding/request-digest guards through CLI review
+- [x] Accept paired expected-binding/request-digest guards through CLI review
       and MCP foreground/start paths. Validate before qualification or review.
-- [ ] Execute the exact capture and plan checked by the guard; preserve existing
+- [x] Execute the exact capture and plan checked by the guard; preserve existing
       spawn revalidation, legacy unguarded behavior, and lifecycle ownership.
-- [ ] Add native result fields distinguishing guarded and unguarded execution;
+- [x] Add native result fields distinguishing guarded and unguarded execution;
       document why a guard does not make start idempotent.
 
 **Do not**
 
-- [ ] Compare one capture and execute another, transmit a qualification packet
+- [x] Compare one capture and execute another, transmit a qualification packet
       before rejecting drift, or create runs/diagnostics during preflight.
 
 **Verify and complete**
 
-- [ ] Mutate target files, binary content, objective, context, exclusions, role
+- [x] Mutate target files, binary content, objective, context, exclusions, role
       selection, model/effort policy, route/profile, and assets between preflight
       and execution; reject changed requests with zero provider invocations.
-- [ ] Prove post-admission live-tree edits do not change the execution snapshot,
+- [x] Prove post-admission live-tree edits do not change the execution snapshot,
       guards cannot cross roots, and observer cancellation remains isolated.
-- [ ] Cover equal-patch/different-support captures and request-only changes over
+- [x] Cover equal-patch/different-support captures and request-only changes over
       identical captures. Verify published capture support after restart and
       corruption; keep the legacy no-change outcome and exit behavior.
-- [ ] Add release-binary/transport regressions and run focused plus applicable
+- [x] Add release-binary/transport regressions and run focused plus applicable
       unit/integration checks. Complete without relying on EPIC-008 inputs.
 
 ## TASK-022: Provide coherent inspection and finding pages

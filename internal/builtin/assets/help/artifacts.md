@@ -122,3 +122,9 @@ intentional copy elsewhere beneath the project root. Mulgae does not modify Git
 ignore configuration. Use `/.mulgae/*` followed by
 `!/.mulgae/config.yaml`; commit only that shared policy file and never commit or
 share `local.yaml` or any other `.mulgae/**` content.
+
+New complete captures retain `target/capture-manifest.json` alongside the
+reference archive and raw blobs, bound by support-index v2. This includes
+no-change reviews, which still have no provider attempts. Reads verify the full
+capture inventory; missing bound support is corruption. Historical artifacts
+without complete support do not acquire a capture identity from their patch.

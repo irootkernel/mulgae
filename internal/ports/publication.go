@@ -552,6 +552,7 @@ const (
 	RunSupportArtifactInvocationStderr   RunSupportArtifactKind = "invocation_stderr"
 	RunSupportArtifactTargetBytes        RunSupportArtifactKind = "target_bytes"
 	RunSupportArtifactTargetManifest     RunSupportArtifactKind = "target_manifest"
+	RunSupportArtifactCaptureManifest    RunSupportArtifactKind = "capture_manifest"
 	RunSupportArtifactCapturedArchive    RunSupportArtifactKind = "captured_archive"
 	RunSupportArtifactCapturedBlob       RunSupportArtifactKind = "captured_blob"
 	RunSupportArtifactArtistBrief        RunSupportArtifactKind = "artist_brief"
@@ -572,7 +573,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 		RunSupportArtifactExtractedCandidate,
 		RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
 		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
-		RunSupportArtifactCapturedArchive, RunSupportArtifactCapturedBlob, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
+		RunSupportArtifactCaptureManifest, RunSupportArtifactCapturedArchive, RunSupportArtifactCapturedBlob, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
 		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
 		RunSupportArtifactSupportIndex, RunSupportArtifactRoleReport, RunSupportArtifactRecoveryManifest, RunSupportArtifactRecoveryBlob:
 		return true
@@ -585,7 +586,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 // content that is not subject to a structured publication-control limit.
 func (kind RunSupportArtifactKind) IsVariableSized() bool {
 	switch kind {
-	case RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
+	case RunSupportArtifactCaptureManifest, RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
 		RunSupportArtifactRecoveryBlob, RunSupportArtifactTargetBytes,
 		RunSupportArtifactTargetManifest,
 		RunSupportArtifactCapturedArchive,
@@ -851,6 +852,9 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 	}
 	if relative == "target/target-manifest.json" {
 		return RunSupportArtifactTargetManifest, nil
+	}
+	if relative == "target/capture-manifest.json" {
+		return RunSupportArtifactCaptureManifest, nil
 	}
 	if relative == "target/captured-review.json" {
 		return RunSupportArtifactCapturedArchive, nil

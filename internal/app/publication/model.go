@@ -17,6 +17,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/irootkernel/mulgae/internal/app/capture"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/review"
@@ -48,6 +49,7 @@ type SchemaValidator interface {
 // It deliberately has no ReviewID. A ReviewID is supplied only after this
 // pre-publication validation has completed.
 type PreparedCandidate struct {
+	capturedArchive    []byte
 	sessionID          domain.SessionID
 	runID              domain.RunID
 	runState           domain.RunState
@@ -2353,7 +2355,7 @@ func validatePublicationBundleSemantics(bundle PublicationBundle) error {
 	if err := unmarshalCanonicalPublicationRecord(bundle.manifest.Bytes(), &manifestWire, "run manifest"); err != nil {
 		return err
 	}
-	if err := validateBundleSupportIndex(bundle.excerpts, manifestWire.CompositeIdentity.SupportIndex); err != nil {
+	if err := validateBundleSupportIndex(bundle.excerpts, manifestWire.CompositeIdentity.SupportIndex, sessionID, runID, finalWire.Target.ContentSHA256, finalWire.Target.BaseOID, finalWire.Target.HeadOID); err != nil {
 		return err
 	}
 
@@ -2447,6 +2449,7 @@ func validateBundleExcerptBindings(
 func validateBundleSupportIndex(
 	artifacts []ports.ImmutablePublicationArtifact,
 	identity artifactIdentityWire,
+	session domain.SessionID, run domain.RunID, targetSHA256 string, baseOID, headOID *string,
 ) error {
 	var indexArtifact *ports.ImmutablePublicationArtifact
 	expected := make(map[string]string, len(artifacts))
@@ -2471,10 +2474,15 @@ func validateBundleSupportIndex(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &index, "support index"); err != nil {
 		return err
 	}
-	if index.SchemaVersion != "mulgae-run-support-index.v1" || len(index.Artifacts) != len(expected) {
+	if (index.SchemaVersion != "mulgae-run-support-index.v1" && index.SchemaVersion != "mulgae-run-support-index.v2") || len(index.Artifacts) != len(expected) {
 		return fmt.Errorf("support index contents are invalid")
 	}
 	for _, item := range index.Artifacts {
+		path, pathErr := ports.NewSafeRelativePath(item.Path)
+		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(session, run, path)
+		if pathErr != nil || classifyErr != nil || (kind == ports.RunSupportArtifactCaptureManifest && index.SchemaVersion != "mulgae-run-support-index.v2") {
+			return fmt.Errorf("support index artifact path or version is invalid")
+		}
 		digest, ok := expected[item.Path]
 		if !ok || digest != item.SHA256 {
 			return fmt.Errorf("support index artifact binding is invalid")
@@ -2483,6 +2491,15 @@ func validateBundleSupportIndex(
 	}
 	if len(expected) != 0 {
 		return fmt.Errorf("support index omits generated artifacts")
+	}
+	if index.SchemaVersion == "mulgae-run-support-index.v2" {
+		byPath := make(map[string]ports.ImmutablePublicationArtifact, len(artifacts))
+		for _, artifact := range artifacts {
+			byPath[artifact.Path().String()] = artifact
+		}
+		if _, err := capture.VerifySupport(session, run, targetSHA256, baseOID, headOID, byPath); err != nil {
+			return err
+		}
 	}
 	return nil
 }

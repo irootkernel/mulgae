@@ -253,7 +253,7 @@ EPIC-008: captured Review Brief
 | Concern | Application and boundary ownership |
 |---|---|
 | Local project identity | Domain/app typed binding and inward port; descriptor/Git observation in filesystem/workspace adapters; transport never decides root equality |
-| Complete capture identity | Shared application-owned canonical target/sides/file-set/context identity, distinct from patch and request digests; `publication` retains verification support and `query` verifies it |
+| Complete capture identity | `app/capture` owns canonical target/sides/file-set/context identity, distinct from patch and request digests; `reviewrun` owns request admission, `publication` retains verification support, and `query` verifies it |
 | Native guard | `reviewrun` capture/planning admission before qualification; request identity includes the complete capture and request-only policy, objective, and route dimensions |
 | Verified reads | `query` owns coherent publication receipt and provenance; `report` renders admitted content; CLI/MCP only parse and project bounded pages |
 | Composite evidence | `reviewcompose` selects exact sources; `publication` owns copied support and atomic commit; query does not chase live source runs |

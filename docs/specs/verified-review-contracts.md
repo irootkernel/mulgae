@@ -365,8 +365,10 @@ the configuration hash and request identity even when effective policy is
 unchanged. Effective route values and budget operands bind resolved defaults
 separately. Credentials and provider-home contents never enter any preimage.
 
-Exclusion rows use admitted project-relative paths and existing reason codes,
-sorted by path then reason.
+Exclusion rows use admitted project-relative paths and capture decision codes
+`gitignore`, `mulgaeignore`, `ignore_control`, or `reserved_path`, sorted by path
+then reason. Decisions are collected within one capture and never reused by a
+subsequent capture.
 An empty exclusion list means no admitted exclusion decisions, not unknown data.
 
 Route and budget rows are sorted by role, asset rows by name, source rows by
@@ -374,8 +376,10 @@ run/attempt ID, and source finding IDs lexically; reject duplicates. Preserve
 prompt-input order and artist glob order. A missing provider model, effort or
 profile remains an empty effective string when that provider exposes no such
 setting. Configured selectors preserve their explicit/default distinction.
-Private resolved launcher/profile paths enter only the route preimage. Runtime
-temporary paths, invocation IDs and wall-clock timestamps are excluded.
+The route permission and channel fields retain preflight meanings:
+`not_applicable` and `prompt`. Provider-native permission policy remains in the
+protocol adapters. Private resolved launcher/profile paths enter only the route
+preimage. Runtime temporary paths, invocation IDs and wall-clock timestamps are excluded.
 
 Asset rows include every selected prompt, role and schema content digest and
 contract version; unrelated catalog entries are excluded. Budget fields project
@@ -502,13 +506,13 @@ reader can still return `evidence_unavailable` for a legacy item.
 
 | Contract | Current writer / reader | Owning Task and next change |
 |---|---|---|
-| CLI command envelope | v14 emission, including context; v5-v13 schemas retained unchanged | TASK-020 implements context; later changed projections allocate the next version when wired. Strict old readers may reject it. |
-| Preflight | v5 emission; v3-v5 fixtures retained | TASK-021 introduces v6 with request/capture receipt; v5 remains readable without asserting guard support. |
+| CLI command envelope | v15 emission with context and admission fields; v5-v14 schemas retained unchanged | TASK-021 wires guarded admission. Strict old readers may reject v15. |
+| Preflight | v6 emission with request/capture receipt; v3-v5 fixtures retained | TASK-021. Historical v5 does not assert guard support. |
 | MCP tool envelope | v1 unchanged | Keep the outer v1 envelope; data contracts and advertised capabilities distinguish new projections. |
-| Capture/request/publication/cursor | Four v1 schema/example pairs; tested value-only APIs, no runtime emission | TASK-020/021/022 wire their owned values. Unknown versions fail closed. |
-| Ordinary/child final and manifest | Current v1 plus existing recovery v2, unchanged | Keep final meanings; add capture support through support-index v2 in TASK-021. |
+| Capture/request/publication/cursor | Four v1 schema/example pairs; capture and request are emitted | TASK-022 wires publication receipts and cursors. Unknown versions fail closed. |
+| Ordinary/child final and manifest | Current v1 plus existing recovery v2, unchanged | TASK-021 retains complete capture support through support-index v2. |
 | Composite final and manifest | Current v1/v2, unchanged | TASK-024 uses support-index v2 for self-contained evidence and per-source capture support. Existing exact mappings stay unchanged. |
-| Run support index | v1 unchanged, including canonical empty no-change index | v2 requires indexed capture manifest and retained material for new ordinary/child/no-change publications; composite entries include per-source availability and copied support. Old strict binaries may reject v2. |
+| Run support index | v2 for complete ordinary/child/no-change captures; historical v1 remains readable | TASK-021 requires the indexed capture manifest and retained material. Historical child replays without complete sides retain unavailable identity. TASK-024 adds composite per-source support. Old strict binaries may reject v2. |
 | Existing content resources | Existing registration, offsets and read behavior unchanged | TASK-022/023 wire receipt-bound details/reports/indexed evidence; legacy URI reads stay supported. |
 
 Support-index v2 must hash-bind every added capture manifest and archive/blob,

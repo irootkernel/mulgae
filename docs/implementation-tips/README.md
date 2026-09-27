@@ -75,6 +75,14 @@ and read-only CLI/MCP project-context parity without reading the operator's real
 home; it is not the installed release
 artifact and does not replace the releasecheck evidence.
 
+For guarded-admission changes, run
+`TestIntegrationIsolatedReleaseFixtureGuardedAdmission` in `./test/e2e` against
+the isolated release fixture. It checks CLI/MCP receipt parity, guarded
+foreground and start/await execution, rejected
+request drift without provider work, distinct repeated starts, no-change capture
+retention, and corruption after a process restart. `make test-release` includes
+this fixture. It uses a fake provider and does not replace mandatory live gates.
+
 `make test-grok` builds the exact current release binary and runs one authorized
 Grok review through ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and
 otherwise discovers `grok` on `PATH`. The target requires an already

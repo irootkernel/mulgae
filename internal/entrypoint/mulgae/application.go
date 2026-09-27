@@ -291,6 +291,9 @@ type RoleReportURI struct {
 
 // ReviewRunResult is the immutable terminal P2 projection returned by ReviewRunService.
 type ReviewRunResult struct {
+	captureIdentity   string
+	guarded           bool
+	admission         *reviewrun.RequestReceipt
 	sessionID         string
 	runID             string
 	runManifestURI    string
@@ -327,6 +330,21 @@ func newReviewRunResultWithFailures(
 	result.terminalFailures = append([]reviewrun.ProviderExecutionFailure(nil), failures...)
 	result.roleReportURIs = append([]RoleReportURI(nil), roleReportURIs...)
 	return result
+}
+
+func (result ReviewRunResult) Guarded() bool { return result.guarded }
+func (result ReviewRunResult) ProjectBinding() string {
+	if result.admission == nil {
+		return ""
+	}
+	return result.admission.ProjectBinding
+}
+func (result ReviewRunResult) CaptureIdentity() string { return result.captureIdentity }
+func (result ReviewRunResult) RequestDigest() string {
+	if result.admission == nil {
+		return ""
+	}
+	return result.admission.RequestDigest
 }
 
 // SessionID returns the terminal review session ID.
@@ -501,7 +519,7 @@ func ResolveReviewPolicyRequest(request ReviewRequest, enabled map[domain.Role]b
 	if hasArtistInputs && !artistInputs.Valid() {
 		return ReviewRequest{}, errors.New("production artist defaults are invalid")
 	}
-	automaticRoles := !request.rolesExplicit
+	automaticRoles := !request.rolesExplicit || request.rolesDefaulted
 	selected := make(map[domain.Role]bool, len(request.roles))
 	if request.rolesExplicit {
 		for _, raw := range request.roles {
@@ -547,6 +565,7 @@ func ResolveReviewPolicyRequest(request ReviewRequest, enabled map[domain.Role]b
 	} else if request.hasArtistBrief || len(request.artistDesignGlobs) != 0 {
 		return ReviewRequest{}, errArtistRoleRequired
 	}
+	request.rolesDefaulted = automaticRoles
 	request.rolesExplicit = true
 	return request, nil
 }
@@ -627,7 +646,11 @@ func (adapter reviewRunAdapter) StartReviewRun(
 	if err != nil {
 		return ReviewRunResult{}, err
 	}
-	result, err := adapter.service.Execute(ctx, reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: artifactRoot, Selection: selection})
+	guard, err := reviewrun.NewExecutionGuard(request.expectedProjectBinding, request.expectedRequestDigest)
+	if err != nil {
+		return ReviewRunResult{}, err
+	}
+	result, err := adapter.service.Execute(ctx, reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: artifactRoot, Selection: selection, CaptureRequest: captureRequest, RolesExplicit: request.RequestedRolesExplicit(), Guard: guard})
 	if err != nil {
 		return ReviewRunResult{}, err
 	}
@@ -726,7 +749,7 @@ func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
 	if err != nil {
 		return ReviewRunResult{}, err
 	}
-	return newReviewRunResultWithFailures(
+	projected := newReviewRunResultWithFailures(
 		sessionID,
 		runID,
 		".mulgae/"+manifestPath,
@@ -734,7 +757,13 @@ func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
 		terminalExit,
 		failures,
 		roleReportURIs,
-	), nil
+	)
+	projected.captureIdentity = result.CaptureIdentity()
+	if receipt, present := result.AdmissionReceipt(); present {
+		projected.admission = &receipt
+		projected.guarded = result.Guarded()
+	}
+	return projected, nil
 }
 
 // projectRoleReportURIsFromReviewRun copies trusted role-report identities from
@@ -1318,6 +1347,9 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 			}
 			return application.renderRejectedChildWorkflow(ctx, requestID, command, state, outputFormat, failure)
 		}
+		if code, ok := reviewrun.GuardReason(err); ok {
+			return errorResult(app.ExitCodeUsage, "mulgae: "+code)
+		}
 		if errors.Is(err, ErrUsage) {
 			if rejectedInitJSONIntent(argv) {
 				return application.renderRejectedInit(ctx, requestID)
@@ -1875,6 +1907,9 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 			failure.diagnosticURI = uri.String()
 		}
 	}()
+	if code, ok := reviewrun.GuardReason(err); ok && reducedFailureClass(err, fallback) == domain.FailureConfiguration {
+		return &executionFailure{class: domain.FailureConfiguration, code: code, message: "Review admission rejected the request.", humanMessage: "mulgae: " + code, stage: "review.admission", exit: app.ExitCodeUsage, retryable: false, hasRetryable: true, recommendedNextCommand: "repeat preflight for the intended project and request"}
+	}
 	var composite interface{ ReasonCode() string }
 	if command == app.CommandCompose && errors.As(err, &composite) && domain.ValidCompositeReasonCode(composite.ReasonCode()) {
 		code := composite.ReasonCode()

@@ -6,6 +6,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
+- Bind review execution to preflight with paired project/request guards, retain complete capture evidence for new publications including no-change reviews, and expose preflight v6 and command-result v15.
 - Add read-only CLI `context` and MCP `get_context` for independent local worktree identity comparison, reject changed server roots, and emit command-result v14 while retaining earlier schemas.
 
 ### Changed

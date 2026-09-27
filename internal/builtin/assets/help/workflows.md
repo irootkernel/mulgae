@@ -56,6 +56,20 @@ A no-change target reports `status: no_change` with no
 transmissions or execution budget. `--preflight` cannot be combined with
 `--session`.
 
+For a Git worktree, save the preflight `project_binding` and
+`request_receipt.request_digest`, then supply both to execution:
+
+```bash
+mulgae review --stage --expected-project-binding "$binding" --expected-request-digest "$request_digest" --output json
+```
+
+Use the same target, roles, objective, and artist selectors as preflight. A source
+or policy change returns `request_digest_mismatch` before provider work. A foreign
+worktree returns `project_binding_mismatch`. `--preflight` accepts the expected
+binding alone. Successful execution reports `guarded: true`; omitting both guards
+keeps ordinary unguarded execution. Repeating an accepted guard creates a new run.
+Non-Git workspace review remains available without guards.
+
 Child workflows create new immutable runs:
 
 ```bash

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/app/capture"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -1251,9 +1252,10 @@ func (service *Service) readManifestBoundSupportArtifacts(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &supportIndex, "committed support index"); err != nil {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index is invalid", err)
 	}
-	if supportIndex.SchemaVersion != "mulgae-run-support-index.v1" {
+	if supportIndex.SchemaVersion != "mulgae-run-support-index.v1" && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index schema is invalid", nil)
 	}
+	captureArtifacts := make(map[string]ports.ImmutablePublicationArtifact)
 	identities := make([]RunSupportArtifactIdentity, 0, len(supportIndex.Artifacts)+1)
 	identities = append(identities, runSupportArtifactIdentity(indexArtifact))
 	seen := map[string]struct{}{indexPath.String(): {}}
@@ -1292,6 +1294,25 @@ func (service *Service) readManifestBoundSupportArtifacts(
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support artifact does not match", nil)
 		}
 		identities = append(identities, runSupportArtifactIdentity(artifact))
+		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+		if classifyErr != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support path invalid", classifyErr)
+		}
+		if kind == ports.RunSupportArtifactCaptureManifest && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "capture manifest requires support v2", nil)
+		}
+		if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" && (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCapturedArchive || kind == ports.RunSupportArtifactCapturedBlob) {
+			captureArtifacts[path.String()] = artifact
+		}
+	}
+	if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" {
+		var final finalReviewWire
+		if err := unmarshalCanonicalPublicationRecord(snapshot.Final().Bytes(), &final, "committed final"); err != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed final is invalid", err)
+		}
+		if _, err := capture.VerifySupport(run.SessionID(), run.RunID(), manifest.Target.ContentSHA256, final.Target.BaseOID, final.Target.HeadOID, captureArtifacts); err != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed capture support is invalid", err)
+		}
 	}
 	return identities, nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/reviewcompose"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
 	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
@@ -75,6 +76,9 @@ func (backend *mcpBackend) PreflightReview(
 	if !available || !request.Preflight() {
 		return mcpentry.BackendResult{}, newMCPFailure("mcp.preflight", domain.FailureInternal, "MCP preflight request is unavailable", nil)
 	}
+	if err := backend.checkReviewProject(ctx, input.ExpectedProjectBinding); err != nil {
+		return mcpentry.BackendResult{}, err
+	}
 	result, err := backend.application.PreflightReview(ctx, request, backend.projectRoot)
 	if err != nil {
 		return mcpentry.BackendResult{}, err
@@ -106,6 +110,7 @@ func summarizeMCPPreflight(result mulgaeentry.ReviewPreflightResult) (map[string
 		"warnings":  result.Warnings,
 		"file_sets": fileSets, "generated_files": result.GeneratedFiles,
 		"transmissions": result.Transmissions, "budget": result.Budget,
+		"project_binding": result.ProjectBinding, "capture_identity": result.CaptureIdentity, "request_receipt": result.RequestReceipt, "capabilities": result.Capabilities,
 	}, nil
 }
 
@@ -132,6 +137,9 @@ func (backend *mcpBackend) RunReview(
 	request, available := invocation.Review()
 	if !available || request.Preflight() {
 		return mcpentry.BackendResult{}, fmt.Errorf("MCP review request is unavailable")
+	}
+	if err := backend.checkReviewProject(ctx, input.ExpectedProjectBinding); err != nil {
+		return mcpentry.BackendResult{}, err
 	}
 	result, err := backend.application.StartReviewRun(ctx, request, backend.projectRoot)
 	if err != nil {
@@ -161,6 +169,7 @@ func (backend *mcpBackend) RunReview(
 		"run_manifest_uri": result.RunManifestURI(), "review_artifact_uri": result.ReviewArtifactURI(),
 		"role_report_uris": reports, "report_resource_uri": reportURI,
 		"terminal_exit_code": int(decision.Code()), "reasons": reasons,
+		"guarded": result.Guarded(), "project_binding": result.ProjectBinding(), "capture_identity": result.CaptureIdentity(), "request_digest": result.RequestDigest(),
 	}}, nil
 }
 
@@ -222,6 +231,12 @@ func mcpReviewArguments(input mcpentry.RunReviewInput) ([]string, error) {
 		arguments = append(arguments, "--"+input.Target.Kind, input.Target.Value)
 	default:
 		return nil, fmt.Errorf("MCP review target is invalid")
+	}
+	if input.ExpectedProjectBinding != nil {
+		arguments = append(arguments, "--expected-project-binding", *input.ExpectedProjectBinding)
+	}
+	if input.ExpectedRequestDigest != nil {
+		arguments = append(arguments, "--expected-request-digest", *input.ExpectedRequestDigest)
 	}
 	if input.Objective != "" {
 		arguments = append(arguments, "--objective", input.Objective)
@@ -504,4 +519,19 @@ func (backend *mcpBackend) GetContext(ctx context.Context) (map[string]any, erro
 		return nil, err
 	}
 	return map[string]any{"project_binding": result.ProjectBinding, "capabilities": result.Capabilities}, nil
+}
+
+// checkReviewProject keeps review admission bound to the server startup lease.
+func (backend *mcpBackend) checkReviewProject(ctx context.Context, expected *string) error {
+	if backend.contextLease == nil && expected == nil {
+		return nil
+	}
+	observed, err := backend.GetContext(ctx)
+	if err != nil {
+		return err
+	}
+	if expected != nil && observed["project_binding"] != *expected {
+		return newMCPFailure("mcp.admission", domain.FailureConfiguration, "project_binding_mismatch", reviewrun.ErrProjectBindingMismatch)
+	}
+	return nil
 }

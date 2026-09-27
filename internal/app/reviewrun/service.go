@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -31,6 +32,9 @@ func NewService(dependencies Dependencies) (*Service, error) {
 	if nilInterface(dependencies.Clock) || nilInterface(dependencies.IDs) || !dependencies.Build.Valid() || nilInterface(dependencies.RunAuthorityFactory) || dependencies.Validator == nil || nilInterface(dependencies.Publication) || dependencies.Templates.Common().ID() == "" || nilInterface(dependencies.Diagnostics) {
 		return nil, fmt.Errorf("review run: invalid dependencies")
 	}
+	if !nilInterface(dependencies.Admission) && nilInterface(dependencies.ProjectBindings) {
+		return nil, fmt.Errorf("review run: admission requires project binding observer")
+	}
 	return &Service{dependencies: dependencies, templates: dependencies.Templates}, nil
 }
 
@@ -49,6 +53,41 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	if nilInterface(request.InputSource) || !request.ProjectRoot.Valid() || !request.ArtifactRoot.Valid() || !request.Selection.Valid() {
 		return Result{}, fmt.Errorf("review run: malformed request")
 	}
+	var binding domain.ProjectBinding
+	var bindingLease ports.ProjectBindingLease
+	var admission *AdmittedRequest
+	if !nilInterface(service.dependencies.Admission) {
+		var observeErr error
+		bindingLease, observeErr = service.dependencies.ProjectBindings.ObserveProjectBinding(ctx, request.ProjectRoot)
+		if observeErr != nil {
+			return Result{}, projectAdmissionFailure(observeErr)
+		}
+		if nilInterface(bindingLease) {
+			return Result{}, projectAdmissionFailure(fmt.Errorf("missing project lease"))
+		}
+		defer func() {
+			if closeErr := bindingLease.Close(); closeErr != nil {
+				result = Result{}
+				err = errors.Join(err, projectAdmissionFailure(closeErr))
+			}
+		}()
+		if observeErr = bindingLease.Revalidate(ctx); observeErr != nil {
+			return Result{}, projectAdmissionFailure(observeErr)
+		}
+		binding, observeErr = observedProjectBinding(bindingLease)
+		if observeErr != nil {
+			return Result{}, projectAdmissionFailure(observeErr)
+		}
+	}
+	if guardErr := request.Guard.CheckProject(binding, !nilInterface(service.dependencies.Admission)); guardErr != nil {
+		return Result{}, guardFailure(guardErr)
+	}
+	defer func() {
+		if err == nil && admission != nil {
+			result.admission = admission
+			result.guarded = request.Guard.Guarded()
+		}
+	}()
 	captured, err := request.InputSource.Capture(ctx, request)
 	if err != nil {
 		return Result{}, fmt.Errorf("review run: capture immutable input: %w", ports.WrapReviewCaptureFailure(err))
@@ -108,6 +147,42 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	detector := captured.PacketDetector()
 	if !input.Target().Valid() {
 		return Result{}, fmt.Errorf("review run: capture returned invalid authority")
+	}
+	if !nilInterface(service.dependencies.Admission) {
+		admitted, admitErr := service.dependencies.Admission.Admit(ctx, request, captured, binding)
+		if admitErr != nil {
+			return Result{}, admitErr
+		}
+		identity, admitErr := admitted.Receipt.Identity()
+		if admitErr != nil || admitted.Receipt.ProjectBinding != binding.String() {
+			return Result{}, fmt.Errorf("review admission: invalid receipt")
+		}
+		if admitErr = bindingLease.Revalidate(ctx); admitErr != nil {
+			return Result{}, projectAdmissionFailure(admitErr)
+		}
+		if admitErr = request.Guard.CheckRequest(identity); admitErr != nil {
+			return Result{}, guardFailure(admitErr)
+		}
+		admission = &admitted
+	}
+	if admission == nil && len(input.CapturedArchive()) > 0 {
+		material, decodeErr := ports.UnmarshalCapturedReviewMaterial(input.CapturedArchive())
+		if decodeErr != nil {
+			return Result{}, decodeErr
+		}
+		manifest, manifestErr := NewCaptureManifest(material)
+		if manifestErr != nil {
+			return Result{}, manifestErr
+		}
+		identity, identityErr := manifest.Identity()
+		if identityErr != nil {
+			return Result{}, identityErr
+		}
+		defer func() {
+			if err == nil {
+				result.captureIdentity = identity.String()
+			}
+		}()
 	}
 	target := input.Target().Identity()
 	if !service.dependencies.Build.Valid() {
@@ -217,6 +292,12 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	}
 	if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationSucceeded, "qualification", "admit", ""); err != nil {
 		return Result{}, err
+	}
+	if admission != nil {
+		if !reflect.DeepEqual(plan, admission.Plan) {
+			return Result{}, fmt.Errorf("review admission: qualified plan differs from admitted plan")
+		}
+		plan = admission.Plan
 	}
 	plan = plan.clone()
 	receipt, err := validatePlan(plan, request.Selection.Roles())
@@ -346,6 +427,12 @@ func (service *Service) Execute(ctx context.Context, request Request) (result Re
 	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(coordinatorResult, target, plan.Threshold, qualified.BuildIdentity().Version, qualified.BuildIdentity().ImmutableReference(), publicationContext, inventory)
 	if err != nil {
 		return Result{}, publicationCandidateFailure(err)
+	}
+	if archive := input.CapturedArchive(); len(archive) > 0 {
+		candidate, err = candidate.WithCapturedMaterial(archive)
+		if err != nil {
+			return Result{}, publicationCandidateFailure(err)
+		}
 	}
 	published, err := service.publishNext(ctx, request.ArtifactRoot, candidate, diagnostics)
 	if err != nil {
@@ -935,6 +1022,12 @@ func (service *Service) publishNoChange(
 	)
 	if err != nil {
 		return Result{}, publicationCandidateFailure(err)
+	}
+	if archive := input.CapturedArchive(); len(archive) > 0 {
+		candidate, err = candidate.WithCapturedMaterial(archive)
+		if err != nil {
+			return Result{}, publicationCandidateFailure(err)
+		}
 	}
 	published, err := service.publishNext(ctx, request.ArtifactRoot, candidate, diagnostics)
 	if err != nil {

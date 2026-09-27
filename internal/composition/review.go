@@ -124,9 +124,14 @@ func composeReviewRuns(
 	if err != nil {
 		return nil, err
 	}
-	service, err := reviewrun.NewService(reviewrun.Dependencies{
+	dependencies := reviewrun.Dependencies{
 		Clock: clock, IDs: ids, Build: build, RunAuthorityFactory: graph.authority, Validator: graph.reviewValidator, Publication: graph.publisher, Templates: graph.templates, Diagnostics: graph.diagnostics,
-	})
+	}
+	if !graph.policy.bindingUnsupported {
+		dependencies.ProjectBindings = gittarget.ProjectBindingObserver{}
+		dependencies.Admission = productionRequestAdmission{policy: graph.policy, templates: graph.templates, catalog: catalog}
+	}
+	service, err := reviewrun.NewService(dependencies)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("review composition: service: %w", err), graph.cleanupRoots())
 	}
@@ -166,6 +171,7 @@ func (service *rootCleaningReviewPreflightService) PreflightReview(ctx context.C
 }
 
 type productionReviewPreflightService struct {
+	admission    productionRequestAdmission
 	capturer     ports.ReviewTargetCapturer
 	detector     ports.ReviewInputContentDetector
 	materializer ports.WorkspaceSnapshotLeaseFactory
@@ -174,6 +180,7 @@ type productionReviewPreflightService struct {
 
 func composeReviewPreflight(
 	ctx context.Context,
+	catalog ports.ContractCatalog,
 	root ports.AnchoredRoot,
 	projectReader ports.TrustedProjectReader,
 	stdin ports.CapturedStdinStore,
@@ -207,7 +214,11 @@ func composeReviewPreflight(
 	if err != nil {
 		return nil, fmt.Errorf("review preflight composition: workspace materializer: %w", err)
 	}
-	inner := &productionReviewPreflightService{capturer: capturer, detector: detector, materializer: materializer, policy: policy}
+	templates, err := reviewrun.LoadDefaultTemplateSet(ctx, catalog)
+	if err != nil {
+		return nil, err
+	}
+	inner := &productionReviewPreflightService{capturer: capturer, detector: detector, materializer: materializer, policy: policy, admission: productionRequestAdmission{policy: policy, templates: templates, catalog: catalog}}
 	return &rootCleaningReviewPreflightService{inner: inner, workspaceRoot: workspaceRoot}, nil
 }
 
@@ -217,6 +228,33 @@ func (service *productionReviewPreflightService) PreflightReview(ctx context.Con
 	}
 	if err := ctx.Err(); err != nil {
 		return mulgae.ReviewPreflightResult{}, err
+	}
+	var binding domain.ProjectBinding
+	var bindingLease ports.ProjectBindingLease
+	if service.admission.catalog != nil && !service.policy.bindingUnsupported {
+		bindingLease, err = (gittarget.ProjectBindingObserver{}).ObserveProjectBinding(ctx, root)
+		if err != nil {
+			return result, reviewCompositionFailure(domain.FailureSecurityPolicy, "project binding unavailable or changed", err)
+		}
+		defer func() {
+			if closeErr := bindingLease.Close(); closeErr != nil {
+				result = mulgae.ReviewPreflightResult{}
+				err = errors.Join(err, closeErr)
+			}
+		}()
+		observed := bindingLease.Observation()
+		binding, err = reviewrun.NewProjectBinding(observed.Root, observed.GitDirectory, observed.CommonDirectory, observed.RootIdentity, observed.GitIdentity, observed.CommonIdentity)
+		if err != nil {
+			return result, err
+		}
+	}
+	if expected := request.ExpectedProjectBinding(); expected != "" {
+		if bindingLease == nil {
+			return result, reviewCompositionFailure(domain.FailureConfiguration, "contract_unsupported", reviewrun.ErrContractUnsupported)
+		}
+		if expected != binding.String() {
+			return result, reviewCompositionFailure(domain.FailureConfiguration, "project_binding_mismatch", reviewrun.ErrProjectBindingMismatch)
+		}
 	}
 	roles, artistInputs, hasArtist, err := resolvePreflightSelection(request, service.policy)
 	if err != nil {
@@ -304,7 +342,32 @@ func (service *productionReviewPreflightService) PreflightReview(ctx context.Con
 	if err != nil {
 		return mulgae.ReviewPreflightResult{}, err
 	}
-	return mulgae.NewReviewPreflightResult(material, receipt, request.Target().Kind(), plan, budget)
+	result, err = mulgae.NewReviewPreflightResult(material, receipt, request.Target().Kind(), plan, budget)
+	if err != nil || bindingLease == nil {
+		return result, err
+	}
+	objective, hasObjective := request.Objective()
+	captureRequest, err := reviewrun.NewInputCaptureRequest(root, selector, []byte(objective), hasObjective)
+	if hasArtist {
+		captureRequest, err = reviewrun.NewInputCaptureRequestWithArtistInputs(root, selector, []byte(objective), hasObjective, artistInputs)
+	}
+	if err != nil {
+		return mulgae.ReviewPreflightResult{}, err
+	}
+	policyInputs, err := service.admission.inputs(ctx, material, plan)
+	if err != nil {
+		return mulgae.ReviewPreflightResult{}, err
+	}
+	requestReceipt, err := reviewrun.NewPlannedRequestReceipt(binding, material, captureRequest, roles, request.RequestedRolesExplicit(), policyInputs, budget)
+	if err != nil {
+		return mulgae.ReviewPreflightResult{}, err
+	}
+	if err := bindingLease.Revalidate(ctx); err != nil {
+		return mulgae.ReviewPreflightResult{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "project binding unavailable or changed", err)
+	}
+	result.ProjectBinding, result.CaptureIdentity, result.RequestReceipt = binding.String(), requestReceipt.CaptureIdentity, &requestReceipt
+	result.Capabilities.ProjectBinding, result.Capabilities.ExecutionGuard = "v1", "v1"
+	return result, nil
 }
 
 func resolvePreflightSelection(request mulgae.ReviewRequest, policy productionRunPolicy) ([]domain.Role, ports.ArtistReviewInputs, bool, error) {
@@ -366,25 +429,29 @@ func cleanupReviewCompositionRoots(cleanup bool, namespaceRoot, workspaceRoot po
 }
 
 type productionRunPolicy struct {
-	planner          reviewrun.PlannerPolicy
-	requiredRoles    []domain.Role
-	enabledRoles     map[domain.Role]bool
-	providerTimeouts map[reviewrun.Family]time.Duration
-	config           adapterconfig.Config
-	source           *adapterconfig.LocalConfigSource
-	attestor         ports.ConfigLocalityAttestor
-	localityRequest  ports.ConfigLocalityRequest
-	locality         ports.ConfigLocalityContext
+	configurationSHA256 string
+	bindingUnsupported  bool
+	planner             reviewrun.PlannerPolicy
+	requiredRoles       []domain.Role
+	enabledRoles        map[domain.Role]bool
+	providerTimeouts    map[reviewrun.Family]time.Duration
+	config              adapterconfig.Config
+	source              *adapterconfig.LocalConfigSource
+	attestor            ports.ConfigLocalityAttestor
+	localityRequest     ports.ConfigLocalityRequest
+	locality            ports.ConfigLocalityContext
 }
 
 // resolveProductionRunPolicy admits the sole project-local configuration before
 // provider discovery. The returned values are copied into downstream authorities.
 func resolveProductionRunPolicy(ctx context.Context, root ports.AnchoredRoot, reader ports.TrustedProjectReader) (productionRunPolicy, error) {
+	bindingUnsupported := false
 	attestor, ok := reader.(ports.ConfigLocalityAttestor)
 	if !ok {
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureInternal, "config locality attestor unavailable", nil)
 	}
 	if _, err := os.Lstat(filepath.Join(root.String(), ".git")); os.IsNotExist(err) {
+		bindingUnsupported = true
 		attestor = adapterconfig.NewFilesystemLocalityAttestor()
 	} else if err != nil {
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "project locality unavailable", err)
@@ -420,6 +487,8 @@ func resolveProductionRunPolicy(ctx context.Context, root ports.AnchoredRoot, re
 		return productionRunPolicy{}, err
 	}
 	policy.source, policy.attestor, policy.localityRequest, policy.locality = source, attestor, request, locality
+	policy.configurationSHA256 = resolution.SHA256()
+	policy.bindingUnsupported = bindingUnsupported
 	return policy, nil
 }
 

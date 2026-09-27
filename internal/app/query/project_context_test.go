@@ -79,8 +79,8 @@ func TestProjectContextRedactionCapabilitiesAndFailure(t *testing.T) {
 			if _, err := domain.ParseProjectBinding(result.ProjectBinding); err != nil {
 				t.Fatal(err)
 			}
-			if result.Capabilities != (VerifiedReadCapabilities{ProjectBinding: "v1"}) {
-				t.Fatal("unimplemented capabilities advertised")
+			if result.Capabilities != (VerifiedReadCapabilities{ProjectBinding: "v1", ExecutionGuard: "v1", CaptureIdentity: "v1"}) {
+				t.Fatal("unexpected capability advertisement")
 			}
 			data, _ := json.Marshal(result)
 			if strings.Contains(string(data), "private") || strings.Contains(string(data), "inode") {

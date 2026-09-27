@@ -66,7 +66,7 @@ func TestIntegrationIsolatedReleaseFixtureProjectContext(t *testing.T) {
 	if err := json.Unmarshal(cli, &cliResult); err != nil {
 		t.Fatal(err)
 	}
-	if cliResult.SchemaVersion != "mulgae-command-result.v14" || strings.Contains(string(cli), project) {
+	if cliResult.SchemaVersion != "mulgae-command-result.v15" || strings.Contains(string(cli), project) {
 		t.Fatalf("CLI context contract: %s", cli)
 	}
 	serverRoot := filepath.Join(base, "projectroot")

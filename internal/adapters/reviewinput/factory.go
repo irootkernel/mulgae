@@ -118,7 +118,7 @@ func (factory *Factory) CaptureArchived(ctx context.Context, archive []byte, obj
 	if err != nil {
 		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: archived captured input failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
-	return captured, nil
+	return captured.WithCaptureExclusions(material), nil
 }
 
 var _ reviewrun.ImmutableInputSource = (*immutableInputSource)(nil)
@@ -215,7 +215,7 @@ func (source *immutableInputSource) Capture(ctx context.Context, request reviewr
 		source.quarantine(lease)
 		return reviewrun.CapturedRunInput{}, fmt.Errorf("review input: captured input construction failed: %w", ports.WrapReviewCaptureFailure(err))
 	}
-	return captured, nil
+	return captured.WithCaptureExclusions(material), nil
 }
 
 type capturedTargetReader struct {

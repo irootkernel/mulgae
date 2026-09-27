@@ -3,6 +3,7 @@ package reviewrun
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -208,4 +209,14 @@ func (guard ExecutionGuard) CheckRequest(observed domain.RequestIdentity) error 
 		return ErrRequestDigestMismatch
 	}
 	return nil
+}
+
+// GuardReason returns only a closed admission reason, never untrusted input.
+func GuardReason(err error) (string, bool) {
+	for _, reason := range []GuardError{ErrGuardIncomplete, ErrGuardInvalid, ErrContractUnsupported, ErrProjectBindingMismatch, ErrRequestDigestMismatch} {
+		if errors.Is(err, reason) {
+			return string(reason), true
+		}
+	}
+	return "", false
 }

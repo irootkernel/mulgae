@@ -670,7 +670,7 @@ coverage and CI behavior.
 
 `mulgae version --json` returns exactly `name` and `version`. Once parsing has
 produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v14` envelope. Rejected JSON `init`, `followup`,
+return a `mulgae-command-result.v15` envelope. Rejected JSON `init`, `followup`,
 `delta`, `rerun`, and `compose` requests also return that envelope.
 `request_state: invalid` means syntax was rejected before selector I/O and is
 available for all five commands. `request_state: unresolved` is available only
@@ -1038,20 +1038,20 @@ identity without reading input or report blobs. Replay and status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5 through v13 schema examples remain available
-for explicit backward validation; current CLI envelopes use v14. MCP retains its v1
+retry loop is introduced. CLI v5 through v14 schema examples remain available
+for explicit backward validation; current CLI envelopes use v15. MCP retains its v1
 common envelope, whose `data` object carries the extended status projection.
 
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v14 `result` and MCP v1
+accepts an empty argument object. CLI command-result v15 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
-Only `project_binding: "v1"` is currently advertised in capabilities; every other
-capability field is the empty string. A failed CLI lookup returns null binding
-and capabilities with a typed security, cancellation, or internal exit. MCP uses
+The `project_binding`, `execution_guard`, and `capture_identity` capabilities
+are `"v1"`; the remaining fields are empty strings. A failed CLI lookup returns
+null binding and capabilities with a typed security, cancellation, or internal exit. MCP uses
 its existing error envelope. No private paths or descriptor facts are returned.
 
 The caller obtains its expectation independently by running the CLI from the
@@ -1060,4 +1060,41 @@ on each context lookup. It never adopts a replacement directory. Failed startup
 binding remains unavailable for that server; creating a repository afterward
 does not retarget it. Lookup reads only directory and Git-location metadata,
 without configuration, credentials, provider discovery, capture, or writes.
-Execution-guard admission is tracked separately in TASK-021.
+
+## Preflight-bound review admission
+
+Preflight v6 adds `project_binding`, `capture_identity`, `request_receipt`, and
+`capabilities`. The request receipt binds the exact admitted configuration bytes,
+selected roles and routes, prompts and schemas, budget, objective, and capture.
+Its component digests expose no credential values or native paths. Preflight v3
+through v5 remain available for historical validation.
+
+`review` accepts `--expected-project-binding DIGEST` together with
+`--expected-request-digest DIGEST`. MCP `run_review` and `start_review` accept the
+corresponding `expected_project_binding` and `expected_request_digest` fields.
+Preflight accepts the expected binding alone. Missing halves fail with
+`guard_incomplete`; malformed digests fail with `guard_invalid`.
+
+Admission compares the local binding before capture, then checks the request
+digest before allocating run IDs, opening diagnostics, qualifying providers, or
+invoking them. Execution uses that capture and admitted plan. A mismatch returns
+`project_binding_mismatch` or `request_digest_mismatch`. Existing spawn-time
+locality checks still apply. An attached MCP server also revalidates its startup
+lease before admission.
+
+Successful review results include `guarded`, `project_binding`,
+`capture_identity`, and `request_digest`. Unguarded requests remain accepted.
+Repeated accepted guards create distinct runs; a guard is not an idempotency key.
+A non-Git workspace keeps its existing unguarded path: preflight has an empty
+binding, a null request receipt, and no execution-guard capability. Supplying a
+guard there returns `contract_unsupported`.
+
+New ordinary and complete child captures use `mulgae-run-support-index.v2` with
+`target/capture-manifest.json`, `target/captured-review.json`, and the referenced
+raw blobs. A provider-free no-change run retains the complete capture, including
+both logical Git sides, with zero attempts and no provider identity. Publication
+and committed reads reconstruct the archive and verify its inventory under a
+stable P2 observation. Missing or corrupt bound support is an artifact failure.
+Historical support remains readable. An exact historical child replay that lacks
+complete capture sides retains unavailable identity rather than deriving it from
+patch bytes. Local project bindings and request receipts are not exported.

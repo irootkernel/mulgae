@@ -93,6 +93,10 @@ func (candidate PreparedCandidate) Build(
 	excerpts = append(excerpts, attemptArtifacts...)
 	excerpts = append(excerpts, runtimeArtifacts...)
 	excerpts = append(excerpts, roleReports...)
+	excerpts, err = candidate.buildCaptureSupport(excerpts)
+	if err != nil {
+		return PublicationBundle{}, err
+	}
 	supportIndex, err := buildRunSupportIndex(paths.supportIndex, excerpts)
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
@@ -298,7 +302,13 @@ func buildRunSupportIndex(path ports.SafeRelativePath, artifacts []ports.Immutab
 		seen[key] = struct{}{}
 		identities = append(identities, artifactIdentityWire{Path: key, SHA256: artifact.SHA256()})
 	}
-	bytes, err := marshalCanonical(runSupportIndexWire{SchemaVersion: "mulgae-run-support-index.v1", Artifacts: identities})
+	version := "mulgae-run-support-index.v1"
+	for _, artifact := range artifacts {
+		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && kind == ports.RunSupportArtifactCaptureManifest {
+			version = "mulgae-run-support-index.v2"
+		}
+	}
+	bytes, err := marshalCanonical(runSupportIndexWire{SchemaVersion: version, Artifacts: identities})
 	if err != nil {
 		return ports.ImmutablePublicationArtifact{}, fmt.Errorf("publication build: serialize support index: %w", err)
 	}

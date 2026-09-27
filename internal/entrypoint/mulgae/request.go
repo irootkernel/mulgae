@@ -498,18 +498,21 @@ func (request TargetRequest) Value() string { return request.value }
 
 // ReviewRequest contains the immutable independent-review fields.
 type ReviewRequest struct {
-	target            TargetRequest
-	objective         string
-	hasObjective      bool
-	roles             []string
-	rolesExplicit     bool
-	artistAutomatic   bool
-	artistBriefPath   string
-	hasArtistBrief    bool
-	artistDesignGlobs []string
-	sessionID         string
-	hasSessionID      bool
-	preflight         bool
+	expectedProjectBinding string
+	expectedRequestDigest  string
+	target                 TargetRequest
+	objective              string
+	hasObjective           bool
+	roles                  []string
+	rolesExplicit          bool
+	rolesDefaulted         bool
+	artistAutomatic        bool
+	artistBriefPath        string
+	hasArtistBrief         bool
+	artistDesignGlobs      []string
+	sessionID              string
+	hasSessionID           bool
+	preflight              bool
 }
 
 // Target returns the literal target request.
@@ -525,6 +528,11 @@ func (request ReviewRequest) Roles() []string { return cloneStrings(request.role
 
 // RolesExplicit reports whether --roles was supplied by the caller.
 func (request ReviewRequest) RolesExplicit() bool { return request.rolesExplicit }
+
+// RequestedRolesExplicit preserves caller intent after policy selection.
+func (request ReviewRequest) RequestedRolesExplicit() bool {
+	return request.rolesExplicit && !request.rolesDefaulted
+}
 
 // ArtistBrief returns the optional review-scoped artist brief path.
 func (request ReviewRequest) ArtistBrief() (string, bool) {
@@ -546,6 +554,9 @@ func (request ReviewRequest) SessionID() (string, bool) {
 // Preflight reports whether the review is an execution-free capture, routing,
 // and budget projection.
 func (request ReviewRequest) Preflight() bool { return request.preflight }
+
+func (request ReviewRequest) ExpectedProjectBinding() string { return request.expectedProjectBinding }
+func (request ReviewRequest) ExpectedRequestDigest() string  { return request.expectedRequestDigest }
 
 // FollowupRequest contains the immutable source finding and target fields.
 type FollowupRequest struct {

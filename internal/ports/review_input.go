@@ -409,6 +409,7 @@ type CapturedReviewMaterial struct {
 	projectContext    []byte
 	hasProjectContext bool
 	evidence          CapturedTargetEvidence
+	exclusions        []CaptureExclusion
 }
 
 func NewCapturedReviewMaterial(target CapturedReviewTarget, snapshot WorkspaceSnapshotRequest, projectContext []byte) (CapturedReviewMaterial, error) {
@@ -437,6 +438,35 @@ func NewCapturedReviewMaterialWithEvidenceAndProjectContext(target CapturedRevie
 		hasProjectContext: hasProjectContext,
 		evidence:          evidence,
 	}, nil
+}
+
+// CaptureExclusion records a path decision made while admitting this capture.
+// It is request policy, not provider material or portable capture identity.
+type CaptureExclusion struct {
+	Path   string
+	Reason string
+}
+
+func (material CapturedReviewMaterial) WithExclusions(rows []CaptureExclusion) (CapturedReviewMaterial, error) {
+	if !material.Valid() || rows == nil {
+		return CapturedReviewMaterial{}, fmt.Errorf("capture exclusions: missing admission")
+	}
+	seen := make(map[CaptureExclusion]bool, len(rows))
+	for _, row := range rows {
+		if _, err := NewSafeRelativePath(row.Path); err != nil || row.Reason == "" || seen[row] {
+			return CapturedReviewMaterial{}, fmt.Errorf("capture exclusions: invalid decision")
+		}
+		seen[row] = true
+	}
+	material.exclusions = append([]CaptureExclusion{}, rows...)
+	return material, nil
+}
+
+func (material CapturedReviewMaterial) Exclusions() ([]CaptureExclusion, bool) {
+	if material.exclusions == nil {
+		return nil, false
+	}
+	return append([]CaptureExclusion{}, material.exclusions...), true
 }
 
 func (material CapturedReviewMaterial) Target() CapturedReviewTarget { return material.target }

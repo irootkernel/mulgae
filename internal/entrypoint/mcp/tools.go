@@ -55,9 +55,11 @@ type BackendResult struct {
 // RunReviewInput selects one immutable review target and optional review
 // guidance. MCP transport stdin is never a review target.
 type RunReviewInput struct {
-	Target    ReviewTarget `json:"target"`
-	Objective string       `json:"objective,omitempty"`
-	Roles     []string     `json:"roles,omitempty"`
+	ExpectedProjectBinding *string      `json:"expected_project_binding,omitempty"`
+	ExpectedRequestDigest  *string      `json:"expected_request_digest,omitempty"`
+	Target                 ReviewTarget `json:"target"`
+	Objective              string       `json:"objective,omitempty"`
+	Roles                  []string     `json:"roles,omitempty"`
 }
 
 // ComposeReviewInput selects one exact incomplete root and one to seven exact
@@ -118,6 +120,9 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 			if err := validateRunReviewInput(input); err != nil {
 				return "", nil, err
 			}
+			if err := validateReviewGuard(input, false); err != nil {
+				return "", nil, err
+			}
 			startProgress()
 			result, err := backend.RunReview(ctx, requestID, input)
 			return result.Outcome, result.Data, err
@@ -141,6 +146,9 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 				return "", nil, err
 			}
 			if err := validateRunReviewInput(input); err != nil {
+				return "", nil, err
+			}
+			if err := validateReviewGuard(input, false); err != nil {
 				return "", nil, err
 			}
 			snapshot, err := registry.Start(requestID, input)
@@ -185,13 +193,16 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 			}
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
-	addTool(server, toolPreflight, "Capture and summarize an execution-free Mulgae review plan without invoking providers or publishing a run.", json.RawMessage(runReviewInputSchema), outputSchema, true, true,
+	addTool(server, toolPreflight, "Capture and summarize an execution-free Mulgae review plan without invoking providers or publishing a run.", json.RawMessage(preflightReviewInputSchema), outputSchema, true, true,
 		func(ctx context.Context, requestID string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			var input RunReviewInput
 			if err := decodeArguments(raw, &input); err != nil {
 				return "", nil, err
 			}
 			if err := validateRunReviewInput(input); err != nil {
+				return "", nil, err
+			}
+			if err := validateReviewGuard(input, true); err != nil {
 				return "", nil, err
 			}
 			result, err := backend.PreflightReview(ctx, requestID, input)
@@ -428,6 +439,12 @@ func publicToolError(err error, tool string) ToolError {
 	if errors.Is(err, ErrRunStatusUnavailable) {
 		return finalizePublicToolError(err, tool, ToolError{Class: "artifact", Code: "run_status_unavailable", Stage: "query", Message: "No published or diagnostic status is available for the requested run.", Retryable: false})
 	}
+	if code, ok := reviewrun.GuardReason(err); ok {
+		class, present := reducedToolFailureClass(err)
+		if !present || class == domain.FailureConfiguration {
+			return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: code, Stage: "admission", Message: "Review admission rejected the request.", Retryable: false})
+		}
+	}
 	if errors.Is(err, errInvalidToolArguments) {
 		return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "invalid_arguments", Stage: "admission", Message: "The tool arguments are invalid.", Retryable: false})
 	}
@@ -575,10 +592,12 @@ const (
 	runIDPattern     = `^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 	runCursorPattern = `^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 
-	runReviewInputSchema     = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","dirty"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["diff","patch"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}}}}`
+	runReviewInputSchema     = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","dirty"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["diff","patch"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expected_request_digest":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}},"dependentRequired":{"expected_project_binding":["expected_request_digest"],"expected_request_digest":["expected_project_binding"]}}`
 	composeReviewInputSchema = `{"type":"object","additionalProperties":false,"required":["root_run_id","recovery_run_ids"],"properties":{"root_run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"recovery_run_ids":{"type":"array","minItems":1,"maxItems":7,"uniqueItems":true,"items":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}}`
 	invocationInputSchema    = `{"type":"object","additionalProperties":false,"required":["invocation_id"],"properties":{"invocation_id":{"type":"string","pattern":"^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	listRunsInputSchema      = `{"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":100,"default":20},"cursor":{"type":"string","pattern":"^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	getRunInputSchema        = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	listFindingsInputSchema  = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"minimum_severity":{"enum":["low","medium","high","critical","blocker"],"default":"low"}}}`
 )
+
+const preflightReviewInputSchema = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","dirty"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["diff","patch"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`

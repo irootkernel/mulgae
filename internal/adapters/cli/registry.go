@@ -9,7 +9,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 )
 
-const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v14.schema.json"
+const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v15.schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
 const fixedCommandSpecCount = 20
@@ -26,7 +26,7 @@ const (
 	reviewArtifactContractURI            = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 	compositeManifestContractURI         = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json"
 	compositeReviewContractURI           = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json"
-	reviewPreflightContractURI           = "https://mulgae.local/schemas/mulgae-review-preflight.v5.schema.json"
+	reviewPreflightContractURI           = "https://mulgae.local/schemas/mulgae-review-preflight.v6.schema.json"
 	providerFollowupOutputContractURI    = "https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json"
 	providerContractEvidenceContractURI  = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v4.schema.json"
 	cleanPlanContractURI                 = "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json"

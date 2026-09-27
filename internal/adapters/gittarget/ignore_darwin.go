@@ -37,6 +37,7 @@ func (adapter *ReviewTargetAdapter) capturedIgnorePaths(ctx context.Context, roo
 			return capturedIgnoreSet{}, fmt.Errorf("non-canonical untracked path")
 		}
 		if reservedReviewPath(path) {
+			adapter.exclude(path, "reserved_path")
 			continue
 		}
 		if eligible[path] {

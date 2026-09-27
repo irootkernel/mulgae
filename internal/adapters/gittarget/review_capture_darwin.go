@@ -35,6 +35,7 @@ type ReviewTargetAdapter struct {
 	artistBriefPath string
 	artistGlobs     []*regexp.Regexp
 	artistAutomatic bool
+	exclusions      map[ports.CaptureExclusion]struct{}
 }
 
 var _ ports.ReviewTargetCapturer = (*ReviewTargetAdapter)(nil)
@@ -64,6 +65,9 @@ func (adapter *ReviewTargetAdapter) CaptureReviewTarget(ctx context.Context, roo
 	if adapter == nil || adapter.runner == nil || adapter.stdin == nil || adapter.detector == nil || ctx == nil || !root.Valid() || !selector.Valid() {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("review target capture: invalid input")
 	}
+	scoped := *adapter
+	scoped.exclusions = make(map[ports.CaptureExclusion]struct{})
+	adapter = &scoped
 	var material ports.CapturedReviewMaterial
 	var err error
 	switch selector.Kind() {
@@ -94,7 +98,21 @@ func (adapter *ReviewTargetAdapter) CaptureReviewTarget(ctx context.Context, roo
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	return adapter.withArtistContext(material)
+	material, err = adapter.withArtistContext(material)
+	if err != nil {
+		return ports.CapturedReviewMaterial{}, err
+	}
+	rows := make([]ports.CaptureExclusion, 0, len(adapter.exclusions))
+	for row := range adapter.exclusions {
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Path != rows[j].Path {
+			return rows[i].Path < rows[j].Path
+		}
+		return rows[i].Reason < rows[j].Reason
+	})
+	return material.WithExclusions(rows)
 }
 
 func (adapter *ReviewTargetAdapter) CaptureReviewTargetWithArtistInputs(ctx context.Context, root ports.AnchoredRoot, selector ports.ReviewTargetSelector, inputs ports.ArtistReviewInputs) (ports.CapturedReviewMaterial, error) {
@@ -359,7 +377,7 @@ func (adapter *ReviewTargetAdapter) captureDiff(ctx context.Context, root ports.
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	patch, err = filterReviewPatch(patch, mulgaeRules)
+	patch, err = adapter.filterReviewPatch(patch, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -374,8 +392,8 @@ func (adapter *ReviewTargetAdapter) captureDiff(ctx context.Context, root ports.
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles = filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
-	headFiles = filterMulgaeIgnoredSnapshot(headFiles, mulgaeRules)
+	baseFiles = adapter.filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
+	headFiles = adapter.filterMulgaeIgnoredSnapshot(headFiles, mulgaeRules)
 	return adapter.materialize(patch, headFiles, map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{
 		ports.CapturedEvidenceBase: baseFiles,
 		ports.CapturedEvidenceHead: headFiles,
@@ -441,7 +459,7 @@ func (adapter *ReviewTargetAdapter) captureIndexDiff(ctx context.Context, root p
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	patch, err := filterReviewPatch(patchOut.Stdout, mulgaeRules)
+	patch, err := adapter.filterReviewPatch(patchOut.Stdout, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -456,8 +474,8 @@ func (adapter *ReviewTargetAdapter) captureIndexDiff(ctx context.Context, root p
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles = filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
-	indexFiles = filterMulgaeIgnoredSnapshot(indexFiles, mulgaeRules)
+	baseFiles = adapter.filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
+	indexFiles = adapter.filterMulgaeIgnoredSnapshot(indexFiles, mulgaeRules)
 	verifyIndex, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "write-tree"}})
 	if err != nil || !bytes.Equal(indexOut.Stdout, verifyIndex.Stdout) {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("index changed while capturing")
@@ -483,7 +501,7 @@ func (adapter *ReviewTargetAdapter) capturePatch(ctx context.Context, root ports
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	bytes, err = filterReviewPatch(bytes, mulgaeRules)
+	bytes, err = adapter.filterReviewPatch(bytes, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -514,7 +532,7 @@ func (adapter *ReviewTargetAdapter) captureStdin(ctx context.Context, root ports
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	bytes, err = filterReviewPatch(bytes, mulgaeRules)
+	bytes, err = adapter.filterReviewPatch(bytes, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -541,9 +559,6 @@ func (adapter *ReviewTargetAdapter) materialize(bytes []byte, files []ports.Work
 	snapshot, err := ports.NewWorkspaceSnapshotRequest(files, policy)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
-	}
-	if target.NoChange() {
-		return ports.NewCapturedReviewMaterial(target, snapshot, nil)
 	}
 	evidence, err := ports.NewCapturedTargetEvidence(evidenceSides)
 	if err != nil {
@@ -741,6 +756,7 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 	var files []ports.WorkspaceSnapshotFile
 	for _, entry := range entries {
 		if admittedIgnoreControlPath(entry.path) {
+			adapter.exclude(entry.path, "ignore_control")
 			continue
 		}
 		capturedPath, err := ports.NewSafeRelativePath(entry.path)
@@ -748,6 +764,12 @@ func (adapter *ReviewTargetAdapter) objectSnapshot(ctx context.Context, root por
 			return nil, fmt.Errorf("unsafe reserved tree path")
 		}
 		if workspaceIgnored(entry.path, gitRules) || len(ignored) == 1 && workspaceIgnored(entry.path, ignored[0]) {
+			if workspaceIgnored(entry.path, gitRules) {
+				adapter.exclude(entry.path, "gitignore")
+			}
+			if len(ignored) == 1 && workspaceIgnored(entry.path, ignored[0]) {
+				adapter.exclude(entry.path, "mulgaeignore")
+			}
 			continue
 		}
 		if entry.kind != "blob" || (entry.mode != "100644" && entry.mode != "100755") {
@@ -853,6 +875,7 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	}
 	for path := range eligible.eligible {
 		if workspaceIgnored(path, mulgaeRules) {
+			adapter.exclude(path, "mulgaeignore")
 			delete(eligible.eligible, path)
 		}
 	}
@@ -865,7 +888,7 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 		return ports.CapturedReviewMaterial{}, err
 	}
 	patch := append(append([]byte(nil), out.Stdout...), untracked...)
-	patch, err = filterReviewPatch(patch, mulgaeRules)
+	patch, err = adapter.filterReviewPatch(patch, mulgaeRules)
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
@@ -880,8 +903,8 @@ func (adapter *ReviewTargetAdapter) captureDirty(ctx context.Context, root ports
 	if err != nil {
 		return ports.CapturedReviewMaterial{}, err
 	}
-	baseFiles = filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
-	files = filterMulgaeIgnoredSnapshot(files, mulgaeRules)
+	baseFiles = adapter.filterMulgaeIgnoredSnapshot(baseFiles, mulgaeRules)
+	files = adapter.filterMulgaeIgnoredSnapshot(files, mulgaeRules)
 	verifyIndex, err := adapter.run(ctx, Command{Dir: root.String(), Args: []string{"-c", "core.attributesFile=/dev/null", "write-tree"}})
 	if err != nil || !bytes.Equal(indexOut.Stdout, verifyIndex.Stdout) {
 		return ports.CapturedReviewMaterial{}, fmt.Errorf("dirty source changed while capturing")
@@ -1027,6 +1050,7 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 			return nil, fmt.Errorf("non-canonical tracked path")
 		}
 		if admittedIgnoreControlPath(path) {
+			adapter.exclude(path, "ignore_control")
 			continue
 		}
 		if reservedReviewPath(path) {
@@ -1054,14 +1078,23 @@ func (adapter *ReviewTargetAdapter) worktreeSnapshot(ctx context.Context, root p
 		}
 		relative = filepath.ToSlash(relative)
 		if reservedReviewPath(relative) {
+			adapter.exclude(relative, "reserved_path")
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		selected := tracked[relative] || eligible[relative]
+		if !selected && !entry.IsDir() {
+			if len(ignored) == 1 && workspaceIgnored(relative, ignored[0]) {
+				adapter.exclude(relative, "mulgaeignore")
+			} else {
+				adapter.exclude(relative, "gitignore")
+			}
+		}
 		if selected && len(ignored) == 1 && workspaceIgnored(relative, ignored[0]) {
 			selected = false
+			adapter.exclude(relative, "mulgaeignore")
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			if selected {

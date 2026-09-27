@@ -1,6 +1,7 @@
 package reviewrun
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
@@ -74,10 +75,13 @@ type ImmutableInputSourceFactory interface {
 // capture to the original repository while ArtifactRoot binds durable P2 output
 // to its private project-local namespace.
 type Request struct {
-	InputSource  ImmutableInputSource
-	ProjectRoot  ports.AnchoredRoot
-	ArtifactRoot ports.AnchoredRoot
-	Selection    RunSelection
+	CaptureRequest InputCaptureRequest
+	RolesExplicit  bool
+	Guard          ExecutionGuard
+	InputSource    ImmutableInputSource
+	ProjectRoot    ports.AnchoredRoot
+	ArtifactRoot   ports.AnchoredRoot
+	Selection      RunSelection
 }
 
 // RunSelection is the trusted ordered role selection and optional existing
@@ -161,7 +165,7 @@ func NewImmutableReviewInputWithCapturedArchive(target ports.CapturedReviewTarge
 	}
 	if len(capturedArchive) > 0 {
 		material, err := ports.UnmarshalCapturedReviewMaterial(capturedArchive)
-		if err != nil || material.Target().Identity() != target.Identity() || !reflect.DeepEqual(material.Target().Bytes(), target.Bytes()) {
+		if err != nil || material.Target().Identity() != target.Identity() || !bytes.Equal(material.Target().Bytes(), target.Bytes()) {
 			return ImmutableReviewInput{}, fmt.Errorf("review run: captured archive does not bind target")
 		}
 	}
@@ -199,6 +203,7 @@ func (input ImmutableReviewInput) HasProjectContext() bool { return input.hasPro
 // CapturedRunInput transfers the immutable input, immutable evidence reader,
 // and sole workspace lease from capture into the review service.
 type CapturedRunInput struct {
+	exclusions     []ports.CaptureExclusion
 	input          ImmutableReviewInput
 	lease          ports.WorkspaceSnapshotLease
 	reader         evidence.ImmutableTargetReader
@@ -220,6 +225,20 @@ func NewCapturedRunInput(input ImmutableReviewInput, lease ports.WorkspaceSnapsh
 		}
 	}
 	return CapturedRunInput{input: input, lease: lease, reader: reader, packetDetector: packetDetector}, nil
+}
+
+// WithCaptureExclusions transfers the capture-owned policy decisions without
+// persisting local request policy in the portable archive.
+func (captured CapturedRunInput) WithCaptureExclusions(material ports.CapturedReviewMaterial) CapturedRunInput {
+	captured.exclusions, _ = material.Exclusions()
+	return captured
+}
+
+func (captured CapturedRunInput) CaptureExclusions() ([]ports.CaptureExclusion, bool) {
+	if captured.exclusions == nil {
+		return nil, false
+	}
+	return append([]ports.CaptureExclusion{}, captured.exclusions...), true
 }
 
 func (captured CapturedRunInput) Input() ImmutableReviewInput { return captured.input }
@@ -334,6 +353,8 @@ type RunAuthority interface {
 // Dependencies are injected application services and ports. They intentionally
 // exclude filesystem, process construction, and provider discovery.
 type Dependencies struct {
+	ProjectBindings     ports.ProjectBindingObserver
+	Admission           RequestAdmission
 	Clock               ports.Clock
 	IDs                 review.IdentityGenerator
 	Build               BuildIdentity
@@ -355,14 +376,17 @@ type RoleReportURI struct {
 
 // Result exposes only the coherent P2 authority returned by publication.
 type Result struct {
-	sessionID      domain.SessionID
-	runID          domain.RunID
-	coordinator    review.CoordinatorResult
-	final          ports.FinalReviewIdentity
-	snapshot       ports.CommittedPublicationSnapshot
-	exit           domain.OperationalExitDecision
-	roleReportURIs []RoleReportURI
-	diagnostic     ports.SafeRelativePath
+	captureIdentity string
+	admission       *AdmittedRequest
+	guarded         bool
+	sessionID       domain.SessionID
+	runID           domain.RunID
+	coordinator     review.CoordinatorResult
+	final           ports.FinalReviewIdentity
+	snapshot        ports.CommittedPublicationSnapshot
+	exit            domain.OperationalExitDecision
+	roleReportURIs  []RoleReportURI
+	diagnostic      ports.SafeRelativePath
 }
 
 func newResult(sessionID domain.SessionID, runID domain.RunID, coordinator review.CoordinatorResult, final ports.FinalReviewIdentity, snapshot ports.CommittedPublicationSnapshot, roleReportURIs []RoleReportURI, exit domain.OperationalExitDecision) (Result, error) {
@@ -379,6 +403,20 @@ func newResult(sessionID domain.SessionID, runID domain.RunID, coordinator revie
 		sessionID: sessionID, runID: runID, coordinator: coordinator, final: final, snapshot: snapshot,
 		exit: exit, roleReportURIs: append([]RoleReportURI(nil), roleReportURIs...),
 	}, nil
+}
+
+func (result Result) AdmissionReceipt() (RequestReceipt, bool) {
+	if result.admission == nil {
+		return RequestReceipt{}, false
+	}
+	return result.admission.Receipt, true
+}
+func (result Result) Guarded() bool { return result.guarded }
+func (result Result) CaptureIdentity() string {
+	if result.admission != nil {
+		return result.admission.Receipt.CaptureIdentity
+	}
+	return result.captureIdentity
 }
 
 func (result Result) SessionID() domain.SessionID                  { return result.sessionID }
