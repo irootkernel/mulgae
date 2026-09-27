@@ -415,10 +415,10 @@ reused unchanged and gain no evidence through an implicit upgrade.
 
 ## Adopted extension security requirements
 
-The following requirements apply to the planned
-[verified review contracts](verified-review-contracts.md) and
+The following requirements cover the implemented
+[verified review contracts](verified-review-contracts.md) and the planned
 [review completeness and iteration](review-completeness-and-iteration.md).
-They do not claim additional current-binary capabilities.
+Brief, batch-followup, and comparison requirements remain future obligations.
 
 - Native binding must distinguish equal-content worktrees using independently
   established local identity. A server's own response is not its own proof of

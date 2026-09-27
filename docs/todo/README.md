@@ -10,8 +10,6 @@ None.
 
 ## Adopted active dossiers
 
-- [EPIC-007: Verified review contracts](EPIC-007-verified-review-contracts.md)
-  develops native project/preflight guards and coherent verified result reads.
 - [EPIC-008: Review completeness and iteration](EPIC-008-review-completeness-and-iteration.md)
   develops structured requirements review, bounded batch followup, and exact-run
   comparison after explicit EPIC-007 acceptance.

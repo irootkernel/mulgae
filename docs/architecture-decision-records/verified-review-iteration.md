@@ -11,11 +11,11 @@ The adopted work combines four improvements: verified public inspection,
 structured Review Briefs and requirements assessment, selected-finding batch
 followup and run comparison, and native project/preflight binding.
 
-The current product already has immutable capture, optional structured findings,
+At adoption, the product had immutable capture, optional structured findings,
 free-form role reports, single-finding followup, delta, rerun, exact composition,
-and attached start/await/cancel. The gaps are richer verified consumption,
-native request checks, and explicit assessment/iteration semantics, not another
-provider transport or orchestration system.
+and attached start/await/cancel. The remaining work was richer verified
+consumption, native request checks, and explicit assessment/iteration semantics
+within the existing provider transport and orchestration system.
 
 ## Decision
 

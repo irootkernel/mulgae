@@ -6,8 +6,8 @@ The [contracts](contracts.md) describe the current runtime surfaces. TASK-025
 verified the integrated contracts through independent consumers, the complete
 repository gate, and actual supported clients, and updated the operating guidance.
 Epic acceptance remains a separate roadmap decision.
-The [development dossier](../todo/EPIC-007-verified-review-contracts.md) owns
-temporary implementation sequencing; the roadmap alone owns delivery status.
+The roadmap owns delivery status and links the canonical implementation and
+verification outcomes.
 
 ## Purpose and boundary
 
@@ -283,15 +283,17 @@ changes, coherent pagination under corruption/cleanup, reports-only visibility,
 all evidence indices, old/new composites, and CLI/MCP parity. Include equal
 patches with different unchanged support files, side/policy/context differences,
 request-only differences over an identical capture, and historical incomplete
-capture metadata. See the dossier for task-owned tests and the explicit Epic
-closeout gate.
+capture metadata. The [roadmap](../roadmap/README.md#epic-007-verified-review-contracts)
+records task-owned verification and Epic acceptance; the
+[verification guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics)
+defines the ongoing checks.
 
 ## Frozen TASK-019 contracts
 
-TASK-019 supplies value types, validation, canonical encodings, schemas, and
-examples. It does not register a command, MCP tool or resource, publish capture
-support, or advertise a capability. The following transport and storage rules
-are implementation obligations for TASK-020 through TASK-025.
+TASK-019 established value types, validation, canonical encodings, schemas, and
+examples. TASK-020 through TASK-025 connected them to commands, MCP tools and
+resources, retained capture support, and capability declarations. The following
+transport and storage rules remain the compatibility authority.
 
 ### Encoding and ownership
 

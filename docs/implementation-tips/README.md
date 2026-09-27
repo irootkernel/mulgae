@@ -261,9 +261,11 @@ tests in the owning application package.
 
 ## Verification for the adopted review Epics
 
-The planned [EPIC-007 dossier](../todo/EPIC-007-verified-review-contracts.md)
-and [EPIC-008 dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
-define per-Task implementation, exclusions, checks, and completion conditions.
+The [verified review contracts](../specs/verified-review-contracts.md) and their
+[roadmap outcomes](../roadmap/README.md#epic-007-verified-review-contracts)
+retain EPIC-007 requirements and verification. The planned
+[EPIC-008 dossier](../todo/EPIC-008-review-completeness-and-iteration.md) defines
+its per-Task implementation, exclusions, checks, and completion conditions.
 The [roadmap](../roadmap/README.md#adopted-execution-order) owns the strictly
 sequential order. Do not begin EPIC-008 before explicit EPIC-007 acceptance.
 

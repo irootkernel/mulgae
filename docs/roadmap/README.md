@@ -26,22 +26,21 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-004](#epic-004-zcode-first-review-with-grok-recovery) | Completed | Make ZCode the default review provider, add Grok as an explicit recovery provider, retain Codex for selective use, and retire Kimi and AGY. |
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
-| [EPIC-007](#epic-007-verified-review-contracts) | In Progress | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
+| [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
 | [EPIC-008](#epic-008-review-completeness-and-iteration) | Planned | Assess explicit requirements, recheck selected findings as a bounded batch, and compare exact review results without conflating non-observation with resolution. |
 
 ## Adopted execution order
 
-The next implementation sequence is **EPIC-007, then EPIC-008**. Complete and
-explicitly accept EPIC-007 before starting any EPIC-008 implementation. Within
-each Epic, execute its Tasks in table order as independent sequential goals;
-a Task depends on completion of the preceding Task. No EPIC-007 Task depends on
-EPIC-008. Deferred TASK-004 is not a prerequisite and remains unchanged.
+The adopted sequence is **EPIC-007, then EPIC-008**. EPIC-007 is complete;
+EPIC-008 remains Planned and requires its own implementation authorization.
+Within each Epic, execute its Tasks in table order as independent sequential
+goals; a Task depends on completion of the preceding Task. No EPIC-007 Task
+depends on EPIC-008. Deferred TASK-004 is not a prerequisite and remains unchanged.
 
-The two Epics are adopted plans, not implemented capabilities or authorization
-to change runtime code, configuration, credentials, installed tools, or releases
-as part of this documentation update. Task/Epic status changes require actual
-implementation and evidence. The specs' requirement checkboxes track verified
-requirements only and do not create a second status authority.
+Task/Epic status changes require implementation and evidence. The specs'
+requirement checkboxes track verified requirements only and do not create a
+second status authority. Completion does not authorize configuration,
+credential, installation, or release changes.
 
 ## Maintenance tasks
 
@@ -308,17 +307,17 @@ not implementation or provider-certification evidence.
 
 ## EPIC-007: Verified review contracts
 
-Status: In Progress
+Status: Completed
 
 Depends on: completed TASK-018 and the existing capture, publication, query,
 composite recovery, and attached-lifecycle baseline. No new external provider,
 MCP Tasks, or EPIC-008 dependency.
 
-Detailed SOT: [EPIC-007 development dossier](../todo/EPIC-007-verified-review-contracts.md)
-
-Required Outcomes: [verified review contracts](../specs/verified-review-contracts.md)
+Canonical Outcomes: [verified review contracts](../specs/verified-review-contracts.md),
+[public contracts](../specs/contracts.md), [architecture](../architecture/README.md),
+[security requirements](../specs/security.md),
+[verification guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics),
 and the [accepted two-Epic design](../architecture-decision-records/verified-review-iteration.md).
-These are adopted requirements, not implemented runtime claims.
 
 Goal: establish native project and preflight guards and a coherent public read
 path for review status, structured findings, reports, and supported evidence.
@@ -354,19 +353,19 @@ completed capability; it does not supply a missing identity implementation.
 
 ### Epic acceptance
 
-- [ ] All VRC requirements and seven Tasks have behavior and compatibility
+- [x] All VRC requirements and seven Tasks have behavior and compatibility
       evidence; no required read needs direct private artifact IO.
-- [ ] Guard rejection precedes any provider request, including qualification;
+- [x] Guard rejection precedes any provider request, including qualification;
       receipt comparison cannot confuse distinct equal-content worktrees.
-- [ ] Inspection, pagination, report and evidence reads preserve publication
+- [x] Inspection, pagination, report and evidence reads preserve publication
       identity and distinguish absent extraction from zero findings. Complete
       capture identity survives restart, differs for equal patches with changed
       support, and is not confused with request identity or historical absence.
-- [ ] New composite evidence survives permitted source cleanup; old artifacts
+- [x] New composite evidence survives permitted source cleanup; old artifacts
       and idempotent mappings remain unchanged and explicit about capabilities.
-- [ ] The exact candidate passes the complete repository gate and required
+- [x] The exact candidate passes the complete repository gate and required
       client checks; skipped or unavailable evidence is not a pass.
-- [ ] Promote durable outcomes, remove the temporary dossier and its TODO entry,
+- [x] Promote durable outcomes, remove the temporary dossier and its TODO entry,
       repair links, and replace Detailed SOT with Canonical Outcomes before
       explicit Epic acceptance. Do not start EPIC-008 merely because tasks passed.
 
