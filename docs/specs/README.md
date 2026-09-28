@@ -18,10 +18,11 @@ behavior and durable product contracts.
   defines immutable Briefs, requirements assessment, selected-finding batch
   followup, and provider-free comparison for EPIC-008.
 
-These are adopted requirements, not a claim that current binaries implement the
-new interfaces. Their verification checkboxes remain unchecked until supported
-by behavior and compatibility evidence. The [roadmap](../roadmap/README.md)
-alone owns Task/Epic lifecycle and execution order.
+The EPIC-007 checkboxes mark requirements verified by behavior and compatibility
+evidence. EPIC-008 remains planned; its checkboxes stay unchecked until the
+corresponding behavior is implemented and verified.
+The [roadmap](../roadmap/README.md) alone owns Task/Epic lifecycle and execution
+order.
 
 Current source, tests, and embedded contracts remain authoritative for what the
 binary implements. A mismatch with these specifications is a conformance defect

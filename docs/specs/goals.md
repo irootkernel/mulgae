@@ -82,22 +82,22 @@ New platforms or providers require explicit adapters, capability tests, security
 review, documentation, and release evidence. They are not enabled by a generic
 compatibility shim.
 
-## Adopted extensions, not yet implemented
+## Adopted extensions
 
-The next delivery work is two sequential Epics, with status owned by the
+The adopted delivery sequence has two Epics, with status owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order):
 
-- [Verified review contracts](verified-review-contracts.md) makes native project
+- [Verified review contracts](verified-review-contracts.md) provides native project
   identity, guarded preflight, coherent result inspection, and self-contained
-  composite evidence available without private artifact parsing.
+  composite evidence without private artifact parsing.
 - [Review completeness and iteration](review-completeness-and-iteration.md)
-  adds explicit requirement assessments, selected-finding batch followup, and
+  will add explicit requirement assessments, selected-finding batch followup, and
   provider-free comparison on top of the accepted first Epic.
 
-These requirements do not describe current binary capabilities. Normal review
-remains usable without a structured Brief. A requirement verdict is a reviewer
-assessment, not proof of correctness; a finding absent from a later review is
-not automatically resolved. Mulgae does not acquire issue disposition, waiver,
-Epic approval, autonomous remediation, a persistent campaign/job scheduler, or
-cross-project identity ownership. Existing provider/platform and advisory
-boundaries remain unchanged.
+EPIC-007 is implemented; EPIC-008 requirements do not describe current binary
+capabilities. Normal review remains usable without a structured Brief. A future
+requirement verdict is a reviewer assessment, not proof of correctness; a finding
+absent from a later review is not automatically resolved. Mulgae does not acquire
+issue disposition, waiver, Epic approval, autonomous remediation, a persistent
+campaign/job scheduler, or cross-project identity ownership. Existing
+provider/platform and advisory boundaries remain unchanged.

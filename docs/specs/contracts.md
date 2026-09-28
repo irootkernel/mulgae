@@ -1,15 +1,15 @@
 # Contracts and artifacts
 
-## Adopted extensions, not yet implemented
+## Adopted extension status
 
 [Verified review contracts](verified-review-contracts.md) defines the EPIC-007
-project/preflight guard and verified-read requirements.
+project/preflight guard and verified-read contracts implemented below.
 [Review completeness and iteration](review-completeness-and-iteration.md)
-defines the EPIC-008 Brief, assessment, batch-followup, and comparison requirements.
-Those specifications describe future behavior; the sections below remain the
-implemented contract baseline. Update each affected section and its source,
-tests, embedded schemas, examples, and help in the owning implementation Task.
-Do not infer new command support or rewrite historical artifacts from this plan.
+defines the planned EPIC-008 Brief, assessment, batch-followup, and comparison
+requirements. The sections below describe the implemented contract baseline,
+including EPIC-007. EPIC-008 does not imply current command support. Update each
+affected section and its source, tests, embedded schemas, examples, and help in
+the owning implementation Task. Do not rewrite historical artifacts from a plan.
 
 ## Versioning
 
