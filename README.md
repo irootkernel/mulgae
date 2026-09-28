@@ -714,7 +714,7 @@ mkdir -p "$mulgae_staged_skill/references"
 curl -fsSLo "$mulgae_staged_skill/SKILL.md" \
   "https://raw.githubusercontent.com/irootkernel/mulgae/$mulgae_ref/skills/use-mulgae/SKILL.md"
 
-for reference in lifecycle authoring recovery; do
+for reference in lifecycle authoring recovery legacy verified-reads; do
   curl -fsSLo "$mulgae_staged_skill/references/$reference.md" \
     "https://raw.githubusercontent.com/irootkernel/mulgae/$mulgae_ref/skills/use-mulgae/references/$reference.md"
 done
