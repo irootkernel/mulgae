@@ -16,6 +16,12 @@ work.
   `provider_execution_failed` at the spawn boundary, capture the bounded
   underlying error in runtime diagnostics before considering further
   hardening.
+- `DF-003` Verified reads of v2 reviews and composites reload and verify all
+  captured or copied support artifacts; inspection can repeat the full pass.
+  Large runs may increase memory use and read latency, especially across
+  report chunks. Re-entry: measure an unacceptable memory peak or read delay
+  on a large committed run, then reduce repeated loading while preserving
+  support integrity checks.
 
 Promote an epic-sized finding to a TODO candidate or an adopted roadmap work
 unit. Do not use this index as a second roadmap or status authority.
