@@ -5,6 +5,15 @@ Implementation status is owned only by the
 [roadmap](../roadmap/README.md). Acceptance of this design is not evidence that
 any new command, schema, or runtime behavior exists.
 
+## Later execution-order decision
+
+The 2026-10-01 live-review design places EPIC-009 after completed EPIC-007 and
+holds EPIC-008 and TASK-026 through TASK-033 for redesign after EPIC-009 acceptance.
+The [roadmap](../roadmap/README.md#adopted-execution-order) owns that order and status.
+This supersedes the future execution order and capture-dependent EPIC-008
+assumptions below. It preserves the accepted EPIC-007 implementation and historical
+rationale. See [live workspace and Git review](../specs/live-workspace-and-git-review.md).
+
 ## Context
 
 The adopted work combines four improvements: verified public inspection,

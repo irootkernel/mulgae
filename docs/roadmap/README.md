@@ -27,15 +27,19 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 | [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
-| [EPIC-008](#epic-008-review-completeness-and-iteration) | Planned | Assess explicit requirements, recheck selected findings as a bounded batch, and compare exact review results without conflating non-observation with resolution. |
+| [EPIC-008](#epic-008-review-completeness-and-iteration) | Deferred | Redesign requirements assessment, selected-finding rechecks, and comparison after the live-review model is accepted. |
+| [EPIC-009](#epic-009-live-workspace-and-git-review) | Planned | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
 
 ## Adopted execution order
 
-The adopted sequence is **EPIC-007, then EPIC-008**. EPIC-007 is complete;
-EPIC-008 remains Planned and requires its own implementation authorization.
-Within each Epic, execute its Tasks in table order as independent sequential
-goals; a Task depends on completion of the preceding Task. No EPIC-007 Task
-depends on EPIC-008. Deferred TASK-004 is not a prerequisite and remains unchanged.
+EPIC-007 is complete. Execute **EPIC-009 next** after its separate implementation
+authorization. EPIC-008 and TASK-026 through TASK-033 are Deferred until EPIC-009
+is explicitly accepted and their capture-dependent contracts are redesigned and
+reapproved. Preserve their identities; this hold does not reopen EPIC-007.
+
+Within an executable Epic, run Tasks in table order as independent sequential
+goals; each Task depends on the preceding Task. EPIC-009 has no EPIC-008
+dependency. Deferred TASK-004 is not a prerequisite and remains unchanged.
 
 Task/Epic status changes require implementation and evidence. The specs'
 requirement checkboxes track verified requirements only and do not create a
@@ -371,10 +375,13 @@ completed capability; it does not supply a missing identity implementation.
 
 ## EPIC-008: Review completeness and iteration
 
-Status: Planned
+Status: Deferred
 
-Depends on: explicit EPIC-007 acceptance, including its completed native guard,
-verified query, historical capability, and composite evidence contracts.
+Resume only after explicit EPIC-009 acceptance and a separately approved redesign
+of the capture-dependent Brief, replay, and comparison contracts. TASK-026 through
+TASK-033 share this hold. The preserved design below records the earlier plan;
+it must not authorize implementation against the retired capture model.
+Completed EPIC-007 remains accepted.
 
 Detailed SOT: [EPIC-008 development dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
 
@@ -403,14 +410,14 @@ these clarifications do not add Epics, Tasks, or extra live retry campaigns.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-026 | Planned | Freeze Brief, no-change assessment, batch-run, full receipt-set comparison, conflict rules, and historical support contracts. | Assigned IDs, skipped/nullable outcomes, complete capture versus request identity, receipt permutations, conclusive versus inconclusive claims, legacy fixtures, and generators. |
-| TASK-027 | Planned | Capture strict JSON Briefs and references; expose preflight/internal guarded admission with explicit no-change evaluation-not-run state. Enable Brief execution only with TASK-028. | Empty stage/dirty/diff in both modes with/without requirements, invalid input before no-change dispatch, exact current-side references, zero provider calls, no workspace substitution, Unicode, exclusions, and guards. |
-| TASK-028 | Planned | Validate and publish owned assessments and Brief provenance; enable Brief execution with provider-free no-change unverified results. | Every selected requirement retained with no_change_target, zero attempts/reports, all verdicts, support integrity, legacy no-change readers/exits, reports-only/protected failures, and call ceilings. |
-| TASK-029 | Planned | Expose requirement pages, evidence, coverage, unmet/unverified and no-change evaluation-not-run reporting through verified reads. | No-change counts and reasons after restart, explicit workspace hint without execution, historical absence, transport parity, paging/tamper, export/cleanup, and exact-binary fixtures. |
-| TASK-030 | Planned | Admit source findings, capture one new target, and produce provider-free batch preflight with complete current-capture identity and request guards. | Selection/source capability checks, same-patch support/context drift, route/profile mismatch, one capture, zero provider calls, grouping, and budgets. |
-| TASK-031 | Planned | Publish one bounded followup_batch with verified current-capture support; expose guarded CLI/MCP start with existing await/cancel. | Per-item outcomes, missing/malformed groups, call ceilings, source/current identity separation, support persistence/tamper, parent immutability, uncertain starts, cancellation, and recovery. |
-| TASK-032 | Planned | Add provider-free exact-run comparison with full-capture resolution eligibility, complete receipt-set paging, deterministic conflicts, and Brief-bound requirements. | Equal-patch unequal-support rejection, same-capture different-request eligibility, followup-only deletion/replacement/corruption between pages, selection permutations, conclusive/inconclusive conflicts, historical absence, and no provider/write/live-tree content access. |
-| TASK-033 | Planned | Certify initial assessment, one batch recheck, comparison, and the four reviewed boundary rules; finalize guidance and acceptance evidence. | Deterministic no-change/capture/receipt/conflict regressions and compatibility, exact binary/clients, bounded authorized live workflow, complete `make test`, and docs/diff checks. |
+| TASK-026 | Deferred | Freeze Brief, no-change assessment, batch-run, full receipt-set comparison, conflict rules, and historical support contracts. | Assigned IDs, skipped/nullable outcomes, complete capture versus request identity, receipt permutations, conclusive versus inconclusive claims, legacy fixtures, and generators. |
+| TASK-027 | Deferred | Capture strict JSON Briefs and references; expose preflight/internal guarded admission with explicit no-change evaluation-not-run state. Enable Brief execution only with TASK-028. | Empty stage/dirty/diff in both modes with/without requirements, invalid input before no-change dispatch, exact current-side references, zero provider calls, no workspace substitution, Unicode, exclusions, and guards. |
+| TASK-028 | Deferred | Validate and publish owned assessments and Brief provenance; enable Brief execution with provider-free no-change unverified results. | Every selected requirement retained with no_change_target, zero attempts/reports, all verdicts, support integrity, legacy no-change readers/exits, reports-only/protected failures, and call ceilings. |
+| TASK-029 | Deferred | Expose requirement pages, evidence, coverage, unmet/unverified and no-change evaluation-not-run reporting through verified reads. | No-change counts and reasons after restart, explicit workspace hint without execution, historical absence, transport parity, paging/tamper, export/cleanup, and exact-binary fixtures. |
+| TASK-030 | Deferred | Admit source findings, capture one new target, and produce provider-free batch preflight with complete current-capture identity and request guards. | Selection/source capability checks, same-patch support/context drift, route/profile mismatch, one capture, zero provider calls, grouping, and budgets. |
+| TASK-031 | Deferred | Publish one bounded followup_batch with verified current-capture support; expose guarded CLI/MCP start with existing await/cancel. | Per-item outcomes, missing/malformed groups, call ceilings, source/current identity separation, support persistence/tamper, parent immutability, uncertain starts, cancellation, and recovery. |
+| TASK-032 | Deferred | Add provider-free exact-run comparison with full-capture resolution eligibility, complete receipt-set paging, deterministic conflicts, and Brief-bound requirements. | Equal-patch unequal-support rejection, same-capture different-request eligibility, followup-only deletion/replacement/corruption between pages, selection permutations, conclusive/inconclusive conflicts, historical absence, and no provider/write/live-tree content access. |
+| TASK-033 | Deferred | Certify initial assessment, one batch recheck, comparison, and the four reviewed boundary rules; finalize guidance and acceptance evidence. | Deterministic no-change/capture/receipt/conflict regressions and compatibility, exact binary/clients, bounded authorized live workflow, complete `make test`, and docs/diff checks. |
 
 ### Requirement ownership
 
@@ -444,3 +451,54 @@ these clarifications do not add Epics, Tasks, or extra live retry campaigns.
       replace Detailed SOT with Canonical Outcomes, and explicitly accept the
       Epic. No autonomous remediation, provider migration, or other-repository
       implementation is required for closeout.
+
+## EPIC-009: Live workspace and Git review
+
+Status: Planned
+
+Depends on: completed EPIC-007; no EPIC-008 dependency.
+
+Detailed SOT: [EPIC-009 development dossier](../todo/EPIC-009-live-workspace-and-git-review.md)
+
+Required Outcomes: [live workspace and Git review](../specs/live-workspace-and-git-review.md).
+These are adopted requirements, not implemented runtime claims.
+
+Goal: review the original workspace or exact Git target without source snapshots,
+copied checkouts, created worktrees, or full-source replay archives. Keep neutral
+reviewer execution, explicit provider routing, useful results, and historical reads.
+
+| Task | Status | Outcome | Verification |
+|---|---|---|---|
+| TASK-034 | Planned | Freeze live contracts and prove neutral, read-only workspace/Git access and protocol reports for ZCode, Grok, and Codex. | Actual isolated provider probes, exact staged/history reads, hostile guides, non-mutation, and compatibility matrix; failure blocks cutover. |
+| TASK-035 | Planned | Implement live workspace/index/resolved-Git source readers without target copies or source archives. | Partial staging, unchanged support, root/merge/range semantics, ignores, conflicts, path safety, binary evidence, and no-change fixtures. |
+| TASK-036 | Planned | Separate neutral process/session cwd from the source root and implement safe guide injection, native restrictions, and protocol reports. | All three native protocols, forbidden writes, credential/scratch isolation, concurrent sessions, report completeness, and cancellation. |
+| TASK-037 | Planned | Publish honest live-source evidence while preserving atomic results and verified historical readers. | Correct evidence sides, integrity failures, legacy ordinary/child/composite reads and exports, historical absence, and reconciliation without replay. |
+| TASK-038 | Planned | Cut over CLI/MCP together, remove source capture and retired execution/configuration, and update affected contracts, assets, help, security authority, and agent guidance in the same change. | Exact-binary transport parity and documented preflight/start/await, rejected retired requests, wrong-root guards, zero-call no-change, no snapshots, cleanup safety, and deterministic generators. |
+| TASK-039 | Planned | Certify all source scopes and providers; validate the contracts, assets, documents, and agent guides already updated by their owning tasks. | Complete make test plus explicit Codex opt-in, exact candidate/client checks, generation consistency, final prose/link/diff checks, and explicit acceptance. |
+
+TASK-034 is the provider feasibility prerequisite. A failed probe blocks cutover;
+later tasks must not restore snapshots or substitute another provider.
+
+### Requirement ownership
+
+| Requirements | Owning implementation Tasks |
+|---|---|
+| LWR-001 | TASK-034, TASK-035, TASK-038 |
+| LWR-002, LWR-003 | TASK-034, TASK-036 |
+| LWR-004 | TASK-034, TASK-037, TASK-038 |
+| LWR-005, LWR-006 | TASK-037, TASK-038 |
+| LWR-007 | TASK-039 |
+
+### Epic acceptance
+
+- [ ] All five selectors use their declared live/index/resolved-Git source semantics.
+- [ ] ZCode, Grok, and Codex use neutral process/session cwd, isolated credential
+      and scratch homes, explicit guide injection, and proven read-only restrictions.
+- [ ] New reviews create no source snapshots, copied checkouts, worktrees, or
+      full-source replay archives. Source consistency limits are explicit.
+- [ ] Removed requests fail before provider execution. Old artifacts remain
+      unchanged and readable/exportable; cleanup and atomic integrity protections remain.
+- [ ] Exact-binary/client verification, complete make test, and explicit Codex
+      opt-in certification pass; missing evidence is not acceptance.
+- [ ] Promote durable outcomes, retire the dossier and its index entry, repair
+      links, and explicitly accept the epic before recording Completed.

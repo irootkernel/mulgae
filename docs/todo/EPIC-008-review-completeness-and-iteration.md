@@ -11,10 +11,11 @@ Combine explicit requirements assessment with selected-finding rechecks and
 provider-free result comparison. Keep these features independently usable:
 ordinary reviews and batch followups need no requirements list.
 
-Start only after EPIC-007 has explicit integrated acceptance. Execute TASK-026
-through TASK-033 sequentially, one task-owned implementation goal at a time.
-No Task in EPIC-007 waits for this Epic. Use the accepted public/application
-contracts instead of developing against a sibling unfinished branch.
+The roadmap places this Epic and TASK-026 through TASK-033 under an execution
+hold until EPIC-009 is accepted and this design is revised and reapproved.
+Preserve the task detail below for redesign; its capture/replay assumptions and
+legacy-execution promises do not override the live-review transition.
+No Task in completed EPIC-007 or planned EPIC-009 waits for this Epic.
 
 Planning baseline: `d21e77a`. Re-read current code before implementation; the
 baseline is not a reset instruction. Existing single `followup`, `delta`,

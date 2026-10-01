@@ -1,6 +1,13 @@
 # Review completeness and iteration
 
-This specification defines adopted, not-yet-implemented requirements for
+Execution hold: the [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
+requires EPIC-009 acceptance and a separately approved redesign before this work
+resumes. The immutable-capture assumptions and legacy-execution retention below,
+including RCI-006, do not override the [live-review transition](live-workspace-and-git-review.md).
+Retain the earlier requirements for redesign; do not treat them as currently
+executable work or implemented runtime claims.
+
+This specification preserves the earlier, not-yet-implemented design for
 [EPIC-008](../roadmap/README.md#epic-008-review-completeness-and-iteration).
 It depends on explicit acceptance of
 [verified review contracts](verified-review-contracts.md), not an unfinished

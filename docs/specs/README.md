@@ -16,11 +16,14 @@ behavior and durable product contracts.
   project/preflight guards and coherent, bounded result inspection for EPIC-007.
 - [Review completeness and iteration](review-completeness-and-iteration.md)
   defines immutable Briefs, requirements assessment, selected-finding batch
-  followup, and provider-free comparison for EPIC-008.
+  followup, and provider-free comparison preserved for EPIC-008 redesign.
+- [Live workspace and Git review](live-workspace-and-git-review.md) defines
+  snapshot-free targets, neutral reviewer execution, and historical compatibility
+  for EPIC-009.
 
 The EPIC-007 checkboxes mark requirements verified by behavior and compatibility
-evidence. EPIC-008 remains planned; its checkboxes stay unchecked until the
-corresponding behavior is implemented and verified.
+evidence. The roadmap places EPIC-008 under a redesign hold and EPIC-009 next.
+Unchecked requirements in either specification do not claim implemented behavior.
 The [roadmap](../roadmap/README.md) alone owns Task/Epic lifecycle and execution
 order.
 
