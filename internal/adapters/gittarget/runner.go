@@ -40,9 +40,9 @@ func (command Command) Clone() Command {
 	}
 }
 
-// withSourceSizedStdout marks immutable source bytes and source-derived path
-// inventories whose size is determined by the captured repository. Command
-// argv and stderr remain bounded independently.
+// withSourceSizedStdout marks source bytes and source-derived path inventories.
+// Capture and live-source reads retain these streams to EOF. Command argv and
+// stderr remain bounded independently.
 func (command Command) withSourceSizedStdout() Command {
 	command.sourceSizedStdout = true
 	return command
@@ -57,8 +57,7 @@ func (command Command) Argv() []string {
 }
 
 // Result contains stdout and bounded stderr bytes from one Git command.
-// Control-command stdout remains bounded; source-sized stdout is retained to
-// EOF by the capture path.
+// Control-command stdout remains bounded; source-sized stdout is retained to EOF.
 type Result struct {
 	Stdout []byte
 	Stderr []byte

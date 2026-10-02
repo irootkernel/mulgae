@@ -171,6 +171,38 @@ Add typed source access through existing domain/app/port boundaries and Git/work
 
 Verify partial staging with divergent worktree bytes, unchanged support with unstaged changes, root and merge commits, equal-content distinct roots, linked worktrees, ignored/untracked/tracked state, conflicts, missing revisions/objects, path safety, and binary signatures. Run focused Go checks followed by the applicable Make targets. Do not wire unfinished public execution.
 
+The internal `LiveSourceOpener`/`LiveSourceReader` boundary selects sources
+without a captured-tree identity. Whole-tree candidates use `included`;
+transitions preserve added, modified, deleted, and renamed paths. Git revisions
+are resolved once. Workspace and index reads remain live, including index
+support; the caller keeps mutable state unchanged during review. Root leases
+check directory identity and namespace without pinning directory content times.
+
+The dark Git adapter uses the original admitted Git directory and `/usr/bin/git`
+with fixed environment and read-only arguments. Executable-bearing Git policies
+are disabled. Control responses retain their existing bounds; source-derived
+inventories and file bodies have no product byte ceiling. Git and provider
+runtime directories are excluded. The caller also supplies canonical
+machine-owned credential/runtime roots, including arbitrarily named Codex
+profile homes. The adapter resolves them to descriptor-derived filesystem paths
+and excludes them from inventories and support reads, including case and
+Unicode-normalization aliases. Admission rejects source, worktree Git, and
+common Git directories inside those roots, including redirected Git pointers.
+Repositories with alternate object databases fail admission; every Git read
+rechecks that boundary so objects cannot come from an additional source store.
+Rename comparison uses the fixed 50% threshold
+without a repository-selected rename limit or copy-detection policy.
+Git ignores select workspace candidates,
+while safe support reads remain available. `.mulgaeignore`
+is not interpreted in this path, and existing files are left untouched. The
+non-Git workspace path retains local `.gitignore` selection. Raster reads verify
+extension and signature and preserve binary bytes. Typed source errors keep
+native paths and Git diagnostics in their private causes.
+
+Production composition, capture contracts, CLI, and MCP remain unchanged. Native
+provider restrictions belong to TASK-036, evidence retention to TASK-037, and the
+public execution and compatibility cutover to TASK-038.
+
 ## TASK-036: Implement neutral reviewer execution
 
 Separate source root from process/session cwd in provider invocation contracts. Initialize/read the shared guide safely without overwriting an existing file; inject it alongside existing role prompts. Preserve isolated credential projections and scratch lifetimes. Apply the proven native restrictions and exact source/Git access route from TASK-034.
