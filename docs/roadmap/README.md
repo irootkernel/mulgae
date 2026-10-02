@@ -28,7 +28,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 | [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
 | [EPIC-008](#epic-008-review-completeness-and-iteration) | Deferred | Redesign requirements assessment, selected-finding rechecks, and comparison after the live-review model is accepted. |
-| [EPIC-009](#epic-009-live-workspace-and-git-review) | Planned | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
+| [EPIC-009](#epic-009-live-workspace-and-git-review) | In Progress | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
 
 ## Adopted execution order
 
@@ -454,7 +454,7 @@ these clarifications do not add Epics, Tasks, or extra live retry campaigns.
 
 ## EPIC-009: Live workspace and Git review
 
-Status: Planned
+Status: In Progress
 
 Depends on: completed EPIC-007; no EPIC-008 dependency.
 
@@ -469,7 +469,7 @@ reviewer execution, explicit provider routing, useful results, and historical re
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-034 | Planned | Freeze live contracts and prove neutral, read-only workspace/Git access and protocol reports for ZCode, Grok, and Codex. | Actual isolated provider probes, exact staged/history reads, hostile guides, non-mutation, and compatibility matrix; failure blocks cutover. |
+| TASK-034 | Completed | Freeze live contracts and prove neutral, read-only workspace/Git access and protocol reports for ZCode, Grok, and Codex. | Actual isolated provider probes, exact staged/history reads, hostile guides, non-mutation, and compatibility matrix; failure blocks cutover. |
 | TASK-035 | Planned | Implement live workspace/index/resolved-Git source readers without target copies or source archives. | Partial staging, unchanged support, root/merge/range semantics, ignores, conflicts, path safety, binary evidence, and no-change fixtures. |
 | TASK-036 | Planned | Separate neutral process/session cwd from the source root and implement safe guide injection, native restrictions, and protocol reports. | All three native protocols, forbidden writes, credential/scratch isolation, concurrent sessions, report completeness, and cancellation. |
 | TASK-037 | Planned | Publish honest live-source evidence while preserving atomic results and verified historical readers. | Correct evidence sides, integrity failures, legacy ordinary/child/composite reads and exports, historical absence, and reconciliation without replay. |
