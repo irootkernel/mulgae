@@ -68,6 +68,7 @@ type Inspection struct {
 	StructuredExtractionStatus string                   `json:"structured_extraction_status"`
 	CIDecision                 string                   `json:"ci_decision"`
 	TargetSHA256               string                   `json:"target_sha256"`
+	SourceIdentitySHA256       string                   `json:"source_identity_sha256,omitempty"`
 	ReviewArtifactURI          string                   `json:"review_artifact_uri"`
 	PublicationReceipt         string                   `json:"publication_receipt"`
 	Receipt                    *InspectionReceipt       `json:"receipt"`
@@ -162,6 +163,7 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 	}
 	end := min(offset+uint64(request.Limit), uint64(len(filtered)))
 	result := Inspection{FailedRunRecovery: recovery.UnavailableStatus("published_review"), SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), RunState: string(review.RunState()), PublicationState: string(domain.PublicationCommitted), PublicationAuthority: string(domain.PublicationAuthorityP2), RecoveryAction: string(observation.decision.Action()), ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), CIDecision: string(review.CIDecision()), TargetSHA256: review.TargetSHA256(), ReviewArtifactURI: ".mulgae/" + review.FinalPath().String(), PublicationReceipt: identity.String(), Receipt: &receipt, CaptureIdentity: receipt.CaptureIdentity, CaptureAvailability: receipt.CaptureAvailability, Capabilities: ImplementedReadCapabilities(), MinimumSeverity: string(request.MinimumSeverity), FindingCount: len(filtered), Findings: make([]FindingSummary, 0, end-offset), RoleReports: []InspectionRoleReport{}}
+	result.SourceIdentitySHA256 = review.SourceIdentitySHA256()
 	for _, report := range review.RoleReports() {
 		result.RoleReports = append(result.RoleReports, InspectionRoleReport{report.Role(), ReportContentURI(run.RunID().String(), report.Role(), binding.String(), identity.String(), report.SHA256(), 0), report.SHA256(), report.ByteLength()})
 	}
@@ -178,6 +180,9 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 					return Inspection{}, err
 				}
 				reference.URI = EvidenceContentURI(run.RunID().String(), finding.ID(), review.TargetSHA256(), i, binding.String(), identity.String(), support[path.String()], 0)
+				if review.liveSource != nil {
+					reference.URI = SourceEvidenceContentURI(run.RunID().String(), finding.ID(), review.SourceIdentitySHA256(), i, binding.String(), identity.String(), support[path.String()], 0)
+				}
 				reference.Availability = "verified"
 			}
 			if i == 0 && reference.URI != "" {
@@ -229,6 +234,10 @@ func (service *Service) inspectCommitted(ctx context.Context, run ports.Publicat
 		return CommittedReview{}, InspectionReceipt{}, nil, typedFailure("query.inspect", domain.FailureArtifact, "support index binding is absent", err)
 	}
 	receipt := InspectionReceipt{SchemaVersion: InspectionReceiptVersion, ProjectBinding: binding.String(), SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), TargetSHA256: review.TargetSHA256(), FinalSHA256: review.FinalSHA256(), ManifestSHA256: review.ManifestSHA256(), SupportSHA256: envelope.CompositeIdentity.SupportIndex.SHA256, LineageSHA256: review.LineageEdgeSHA256(), Epoch: review.Epoch(), CaptureAvailability: "capture_identity_unavailable"}
+	if review.liveSource != nil {
+		receipt.SchemaVersion, receipt.SourceIdentitySHA256, receipt.CaptureAvailability = LiveInspectionReceiptVersion, review.SourceIdentitySHA256(), "not_captured"
+		return review, receipt, index, nil
+	}
 	if review.compositeSupport != nil {
 		if common := review.compositeSupport.CommonCapture(); common != "" {
 			receipt.CaptureIdentity = common

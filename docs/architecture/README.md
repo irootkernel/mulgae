@@ -151,6 +151,21 @@ This path remains unavailable from public composition until TASK-038. The
 snapshot review flow above remains the public runtime authority during that
 transition.
 
+Live evidence verification reads the declared original source side through
+`LiveSourceReader`. A separate proof type binds verified excerpts and selected
+raster bytes to source selection metadata. It cannot be used as a captured-target
+proof. `evidence` owns the common source metadata and support checks used by
+publication and query; neither application package imports the other.
+
+`publication` writes live v3 roots through the existing P0/P1/P2 engine. It
+retains selection metadata, required excerpts, normalized findings, complete role
+reports, and selected PNG/JPEG/WebP bytes. Source closure is recorded separately
+from snapshot and workspace provenance. `query` verifies these stored members
+before inspection or content reads and never falls back to original files.
+Receipt v2 and export v2 name source selection explicitly. Historical captured
+readers keep their existing versions and meaning. Source replay is
+explicitly unavailable, including after successful publication recovery.
+
 ## Attached MCP transport
 
 `mulgae mcp [--project-root ABSOLUTE_PATH]` starts one process-scoped stdio

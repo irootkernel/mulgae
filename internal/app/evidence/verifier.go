@@ -1,6 +1,7 @@
 // Package evidence verifies provider current-evidence claims against caller-owned
-// immutable target bytes. It intentionally has no source-evidence, publication,
-// storage, repair, provider, filesystem, or Git dependencies.
+// immutable target bytes or observations of an explicitly selected live source.
+// It intentionally has no publication, storage, repair, provider, filesystem,
+// or Git dependencies.
 package evidence
 
 import (
@@ -89,6 +90,7 @@ type CurrentClaimInput struct {
 // assertion.
 type CurrentClaim struct {
 	targetSHA256 string
+	liveSource   bool
 	targetDigest [sha256.Size]byte
 	side         Side
 	path         ports.SafeRelativePath
@@ -133,10 +135,28 @@ func NewCurrentClaim(input CurrentClaimInput) (CurrentClaim, error) {
 	}, nil
 }
 
-// TargetSHA256 returns the canonical sha256:<lowercase-hex> target identity.
-func (claim CurrentClaim) TargetSHA256() string { return claim.targetSHA256 }
+// TargetSHA256 returns the captured-content identity, or empty for live evidence.
+func (claim CurrentClaim) TargetSHA256() string {
+	if claim.liveSource {
+		return ""
+	}
+	return claim.targetSHA256
+}
 
-// Side returns the claimed immutable target side.
+// SourceIdentitySHA256 returns selection metadata identity for live evidence.
+// It never asserts that the source's complete contents were hashed.
+func (claim CurrentClaim) SourceIdentitySHA256() string {
+	if claim.liveSource {
+		return claim.targetSHA256
+	}
+	return ""
+}
+
+// IdentitySHA256 returns the digest bound to the explicitly typed claim.
+func (claim CurrentClaim) IdentitySHA256() string { return claim.targetSHA256 }
+func (claim CurrentClaim) IsLiveSource() bool     { return claim.liveSource }
+
+// Side returns the claimed provider-wire source side.
 func (claim CurrentClaim) Side() Side { return claim.side }
 
 // Path returns the canonical relative logical target path.
@@ -253,8 +273,8 @@ func (code ReasonCode) Valid() bool {
 }
 
 // CurrentReceipt is an immutable system-owned result. Claim preserves the
-// canonical input identity. ExcerptSHA256 is populated only after immutable
-// bytes selected a valid line range; Excerpt exposes bytes only when verified.
+// canonical input identity. ExcerptSHA256 is populated only after source bytes
+// selected a valid line range; Excerpt exposes bytes only when verified.
 type CurrentReceipt struct {
 	claim           CurrentClaim
 	status          ReceiptStatus
@@ -272,7 +292,7 @@ func (receipt CurrentReceipt) Status() ReceiptStatus { return receipt.status }
 // ReasonCode returns the system-computed safe diagnostic code.
 func (receipt CurrentReceipt) ReasonCode() ReasonCode { return receipt.reason }
 
-// ExcerptSHA256 returns the canonical excerpt digest only when immutable bytes
+// ExcerptSHA256 returns the canonical excerpt digest only when source bytes
 // selected a valid range. A quote mismatch has a digest but never exposes its
 // selected bytes.
 func (receipt CurrentReceipt) ExcerptSHA256() string { return receipt.excerptSHA256 }
@@ -286,10 +306,11 @@ func (receipt CurrentReceipt) Excerpt() []byte {
 	return append([]byte(nil), receipt.verifiedExcerpt...)
 }
 
-// Verifier owns the consumer-side immutable target reader used for current
-// evidence verification.
+// Verifier uses either a captured-target reader or an explicit live-source reader.
 type Verifier struct {
-	reader ImmutableTargetReader
+	reader       ImmutableTargetReader
+	liveReader   ports.LiveSourceReader
+	liveIdentity LiveSourceIdentity
 }
 
 // NewVerifier creates a current-evidence verifier. A nil or typed-nil reader
@@ -301,12 +322,12 @@ func NewVerifier(reader ImmutableTargetReader) (*Verifier, error) {
 	return &Verifier{reader: reader}, nil
 }
 
-// VerifyCurrent validates claim identity, obtains immutable target bytes, and
+// VerifyCurrent validates the typed claim identity, obtains source bytes, and
 // computes the receipt. Invalid evidence outcomes are returned as receipts;
 // context and reader operation failures also return an error so callers retain
 // cancellation and operational control flow while remaining fail-closed.
 func (verifier *Verifier) VerifyCurrent(ctx context.Context, claim CurrentClaim) (CurrentReceipt, error) {
-	if verifier == nil || nilImmutableTargetReader(verifier.reader) {
+	if verifier == nil || nilImmutableTargetReader(verifier.reader) && nilLiveReader(verifier.liveReader) {
 		return newReceipt(claim, ReceiptUnverifiable, ReasonNilReader, "", nil), fmt.Errorf("current evidence verification: nil immutable target reader")
 	}
 	if ctx == nil {
@@ -319,9 +340,18 @@ func (verifier *Verifier) VerifyCurrent(ctx context.Context, claim CurrentClaim)
 		return newReceipt(claim, ReceiptInvalid, reason, "", nil), nil
 	}
 
-	availability, targetBytes, err := verifier.reader.ReadImmutableTarget(ctx, claim.targetSHA256, claim.side, claim.path)
+	availability := ImmutableTargetAvailable
+	var targetBytes []byte
+	var err error
+	if !nilLiveReader(verifier.liveReader) {
+		targetBytes, err = verifier.readLive(ctx, claim)
+	} else if claim.liveSource {
+		err = fmt.Errorf("immutable evidence verification: live source claim is not a captured target")
+	} else {
+		availability, targetBytes, err = verifier.reader.ReadImmutableTarget(ctx, claim.targetSHA256, claim.side, claim.path)
+	}
 	if err != nil {
-		return newReceipt(claim, ReceiptUnverifiable, ReasonReaderFailure, "", nil), fmt.Errorf("current evidence verification: immutable target read: %w", err)
+		return newReceipt(claim, ReceiptUnverifiable, ReasonReaderFailure, "", nil), fmt.Errorf("current evidence verification: source read: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return newReceipt(claim, ReceiptUnverifiable, ReasonContextCanceled, "", nil), fmt.Errorf("current evidence verification: context: %w", err)
@@ -440,7 +470,11 @@ func selectExcerpt(target []byte, lineStart, lineEnd int) ([]byte, bool) {
 
 func excerptSHA256(claim CurrentClaim, excerpt []byte) string {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte(excerptDigestDomain))
+	digestDomain := excerptDigestDomain
+	if claim.liveSource {
+		digestDomain = "Mulgae-LIVE-EVIDENCE-EXCERPT/1"
+	}
+	_, _ = hash.Write([]byte(digestDomain))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(claim.targetDigest[:])
 	_, _ = hash.Write([]byte{0})

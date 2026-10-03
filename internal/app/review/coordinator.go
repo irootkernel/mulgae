@@ -402,16 +402,20 @@ func (summary CoordinatorRoleSummary) OutputTransport() ports.ProviderOutputTran
 // CoordinatorResult is the immutable terminal snapshot of one coordinator run.
 // It contains neither domain aggregates nor publication authority.
 type CoordinatorResult struct {
-	sessionID        domain.SessionID
-	runID            domain.RunID
-	runState         domain.RunState
-	findings         []domain.Finding
-	axes             domain.OutcomeAxes
-	evidence         []VerifiedFindingEvidence
-	roleSummaries    []CoordinatorRoleSummary
-	trace            []CoordinatorTraceEvent
-	providerUnusable bool
+	sourceIdentitySHA256 string
+	sessionID            domain.SessionID
+	runID                domain.RunID
+	runState             domain.RunState
+	findings             []domain.Finding
+	axes                 domain.OutcomeAxes
+	evidence             []VerifiedFindingEvidence
+	roleSummaries        []CoordinatorRoleSummary
+	trace                []CoordinatorTraceEvent
+	providerUnusable     bool
 }
+
+// SourceIdentitySHA256 identifies live selection metadata, never source contents.
+func (result CoordinatorResult) SourceIdentitySHA256() string { return result.sourceIdentitySHA256 }
 
 // SessionID returns the immutable review-session identity.
 func (result CoordinatorResult) SessionID() domain.SessionID { return result.sessionID }
@@ -1096,6 +1100,9 @@ func (execution *coordinatorExecution) abort(
 }
 
 func canonicalCoordinatorTarget(target domain.TargetIdentity) (domain.TargetIdentity, error) {
+	if target.Kind() == domain.TargetLiveSource {
+		return domain.NewLiveTargetIdentity(target.SourceIdentitySHA256(), target.BaseObjectID(), target.HeadObjectID())
+	}
 	canonical, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
 		Kind:              target.Kind(),
 		SHA256:            target.SHA256(),
@@ -1588,10 +1595,10 @@ func (execution *coordinatorExecution) normalizedOutcome(job InvocationJob, outc
 }
 
 func (execution *coordinatorExecution) reduceOutputEvidence(output ValidatedRoleOutput) (ValidatedRoleOutput, AttemptCondition) {
-	if condition := coordinatorEvidenceBindingCondition(
+	if condition := coordinatorTargetEvidenceBindingCondition(
 		output.Findings(),
 		output.Evidence(),
-		execution.run.Target().SHA256(),
+		execution.run.Target(),
 	); condition != AttemptConditionValidReview {
 		return ValidatedRoleOutput{}, condition
 	}
@@ -1615,6 +1622,17 @@ func coordinatorEvidenceBindingCondition(
 	groups []VerifiedFindingEvidence,
 	runTargetSHA256 string,
 ) AttemptCondition {
+	return coordinatorEvidenceIdentityBindingCondition(findings, groups, runTargetSHA256, false)
+}
+
+func coordinatorTargetEvidenceBindingCondition(findings []domain.Finding, groups []VerifiedFindingEvidence, target domain.TargetIdentity) AttemptCondition {
+	if target.Kind() == domain.TargetLiveSource {
+		return coordinatorEvidenceIdentityBindingCondition(findings, groups, target.SourceIdentitySHA256(), true)
+	}
+	return coordinatorEvidenceBindingCondition(findings, groups, target.SHA256())
+}
+
+func coordinatorEvidenceIdentityBindingCondition(findings []domain.Finding, groups []VerifiedFindingEvidence, runTargetSHA256 string, live bool) AttemptCondition {
 	if runTargetSHA256 == "" || len(findings) != len(groups) {
 		return AttemptConditionInternalInvariant
 	}
@@ -1643,6 +1661,14 @@ func coordinatorEvidenceBindingCondition(
 			proofTargetSHA256 := proofClaims[claimIndex].TargetSHA256()
 			claimTargetSHA256 := claims[claimIndex].TargetSHA256()
 			receiptTargetSHA256 := receipt.Claim().TargetSHA256()
+			if live {
+				if proofTargetSHA256 != "" || claimTargetSHA256 != "" || receiptTargetSHA256 != "" {
+					return AttemptConditionInternalInvariant
+				}
+				proofTargetSHA256 = proofClaims[claimIndex].SourceIdentitySHA256()
+				claimTargetSHA256 = claims[claimIndex].SourceIdentitySHA256()
+				receiptTargetSHA256 = receipt.Claim().SourceIdentitySHA256()
+			}
 			if proofTargetSHA256 == "" || claimTargetSHA256 == "" || receiptTargetSHA256 == "" {
 				return AttemptConditionInternalInvariant
 			}
@@ -2356,15 +2382,16 @@ func (execution *coordinatorExecution) snapshot(
 		return CoordinatorResult{}, fmt.Errorf("review coordinator: compute outcome axes: %w", err)
 	}
 	return CoordinatorResult{
-		sessionID:        sessionID,
-		runID:            runID,
-		runState:         execution.run.State(),
-		findings:         append([]domain.Finding(nil), ordered...),
-		evidence:         cloneVerifiedFindingEvidence(orderedEvidence),
-		axes:             axes,
-		roleSummaries:    cloneCoordinatorRoleSummaries(roles),
-		trace:            append([]CoordinatorTraceEvent(nil), execution.trace...),
-		providerUnusable: providerUnusable,
+		sourceIdentitySHA256: execution.run.Target().SourceIdentitySHA256(),
+		sessionID:            sessionID,
+		runID:                runID,
+		runState:             execution.run.State(),
+		findings:             append([]domain.Finding(nil), ordered...),
+		evidence:             cloneVerifiedFindingEvidence(orderedEvidence),
+		axes:                 axes,
+		roleSummaries:        cloneCoordinatorRoleSummaries(roles),
+		trace:                append([]CoordinatorTraceEvent(nil), execution.trace...),
+		providerUnusable:     providerUnusable,
 	}, nil
 }
 func coordinatorOutputDegraded(output *ValidatedRoleOutput) bool {

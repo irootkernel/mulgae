@@ -565,6 +565,8 @@ const (
 	RunSupportArtifactRoleReport         RunSupportArtifactKind = "role_report"
 	RunSupportArtifactRecoveryManifest   RunSupportArtifactKind = "recovery_manifest"
 	RunSupportArtifactRecoveryBlob       RunSupportArtifactKind = "recovery_blob"
+	RunSupportArtifactLiveSource         RunSupportArtifactKind = "live_source"
+	RunSupportArtifactSourceImage        RunSupportArtifactKind = "source_image"
 )
 
 // Valid reports whether kind is a closed run-support artifact kind.
@@ -577,7 +579,8 @@ func (kind RunSupportArtifactKind) Valid() bool {
 		RunSupportArtifactTargetBytes, RunSupportArtifactTargetManifest,
 		RunSupportArtifactCaptureManifest, RunSupportArtifactCapturedArchive, RunSupportArtifactCapturedBlob, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
 		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
-		RunSupportArtifactSupportIndex, RunSupportArtifactRoleReport, RunSupportArtifactRecoveryManifest, RunSupportArtifactRecoveryBlob:
+		RunSupportArtifactSupportIndex, RunSupportArtifactRoleReport, RunSupportArtifactRecoveryManifest, RunSupportArtifactRecoveryBlob,
+		RunSupportArtifactLiveSource, RunSupportArtifactSourceImage:
 		return true
 	default:
 		return false
@@ -589,7 +592,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 func (kind RunSupportArtifactKind) IsVariableSized() bool {
 	switch kind {
 	case RunSupportArtifactCaptureManifest, RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
-		RunSupportArtifactRecoveryBlob, RunSupportArtifactTargetBytes,
+		RunSupportArtifactRecoveryBlob, RunSupportArtifactTargetBytes, RunSupportArtifactSourceImage,
 		RunSupportArtifactTargetManifest,
 		RunSupportArtifactCapturedArchive,
 		RunSupportArtifactCapturedBlob,
@@ -831,6 +834,16 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 		return "", fmt.Errorf("artifact path %q is outside the run", value)
 	}
 	relative := strings.TrimPrefix(value, prefix)
+	if relative == "source/source.json" {
+		return RunSupportArtifactLiveSource, nil
+	}
+	if name, ok := strings.CutPrefix(relative, "evidence/images/sha256-"); ok {
+		digest, extension, found := strings.Cut(name, ".")
+		if found && validateSHA256("sha256:"+digest) == nil && (extension == "png" || extension == "jpg" || extension == "webp") {
+			return RunSupportArtifactSourceImage, nil
+		}
+		return "", fmt.Errorf("source image path is not canonical")
+	}
 	if relative == "support/composite.json" {
 		return RunSupportArtifactCompositeMetadata, nil
 	}

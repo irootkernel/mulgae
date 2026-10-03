@@ -75,7 +75,7 @@ func (adapter *redactedExportAdapter) ExportRedactedRun(ctx context.Context, req
 	if !strings.HasPrefix(requestID, "i_") {
 		return RedactedExportResult{}, fmt.Errorf("redacted export service: invalid export identity")
 	}
-	service, err := appexport.NewService(p2ExportProjectionReader{committed: committed}, adapter.installer, maintenanceExportMaxBytes)
+	service, err := appexport.NewService(p2ExportProjectionReader{committed: committed, queries: adapter.queries, run: run}, adapter.installer, maintenanceExportMaxBytes)
 	if err != nil {
 		return RedactedExportResult{}, err
 	}
@@ -106,9 +106,11 @@ func exportManifestSidecar(bundle ports.SafeRelativePath) (ports.SafeRelativePat
 
 type p2ExportProjectionReader struct {
 	committed appquery.CommittedReview
+	queries   *appquery.Service
+	run       ports.PublicationRun
 }
 
-func (reader p2ExportProjectionReader) ReadCommittedProjection(_ context.Context, source appexport.ExportSource) (appexport.VerifiedSourceProjection, error) {
+func (reader p2ExportProjectionReader) ReadCommittedProjection(ctx context.Context, source appexport.ExportSource) (appexport.VerifiedSourceProjection, error) {
 	committed := reader.committed
 	if source.SessionID != committed.SessionID().String() || source.RunID != committed.RunID().String() || source.ReviewID != committed.ReviewID().String() {
 		return appexport.VerifiedSourceProjection{}, fmt.Errorf("P2 export source identity mismatch")
@@ -135,6 +137,21 @@ func (reader p2ExportProjectionReader) ReadCommittedProjection(_ context.Context
 		SourceIdentity:  appexport.SourceIdentity{SessionID: committed.SessionID().String(), RunID: committed.RunID().String(), ReviewID: committed.ReviewID().String(), SourceTargetSHA256: committed.TargetSHA256()},
 		CurrentIdentity: appexport.CurrentIdentity{TargetSHA256: committed.TargetSHA256()},
 	}
+	if live, ok := committed.LiveSource(); ok {
+		projection.LiveSource = &live
+		projection.SourceIdentity.SourceIdentitySHA256 = live.Identity.SHA256()
+		projection.CurrentIdentity.SourceIdentitySHA256 = live.Identity.SHA256()
+		for _, image := range live.BinaryEvidence {
+			if reader.queries == nil || !reader.run.Valid() {
+				return appexport.VerifiedSourceProjection{}, fmt.Errorf("verified source image reader is unavailable")
+			}
+			artifact, err := reader.queries.ReadSourceImageArtifact(ctx, reader.run, committed.FinalSHA256(), live.Identity.SHA256(), image.Side, image.Path)
+			if err != nil {
+				return appexport.VerifiedSourceProjection{}, err
+			}
+			projection.BinaryEvidence = append(projection.BinaryEvidence, appexport.BinaryEvidence{Side: image.Side, Path: image.Path, SHA256: image.SHA256, MediaType: image.MediaType, Bytes: artifact.Bytes()})
+		}
+	}
 	for _, finding := range findings {
 		projection.Findings = append(projection.Findings, appexport.Finding{ID: finding.ID(), Fingerprint: finding.Fingerprint(), Role: string(finding.Role()), Severity: string(finding.Severity()), Title: finding.Title(), Description: finding.Description(), Recommendation: finding.Recommendation(), Confidence: string(finding.Confidence()), Lifecycle: string(finding.Lifecycle())})
 		// Copied composite support serves verified local reads. The existing
@@ -145,10 +162,12 @@ func (reader p2ExportProjectionReader) ReadCommittedProjection(_ context.Context
 		}
 		for _, evidence := range finding.Evidence() {
 			item := appexport.Evidence{FindingID: finding.ID(), SourceSessionID: evidence.SourceSessionID().String(), SourceRunID: evidence.SourceRunID().String(), SourceReviewID: evidence.SourceReviewID().String(), SourceFindingID: evidence.SourceFindingID(), SourceTargetSHA256: evidence.SourceTargetSHA256(), SourceExcerptSHA256: evidence.SourceExcerptSHA256(), TargetSHA256: evidence.TargetSHA256(), CurrentExcerptSHA256: evidence.CurrentExcerptSHA256(), Path: evidence.Path().String(), Side: string(evidence.Side()), LineStart: evidence.LineStart(), LineEnd: evidence.LineEnd(), Verification: string(evidence.Verification())}
+			item.SourceIdentitySHA256 = evidence.SourceIdentitySHA256()
 			projection.Evidence = append(projection.Evidence, item)
 			if projection.SourceIdentity.FindingID == "" {
 				projection.SourceIdentity = appexport.SourceIdentity{SessionID: item.SourceSessionID, RunID: item.SourceRunID, ReviewID: item.SourceReviewID, FindingID: item.SourceFindingID, SourceTargetSHA256: item.SourceTargetSHA256, SourceExcerptSHA256: item.SourceExcerptSHA256}
 				projection.CurrentIdentity = appexport.CurrentIdentity{TargetSHA256: item.TargetSHA256, CurrentExcerptSHA256: item.CurrentExcerptSHA256, Path: item.Path, Side: item.Side, LineStart: item.LineStart, LineEnd: item.LineEnd, Verification: item.Verification}
+				projection.SourceIdentity.SourceIdentitySHA256, projection.CurrentIdentity.SourceIdentitySHA256 = item.SourceIdentitySHA256, item.SourceIdentitySHA256
 			}
 		}
 	}

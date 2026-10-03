@@ -1112,6 +1112,7 @@ func TestRunSupportArtifactKindVariableSizedPolicy(t *testing.T) {
 		RunSupportArtifactSupportIndex:     true,
 		RunSupportArtifactRecoveryManifest: false,
 		RunSupportArtifactRecoveryBlob:     true,
+		RunSupportArtifactSourceImage:      true,
 	}
 	for _, kind := range []RunSupportArtifactKind{
 		RunSupportArtifactExcerpt,
@@ -1133,6 +1134,8 @@ func TestRunSupportArtifactKindVariableSizedPolicy(t *testing.T) {
 		RunSupportArtifactRoleReport,
 		RunSupportArtifactRecoveryManifest,
 		RunSupportArtifactRecoveryBlob,
+		RunSupportArtifactLiveSource,
+		RunSupportArtifactSourceImage,
 	} {
 		if got, want := kind.IsVariableSized(), variableSized[kind]; got != want {
 			t.Fatalf("%q IsVariableSized() = %t, want %t", kind, got, want)
@@ -1178,6 +1181,37 @@ func TestClassifyRunSupportArtifactPathRequiresCanonicalRecoveryArtifacts(t *tes
 		if err == nil {
 			t.Fatalf("ClassifyRunSupportArtifactPath(%q) accepted %q", test.path, kind)
 		}
+	}
+}
+
+func TestClassifyLiveSupportArtifactPaths(t *testing.T) {
+	run := publicationTestRun(t)
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
+	digest := strings.Repeat("a", 64)
+	for _, test := range []struct {
+		path string
+		kind RunSupportArtifactKind
+	}{
+		{"source/source.json", RunSupportArtifactLiveSource},
+		{"evidence/images/sha256-" + digest + ".png", RunSupportArtifactSourceImage},
+		{"evidence/images/sha256-" + digest + ".jpg", RunSupportArtifactSourceImage},
+		{"evidence/images/sha256-" + digest + ".webp", RunSupportArtifactSourceImage},
+		{"source/other.json", ""},
+		{"evidence/images/sha256-" + digest + ".jpeg", ""},
+		{"evidence/images/sha256-" + strings.ToUpper(digest) + ".png", ""},
+		{"evidence/images/sha256-" + digest[:63] + ".png", ""},
+		{"evidence/images/sha256-" + digest + ".png/extra", ""},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			path, err := NewSafeRelativePath(prefix + test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			kind, err := ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+			if test.kind == "" && err == nil || test.kind != "" && (err != nil || kind != test.kind) {
+				t.Fatalf("classification = %q, %v", kind, err)
+			}
+		})
 	}
 }
 

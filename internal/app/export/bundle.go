@@ -45,6 +45,9 @@ func BuildRedactedBundle(source VerifiedSourceProjection, options BuildOptions) 
 		Bundle:          BundleIdentity{MemberCount: len(bundle.Members), SizeBytes: int64(len(bundle.Bytes)), SHA256: digest(bundle.Bytes)},
 		Members:         append([]Member(nil), bundle.Members...),
 	}
+	if source.LiveSource != nil {
+		manifest.SchemaVersion = liveManifestSchemaVersion
+	}
 	return bundle, manifest, nil
 }
 
@@ -130,6 +133,32 @@ func bundleMembers(source redactedSource, changed bool) ([]bundleMember, error) 
 		{"schemas.json", source.SchemaVersions, "not_required"},
 	}
 	members := make([]bundleMember, 0, len(items))
+	if source.LiveSource != nil {
+		metadata := struct {
+			Identity             json.RawMessage  `json:"identity"`
+			SourceIdentitySHA256 string           `json:"source_identity_sha256"`
+			Consistency          string           `json:"consistency"`
+			ReplayAvailability   string           `json:"replay_availability"`
+			BinaryEvidence       []BinaryEvidence `json:"binary_evidence"`
+		}{source.LiveSource.Identity.Bytes(), source.LiveSource.Identity.SHA256(), source.LiveSource.Consistency, "unsupported", source.BinaryEvidence}
+		items = append(items, struct {
+			name   string
+			value  any
+			status string
+		}{"live-source.json", metadata, "not_required"})
+		seen := make(map[string]struct{})
+		for _, image := range source.BinaryEvidence {
+			name := imageMemberPath(image)
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			if secretPattern.Match(image.Bytes) || absolutePathPattern.Match(image.Bytes) {
+				return nil, secretDetectedFailure()
+			}
+			seen[name] = struct{}{}
+			members = append(members, bundleMember{name: name, body: append([]byte(nil), image.Bytes...), status: "not_required", mediaType: image.MediaType})
+		}
+	}
 	for _, item := range items {
 		if !canonicalPathPattern.MatchString(item.name) {
 			return nil, fmt.Errorf("%w: member name", ErrMalformedProjection)
@@ -151,9 +180,10 @@ func bundleMembers(source redactedSource, changed bool) ([]bundleMember, error) 
 }
 
 type bundleMember struct {
-	name   string
-	body   []byte
-	status string
+	name      string
+	body      []byte
+	status    string
+	mediaType string
 }
 
 func buildZIP(source []bundleMember) (Bundle, error) {
@@ -170,12 +200,21 @@ func buildZIP(source []bundleMember) (Bundle, error) {
 		if _, err := entry.Write(item.body); err != nil {
 			return Bundle{}, err
 		}
-		members = append(members, Member{Path: item.name, SHA256: digest(item.body), SizeBytes: int64(len(item.body)), MediaType: "application/json", RedactionStatus: item.status})
+		mediaType := item.mediaType
+		if mediaType == "" {
+			mediaType = "application/json"
+		}
+		members = append(members, Member{Path: item.name, SHA256: digest(item.body), SizeBytes: int64(len(item.body)), MediaType: mediaType, RedactionStatus: item.status})
 	}
 	if err := writer.Close(); err != nil {
 		return Bundle{}, err
 	}
 	return Bundle{Bytes: append([]byte(nil), output.Bytes()...), Members: members}, nil
+}
+
+func imageMemberPath(image BinaryEvidence) string {
+	ext := map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[image.MediaType]
+	return "evidence/images/sha256-" + image.SHA256[len("sha256:"):] + "." + ext
 }
 
 func digest(value []byte) string {

@@ -93,7 +93,11 @@ func (candidate PreparedCandidate) Build(
 	excerpts = append(excerpts, attemptArtifacts...)
 	excerpts = append(excerpts, runtimeArtifacts...)
 	excerpts = append(excerpts, roleReports...)
-	excerpts, err = candidate.buildCaptureSupport(excerpts)
+	if candidate.target.live != nil {
+		excerpts, err = candidate.buildLiveSupport(excerpts)
+	} else {
+		excerpts, err = candidate.buildCaptureSupport(excerpts)
+	}
 	if err != nil {
 		return PublicationBundle{}, err
 	}
@@ -106,7 +110,7 @@ func (candidate PreparedCandidate) Build(
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationFinalReview, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
-	finalSchema, err := ports.ParseAssetID(lineageSchema(finalReviewSchemaAsset, lineage.sourceRecoveryManifestSHA256))
+	finalSchema, err := ports.ParseAssetID(candidate.artifactSchema(finalReviewSchemaAsset))
 	if err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: final schema asset: %w", err)
 	}
@@ -130,7 +134,7 @@ func (candidate PreparedCandidate) Build(
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
-	manifestSchema, err := ports.ParseAssetID(lineageSchema(runManifestSchemaAsset, lineage.sourceRecoveryManifestSHA256))
+	manifestSchema, err := ports.ParseAssetID(candidate.artifactSchema(runManifestSchemaAsset))
 	if err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: manifest schema asset: %w", err)
 	}
@@ -306,6 +310,9 @@ func buildRunSupportIndex(path ports.SafeRelativePath, artifacts []ports.Immutab
 	for _, artifact := range artifacts {
 		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata) {
 			version = "mulgae-run-support-index.v2"
+		}
+		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && kind == ports.RunSupportArtifactLiveSource {
+			version = "mulgae-run-support-index.v3"
 		}
 	}
 	bytes, err := marshalCanonical(runSupportIndexWire{SchemaVersion: version, Artifacts: identities})
@@ -737,8 +744,6 @@ func (candidate PreparedCandidate) buildFinalBytes(
 	lineageEdge ports.ImmutablePublicationArtifact,
 ) ([]byte, error) {
 	commit := optionalString(candidate.mulgae.commit)
-	baseOID := optionalString(candidate.target.baseOID)
-	headOID := optionalString(candidate.target.headOID)
 	status := "valid"
 	for _, role := range candidate.roles {
 		if role.repaired {
@@ -747,7 +752,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		}
 	}
 	return marshalCanonical(finalReviewWire{
-		SchemaVersion: lineageVersion("mulgae-review-artifact.v1", candidate.publicationLineage().sourceRecoveryManifestSHA256),
+		SchemaVersion: candidate.artifactVersion("mulgae-review-artifact.v1"),
 		SessionID:     candidate.sessionID.String(),
 		RunID:         candidate.runID.String(),
 		ReviewID:      reviewID.String(),
@@ -759,9 +764,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		},
 		ImmutableLineage: candidate.immutableLineageWire(lineageEdge),
 		FollowupOutcome:  candidate.followupOutcomeWire(),
-		Target: finalTargetWire{
-			ContentSHA256: candidate.target.sha256, ManifestPath: targetManifestPath, BaseOID: baseOID, HeadOID: headOID,
-		},
+		Target:           candidate.finalTargetWire(),
 		Validation: validationWire{
 			Status: status, SchemaValidation: "passed", SemanticValidation: "passed", EvidenceValidation: "passed",
 		},
@@ -779,7 +782,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		Limitations:  append([]string{}, candidate.limits...),
 		Provenance: provenanceWire{
 			AggregationPath: aggregationPath, FinalValidationPath: finalValidationPath, ManifestPath: "manifest.json",
-			Production: candidate.productionProvenanceWire(),
+			Production: candidate.productionProvenanceWire(), LiveProduction: candidate.liveProvenanceWire(),
 		},
 	})
 }
@@ -794,7 +797,7 @@ func (candidate PreparedCandidate) buildManifestBytes(
 	supportIndex ports.ImmutablePublicationArtifact,
 ) ([]byte, error) {
 	return marshalCanonical(runManifestWire{
-		SchemaVersion:              lineageVersion("mulgae-run-manifest.v1", candidate.publicationLineage().sourceRecoveryManifestSHA256),
+		SchemaVersion:              candidate.artifactVersion("mulgae-run-manifest.v1"),
 		SessionID:                  candidate.sessionID.String(),
 		RunID:                      candidate.runID.String(),
 		RunType:                    string(candidate.publicationLineage().runType),
@@ -806,7 +809,7 @@ func (candidate PreparedCandidate) buildManifestBytes(
 		MulgaeVersion:              candidate.mulgae.version,
 		ImmutableLineage:           candidate.immutableLineageWire(lineageEdge),
 		FollowupOutcome:            candidate.followupOutcomeWire(),
-		Target:                     manifestTargetWire{ManifestPath: targetManifestPath, ContentSHA256: candidate.target.sha256},
+		Target:                     candidate.manifestTargetWire(),
 		SelectedRoles:              candidate.selectedRoles(),
 		RequiredRoles:              candidate.requiredRoles(),
 		Attempts:                   candidate.manifestAttempts(),
@@ -891,23 +894,8 @@ func (candidate PreparedCandidate) productionProvenanceWire() *productionProvena
 		return nil
 	}
 	value := candidate.production
-	providers := make([]productionProviderWire, len(value.Providers))
-	for index, provider := range value.Providers {
-		providers[index] = productionProviderWire{
-			Family: provider.Family, Instance: provider.Instance, Version: provider.Version,
-			Executable: provider.Executable, ExecutableSHA256: provider.ExecutableSHA256,
-			Launcher: provider.Launcher, LauncherSHA256: provider.LauncherSHA256,
-			ProfileGeneration: provider.ProfileGeneration, AdapterProfile: provider.AdapterProfile,
-			QualificationReceiptIDs:   append([]string(nil), provider.QualificationReceiptIDs...),
-			PacketTransportReceiptIDs: append([]string(nil), provider.PacketTransportReceiptIDs...),
-			NamespaceTerminalReceipt:  provider.NamespaceTerminalReceipt,
-		}
-	}
-	var objective *string
-	if value.HasObjective {
-		objectiveValue := value.ObjectiveSHA256
-		objective = &objectiveValue
-	}
+	providers := productionProvidersWire(value.Providers)
+	objective := optionalString(value.ObjectiveSHA256)
 	return &productionProvenanceWire{
 		BuildProduct: value.BuildProduct, BuildVersion: value.BuildVersion, BuildCommit: value.BuildCommit,
 		ObjectiveSHA256: objective, ObjectivePresent: value.HasObjective,
@@ -955,6 +943,12 @@ func (candidate PreparedCandidate) finalFindings(reviewID domain.ReviewID) []fin
 					TargetSHA256: item.targetSHA256, Side: string(item.side), Path: item.path, LineStart: item.lineStart, LineEnd: item.lineEnd,
 					Quote: item.quote, CurrentExcerptSHA256: item.currentExcerptSHA256, Verification: "verified",
 				},
+			}
+			if candidate.target.live != nil {
+				evidenceItems[evidenceIndex].Source.SourceIdentitySHA256 = sourceTargetSHA256
+				evidenceItems[evidenceIndex].Source.SourceTargetSHA256 = ""
+				evidenceItems[evidenceIndex].Current.SourceIdentitySHA256 = item.targetSHA256
+				evidenceItems[evidenceIndex].Current.TargetSHA256 = ""
 			}
 			if item.visual != nil {
 				evidenceItems[evidenceIndex].Visual = &visualEvidenceWire{
@@ -1150,15 +1144,17 @@ type immutableLineageWire struct {
 }
 
 type finalTargetWire struct {
-	ContentSHA256 string  `json:"content_sha256"`
-	ManifestPath  string  `json:"manifest_path"`
-	BaseOID       *string `json:"base_oid"`
-	HeadOID       *string `json:"head_oid"`
+	ContentSHA256 string                `json:"content_sha256,omitempty"`
+	ManifestPath  string                `json:"manifest_path"`
+	BaseOID       *string               `json:"base_oid"`
+	HeadOID       *string               `json:"head_oid"`
+	LiveSource    *liveSourceTargetWire `json:"live_source,omitempty"`
 }
 
 type manifestTargetWire struct {
-	ManifestPath  string `json:"manifest_path"`
-	ContentSHA256 string `json:"content_sha256"`
+	ManifestPath         string `json:"manifest_path"`
+	ContentSHA256        string `json:"content_sha256,omitempty"`
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
 }
 
 type validationWire struct {
@@ -1220,16 +1216,18 @@ type visualBoundingBoxWire struct {
 }
 
 type sourceEvidenceWire struct {
-	SessionID           string `json:"session_id"`
-	RunID               string `json:"run_id"`
-	ReviewID            string `json:"review_id"`
-	FindingID           string `json:"finding_id"`
-	SourceTargetSHA256  string `json:"source_target_sha256"`
-	SourceExcerptSHA256 string `json:"source_excerpt_sha256"`
+	SessionID            string `json:"session_id"`
+	RunID                string `json:"run_id"`
+	ReviewID             string `json:"review_id"`
+	FindingID            string `json:"finding_id"`
+	SourceTargetSHA256   string `json:"source_target_sha256,omitempty"`
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
+	SourceExcerptSHA256  string `json:"source_excerpt_sha256"`
 }
 
 type currentEvidenceWire struct {
-	TargetSHA256         string `json:"target_sha256"`
+	TargetSHA256         string `json:"target_sha256,omitempty"`
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
 	Side                 string `json:"side"`
 	Path                 string `json:"path"`
 	LineStart            int    `json:"line_start"`
@@ -1240,10 +1238,11 @@ type currentEvidenceWire struct {
 }
 
 type provenanceWire struct {
-	AggregationPath     string                    `json:"aggregation_path"`
-	FinalValidationPath string                    `json:"final_validation_path"`
-	ManifestPath        string                    `json:"manifest_path"`
-	Production          *productionProvenanceWire `json:"production,omitempty"`
+	AggregationPath     string                        `json:"aggregation_path"`
+	FinalValidationPath string                        `json:"final_validation_path"`
+	ManifestPath        string                        `json:"manifest_path"`
+	Production          *productionProvenanceWire     `json:"production,omitempty"`
+	LiveProduction      *liveProductionProvenanceWire `json:"live_production,omitempty"`
 }
 
 type productionProvenanceWire struct {

@@ -1,17 +1,24 @@
 // Package export builds deterministic, redacted export packages from verified P2 projections.
 package export
 
-import "time"
+import (
+	"time"
+
+	"github.com/irootkernel/mulgae/internal/app/evidence"
+)
 
 const (
-	manifestSchemaVersion = "mulgae-export-manifest.v1"
-	secureWriterContract  = "mulgae-secure-writer/v1"
+	manifestSchemaVersion     = "mulgae-export-manifest.v1"
+	liveManifestSchemaVersion = "mulgae-export-manifest.v2"
+	secureWriterContract      = "mulgae-secure-writer/v1"
 )
 
 // VerifiedSourceProjection is the complete allowlisted input to an export. It
 // intentionally has no raw provider output, target bytes, environment, or host
 // path fields. Callers must construct it only after P2 semantic verification.
 type VerifiedSourceProjection struct {
+	LiveSource      *evidence.LiveSourceRead
+	BinaryEvidence  []BinaryEvidence
 	SessionID       string
 	RunID           string
 	ReviewID        string
@@ -58,14 +65,15 @@ type Finding struct {
 
 // Evidence holds only identity and reducer-owned verification fields.
 type Evidence struct {
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
 	FindingID            string `json:"finding_id"`
 	SourceSessionID      string `json:"source_session_id"`
 	SourceRunID          string `json:"source_run_id"`
 	SourceReviewID       string `json:"source_review_id"`
 	SourceFindingID      string `json:"source_finding_id"`
-	SourceTargetSHA256   string `json:"source_target_sha256"`
+	SourceTargetSHA256   string `json:"source_target_sha256,omitempty"`
 	SourceExcerptSHA256  string `json:"source_excerpt_sha256"`
-	TargetSHA256         string `json:"target_sha256"`
+	TargetSHA256         string `json:"target_sha256,omitempty"`
 	CurrentExcerptSHA256 string `json:"current_excerpt_sha256"`
 	Path                 string `json:"path"`
 	Side                 string `json:"side"`
@@ -80,22 +88,33 @@ type RedactionManifest struct {
 }
 
 type SourceIdentity struct {
-	SessionID           string `json:"session_id"`
-	RunID               string `json:"run_id"`
-	ReviewID            string `json:"review_id"`
-	FindingID           string `json:"finding_id,omitempty"`
-	SourceTargetSHA256  string `json:"source_target_sha256"`
-	SourceExcerptSHA256 string `json:"source_excerpt_sha256,omitempty"`
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
+	SessionID            string `json:"session_id"`
+	RunID                string `json:"run_id"`
+	ReviewID             string `json:"review_id"`
+	FindingID            string `json:"finding_id,omitempty"`
+	SourceTargetSHA256   string `json:"source_target_sha256,omitempty"`
+	SourceExcerptSHA256  string `json:"source_excerpt_sha256,omitempty"`
 }
 
 type CurrentIdentity struct {
-	TargetSHA256         string `json:"target_sha256"`
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
+	TargetSHA256         string `json:"target_sha256,omitempty"`
 	CurrentExcerptSHA256 string `json:"current_excerpt_sha256,omitempty"`
 	Path                 string `json:"path,omitempty"`
 	Side                 string `json:"side,omitempty"`
 	LineStart            int    `json:"line_start,omitempty"`
 	LineEnd              int    `json:"line_end,omitempty"`
 	Verification         string `json:"verification,omitempty"`
+}
+
+// BinaryEvidence carries only a verified selected raster observation.
+type BinaryEvidence struct {
+	Side      string `json:"side"`
+	Path      string `json:"path"`
+	SHA256    string `json:"sha256"`
+	MediaType string `json:"media_type"`
+	Bytes     []byte `json:"-"`
 }
 
 // BuildOptions identifies deterministic package construction. The manifest is

@@ -22,12 +22,20 @@ func TestPublicationSchemaSelectionPreservesArtifactFamily(t *testing.T) {
 	validator := &schemaSelectionValidator{}
 	fixture.store.validator = validator
 	recovery, _ := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json")
+	liveFinal, _ := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json")
+	liveManifest, _ := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json")
 	for _, test := range []struct {
 		name      string
 		requested ports.AssetID
 		version   string
 		want      ports.AssetID
 	}{
+		{"manifest selects live", fixture.store.manifestSchema, "mulgae-run-manifest.v3", liveManifest},
+		{"final selects live", fixture.store.finalSchema, "mulgae-review-artifact.v3", liveFinal},
+		{"recovery rejects live manifest", recovery, "mulgae-run-manifest.v3", recovery},
+		{"recovery rejects live final", recovery, "mulgae-review-artifact.v3", recovery},
+		{"manifest rejects live final", fixture.store.manifestSchema, "mulgae-review-artifact.v3", fixture.store.manifestSchema},
+		{"final rejects live manifest", fixture.store.finalSchema, "mulgae-run-manifest.v3", fixture.store.finalSchema},
 		{"recovery rejects manifest", recovery, "mulgae-run-manifest.v2", recovery},
 		{"recovery rejects final", recovery, "mulgae-review-artifact.v2", recovery},
 		{"manifest rejects final", fixture.store.manifestSchema, "mulgae-review-artifact.v2", fixture.store.manifestSchema},

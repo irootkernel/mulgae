@@ -194,6 +194,8 @@ type schemaExamplePair struct {
 var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-capture-manifest.v1.schema.json", "example:capture-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json", "example:request-receipt.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-publication-receipt.v2.schema.json", "example:publication-receipt.v2.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-export-manifest.v2.schema.json", "example:export-manifest.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-publication-receipt.v1.schema.json", "example:publication-receipt.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-finding-cursor.v1.schema.json", "example:finding-cursor.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-composite-support.v1.schema.json", "example:composite-support.v1.valid.json"},
@@ -237,16 +239,19 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json", "example:provider-heartbeat-result.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json", "example:provider-followup-output.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-review-output.v1.schema.json", "example:provider-review-output.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json", "example:provider-review-output.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-review-wire.v1.schema.json", "example:provider-review-wire.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-repair-patch.v1.schema.json", "example:repair-patch.json"},
 	{"https://mulgae.local/schemas/mulgae-repair-request.v1.schema.json", "example:repair-request.json"},
 	{"https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json", "example:review-artifact.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json", "example:review-artifact.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v5.schema.json", "example:review-preflight.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v6.schema.json", "example:review-preflight.v6.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v7.schema.json", "example:review-preflight.v7.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v4.schema.json", "example:review-preflight.v4.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json", "example:review-preflight.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "example:run-manifest.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json", "example:run-manifest.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "example:validation-receipt.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "example:validation-result.v1.valid.json"},
 }
@@ -523,4 +528,48 @@ func mustAssetID(t *testing.T, value string) ports.AssetID {
 		t.Fatalf("ParseAssetID(%q): %v", value, err)
 	}
 	return id
+}
+
+func TestLiveNormalizedSchemaRejectsRetiredCapturedSource(t *testing.T) {
+	ctx := context.Background()
+	validator := newBuiltinValidator(t)
+	schemaID := mustAssetID(t, "https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json")
+	_, raw, err := builtin.NewCatalog().Read(ctx, mustAssetID(t, "example:provider-review-output.v2.valid.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validator.Validate(ctx, schemaID, raw); err != nil {
+		t.Fatalf("valid live normalized example: %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	item := document["findings"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)
+	item["source"] = map[string]any{
+		"session_id":            "s_018f0d1a-0000-7000-8000-000000000001",
+		"run_id":                "r_018f0d1a-0000-7000-8000-000000000002",
+		"review_id":             "018f0d1a-0000-7000-8000-000000000003",
+		"finding_id":            "F001",
+		"source_target_sha256":  "sha256:" + string(bytes.Repeat([]byte("a"), 64)),
+		"source_excerpt_sha256": "sha256:" + string(bytes.Repeat([]byte("b"), 64)),
+	}
+	bad, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validator.Validate(ctx, schemaID, bad); err == nil {
+		t.Error("live normalized schema accepted retired captured source identity")
+	}
+	document["schema_version"] = "mulgae-provider-review-output.v1"
+	current := item["current"].(map[string]any)
+	current["target_sha256"] = current["source_identity_sha256"]
+	delete(current, "source_identity_sha256")
+	legacy, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validator.Validate(ctx, mustAssetID(t, "https://mulgae.local/schemas/mulgae-provider-review-output.v1.schema.json"), legacy); err != nil {
+		t.Fatalf("historical normalized schema lost captured source support: %v", err)
+	}
 }

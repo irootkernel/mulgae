@@ -99,17 +99,64 @@ func (service *Service) ReadReport(ctx context.Context, run ports.PublicationRun
 
 // ReadEvidence uses public zero-based indices and returns exact committed bytes.
 func (service *Service) ReadEvidence(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, findingID, target string, index int, continuation ContentContinuation) (ContentChunk, error) {
+	return service.readEvidence(ctx, run, binding, findingID, target, index, continuation, false)
+}
+
+// ReadSourceEvidence binds a stored text observation to selection metadata.
+func (service *Service) ReadSourceEvidence(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, findingID, source string, index int, continuation ContentContinuation) (ContentChunk, error) {
+	return service.readEvidence(ctx, run, binding, findingID, source, index, continuation, true)
+}
+
+func (service *Service) readEvidence(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, findingID, target string, index int, continuation ContentContinuation, live bool) (ContentChunk, error) {
 	if !validFindingID(findingID) || !readDigestValid(target) || index < 0 || index >= 20 {
 		return ContentChunk{}, ErrCursorInvalid
 	}
 	return service.readContent(ctx, run, binding, continuation, func(snapshot contentSnapshot, identity domain.PublicationReceipt) (ContentChunk, error) {
-		data, err := snapshot.RenderExcerptAt(ctx, run, findingID, target, index+1)
+		if live != (snapshot.review.liveSource != nil) {
+			return ContentChunk{}, ErrCursorMismatch
+		}
+		if live && target != snapshot.review.SourceIdentitySHA256() {
+			return ContentChunk{}, ErrCursorMismatch
+		}
+		selector := target
+		if live {
+			selector = ""
+		}
+		data, err := snapshot.RenderExcerptAt(ctx, run, findingID, selector, index+1)
 		if err != nil {
 			return ContentChunk{}, err
 		}
 		chunk, err := NewContentChunk(data, "text/plain", true, identity, continuation)
 		chunk.FindingID, chunk.EvidenceIndex = findingID, &index
 		return chunk, err
+	})
+}
+
+// ReadSourceImage returns an indexed selected PNG/JPEG/WebP observation as
+// binary content. The original source path is never opened on this read path.
+func (service *Service) ReadSourceImage(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, source, side, path string, continuation ContentContinuation) (ContentChunk, error) {
+	if !readDigestValid(source) {
+		return ContentChunk{}, ErrCursorInvalid
+	}
+	if _, err := ports.NewSafeRelativePath(path); err != nil {
+		return ContentChunk{}, ErrCursorInvalid
+	}
+	return service.readContent(ctx, run, binding, continuation, func(snapshot contentSnapshot, identity domain.PublicationReceipt) (ContentChunk, error) {
+		if snapshot.review.liveSource == nil || source != snapshot.review.SourceIdentitySHA256() {
+			return ContentChunk{}, ErrCursorMismatch
+		}
+		for _, image := range snapshot.review.liveSource.BinaryEvidence {
+			if image.Side != side || image.Path != path {
+				continue
+			}
+			artifactPath, _ := ports.NewSafeRelativePath(image.ArtifactPath)
+			artifact, err := service.readIndexedRuntimeArtifact(ctx, run, snapshot.review, snapshot.support, artifactPath)
+			if err != nil {
+				return ContentChunk{}, err
+			}
+			return NewContentChunk(artifact.Bytes(), image.MediaType, false, identity, continuation)
+		}
+		return ContentChunk{}, typedFailure("query.read_content", domain.FailureArtifact, "source image is unavailable", nil)
 	})
 }
 
@@ -153,6 +200,14 @@ func EvidenceContentURI(runID, findingID, target string, index int, binding, rec
 		indexText = strconv.Itoa(index)
 	}
 	return contentURI("mulgae://runs/"+runID+"/findings/"+findingID+"/evidence", [][2]string{{"target_sha256", target}, {"evidence_index", indexText}, {"project_binding", binding}, {"publication_receipt", receipt}, {"content_sha256", digest}}, offset)
+}
+
+func SourceEvidenceContentURI(runID, findingID, source string, index int, binding, receipt, digest string, offset int64) string {
+	indexText := ""
+	if index != 0 {
+		indexText = strconv.Itoa(index)
+	}
+	return contentURI("mulgae://runs/"+runID+"/findings/"+findingID+"/evidence", [][2]string{{"source_identity_sha256", source}, {"evidence_index", indexText}, {"project_binding", binding}, {"publication_receipt", receipt}, {"content_sha256", digest}}, offset)
 }
 
 func contentURI(base string, fields [][2]string, offset int64) string {

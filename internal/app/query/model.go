@@ -26,6 +26,7 @@ type SchemaValidator interface {
 // CommittedReview is a defensive read view of a semantically verified P2 final
 // review. Exact final and manifest bytes remain available only as copies.
 type CommittedReview struct {
+	liveSource         *evidence.LiveSourceRead
 	compositeSupport   *compositesupport.Document
 	compositeArtifacts map[string]ports.ImmutablePublicationArtifact
 	sessionID          domain.SessionID
@@ -138,6 +139,22 @@ func (review CommittedReview) EpochPath() ports.SafeRelativePath { return review
 
 // TargetSHA256 returns the canonical current target digest bound by the final.
 func (review CommittedReview) TargetSHA256() string { return review.targetSHA256 }
+
+func (review CommittedReview) SourceIdentitySHA256() string {
+	if review.liveSource == nil {
+		return ""
+	}
+	return review.liveSource.Identity.SHA256()
+}
+
+func (review CommittedReview) LiveSource() (evidence.LiveSourceRead, bool) {
+	if review.liveSource == nil {
+		return evidence.LiveSourceRead{}, false
+	}
+	value := *review.liveSource
+	value.BinaryEvidence = append([]evidence.LiveBinaryObservation(nil), value.BinaryEvidence...)
+	return value, true
+}
 
 // RequestChangesThreshold returns the verified threshold persisted by the review.
 func (review CommittedReview) RequestChangesThreshold() domain.Severity {
@@ -602,6 +619,7 @@ func (finding Finding) Evidence() []Evidence { return cloneEvidence(finding.evid
 
 // Evidence binds one source identity to one current immutable-target claim.
 type Evidence struct {
+	liveSource           evidence.LiveSourceIdentity
 	copiedAvailability   string
 	sourceSessionID      domain.SessionID
 	sourceRunID          domain.RunID
@@ -641,7 +659,8 @@ func (item Evidence) SourceExcerptSHA256() string { return item.sourceExcerptSHA
 func (item Evidence) CurrentExcerptSHA256() string { return item.currentExcerptSHA256 }
 
 // TargetSHA256 returns the current immutable target digest.
-func (item Evidence) TargetSHA256() string { return item.targetSHA256 }
+func (item Evidence) TargetSHA256() string         { return item.targetSHA256 }
+func (item Evidence) SourceIdentitySHA256() string { return item.liveSource.SHA256() }
 
 // Side returns the claimed immutable target side.
 func (item Evidence) Side() evidence.Side { return item.side }
@@ -785,10 +804,11 @@ type lineageDTO struct {
 }
 
 type finalTargetDTO struct {
-	ContentSHA256 string  `json:"content_sha256"`
-	ManifestPath  string  `json:"manifest_path"`
-	BaseOID       *string `json:"base_oid"`
-	HeadOID       *string `json:"head_oid"`
+	LiveSource    *evidence.LiveSourceMetadata `json:"live_source,omitempty"`
+	ContentSHA256 string                       `json:"content_sha256"`
+	ManifestPath  string                       `json:"manifest_path"`
+	BaseOID       *string                      `json:"base_oid"`
+	HeadOID       *string                      `json:"head_oid"`
 }
 
 type finalValidationDTO struct {
@@ -850,15 +870,17 @@ type visualBBoxDTO struct {
 }
 
 type sourceEvidenceDTO struct {
-	SessionID           string `json:"session_id"`
-	RunID               string `json:"run_id"`
-	ReviewID            string `json:"review_id"`
-	FindingID           string `json:"finding_id"`
-	SourceTargetSHA256  string `json:"source_target_sha256"`
-	SourceExcerptSHA256 string `json:"source_excerpt_sha256"`
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
+	SessionID            string `json:"session_id"`
+	RunID                string `json:"run_id"`
+	ReviewID             string `json:"review_id"`
+	FindingID            string `json:"finding_id"`
+	SourceTargetSHA256   string `json:"source_target_sha256"`
+	SourceExcerptSHA256  string `json:"source_excerpt_sha256"`
 }
 
 type currentEvidenceDTO struct {
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
 	TargetSHA256         string `json:"target_sha256"`
 	Side                 string `json:"side"`
 	Path                 string `json:"path"`
@@ -870,10 +892,22 @@ type currentEvidenceDTO struct {
 }
 
 type provenanceDTO struct {
-	AggregationPath     string                   `json:"aggregation_path"`
-	FinalValidationPath string                   `json:"final_validation_path"`
-	ManifestPath        string                   `json:"manifest_path"`
-	Production          *productionProvenanceDTO `json:"production,omitempty"`
+	LiveProduction      *liveProductionProvenanceDTO `json:"live_production,omitempty"`
+	AggregationPath     string                       `json:"aggregation_path"`
+	FinalValidationPath string                       `json:"final_validation_path"`
+	ManifestPath        string                       `json:"manifest_path"`
+	Production          *productionProvenanceDTO     `json:"production,omitempty"`
+}
+
+type liveProductionProvenanceDTO struct {
+	BuildProduct          string                  `json:"build_product"`
+	BuildVersion          string                  `json:"build_version"`
+	BuildCommit           string                  `json:"build_commit"`
+	ObjectiveSHA256       *string                 `json:"objective_sha256"`
+	ObjectivePresent      bool                    `json:"objective_present"`
+	SourceIdentitySHA256  string                  `json:"source_identity_sha256"`
+	SourceTerminalReceipt string                  `json:"source_terminal_receipt"`
+	Providers             []productionProviderDTO `json:"providers"`
 }
 
 type productionProvenanceDTO struct {
@@ -954,8 +988,9 @@ type manifestRoleReportDTO struct {
 }
 
 type manifestTargetDTO struct {
-	ManifestPath  string `json:"manifest_path"`
-	ContentSHA256 string `json:"content_sha256"`
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
+	ManifestPath         string `json:"manifest_path"`
+	ContentSHA256        string `json:"content_sha256"`
 }
 
 type manifestAttemptDTO struct {

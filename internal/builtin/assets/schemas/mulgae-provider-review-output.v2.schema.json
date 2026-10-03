@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json",
+  "title": "Mulgae Normalized Live Review Output v2",
+  "description": "Application-normalized live review output. Source identity hashes selector metadata and resolved operands, never mutable source contents; verification remains claimed until source evidence is checked.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "summary",
+    "completeness",
+    "limitations",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-provider-review-output.v2"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "completeness": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "incomplete"
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*//)(?!.*\\/$)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$"
+    },
+    "current": {
+      "description": "Current verification identity. A verified state applies only to this object, never to source.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_identity_sha256",
+        "path",
+        "line_start",
+        "line_end",
+        "side",
+        "quote",
+        "verification"
+      ],
+      "properties": {
+        "source_identity_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "base",
+            "head",
+            "worktree",
+            "index"
+          ]
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "const": "claimed",
+          "description": "Provider output may only claim a location. Mulgae computes verified, stale, invalid, or unverifiable in validation/final artifacts."
+        }
+      }
+    },
+    "bbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "integer", "minimum": 0},
+        "y": {"type": "integer", "minimum": 0},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "visual": {
+      "description": "Captured visual reference identity. Mulgae verifies the hash independently before final publication.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bbox", "verification"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "verification": {"const": "claimed"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current"
+      ],
+      "properties": {
+        "current": {
+          "$ref": "#/$defs/current"
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "title",
+        "description",
+        "evidence",
+        "recommendation",
+        "confidence"
+      ],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "blocker"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      }
+    }
+  }
+}

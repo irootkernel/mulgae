@@ -338,9 +338,10 @@ func (service *Service) publishCandidate(
 		return PublicationResult{}, publicationFailure("publish.validate", domain.FailureConfiguration, "invalid validated candidate", nil)
 	}
 	_, isCompositeCandidate := candidate.(PreparedCompositeCandidate)
+	_, isLiveCandidate := candidate.(PreparedLiveCandidate)
 	var resumed ports.FinalReviewArtifact
 	var preparationStore ports.CompositePreparationStore
-	if isCompositeCandidate {
+	if isCompositeCandidate || isLiveCandidate {
 		existing, decision, observeErr := service.observe(ctx, run)
 		if observeErr != nil {
 			return PublicationResult{}, observeErr
@@ -356,7 +357,7 @@ func (service *Service) publishCandidate(
 			}
 			bound, bindingErr := committedSnapshotValidatedCandidateSHA256(snapshot)
 			matches := bound == candidateHash
-			if bindingErr == nil && !matches && bound == candidate.(PreparedCompositeCandidate).legacyCandidateSHA256() {
+			if isCompositeCandidate && bindingErr == nil && !matches && bound == candidate.(PreparedCompositeCandidate).legacyCandidateSHA256() {
 				// Only an already committed legacy mapping may retain its old
 				// binding. Interrupted and new publications bind every copied byte.
 				matches, bindingErr = service.isLegacyCompositeSupport(ctx, run, snapshot)
@@ -1320,7 +1321,8 @@ func (service *Service) readManifestBoundSupportArtifacts(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &supportIndex, "committed support index"); err != nil {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index is invalid", err)
 	}
-	if supportIndex.SchemaVersion != "mulgae-run-support-index.v1" && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
+	live := envelope.SchemaVersion == "mulgae-run-manifest.v3"
+	if live && supportIndex.SchemaVersion != "mulgae-run-support-index.v3" || !live && supportIndex.SchemaVersion != "mulgae-run-support-index.v1" && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index schema is invalid", nil)
 	}
 	captureArtifacts := make(map[string]ports.ImmutablePublicationArtifact)
@@ -1369,9 +1371,22 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "capture manifest requires support v2", nil)
 		}
-		if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" {
+		if !live && (kind == ports.RunSupportArtifactLiveSource || kind == ports.RunSupportArtifactSourceImage) {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "historical support contains live source authority", nil)
+		}
+		if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" || live {
 			captureArtifacts[path.String()] = artifact
 		}
+	}
+	if live {
+		var final finalReviewWire
+		if err := unmarshalCanonicalPublicationRecord(snapshot.Final().Bytes(), &final, "committed live final"); err != nil {
+			return nil, err
+		}
+		if err := validateLiveSupport(final, captureArtifacts); err != nil {
+			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed source support is invalid", err)
+		}
+		return identities, nil
 	}
 	if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" && (envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2") {
 		var final struct {
@@ -1584,7 +1599,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, err
 	}
 	normalExit := domain.OperationalExitCode(manifest.ExitCode)
-	if (manifest.SchemaVersion != "mulgae-run-manifest.v1" && manifest.SchemaVersion != "mulgae-run-manifest.v2" && (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2")) ||
+	if (manifest.SchemaVersion != "mulgae-run-manifest.v1" && manifest.SchemaVersion != "mulgae-run-manifest.v2" && manifest.SchemaVersion != "mulgae-run-manifest.v3" && (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2")) ||
 		manifest.SessionID != run.SessionID().String() ||
 		manifest.RunID != run.RunID().String() ||
 		manifest.PersistedJournalState != string(domain.JournalManifestCommitted) ||

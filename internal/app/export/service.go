@@ -216,6 +216,15 @@ func cloneProjection(source VerifiedSourceProjection) VerifiedSourceProjection {
 	copy.Findings = append([]Finding(nil), source.Findings...)
 	copy.Evidence = append([]Evidence(nil), source.Evidence...)
 	copy.Redaction.Dropped = append([]string(nil), source.Redaction.Dropped...)
+	if source.LiveSource != nil {
+		value := *source.LiveSource
+		value.BinaryEvidence = append(value.BinaryEvidence[:0:0], value.BinaryEvidence...)
+		copy.LiveSource = &value
+	}
+	copy.BinaryEvidence = append([]BinaryEvidence(nil), source.BinaryEvidence...)
+	for i := range copy.BinaryEvidence {
+		copy.BinaryEvidence[i].Bytes = append([]byte(nil), source.BinaryEvidence[i].Bytes...)
+	}
 	return copy
 }
 

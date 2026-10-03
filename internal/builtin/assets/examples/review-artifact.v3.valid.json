@@ -1,0 +1,98 @@
+{
+  "schema_version": "mulgae-review-artifact.v3",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+  "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
+  "run_type": "review",
+  "created_at": "2026-07-13T03:00:00.5Z",
+  "mulgae": {
+    "version": "test",
+    "commit": "0123456789abcdef"
+  },
+  "immutable_lineage": {
+    "parent_run_id": null,
+    "source_run_id": null,
+    "source_review_id": null,
+    "source_finding_ref": null,
+    "replay_mode": null,
+    "lineage_edge_path": "store/lineage-edges/e_019f596a-d174-7321-b920-c2d312c82cc2.json",
+    "lineage_edge_sha256": "sha256:cd1dd092d3de2036d40a064b61f0fbc1e1706836a7ccdaa163c0fba52b8daf97"
+  },
+  "target": {
+    "manifest_path": "source/source.json",
+    "base_oid": null,
+    "head_oid": null,
+    "live_source": {
+      "identity": {"schema_version":"mulgae-live-source.v1","scope":"workspace","operand":"","base_oid":"","head_oid":"","empty_base":false},
+      "source_identity_sha256": "sha256:87baffbf5aebb20121d9176136272bf300e23b78c4203c0061f9b64e819a750f",
+      "changes": [],
+      "no_change": true,
+      "consistency": "caller_maintained",
+      "replay_availability": "unsupported",
+      "binary_evidence": []
+    }
+  },
+  "validation": {
+    "status": "valid",
+    "schema_validation": "passed",
+    "semantic_validation": "passed",
+    "evidence_validation": "passed"
+  },
+  "content_verdict": "no_findings",
+  "coverage_status": "complete",
+  "structured_extraction_status": "structured",
+  "publication_status": "committed",
+  "ci_decision": "pass",
+  "ci_reason_codes": [
+    "policy_evaluated"
+  ],
+  "severity_threshold": {
+    "request_changes_at_or_above": "high",
+    "policy_source": "project_local"
+  },
+  "role_outcomes": [
+    {
+      "role": "logic",
+      "required": true,
+      "outcome": "not_applicable",
+      "attempt_id": null,
+      "provider_instance": null,
+      "selected_via": null,
+      "valid_finding_ids": [],
+      "failure_reason": null,
+      "limitations": [
+        "The selected source contains no review candidates."
+      ]
+    },
+    {
+      "role": "security",
+      "required": false,
+      "outcome": "not_applicable",
+      "attempt_id": null,
+      "provider_instance": null,
+      "selected_via": null,
+      "valid_finding_ids": [],
+      "failure_reason": null,
+      "limitations": [
+        "The selected source contains no review candidates."
+      ]
+    }
+  ],
+  "findings": [],
+  "limitations": [],
+  "provenance": {
+    "aggregation_path": "aggregation.json",
+    "final_validation_path": "validation/final-validation.json",
+    "manifest_path": "manifest.json",
+    "live_production": {
+      "build_product": "mulgae",
+      "build_version": "test",
+      "build_commit": "0123456789abcdef",
+      "objective_sha256": null,
+      "objective_present": false,
+      "source_identity_sha256": "sha256:87baffbf5aebb20121d9176136272bf300e23b78c4203c0061f9b64e819a750f",
+      "source_terminal_receipt": "source-terminal:v1:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "providers": []
+    }
+  }
+}

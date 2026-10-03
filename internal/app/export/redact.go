@@ -6,7 +6,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 var (
@@ -27,6 +29,25 @@ var (
 )
 
 func validateProjection(source VerifiedSourceProjection, options BuildOptions) error {
+	live := source.LiveSource != nil
+	if live {
+		if source.Review.SchemaVersion != "mulgae-review-artifact.v3" || source.Run.SchemaVersion != "mulgae-run-manifest.v3" || !source.LiveSource.Identity.Valid() || source.SourceIdentity.SourceTargetSHA256 != "" || source.CurrentIdentity.TargetSHA256 != "" || source.SourceIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() || source.CurrentIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() {
+			return fmt.Errorf("%w: live selection identity", ErrMalformedProjection)
+		}
+		if len(source.BinaryEvidence) != len(source.LiveSource.BinaryEvidence) {
+			return fmt.Errorf("%w: incomplete selected binary evidence", ErrMalformedProjection)
+		}
+		for i, image := range source.BinaryEvidence {
+			expected := source.LiveSource.BinaryEvidence[i]
+			path, err := ports.NewSafeRelativePath(image.Path)
+			file, fileErr := ports.NewLiveSourceFile(path, image.Bytes, image.MediaType)
+			if err != nil || fileErr != nil || file.SHA256() != image.SHA256 || image.Side != expected.Side || image.Path != expected.Path || image.SHA256 != expected.SHA256 || image.MediaType != expected.MediaType || len(image.Bytes) != expected.ByteLength || !source.LiveSource.Identity.SupportsSide(evidence.Side(image.Side)) {
+				return fmt.Errorf("%w: selected binary evidence", ErrMalformedProjection)
+			}
+		}
+	} else if source.Review.SchemaVersion == "mulgae-review-artifact.v3" || source.Run.SchemaVersion == "mulgae-run-manifest.v3" || source.SourceIdentity.SourceIdentitySHA256 != "" || source.CurrentIdentity.SourceIdentitySHA256 != "" || len(source.BinaryEvidence) != 0 {
+		return fmt.Errorf("%w: mixed live and historical projection", ErrMalformedProjection)
+	}
 	if !idPatterns["session"].MatchString(source.SessionID) || !idPatterns["run"].MatchString(source.RunID) || !idPatterns["review"].MatchString(source.ReviewID) {
 		return fmt.Errorf("%w: source identity", ErrMalformedProjection)
 	}
@@ -60,13 +81,17 @@ func validateProjection(source VerifiedSourceProjection, options BuildOptions) e
 	}
 	sourceFindingBound := source.SourceIdentity.FindingID == ""
 	for _, item := range source.Evidence {
-		if !findingIDPattern.MatchString(item.FindingID) || !idPatterns["session"].MatchString(item.SourceSessionID) || !idPatterns["run"].MatchString(item.SourceRunID) || !idPatterns["review"].MatchString(item.SourceReviewID) || !findingIDPattern.MatchString(item.SourceFindingID) || !sha256Pattern.MatchString(item.SourceTargetSHA256) || !sha256Pattern.MatchString(item.SourceExcerptSHA256) || !sha256Pattern.MatchString(item.TargetSHA256) || !sha256Pattern.MatchString(item.CurrentExcerptSHA256) || !canonicalPathPattern.MatchString(item.Path) || item.LineStart < 1 || item.LineEnd < item.LineStart || !validSide(item.Side) || !validVerification(item.Verification) {
+		identityValid := sha256Pattern.MatchString(item.SourceTargetSHA256) && sha256Pattern.MatchString(item.TargetSHA256) && item.SourceIdentitySHA256 == ""
+		if live {
+			identityValid = item.SourceTargetSHA256 == "" && item.TargetSHA256 == "" && item.SourceIdentitySHA256 == source.LiveSource.Identity.SHA256() && item.SourceSessionID == source.SessionID && item.SourceRunID == source.RunID && item.SourceReviewID == source.ReviewID && source.LiveSource.Identity.SupportsSide(evidence.Side(item.Side))
+		}
+		if !findingIDPattern.MatchString(item.FindingID) || !idPatterns["session"].MatchString(item.SourceSessionID) || !idPatterns["run"].MatchString(item.SourceRunID) || !idPatterns["review"].MatchString(item.SourceReviewID) || !findingIDPattern.MatchString(item.SourceFindingID) || !identityValid || !sha256Pattern.MatchString(item.SourceExcerptSHA256) || !sha256Pattern.MatchString(item.CurrentExcerptSHA256) || !canonicalPathPattern.MatchString(item.Path) || item.LineStart < 1 || item.LineEnd < item.LineStart || !validSide(item.Side) || !validVerification(item.Verification) {
 			return fmt.Errorf("%w: evidence", ErrMalformedProjection)
 		}
 		if _, exists := findings[item.FindingID]; !exists {
 			return fmt.Errorf("%w: evidence references unknown finding", ErrMalformedProjection)
 		}
-		if item.SourceSessionID == source.SourceIdentity.SessionID && item.SourceRunID == source.SourceIdentity.RunID && item.SourceReviewID == source.SourceIdentity.ReviewID && item.SourceFindingID == source.SourceIdentity.FindingID && item.SourceTargetSHA256 == source.SourceIdentity.SourceTargetSHA256 && item.SourceExcerptSHA256 == source.SourceIdentity.SourceExcerptSHA256 {
+		if item.SourceSessionID == source.SourceIdentity.SessionID && item.SourceRunID == source.SourceIdentity.RunID && item.SourceReviewID == source.SourceIdentity.ReviewID && item.SourceFindingID == source.SourceIdentity.FindingID && item.SourceTargetSHA256 == source.SourceIdentity.SourceTargetSHA256 && item.SourceIdentitySHA256 == source.SourceIdentity.SourceIdentitySHA256 && item.SourceExcerptSHA256 == source.SourceIdentity.SourceExcerptSHA256 {
 			sourceFindingBound = true
 		}
 	}
@@ -92,7 +117,7 @@ func validateArtifact(ref ImmutableArtifactRef) error {
 }
 
 func validateSourceIdentity(identity SourceIdentity) error {
-	if !idPatterns["session"].MatchString(identity.SessionID) || !idPatterns["run"].MatchString(identity.RunID) || !idPatterns["review"].MatchString(identity.ReviewID) || !sha256Pattern.MatchString(identity.SourceTargetSHA256) {
+	if !idPatterns["session"].MatchString(identity.SessionID) || !idPatterns["run"].MatchString(identity.RunID) || !idPatterns["review"].MatchString(identity.ReviewID) || !validExportIdentityDigest(identity.SourceTargetSHA256, identity.SourceIdentitySHA256) {
 		return fmt.Errorf("%w: source identity", ErrMalformedProjection)
 	}
 	findingPresent := identity.FindingID != ""
@@ -110,7 +135,7 @@ func validateSourceIdentity(identity SourceIdentity) error {
 }
 
 func validateCurrentIdentity(identity CurrentIdentity) error {
-	if !sha256Pattern.MatchString(identity.TargetSHA256) {
+	if !validExportIdentityDigest(identity.TargetSHA256, identity.SourceIdentitySHA256) {
 		return fmt.Errorf("%w: current identity", ErrMalformedProjection)
 	}
 	detailsPresent := identity.CurrentExcerptSHA256 != "" || identity.Path != "" || identity.Side != "" ||
@@ -125,6 +150,10 @@ func validateCurrentIdentity(identity CurrentIdentity) error {
 		return fmt.Errorf("%w: current identity", ErrMalformedProjection)
 	}
 	return nil
+}
+
+func validExportIdentityDigest(captured, live string) bool {
+	return sha256Pattern.MatchString(captured) && live == "" || captured == "" && sha256Pattern.MatchString(live)
 }
 
 func validSide(value string) bool {

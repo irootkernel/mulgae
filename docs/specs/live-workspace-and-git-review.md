@@ -1,6 +1,11 @@
 # Live workspace and Git review
 
-These are planned requirements for [EPIC-009](../roadmap/README.md#epic-009-live-workspace-and-git-review). Current source, tests, and embedded contracts describe the implemented snapshot-based runtime. The [execution dossier](../todo/EPIC-009-live-workspace-and-git-review.md) owns temporary implementation detail; the roadmap owns lifecycle.
+These are planned requirements for [EPIC-009](../roadmap/README.md#epic-009-live-workspace-and-git-review). Public CLI/MCP admission still uses the snapshot-based runtime until TASK-038. The [execution dossier](../todo/EPIC-009-live-workspace-and-git-review.md) owns temporary implementation detail; the roadmap owns lifecycle.
+
+Implementation status: TASK-034 through TASK-037 provide the internal provider,
+source, execution, evidence, and publication/read paths. Public CLI/MCP cutover
+belongs to TASK-038; complete provider and release-binary certification belongs
+to TASK-039. Requirements below do not imply that public cutover is complete.
 
 ## Review targets
 

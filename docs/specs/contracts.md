@@ -11,6 +11,10 @@ including EPIC-007. EPIC-008 does not imply current command support. Update each
 affected section and its source, tests, embedded schemas, examples, and help in
 the owning implementation Task. Do not rewrite historical artifacts from a plan.
 
+EPIC-009 has internal source readers, neutral reviewer execution, and live-source
+publication/read support. Public CLI/MCP admission still uses the captured review
+flow until TASK-038. The internal formats below do not enable new public requests.
+
 ## Versioning
 
 The public contract surface starts at v1. Configuration uses `version: 4`;
@@ -36,6 +40,33 @@ The stable composition failure reasons are `composite_target_mismatch`,
 `composite_recovery_incomplete`, `composite_recovery_unavailable`,
 `composite_selection_ambiguous`, `composite_validation_failed`, and
 `composite_publication_incomplete`.
+
+Live-source roots use `mulgae-review-artifact.v3`, `mulgae-run-manifest.v3`,
+and `mulgae-run-support-index.v3`. Their `source_identity_sha256` binds the
+canonical selector and resolved Git operands, never mutable file contents or a
+candidate inventory. They omit captured `content_sha256`, snapshot provenance,
+and replay support. Workspace and index consistency is `caller_maintained`;
+resolved Git sources use `resolved_git_objects`. Both declare replay
+`unsupported`. The normalized live finding contract is
+`mulgae-provider-review-output.v2`; provider wire input remains v1.
+
+The same P0/P1/P2 transaction commits these roots. `source/source.json` retains
+selection metadata; required finding excerpts and selected PNG, JPEG, and WebP
+observations remain receipt-bound support. No full source tree is retained.
+Readers verify the support index, metadata, excerpts, binary signatures, and
+digests without reopening the original source. Publication recovery reconciles
+stored candidates and receipts; it does not replay reviewer execution.
+
+Live inspection uses `mulgae-publication-receipt.v2` with explicit
+`source_identity_sha256`, empty capture identity, and `not_captured`
+availability. Live redacted exports use `mulgae-export-manifest.v2` and carry
+selection metadata and selected raster bytes. Captured receipt/export v1 and
+artifact/manifest v1/v2 meanings remain unchanged. Their readers and exports
+continue to verify historical support and report missing support as missing.
+Opaque content cursors retain v1 while binding the versioned publication receipt.
+Live-source runtime-target and attempt reconstruction fail with
+`source_replay_unavailable`; stored reports, findings, and observations remain
+readable.
 
 Config `version: 4` is additive rather than frozen: a release may add an
 optional project-policy field without changing the version, and an omitted

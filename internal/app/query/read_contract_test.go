@@ -10,7 +10,7 @@ import (
 
 func receiptContractFixture() InspectionReceipt {
 	digest := "sha256:" + strings.Repeat("1", 64)
-	return InspectionReceipt{InspectionReceiptVersion, digest, "s_01900000-0000-7000-8000-000000000001", "r_01900000-0000-7000-8000-000000000002", "01900000-0000-7000-8000-000000000003", "review", digest, digest, digest, digest, "", 1, digest, "verified"}
+	return InspectionReceipt{SchemaVersion: InspectionReceiptVersion, ProjectBinding: digest, SessionID: "s_01900000-0000-7000-8000-000000000001", RunID: "r_01900000-0000-7000-8000-000000000002", ReviewID: "01900000-0000-7000-8000-000000000003", RunType: "review", TargetSHA256: digest, FinalSHA256: digest, ManifestSHA256: digest, SupportSHA256: digest, Epoch: 1, CaptureIdentity: digest, CaptureAvailability: "verified"}
 }
 
 func TestPublicationReceiptBindsOneCompleteObservation(t *testing.T) {

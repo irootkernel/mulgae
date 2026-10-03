@@ -14,6 +14,7 @@ import (
 
 const (
 	InspectionReceiptVersion     = "mulgae-publication-receipt.v1"
+	LiveInspectionReceiptVersion = "mulgae-publication-receipt.v2"
 	FindingCursorVersion         = "mulgae-finding-cursor.v1"
 	DefaultFindingPageSize       = 100
 	MaxFindingPageSize           = 1000
@@ -36,20 +37,21 @@ const (
 // Construction does not read storage or confer publication authority. The query
 // service must verify and reobserve the complete P2 snapshot before returning it.
 type InspectionReceipt struct {
-	SchemaVersion       string `json:"schema_version"`
-	ProjectBinding      string `json:"project_binding"`
-	SessionID           string `json:"session_id"`
-	RunID               string `json:"run_id"`
-	ReviewID            string `json:"review_id"`
-	RunType             string `json:"run_type"`
-	TargetSHA256        string `json:"target_sha256"`
-	FinalSHA256         string `json:"final_sha256"`
-	ManifestSHA256      string `json:"manifest_sha256"`
-	SupportSHA256       string `json:"support_sha256"`
-	LineageSHA256       string `json:"lineage_sha256"`
-	Epoch               uint64 `json:"epoch"`
-	CaptureIdentity     string `json:"capture_identity"`
-	CaptureAvailability string `json:"capture_availability"`
+	SchemaVersion        string `json:"schema_version"`
+	ProjectBinding       string `json:"project_binding"`
+	SessionID            string `json:"session_id"`
+	RunID                string `json:"run_id"`
+	ReviewID             string `json:"review_id"`
+	RunType              string `json:"run_type"`
+	TargetSHA256         string `json:"target_sha256,omitempty"`
+	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
+	FinalSHA256          string `json:"final_sha256"`
+	ManifestSHA256       string `json:"manifest_sha256"`
+	SupportSHA256        string `json:"support_sha256"`
+	LineageSHA256        string `json:"lineage_sha256"`
+	Epoch                uint64 `json:"epoch"`
+	CaptureIdentity      string `json:"capture_identity"`
+	CaptureAvailability  string `json:"capture_availability"`
 }
 
 func DecodeInspectionReceipt(data []byte) (InspectionReceipt, error) {
@@ -72,7 +74,8 @@ func (receipt InspectionReceipt) Identity() (domain.PublicationReceipt, error) {
 	invalid := func() (domain.PublicationReceipt, error) {
 		return domain.PublicationReceipt{}, fmt.Errorf("publication receipt: invalid verified identity")
 	}
-	if receipt.SchemaVersion != InspectionReceiptVersion || receipt.Epoch == 0 {
+	live := receipt.SchemaVersion == LiveInspectionReceiptVersion
+	if !live && receipt.SchemaVersion != InspectionReceiptVersion || receipt.Epoch == 0 {
 		return invalid()
 	}
 	if _, err := domain.ParseSessionID(receipt.SessionID); err != nil {
@@ -87,7 +90,16 @@ func (receipt InspectionReceipt) Identity() (domain.PublicationReceipt, error) {
 	if !domain.RunType(receipt.RunType).Valid() {
 		return invalid()
 	}
-	for _, digest := range []string{receipt.ProjectBinding, receipt.TargetSHA256, receipt.FinalSHA256, receipt.ManifestSHA256, receipt.SupportSHA256} {
+	identityDigest := receipt.TargetSHA256
+	if live {
+		if receipt.TargetSHA256 != "" || receipt.RunType != string(domain.RunTypeReview) || receipt.CaptureIdentity != "" || receipt.CaptureAvailability != "not_captured" {
+			return invalid()
+		}
+		identityDigest = receipt.SourceIdentitySHA256
+	} else if receipt.SourceIdentitySHA256 != "" {
+		return invalid()
+	}
+	for _, digest := range []string{receipt.ProjectBinding, identityDigest, receipt.FinalSHA256, receipt.ManifestSHA256, receipt.SupportSHA256} {
 		if !readDigestValid(digest) {
 			return invalid()
 		}
@@ -104,6 +116,10 @@ func (receipt InspectionReceipt) Identity() (domain.PublicationReceipt, error) {
 		if receipt.CaptureIdentity != "" {
 			return invalid()
 		}
+	case "not_captured":
+		if !live || receipt.CaptureIdentity != "" {
+			return invalid()
+		}
 	default:
 		return invalid()
 	}
@@ -111,7 +127,7 @@ func (receipt InspectionReceipt) Identity() (domain.PublicationReceipt, error) {
 	if err != nil {
 		return domain.PublicationReceipt{}, err
 	}
-	return domain.ParsePublicationReceipt(readContractDigest(InspectionReceiptVersion, data))
+	return domain.ParsePublicationReceipt(readContractDigest(receipt.SchemaVersion, data))
 }
 
 // FindingPageScope contains every selector whose change invalidates a cursor.

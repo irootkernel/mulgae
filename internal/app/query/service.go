@@ -261,6 +261,9 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
+	if review.liveSource != nil {
+		return RuntimeTarget{}, ErrSourceReplayUnavailable
+	}
 	var target finalTargetDTO
 	if review.RunType() == domain.RunTypeComposite {
 		var final compositeFinalDTO
@@ -419,7 +422,8 @@ func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.P
 	if err := decodeStrictDTO(artifact.Bytes(), &index); err != nil {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index decode failed", err)
 	}
-	if index.SchemaVersion != "mulgae-run-support-index.v1" && index.SchemaVersion != "mulgae-run-support-index.v2" {
+	live := review.liveSource != nil
+	if live && index.SchemaVersion != "mulgae-run-support-index.v3" || !live && index.SchemaVersion != "mulgae-run-support-index.v1" && index.SchemaVersion != "mulgae-run-support-index.v2" {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index is invalid", nil)
 	}
 	// Empty artifacts is schema-valid for provider-free no-change publications.
@@ -436,10 +440,33 @@ func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.P
 		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && index.SchemaVersion != "mulgae-run-support-index.v2" {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "capture manifest requires support index v2", nil)
 		}
+		if !live && (kind == ports.RunSupportArtifactLiveSource || kind == ports.RunSupportArtifactSourceImage) {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "historical support contains live source authority", nil)
+		}
 		if _, duplicate := identities[item.Path]; duplicate {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact is ambiguous", nil)
 		}
 		identities[item.Path] = item.SHA256
+	}
+	if live {
+		artifacts := make(map[string]ports.ImmutablePublicationArtifact, len(identities))
+		for name, digest := range identities {
+			path, _ := ports.NewSafeRelativePath(name)
+			kind, _ := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+			maximum := service.maxReadBytes
+			if kind.IsVariableSized() {
+				maximum = math.MaxInt64 - 1
+			}
+			artifact, err := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, maximum)
+			if err != nil {
+				return nil, err
+			}
+			artifacts[name] = artifact
+		}
+		if err := verifyLiveReadSupport(run, review, artifacts); err != nil {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed source support is invalid", err)
+		}
+		return identities, nil
 	}
 	if index.SchemaVersion == "mulgae-run-support-index.v2" && review.RunType() == domain.RunTypeComposite {
 		if _, ok := identities[run.SessionID().String()+"/"+run.RunID().String()+"/support/composite.json"]; !ok {
@@ -477,6 +504,9 @@ func (service *Service) readIndexedRuntimeArtifact(ctx context.Context, run port
 	digest, ok := index[path.String()]
 	if !ok || !validSHA256(digest) {
 		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact is absent from support index", nil)
+	}
+	if kind, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path); err == nil && kind == ports.RunSupportArtifactSourceImage {
+		return service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, math.MaxInt64-1)
 	}
 	return service.readBoundRuntimeArtifact(ctx, run, review, path, digest)
 }
@@ -535,6 +565,9 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 	review, err := service.ReadCommitted(ctx, run)
 	if err != nil {
 		return CommittedAttempt{}, err
+	}
+	if review.liveSource != nil {
+		return CommittedAttempt{}, ErrSourceReplayUnavailable
 	}
 	manifest, err := decodeManifestDTO(review.ManifestBytes())
 	if err != nil {
@@ -856,14 +889,19 @@ func (service *Service) readCommittedFindingExcerpt(
 	if current.TargetSHA256() != review.TargetSHA256() || current.Verification() != evidence.ReceiptVerified {
 		return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "finding current evidence is not bound to the committed target", nil)
 	}
-	claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
-		TargetSHA256: current.TargetSHA256(),
-		Side:         current.Side(),
-		Path:         current.Path().String(),
-		LineStart:    current.LineStart(),
-		LineEnd:      current.LineEnd(),
-		Quote:        current.quote,
-	})
+	var claim evidence.CurrentClaim
+	var err error
+	if review.liveSource != nil {
+		if current.SourceIdentitySHA256() != review.SourceIdentitySHA256() || current.TargetSHA256() != "" {
+			return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "finding source evidence identity mismatch", nil)
+		}
+		claim, err = evidence.NewLiveClaim(review.liveSource.Identity, current.Side(), current.Path().String(), current.LineStart(), current.LineEnd(), current.quote)
+	} else {
+		claim, err = evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+			TargetSHA256: current.TargetSHA256(), Side: current.Side(), Path: current.Path().String(),
+			LineStart: current.LineStart(), LineEnd: current.LineEnd(), Quote: current.quote,
+		})
+	}
 	if err != nil {
 		return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "committed current evidence is invalid", err)
 	}
@@ -1047,6 +1085,17 @@ func (service *Service) verifyPersistedExcerpt(
 		)
 	}
 	artifactBytes := artifact.Bytes()
+	if claim.IsLiveSource() {
+		digest, err := claim.ExcerptSHA256(artifactBytes)
+		lines := bytes.Count(artifactBytes, []byte{'\n'})
+		if len(artifactBytes) != 0 && artifactBytes[len(artifactBytes)-1] != '\n' {
+			lines++
+		}
+		if err != nil || digest != currentExcerptSHA256 || !bytes.Equal(artifactBytes, []byte(claim.Quote())) || lines != claim.LineEnd()-claim.LineStart()+1 {
+			return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "stored source excerpt is inconsistent", err)
+		}
+		return artifactBytes, nil
+	}
 	targetBytes, err := syntheticExcerptLayout(claim.LineStart(), artifactBytes, service.maxReadBytes)
 	if err != nil {
 		return nil, typedFailure(
@@ -1281,6 +1330,10 @@ func (service *Service) readCommittedSnapshot(
 		finalSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json")
 		manifestSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json")
 	}
+	if schemaEnvelope.SchemaVersion == "mulgae-review-artifact.v3" {
+		finalSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json")
+		manifestSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json")
+	}
 	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v2" {
 		finalSchema, manifestSchema = compositeFinalSchemaAsset, compositeManifestSchemaAsset
 		if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v2" {
@@ -1397,7 +1450,8 @@ func buildCommittedReview(
 		return CommittedReview{}, fmt.Errorf("manifest path is not canonical")
 	}
 
-	if final.SchemaVersion != sourceLineageVersion("mulgae-review-artifact.v1", final.ImmutableLineage.SourceRecoveryManifestSHA256) || manifest.SchemaVersion != sourceLineageVersion("mulgae-run-manifest.v1", manifest.ImmutableLineage.SourceRecoveryManifestSHA256) {
+	live := final.SchemaVersion == "mulgae-review-artifact.v3"
+	if live && manifest.SchemaVersion != "mulgae-run-manifest.v3" || !live && (final.SchemaVersion != sourceLineageVersion("mulgae-review-artifact.v1", final.ImmutableLineage.SourceRecoveryManifestSHA256) || manifest.SchemaVersion != sourceLineageVersion("mulgae-run-manifest.v1", manifest.ImmutableLineage.SourceRecoveryManifestSHA256)) {
 		return CommittedReview{}, fmt.Errorf("schema version does not match committed contract")
 	}
 	sessionID, err := domain.ParseSessionID(final.SessionID)
@@ -1415,8 +1469,31 @@ func buildCommittedReview(
 	if !domain.RunType(final.RunType).Valid() || final.RunType != manifest.RunType {
 		return CommittedReview{}, fmt.Errorf("run type binding is invalid")
 	}
-	if err := validateProductionProvenance(final); err != nil {
-		return CommittedReview{}, err
+	var source *evidence.LiveSourceRead
+	if live {
+		value, err := validateLiveQueryTarget(final)
+		if err != nil {
+			return CommittedReview{}, err
+		}
+		source = &value
+		if final.Target.ContentSHA256 != "" || manifest.Target.ContentSHA256 != "" || manifest.Target.SourceIdentitySHA256 != value.Identity.SHA256() || manifest.CompositeIdentity.SupportIndex == nil || final.FollowupOutcome != nil || manifest.FollowupOutcome != nil {
+			return CommittedReview{}, fmt.Errorf("live source target or support binding is invalid")
+		}
+		for _, role := range final.RoleOutcomes {
+			if value.NoChange != (role.Outcome == "not_applicable") {
+				return CommittedReview{}, fmt.Errorf("live selection and role outcomes disagree")
+			}
+		}
+		if value.NoChange && (len(final.Findings) != 0 || len(manifest.Attempts) != 0 || len(manifest.Failures) != 0 || len(manifest.RoleReports) != 0) {
+			return CommittedReview{}, fmt.Errorf("live no-change publication contains provider work")
+		}
+	} else {
+		if final.Target.LiveSource != nil || final.Provenance.LiveProduction != nil || manifest.Target.SourceIdentitySHA256 != "" {
+			return CommittedReview{}, fmt.Errorf("historical publication contains live authority")
+		}
+		if err := validateProductionProvenance(final); err != nil {
+			return CommittedReview{}, err
+		}
 	}
 	if final.Validation.Status != "valid" && final.Validation.Status != "repaired_valid" ||
 		final.Validation.SchemaValidation != "passed" ||
@@ -1424,8 +1501,7 @@ func buildCommittedReview(
 		(final.Validation.EvidenceValidation != "passed" && final.Validation.EvidenceValidation != "passed_with_warnings") {
 		return CommittedReview{}, fmt.Errorf("final validation summary is invalid")
 	}
-	if !validSHA256(final.Target.ContentSHA256) || !validSHA256(manifest.Target.ContentSHA256) ||
-		final.Target.ContentSHA256 != manifest.Target.ContentSHA256 || final.Target.ManifestPath != manifest.Target.ManifestPath {
+	if !live && (!validSHA256(final.Target.ContentSHA256) || !validSHA256(manifest.Target.ContentSHA256) || final.Target.ContentSHA256 != manifest.Target.ContentSHA256) || final.Target.ManifestPath != manifest.Target.ManifestPath {
 		return CommittedReview{}, fmt.Errorf("target binding is invalid")
 	}
 	if _, err := ports.NewSafeRelativePath(final.Target.ManifestPath); err != nil {
@@ -1502,7 +1578,11 @@ func buildCommittedReview(
 	if err != nil {
 		return CommittedReview{}, err
 	}
-	findings, err := buildFindings(
+	var sourceIdentity evidence.LiveSourceIdentity
+	if source != nil {
+		sourceIdentity = source.Identity
+	}
+	findings, err := buildFindingsForSource(
 		final.Findings,
 		sessionID,
 		runID,
@@ -1512,6 +1592,7 @@ func buildCommittedReview(
 		final.ImmutableLineage,
 		expectedRoleFindingIDs,
 		roles,
+		sourceIdentity,
 	)
 	if err != nil {
 		return CommittedReview{}, err
@@ -1554,7 +1635,8 @@ func buildCommittedReview(
 		return CommittedReview{}, err
 	}
 	return CommittedReview{
-		sessionID: sessionID, runID: runID, reviewID: reviewID, runType: domain.RunType(final.RunType), runState: domain.RunState(manifest.State),
+		liveSource: source,
+		sessionID:  sessionID, runID: runID, reviewID: reviewID, runType: domain.RunType(final.RunType), runState: domain.RunState(manifest.State),
 		finalPath: finalIdentity.Path(), finalSHA256: finalIdentity.SHA256(),
 		manifestPath: manifestArtifact.Path(), manifestSHA256: manifestArtifact.SHA256(),
 		lineageEdgePath: lineageArtifact.Path(), lineageEdgeSHA: lineageArtifact.SHA256(),
@@ -2132,6 +2214,10 @@ func buildFindings(
 	expectedRoleFindingIDs map[domain.Role][]string,
 	roles []Role,
 ) ([]Finding, error) {
+	return buildFindingsForSource(values, sessionID, runID, reviewID, targetSHA256, runType, lineage, expectedRoleFindingIDs, roles, evidence.LiveSourceIdentity{})
+}
+
+func buildFindingsForSource(values []finalFindingDTO, sessionID domain.SessionID, runID domain.RunID, reviewID domain.ReviewID, targetSHA256 string, runType domain.RunType, lineage lineageDTO, expectedRoleFindingIDs map[domain.Role][]string, roles []Role, live evidence.LiveSourceIdentity) ([]Finding, error) {
 	findings := make([]Finding, len(values))
 	actualRoleFindingIDs := make(map[domain.Role][]string, len(expectedRoleFindingIDs))
 	roleOutcomes := make(map[domain.Role]Role, len(roles))
@@ -2174,6 +2260,16 @@ func buildFindings(
 		}
 		evidenceViews := make([]Evidence, len(value.Evidence))
 		for evidenceIndex, item := range value.Evidence {
+			sourceDigest, currentDigest := item.Source.SourceTargetSHA256, item.Current.TargetSHA256
+			expectedDigest := targetSHA256
+			if live.Valid() {
+				if sourceDigest != "" || currentDigest != "" {
+					return nil, fmt.Errorf("live evidence claims captured identity")
+				}
+				sourceDigest, currentDigest, expectedDigest = item.Source.SourceIdentitySHA256, item.Current.SourceIdentitySHA256, live.SHA256()
+			} else if item.Source.SourceIdentitySHA256 != "" || item.Current.SourceIdentitySHA256 != "" {
+				return nil, fmt.Errorf("captured evidence claims live identity")
+			}
 			sourceSessionID, err := domain.ParseSessionID(item.Source.SessionID)
 			expectedSourceRunID, expectedSourceReviewID, expectedSourceFindingID := runID, reviewID, value.ID
 			if runType == domain.RunTypeFollowup {
@@ -2199,23 +2295,31 @@ func buildFindings(
 			}
 			sourceReviewID, err := domain.ParseReviewID(item.Source.ReviewID)
 			if err != nil || sourceReviewID != expectedSourceReviewID || item.Source.FindingID != expectedSourceFindingID ||
-				!validSHA256(item.Source.SourceTargetSHA256) ||
+				!validSHA256(sourceDigest) ||
 				!validSHA256(item.Source.SourceExcerptSHA256) ||
 				!validSHA256(item.Current.CurrentExcerptSHA256) ||
-				(runType != domain.RunTypeFollowup && item.Source.SourceTargetSHA256 != targetSHA256) {
+				(runType != domain.RunTypeFollowup && sourceDigest != expectedDigest) {
 				return nil, fmt.Errorf("source evidence finding binding is invalid")
 			}
-			if item.Current.Verification != string(evidence.ReceiptVerified) || item.Current.TargetSHA256 != targetSHA256 {
+			if item.Current.Verification != string(evidence.ReceiptVerified) || currentDigest != expectedDigest {
 				return nil, fmt.Errorf("current evidence binding is invalid")
 			}
-			claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
-				TargetSHA256: item.Current.TargetSHA256,
-				Side:         evidence.Side(item.Current.Side),
-				Path:         item.Current.Path,
-				LineStart:    item.Current.LineStart,
-				LineEnd:      item.Current.LineEnd,
-				Quote:        item.Current.Quote,
-			})
+			var claim evidence.CurrentClaim
+			if live.Valid() {
+				if !live.SupportsSide(evidence.Side(item.Current.Side)) {
+					return nil, fmt.Errorf("live evidence side is invalid for source scope")
+				}
+				claim, err = evidence.NewLiveClaim(live, evidence.Side(item.Current.Side), item.Current.Path, item.Current.LineStart, item.Current.LineEnd, item.Current.Quote)
+			} else {
+				claim, err = evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+					TargetSHA256: item.Current.TargetSHA256,
+					Side:         evidence.Side(item.Current.Side),
+					Path:         item.Current.Path,
+					LineStart:    item.Current.LineStart,
+					LineEnd:      item.Current.LineEnd,
+					Quote:        item.Current.Quote,
+				})
+			}
 			if err != nil {
 				return nil, fmt.Errorf("current evidence claim is invalid")
 			}
@@ -2224,6 +2328,7 @@ func buildFindings(
 				return nil, fmt.Errorf("current evidence excerpt identity is invalid")
 			}
 			evidenceViews[evidenceIndex] = Evidence{
+				liveSource:      live,
 				sourceSessionID: sourceSessionID, sourceRunID: sourceRunID, sourceReviewID: sourceReviewID,
 				sourceFindingID: item.Source.FindingID, sourceTargetSHA256: item.Source.SourceTargetSHA256,
 				sourceExcerptSHA256: item.Source.SourceExcerptSHA256, currentExcerptSHA256: item.Current.CurrentExcerptSHA256,
@@ -2292,6 +2397,9 @@ func canonicalEvidenceKey(item Evidence) string {
 		strconv.Itoa(item.LineStart()),
 		strconv.Itoa(item.LineEnd()),
 		string(item.Verification()),
+	}
+	if item.liveSource.Valid() {
+		fields = append([]string{"live_source", item.SourceIdentitySHA256()}, fields...)
 	}
 	var key strings.Builder
 	for _, field := range fields {

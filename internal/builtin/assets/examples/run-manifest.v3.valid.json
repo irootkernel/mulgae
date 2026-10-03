@@ -1,0 +1,82 @@
+{
+  "schema_version": "mulgae-run-manifest.v3",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+  "run_type": "review",
+  "state": "completed",
+  "sealed": true,
+  "created_at": "2026-07-13T03:00:00.5Z",
+  "started_at": "2026-07-13T03:00:00.5Z",
+  "completed_at": "2026-07-13T03:00:00.5Z",
+  "mulgae_version": "test",
+  "immutable_lineage": {
+    "parent_run_id": null,
+    "source_run_id": null,
+    "source_review_id": null,
+    "source_finding_ref": null,
+    "replay_mode": null,
+    "lineage_edge_path": "store/lineage-edges/e_019f596a-d174-7321-b920-c2d312c82cc2.json",
+    "lineage_edge_sha256": "sha256:cd1dd092d3de2036d40a064b61f0fbc1e1706836a7ccdaa163c0fba52b8daf97"
+  },
+  "target": {
+    "manifest_path": "source/source.json",
+    "source_identity_sha256": "sha256:87baffbf5aebb20121d9176136272bf300e23b78c4203c0061f9b64e819a750f"
+  },
+  "selected_roles": [
+    "logic",
+    "security"
+  ],
+  "required_roles": [
+    "logic"
+  ],
+  "attempts": [],
+  "content_verdict": "no_findings",
+  "coverage_status": "complete",
+  "structured_extraction_status": "structured",
+  "publication_status": "committed",
+  "ci_decision": "pass",
+  "ci_reason_codes": [
+    "policy_evaluated"
+  ],
+  "persisted_journal_state": "manifest_committed",
+  "durable_observation_class": "P2_COMMITTED",
+  "derived_publication_status": "committed",
+  "publication_authority": "P2",
+  "recovery_journal": {
+    "expected_staged": {
+      "path": "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/publication/staged/review_019f596a-d174-7321-b920-c2d312c82cc2.json.tmp",
+      "sha256": "sha256:0b14bc7efd2657ee1d36fb62563c3cab49974fb19e327d31cb097f11717a4b2f"
+    },
+    "expected_final": {
+      "path": "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/review_019f596a-d174-7321-b920-c2d312c82cc2.json",
+      "sha256": "sha256:0b14bc7efd2657ee1d36fb62563c3cab49974fb19e327d31cb097f11717a4b2f"
+    },
+    "validated_candidate_sha256": "sha256:625f6b32f5faae08bd3d5e0f28666095c271f5a3e6a1f7cca575f48a8cdeff81"
+  },
+  "composite_identity": {
+    "manifest": {
+      "path": "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/manifest.json"
+    },
+    "lineage_edge": {
+      "path": "store/lineage-edges/e_019f596a-d174-7321-b920-c2d312c82cc2.json",
+      "sha256": "sha256:cd1dd092d3de2036d40a064b61f0fbc1e1706836a7ccdaa163c0fba52b8daf97"
+    },
+    "epoch": {
+      "path": "store/epochs/epoch_00000000000000000001.json"
+    },
+    "support_index": {
+      "path": "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/support/index.json",
+      "sha256": "sha256:dc958f680fd7e7254dcf3730eeefbc1f6ed00583a04017b5278dddbd65ac5385"
+    }
+  },
+  "recovery_action": "reconstruct_completed_status",
+  "final_review": {
+    "review_id": "019f596a-d174-7321-b920-c2d312c82cc2",
+    "path": "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/review_019f596a-d174-7321-b920-c2d312c82cc2.json",
+    "sha256": "sha256:0b14bc7efd2657ee1d36fb62563c3cab49974fb19e327d31cb097f11717a4b2f"
+  },
+  "role_reports": [],
+  "failures": [],
+  "warnings": [],
+  "exit_code": 0
+}

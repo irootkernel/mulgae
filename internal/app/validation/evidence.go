@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -35,6 +36,7 @@ func (side CurrentEvidenceSide) Valid() bool {
 // intentionally owned by the coordinator's evidence verifier.
 type CurrentEvidenceClaim struct {
 	targetSHA256 string
+	liveSource   evidence.LiveSourceIdentity
 	path         ports.SafeRelativePath
 	lineStart    int
 	lineEnd      int
@@ -71,7 +73,17 @@ func (reference VerifiedVisualReference) Valid() bool {
 }
 
 // TargetSHA256 returns the canonical sha256:<lowercase-hex> trusted target ID.
-func (claim CurrentEvidenceClaim) TargetSHA256() string { return claim.targetSHA256 }
+func (claim CurrentEvidenceClaim) TargetSHA256() string {
+	if claim.liveSource.Valid() {
+		return ""
+	}
+	return claim.targetSHA256
+}
+
+// LiveSource returns the trusted selection identity for a live claim, or an
+// absent value for a historical captured-target claim.
+func (claim CurrentEvidenceClaim) LiveSource() evidence.LiveSourceIdentity { return claim.liveSource }
+func (claim CurrentEvidenceClaim) SourceIdentitySHA256() string            { return claim.liveSource.SHA256() }
 
 // Path returns the canonical relative path claimed within the trusted target.
 func (claim CurrentEvidenceClaim) Path() ports.SafeRelativePath { return claim.path }
@@ -119,7 +131,10 @@ func CompareCurrentEvidenceClaims(left, right CurrentEvidenceClaim) int {
 	if comparison := bytes.Compare(left.quote, right.quote); comparison != 0 {
 		return comparison
 	}
-	return strings.Compare(left.targetSHA256, right.targetSHA256)
+	if comparison := strings.Compare(left.targetSHA256, right.targetSHA256); comparison != 0 {
+		return comparison
+	}
+	return strings.Compare(left.SourceIdentitySHA256(), right.SourceIdentitySHA256())
 }
 
 func (claim CurrentEvidenceClaim) clone() CurrentEvidenceClaim {
@@ -201,6 +216,7 @@ func (claims FindingEvidenceClaims) valid() bool {
 	for index, claim := range claims.claims {
 		if !validCurrentEvidenceClaim(claim) ||
 			claim.targetSHA256 != targetSHA256 ||
+			claim.SourceIdentitySHA256() != claims.claims[0].SourceIdentitySHA256() ||
 			(index > 0 && CompareCurrentEvidenceClaims(claims.claims[index-1], claim) > 0) {
 			return false
 		}
@@ -232,6 +248,7 @@ func validCurrentEvidenceClaim(claim CurrentEvidenceClaim) bool {
 	targetSHA256, err := canonicalTargetSHA256(claim.targetSHA256)
 	return err == nil &&
 		targetSHA256 == claim.targetSHA256 &&
+		(!claim.liveSource.Valid() || claim.liveSource.SHA256() == targetSHA256) &&
 		claim.path.Valid() &&
 		claim.lineStart > 0 &&
 		claim.lineEnd >= claim.lineStart &&

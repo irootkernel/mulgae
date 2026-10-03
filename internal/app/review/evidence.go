@@ -466,6 +466,7 @@ type preparedFindingEvidence struct {
 func receiptMatchesValidationClaim(receipt evidence.CurrentReceipt, claim validation.CurrentEvidenceClaim) bool {
 	receiptClaim := receipt.Claim()
 	return receiptClaim.TargetSHA256() == claim.TargetSHA256() &&
+		receiptClaim.SourceIdentitySHA256() == claim.SourceIdentitySHA256() &&
 		receiptClaim.Path() == claim.Path() &&
 		receiptClaim.Side() == evidence.Side(claim.Side()) &&
 		receiptClaim.LineStart() == claim.LineStart() &&
@@ -474,6 +475,7 @@ func receiptMatchesValidationClaim(receipt evidence.CurrentReceipt, claim valida
 }
 func currentEvidenceClaimsEqual(left, right validation.CurrentEvidenceClaim) bool {
 	return left.TargetSHA256() == right.TargetSHA256() &&
+		left.SourceIdentitySHA256() == right.SourceIdentitySHA256() &&
 		left.Path() == right.Path() &&
 		left.Side() == right.Side() &&
 		left.LineStart() == right.LineStart() &&
@@ -494,6 +496,9 @@ func newVerifiedCurrentClaim(claim validation.CurrentEvidenceClaim) (evidence.Cu
 	side, err := verifiedEvidenceSide(claim.Side())
 	if err != nil {
 		return evidence.CurrentClaim{}, err
+	}
+	if claim.LiveSource().Valid() {
+		return evidence.NewLiveClaim(claim.LiveSource(), side, claim.Path().String(), claim.LineStart(), claim.LineEnd(), string(claim.QuoteBytes()))
 	}
 	converted, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
 		TargetSHA256: claim.TargetSHA256(),

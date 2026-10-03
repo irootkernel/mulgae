@@ -11,10 +11,11 @@ type TargetKind string
 type GitTargetMode string
 
 const (
-	TargetGit       TargetKind = "git"
-	TargetWorkspace TargetKind = "workspace"
-	TargetPatch     TargetKind = "patch"
-	TargetStdin     TargetKind = "stdin"
+	TargetGit        TargetKind = "git"
+	TargetWorkspace  TargetKind = "workspace"
+	TargetPatch      TargetKind = "patch"
+	TargetStdin      TargetKind = "stdin"
+	TargetLiveSource TargetKind = "live_source"
 )
 
 const (
@@ -43,17 +44,32 @@ type TargetIdentityInput struct {
 	GitMode           GitTargetMode
 }
 
-// TargetIdentity binds a run to immutable target bytes and, for Git targets,
-// to the resolved object identities captured at run start.
+// TargetIdentity binds a run either to captured bytes or to a declared live
+// source selection. A live source digest makes no content identity claim.
 type TargetIdentity struct {
-	kind              TargetKind
-	sha256            string
-	repositoryID      string
-	baseObjectID      string
-	headObjectID      string
-	headTreeObjectID  string
-	indexTreeObjectID string
-	gitMode           GitTargetMode
+	kind                 TargetKind
+	sha256               string
+	sourceIdentitySHA256 string
+	repositoryID         string
+	baseObjectID         string
+	headObjectID         string
+	headTreeObjectID     string
+	indexTreeObjectID    string
+	gitMode              GitTargetMode
+}
+
+// NewLiveTargetIdentity accepts a selection-metadata digest and resolved object
+// operands. It intentionally leaves the captured-content SHA256 empty.
+func NewLiveTargetIdentity(sourceIdentitySHA256, baseObjectID, headObjectID string) (TargetIdentity, error) {
+	if !lowerSHA256Pattern.MatchString(sourceIdentitySHA256) || allZeroHex(sourceIdentitySHA256) {
+		return TargetIdentity{}, fmt.Errorf("live target identity: %w: invalid source identity digest", ErrInvariant)
+	}
+	for _, value := range []string{baseObjectID, headObjectID} {
+		if value != "" && (!gitOIDPattern.MatchString(value) || allZeroHex(value)) {
+			return TargetIdentity{}, fmt.Errorf("live target identity: %w: invalid resolved object ID", ErrInvariant)
+		}
+	}
+	return TargetIdentity{kind: TargetLiveSource, sourceIdentitySHA256: sourceIdentitySHA256, baseObjectID: baseObjectID, headObjectID: headObjectID}, nil
 }
 
 func NewTargetIdentity(input TargetIdentityInput) (TargetIdentity, error) {
@@ -118,11 +134,12 @@ func allZeroHex(value string) bool {
 	return true
 }
 
-func (identity TargetIdentity) Kind() TargetKind          { return identity.kind }
-func (identity TargetIdentity) SHA256() string            { return identity.sha256 }
-func (identity TargetIdentity) RepositoryID() string      { return identity.repositoryID }
-func (identity TargetIdentity) BaseObjectID() string      { return identity.baseObjectID }
-func (identity TargetIdentity) HeadObjectID() string      { return identity.headObjectID }
-func (identity TargetIdentity) HeadTreeObjectID() string  { return identity.headTreeObjectID }
-func (identity TargetIdentity) IndexTreeObjectID() string { return identity.indexTreeObjectID }
-func (identity TargetIdentity) GitMode() GitTargetMode    { return identity.gitMode }
+func (identity TargetIdentity) Kind() TargetKind             { return identity.kind }
+func (identity TargetIdentity) SHA256() string               { return identity.sha256 }
+func (identity TargetIdentity) SourceIdentitySHA256() string { return identity.sourceIdentitySHA256 }
+func (identity TargetIdentity) RepositoryID() string         { return identity.repositoryID }
+func (identity TargetIdentity) BaseObjectID() string         { return identity.baseObjectID }
+func (identity TargetIdentity) HeadObjectID() string         { return identity.headObjectID }
+func (identity TargetIdentity) HeadTreeObjectID() string     { return identity.headTreeObjectID }
+func (identity TargetIdentity) IndexTreeObjectID() string    { return identity.indexTreeObjectID }
+func (identity TargetIdentity) GitMode() GitTargetMode       { return identity.gitMode }

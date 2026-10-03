@@ -46,6 +46,11 @@ func main() {
 		contractPair{"schemas/mulgae-command-result.v17.schema.json", "schemas/mulgae-command-result.v18.schema.json", "examples/command-result.v17.valid.json", "examples/command-result.v18.valid.json", "mulgae-command-result.v17", "mulgae-command-result.v18"},
 		contractPair{"schemas/mulgae-review-preflight.v6.schema.json", "schemas/mulgae-review-preflight.v7.schema.json", "examples/review-preflight.v6.valid.json", "examples/review-preflight.v7.valid.json", "mulgae-review-preflight.v6", "mulgae-review-preflight.v7"},
 		contractPair{"schemas/mulgae-review-preflight.v5.schema.json", "schemas/mulgae-review-preflight.v6.schema.json", "examples/review-preflight.v5.valid.json", "examples/review-preflight.v6.valid.json", "mulgae-review-preflight.v5", "mulgae-review-preflight.v6"},
+		contractPair{"schemas/mulgae-provider-review-output.v1.schema.json", "schemas/mulgae-provider-review-output.v2.schema.json", "examples/provider-review-output.v1.valid.json", "examples/provider-review-output.v2.valid.json", "mulgae-provider-review-output.v1", "mulgae-provider-review-output.v2"},
+		contractPair{"schemas/mulgae-publication-receipt.v1.schema.json", "schemas/mulgae-publication-receipt.v2.schema.json", "examples/publication-receipt.v1.valid.json", "examples/publication-receipt.v2.valid.json", "mulgae-publication-receipt.v1", "mulgae-publication-receipt.v2"},
+		contractPair{"schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v2.schema.json", "examples/export-manifest.v1.valid.json", "examples/export-manifest.v2.valid.json", "mulgae-export-manifest.v1", "mulgae-export-manifest.v2"},
+		contractPair{"schemas/mulgae-review-artifact.v1.schema.json", "schemas/mulgae-review-artifact.v3.schema.json", "examples/review-artifact.v1.valid.json", "examples/review-artifact.v3.valid.json", "mulgae-review-artifact.v1", "mulgae-review-artifact.v3"},
+		contractPair{"schemas/mulgae-run-manifest.v1.schema.json", "schemas/mulgae-run-manifest.v3.schema.json", "examples/run-manifest.v1.valid.json", "examples/run-manifest.v3.valid.json", "mulgae-run-manifest.v1", "mulgae-run-manifest.v3"},
 	)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

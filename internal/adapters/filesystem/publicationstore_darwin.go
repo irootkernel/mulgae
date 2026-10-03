@@ -2789,11 +2789,11 @@ func (store *PublicationStore) validatePublicationSchema(
 		finalFamily := schema == store.finalSchema || schema == store.compositeFinalSchema
 		selected := ""
 		switch envelope.SchemaVersion {
-		case "mulgae-run-manifest.v2", "mulgae-composite-run-manifest.v2":
+		case "mulgae-run-manifest.v2", "mulgae-run-manifest.v3", "mulgae-composite-run-manifest.v2":
 			if manifestFamily {
 				selected = envelope.SchemaVersion
 			}
-		case "mulgae-review-artifact.v2", "mulgae-composite-review-artifact.v2":
+		case "mulgae-review-artifact.v2", "mulgae-review-artifact.v3", "mulgae-composite-review-artifact.v2":
 			if finalFamily {
 				selected = envelope.SchemaVersion
 			}
@@ -4514,7 +4514,7 @@ func parsePublicationFinalFacts(document []byte) (publicationFinalFacts, error) 
 		return publicationFinalFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-review-artifact.v1" && schema != "mulgae-review-artifact.v2" && (schema != "mulgae-composite-review-artifact.v1" && schema != "mulgae-composite-review-artifact.v2") {
+	if err != nil || schema != "mulgae-review-artifact.v1" && schema != "mulgae-review-artifact.v2" && schema != "mulgae-review-artifact.v3" && (schema != "mulgae-composite-review-artifact.v1" && schema != "mulgae-composite-review-artifact.v2") {
 		return publicationFinalFacts{}, errors.New("invalid final review schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4547,7 +4547,7 @@ func parsePublicationManifestFacts(document []byte) (publicationManifestFacts, e
 		return publicationManifestFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-run-manifest.v1" && schema != "mulgae-run-manifest.v2" && (schema != "mulgae-composite-run-manifest.v1" && schema != "mulgae-composite-run-manifest.v2") {
+	if err != nil || schema != "mulgae-run-manifest.v1" && schema != "mulgae-run-manifest.v2" && schema != "mulgae-run-manifest.v3" && (schema != "mulgae-composite-run-manifest.v1" && schema != "mulgae-composite-run-manifest.v2") {
 		return publicationManifestFacts{}, errors.New("invalid manifest schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")

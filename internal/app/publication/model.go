@@ -325,8 +325,12 @@ func validateProductionReviewProvenance(value ProductionReviewProvenance) error 
 	} else if value.ObjectiveSHA256 != "" {
 		return fmt.Errorf("absent objective cannot have an identity")
 	}
-	seen := make(map[string]struct{}, len(value.Providers))
-	for index, provider := range value.Providers {
+	return validateProductionProviders(value.Providers)
+}
+
+func validateProductionProviders(providers []ProductionProviderProvenance) error {
+	seen := make(map[string]struct{}, len(providers))
+	for index, provider := range providers {
 		if !safeText(provider.Family, 64, true) || !validProviderInstance(provider.Instance) ||
 			!safeText(provider.Version, 128, true) || !safeText(provider.Executable, 1024, true) ||
 			!validSHA256(provider.ExecutableSHA256) || !safeText(provider.ProfileGeneration, 256, true) ||
@@ -339,7 +343,7 @@ func validateProductionReviewProvenance(value ProductionReviewProvenance) error 
 			return fmt.Errorf("provider %d launcher identity is invalid", index)
 		}
 		key := provider.Family + "\x00" + provider.Instance
-		if _, duplicate := seen[key]; duplicate || index > 0 && key <= value.Providers[index-1].Family+"\x00"+value.Providers[index-1].Instance {
+		if _, duplicate := seen[key]; duplicate || index > 0 && key <= providers[index-1].Family+"\x00"+providers[index-1].Instance {
 			return fmt.Errorf("providers are duplicated or unordered")
 		}
 		seen[key] = struct{}{}
@@ -361,6 +365,7 @@ type preparedTarget struct {
 	sha256  string
 	baseOID string
 	headOID string
+	live    *preparedLiveSource
 }
 
 type preparedMulgae struct {
@@ -552,6 +557,7 @@ type preparedFinding struct {
 }
 
 type preparedEvidence struct {
+	liveSource           evidence.LiveSourceIdentity
 	targetSHA256         string
 	side                 evidence.Side
 	path                 string
@@ -813,14 +819,27 @@ func PrepareCandidateWithContext(
 	mulgaeCommit string,
 	context RunPublicationContext,
 ) (PreparedCandidate, error) {
+	if err := validateTarget(target); err != nil {
+		return PreparedCandidate{}, fmt.Errorf("publication candidate: target: %w", err)
+	}
+	return prepareTerminalCandidate(result, preparedTarget{
+		sha256: "sha256:" + target.SHA256(), baseOID: target.BaseObjectID(), headOID: target.HeadObjectID(),
+	}, publicationEvidenceTarget{captured: target}, severityThreshold, mulgaeVersion, mulgaeCommit, context)
+}
+
+func prepareTerminalCandidate(
+	result review.CoordinatorResult,
+	target preparedTarget,
+	evidenceTarget publicationEvidenceTarget,
+	severityThreshold domain.Severity,
+	mulgaeVersion, mulgaeCommit string,
+	context RunPublicationContext,
+) (PreparedCandidate, error) {
 	if err := context.validate(); err != nil {
 		return PreparedCandidate{}, fmt.Errorf("publication candidate: context: %w", err)
 	}
 	if err := validateIdentity(result.SessionID(), result.RunID()); err != nil {
 		return PreparedCandidate{}, fmt.Errorf("publication candidate: result identity: %w", err)
-	}
-	if err := validateTarget(target); err != nil {
-		return PreparedCandidate{}, fmt.Errorf("publication candidate: target: %w", err)
 	}
 	if severityThreshold == "" {
 		severityThreshold = domain.SeverityHigh
@@ -836,7 +855,7 @@ func PrepareCandidateWithContext(
 	if err != nil {
 		return PreparedCandidate{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, err)
 	}
-	findings, err := prepareFindings(result.Findings(), result.Evidence(), target, roles)
+	findings, err := prepareFindingsForTarget(result.Findings(), result.Evidence(), evidenceTarget, roles)
 	if err != nil {
 		return PreparedCandidate{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationEvidenceFailed, err)
 	}
@@ -859,11 +878,7 @@ func PrepareCandidateWithContext(
 		sessionID: result.SessionID(),
 		runID:     result.RunID(),
 		runState:  result.RunState(),
-		target: preparedTarget{
-			sha256:  "sha256:" + target.SHA256(),
-			baseOID: target.BaseObjectID(),
-			headOID: target.HeadObjectID(),
-		},
+		target:    target,
 		threshold: severityThreshold,
 		mulgae: preparedMulgae{
 			version: mulgaeVersion,
@@ -1079,7 +1094,21 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 		_, _ = digest.Write(size[:])
 		_, _ = digest.Write([]byte(value))
 	}
-	write("Mulgae-PUBLICATION-CANDIDATE/1")
+	if candidate.target.live != nil {
+		write("Mulgae-LIVE-PUBLICATION-CANDIDATE/1")
+		sourceBytes, err := marshalCanonical(candidate.liveTargetWire())
+		if err != nil {
+			return ""
+		}
+		write(string(sourceBytes))
+		provenanceBytes, err := marshalCanonical(candidate.liveProvenanceWire())
+		if err != nil {
+			return ""
+		}
+		write(string(provenanceBytes))
+	} else {
+		write("Mulgae-PUBLICATION-CANDIDATE/1")
+	}
 	write(candidate.sessionID.String())
 	write(candidate.runID.String())
 	write(string(candidate.runState))
@@ -1308,6 +1337,9 @@ func (candidate PreparedCandidate) validate() error {
 	}
 	if err := (RunPublicationContext{lineage: candidate.publicationLineage()}).validate(); err != nil {
 		return fmt.Errorf("lineage: %w", err)
+	}
+	if err := candidate.validateLiveSource(); err != nil {
+		return err
 	}
 	lineage := candidate.publicationLineage()
 	if lineage.parentRunID != nil && *lineage.parentRunID == candidate.runID {
@@ -1548,6 +1580,15 @@ func prepareFindings(
 	target domain.TargetIdentity,
 	roles []preparedRole,
 ) ([]preparedFinding, error) {
+	return prepareFindingsForTarget(findings, groups, publicationEvidenceTarget{captured: target}, roles)
+}
+
+func prepareFindingsForTarget(
+	findings []domain.Finding,
+	groups []review.VerifiedFindingEvidence,
+	target publicationEvidenceTarget,
+	roles []preparedRole,
+) ([]preparedFinding, error) {
 	if len(findings) != len(groups) {
 		return nil, fmt.Errorf("publication candidate: finding and evidence counts differ")
 	}
@@ -1573,7 +1614,7 @@ func prepareFindings(
 		if len(receipts) == 0 {
 			return nil, fmt.Errorf("publication candidate: finding %q has no current evidence receipts", expectedID)
 		}
-		preparedReceipts, authoritative, err := reducePublicationEvidence(receipts, visuals, finding, target, expectedID)
+		preparedReceipts, authoritative, err := reducePublicationEvidenceForTarget(receipts, visuals, finding, target, expectedID)
 		if err != nil {
 			return nil, err
 		}
@@ -1598,6 +1639,16 @@ func reducePublicationEvidence(
 	target domain.TargetIdentity,
 	findingID string,
 ) ([]preparedEvidence, bool, error) {
+	return reducePublicationEvidenceForTarget(receipts, visuals, finding, publicationEvidenceTarget{captured: target}, findingID)
+}
+
+func reducePublicationEvidenceForTarget(
+	receipts []evidence.CurrentReceipt,
+	visuals []validation.VerifiedVisualReference,
+	finding domain.Finding,
+	target publicationEvidenceTarget,
+	findingID string,
+) ([]preparedEvidence, bool, error) {
 	if len(receipts) == 0 || len(receipts) > 20 || len(visuals) != len(receipts) {
 		return nil, false, fmt.Errorf("publication candidate: finding %q evidence count must be between 1 and 20", findingID)
 	}
@@ -1612,7 +1663,7 @@ func reducePublicationEvidence(
 		case receipt.Status() == evidence.ReceiptUnverifiable &&
 			receipt.ReasonCode() == evidence.ReasonTargetUnavailable &&
 			finding.Severity() == domain.SeverityLow &&
-			(target.Kind() == domain.TargetWorkspace || target.Kind() == domain.TargetPatch || target.Kind() == domain.TargetStdin):
+			target.allowsUnavailable():
 			allowedException++
 		default:
 			rejected++
@@ -1640,7 +1691,7 @@ func reducePublicationEvidence(
 	prepared := make([]preparedEvidence, len(receipts))
 	for receiptIndex, receipt := range receipts {
 		claim := receipt.Claim()
-		if claim.TargetSHA256() != "sha256:"+target.SHA256() || !claim.Side().Valid() || !claim.Path().Valid() ||
+		if !target.matchesClaim(claim) || !claim.Side().Valid() || !claim.Path().Valid() ||
 			claim.LineStart() < 1 || claim.LineEnd() < claim.LineStart() || !safeText(claim.Quote(), 8000, false) {
 			return nil, false, fmt.Errorf("publication candidate: finding %q receipt %d has invalid current claim", findingID, receiptIndex)
 		}
@@ -1653,7 +1704,7 @@ func reducePublicationEvidence(
 			return nil, false, fmt.Errorf("publication candidate: finding %q receipt %d has inconsistent excerpt identity", findingID, receiptIndex)
 		}
 		prepared[receiptIndex] = preparedEvidence{
-			targetSHA256: claim.TargetSHA256(), side: claim.Side(), path: claim.Path().String(), lineStart: claim.LineStart(),
+			targetSHA256: claim.IdentitySHA256(), liveSource: target.source, side: claim.Side(), path: claim.Path().String(), lineStart: claim.LineStart(),
 			lineEnd: claim.LineEnd(), quote: claim.Quote(), currentExcerptSHA256: receipt.ExcerptSHA256(), excerpt: cloneBytes(excerpt),
 		}
 		if visual := visuals[receiptIndex]; visual.Valid() {
@@ -1862,6 +1913,9 @@ func validateNoChangeProvenance(value NoChangeProvenance) error {
 	return nil
 }
 func (candidate PreparedCandidate) validateNoChange() error {
+	if candidate.target.live != nil {
+		return candidate.validateLiveNoChange()
+	}
 	if candidate.production != nil || candidate.noChangeProvenance == nil ||
 		validateNoChangeProvenance(*candidate.noChangeProvenance) != nil ||
 		candidate.mulgae.version != candidate.noChangeProvenance.BuildVersion ||
@@ -2040,14 +2094,20 @@ func validatePreparedFindings(findings []preparedFinding, roles []preparedRole, 
 					!validSHA256(item.sourceTargetSHA256) || !validSHA256(item.sourceExcerptSHA256))) {
 				return fmt.Errorf("finding %q evidence %d is invalid", finding.id, evidenceIndex)
 			}
-			claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
-				TargetSHA256: item.targetSHA256,
-				Side:         item.side,
-				Path:         item.path,
-				LineStart:    item.lineStart,
-				LineEnd:      item.lineEnd,
-				Quote:        item.quote,
-			})
+			var claim evidence.CurrentClaim
+			var err error
+			if item.liveSource.Valid() {
+				claim, err = evidence.NewLiveClaim(item.liveSource, item.side, item.path, item.lineStart, item.lineEnd, item.quote)
+			} else {
+				claim, err = evidence.NewCurrentClaim(evidence.CurrentClaimInput{
+					TargetSHA256: item.targetSHA256,
+					Side:         item.side,
+					Path:         item.path,
+					LineStart:    item.lineStart,
+					LineEnd:      item.lineEnd,
+					Quote:        item.quote,
+				})
+			}
 			if err != nil || !bytes.Equal(claim.QuoteBytes(), item.excerpt) {
 				return fmt.Errorf("finding %q evidence %d does not match its verified excerpt", finding.id, evidenceIndex)
 			}
@@ -2355,7 +2415,11 @@ func validatePublicationBundleSemantics(bundle PublicationBundle) error {
 	if err := unmarshalCanonicalPublicationRecord(bundle.manifest.Bytes(), &manifestWire, "run manifest"); err != nil {
 		return err
 	}
-	if err := validateBundleSupportIndex(bundle.excerpts, manifestWire.CompositeIdentity.SupportIndex, sessionID, runID, finalWire.Target.ContentSHA256, finalWire.Target.BaseOID, finalWire.Target.HeadOID); err != nil {
+	var live *finalReviewWire
+	if finalWire.Target.LiveSource != nil {
+		live = &finalWire
+	}
+	if err := validateBundleSupportIndexForFormat(bundle.excerpts, manifestWire.CompositeIdentity.SupportIndex, sessionID, runID, finalWire.Target.identitySHA256(), finalWire.Target.BaseOID, finalWire.Target.HeadOID, live); err != nil {
 		return err
 	}
 
@@ -2451,6 +2515,15 @@ func validateBundleSupportIndex(
 	identity artifactIdentityWire,
 	session domain.SessionID, run domain.RunID, targetSHA256 string, baseOID, headOID *string,
 ) error {
+	return validateBundleSupportIndexForFormat(artifacts, identity, session, run, targetSHA256, baseOID, headOID, nil)
+}
+
+func validateBundleSupportIndexForFormat(
+	artifacts []ports.ImmutablePublicationArtifact,
+	identity artifactIdentityWire,
+	session domain.SessionID, run domain.RunID, targetSHA256 string, baseOID, headOID *string,
+	live *finalReviewWire,
+) error {
 	var indexArtifact *ports.ImmutablePublicationArtifact
 	expected := make(map[string]string, len(artifacts))
 	for artifactIndex := range artifacts {
@@ -2474,7 +2547,11 @@ func validateBundleSupportIndex(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &index, "support index"); err != nil {
 		return err
 	}
-	if (index.SchemaVersion != "mulgae-run-support-index.v1" && index.SchemaVersion != "mulgae-run-support-index.v2") || len(index.Artifacts) != len(expected) {
+	validVersion := index.SchemaVersion == "mulgae-run-support-index.v1" || index.SchemaVersion == "mulgae-run-support-index.v2"
+	if live != nil {
+		validVersion = index.SchemaVersion == "mulgae-run-support-index.v3"
+	}
+	if !validVersion || len(index.Artifacts) != len(expected) {
 		return fmt.Errorf("support index contents are invalid")
 	}
 	for _, item := range index.Artifacts {
@@ -2482,6 +2559,9 @@ func validateBundleSupportIndex(
 		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(session, run, path)
 		if pathErr != nil || classifyErr != nil || (kind == ports.RunSupportArtifactCaptureManifest && index.SchemaVersion != "mulgae-run-support-index.v2") {
 			return fmt.Errorf("support index artifact path or version is invalid")
+		}
+		if live == nil && (kind == ports.RunSupportArtifactLiveSource || kind == ports.RunSupportArtifactSourceImage) {
+			return fmt.Errorf("captured support index contains live source evidence")
 		}
 		digest, ok := expected[item.Path]
 		if !ok || digest != item.SHA256 {
@@ -2500,6 +2580,13 @@ func validateBundleSupportIndex(
 		if _, err := capture.VerifySupport(session, run, targetSHA256, baseOID, headOID, byPath); err != nil {
 			return err
 		}
+	}
+	if live != nil {
+		byPath := make(map[string]ports.ImmutablePublicationArtifact, len(artifacts))
+		for _, artifact := range artifacts {
+			byPath[artifact.Path().String()] = artifact
+		}
+		return validateLiveSupport(*live, byPath)
 	}
 	return nil
 }
@@ -2533,6 +2620,9 @@ func validatePublicationMaterialSemantics(
 }
 
 func validateFinalProductionProvenance(final finalReviewWire) error {
+	if final.Target.LiveSource != nil {
+		return validateLiveFinalProvenance(final)
+	}
 	production := final.Provenance.Production
 	runType := domain.RunType(final.RunType)
 	if runType != domain.RunTypeReview {
@@ -2625,7 +2715,10 @@ func validatePublicationCompositeSemantics(
 	if err != nil {
 		return 0, err
 	}
-	if finalWire.SchemaVersion != lineageVersion("mulgae-review-artifact.v1", finalWire.ImmutableLineage.SourceRecoveryManifestSHA256) ||
+	if err := validatePublicationTargetFormats(finalWire, manifest); err != nil {
+		return 0, err
+	}
+	if finalWire.SchemaVersion != finalArtifactVersion(finalWire) ||
 		!domain.RunType(finalWire.RunType).Valid() ||
 		final.Identity().ReviewID() != reviewID ||
 		final.Identity().Path() != paths.final ||
@@ -2634,8 +2727,7 @@ func validatePublicationCompositeSemantics(
 		finalWire.Validation.SchemaValidation != "passed" ||
 		finalWire.Validation.SemanticValidation != "passed" ||
 		finalWire.Validation.EvidenceValidation != "passed" ||
-		finalWire.Target.ManifestPath != targetManifestPath ||
-		!validSHA256(finalWire.Target.ContentSHA256) ||
+		!validSHA256(finalWire.Target.identitySHA256()) ||
 		!domain.ContentVerdict(finalWire.ContentVerdict).Valid() ||
 		!domain.CoverageStatus(finalWire.CoverageStatus).Valid() ||
 		!domain.StructuredExtractionStatus(finalWire.StructuredExtractionStatus).Valid() ||
@@ -2684,7 +2776,7 @@ func validatePublicationCompositeSemantics(
 		return 0, err
 	}
 
-	if manifest.SchemaVersion != lineageVersion("mulgae-run-manifest.v1", manifest.ImmutableLineage.SourceRecoveryManifestSHA256) ||
+	if manifest.SchemaVersion != manifestArtifactVersion(finalWire) ||
 		manifest.SessionID != finalWire.SessionID ||
 		manifest.RunID != finalWire.RunID ||
 		manifest.RunType != finalWire.RunType ||
@@ -3060,7 +3152,7 @@ func validateFinalFindingBindings(final finalReviewWire) error {
 				item.Source.RunID == final.RunID &&
 				item.Source.ReviewID == final.ReviewID &&
 				item.Source.FindingID == finding.ID &&
-				item.Source.SourceTargetSHA256 == final.Target.ContentSHA256
+				sourceEvidenceIdentity(item.Source) == final.Target.identitySHA256()
 			if followupSource {
 				sourceValid = final.ImmutableLineage.SourceRunID != nil && final.ImmutableLineage.SourceReviewID != nil &&
 					final.ImmutableLineage.SourceFindingRef != nil &&
@@ -3070,9 +3162,14 @@ func validateFinalFindingBindings(final finalReviewWire) error {
 					item.Source.FindingID == *final.ImmutableLineage.SourceFindingRef &&
 					validSHA256(item.Source.SourceTargetSHA256)
 			}
+			if final.Target.LiveSource != nil {
+				sourceValid = sourceValid && item.Source.SourceTargetSHA256 == "" && item.Source.SourceIdentitySHA256 == final.Target.identitySHA256()
+			} else {
+				sourceValid = sourceValid && item.Source.SourceIdentitySHA256 == ""
+			}
 			if !sourceValid ||
 				!validSHA256(item.Source.SourceExcerptSHA256) ||
-				item.Current.TargetSHA256 != final.Target.ContentSHA256 ||
+				currentEvidenceIdentity(item.Current) != final.Target.identitySHA256() ||
 				!evidence.Side(item.Current.Side).Valid() ||
 				!safePath(item.Current.Path) ||
 				item.Current.LineStart < 1 ||
@@ -3082,14 +3179,7 @@ func validateFinalFindingBindings(final finalReviewWire) error {
 				item.Current.Verification != "verified" {
 				return fmt.Errorf("final finding %q evidence %d is invalid", finding.ID, evidenceIndex)
 			}
-			claim, err := evidence.NewCurrentClaim(evidence.CurrentClaimInput{
-				TargetSHA256: item.Current.TargetSHA256,
-				Side:         evidence.Side(item.Current.Side),
-				Path:         item.Current.Path,
-				LineStart:    item.Current.LineStart,
-				LineEnd:      item.Current.LineEnd,
-				Quote:        item.Current.Quote,
-			})
+			claim, err := publishedCurrentClaim(final.Target, item.Current)
 			if err != nil {
 				return fmt.Errorf("final finding %q evidence %d claim: %w", finding.ID, evidenceIndex, err)
 			}
@@ -3302,6 +3392,9 @@ func validateManifestRoleBindings(manifest runManifestWire, final finalReviewWir
 			return false, fmt.Errorf("final role outcome %q has invalid required policy", outcome.Role)
 		}
 		expectedLimitations, err := roleLimitationsForOutcome(outcome.Outcome)
+		if final.Target.LiveSource != nil && outcome.Outcome == "not_applicable" {
+			expectedLimitations = []string{evidence.LiveNoChangeLimitation}
+		}
 		if err != nil || !reflect.DeepEqual(outcome.Limitations, expectedLimitations) {
 			return false, fmt.Errorf("final role outcome %q limitations are inconsistent", outcome.Role)
 		}

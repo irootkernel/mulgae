@@ -351,6 +351,25 @@ Publish the new source/evidence semantics without full-tree capture support. Kee
 
 Preserve untouched historical ordinary, child, composite, failed, and no-change artifacts and their verified reads/export. Add fixtures for historical absent capabilities, damaged receipts/evidence, stale pages, unsupported new source replay, and interrupted publication reconciliation without provider execution. Keep original-source consistency limits explicit. New execution remains unavailable until TASK-038.
 
+The internal implementation uses live artifact/manifest/support-index v3,
+normalized finding v2 with unchanged provider wire v1, and live receipt/export
+v2. Selection metadata and verified observations have separate identities;
+historical captured formats keep their existing meanings. `evidence` owns the
+shared metadata and raster-support checks. Publication recovery uses the existing
+P0/P1/P2 transaction, including exact candidate repetition. Query reads only
+verified stored support and reports `source_replay_unavailable` for live source
+or attempt reconstruction.
+
+TASK-038 must bind production live coordination, source closure and native
+provider provenance to `PrepareLiveCandidate`, or use
+`PrepareLiveNoChangeCandidate` without provider work. It must project explicit
+source identities and live receipt/export versions through CLI/MCP together.
+The TASK-037 native fixtures exercise original-source deletion before P1
+recovery, stored text and PNG reads, missing/damaged support rejection,
+provider-free no-change P2, and native secure-writer export. PNG/JPEG/WebP export
+byte preservation is also covered by the export component tests. Complete live
+provider and exact release-binary certification remains TASK-039.
+
 ## TASK-038: Cut over CLI/MCP and remove retired execution
 
 Wire live orchestration and all five selectors through shared application admission. Preserve expected project binding; reject retired capture-bound guards and target/child requests before provider calls. Update capability/schema discovery, preflight, start/await/cancel, inspection, export, and cleanup projections together.

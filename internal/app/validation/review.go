@@ -19,6 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/text/unicode/norm"
@@ -31,8 +32,11 @@ const (
 	// ProviderReviewSchemaID validates the normalized v1 envelope after trusted
 	// target identity and claimed verification have been injected.
 	ProviderReviewSchemaID = "https://mulgae.local/schemas/mulgae-provider-review-output.v1.schema.json"
-	repairPatchSchemaID    = "https://mulgae.local/schemas/mulgae-repair-patch.v1.schema.json"
-	maxRepairOperations    = 100
+	// LiveProviderReviewSchemaID preserves the provider wire while naming the
+	// injected selection identity separately from captured-content identity.
+	LiveProviderReviewSchemaID = "https://mulgae.local/schemas/mulgae-provider-review-output.v2.schema.json"
+	repairPatchSchemaID        = "https://mulgae.local/schemas/mulgae-repair-patch.v1.schema.json"
+	maxRepairOperations        = 100
 )
 
 // SchemaValidator is owned by this consumer boundary. The JSON Schema adapter
@@ -114,6 +118,7 @@ func isProviderDocumentViolation(err error) bool {
 // output never supplies any of these values.
 type ReviewValidationScope struct {
 	TargetSHA256     string
+	LiveSource       evidence.LiveSourceIdentity
 	Role             domain.Role
 	ProviderInstance string
 	// VisualAssets binds captured design-spec paths to trusted SHA-256 values.
@@ -303,15 +308,22 @@ func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scop
 		return ValidatedReview{}, nil, schemaErr
 	}
 
-	candidate, err := injectTrustedCurrentTarget(provider, trustedTarget)
+	candidate, err := injectTrustedCurrentIdentity(provider, trustedTarget, scope.LiveSource.Valid())
 	if err != nil {
 		return ValidatedReview{}, nil, err
+	}
+	schemaID := validator.schemaID
+	if scope.LiveSource.Valid() {
+		schemaID, err = ports.ParseAssetID(LiveProviderReviewSchemaID)
+		if err != nil {
+			return ValidatedReview{}, nil, err
+		}
 	}
 	candidateRaw, err := json.Marshal(candidate)
 	if err != nil {
 		return ValidatedReview{}, nil, fmt.Errorf("review validation: marshal injected candidate: %w", err)
 	}
-	if err := validator.schemaValidator.Validate(ctx, validator.schemaID, candidateRaw); err != nil {
+	if err := validator.schemaValidator.Validate(ctx, schemaID, candidateRaw); err != nil {
 		inspection := inspectReview(provider, trustedTarget)
 		schemaErr := fmt.Errorf("review validation: schema: %w", err)
 		if inspection.hasFatal() {
@@ -389,6 +401,12 @@ func validateScope(scope ReviewValidationScope) (string, error) {
 	if strings.TrimSpace(scope.ProviderInstance) == "" {
 		return "", fmt.Errorf("review validation: trusted provider instance is required")
 	}
+	if scope.LiveSource.Valid() {
+		if scope.TargetSHA256 != "" {
+			return "", fmt.Errorf("review validation: live and captured identities are mutually exclusive")
+		}
+		return scope.LiveSource.SHA256(), nil
+	}
 	return canonicalTargetSHA256(scope.TargetSHA256)
 }
 
@@ -405,10 +423,15 @@ func canonicalTargetSHA256(value string) (string, error) {
 	return "sha256:" + digest, nil
 }
 
-func injectTrustedCurrentTarget(provider map[string]any, targetSHA256 string) (map[string]any, error) {
+func injectTrustedCurrentIdentity(provider map[string]any, identitySHA256 string, live bool) (map[string]any, error) {
 	candidate, err := cloneJSONObject(provider)
 	if err != nil {
 		return nil, err
+	}
+	identityKey := "target_sha256"
+	if live {
+		identityKey = "source_identity_sha256"
+		candidate["schema_version"] = "mulgae-provider-review-output.v2"
 	}
 	findings, ok := candidate["findings"].([]any)
 	if !ok {
@@ -432,7 +455,7 @@ func injectTrustedCurrentTarget(provider map[string]any, targetSHA256 string) (m
 			if !ok {
 				continue
 			}
-			current["target_sha256"] = targetSHA256
+			current[identityKey] = identitySHA256
 			current["verification"] = "claimed"
 			if visual, ok := evidenceObject["visual"].(map[string]any); ok {
 				visual["verification"] = "claimed"
@@ -1422,6 +1445,9 @@ func normalizeFindings(input []providerFinding, scope ReviewValidationScope, tru
 		}
 		if finding.ID() == "" {
 			return nil, nil, fmt.Errorf("review validation: ordered finding has no assigned ID")
+		}
+		for claimIndex := range normalized[matchIndex].claims {
+			normalized[matchIndex].claims[claimIndex].liveSource = scope.LiveSource
 		}
 		evidenceGroup, err := newFindingEvidenceClaims(finding, normalized[matchIndex].claims, normalized[matchIndex].visuals, trustedTargetSHA256)
 		if err != nil {

@@ -102,8 +102,8 @@
       "items": {
         "$ref": "#/$defs/file"
       },
-      "maxItems": 130,
-      "minItems": 130,
+      "maxItems": 140,
+      "minItems": 140,
       "type": "array",
       "uniqueItems": true
     },
