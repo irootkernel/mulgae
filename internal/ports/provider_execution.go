@@ -852,6 +852,17 @@ func canonicalProviderInvocation(invocation ProviderInvocation) (ProviderInvocat
 }
 
 func canonicalProviderInvocationIdentity(invocation ProviderInvocation) (ProviderInvocation, error) {
+	if execution, live := invocation.LiveExecution(); live {
+		if !execution.Valid() || invocation.hasWorkspace || invocation.hasStagedOutput {
+			return ProviderInvocation{}, fmt.Errorf("provider invocation live authority changed")
+		}
+		canonical, err := NewProviderInvocationWithPacket(invocation.Role(), invocation.ProviderInstance(), invocation.AttemptID(), invocation.Purpose(), invocation.Packet(), invocation.SourceInvocationID(), invocation.ExecutionInvocationID())
+		if err != nil {
+			return ProviderInvocation{}, err
+		}
+		canonical.liveExecution, canonical.hasLiveExecution = execution, true
+		return canonical, nil
+	}
 	if workspace, ok := invocation.ExecutionWorkspace(); ok {
 		storedIdentity, hasStoredIdentity := invocation.WorkspaceSnapshotIdentity()
 		if !hasStoredIdentity || workspace.WorkspaceSnapshotIdentity() != storedIdentity {

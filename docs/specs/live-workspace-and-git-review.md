@@ -32,6 +32,44 @@ Require external source access and exact read-only Git inspection for all three 
 
 Collect complete role reports from correlated native assistant responses. Review providers no longer write a report into a copied source tree. Retain bounded process lifetimes, cancellation, diagnostics redaction, image handling, and existing content-size policy.
 
+The internal implementation keeps this execution path unavailable until
+TASK-038. Its reviewer home admits current-user-owned directories without group
+or other write permissions and a safe, regular, single-link UTF-8 guide. It
+creates the default exclusively when
+absent, and rejects guide or directory identity changes before launch. The
+process adapter consumes the pinned neutral directory descriptor. Source and
+guide bindings are revalidated after provider work, including cancellation.
+
+ZCode and Grok live review and extraction require an app-owned Seatbelt launch
+guard in addition to their native planning and tool restrictions. Source, Git
+and neutral roots remain read only; credential roots deny reads, writes, links
+and protected Unix socket access. The same socket denial applies to the other
+protected roots. Writable filesystem roots are the owned invocation
+namespace and, for ZCode only, its existing private short native socket
+directory; writes to `/dev/null` are also allowed. Explicit protected denials
+win on overlap. The short directory must
+retain its admitted canonical identity, current-user ownership and private
+mode before and after execution. Grok's native sandbox is off inside the
+required outer guard because nested initialization fails. Codex keeps its
+native read-only profile and explicit credential-root denials. These internal
+routes have no unguarded fallback or provider substitution.
+
+The outer guard permits reads outside the declared credential roots and
+network access outside protected Unix socket paths. It is not a global read or
+network allowlist. ZCode's native Bash tool does not have Grok's exact-command
+permission gate; the supplied read plan is guidance enforced alongside the
+bounded filesystem guard. Unrelated readable files and network destinations
+remain outside this policy's containment claim. Live policy roots must be valid
+UTF-8 with printable characters so Seatbelt and native provider configuration
+name the exact admitted paths; non-printable roots fail before launch.
+
+Guard admission inspects credential and writable-root file metadata through
+directory descriptors, without following symlinks or reading file contents.
+Regular files with existing hardlink aliases fail admission. Links outside the
+writable roots are denied, while ordinary source and Git hardlinks remain
+supported. Cancellation and the request timeout bound admission. This launch
+policy does not contain unrelated processes running as the same user.
+
 ## Results and compatibility
 
 Providers propose findings and evidence claims. Mulgae owns identities, semantic validation, coverage, typed failures, atomic publication, and artifact integrity. Validate evidence against the declared source side; committed evidence uses resolved Git objects, live evidence is an observation without a retained-source replay guarantee. Retain report excerpts and selected evidence needed to read a result without archiving the full source tree. PNG, JPEG, and WebP evidence retains existing signature and binary handling.

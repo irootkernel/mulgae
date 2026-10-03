@@ -89,6 +89,11 @@ var zcodeReviewProtocolDenylist = []string{"Bash", "Edit", "NotebookEdit", "WebS
 // bounded. Workspace-selective read is exercised on review invocations.
 var zcodeCapabilityProtocolDenylist = []string{"*"}
 
+// Live reviews read original sources through Bash under the mandatory outer
+// guard. Reports come from assistant messages, so no source-writing tool is
+// needed; plan persistence and web tools remain denied.
+var zcodeLiveReviewProtocolDenylist = []string{"Write", "Edit", "ApplyPatch", "NotebookEdit", "WebSearch", "WebFetch", "EnterPlanMode", "ExitPlanMode"}
+
 const zcodeProtocolServerArgument = "app-server"
 
 // appendZcodeProtocolServerArgv builds the ZCode review and qualification

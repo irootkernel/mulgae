@@ -159,6 +159,9 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	if !request.Valid() {
 		return ports.ProcessObservation{}, fmt.Errorf("process runner: invalid process request")
 	}
+	if boundDirectory, _, bound := request.LaunchDirectory(); bound {
+		defer boundDirectory.Close()
+	}
 
 	binding, providerRequest := request.ProviderPacketBinding()
 	stdin := request.Stdin()
@@ -201,14 +204,18 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	}
 	defer stderrReader.Close()
 
-	if boundDirectory, _, bound := request.BoundLaunchDirectory(); bound {
-		defer boundDirectory.Close()
-	}
-	child, launchDirectory, assembleCause, assembleErr := assembleDirectChild(request, stdoutWriter, stderrWriter)
+	child, launchDirectory, assembleCause, assembleErr := assembleDirectChild(ctx, request, stdoutWriter, stderrWriter)
 	if assembleErr != nil {
 		_ = launchDirectory.Close()
 		_ = stdoutWriter.Close()
 		_ = stderrWriter.Close()
+		if errors.Is(assembleErr, context.Canceled) || errors.Is(assembleErr, context.DeadlineExceeded) {
+			termination := ports.ProcessTerminationTimedOut
+			if errors.Is(assembleErr, context.Canceled) {
+				termination = ports.ProcessTerminationCancelled
+			}
+			return runner.observation(nil, nil, nil, termination, initialReceipt, startedAt)
+		}
 		return processExecutionFailure(assembleCause, "", nil, nil, assembleErr)
 	}
 	var stdinWriter io.WriteCloser
@@ -993,22 +1000,25 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 // and closes after a successful start. A non-nil error is paired with the
 // typed diagnostic cause for the assembled failure; the caller remains
 // responsible for closing the passed pipe writers.
-func assembleDirectChild(request ports.ProcessRequest, stdoutWriter, stderrWriter *os.File) (*exec.Cmd, *os.File, domain.RuntimeDiagnosticCause, error) {
-	argv := request.Argv()
+func assembleDirectChild(ctx context.Context, request ports.ProcessRequest, stdoutWriter, stderrWriter *os.File) (*exec.Cmd, *os.File, domain.RuntimeDiagnosticCause, error) {
+	executable, argv, boundaryErr := liveBoundaryArgv(ctx, request)
+	if boundaryErr != nil {
+		return nil, nil, domain.DiagnosticCauseWorkspaceRevalidationFailed, boundaryErr
+	}
 	child := &exec.Cmd{
 		Env:         explicitEnvironment(request.Environment()),
 		Stdout:      stdoutWriter,
 		Stderr:      stderrWriter,
 		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
 	}
-	boundDirectory, root, bound := request.BoundLaunchDirectory()
+	boundDirectory, root, bound := request.LaunchDirectory()
 	if !bound {
-		child.Path = request.Executable()
+		child.Path = executable
 		child.Args = argv
 		child.Dir = request.WorkingDirectory()
 		return child, nil, "", nil
 	}
-	if root.Path() != request.WorkingDirectory() {
+	if root.String() != request.WorkingDirectory() {
 		return nil, nil, domain.DiagnosticCauseWorkspaceRevalidationFailed,
 			fmt.Errorf("process runner: bound directory does not match diagnostic working directory")
 	}
@@ -1017,7 +1027,13 @@ func assembleDirectChild(request ports.ProcessRequest, stdoutWriter, stderrWrite
 		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("process runner: duplicate bound launch directory: %w", err)
 	}
-	launchDirectory := os.NewFile(uintptr(duplicate), root.Path())
+	launchDirectory := os.NewFile(uintptr(duplicate), root.String())
+	if _, _, legacy := request.BoundLaunchDirectory(); !legacy {
+		if err := validateNeutralLaunchDirectory(duplicate, root.String()); err != nil {
+			_ = launchDirectory.Close()
+			return nil, nil, domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("process runner: neutral directory revalidation: %w", err)
+		}
+	}
 	mulgaeExecutable, err := os.Executable()
 	if err != nil {
 		_ = launchDirectory.Close()
@@ -1036,7 +1052,7 @@ func assembleDirectChild(request ports.ProcessRequest, stdoutWriter, stderrWrite
 			mulgaeExecutable,
 			fdExecNativeHomeHiddenArgument,
 			strconv.Itoa(3),
-			request.Executable(),
+			executable,
 			authority.Path(),
 			strconv.FormatUint(authority.Device(), 10),
 			strconv.FormatUint(authority.Inode(), 10),
@@ -1046,7 +1062,7 @@ func assembleDirectChild(request ports.ProcessRequest, stdoutWriter, stderrWrite
 		return child, launchDirectory, "", nil
 	}
 	child.Path = mulgaeExecutable
-	child.Args = append([]string{mulgaeExecutable, fdExecHiddenArgument, strconv.Itoa(3), request.Executable()}, argv[1:]...)
+	child.Args = append([]string{mulgaeExecutable, fdExecHiddenArgument, strconv.Itoa(3), executable}, argv[1:]...)
 	child.ExtraFiles = []*os.File{launchDirectory}
 	return child, launchDirectory, "", nil
 }

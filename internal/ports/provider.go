@@ -154,6 +154,8 @@ type ProviderInvocation struct {
 	hasWorkspace          bool
 	stagedOutput          StagedOutputDestination
 	hasStagedOutput       bool
+	liveExecution         LiveReviewExecution
+	hasLiveExecution      bool
 }
 
 // NewProviderInvocationWithPacket validates trusted provider invocation identity.
@@ -219,7 +221,7 @@ func NewProviderInvocationWithStagedOutput(invocation ProviderInvocation, destin
 // withStagedOutputDestination attaches a validated destination without
 // re-canonicalizing, so canonicalization itself can re-attach without recursion.
 func withStagedOutputDestination(invocation ProviderInvocation, destination StagedOutputDestination) (ProviderInvocation, error) {
-	if !destination.Valid() {
+	if !destination.Valid() || invocation.hasLiveExecution {
 		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid staged output destination")
 	}
 	invocation.stagedOutput = destination

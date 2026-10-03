@@ -23,5 +23,16 @@ work.
   on a large committed run, then reduce repeated loading while preserving
   support integrity checks.
 
+- `DF-004` ZCode's admitted short native socket directory is shared by guarded
+  sessions. The guard isolates each invocation's credentials and scratch, but
+  its fixed runtime-directory exception permits one guarded session to alter
+  another session's temporary entries or connect to its socket there. Random
+  socket names avoid accidental collisions; they do not provide kernel
+  isolation between sessions. This is a bounded residual of the approved
+  native-IPC exception, rather than a promise of general process or IPC
+  containment. Re-entry: a demonstrated interference failure, or a supported
+  short per-invocation native temp path, warrants a separately approved
+  runtime-directory change with real concurrent-provider certification.
+
 Promote an epic-sized finding to a TODO candidate or an adopted roadmap work
 unit. Do not use this index as a second roadmap or status authority.

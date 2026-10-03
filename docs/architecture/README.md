@@ -114,6 +114,43 @@ the untracked `.mulgae/local.yaml` authority.
     report. Captured content is retained as a reference-only manifest plus
     deduplicated SHA-256 blobs for immutable child-run reconstruction.
 
+## Internal live reviewer execution
+
+The EPIC-009 internal path separates `LiveSourceReader` from `ReviewerHome`
+through `LiveReviewExecution`. The source adapter retains project and Git
+directory identity; the reviewer-home adapter pins the neutral directory and
+reads its safe regular guide once. `reviewrun` loads the common guidance and
+`review` composes it with the unchanged role prompt and a typed native read plan.
+Workspace reads use original paths; index and committed reads use fixed Git
+operands and a deterministic environment.
+
+`providercli` binds the sealed invocation to a descriptor for the neutral cwd,
+retains per-invocation credential and scratch namespaces, and collects complete
+correlated assistant reports. ZCode and Grok require the process adapter's
+outer Seatbelt policy for both live review and extraction. It denies source,
+Git and guide writes and credential reads, writes and links. It also denies
+Unix socket access at all protected roots and permits writes to `/dev/null`.
+Grok runs with its own sandbox off inside this mandatory guard.
+ZCode also admits its existing private short socket directory by canonical
+identity; protected denials override writable-root overlap. Codex retains its
+native read-only profile with explicit credential-root denial. These controls
+do not claim general IPC or process containment. The outer policy permits
+reads outside credential roots and network access outside protected Unix socket
+paths; it is not a global read or network allowlist. ZCode's native Bash tool
+has no Grok-style exact-command permission gate. Live execution rejects
+non-printable or invalid UTF-8 policy roots before producing Seatbelt or native
+provider configuration, preventing cross-grammar escape mismatches.
+
+Before a guarded launch, descriptor-based metadata inspection rejects regular
+files with hardlink aliases in credential or writable roots. The policy also
+denies links outside those writable roots. Source and Git trees retain ordinary
+hardlinks. Admission observes cancellation and the request timeout; the runner
+closes the consumed neutral descriptor on every return after request admission.
+
+This path remains unavailable from public composition until TASK-038. The
+snapshot review flow above remains the public runtime authority during that
+transition.
+
 ## Attached MCP transport
 
 `mulgae mcp [--project-root ABSOLUTE_PATH]` starts one process-scoped stdio

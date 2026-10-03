@@ -58,6 +58,9 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 	if !request.Valid() {
 		return ports.ProcessObservation{}, fmt.Errorf("process runner: invalid process request")
 	}
+	if boundDirectory, _, bound := request.LaunchDirectory(); bound {
+		defer boundDirectory.Close()
+	}
 	binding, providerRequest := request.ProviderPacketBinding()
 	if !providerRequest || binding.Channel() != ports.ProviderPacketChannelProtocol {
 		return ports.ProcessObservation{}, fmt.Errorf("process runner: conversation requires a protocol packet binding")
@@ -95,14 +98,18 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 	}
 	defer stderrReader.Close()
 
-	if boundDirectory, _, bound := request.BoundLaunchDirectory(); bound {
-		defer boundDirectory.Close()
-	}
-	child, launchDirectory, assembleCause, assembleErr := assembleDirectChild(request, stdoutWriter, stderrWriter)
+	child, launchDirectory, assembleCause, assembleErr := assembleDirectChild(ctx, request, stdoutWriter, stderrWriter)
 	if assembleErr != nil {
 		_ = launchDirectory.Close()
 		_ = stdoutWriter.Close()
 		_ = stderrWriter.Close()
+		if errors.Is(assembleErr, context.Canceled) || errors.Is(assembleErr, context.DeadlineExceeded) {
+			termination := ports.ProcessTerminationTimedOut
+			if errors.Is(assembleErr, context.Canceled) {
+				termination = ports.ProcessTerminationCancelled
+			}
+			return runner.observation(nil, nil, nil, termination, initialReceipt, startedAt)
+		}
 		return processExecutionFailure(assembleCause, "", nil, nil, assembleErr)
 	}
 	stdinWriter, err := child.StdinPipe()

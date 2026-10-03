@@ -126,6 +126,8 @@ type zcodeProtocolSession struct {
 	// captureAssistantText enables the post-turn message read that collects
 	// the assistant text parts into assistantEvidence.
 	captureAssistantText bool
+	liveSource           bool
+	liveReadTools        bool
 	assistantEvidence    []string
 	observation          ports.ProviderSessionObservation
 	modelSelection       *zcodeModelSelection
@@ -195,7 +197,7 @@ func (session *zcodeProtocolSession) AssistantEvidenceText() []byte {
 }
 
 func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) (driveErr error) {
-	state := &zcodeProtocolConversation{prompt: session.prompt, workspacePath: session.workspacePath, mode: session.mode, toolDenylist: append([]string(nil), session.toolDenylist...), captureAssistantText: session.captureAssistantText, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection), reasoningEffort: session.reasoningEffort, account: session.account}
+	state := &zcodeProtocolConversation{prompt: session.prompt, workspacePath: session.workspacePath, mode: session.mode, toolDenylist: append([]string(nil), session.toolDenylist...), captureAssistantText: session.captureAssistantText, liveSource: session.liveSource, liveReadTools: session.liveReadTools, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection), reasoningEffort: session.reasoningEffort, account: session.account}
 	defer func() {
 		terminal := ports.ProviderSessionCompleted
 		if driveErr != nil {
@@ -227,7 +229,7 @@ func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.P
 				driveErr = err
 				return
 			}
-			if state.turnCompleted {
+			if state.turnCompleted && (!state.liveSource || state.messagesReceived) {
 				// The provider turn already completed; a stream that ends
 				// between the closing requests and their responses ends the
 				// driver while the conversation runner's teardown ends the
@@ -294,6 +296,8 @@ type zcodeProtocolConversation struct {
 	providerErrorCode     int
 	hasProviderErrorCode  bool
 	captureAssistantText  bool
+	liveSource            bool
+	liveReadTools         bool
 	assistantEvidence     []string
 	modelSelection        *zcodeModelSelection
 	modelDefaultReasoning string
@@ -315,10 +319,14 @@ func (state *zcodeProtocolConversation) start(ctx context.Context, exchange port
 }
 
 func (state *zcodeProtocolConversation) sendCreate(ctx context.Context, exchange ports.ProviderSessionExchange) error {
-	return sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolCreateID, zcodeProtocolCreateMethod, map[string]any{
+	params := map[string]any{
 		"workspace": map[string]string{"workspacePath": state.workspacePath, "workspaceKey": state.workspacePath},
 		"mode":      state.mode, "toolDenylist": state.toolDenylist, "titleGenerationEnabled": false,
-	})
+	}
+	if state.liveReadTools {
+		params["toolAllowlist"] = []string{"Read", "Grep", "Glob", "Bash"}
+	}
+	return sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolCreateID, zcodeProtocolCreateMethod, params)
 }
 
 func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange ports.ProviderSessionExchange, message zcodeProtocolMessage) (bool, error) {
@@ -595,8 +603,14 @@ func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, 
 				errors.New("turn completed before the conversation was established"))
 		}
 		if event.SessionID != "" && event.SessionID != state.sessionID {
+			if state.liveSource {
+				return false, nil
+			}
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid,
 				errors.New("turn session id does not match the established conversation"))
+		}
+		if state.liveSource && (event.SessionID == "" || event.TurnID == "") {
+			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("live turn completion has missing correlation"))
 		}
 		if !state.turnObserved {
 			state.turnID = event.TurnID
@@ -606,10 +620,11 @@ func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, 
 		if state.captureAssistantText && !state.messagesReceived {
 			state.messagesRequested = true
 			state.phase = ports.ProviderSessionPhaseMessages
-			return false, sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolMessagesID, zcodeProtocolMessagesMethod, map[string]any{
-				"sessionId": state.sessionID,
-				"limit":     zcodeProtocolMessageLimit,
-			})
+			params := map[string]any{"sessionId": state.sessionID}
+			if !state.liveSource {
+				params["limit"] = zcodeProtocolMessageLimit
+			}
+			return false, sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolMessagesID, zcodeProtocolMessagesMethod, params)
 		}
 		return false, state.sendClose(ctx, exchange)
 	case zcodeProtocolTurnFailedKind:
@@ -618,6 +633,9 @@ func (state *zcodeProtocolConversation) handleNotification(ctx context.Context, 
 				errors.New("turn failed before the conversation was established"))
 		}
 		if event.SessionID != "" && event.SessionID != state.sessionID {
+			if state.liveSource {
+				return false, nil
+			}
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid,
 				errors.New("failed turn session id does not match the established conversation"))
 		}

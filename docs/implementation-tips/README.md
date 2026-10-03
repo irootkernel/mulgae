@@ -261,6 +261,46 @@ tests in the owning application package.
 
 ## Verification for the adopted review Epics
 
+EPIC-009's internal neutral execution fixtures live in
+`internal/adapters/providercli` under the `liveprovider` build tag. The focused
+groups `TestLiveNeutralReviewReports`, `TestLiveNeutralExtractionReports`,
+`TestLiveNeutralReviewConcurrentCancellation`,
+`TestLiveNeutralCredentialBoundary`, `TestLiveZCodeNeutralKernelProtection`
+and `TestLiveGrokNeutralKernelProtection` exercise actual native providers in
+disposable source and reviewer-home fixtures. Supply the explicit supported
+Codex executable and home through `MULGAE_LIVE_CODEX_BIN` and
+`MULGAE_LIVE_CODEX_HOME`; the EPIC-009 baseline is CLI 0.156.0. Select an exact
+group with an anchored `-run` expression and an explicit package. Never use the
+operator's project or provider state as the disposable target.
+
+Run the complete focused set explicitly after supplying those Codex variables:
+
+```bash
+go test -count=1 -tags=liveprovider ./internal/adapters/providercli \
+  -run '^TestLive(Neutral(ReviewReports|ExtractionReports|ReviewConcurrentCancellation|CredentialBoundary)|(ZCode|Grok)NeutralKernelProtection)$' -v
+```
+
+Credential fixtures contain generated test text. ZCode requires actual Bash
+failure receipts. Its separate kernel probe runs the actual ZCode executable
+in Electron-as-Node mode under the exact boundary, environment and neutral
+directory from production admission. Native child-process receipts verify the
+five write denials and positive source/Git/guide reads and owned scratch writes;
+the normal plan-mode app-server report remains a separate conversation.
+Grok requires its correlated permission rejection plus the
+separate kernel-boundary test. Codex's kernel probe sends sandboxed
+`command/exec` through the same native server and its unchanged default
+`mulgae` profile before the independently correlated assistant turn. It checks
+real exit codes and direct/alias denials. Model refusal or reported denial alone
+does not prove kernel enforcement. The process-adapter tests separately cover
+hard links, protected ancestors, writable-root overlap and rejected root aliases.
+Credential and writable-root admission tests reject existing regular-file
+hardlink aliases before spawn; source hardlinks remain supported. Runner tests
+cover descriptor cleanup on early returns and cancellation during admission.
+Unix socket fixtures check direct and symlink-alias denial at protected source
+and credential paths while an owned invocation socket remains reachable.
+These focused fixtures do not replace the complete integrated `make test`
+gate or the explicit two-home Codex certification required by TASK-039.
+
 The [verified review contracts](../specs/verified-review-contracts.md) and their
 [roadmap outcomes](../roadmap/README.md#epic-007-verified-review-contracts)
 retain EPIC-007 requirements and verification. The planned

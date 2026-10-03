@@ -13,9 +13,11 @@ import (
 type protocolInvocationPurpose string
 
 const (
-	protocolPurposeReview        protocolInvocationPurpose = "review"
-	protocolPurposeExtraction    protocolInvocationPurpose = "extraction"
-	protocolPurposeQualification protocolInvocationPurpose = "qualification"
+	protocolPurposeReview         protocolInvocationPurpose = "review"
+	protocolPurposeExtraction     protocolInvocationPurpose = "extraction"
+	protocolPurposeQualification  protocolInvocationPurpose = "qualification"
+	protocolPurposeLiveReview     protocolInvocationPurpose = "live-review"
+	protocolPurposeLiveExtraction protocolInvocationPurpose = "live-extraction"
 )
 
 // providerProtocolSession is the common result of a protocol driver
@@ -42,6 +44,7 @@ type protocolSessionConfiguration struct {
 	zcodeEffort    string
 	zcodeAccount   *zcodeAccountRuntime
 	grokSettings   grokInvocationSettings
+	grokLiveReads  *grokLiveReadAuthority
 }
 
 type zcodeAccountRuntimeAuthority interface {
@@ -88,6 +91,18 @@ func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 		session, err = newZcodeExtractionProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 	case protocolPurposeQualification:
 		session, err = newZcodeCapabilityProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
+	case protocolPurposeLiveReview:
+		session, err = newZcodeProtocolSession(workspacePath, "plan", zcodeLiveReviewProtocolDenylist, prompt, configuration.zcodeSelection)
+		if err == nil {
+			session.captureAssistantText = true
+			session.liveSource = true
+			session.liveReadTools = true
+		}
+	case protocolPurposeLiveExtraction:
+		session, err = newZcodeCapabilityProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
+		if err == nil {
+			session.liveSource = true
+		}
 	default:
 		return nil, fmt.Errorf("zcode protocol: unsupported invocation purpose")
 	}
@@ -102,7 +117,17 @@ func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 type grokACPProtocolDriverConstructor struct{}
 
 func (grokACPProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
-	return newGrokACPProtocolSession(workspacePath, prompt, purpose, writeAuthority, configuration.grokSettings)
+	session, err := newGrokACPProtocolSession(workspacePath, prompt, purpose, writeAuthority, configuration.grokSettings)
+	if err != nil {
+		return nil, err
+	}
+	if purpose == protocolPurposeLiveReview {
+		if configuration.grokLiveReads == nil {
+			return nil, fmt.Errorf("grok live review: missing read authority")
+		}
+		session.liveReads = configuration.grokLiveReads
+	}
+	return session, nil
 }
 
 type codexProtocolDriverConstructor struct{}

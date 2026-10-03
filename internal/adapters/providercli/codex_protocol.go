@@ -53,7 +53,7 @@ func newCodexProtocolSession(workspacePath string, prompt []byte, purpose protoc
 		return nil, fmt.Errorf("codex app-server: invalid session request")
 	}
 	switch purpose {
-	case protocolPurposeReview, protocolPurposeExtraction, protocolPurposeQualification:
+	case protocolPurposeReview, protocolPurposeExtraction, protocolPurposeQualification, protocolPurposeLiveReview, protocolPurposeLiveExtraction:
 	default:
 		return nil, fmt.Errorf("codex app-server: unsupported purpose")
 	}

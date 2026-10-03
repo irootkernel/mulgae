@@ -535,6 +535,7 @@ type ProcessRequest struct {
 	workingDirectory             string
 	boundLaunchDirectory         *os.File
 	boundWorkspaceRoot           ValidatedWorkspaceRoot
+	boundNeutralRoot             AnchoredRoot
 	hasBoundLaunchDirectory      bool
 	nativeHomeLaunchAuthority    NativeHomeLaunchAuthority
 	hasNativeHomeLaunchAuthority bool
@@ -545,6 +546,7 @@ type ProcessRequest struct {
 	postOutputLifecycle          BoundedPostOutputLifecycle
 	hasPostOutputLifecycle       bool
 	spoolStdout                  bool
+	liveReadOnlyBoundary         LiveReadOnlyBoundary
 }
 
 // NewSpooledStdoutProcessRequest marks a provider request whose stdout is
@@ -804,7 +806,7 @@ func (request ProcessRequest) WorkingDirectory() string { return request.working
 // BoundLaunchDirectory returns the descriptor and root transferred through the
 // strict bound-request constructor. The runner owns closing the descriptor.
 func (request ProcessRequest) BoundLaunchDirectory() (*os.File, ValidatedWorkspaceRoot, bool) {
-	if !request.hasBoundLaunchDirectory {
+	if !request.hasBoundLaunchDirectory || request.boundNeutralRoot.Valid() {
 		return nil, ValidatedWorkspaceRoot{}, false
 	}
 	return request.boundLaunchDirectory, request.boundWorkspaceRoot, true
@@ -1964,15 +1966,22 @@ func validateProcessRequest(request ProcessRequest) error {
 	if err := validateAbsoluteWorkingDirectory(request.workingDirectory); err != nil {
 		return fmt.Errorf("working directory: %w", err)
 	}
+	if request.liveReadOnlyBoundary.present {
+		if !request.liveReadOnlyBoundary.Valid() || !request.hasProviderPacketBinding || request.providerPacketBinding.Channel() != ProviderPacketChannelProtocol {
+			return fmt.Errorf("live read-only boundary requires a valid protocol request")
+		}
+	}
 	if request.hasBoundLaunchDirectory {
-		if request.boundLaunchDirectory == nil || request.boundLaunchDirectory.Fd() == ^uintptr(0) || !request.boundWorkspaceRoot.Valid() || request.boundWorkspaceRoot.Path() != request.workingDirectory {
+		workspace := request.boundWorkspaceRoot.Valid() && request.boundWorkspaceRoot.Path() == request.workingDirectory && !request.boundNeutralRoot.Valid()
+		neutral := request.boundNeutralRoot.Valid() && request.boundNeutralRoot.String() == request.workingDirectory && !request.boundWorkspaceRoot.Valid()
+		if request.boundLaunchDirectory == nil || request.boundLaunchDirectory.Fd() == ^uintptr(0) || !workspace && !neutral {
 			return fmt.Errorf("invalid bound launch directory or workspace root")
 		}
-	} else if request.boundLaunchDirectory != nil || request.boundWorkspaceRoot.Valid() {
+	} else if request.boundLaunchDirectory != nil || request.boundWorkspaceRoot.Valid() || request.boundNeutralRoot.Valid() {
 		return fmt.Errorf("bound launch directory present without marker")
 	}
 	if request.hasNativeHomeLaunchAuthority {
-		if !request.hasBoundLaunchDirectory || !request.nativeHomeLaunchAuthority.Valid() {
+		if !request.hasBoundLaunchDirectory || request.boundNeutralRoot.Valid() || !request.nativeHomeLaunchAuthority.Valid() {
 			return fmt.Errorf("invalid native home launch authority")
 		}
 		hasHome := false

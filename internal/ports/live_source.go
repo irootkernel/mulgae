@@ -187,6 +187,9 @@ func (err *LiveSourceError) Unwrap() error             { return err.cause }
 type LiveSourceReader interface {
 	Root() AnchoredRoot
 	Target() LiveSourceTarget
+	// RevalidateExecution checks retained directory identities and Git metadata
+	// before exposing the separate original-source launch binding.
+	RevalidateExecution(context.Context) (ProjectBindingObservation, error)
 	List(context.Context, domain.LiveSourceSide) ([]SafeRelativePath, error)
 	Read(context.Context, domain.LiveSourceSide, SafeRelativePath) (LiveSourceFile, error)
 	Close() error

@@ -955,7 +955,9 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	var processObservation ports.ProcessObservation
 	var conversationEvidence []byte
 	var runErr error
-	if workspace, ok := invocation.ExecutionWorkspace(); ok {
+	if live, ok := invocation.LiveExecution(); ok {
+		processObservation, conversationEvidence, runErr = r.runInLiveSource(ctx, definition, invocation, live, packet, namespace)
+	} else if workspace, ok := invocation.ExecutionWorkspace(); ok {
 		processObservation, conversationEvidence, runErr = r.runInWorkspace(ctx, definition, invocation, workspace, packet, namespace, namespace.Environment(), staging)
 	} else {
 		if definition.requiresWorkspaceAuthority {
@@ -1092,8 +1094,8 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			return stagedFileObservation(definition, invocation, processObservation, staging)
 		}
 		if definition.transport.channel == ports.ProviderPacketChannelProtocol {
-			// An unstaged protocol conversation is the structured extraction
-			// trailer: its captured assistant text is the exact provider
+			// An unstaged protocol conversation returns its complete assistant
+			// report or structured extraction: captured text is the exact provider
 			// result, and the protocol transcript on stdout is never content.
 			if conversationEvidence == nil {
 				return ports.NewFailedProviderExecutionObservationWithCause(
@@ -1345,7 +1347,7 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("provider registry: protocol driver is unavailable"))
 	}
-	conversationRunner, ok := r.runner.(ports.ProviderConversationRunner)
+	_, ok := r.runner.(ports.ProviderConversationRunner)
 	if !ok {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("provider registry: process runner cannot converse"))
@@ -1354,8 +1356,23 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 	if err != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}
-	session, err := definition.protocolDriver.NewSession(request.WorkingDirectory(), packet.Bytes(), protocolPurposeForReview(purpose), writeAuthority, configuration)
+	return r.executeProtocolProviderProcess(ctx, definition, packet, request, protocolPurposeForReview(purpose), writeAuthority, configuration)
+}
+
+func (r *Registry) executeProtocolProviderProcess(ctx context.Context, definition definition, packet ports.ProviderPacket, request ports.ProcessRequest, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, configuration protocolSessionConfiguration) (ports.ProcessObservation, []byte, error) {
+	closeUnconsumedLaunch := func() {
+		if directory, _, bound := request.LaunchDirectory(); bound {
+			_ = directory.Close()
+		}
+	}
+	conversationRunner, ok := r.runner.(ports.ProviderConversationRunner)
+	if !ok || definition.protocolDriver == nil {
+		closeUnconsumedLaunch()
+		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: protocol execution is unavailable"))
+	}
+	session, err := definition.protocolDriver.NewSession(request.WorkingDirectory(), packet.Bytes(), purpose, writeAuthority, configuration)
 	if err != nil {
+		closeUnconsumedLaunch()
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}
 	observation, err := conversationRunner.Converse(ctx, request, session)

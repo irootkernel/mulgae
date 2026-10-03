@@ -209,6 +209,142 @@ Separate source root from process/session cwd in provider invocation contracts. 
 
 Collect complete native assistant role reports for all three providers and remove source-tree report-write permission in the new path. Verify hostile instruction isolation, attempts to edit source/Git/guide, native scratch handling, concurrent session isolation, credential redaction, cancellation, and failed-provider identity without substitution. Reuse protocol correlation and qualification tests; certify effective behavior with bounded actual-provider fixtures.
 
+### Native kernel protection amendment
+
+The initial `TestLiveGrokNeutralKernelProtection` exposed Grok 1.0.46's
+independent kernel gap. A test-only ACP client granted one exact Bash command
+against disposable fixtures. Source, index, ref, Git configuration, and shared
+guide writes succeeded despite custom `read_only` entries. A separate fixture
+credential directory in `deny` remained unreadable, confirming that the custom
+profile was active. TASK-034's ACP rejection evidence remains valid; it did not
+prove this separate kernel protection.
+
+Master approved a mandatory application-owned macOS Seatbelt launch boundary
+for Grok's TASK-036 live path. The internal process adapter now consumes typed
+protection roots without a shell or a changed provider identity. The outer policy denies writes
+outside the owned invocation namespace, protects source/Git/neutral roots and
+ancestor renames, denies protected credential reads and links, and restricts
+Unix sockets at protected paths. Canonical descriptor admission rejects missing
+or symlinked protection roots. Source binding and neutral guide authorities
+retain separate directory identities; they do not freeze source contents.
+
+Layering Seatbelt with Grok's own sandbox initialization fails with a native
+`Operation not permitted` error before a session starts. The guarded new route
+therefore uses `--sandbox off` inside the mandatory outer Seatbelt boundary,
+while preserving plan mode, sterile configuration, closed protocol permissions,
+and the fixed Git environment. This is an internal invocation choice under the
+approved amendment, not a user-profile change or an unguarded fallback. The
+actual guarded Grok fixture passed correlated command completion, original
+file and fixed-object reads, shared-guide reads, owned scratch writes, all five
+protected write denials, and fixture credential-read denial. These results
+certify the outer policy, not Grok's inactive custom profile.
+
+The shared reviewer-home adapter safely creates a complete default guide with
+exclusive atomic rename, preserves an existing safe regular file, and rejects
+unsafe guides or replaced directories. Concurrent creation and guide change
+regressions pass. Internal invocation and
+report composition now separate original source authority from neutral launch authority. Native stage
+reports have returned the hidden committed and index tokens for each provider;
+overlapping workspace sessions and cancellation have passed for each provider.
+Grok's ACP partial tool-input notifications carry no permission authority and
+must not be treated as complete read requests. Complete permission requests
+still require exact admitted paths or Git commands. Terminal integrity checks
+use an independent context so cancellation retains its typed outcome. Failed
+protocol admission closes the unconsumed neutral descriptor.
+
+A separate protected-root fixture exposed a ZCode read gap: native Bash read
+the generated private token and the correlated report disclosed it while plan
+mode and the isolated namespace were active. A test-only Seatbelt overlay
+blocked the same native read with an observed tool error. That prototype keeps
+ZCode's existing private short runtime directory writable for native sockets.
+Master approved the ZCode guard amendment. Both live review and extraction now
+require the app-owned outer boundary while preserving the native provider and
+plan policy. The existing private short runtime directory is admitted by its
+canonical path, current-user ownership, private mode and retained identity,
+then checked before and after execution. It is the only additional writable
+root; explicit protected-root denials still apply on overlap. Replacement,
+symlink, unsafe-mode and missing-directory regressions pass.
+
+Actual ZCode Bash receipts now prove that both direct and symlink-alias reads
+of generated protected text fail without disclosing it. Grok rejects the same
+unplanned command at its closed ACP permission gate. Codex's model probes did
+not supply native command receipts, so its negative kernel probe uses the pinned
+app-server's sandboxed `command/exec` operation with the production default
+`mulgae` profile unchanged. Actual nonzero command results prove both direct and
+alias denial. The assistant turn remains independently correlated. The
+unsandboxed `thread/shellCommand` operation is excluded from this probe.
+
+Native stage reports and overlapping review/cancellation pass under the ZCode
+production guard. All three providers return complete extraction responses
+without source-tree report writers. Platform tests prove writable invocation
+and runtime scratch while overlapping source and credential roots stay protected.
+
+ZCode's independent kernel fixture runs the actual executable in its existing
+Electron-as-Node mode with the production boundary, environment and neutral
+directory. Actual child-process results prove all five write denials, positive
+source/Git/guide reads and owned scratch writes. The unchanged plan-mode
+app-server conversation separately proves the correlated assistant report.
+
+Read-only review identified neutral-descriptor leaks on early cancellation,
+clock failure and missing conversation-driver returns. Regression tests
+reproduced the leaks; consuming the descriptor immediately after valid request
+admission fixes each return path. A separate kernel fixture reproduced access
+through a preexisting credential hardlink outside its protected tree. Guard
+admission now rejects multiply linked regular files in credential and writable
+roots using descriptor-based metadata inspection. It follows no symlinks and
+reads no file contents. Links outside writable roots are denied, while ordinary
+source and Git hardlinks remain supported. Context cancellation and the request
+timeout bound inspection. These controls do not contain unrelated same-user
+processes.
+
+Release-note decision: intentional no-note for TASK-036. This internal path has
+no public composition or shipped command behavior until TASK-038.
+
+The first selected review led to two corrections: reviewer-home revalidation
+now checks the operator directory's ownership and permissions as well as its
+children, and live ZCode extraction retains its tool-free policy without the
+review-only allowlist. Focused regressions reproduced both omissions before
+the fixes. A separate actual kernel probe rejected an outward-pointing
+credential symlink while permitting direct access to the outside control
+file; blanket rejection of internal symlinks was unnecessary. The shared
+short native socket directory remains the approved exception, with its
+cross-session residual recorded in
+[DF-004](../deferred-feedback/README.md). This does not weaken the declared
+source, Git, guide or credential denials.
+
+The latest production candidate passes the relevant unit suite, preparation
+checks and standard integration target. Actual native stage reports,
+extraction, overlapping sessions and cancellation pass for all three providers.
+Separate protected-read and kernel-write fixtures pass with real native
+receipts. Unix socket fixtures verify direct and symlink-alias denials at
+protected source and credential paths while owned invocation sockets remain
+reachable. The selected Mulgae confirmation is complete, with no unresolved
+in-scope findings. Public composition and
+contracts remain snapshot-based until TASK-038.
+
+The second review exposed a path-encoding mismatch in the launch policy.
+Live execution now rejects non-printable or invalid UTF-8 policy roots before
+Seatbelt or native provider configuration is produced. Printable Unicode and
+quoted roots retain their literal meaning. Grok accepts partial tool-input
+notifications without granting authority; only a complete, correlated
+permission request can select an exact planned read with `allow_once`.
+The common prompt qualifies fixed Git environment bindings for Git-backed
+sources. Deadline and socket controls have focused regression coverage.
+Canonical specification and architecture documents state that reads outside
+credential roots and network destinations outside protected Unix sockets remain
+outside the outer guard's containment claim.
+
+The third review identified missing regression evidence for terminal integrity
+checks. A deterministic registry test now replaces an isolated source or changes
+its guide after a complete scripted native conversation. The terminal check
+discards the report and returns a security failure, including when cancellation
+coincides with the change. An unchanged binding retains its report after the
+conversation completes. Removing only the deferred check through a temporary Go
+overlay makes all three changed-binding cases fail. Focused tests also cover
+Run-mode cancellation and invalid neutral launch descriptors. These tests add
+evidence without changing production behavior. The frozen correction was
+confirmed in the completed six-role assessment.
+
 ## TASK-037: Add live-result publication and historical readers
 
 Publish the new source/evidence semantics without full-tree capture support. Keep trusted-field injection, finding validation, result/report integrity, single-final publication, typed failure coverage, and provider-free no-change behavior. Verify evidence against the correct source side and retain only selected excerpts or binary evidence needed by result readers.

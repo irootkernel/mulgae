@@ -146,6 +146,28 @@ func (adapter *LiveSourceAdapter) OpenLiveSource(ctx context.Context, root ports
 func (reader *liveSourceReader) Root() ports.AnchoredRoot       { return reader.root }
 func (reader *liveSourceReader) Target() ports.LiveSourceTarget { return reader.target }
 
+func (reader *liveSourceReader) RevalidateExecution(ctx context.Context) (ports.ProjectBindingObservation, error) {
+	reader.mu.Lock()
+	defer reader.mu.Unlock()
+	if ctx == nil {
+		return ports.ProjectBindingObservation{}, sourceError(ports.LiveSourceInvalid, fmt.Errorf("nil execution context"))
+	}
+	if err := reader.revalidate(ctx); err != nil {
+		return ports.ProjectBindingObservation{}, err
+	}
+	if reader.lease != nil {
+		if err := reader.checkGitMetadata(); err != nil {
+			return ports.ProjectBindingObservation{}, err
+		}
+		return reader.lease.Observation(), nil
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(int(reader.rootDir.file.Fd()), &stat); err != nil {
+		return ports.ProjectBindingObservation{}, sourceError(ports.LiveSourceUnsafe, err)
+	}
+	return ports.ProjectBindingObservation{Root: reader.root, RootIdentity: ports.ProjectDirectoryIdentity{Device: uint64(stat.Dev), Inode: stat.Ino, BirthSeconds: stat.Btim.Sec, BirthNanoseconds: stat.Btim.Nsec}}, nil
+}
+
 func (reader *liveSourceReader) revalidate(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -67,6 +67,35 @@ func assertLiveError(t *testing.T, err error, code ports.LiveSourceErrorCode) {
 	}
 }
 
+func TestIntegrationLiveSourceExecutionBinding(t *testing.T) {
+	for _, git := range []bool{false, true} {
+		t.Run(fmt.Sprint(git), func(t *testing.T) {
+			root := t.TempDir()
+			if git {
+				root = reviewCaptureRepository(t)
+			}
+			reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+			binding, err := reader.RevalidateExecution(context.Background())
+			if err != nil || binding.Root != reader.Root() || binding.RootIdentity.Inode == 0 || binding.GitDirectory.Valid() != git {
+				t.Fatalf("original execution binding: %+v, %v", binding, err)
+			}
+			writeReviewFile(t, filepath.Join(root, "live-change.txt"), "live content")
+			after, err := reader.RevalidateExecution(context.Background())
+			if err != nil || after != binding {
+				t.Fatal("live content change incorrectly became a snapshot binding")
+			}
+			if err := os.Rename(root, root+"-old"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(root, 0700); err != nil {
+				t.Fatal(err)
+			}
+			_, err = reader.RevalidateExecution(context.Background())
+			assertLiveError(t, err, ports.LiveSourceUnsafe)
+		})
+	}
+}
+
 func TestIntegrationLiveSourceStageUsesIndexForCandidatesAndSupport(t *testing.T) {
 	root := reviewCaptureRepository(t)
 	writeReviewFile(t, filepath.Join(root, "support.txt"), "committed support\n")

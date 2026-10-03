@@ -263,6 +263,8 @@ type namespaceLease struct {
 	nativeHomeInfo                os.FileInfo
 	zcodeNativeHome               string
 	zcodeNativeHomeInfo           os.FileInfo
+	zcodeRuntimeTemp              string
+	zcodeRuntimeTempInfo          os.FileInfo
 	seedMu                        sync.RWMutex
 	nativeHomeLaunchAuthority     ports.NativeHomeLaunchAuthority
 	seeds                         map[ports.CredentialProjectionDestination]credentialSeed
@@ -380,6 +382,11 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 		if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Getuid() {
 			return lease, fmt.Errorf("provider namespace: zcode runtime temp is not owned by the current user")
 		}
+		canonical, err := filepath.EvalSymlinks(runtimeTemp)
+		if err != nil {
+			return lease, fmt.Errorf("provider namespace: zcode runtime temp resolution: %w", err)
+		}
+		lease.zcodeRuntimeTemp, lease.zcodeRuntimeTempInfo = canonical, info
 		for index, variable := range environment {
 			switch variable.Name() {
 			case "TMPDIR", "TMP", "TEMP":
