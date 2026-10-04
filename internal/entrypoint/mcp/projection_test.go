@@ -165,7 +165,7 @@ func TestProjectDiagnosticRunStatusIsBoundedAndHasNoPublicationAuthority(t *test
 	if err != nil || projected["kind"] != "diagnostic_status_read" || projected["diagnostic_only"] != true ||
 		projected["publication_authority"] != false || projected["publication_status"] != nil ||
 		projected["final_artifact_uri"] != nil || projected["report_resource_uri"] != nil ||
-		projected["recovery_action"] != "rerun_review" || projected["terminal_cause"] != string(domain.DiagnosticCauseProviderSpawnFailed) ||
+		projected["recovery_action"] != "none" || projected["terminal_cause"] != string(domain.DiagnosticCauseProviderSpawnFailed) ||
 		projected["diagnostic_summary"].(map[string]any)["invariant_id"] != ports.ProviderObservationInvariantRejected {
 		t.Fatalf("diagnostic run status projection = %#v, %v", projected, err)
 	}

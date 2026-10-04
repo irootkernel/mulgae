@@ -15,13 +15,12 @@ func TestReviewGuardGrammarPreservesAdmissionReasons(t *testing.T) {
 		want  error
 	}{
 		{"unguarded", nil, nil},
-		{"paired", []string{"--expected-project-binding", d, "--expected-request-digest", d}, nil},
+		{"independent binding", []string{"--expected-project-binding", d}, nil},
 		{"preflight binding", []string{"--preflight", "--expected-project-binding", d}, nil},
-		{"half binding", []string{"--expected-project-binding", d}, reviewrun.ErrGuardIncomplete},
-		{"half request", []string{"--expected-request-digest", d}, reviewrun.ErrGuardIncomplete},
-		{"invalid", []string{"--expected-project-binding", "invalid", "--expected-request-digest", d}, reviewrun.ErrGuardInvalid},
-		{"empty", []string{"--expected-project-binding", "", "--expected-request-digest", d}, reviewrun.ErrGuardInvalid},
-		{"preflight request", []string{"--preflight", "--expected-project-binding", d, "--expected-request-digest", d}, reviewrun.ErrGuardIncomplete},
+		{"half request", []string{"--expected-request-digest", d}, ErrUsage},
+		{"invalid", []string{"--expected-project-binding", "invalid"}, reviewrun.ErrGuardInvalid},
+		{"empty", []string{"--expected-project-binding", ""}, reviewrun.ErrGuardInvalid},
+		{"preflight request", []string{"--preflight", "--expected-project-binding", d, "--expected-request-digest", d}, ErrUsage},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			invocation, err := Parse(append([]string{"review", "--stage"}, test.flags...), testProjectRoot, testRequestID)

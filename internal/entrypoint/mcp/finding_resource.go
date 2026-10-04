@@ -7,8 +7,10 @@ import (
 	"strconv"
 	"unicode/utf8"
 
+	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func parseFindingDetailURI(raw, run, finding string, values url.Values) (ResourceRequest, error) {
@@ -54,6 +56,8 @@ func parseVerifiedContentURI(raw string, segments []string, values url.Values) (
 	switch {
 	case len(segments) == 2 && segments[1] == "report":
 		request.kind = ResourceReport
+	case len(segments) == 2 && segments[1] == "source-image":
+		request.kind = ResourceSourceImage
 	case len(segments) == 4 && segments[1] == "findings" && segments[3] == "evidence" && validFindingID(segments[2]):
 		request.kind = ResourceEvidence
 		request.findingID = segments[2]
@@ -74,6 +78,21 @@ func parseVerifiedContentURI(raw string, segments []string, values url.Values) (
 				return invalid()
 			}
 			request.targetSHA256 = items[0]
+		case "source_identity_sha256":
+			if (request.kind != ResourceEvidence && request.kind != ResourceSourceImage) || !validSHA256(items[0]) {
+				return invalid()
+			}
+			request.sourceIdentity = items[0]
+		case "side":
+			if request.kind != ResourceSourceImage || !evidence.Side(items[0]).Valid() {
+				return invalid()
+			}
+			request.sourceSide = items[0]
+		case "path":
+			if _, err := ports.NewSafeRelativePath(items[0]); request.kind != ResourceSourceImage || err != nil {
+				return invalid()
+			}
+			request.sourcePath = items[0]
 		case "role":
 			if request.kind != ResourceReport || !domain.Role(items[0]).Valid() {
 				return invalid()
@@ -102,13 +121,22 @@ func parseVerifiedContentURI(raw string, segments []string, values url.Values) (
 		return ResourceRequest{}, err
 	}
 	canonical := ""
-	if request.kind == ResourceReport {
-		canonical = query.ReportContentURI(request.runID, request.role, request.projectBinding, request.continuation.PublicationReceipt, request.continuation.ContentSHA256, request.continuation.Offset)
-	} else {
-		if request.targetSHA256 == "" {
+	if request.kind == ResourceSourceImage {
+		if request.sourceIdentity == "" || request.sourceSide == "" || request.sourcePath == "" {
 			return invalid()
 		}
-		canonical = query.EvidenceContentURI(request.runID, request.findingID, request.targetSHA256, request.evidenceIndex, request.projectBinding, request.continuation.PublicationReceipt, request.continuation.ContentSHA256, request.continuation.Offset)
+		canonical = query.SourceImageContentURI(request.runID, request.sourceIdentity, request.sourceSide, request.sourcePath, request.projectBinding, request.continuation.PublicationReceipt, request.continuation.ContentSHA256, request.continuation.Offset)
+	} else if request.kind == ResourceReport {
+		canonical = query.ReportContentURI(request.runID, request.role, request.projectBinding, request.continuation.PublicationReceipt, request.continuation.ContentSHA256, request.continuation.Offset)
+	} else {
+		if (request.targetSHA256 == "") == (request.sourceIdentity == "") {
+			return invalid()
+		}
+		if request.sourceIdentity != "" {
+			canonical = query.SourceEvidenceContentURI(request.runID, request.findingID, request.sourceIdentity, request.evidenceIndex, request.projectBinding, request.continuation.PublicationReceipt, request.continuation.ContentSHA256, request.continuation.Offset)
+		} else {
+			canonical = query.EvidenceContentURI(request.runID, request.findingID, request.targetSHA256, request.evidenceIndex, request.projectBinding, request.continuation.PublicationReceipt, request.continuation.ContentSHA256, request.continuation.Offset)
+		}
 	}
 	if canonical != raw {
 		return invalid()
@@ -133,6 +161,10 @@ func projectVerifiedChunk(request ResourceRequest, content ResourceContent) (Res
 	case ResourceEvidence:
 		if chunk.FindingID != request.findingID || chunk.EvidenceIndex == nil || *chunk.EvidenceIndex != request.evidenceIndex || (chunk.MediaType != "text/plain" && chunk.MediaType != "application/octet-stream") {
 			return ResourceResult{}, fmt.Errorf("verified evidence selector is invalid")
+		}
+	case ResourceSourceImage:
+		if chunk.FindingID != "" || chunk.Role != "" || chunk.EvidenceIndex != nil || chunk.Encoding != "base64" || (chunk.MediaType != "image/png" && chunk.MediaType != "image/jpeg" && chunk.MediaType != "image/webp") {
+			return ResourceResult{}, fmt.Errorf("verified source image selector is invalid")
 		}
 	default:
 		return ResourceResult{}, errInvalidResourceURI
@@ -173,12 +205,24 @@ func projectVerifiedChunk(request ResourceRequest, content ResourceContent) (Res
 		case ResourceReport:
 			next = query.ReportContentURI(request.runID, request.role, content.ProjectBinding, chunk.PublicationReceipt, chunk.ContentSHA256, *chunk.NextOffset)
 		case ResourceEvidence:
-			next = query.EvidenceContentURI(request.runID, request.findingID, request.targetSHA256, request.evidenceIndex, content.ProjectBinding, chunk.PublicationReceipt, chunk.ContentSHA256, *chunk.NextOffset)
+			if request.sourceIdentity != "" {
+				next = query.SourceEvidenceContentURI(request.runID, request.findingID, request.sourceIdentity, request.evidenceIndex, content.ProjectBinding, chunk.PublicationReceipt, chunk.ContentSHA256, *chunk.NextOffset)
+			} else {
+				next = query.EvidenceContentURI(request.runID, request.findingID, request.targetSHA256, request.evidenceIndex, content.ProjectBinding, chunk.PublicationReceipt, chunk.ContentSHA256, *chunk.NextOffset)
+			}
+		case ResourceSourceImage:
+			next = query.SourceImageContentURI(request.runID, request.sourceIdentity, request.sourceSide, request.sourcePath, content.ProjectBinding, chunk.PublicationReceipt, chunk.ContentSHA256, *chunk.NextOffset)
 		}
 	} else if chunk.Offset+chunk.ReturnedBytes != chunk.TotalBytes {
 		return ResourceResult{}, fmt.Errorf("invalid content EOF")
 	}
 	result.Meta = map[string]any{"publication_receipt": chunk.PublicationReceipt, "content_sha256": chunk.ContentSHA256, "project_binding": content.ProjectBinding, "media_type": chunk.MediaType, "encoding": chunk.Encoding, "offset": chunk.Offset, "total_bytes": chunk.TotalBytes, "returned_bytes": chunk.ReturnedBytes, "next_offset": chunk.NextOffset, "run_id": chunk.RunID, "io.mulgae/nextURI": next}
+	if request.sourceIdentity != "" {
+		result.Meta["source_identity_sha256"] = request.sourceIdentity
+	}
+	if request.kind == ResourceSourceImage {
+		result.Meta["side"], result.Meta["path"] = request.sourceSide, request.sourcePath
+	}
 	if chunk.FindingID != "" {
 		result.Meta["finding_id"] = chunk.FindingID
 	}

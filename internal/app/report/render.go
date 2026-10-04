@@ -170,14 +170,27 @@ type reportProvenanceDTO struct {
 
 func reportFinalFromCommitted(review query.CommittedReview) (reportFinalDTO, error) {
 	var metadata struct {
-		SchemaVersion string   `json:"schema_version"`
-		CreatedAt     string   `json:"created_at"`
-		CIReasonCodes []string `json:"ci_reason_codes"`
+		SchemaVersion     string              `json:"schema_version"`
+		CreatedAt         string              `json:"created_at"`
+		CIReasonCodes     []string            `json:"ci_reason_codes"`
+		Target            reportTargetDTO     `json:"target"`
+		Validation        reportValidationDTO `json:"validation"`
+		SeverityThreshold reportSeverityDTO   `json:"severity_threshold"`
+		Limitations       []string            `json:"limitations"`
+		Provenance        reportProvenanceDTO `json:"provenance"`
 	}
 	if err := json.Unmarshal(review.FinalBytes(), &metadata); err != nil {
 		return reportFinalDTO{}, err
 	}
 	final := reportFinalDTO{CreatedAt: metadata.CreatedAt, SchemaVersion: metadata.SchemaVersion, SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), CIReasonCodes: metadata.CIReasonCodes, SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{ManifestPath: "manifest.json"}}
+	if review.SourceIdentitySHA256() != "" {
+		// Query has already verified the v3 final and its indexed source support.
+		final.Target = metadata.Target
+		final.Validation = metadata.Validation
+		final.SeverityThreshold = metadata.SeverityThreshold
+		final.Limitations = metadata.Limitations
+		final.Provenance = metadata.Provenance
+	}
 	for _, role := range review.Roles() {
 		attempt, hasAttempt := role.AttemptID()
 		provider, hasProvider := role.ProviderInstance()
@@ -194,6 +207,9 @@ func reportFinalFromCommitted(review query.CommittedReview) (reportFinalDTO, err
 		if hasSelected {
 			value := selected
 			item.SelectedVia = &value
+		}
+		if value, present := role.FailureReason(); present {
+			item.FailureReason = &value
 		}
 		final.RoleOutcomes = append(final.RoleOutcomes, item)
 	}
@@ -338,7 +354,7 @@ func consumeReportJSONValue(decoder *json.Decoder) error {
 }
 
 func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
-	if final.SchemaVersion != "mulgae-review-artifact.v1" && final.SchemaVersion != "mulgae-review-artifact.v2" && (final.SchemaVersion != "mulgae-composite-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v2") ||
+	if final.SchemaVersion != "mulgae-review-artifact.v1" && final.SchemaVersion != "mulgae-review-artifact.v2" && !(final.SchemaVersion == "mulgae-review-artifact.v3" && review.SourceIdentitySHA256() != "") && (final.SchemaVersion != "mulgae-composite-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v2") ||
 		final.SessionID != review.SessionID().String() ||
 		final.RunID != review.RunID().String() ||
 		final.ReviewID != review.ReviewID().String() ||
@@ -397,6 +413,15 @@ func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
 			return fmt.Errorf("finding %d does not match the committed query view", index)
 		}
 		evidence := finding.Evidence()
+		if review.SourceIdentitySHA256() != "" && len(value.Evidence) == 0 {
+			// Live claims are verified by query against retained source support.
+			for _, claim := range evidence {
+				if claim.SourceIdentitySHA256() != review.SourceIdentitySHA256() || claim.TargetSHA256() != "" || claim.Verification() != appevidence.ReceiptVerified {
+					return fmt.Errorf("finding %d live evidence is not bound to source support", index)
+				}
+			}
+			continue
+		}
 		if review.RunType() == domain.RunTypeComposite && len(value.Evidence) == 0 {
 			// Composite finals retain their original evidence-free format. Query
 			// binds copied claims separately to the immutable support index.
@@ -682,7 +707,11 @@ func renderMarkdown(
 	writeBlankLine(&output)
 
 	writeHeading(&output, "Target and lineage")
-	writeField(&output, "Target SHA-256", review.TargetSHA256())
+	if review.SourceIdentitySHA256() != "" {
+		writeField(&output, "Source selection SHA-256", review.SourceIdentitySHA256())
+	} else {
+		writeField(&output, "Target SHA-256", review.TargetSHA256())
+	}
 	writeField(&output, "Target manifest", final.Target.ManifestPath)
 	writeOptionalField(&output, "Base object ID", final.Target.BaseOID)
 	writeOptionalField(&output, "Head object ID", final.Target.HeadOID)
@@ -798,10 +827,16 @@ func renderMarkdown(
 			writeField(&output, "Source run ID", item.SourceRunID().String())
 			writeField(&output, "Source review ID", item.SourceReviewID().String())
 			writeField(&output, "Source finding ID", item.SourceFindingID())
-			writeField(&output, "Source target SHA-256", item.SourceTargetSHA256())
+			if item.SourceIdentitySHA256() != "" {
+				writeField(&output, "Source selection SHA-256", item.SourceIdentitySHA256())
+			} else {
+				writeField(&output, "Source target SHA-256", item.SourceTargetSHA256())
+			}
 			writeField(&output, "Source excerpt SHA-256", item.SourceExcerptSHA256())
 			writeField(&output, "Current excerpt SHA-256", item.CurrentExcerptSHA256())
-			writeField(&output, "Current target SHA-256", item.TargetSHA256())
+			if item.SourceIdentitySHA256() == "" {
+				writeField(&output, "Current target SHA-256", item.TargetSHA256())
+			}
 			writeField(&output, "Current side", string(item.Side()))
 			writeField(&output, "Current path", item.Path().String())
 			writeField(&output, "Current lines", fmt.Sprintf("%d-%d", item.LineStart(), item.LineEnd()))
@@ -823,7 +858,7 @@ func renderMarkdown(
 				if !utf8.Valid(excerpt) {
 					return nil, reportFailure(domain.FailureInternal, "verified excerpt is not valid UTF-8", nil)
 				}
-				if !reportExcerptMatchesCurrentIdentity(excerpt, item) {
+				if !reportExcerptMatchesCurrentIdentity(excerpt, item, review) {
 					return nil, reportFailure(domain.FailureArtifact, "verified excerpt does not match the committed current excerpt identity", nil)
 				}
 				writeVerifiedExcerpt(&output, excerpt)
@@ -1091,15 +1126,21 @@ func reportReadinessState(failure *domain.Failure) (string, bool) {
 	}
 }
 
-func reportExcerptMatchesCurrentIdentity(excerpt []byte, item query.Evidence) bool {
-	claim, err := appevidence.NewCurrentClaim(appevidence.CurrentClaimInput{
-		TargetSHA256: item.TargetSHA256(),
-		Side:         item.Side(),
-		Path:         item.Path().String(),
-		LineStart:    item.LineStart(),
-		LineEnd:      item.LineEnd(),
-		Quote:        string(excerpt),
-	})
+func reportExcerptMatchesCurrentIdentity(excerpt []byte, item query.Evidence, review query.CommittedReview) bool {
+	var claim appevidence.CurrentClaim
+	var err error
+	if source, live := review.LiveSource(); live {
+		claim, err = appevidence.NewLiveClaim(source.Identity, item.Side(), item.Path().String(), item.LineStart(), item.LineEnd(), string(excerpt))
+	} else {
+		claim, err = appevidence.NewCurrentClaim(appevidence.CurrentClaimInput{
+			TargetSHA256: item.TargetSHA256(),
+			Side:         item.Side(),
+			Path:         item.Path().String(),
+			LineStart:    item.LineStart(),
+			LineEnd:      item.LineEnd(),
+			Quote:        string(excerpt),
+		})
+	}
 	if err != nil {
 		return false
 	}
@@ -1108,7 +1149,7 @@ func reportExcerptMatchesCurrentIdentity(excerpt []byte, item query.Evidence) bo
 }
 
 // writeProviderIssues reports the roles that produced no review, why each one
-// stopped, and the exact command to run that role again.
+// stopped, and where to find guidance for a new review.
 // Mulgae never substitutes a provider on its own: a role is bound to the one
 // its configuration names, so recovering a failed role is the operator's
 // decision and this section is what they need to make it.
@@ -1125,7 +1166,7 @@ func writeProviderIssues(output *strings.Builder, review query.CommittedReview) 
 
 	writeHeading(output, "Provider issues")
 	writeText(output, "These roles produced no review. Mulgae did not retry them on another "+
-		"provider; rerun a role with the exact persisted selector shown. Each role's "+
+		"provider. A new review reads current source and does not complete this run. Each role's "+
 		"remediation says whether its provider must be fixed first.")
 	writeBlankLine(output)
 	for _, role := range failed {
@@ -1143,28 +1184,23 @@ func writeProviderIssues(output *strings.Builder, review query.CommittedReview) 
 			writeField(output, "Failure reason", "none")
 		}
 		writeField(output, "Remediation", providerIssueRemediation(reason))
-		if hasProvider {
-			writeField(output, "Rerun command", "mulgae rerun --run "+review.RunID().String()+
-				" --role "+string(role.Name())+" --provider "+provider)
-		} else {
-			writeField(output, "Rerun command", "unavailable; inspect mulgae status for an exact attempt ID or provider instance")
-		}
+		writeField(output, "Next action", "mulgae help workflows")
 		writeBlankLine(output)
 	}
 }
 
 // providerIssueRemediation says whether the provider must be fixed before the
-// rerun can succeed. It reads the coordinator's own closed policy so the report
-// and the CLI's failure hint cannot disagree about what the operator should do.
+// new review can succeed. It reads the coordinator's own closed policy so the
+// report and CLI failure hint cannot disagree about what the operator should do.
 func providerIssueRemediation(reason string) string {
 	condition := review.AttemptCondition(reason)
 	switch {
 	case !condition.Valid():
 		return "unknown failure reason; inspect the run diagnostics"
 	case review.ConditionProviderUnusable(condition):
-		return "fix this provider (run mulgae doctor) or rerun the role on another configured provider"
+		return "fix this provider (run mulgae doctor) before starting a new review"
 	case review.ConditionProviderFault(condition):
-		return "the provider failed this once; rerunning the role may succeed"
+		return "the provider failed this run; a new review may succeed after the failure is resolved"
 	default:
 		return "not a provider failure; inspect the run diagnostics"
 	}

@@ -1,34 +1,25 @@
 # Prompt contracts
 
-Mulgae composes prompts from checksum-verified v1 layers:
+Mulgae composes checksum-verified trusted layers from live common rules, one
+role guide, the native source read plan and the provider output contract. The
+safe neutral reviewer guide is injected once. Project and ancestor instruction
+files do not become trusted reviewer guidance.
 
-1. common review rules;
-2. one role definition;
-3. the workflow objective and immutable target framing;
-4. the provider output contract (Markdown/free-form primary, with an optional
-   exact JSON structured-extraction branch).
+The review target frame contains source selection metadata and resolved Git
+operands. Source bodies are read through the declared original paths or fixed
+Git objects; they are not copied into an execution tree or full-source archive.
+Project context, objectives, accepted reports and provider candidates remain
+framed untrusted data. Attempts record prompt bytes and layer identities.
 
-A launch routed to the `staged_file` transport carries one more Mulgae-owned
-trusted layer, `review:output-destination`, and it is always the last layer.
-It names the single absolute file path the provider must write its complete
-report to, and it supersedes every earlier instruction to return the report on
-standard output. A staged launch whose prompt does not carry its own
-destination layer fails closed before the provider starts.
+Complete role reports arrive as correlated protocol assistant text. Live
+review grants no staged report-file destination. Historical staging receipts
+retain their original meaning for inspection.
 
-The project context and review target are untrusted data, not instructions that
-can weaken system-owned rules. Prompt bytes and layer identities are recorded
-with each attempt.
+One constrained repair may change only the declared provider-owned fields.
+Optional structured extraction instead transcribes an accepted report on the
+same provider and role, framing it as `prior_report`. Repair, retry and extraction
+share the one second invocation; they never widen the role path or delegate
+identity, verification, coverage, lineage or publication authority.
 
-When output is repairable, Mulgae may perform one constrained repair using the
-same provider. The repair prompt lists the exact provider-owned paths that may
-change. It cannot modify target identity, role/provider identity, verification,
-lineage, outcomes, or publication state.
-
-When a role is accepted with a free-form report only and
-`validation.extraction.enabled` is set, Mulgae may instead perform one bounded
-structured extraction on the same provider. Its prompt appends a fifth layer, the
-structured extraction contract, and frames the accepted report as an untrusted
-`prior_report` payload — data to transcribe, never instructions or authority. The
-immutable target frame is retained so every evidence quote is re-read from the
-target rather than copied out of the report. Extraction always returns on
-standard output and never receives a staged-file write grant.
+Evidence is verified against the declared source side before publication.
+Retained evidence reads use committed support, never the current working tree.

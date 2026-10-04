@@ -217,6 +217,124 @@ func requireLocalityReason(t *testing.T, err error, want ports.ConfigLocalityRea
 	}
 }
 
+func TestGitLocalityAttestorAllowsOnlyVerifiedUnbornCheckout(t *testing.T) {
+	fixture := func(t *testing.T) (string, *GitLocalityAttestor, ports.ConfigLocalityRequest) {
+		t.Helper()
+		root := t.TempDir()
+		if err := os.Chmod(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		reviewGit(t, root, "init", "--quiet")
+		if err := os.Mkdir(filepath.Join(root, ".mulgae"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), localityProjectConfig)
+		writeReviewFile(t, filepath.Join(root, ".mulgae", "local.yaml"), localityMachineConfig)
+		anchored := mustAnchoredRoot(t, root)
+		source, err := adapterconfig.NewLocalConfigSource(anchored, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proof, err := source.Observation().Proof()
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := ports.NewConfigLocalityRequest(anchored, proof, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		attestor, err := NewGitLocalityAttestor(NewExecRunner())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return root, attestor, request
+	}
+	t.Run("empty checkout and first commit drift", func(t *testing.T) {
+		root, attestor, request := fixture(t)
+		expected, err := attestor.Attest(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		head, tree := expected.Checkout()
+		if expected.Kind() != "git" || head != "" || tree != "" || len(expected.ApplicableCommitOIDs()) != 0 {
+			t.Fatalf("unborn locality fabricated checkout: %q/%q", head, tree)
+		}
+		if err := attestor.Revalidate(context.Background(), request, expected); err != nil {
+			t.Fatalf("unchanged unborn checkout: %v", err)
+		}
+		reviewGit(t, root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "First commit")
+		if err := attestor.Revalidate(context.Background(), request, expected); !errors.Is(err, ports.ErrProviderSpawnEnvironmentDrift) {
+			t.Fatalf("first commit drift: %v", err)
+		}
+	})
+
+	t.Run("staged source and index drift", func(t *testing.T) {
+		root, attestor, request := fixture(t)
+		source := filepath.Join(root, "source.go")
+		writeReviewFile(t, source, "package source\n")
+		reviewGit(t, root, "add", "source.go")
+		expected, err := attestor.Attest(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		head, tree := expected.Checkout()
+		index, count, unmerged := expected.Index()
+		if head != "" || tree != "" || index == "" || count != 1 || unmerged {
+			t.Fatalf("unborn staged identity: checkout=%q/%q index=%q count=%d unmerged=%t", head, tree, index, count, unmerged)
+		}
+		if err := attestor.Revalidate(context.Background(), request, expected); err != nil {
+			t.Fatalf("unchanged staged unborn checkout: %v", err)
+		}
+		writeReviewFile(t, source, "package changed\n")
+		reviewGit(t, root, "add", "source.go")
+		if err := attestor.Revalidate(context.Background(), request, expected); !errors.Is(err, ports.ErrProviderSpawnEnvironmentDrift) {
+			t.Fatalf("unborn index drift: %v", err)
+		}
+	})
+	t.Run("private index", func(t *testing.T) {
+		root, attestor, request := fixture(t)
+		writeReviewFile(t, filepath.Join(root, ".mulgae", "private.txt"), "private\n")
+		reviewGit(t, root, "add", "-f", ".mulgae/private.txt")
+		_, err := attestor.Attest(context.Background(), request)
+		requireLocalityReason(t, err, ports.ConfigLocalityTargetPrivateNamespaceForbidden)
+	})
+	for _, test := range []struct{ name, head string }{
+		{"missing detached commit", strings.Repeat("1", 40) + "\n"},
+		{"non-branch symbolic HEAD", "ref: refs/tags/missing\n"},
+		{"malformed HEAD", "not-a-valid-head\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root, attestor, request := fixture(t)
+			writeReviewFile(t, filepath.Join(root, ".git", "HEAD"), test.head)
+			if _, err := attestor.Attest(context.Background(), request); err == nil {
+				t.Fatal("invalid HEAD was admitted as unborn")
+			}
+		})
+	}
+}
+
+func TestGitLocalityContextRejectsIncompleteUnbornIdentity(t *testing.T) {
+	_, _, request, expected := localityFixture(t)
+	device, inode, uid, mode := request.Config().RootIdentity()
+	index, count, unmerged := expected.Index()
+	head, tree := expected.Checkout()
+	for _, test := range []struct {
+		name, head, tree string
+		commits          []string
+	}{
+		{"missing tree", head, "", nil},
+		{"missing commit", "", tree, nil},
+		{"unborn with applicable commit", "", "", []string{head}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ports.NewConfigLocalityContext(expected.RepositoryID(), device, inode, uid, mode, test.head, test.tree, index, count, unmerged, test.commits, request.Config(), expected.Target())
+			if err == nil {
+				t.Fatal("inconsistent checkout identity was accepted")
+			}
+		})
+	}
+}
+
 func localityFixture(t *testing.T) (string, *GitLocalityAttestor, ports.ConfigLocalityRequest, ports.ConfigLocalityContext) {
 	t.Helper()
 	root := reviewCaptureRepository(t)
@@ -252,7 +370,7 @@ func localityFixture(t *testing.T) (string, *GitLocalityAttestor, ports.ConfigLo
 	return root, attestor, request, expected
 }
 
-const localityProjectConfig = `version: 4
+const localityProjectConfig = `version: 5
 project:
   name: "project"
 providers:
@@ -286,7 +404,7 @@ ci:
   degraded_review_fails: true
 `
 
-const localityMachineConfig = `version: 4
+const localityMachineConfig = `version: 5
 native_user:
   home: "/Users/test"
 providers:

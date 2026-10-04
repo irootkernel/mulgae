@@ -172,6 +172,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-command-result.v19.schema.json",
+      "path": "sot/examples/command-result.v19.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v19.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "command-result-validator"
       ],
       "disposition": "ADDED",
@@ -610,18 +622,6 @@
     {
       "checksum_inclusion": true,
       "consumers": [
-        "verified-review-contracts"
-      ],
-      "disposition": "ADDED",
-      "exclusion_reason": null,
-      "media_type": "application/json",
-      "pair": "sot/schemas/mulgae-request-receipt.v1.schema.json",
-      "path": "sot/examples/request-receipt.v1.valid.json",
-      "schema_id": "https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json"
-    },
-    {
-      "checksum_inclusion": true,
-      "consumers": [
         "review-artifact-validator"
       ],
       "disposition": "ADDED",
@@ -714,6 +714,18 @@
       "pair": "sot/schemas/mulgae-review-preflight.v7.schema.json",
       "path": "sot/examples/review-preflight.v7.valid.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v7.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "review-preflight-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-review-preflight.v8.schema.json",
+      "path": "sot/examples/review-preflight.v8.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v8.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -1098,6 +1110,18 @@
       "pair": "sot/examples/command-result.v18.valid.json",
       "path": "sot/schemas/mulgae-command-result.v18.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v18.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/command-result.v19.valid.json",
+      "path": "sot/schemas/mulgae-command-result.v19.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v19.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -1516,18 +1540,6 @@
     {
       "checksum_inclusion": true,
       "consumers": [
-        "verified-review-contracts"
-      ],
-      "disposition": "ADDED",
-      "exclusion_reason": null,
-      "media_type": "application/json",
-      "pair": "sot/examples/request-receipt.v1.valid.json",
-      "path": "sot/schemas/mulgae-request-receipt.v1.schema.json",
-      "schema_id": "https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json"
-    },
-    {
-      "checksum_inclusion": true,
-      "consumers": [
         "review-artifact-validator"
       ],
       "disposition": "ADDED",
@@ -1620,6 +1632,18 @@
       "pair": "sot/examples/review-preflight.v7.valid.json",
       "path": "sot/schemas/mulgae-review-preflight.v7.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v7.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "review-preflight-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/review-preflight.v8.valid.json",
+      "path": "sot/schemas/mulgae-review-preflight.v8.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v8.schema.json"
     },
     {
       "checksum_inclusion": true,

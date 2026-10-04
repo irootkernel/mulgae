@@ -1,6 +1,6 @@
 # Configuration
 
-Mulgae Config v4 has two configuration authorities:
+Mulgae Config v5 has two configuration authorities:
 
 - `<canonical-project-root>/.mulgae/config.yaml` is the Git-shareable project
   policy.
@@ -13,19 +13,18 @@ policy and rejects project-policy options.
 Earlier versions, including Config v2, are rejected; there is no automatic
 migration path.
 
-Config v4 is additive: a release may add an optional project-policy field
+Config v5 is additive: a release may add an optional project-policy field
 without changing the version, and an omitted field keeps its documented
-default. A newer Mulgae reads a file written by an older Config v4 release, but
+default. A newer Mulgae reads a file written by an older Config v5 release, but
 unknown fields are rejected, so an older Mulgae reports `config_yaml_invalid`
 for a file a newer one wrote. Since `config.yaml` is shared through Git, keep every collaborator on
 a Mulgae at least as new as the release that last wrote it.
 
-To migrate Config v3 manually, change both `version` fields to `4`. In
-`local.yaml`, remove ZCode's `node_executable` and `launcher`, then set
-`app_bundle` to their canonical containing app bundle, normally
-`/Applications/ZCode.app`. The shared file must already be valid Config v4
-before `init --refresh-local` can
-rebuild the local file.
+To migrate Config v4 manually, back up the private file, change both `version`
+fields to `5`, and remove the shared snapshot-only `execution.workspace_access`
+block. Source reads and native restrictions are adapter-owned; no replacement
+execution setting exists. Older versions require their documented provider-path
+migration first. Mulgae never migrates or edits existing user files automatically.
 
 ```text
 mulgae init [--project-root PATH] [--name NAME]
@@ -48,7 +47,7 @@ project-policy values; automatic initialization may also accept these two
 flags. New projects write `grok-4.7` and `high` when the corresponding flag is
 omitted. Explicit provider selection that excludes Grok rejects either flag,
 and `init --refresh-local` rejects them even when the supplied value is empty.
-An existing Config v4 file that omits either dimension independently preserves
+An existing Config v5 file that omits either dimension independently preserves
 the provider default.
 
 ZCode uses the standard `/Applications/ZCode.app` bundle by default. An app
@@ -67,12 +66,12 @@ without copying credentials into the disposable review home; it never reads
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.
-`execution.workspace_access` is required and must remain `none`.
+The retired `execution.workspace_access` field is rejected.
 
 `validation.extraction.enabled` admits the Mulgae-owned structured extraction
 trailer, which transcribes an accepted free-form role report into exact finding
 JSON on the same provider and role. `mulgae init` sets it for new projects; an
-existing Config v4 file that omits the block keeps it disabled until you add:
+existing Config v5 file that omits the block keeps it disabled until you add:
 
 ```yaml
 validation:
@@ -185,10 +184,10 @@ not file-access rules. Default Git reviews always retain the configured artist;
 an added or modified supported image matching a hint becomes primary evidence,
 while a review without a matching changed image proceeds from the UI code.
 Added images are primary `after` evidence; modified images provide both `before`
-and `after`. The artist may inspect any file in the captured workspace when
+and `after`. The artist may inspect any admitted file in the original source when
 history or a similar screen is useful.
 
-Initialization installs each Config v4 file atomically and uses an unconditional
+Initialization installs each Config v5 file atomically and uses an unconditional
 project-root durability barrier. The two files cannot commit as one filesystem
 transaction: if project policy commits before the local write fails, init
 reports `project_committed_local_missing`. Resolve any reported local-path

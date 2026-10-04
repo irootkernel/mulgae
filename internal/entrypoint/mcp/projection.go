@@ -191,7 +191,7 @@ func ProjectDiagnosticRunStatus(status ports.RuntimeDiagnosticRunStatus, expecte
 	data := map[string]any{
 		"failed_run_recovery": recovery.UnavailableStatus("source_not_retained"),
 		"kind":                "diagnostic_status_read", "session_id": status.SessionID().String(), "run_id": status.RunID().String(),
-		"run_state": string(status.State()), "publication_status": nil, "recovery_action": "rerun_review",
+		"run_state": string(status.State()), "publication_status": nil, "recovery_action": "none",
 		"final_artifact_uri": nil, "report_resource_uri": nil, "content_verdict": nil, "coverage_status": nil, "ci_decision": nil,
 		"role_report_uris": []any{}, "started_at": status.StartedAt().Format(time.RFC3339Nano),
 		"updated_at": status.UpdatedAt().Format(time.RFC3339Nano), "completed_at": completedAt.Format(time.RFC3339Nano),

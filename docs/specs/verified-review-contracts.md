@@ -1,13 +1,13 @@
 # Verified review contracts
 
-This specification defines the requirements and implemented contracts for
-[EPIC-007](../roadmap/README.md#epic-007-verified-review-contracts).
-The [contracts](contracts.md) describe the current runtime surfaces. TASK-025
-verified the integrated contracts through independent consumers, the complete
-repository gate, and actual supported clients, and updated the operating guidance.
-Epic acceptance remains a separate roadmap decision.
-The roadmap owns delivery status and links the canonical implementation and
-verification outcomes.
+This specification preserves the frozen pre-cutover requirements for
+[EPIC-007](../roadmap/README.md#epic-007-verified-review-contracts), including
+capture-bound guards and composite creation. TASK-038 retires those execution
+surfaces. Current execution is owned by [live workspace and Git review](live-workspace-and-git-review.md)
+and the [contracts](contracts.md). Project binding, coherent verified reads,
+retained historical support and integrity remain implemented. Historical text
+below confers no current source replay or child/compose creation authority.
+The roadmap owns delivery status and Epic acceptance.
 
 ## Purpose and boundary
 

@@ -15,6 +15,13 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
+// WorkspaceRootLease pins a non-Git startup directory without a Git identity.
+// Revalidation rejects replacement, relocation, or newly introduced Git metadata.
+type WorkspaceRootLease interface {
+	Revalidate(context.Context) error
+	Close() error
+}
+
 // WorkspaceSnapshotManifestName is the generated provider-visible manifest
 // added beside captured source files in every materialized review snapshot.
 const WorkspaceSnapshotManifestName = "._mulgae_workspace_manifest.json"
@@ -315,12 +322,6 @@ type WorkspaceExecutionGuard interface {
 	DuplicateLaunchDirectory() (*os.File, error)
 	RevalidateAfterExecution() error
 	Close() error
-}
-
-// WorkspaceSnapshotLeaseFactory materializes captured bytes without receiving
-// authority to read the live project root.
-type WorkspaceSnapshotLeaseFactory interface {
-	MaterializeLease(context.Context, WorkspaceSnapshotRequest) (WorkspaceSnapshotLease, error)
 }
 
 // QualificationWorkspaceLeaseFactory materializes an ephemeral immutable

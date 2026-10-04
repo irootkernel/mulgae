@@ -8,7 +8,7 @@ invoke no provider and do not create report files.
 ## Select available contracts
 
 Use `get_context` or verified inspection `capabilities` and the host's connected
-tools/resources for read support. Preflight v7 has a narrower advertisement and
+tools/resources for read support. Preflight v8 has a narrower advertisement and
 leaves the inspection/page/content fields empty. The
 relevant values are `inspection`, `finding_pages`, `finding_details`,
 `report_content`, `indexed_evidence`, and `composite_evidence`, each `v1` when
@@ -37,8 +37,14 @@ Read `publication_authority`, `publication_state`, `coverage_status`,
 `structured_extraction_status`, `ci_decision`, `capture_availability`,
 `failed_run_recovery`, `publication_receipt`, and `role_reports` independently.
 A diagnostic-only observation has no receipt or content references. No receipt
-means no verified finding/content reads. A retained failed-run recovery source
-can still support the separate [recovery workflow](recovery.md).
+means no verified finding/content reads. A retained historical failed-run source supports verified inspection only.
+
+A current live result advertises `source_evidence: v1`, `capture_availability:
+not_captured` and explicit source identity. Read its excerpts with
+`--source-identity-sha256`; historical excerpts use their retained target digest.
+Source identity hashes selection metadata, not today's content or an archived tree.
+Retained raster URIs use the exact source identity, side and path issued by query.
+Never fall back to current source to fill missing evidence.
 
 A verified capture proves complete retained material; `target_sha256` alone
 hashes the target bytes. `capture_identity_unavailable` is historical absence.
@@ -118,14 +124,14 @@ read. There is no product total-content ceiling; do not truncate a large report
 or treat the first chunk as complete. Empty valid content can finish at offset
 zero. Offset or content-digest errors stop the read.
 
-New composite finding details include copied `source_finding` and
+Historical composite finding details include copied `source_finding` and
 `source_receipt`. Published sources have P2 provenance; failed recovery sources
 have a recovery-manifest digest and attempt, without a fabricated review ID or
 publication receipt. Verified composite evidence reads its retained copies,
 never the live source run or working tree. Historical composites without copied
 evidence remain explicitly unavailable and are not retrofitted by reads.
 
-Treat findings as advisory hypotheses. Compare verified captured evidence with
+Treat findings as advisory hypotheses. Compare verified retained evidence with
 current code before an authorized edit and report valid, invalid or out-of-scope
 judgments with their limits. Never parse private final/role-report files as a
 substitute for these verified surfaces. Source cleanup remains governed by native

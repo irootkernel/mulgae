@@ -64,7 +64,7 @@ func TestProductionCatalogPinsEveryEmbeddedAssetDigest(t *testing.T) {
 }
 
 func TestArtistVisualEvidencePathContractMatchesCommonPrompt(t *testing.T) {
-	common, err := os.ReadFile(filepath.Join(testSOTRoot, "prompts", "root-review", "common.v1.txt"))
+	common, err := os.ReadFile(filepath.Join(testSOTRoot, "prompts", "live-review", "common.v1.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,21 +72,10 @@ func TestArtistVisualEvidencePathContractMatchesCommonPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	for name, document := range map[string][]byte{
-		"common prompt": common,
-		"role catalog":  roles,
-	} {
-		if !bytes.Contains(document, []byte("exact captured workspace path")) {
-			t.Fatalf("%s does not require the exact captured workspace path for visual evidence", name)
+	for name, document := range map[string][]byte{"common prompt": common, "role catalog": roles} {
+		if !bytes.Contains(document, []byte("project-relative")) || !bytes.Contains(document, []byte("base, head, worktree, or index")) {
+			t.Fatalf("%s lacks the live image path and source-side contract", name)
 		}
-	}
-	if !bytes.Contains(common, []byte("without a `current/`, `before/`, or `after/` prefix")) ||
-		!bytes.Contains(common, []byte("including its `current/`, `before/`, or `after/` prefix")) {
-		t.Fatal("common prompt does not distinguish project-relative code evidence from side-qualified visual evidence")
-	}
-	if !bytes.Contains(roles, []byte("including its current/before/after prefix")) {
-		t.Fatal("artist role does not preserve the side-qualified visual evidence path")
 	}
 }
 
@@ -242,8 +231,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 154 {
-		t.Fatalf("manifest asset count = %d, want 154", len(manifest.Assets))
+	if len(manifest.Assets) != 156 {
+		t.Fatalf("manifest asset count = %d, want 156", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -328,8 +317,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 143 {
-		t.Fatalf("authoritative runtime source count = %d, want 143", len(authoritativeSources))
+	if len(authoritativeSources) != 145 {
+		t.Fatalf("authoritative runtime source count = %d, want 145", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -480,7 +469,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 		"`<canonical-project-root>/.mulgae/local.yaml` contains machine-local native",
 		"--providers auto|FAMILY[,FAMILY...]",
 		"`FAMILY := zcode | grok | codex`",
-		"`execution.workspace_access` is required",
+		"The retired `execution.workspace_access` field is rejected.",
 		"Mulgae roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nMulgae reports findings and recommendations only.",
 		"Automatic initialization requires ZCode and Grok",
 		"unconditional\nproject-root durability barrier",
@@ -498,7 +487,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 	}
 }
 
-func TestCatalogProvidersHelpUsesExactReplayGrammar(t *testing.T) {
+func TestCatalogProvidersHelpUsesLiveSourceProtocol(t *testing.T) {
 	t.Parallel()
 
 	catalog := NewCatalog()
@@ -507,15 +496,17 @@ func TestCatalogProvidersHelpUsesExactReplayGrammar(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(help)
-	if !strings.Contains(content, "`rerun --replay exact`") {
-		t.Error("providers help does not document the exact replay grammar")
+	if !strings.Contains(content, "original source reads from a neutral cwd") {
+		t.Error("providers help does not document the live source boundary")
 	}
-	if strings.Contains(content, "`rerun --exact`") {
-		t.Error("providers help retains the unsupported --exact flag")
+	for _, retired := range []string{"`rerun --replay exact`", "`rerun --exact`"} {
+		if strings.Contains(content, retired) {
+			t.Errorf("providers help advertises retired execution grammar %q", retired)
+		}
 	}
 }
 
-func TestCatalogArtifactsHelpDocumentsCompositeLayout(t *testing.T) {
+func TestCatalogArtifactsHelpDocumentsLiveAndHistoricalLayout(t *testing.T) {
 	t.Parallel()
 
 	catalog := NewCatalog()
@@ -528,13 +519,13 @@ func TestCatalogArtifactsHelpDocumentsCompositeLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	for source, content := range map[string]string{"help": string(help), "example": string(example)} {
-		for _, required := range []string{"status.json", "publication/", "role-reports/", "support/", "target/", "final-candidate.json"} {
+		for _, required := range []string{"status.json", "publication/", "role-reports/", "support/", "source/source.json", "target/", "final-candidate.json"} {
 			if !strings.Contains(content, required) {
-				t.Errorf("%s composite artifact layout is missing %q", source, required)
+				t.Errorf("%s artifact layout is missing %q", source, required)
 			}
 		}
 	}
-	if !strings.Contains(string(help), "provider runtime stream or attempts") {
+	if !strings.Contains(string(help), "Historical composite runs have no provider runtime stream or attempts") {
 		t.Error("artifact help does not distinguish provider-free composite runs")
 	}
 }
@@ -561,7 +552,6 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 
 	expected := []schemaExamplePair{
 		{"https://mulgae.local/schemas/mulgae-capture-manifest.v1.schema.json", "schemas/mulgae-capture-manifest.v1.schema.json", "examples/capture-manifest.v1.valid.json"},
-		{"https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json", "schemas/mulgae-request-receipt.v1.schema.json", "examples/request-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-publication-receipt.v2.schema.json", "schemas/mulgae-publication-receipt.v2.schema.json", "examples/publication-receipt.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-export-manifest.v2.schema.json", "schemas/mulgae-export-manifest.v2.schema.json", "examples/export-manifest.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-publication-receipt.v1.schema.json", "schemas/mulgae-publication-receipt.v1.schema.json", "examples/publication-receipt.v1.valid.json"},
@@ -576,6 +566,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-command-result.v16.schema.json", "schemas/mulgae-command-result.v16.schema.json", "examples/command-result.v16.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v17.schema.json", "schemas/mulgae-command-result.v17.schema.json", "examples/command-result.v17.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v18.schema.json", "schemas/mulgae-command-result.v18.schema.json", "examples/command-result.v18.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v19.schema.json", "schemas/mulgae-command-result.v19.schema.json", "examples/command-result.v19.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v10.schema.json", "schemas/mulgae-command-result.v10.schema.json", "examples/command-result.v10.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v9.schema.json", "schemas/mulgae-command-result.v9.schema.json", "examples/command-result.v9.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v8.schema.json", "schemas/mulgae-command-result.v8.schema.json", "examples/command-result.v8.valid.json"},
@@ -618,13 +609,14 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v7.schema.json", "schemas/mulgae-review-preflight.v7.schema.json", "examples/review-preflight.v7.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v4.schema.json", "schemas/mulgae-review-preflight.v4.schema.json", "examples/review-preflight.v4.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json", "schemas/mulgae-review-preflight.v3.schema.json", "examples/review-preflight.v3.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-review-preflight.v8.schema.json", "schemas/mulgae-review-preflight.v8.schema.json", "examples/review-preflight.v8.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "schemas/mulgae-run-manifest.v1.schema.json", "examples/run-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json", "schemas/mulgae-run-manifest.v3.schema.json", "examples/run-manifest.v3.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.v1.valid.json"},
 	}
-	if len(expected) != 60 {
-		t.Fatalf("test pair inventory contains %d pairs, want 60", len(expected))
+	if len(expected) != 61 {
+		t.Fatalf("test pair inventory contains %d pairs, want 61", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

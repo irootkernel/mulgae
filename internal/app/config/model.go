@@ -16,14 +16,13 @@ import (
 // configured provider families can run.
 var ErrRoleProviderUnsupported = errors.New("role provider unsupported")
 
-// Config is the admitted effective value merged from Config v4's project and
+// Config is the admitted effective value merged from Config v5's project and
 // machine-local authorities.
 type Config struct {
 	Version    int              `yaml:"version" json:"version"`
 	Project    ProjectConfig    `yaml:"project" json:"project"`
 	NativeUser NativeUserConfig `yaml:"native_user" json:"native_user"`
 	Providers  ProvidersConfig  `yaml:"providers" json:"providers"`
-	Execution  ExecutionConfig  `yaml:"execution" json:"execution"`
 	Roles      RolesConfig      `yaml:"roles" json:"roles"`
 	Review     ReviewConfig     `yaml:"review" json:"review"`
 	Validation ValidationConfig `yaml:"validation" json:"validation"`
@@ -78,9 +77,6 @@ func (provider CodexProviderConfig) CredentialHome(profile string) (string, bool
 	return "", false
 }
 
-type ExecutionConfig struct {
-	WorkspaceAccess string `yaml:"workspace_access" json:"workspace_access"`
-}
 type RolesConfig struct {
 	Logic           RoleConfig `yaml:"logic" json:"logic"`
 	Security        RoleConfig `yaml:"security" json:"security"`
@@ -137,7 +133,7 @@ type CIConfig struct {
 }
 
 const (
-	ConfigVersion           = 4
+	ConfigVersion           = 5
 	DefaultProviderTimeout  = 60 * time.Minute
 	MinimumProviderTimeout  = time.Minute
 	MaximumProviderTimeout  = 60 * time.Minute
@@ -176,7 +172,7 @@ func ValidZCodeReasoningEffort(value string) bool {
 	return grokReasoningEffortPattern.MatchString(value)
 }
 
-// ValidGrokModel reports whether value has the exact Config v4 Grok model
+// ValidGrokModel reports whether value has the exact Config v5 Grok model
 // grammar. The spelling is validated as supplied and is never normalized.
 func ValidGrokModel(value string) bool {
 	if !grokModelPattern.MatchString(value) || path.IsAbs(value) || strings.Contains(value, "//") {
@@ -190,13 +186,13 @@ func ValidGrokModel(value string) bool {
 	return true
 }
 
-// ValidGrokReasoningEffort reports whether value has the exact Config v4
+// ValidGrokReasoningEffort reports whether value has the exact Config v5
 // Grok reasoning-effort grammar.
 func ValidGrokReasoningEffort(value string) bool {
 	return grokReasoningEffortPattern.MatchString(value)
 }
 
-// ParseProviderTimeout resolves an optional Config v4 provider timeout. An
+// ParseProviderTimeout resolves an optional Config v5 provider timeout. An
 // omitted value uses the fixed 60-minute default, which is also the admitted
 // maximum; explicit values are bounded inclusively between one and sixty
 // minutes, so a project may only shorten a provider window.
@@ -211,7 +207,7 @@ func ParseProviderTimeout(value string) (time.Duration, error) {
 	return timeout, nil
 }
 
-// ProviderTimeoutText returns the stable Config v4 spelling for a valid
+// ProviderTimeoutText returns the stable Config v5 spelling for a valid
 // provider timeout. Whole-minute values use the concise "30m" form.
 func ProviderTimeoutText(timeout time.Duration) string {
 	return canonicalProviderTimeout(timeout)
@@ -267,7 +263,7 @@ func coreRoleIDs() []string {
 }
 
 // CanonicalRolesConfigForSelection derives the deterministic assignments for
-// every Config v4 role while enabling only the canonical project role set.
+// every Config v5 role while enabling only the canonical project role set.
 // Logic forms the project-level floor, not a per-run selection.
 //
 // Each role resolves independently from its own build-owned preference order, so
@@ -424,7 +420,7 @@ type Codec interface {
 	EncodeCanonical(Config) ([]byte, error)
 }
 
-// SplitCodec owns the disk projection and merge rules for Config v4's paired
+// SplitCodec owns the disk projection and merge rules for Config v5's paired
 // authorities.
 type SplitCodec interface {
 	Codec

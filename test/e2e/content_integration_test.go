@@ -26,14 +26,6 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedContent(t *testing.T) {
 	binary := buildMulgaeBinary(t, source)
 	project := canonicalTestTempDir(t)
 	initializeReviewGitRepository(t, project)
-	patch := exec.Command("git", "diff", "HEAD", "--")
-	patch.Dir = project
-	patchBytes, err := patch.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := sha256.Sum256(patchBytes)
-	target := "sha256:" + hex.EncodeToString(digest[:])
 	claims := []any{}
 	for _, item := range []struct {
 		line  int
@@ -50,7 +42,7 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedContent(t *testing.T) {
 	providerDirectory := canonicalTestTempDir(t)
 	providerLog := filepath.Join(canonicalTestTempDir(t), "provider.jsonl")
 	bundle, node, launcher := fakeZCodeAppPaths(providerDirectory)
-	buildFakeZCodeWithReport(t, source, node, launcher, providerLog, "success", "write", "", body)
+	buildFakeZCodeWithReport(t, source, node, launcher, providerLog, "success", "", body)
 	environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
 	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic", bundle)
 	command := func(want int, args ...string) map[string]any {
@@ -66,11 +58,9 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedContent(t *testing.T) {
 		}
 		return envelope["result"].(map[string]any)
 	}
-	preflight := command(0, "review", "--dirty", "--roles", "logic", "--preflight", "--output", "json")["preflight"].(map[string]any)
-	if preflight["target"].(map[string]any)["sha256"] != target {
-		t.Fatal("fixture patch differs from admitted target")
-	}
-	review := command(1, "review", "--dirty", "--roles", "logic", "--output", "json")
+	preflight := command(0, "review", "--workspace", "--roles", "logic", "--preflight", "--output", "json")["preflight"].(map[string]any)
+	target := preflight["source_identity_sha256"].(string)
+	review := command(1, "review", "--workspace", "--roles", "logic", "--output", "json")
 	run := review["run_id"].(string)
 	beforeLog, err := os.ReadFile(providerLog)
 	if err != nil {
@@ -115,6 +105,9 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedContent(t *testing.T) {
 		return all
 	}
 	rendered := readCLI([]string{"read-report", "--run", run})
+	if !bytes.Contains(rendered, []byte("Source selection SHA-256")) || bytes.Contains(rendered, []byte("Current target SHA-256")) {
+		t.Fatal("live report conflated selection identity with captured content")
+	}
 	if original := readCLI([]string{"read-report", "--run", run, "--role", "logic"}); !bytes.Equal(original, []byte(body)) {
 		t.Fatal("original role report changed")
 	}
@@ -126,7 +119,7 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedContent(t *testing.T) {
 	}
 	excerpts := make([][]byte, 2)
 	for i := range evidence {
-		excerpts[i] = readCLI([]string{"excerpt", "--run", run, "--finding", id, "--current-target-sha256", target, "--evidence-index", strconv.Itoa(i)})
+		excerpts[i] = readCLI([]string{"excerpt", "--run", run, "--finding", id, "--source-identity-sha256", target, "--evidence-index", strconv.Itoa(i)})
 	}
 	if !(bytes.Equal(excerpts[0], []byte("package review\n")) && bytes.Equal(excerpts[1], []byte("const state = \"after\"\n")) || bytes.Equal(excerpts[1], []byte("package review\n")) && bytes.Equal(excerpts[0], []byte("const state = \"after\"\n"))) {
 		t.Fatal("evidence bytes changed")

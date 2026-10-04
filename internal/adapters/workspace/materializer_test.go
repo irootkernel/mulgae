@@ -15,12 +15,9 @@ import (
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
-	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
-
-const testRunID = "r_019f596a-cf81-7c67-b265-f37053d51ccf"
 
 type detectorFunc func(context.Context, ports.SafeRelativePath, []byte) (ports.WorkspaceContentVerdict, error)
 
@@ -78,36 +75,6 @@ func materializer(t *testing.T, detector detectorFunc) *Materializer {
 	}
 	return result
 }
-func terminalReceipt(t *testing.T) ports.ProviderNamespaceTerminalReceipt {
-	t.Helper()
-	factory, err := providercli.NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "workspace-test", providercli.FamilyZcode)
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := lease.DrainTerminal(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return receipt
-}
-
-func completionEvidence(t *testing.T, workspace ports.WorkspaceSnapshotIdentity, runID string) ports.WorkspaceCompletionEvidence {
-	t.Helper()
-	terminal, err := ports.NewProviderRunTerminalReceipt([]ports.ProviderNamespaceTerminalReceipt{terminalReceipt(t)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	evidence, err := ports.NewWorkspaceCompletionEvidence(workspace, runID, terminal)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return evidence
-}
-
 func TestMaterializeLinkedFilesAndReceipt(t *testing.T) {
 	m := materializer(t, cleanDetector)
 	request := snapshotRequest(t, snapshotFile(t, "docs/linked.md", "linked"), snapshotFile(t, "roadmap.md", "roadmap"))
@@ -328,7 +295,7 @@ func TestSnapshotDefensiveCopiesDriftAndOwnership(t *testing.T) {
 		t.Fatal("cleanup removed drifted snapshot")
 	}
 }
-func TestMaterializeLeaseRevalidationRejectsFilesystemDrift(t *testing.T) {
+func TestQualificationLeaseRevalidationRejectsFilesystemDrift(t *testing.T) {
 	request := snapshotRequest(t, snapshotFile(t, "docs/a.md", "a"), snapshotFile(t, "top.md", "top"))
 	cases := []struct {
 		name   string
@@ -426,33 +393,33 @@ func TestMaterializeLeaseRevalidationRejectsFilesystemDrift(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			m := materializer(t, cleanDetector)
-			lease, err := m.MaterializeLease(context.Background(), request)
+			lease, err := m.MaterializeQualificationLease(context.Background(), request)
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { makeWorkspaceWritable(t, m.root.String()) })
-			test.mutate(t, lease.Receipt().SnapshotPath())
+			test.mutate(t, lease.(*qualificationWorkspaceLease).receipt.SnapshotPath())
 			if _, err := lease.RevalidateForExecution(); err == nil {
 				t.Fatal("execution revalidation accepted filesystem drift")
 			}
-			if err := m.Cleanup(lease.Receipt()); err == nil {
+			if err := m.Cleanup(lease.(*qualificationWorkspaceLease).receipt); err == nil {
 				t.Fatal("cleanup removed drifted snapshot")
 			}
-			if _, err := os.Lstat(lease.Receipt().SnapshotPath()); err != nil {
+			if _, err := os.Lstat(lease.(*qualificationWorkspaceLease).receipt.SnapshotPath()); err != nil {
 				t.Fatalf("cleanup did not preserve drift evidence: %v", err)
 			}
 		})
 	}
 }
 
-func TestMaterializeLeaseRejectsSnapshotAndRootReplacement(t *testing.T) {
+func TestQualificationLeaseRejectsSnapshotAndRootReplacement(t *testing.T) {
 	t.Run("snapshot", func(t *testing.T) {
 		m := materializer(t, cleanDetector)
-		lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
+		lease, err := m.MaterializeQualificationLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
 		if err != nil {
 			t.Fatal(err)
 		}
-		snapshot := lease.Receipt().SnapshotPath()
+		snapshot := lease.(*qualificationWorkspaceLease).receipt.SnapshotPath()
 		parked := snapshot + "-original"
 		if err := os.Rename(snapshot, parked); err != nil {
 			t.Fatal(err)
@@ -464,7 +431,7 @@ func TestMaterializeLeaseRejectsSnapshotAndRootReplacement(t *testing.T) {
 		if _, err := lease.RevalidateForExecution(); err == nil {
 			t.Fatal("execution revalidation accepted replacement snapshot")
 		}
-		if err := m.Cleanup(lease.Receipt()); err == nil {
+		if err := m.Cleanup(lease.(*qualificationWorkspaceLease).receipt); err == nil {
 			t.Fatal("cleanup removed replacement snapshot")
 		}
 		if _, err := os.Lstat(snapshot); err != nil {
@@ -488,7 +455,7 @@ func TestMaterializeLeaseRejectsSnapshotAndRootReplacement(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
+		lease, err := m.MaterializeQualificationLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -503,7 +470,7 @@ func TestMaterializeLeaseRejectsSnapshotAndRootReplacement(t *testing.T) {
 		if _, err := lease.RevalidateForExecution(); err == nil {
 			t.Fatal("execution revalidation accepted replacement root")
 		}
-		if err := m.Cleanup(lease.Receipt()); err == nil {
+		if err := m.Cleanup(lease.(*qualificationWorkspaceLease).receipt); err == nil {
 			t.Fatal("cleanup removed replacement root")
 		}
 		if _, err := os.Lstat(filepath.Join(parked, lease.WorkspaceSnapshotIdentity().SnapshotName())); err != nil {
@@ -512,71 +479,9 @@ func TestMaterializeLeaseRejectsSnapshotAndRootReplacement(t *testing.T) {
 	})
 }
 
-func TestMaterializeLeaseGuardsAndCompletionReceipt(t *testing.T) {
+func TestQualificationLeaseFailedCleanupReturnsNoReceipt(t *testing.T) {
 	m := materializer(t, cleanDetector)
-	lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "docs/a.md", "a")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	evidence := completionEvidence(t, lease.WorkspaceSnapshotIdentity(), testRunID)
-	first, err := lease.RevalidateForExecution()
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := lease.RevalidateForExecution()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lease.Release(evidence); err == nil {
-		t.Fatal("released with active guards")
-	}
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lease.Release(evidence); err == nil {
-		t.Fatal("released while an independent guard remained active")
-	}
-	if err := second.Close(); err != nil {
-		t.Fatal(err)
-	}
-	terminal, err := lease.Release(evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !terminal.Valid() || terminal.WorkspaceSnapshotIdentity() != lease.WorkspaceSnapshotIdentity() || terminal.RunID() != evidence.RunID() || !terminal.ProviderRunTerminalReceipt().Equal(evidence.ProviderRunTerminalReceipt()) {
-		t.Fatalf("release terminal receipt = %#v", terminal)
-	}
-	if _, err := os.Lstat(lease.WorkspaceSnapshotIdentity().SnapshotPath()); !os.IsNotExist(err) {
-		t.Fatalf("release issued receipt before cleanup: %v", err)
-	}
-	if _, err := lease.Release(evidence); err == nil {
-		t.Fatal("release accepted an idempotent terminal retry")
-	}
-}
-
-func TestMaterializeLeaseCompletionRequiresMatchingWorkspace(t *testing.T) {
-	m := materializer(t, cleanDetector)
-	lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	other, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "b.md", "b")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lease.Release(completionEvidence(t, other.WorkspaceSnapshotIdentity(), testRunID)); err == nil {
-		t.Fatal("released with another valid workspace identity")
-	}
-	if _, err := lease.Release(completionEvidence(t, lease.WorkspaceSnapshotIdentity(), testRunID)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := other.Release(completionEvidence(t, other.WorkspaceSnapshotIdentity(), testRunID)); err != nil {
-		t.Fatal(err)
-	}
-}
-func TestMaterializeLeaseFailedCleanupReturnsNoReceipt(t *testing.T) {
-	m := materializer(t, cleanDetector)
-	lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
+	lease, err := m.MaterializeQualificationLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,60 +490,15 @@ func TestMaterializeLeaseFailedCleanupReturnsNoReceipt(t *testing.T) {
 	if err := os.Rename(snapshot, snapshot+"-renamed"); err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := lease.Release(completionEvidence(t, lease.WorkspaceSnapshotIdentity(), testRunID))
+	receipt, err := lease.DrainTerminal(context.Background())
 	if err == nil || receipt.Valid() {
 		t.Fatalf("failed cleanup issued terminal receipt: %#v, %v", receipt, err)
 	}
 }
 
-func TestMaterializeLeaseAbortRequiresExactEvidenceAndNoGuards(t *testing.T) {
-	m := materializer(t, cleanDetector)
-	lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	guard, err := lease.RevalidateForExecution()
-	if err != nil {
-		t.Fatal(err)
-	}
-	terminalReceipt := terminalReceipt(t)
-	runTerminalReceipt, err := ports.NewProviderRunTerminalReceipt([]ports.ProviderNamespaceTerminalReceipt{terminalReceipt})
-	if err != nil {
-		t.Fatal(err)
-	}
-	abort, err := ports.NewWorkspaceAbortEvidence(lease.WorkspaceSnapshotIdentity(), ports.WorkspaceAbortExecutionFailure, runTerminalReceipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lease.Abort(abort); err == nil {
-		t.Fatal("aborted with active execution guard")
-	}
-	if err := guard.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := lease.Abort(abort); err != nil {
-		t.Fatal(err)
-	}
-	if err := lease.Abort(abort); err != nil {
-		t.Fatalf("exact abort retry failed: %v", err)
-	}
-	differentAbort, err := ports.NewWorkspaceAbortEvidence(lease.WorkspaceSnapshotIdentity(), ports.WorkspaceAbortSecurityViolation, runTerminalReceipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lease.Abort(differentAbort); err == nil {
-		t.Fatal("accepted non-identical abort retry")
-	}
-	if _, err := lease.Release(completionEvidence(t, lease.WorkspaceSnapshotIdentity(), testRunID)); err == nil {
-		t.Fatal("released an already aborted lease")
-	}
-	if _, err := lease.RevalidateForExecution(); err == nil {
-		t.Fatal("aborted lease minted an execution guard")
-	}
-}
 func TestCleanupQuarantineRestoresReplacementAfterValidatedSwap(t *testing.T) {
 	m := materializer(t, cleanDetector)
-	lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "owned")))
+	lease, err := m.MaterializeQualificationLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "owned")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,7 +524,7 @@ func TestCleanupQuarantineRestoresReplacementAfterValidatedSwap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	owner := cleanupOwnerForReceipt(m, lease.Receipt())
+	owner := cleanupOwnerForReceipt(m, lease.(*qualificationWorkspaceLease).receipt)
 	if err := owner.Retry(); err != nil {
 		t.Fatalf("cleanup after initial pathname displacement: %v", err)
 	}
@@ -677,7 +537,7 @@ func TestCleanupQuarantineRestoresReplacementAfterValidatedSwap(t *testing.T) {
 }
 func TestCleanupQuarantineRejectsTombSubstitutionAfterVerification(t *testing.T) {
 	m := materializer(t, cleanDetector)
-	lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "owned")))
+	lease, err := m.MaterializeQualificationLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "owned")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +566,7 @@ func TestCleanupQuarantineRejectsTombSubstitutionAfterVerification(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	owner := cleanupOwnerForReceipt(m, lease.Receipt())
+	owner := cleanupOwnerForReceipt(m, lease.(*qualificationWorkspaceLease).receipt)
 	if err := owner.Retry(); err != nil {
 		t.Fatalf("cleanup after tomb substitution: %v", err)
 	}
@@ -834,7 +694,7 @@ func TestCleanupOwnerRetainsDescriptorAcrossPostUnlinkFailures(t *testing.T) {
 
 func TestExecutionGuardCloseFailureRetainsLeaseOwnership(t *testing.T) {
 	m := materializer(t, cleanDetector)
-	lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "owned")))
+	lease, err := m.MaterializeQualificationLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "owned")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -855,13 +715,13 @@ func TestExecutionGuardCloseFailureRetainsLeaseOwnership(t *testing.T) {
 	if err := guard.Close(); !errors.Is(err, closeFailure) {
 		t.Fatalf("guard close failure = %v", err)
 	}
-	if _, err := lease.Release(completionEvidence(t, lease.WorkspaceSnapshotIdentity(), testRunID)); err == nil {
+	if _, err := lease.DrainTerminal(context.Background()); err == nil {
 		t.Fatal("lease released after failed guard close")
 	}
 	if err := guard.Close(); err != nil {
 		t.Fatalf("guard close retry: %v", err)
 	}
-	if _, err := lease.Release(completionEvidence(t, lease.WorkspaceSnapshotIdentity(), testRunID)); err != nil {
+	if _, err := lease.DrainTerminal(context.Background()); err != nil {
 		t.Fatalf("release after proven guard close: %v", err)
 	}
 }
@@ -873,19 +733,19 @@ func TestMaterializeReceiptDoesNotExposeExecutionAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := any(receipt).(ports.WorkspaceExecutionAuthority); ok {
-		t.Fatal("legacy receipt exposed execution authority")
+		t.Fatal("materialization receipt exposed execution authority")
 	}
 	if err := m.Cleanup(receipt); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := m.MaterializeLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
+	lease, err := m.MaterializeQualificationLease(context.Background(), snapshotRequest(t, snapshotFile(t, "a.md", "a")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := any(lease).(ports.WorkspaceExecutionAuthority); !ok {
-		t.Fatal("v2 lease did not expose execution authority")
+		t.Fatal("qualification lease did not expose execution authority")
 	}
-	if _, err := lease.Release(completionEvidence(t, lease.WorkspaceSnapshotIdentity(), testRunID)); err != nil {
+	if _, err := lease.DrainTerminal(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -985,10 +845,10 @@ func TestQualificationLeaseRejectsDriftWithoutTerminalReceipt(t *testing.T) {
 	}
 }
 
-func TestQualificationLeaseIsIndependentFromUserWorkspaceLease(t *testing.T) {
+func TestQualificationLeasesHaveIndependentCleanup(t *testing.T) {
 	m := materializer(t, cleanDetector)
 	request := snapshotRequest(t, snapshotFile(t, "roadmap.md", "roadmap"))
-	userLease, err := m.MaterializeLease(context.Background(), request)
+	otherLease, err := m.MaterializeQualificationLease(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -996,20 +856,20 @@ func TestQualificationLeaseIsIndependentFromUserWorkspaceLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if userLease.WorkspaceSnapshotIdentity() == qualificationLease.WorkspaceSnapshotIdentity() {
-		t.Fatal("qualification and user leases share an identity")
+	if otherLease.WorkspaceSnapshotIdentity() == qualificationLease.WorkspaceSnapshotIdentity() {
+		t.Fatal("independent qualification leases share an identity")
 	}
 	if _, err := qualificationLease.DrainTerminal(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	userGuard, err := userLease.RevalidateForExecution()
+	otherGuard, err := otherLease.RevalidateForExecution()
 	if err != nil {
-		t.Fatalf("qualification cleanup affected user lease: %v", err)
+		t.Fatalf("qualification cleanup affected another lease: %v", err)
 	}
-	if err := userGuard.Close(); err != nil {
+	if err := otherGuard.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := userLease.Release(completionEvidence(t, userLease.WorkspaceSnapshotIdentity(), testRunID)); err != nil {
+	if _, err := otherLease.DrainTerminal(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -78,3 +78,28 @@ func TestValidateLiveReviewRejectsMixedIdentityBeforeSchemaOrRepair(t *testing.T
 		t.Fatal("mixed live/captured scope reached provider validation or repair")
 	}
 }
+
+func TestLiveArtistVisualIdentityCannotCrossSourceSides(t *testing.T) {
+	scope := liveValidationScope(t)
+	scope.Role = domain.RoleArtist
+	digest := "sha256:" + strings.Repeat("c", 64)
+	const path = "design/home.png"
+	raw := providerReviewWith(t, func(document map[string]any) {
+		item := document["findings"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)
+		item["current"].(map[string]any)["side"] = "head"
+		item["visual"] = map[string]any{"path": path, "sha256": digest, "bbox": map[string]any{"x": 0, "y": 0, "width": 1, "height": 1}}
+	})
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	scope.VisualAssets = map[string]string{"head\x00" + path: digest, "base\x00" + path: "sha256:" + strings.Repeat("d", 64)}
+	if _, plan, err := validator.Validate(context.Background(), raw, scope); err != nil || plan != nil {
+		t.Fatalf("verified head raster rejected: %v", err)
+	}
+	scope.VisualAssets = map[string]string{"base\x00" + path: digest}
+	if _, _, err := validator.Validate(context.Background(), raw, scope); err == nil {
+		t.Fatal("base raster admitted as head evidence")
+	}
+	scope.VisualAssets = map[string]string{path: digest}
+	if _, _, err := validator.Validate(context.Background(), raw, scope); err == nil {
+		t.Fatal("unqualified captured path admitted as live visual identity")
+	}
+}

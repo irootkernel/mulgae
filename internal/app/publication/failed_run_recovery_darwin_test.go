@@ -14,11 +14,9 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
-	"github.com/irootkernel/mulgae/internal/adapters/workspace"
 	"github.com/irootkernel/mulgae/internal/app/clean"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
-	"github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -68,21 +66,18 @@ func TestIntegrationFailedRecoveryReadAfterProcessRestart(t *testing.T) {
 		if _, err := queries.ReadCommitted(ctx, run); err == nil {
 			t.Fatal("failed recovery acquired final-review authority")
 		}
-		for _, attempt := range snapshot.Document().Attempts {
-			id, err := domain.ParseAttemptID(attempt.AttemptID)
-			if err != nil {
-				t.Fatal(err)
+		reference, err := snapshot.Reference()
+		if err != nil || reference.RunID() != runID || reference.ReviewID().String() != "" || reference.RecoveryManifestSHA256() != recovery.Digest(snapshot.Manifest()) {
+			t.Fatalf("historical recovery lost verified source identity: %v", err)
+		}
+		for _, blob := range snapshot.Document().Blobs() {
+			content := snapshot.Blob(blob)
+			if recovery.Digest(content) != blob.SHA256 || int64(len(content)) != blob.ByteLength {
+				t.Fatal("historical recovery blob lost bound content")
 			}
-			source, err := rerun.SourceFromRecovery(snapshot, id)
-			if attempt.Role == domain.RoleLogic {
-				if err == nil {
-					t.Fatal("accepted role became replayable")
-				}
-				continue
-			}
-			if err != nil || source.ReviewID.String() != "" || source.RecoveryManifestSHA256 != recovery.Digest(snapshot.Manifest()) || len(source.Target.CapturedArchive) == 0 {
-				t.Fatalf("replay source lost authority: %v", err)
-			}
+		}
+		if len(snapshot.Blob(snapshot.Document().Target.CapturedArchive)) == 0 {
+			t.Fatal("historical archive disappeared after restart")
 		}
 		return
 	}
@@ -91,37 +86,13 @@ func TestIntegrationFailedRecoveryReadAfterProcessRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspaceRoot, err := ports.NewAnchoredRoot(t.TempDir())
+	// Construct a validated historical fixture without reviving source execution.
+	manifest := recovery.Digest([]byte("historical snapshot manifest"))
+	prepared, err := PrepareFailedRunRecovery(ctx, result, target, domain.SeverityHigh, manifest, RunPublicationContext{}, inputs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	materializer, err := workspace.NewMaterializer(workspaceRoot, filesystem.NewContentDetector())
-	if err != nil {
-		t.Fatal(err)
-	}
-	material, err := ports.UnmarshalCapturedReviewMaterial(inputs[0].CapturedArchive())
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := materializer.MaterializeLease(ctx, material.Snapshot())
-	if err != nil {
-		t.Fatal(err)
-	}
-	prepared, err := PrepareFailedRunRecovery(ctx, result, target, domain.SeverityHigh, lease.WorkspaceSnapshotIdentity().ManifestSHA256(), RunPublicationContext{}, inputs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	completion, err := ports.NewWorkspaceCompletionEvidence(lease.WorkspaceSnapshotIdentity(), result.RunID().String(), ports.NewEmptyProviderRunTerminalReceipt())
-	if err != nil {
-		t.Fatal(err)
-	}
-	terminal, err := lease.Release(completion)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(lease.WorkspaceSnapshotIdentity().SnapshotPath()); !os.IsNotExist(err) {
-		t.Fatalf("workspace remains after terminal release: %v", err)
-	}
+	terminal := failedRecoveryTerminalReceipt(t, result.RunID(), manifest)
 	publisher, err := NewService(store, validator, clock, 8<<20)
 	if err != nil {
 		t.Fatal(err)
@@ -157,12 +128,16 @@ func TestIntegrationFailedRecoveryReadAfterProcessRestart(t *testing.T) {
 		}
 		failure := errors.New("injected workspace removal failure")
 		failedLease, err := ports.AcquireWorkspaceSnapshotLease(ctx, func(_ context.Context, binding ports.WorkspaceTerminalBinding) (ports.WorkspaceSnapshotLease, error) {
-			release, err := binding.Bind(lease.WorkspaceSnapshotIdentity(), func(ports.WorkspaceCompletionEvidence) error { return failure })
+			release, err := binding.Bind(terminal.WorkspaceSnapshotIdentity(), func(ports.WorkspaceCompletionEvidence) error { return failure })
 			if err != nil {
 				return nil, err
 			}
-			return failedRecoveryReleaseLease{WorkspaceSnapshotLease: lease, release: release}, nil
+			return recoveryReceiptLease{identity: terminal.WorkspaceSnapshotIdentity(), release: release}, nil
 		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		completion, err := ports.NewWorkspaceCompletionEvidence(terminal.WorkspaceSnapshotIdentity(), result.RunID().String(), ports.NewEmptyProviderRunTerminalReceipt())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -221,23 +196,12 @@ func TestIntegrationFailedRecoveryReadAfterProcessRestart(t *testing.T) {
 	for _, blob := range document.Blobs() {
 		childBlobs[blob.SHA256] = snapshot.Blob(blob)
 	}
-	childLease, err := materializer.MaterializeLease(ctx, material.Snapshot())
-	if err != nil {
-		t.Fatal(err)
-	}
-	document.SnapshotManifestSHA256 = childLease.WorkspaceSnapshotIdentity().ManifestSHA256()
+	document.SnapshotManifestSHA256 = manifest
 	childPrepared, err := recovery.NewPrepared(ctx, document, childBlobs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	childCompletion, err := ports.NewWorkspaceCompletionEvidence(childLease.WorkspaceSnapshotIdentity(), childID.String(), ports.NewEmptyProviderRunTerminalReceipt())
-	if err != nil {
-		t.Fatal(err)
-	}
-	childTerminal, err := childLease.Release(childCompletion)
-	if err != nil {
-		t.Fatal(err)
-	}
+	childTerminal := failedRecoveryTerminalReceipt(t, childID, manifest)
 	if _, err := publisher.PersistFailedRunRecovery(ctx, root, childPrepared, childTerminal); err != nil {
 		t.Fatal(err)
 	}
@@ -326,13 +290,4 @@ func (store failedRecoveryWriteStore) PersistAuxiliaryArtifact(ctx context.Conte
 		return ports.PersistAuxiliaryArtifactResult{}, errors.New("injected recovery write failure")
 	}
 	return store.PublicationStore.PersistAuxiliaryArtifact(ctx, request)
-}
-
-type failedRecoveryReleaseLease struct {
-	ports.WorkspaceSnapshotLease
-	release ports.WorkspaceTerminalRelease
-}
-
-func (lease failedRecoveryReleaseLease) Release(completion ports.WorkspaceCompletionEvidence) (ports.WorkspaceTerminalReceipt, error) {
-	return lease.release(completion)
 }

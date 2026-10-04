@@ -38,9 +38,9 @@ review, and independent live capability certification for ZCode and Grok. The
 live review routes `logic` to ZCode and `security` to Grok concurrently, accepts
 one Markdown report from each provider without repair or structured extraction,
 and requires Mulgae to publish one complete reports-only review. Each role must
-reproduce a fresh marker stored only in its captured source file, never the
+reproduce a fresh marker stored only in its original source file, never the
 objective, so a report that merely claims it could not read the target does not
-certify workspace access. The complete gate then invokes the opt-in Codex
+certify original-source access. The complete gate then invokes the opt-in Codex
 profile target, which reports a stable skip unless `MULGAE_E2E_OPT_IN=1` is
 present.
 Independent live capability certification failures preserve the exact request,
@@ -69,19 +69,20 @@ make test-mcp-clients
 
 `make test-release` first installs the production binary with only the public
 version and revision link flags and checks that exact installed artifact through
-`internal/releasecheck`. It separately builds an isolated recovery-scenario
-fixture with the test-only native-home override. The fixture exercises recovery
-and read-only CLI/MCP project-context parity without reading the operator's real
+`internal/releasecheck`. It separately builds an isolated live-source
+fixture with the test-only native-home override. The fixture exercises original-source admission, lifecycle and verified reads
+with read-only CLI/MCP project-context parity without reading the operator's real
 home; it is not the installed release
 artifact and does not replace the releasecheck evidence.
 
 For guarded-admission changes, run
 `TestIntegrationIsolatedReleaseFixtureGuardedAdmission` in `./test/e2e` against
-the isolated release fixture. It checks CLI/MCP receipt parity, guarded
-foreground and start/await execution, rejected
-request drift without provider work, distinct repeated starts, no-change capture
-retention, and corruption after a process restart. `make test-release` includes
-this fixture. It uses a fake provider and does not replace mandatory live gates.
+the isolated release fixture. It checks independent CLI/MCP project binding,
+provider-free preflight and no-change, guarded foreground and start/await
+execution, distinct repeated starts, rejection of retired selectors/guards
+before providers, and integrity failures after a process restart.
+`make test-release` includes this fixture. It uses a fake provider and does not
+replace mandatory live gates.
 
 `make test-grok` builds the exact current release binary and runs one authorized
 Grok review through ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and
@@ -139,12 +140,13 @@ The integrated review fixture uses independently maintained consumer
 decoders and frozen response projections under `test/e2e/testdata/verified-consumer/`.
 Keep these fixtures outside the producer generators: changing a public envelope
 must require a deliberate consumer compatibility decision. The release fixture
-connects project lookup, guarded admission, one start/await pair, recovery and
-composition, coherent inspection, and complete report/evidence reads. It also
-checks no-change provenance and the difference between capture and request
-identity. Frozen historical projections test consumer behavior; the owning query tests
-establish historical artifact verification. Complete runtime envelopes pass
-through the same decoders in the integrated fixture.
+connects project lookup, original-source admission, one start/await pair,
+coherent inspection and complete report/evidence reads. It checks no-change
+provenance, source selection identity and absence of source archives. Frozen
+historical projections preserve their original envelopes; the owning query
+tests establish historical artifact integrity. Current envelopes pass through
+an independently updated consumer, including command-result v19, preflight v8
+and live-source/source-evidence capabilities.
 
 For actual client checks, use invocation-only MCP configuration and existing
 authentication with a disposable project. A transparent stdio recorder may
@@ -307,7 +309,9 @@ retain EPIC-007 requirements and verification. The planned
 [EPIC-008 dossier](../todo/EPIC-008-review-completeness-and-iteration.md) defines
 its per-Task implementation, exclusions, checks, and completion conditions.
 The [roadmap](../roadmap/README.md#adopted-execution-order) owns the strictly
-sequential order. Do not begin EPIC-008 before explicit EPIC-007 acceptance.
+sequential order. EPIC-008 remains deferred until explicit EPIC-009 acceptance and redesign of
+its capture-dependent requirements. The regression matrix below records that
+frozen design; it does not authorize retired child execution.
 
 For each implementation Task, read current code and the nearest contract, add
 focused behavioral/negative tests, and run the applicable existing Make targets.
@@ -317,8 +321,8 @@ foundations need schema examples and semantic tests before production wiring;
 new capabilities remain unadvertised until their runtime path exists.
 
 Keep provider-free guarantees observable with writer/provider spies and exact
-binary fixtures. Test root confusion and drift before qualification, one capture
-per admitted execution, receipt/cursor consistency, historical capability gaps,
+binary fixtures. Test root confusion and anchor replacement before qualification,
+original-source selection, receipt/cursor consistency, historical capability gaps,
 reports-only output, and immutable parent artifacts. Freeze old/new consumer
 fixtures independently of producer generators so regeneration cannot erase a
 compatibility failure. When embedded assets change, follow the two-pass generator

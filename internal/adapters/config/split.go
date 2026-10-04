@@ -14,7 +14,6 @@ type projectConfig struct {
 	Version    int                    `yaml:"version"`
 	Project    ProjectConfig          `yaml:"project"`
 	Providers  projectProvidersConfig `yaml:"providers"`
-	Execution  ExecutionConfig        `yaml:"execution"`
 	Roles      RolesConfig            `yaml:"roles"`
 	Review     ReviewConfig           `yaml:"review"`
 	Validation ValidationConfig       `yaml:"validation"`
@@ -176,7 +175,7 @@ func decodeKnown(data []byte, destination any) error {
 func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 	config := Config{
 		Version: project.Version, Project: project.Project, NativeUser: local.NativeUser,
-		Execution: project.Execution, Roles: project.Roles, Review: project.Review,
+		Roles: project.Roles, Review: project.Review,
 		Validation: project.Validation, Resources: project.Resources, CI: project.CI,
 	}
 	if (project.Providers.ZCode == nil) != (local.Providers.ZCode == nil) ||
@@ -295,7 +294,7 @@ func encodeProjectConfig(config Config) []byte {
 
 func appendPolicyYAML(out *strings.Builder, config Config) {
 	q := strconv.Quote
-	out.WriteString("execution:\n  workspace_access: " + q(config.Execution.WorkspaceAccess) + "\nroles:\n")
+	out.WriteString("roles:\n")
 	for index, role := range fixedRoles {
 		configured := config.Roles.Ordered()[index]
 		if role == "artist" && !configured.Enabled {

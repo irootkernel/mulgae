@@ -59,119 +59,6 @@ func (runner *scriptedRunner) Run(_ context.Context, command Command) (Result, e
 	return Result{Stdout: response.stdout, Stderr: response.stderr}, response.err
 }
 
-func TestCaptureResolvesReferencesBeforeEveryOtherCommand(t *testing.T) {
-	root := scriptedGitRoot(t)
-	baseReference := "refs/heads/base"
-	headReference := "refs/heads/head"
-	baseObjectID := strings.Repeat("a", 40)
-	headObjectID := strings.Repeat("b", 40)
-	headTreeID := strings.Repeat("c", 40)
-	diff := []byte("diff --git a/file b/file\n")
-	inventory := []byte("new-file\x00")
-
-	runner := &scriptedRunner{
-		rejectedRefUse: []string{baseReference, headReference},
-		responses: []scriptedResponse{
-			{canonical: true, args: []string{"rev-parse", "--verify", "--end-of-options", baseReference + "^{commit}"}, stdout: []byte(baseObjectID + "\n")},
-			{canonical: true, args: []string{"rev-parse", "--verify", "--end-of-options", headReference + "^{commit}"}, stdout: []byte(headObjectID + "\n")},
-			{canonical: true, args: []string{"rev-parse", "--verify", "--end-of-options", headObjectID + "^{tree}"}, stdout: []byte(headTreeID + "\n")},
-			{canonical: true, args: captureDiffArgs(baseObjectID, headObjectID), stdout: diff},
-			{args: []string{"ls-files", "--others", "--exclude-standard", "-z"}, stdout: inventory},
-		},
-	}
-	adapter, err := New(runner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := ports.NewGitCaptureRequest(root, baseReference, headReference, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	target, err := adapter.Capture(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, commonGitDir, err := canonicalGitDirectories(root.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if target.RepositoryID() != canonicalRepositoryID(commonGitDir) {
-		t.Fatalf("repository identity = %q", target.RepositoryID())
-	}
-	if target.BaseObjectID().String() != baseObjectID || target.HeadObjectID().String() != headObjectID || target.HeadTreeID().String() != headTreeID {
-		t.Fatalf("captured immutable IDs = %q, %q, %q", target.BaseObjectID(), target.HeadObjectID(), target.HeadTreeID())
-	}
-	if _, ok := target.IndexTreeID(); ok {
-		t.Fatal("capture reported an index tree without a non-mutating source")
-	}
-	if runner.next != len(runner.responses) {
-		t.Fatalf("executed %d commands, want %d", runner.next, len(runner.responses))
-	}
-	if !reflect.DeepEqual(adapter.Transcript(), runner.commands) {
-		t.Fatalf("adapter transcript = %#v, runner transcript = %#v", adapter.Transcript(), runner.commands)
-	}
-	for _, command := range runner.commands {
-		if got := command.Argv()[0]; got != gitExecutable {
-			t.Fatalf("transcript executable = %q, want %q", got, gitExecutable)
-		}
-	}
-	for _, command := range runner.commands[2:] {
-		for _, arg := range command.Args {
-			if strings.Contains(arg, baseReference) || strings.Contains(arg, headReference) {
-				t.Fatalf("post-resolution command reused mutable reference: %v", command.Argv())
-			}
-		}
-	}
-	if !matchesCanonicalCommand(runner.commands[3], captureDiffArgs(baseObjectID, headObjectID)) {
-		t.Fatalf("diff argv = %v, want canonical diff command", runner.commands[3].Argv())
-	}
-	if runner.commands[2].sourceSizedStdout {
-		t.Fatal("head tree object ID was classified as source-sized stdout")
-	}
-	if !runner.commands[3].sourceSizedStdout {
-		t.Fatal("captured diff was not classified as source-sized stdout")
-	}
-	captured := target.Bytes()
-	captured[0] ^= 0xff
-	if bytes.Equal(captured, target.Bytes()) {
-		t.Fatal("CapturedGitTarget.Bytes returned aliased storage")
-	}
-}
-
-func TestCaptureRejectsMalformedResolvedObjectIDs(t *testing.T) {
-	root := scriptedGitRoot(t)
-	request, err := ports.NewGitCaptureRequest(root, "refs/heads/base", "refs/heads/head", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, malformed := range []string{
-		strings.Repeat("A", 40),
-		strings.Repeat("a", 39),
-		strings.Repeat("g", 40),
-		strings.Repeat("a", 41),
-	} {
-		t.Run(malformed[:3], func(t *testing.T) {
-			runner := &scriptedRunner{responses: []scriptedResponse{{
-				canonical: true,
-				args:      []string{"rev-parse", "--verify", "--end-of-options", "refs/heads/base^{commit}"},
-				stdout:    []byte(malformed + "\n"),
-			}}}
-			adapter, err := New(runner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := adapter.Capture(context.Background(), request); err == nil {
-				t.Fatalf("malformed object ID %q was accepted", malformed)
-			}
-			if len(runner.commands) != 1 {
-				t.Fatalf("malformed object ID ran %d commands, want one", len(runner.commands))
-			}
-		})
-	}
-}
-
 func TestTrustedReadUsesImmutableTreeBlobAndCopiesBytes(t *testing.T) {
 	root := scriptedGitRoot(t)
 	commitText := strings.Repeat("d", 40)
@@ -442,53 +329,6 @@ func TestCappedBufferWriteReportsConsumedBytes(t *testing.T) {
 	}
 }
 
-func TestCaptureRealTemporaryRepository(t *testing.T) {
-	root := t.TempDir()
-	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@example.test")
-	runGit(t, root, "config", "user.name", "Test User")
-	runGit(t, root, "remote", "add", "origin", "https://example.test/repository.git")
-	writeTestFile(t, filepath.Join(root, "tracked.txt"), []byte("first\n"))
-	runGit(t, root, "add", "tracked.txt")
-	runGit(t, root, "commit", "-m", "base")
-	baseObjectID := strings.TrimSpace(string(runGit(t, root, "rev-parse", "HEAD")))
-	writeTestFile(t, filepath.Join(root, "tracked.txt"), []byte("second\n"))
-	runGit(t, root, "add", "tracked.txt")
-	runGit(t, root, "commit", "-m", "head")
-	headObjectID := strings.TrimSpace(string(runGit(t, root, "rev-parse", "HEAD")))
-	writeTestFile(t, filepath.Join(root, "untracked.txt"), []byte("untracked\n"))
-	before := runGit(t, root, "status", "--porcelain=v1")
-
-	anchoredRoot := mustAnchoredRoot(t, root)
-	request, err := ports.NewGitCaptureRequest(anchoredRoot, "HEAD~1", "HEAD", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter, err := New(NewExecRunner())
-	if err != nil {
-		t.Fatal(err)
-	}
-	target, err := adapter.Capture(context.Background(), request)
-	requireNoGitError(t, err)
-	after := runGit(t, root, "status", "--porcelain=v1")
-
-	if !bytes.Equal(before, after) {
-		t.Fatalf("capture changed repository state: before %q, after %q", before, after)
-	}
-	_, commonGitDir, err := canonicalGitDirectories(anchoredRoot.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if target.RepositoryID() != canonicalRepositoryID(commonGitDir) {
-		t.Fatalf("repository identity = %q", target.RepositoryID())
-	}
-	if target.BaseObjectID().String() != baseObjectID || target.HeadObjectID().String() != headObjectID {
-		t.Fatalf("captured commits = %q, %q", target.BaseObjectID(), target.HeadObjectID())
-	}
-	if !bytes.Contains(target.Bytes(), []byte("untracked.txt\x00")) {
-		t.Fatal("captured target does not contain the requested untracked inventory")
-	}
-}
 func requireNoGitError(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
@@ -500,7 +340,7 @@ func requireNoGitError(t *testing.T, err error) {
 	}
 	t.Fatal(err)
 }
-func TestCaptureCanonicalBytesIgnoreMutableConfigAndAttributes(t *testing.T) {
+func TestTrustedReadIgnoresMutableConfigAndAttributes(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init")
 	runGit(t, root, "config", "user.email", "test@example.test")
@@ -513,21 +353,17 @@ func TestCaptureCanonicalBytesIgnoreMutableConfigAndAttributes(t *testing.T) {
 	runGit(t, root, "commit", "-m", "head")
 
 	anchoredRoot := mustAnchoredRoot(t, root)
-	request, err := ports.NewGitCaptureRequest(anchoredRoot, "HEAD~1", "HEAD", false)
-	if err != nil {
-		t.Fatal(err)
-	}
 	adapter, err := New(NewExecRunner())
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := adapter.Capture(context.Background(), request)
+	commit, err := adapter.ResolveCommit(context.Background(), anchoredRoot, "HEAD")
 	requireNoGitError(t, err)
 	path, err := ports.NewSafeRelativePath("tracked.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeFile, err := adapter.ReadFileAtCommit(context.Background(), anchoredRoot, before.HeadObjectID(), path)
+	beforeFile, err := adapter.ReadFileAtCommit(context.Background(), anchoredRoot, commit, path)
 	requireNoGitError(t, err)
 
 	externalDiff := filepath.Join(root, "external-diff")
@@ -541,15 +377,8 @@ func TestCaptureCanonicalBytesIgnoreMutableConfigAndAttributes(t *testing.T) {
 	writeTestFile(t, filepath.Join(root, ".gitattributes"), []byte("tracked.txt diff=shadow\n"))
 	writeTestFile(t, filepath.Join(root, ".git", "info", "attributes"), []byte("tracked.txt diff=shadow\n"))
 
-	after, err := adapter.Capture(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	afterFile, err := adapter.ReadFileAtCommit(context.Background(), anchoredRoot, before.HeadObjectID(), path)
+	afterFile, err := adapter.ReadFileAtCommit(context.Background(), anchoredRoot, commit, path)
 	requireNoGitError(t, err)
-	if !bytes.Equal(before.Bytes(), after.Bytes()) {
-		t.Fatal("canonical capture bytes changed after mutable config or attribute mutation")
-	}
 	if !bytes.Equal(beforeFile, afterFile) {
 		t.Fatal("canonical file read changed after mutable config or attribute mutation")
 	}
@@ -560,35 +389,6 @@ func TestCanonicalCleanupFailureClearsResultsAndPreservesCauses(t *testing.T) {
 		name   string
 		invoke func(*testing.T, error, error) (bool, error)
 	}{
-		{
-			name: "capture",
-			invoke: func(t *testing.T, primaryErr, cleanupErr error) (bool, error) {
-				root := scriptedGitRoot(t)
-				baseReference := "refs/heads/base"
-				headReference := "refs/heads/head"
-				baseObjectID := strings.Repeat("a", 40)
-				headObjectID := strings.Repeat("b", 40)
-				headTreeID := strings.Repeat("c", 40)
-				runner := &scriptedRunner{responses: []scriptedResponse{
-					{canonical: true, args: []string{"rev-parse", "--verify", "--end-of-options", baseReference + "^{commit}"}, stdout: []byte(baseObjectID + "\n"), err: primaryErr},
-					{canonical: true, args: []string{"rev-parse", "--verify", "--end-of-options", headReference + "^{commit}"}, stdout: []byte(headObjectID + "\n")},
-					{canonical: true, args: []string{"rev-parse", "--verify", "--end-of-options", headObjectID + "^{tree}"}, stdout: []byte(headTreeID + "\n")},
-					{canonical: true, args: captureDiffArgs(baseObjectID, headObjectID), stdout: []byte("diff\n")},
-				}}
-				adapter := cleanupFailureAdapter(t, runner, cleanupErr)
-				request, err := ports.NewGitCaptureRequest(root, baseReference, headReference, false)
-				if err != nil {
-					t.Fatal(err)
-				}
-				target, err := adapter.Capture(context.Background(), request)
-				return target.RepositoryID() == "" &&
-					!target.BaseObjectID().Valid() &&
-					!target.HeadObjectID().Valid() &&
-					!target.HeadTreeID().Valid() &&
-					target.SHA256() == "" &&
-					target.Bytes() == nil, err
-			},
-		},
 		{
 			name: "resolve commit",
 			invoke: func(t *testing.T, primaryErr, cleanupErr error) (bool, error) {

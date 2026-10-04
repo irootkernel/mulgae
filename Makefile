@@ -87,7 +87,7 @@ test-release:
 	release_fixture_ldflags="$$release_ldflags -X 'github.com/irootkernel/mulgae/internal/adapters/environment.buildNativeHomeOverride=$$release_fixture_home'" && \
 	$(GO) build -trimpath -ldflags "$$release_fixture_ldflags" -o "$$release_fixture_binary" . && \
 	MULGAE_E2E_BINARY="$$release_fixture_binary" $(GO) test -count=1 \
-		-run '^(TestIntegrationIsolatedReleaseFixtureComposesExactRecoveredReview|TestIntegrationIsolatedReleaseFixtureRecoversCancelledRunThroughExactReruns|TestIntegrationIsolatedReleaseFixtureProjectContext|TestIntegrationIsolatedReleaseFixtureGuardedAdmission|TestIntegrationIsolatedReleaseFixtureVerifiedContent|TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow)$$' ./test/e2e
+		-run '^(TestIntegrationIsolatedReleaseFixtureLiveSelectors|TestIntegrationIsolatedReleaseFixtureCancelsLiveReviewWithoutReplay|TestIntegrationIsolatedReleaseFixtureProjectContext|TestIntegrationIsolatedReleaseFixtureGuardedAdmission|TestIntegrationIsolatedReleaseFixtureVerifiedContent|TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow)$$' ./test/e2e
 	@printf '%s\n' '[test-release] completed'
 
 test-e2e:

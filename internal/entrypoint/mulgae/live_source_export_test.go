@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	appexport "github.com/irootkernel/mulgae/internal/app/export"
 	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -115,6 +117,15 @@ func TestIntegrationLiveRasterExportReadsRetainedBytesAfterSourceRemoval(t *test
 	committed, err := fixture.queries.ReadCommitted(ctx, run)
 	if err != nil {
 		t.Fatal(err)
+	}
+	binding, _ := domain.ParseProjectBinding("sha256:" + strings.Repeat("a", 64))
+	content, err := NewPublicationQueryService(fixture.queries).ReadSourceImage(ctx, run, binding, identity.SHA256(), "worktree", "diagram.png", query.ContentContinuation{})
+	if err != nil {
+		t.Fatalf("offline source image transport: %v", err)
+	}
+	decodedImage, err := base64.StdEncoding.Strict().DecodeString(content.Content)
+	if err != nil || content.MediaType != "image/png" || content.Encoding != "base64" || !bytes.Equal(decodedImage, imageBytes) || content.RunID != run.RunID().String() {
+		t.Fatal("offline source image transport changed selected raster bytes")
 	}
 	if _, err := (p2ExportProjectionReader{committed: committed}).ReadCommittedProjection(ctx, appexport.ExportSource{SessionID: committed.SessionID().String(), RunID: committed.RunID().String(), ReviewID: committed.ReviewID().String()}); err == nil {
 		t.Fatal("selected images exported without a verified artifact reader")

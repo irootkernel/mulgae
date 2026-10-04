@@ -1,11 +1,11 @@
 # Live workspace and Git review
 
-These are planned requirements for [EPIC-009](../roadmap/README.md#epic-009-live-workspace-and-git-review). Public CLI/MCP admission still uses the snapshot-based runtime until TASK-038. The [execution dossier](../todo/EPIC-009-live-workspace-and-git-review.md) owns temporary implementation detail; the roadmap owns lifecycle.
-
-Implementation status: TASK-034 through TASK-037 provide the internal provider,
-source, execution, evidence, and publication/read paths. Public CLI/MCP cutover
-belongs to TASK-038; complete provider and release-binary certification belongs
-to TASK-039. Requirements below do not imply that public cutover is complete.
+This specification owns [EPIC-009](../roadmap/README.md#epic-009-live-workspace-and-git-review).
+TASK-038 connects original-source execution to CLI and MCP. TASK-034 through
+TASK-037 own provider feasibility, source access, native restrictions and evidence.
+Complete provider/client/release certification remains TASK-039 work. The
+[execution dossier](../todo/EPIC-009-live-workspace-and-git-review.md) retains
+temporary delivery detail; the roadmap owns lifecycle and acceptance.
 
 ## Review targets
 
@@ -37,8 +37,7 @@ Require external source access and exact read-only Git inspection for all three 
 
 Collect complete role reports from correlated native assistant responses. Review providers no longer write a report into a copied source tree. Retain bounded process lifetimes, cancellation, diagnostics redaction, image handling, and existing content-size policy.
 
-The internal implementation keeps this execution path unavailable until
-TASK-038. Its reviewer home admits current-user-owned directories without group
+The public execution path uses a neutral reviewer home that admits current-user-owned directories without group
 or other write permissions and a safe, regular, single-link UTF-8 guide. It
 creates the default exclusively when
 absent, and rejects guide or directory identity changes before launch. The
@@ -56,7 +55,7 @@ win on overlap. The short directory must
 retain its admitted canonical identity, current-user ownership and private
 mode before and after execution. Grok's native sandbox is off inside the
 required outer guard because nested initialization fails. Codex keeps its
-native read-only profile and explicit credential-root denials. These internal
+native read-only profile and explicit credential-root denials. These public
 routes have no unguarded fallback or provider substitution.
 
 The outer guard permits reads outside the declared credential roots and

@@ -10,19 +10,9 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// QualifiedRunCandidateSource constructs production candidates from the one
-// captured input and requested role selection. Implementations may perform
-// identity-only discovery, but must not acquire provider execution authority.
-type QualifiedRunCandidateSource interface {
-	NewQualifiedRunCandidates(context.Context, CapturedRunInput, RunSelection) ([]QualifiedRunCandidate, error)
-}
-
-// QualifiedRunContextBinder lets a production candidate source bind
-// run-specific security authority after immutable target capture and before any
-// provider observation. The returned context is used for candidate discovery,
-// qualification, and registry construction.
-type QualifiedRunContextBinder interface {
-	BindQualifiedRunContext(context.Context, CapturedRunInput) (context.Context, error)
+type LiveQualifiedRunCandidateSource interface {
+	BindLiveQualifiedRunContext(context.Context, ports.LiveReviewExecution) (context.Context, error)
+	NewLiveQualifiedRunCandidates(context.Context, ports.LiveSourceTarget, RunSelection) ([]QualifiedRunCandidate, error)
 }
 
 // RunAuthorityAdapter adapts a concrete qualified-run factory to the service
@@ -30,7 +20,7 @@ type QualifiedRunContextBinder interface {
 // service-facing aggregate receipt is available.
 type RunAuthorityAdapter struct {
 	qualifiedRuns *QualifiedRunFactory
-	candidates    QualifiedRunCandidateSource
+	candidates    LiveQualifiedRunCandidateSource
 	policy        PlannerPolicy
 	build         BuildIdentity
 }
@@ -39,7 +29,7 @@ type RunAuthorityAdapter struct {
 // injected discovery/candidate construction and qualified-run authority.
 func NewRunAuthorityAdapter(
 	qualifiedRuns *QualifiedRunFactory,
-	candidates QualifiedRunCandidateSource,
+	candidates LiveQualifiedRunCandidateSource,
 	policy PlannerPolicy,
 	build BuildIdentity,
 ) (*RunAuthorityAdapter, error) {
@@ -54,41 +44,31 @@ func NewRunAuthorityAdapter(
 	}, nil
 }
 
-// NewQualifiedRun constructs a service authority from the immutable captured
-// input. Candidate construction is fully injected and every malformed result
-// fails closed before a provider registry is acquired.
-func (adapter *RunAuthorityAdapter) NewQualifiedRun(ctx context.Context, captured CapturedRunInput, selection RunSelection) (RunAuthority, error) {
-	if adapter == nil || adapter.qualifiedRuns == nil || nilInterface(adapter.candidates) || ctx == nil || !captured.Input().Target().Valid() || !selection.Valid() {
-		return nil, fmt.Errorf("review run: invalid run authority request")
+func (adapter *RunAuthorityAdapter) NewQualifiedLiveRun(ctx context.Context, execution ports.LiveReviewExecution, selection RunSelection) (RunAuthority, error) {
+	if adapter == nil || ctx == nil || !execution.Valid() || !selection.Valid() {
+		return nil, fmt.Errorf("review run: invalid live authority request")
 	}
-	if binder, ok := adapter.candidates.(QualifiedRunContextBinder); ok {
-		bound, err := binder.BindQualifiedRunContext(ctx, captured)
-		if err != nil {
-			return nil, newQualifiedRunConstructionError(
-				fmt.Errorf("review run: bind qualified run context: %w", err),
-				ports.NewEmptyProviderRunTerminalReceipt(),
-			)
-		}
-		if bound == nil {
-			return nil, newQualifiedRunConstructionError(
-				fmt.Errorf("review run: bind qualified run context: nil context"),
-				ports.NewEmptyProviderRunTerminalReceipt(),
-			)
-		}
-		ctx = bound
-	}
-	candidates, err := adapter.candidates.NewQualifiedRunCandidates(ctx, captured, selection)
+	source := adapter.candidates
+	bound, err := source.BindLiveQualifiedRunContext(ctx, execution)
 	if err != nil {
-		return nil, newQualifiedRunConstructionError(
-			fmt.Errorf("review run: construct qualified run candidates: %w", err),
-			ports.NewEmptyProviderRunTerminalReceipt(),
-		)
+		return nil, newQualifiedRunConstructionError(fmt.Errorf("review run: live qualification binding: %w", err), ports.NewEmptyProviderRunTerminalReceipt())
 	}
+	if bound == nil {
+		return nil, newQualifiedRunConstructionError(fmt.Errorf("review run: live qualification binding is nil"), ports.NewEmptyProviderRunTerminalReceipt())
+	}
+	candidates, err := source.NewLiveQualifiedRunCandidates(bound, execution.Target(), selection)
+	if err != nil {
+		return nil, newQualifiedRunConstructionError(err, ports.NewEmptyProviderRunTerminalReceipt())
+	}
+	return adapter.qualifyCandidates(bound, candidates, selection)
+}
+
+func (adapter *RunAuthorityAdapter) qualifyCandidates(ctx context.Context, candidates []QualifiedRunCandidate, selection RunSelection) (RunAuthority, error) {
 	candidates = cloneQualifiedRunCandidates(candidates)
 	if err := validateAuthorityCandidates(candidates); err != nil {
 		return nil, newQualifiedRunConstructionError(err, ports.NewEmptyProviderRunTerminalReceipt())
 	}
-	candidates, err = restrictCandidatesToSelectedAssignments(candidates, selection, adapter.policy)
+	candidates, err := restrictCandidatesToSelectedAssignments(candidates, selection, adapter.policy)
 	if err != nil {
 		return nil, newQualifiedRunConstructionError(err, ports.NewEmptyProviderRunTerminalReceipt())
 	}
@@ -209,7 +189,7 @@ func validateAuthorityCandidates(candidates []QualifiedRunCandidate) error {
 	instances := make(map[string]struct{}, len(candidates))
 	for _, candidate := range candidates {
 		definition := candidate.Definition
-		if !candidate.Profile.Family().Valid() || candidate.SnapshotManifest == "" || !candidate.Limits.Valid() || !candidate.BaseRole.Valid() || len(candidate.SupportedRoles) == 0 ||
+		if !candidate.Profile.Family().Valid() || candidate.ExecutionTargetIdentity == "" || !candidate.Limits.Valid() || !candidate.BaseRole.Valid() || len(candidate.SupportedRoles) == 0 ||
 			Family(definition.Family()) != candidate.Profile.Family() || definition.Instance() == "" || definition.Executable() != candidate.Profile.Executable() || definition.ExecutableSHA256() != candidate.Profile.SHA256() || definition.Launcher() != candidate.Profile.Launcher() || definition.LauncherSHA256() != candidate.Profile.LauncherSHA256() || definition.ApplicationVersion() != candidate.Profile.ApplicationVersion() || definition.ApplicationMetadata() != candidate.Profile.ApplicationMetadata() || definition.ApplicationMetadataSHA256() != candidate.Profile.ApplicationMetadataSHA256() {
 			return fmt.Errorf("review run: invalid qualified run candidate")
 		}

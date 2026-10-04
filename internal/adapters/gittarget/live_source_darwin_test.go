@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -850,7 +851,6 @@ func TestIntegrationLiveSourceNonGitIgnoreAdmission(t *testing.T) {
 		{"oversized", strings.Repeat("a", (256<<10)+1), ports.LiveSourceUnsafe},
 		{"invalid-utf8", "\xff", ports.LiveSourceUnsafe},
 		{"nul", "\x00", ports.LiveSourceUnsafe},
-		{"malformed-rule", "!\n", ports.LiveSourceInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -1096,4 +1096,61 @@ func liveTreeState(t *testing.T, root string) map[string]string {
 		t.Fatal(err)
 	}
 	return state
+}
+
+func TestIntegrationLiveSourceNonGitIgnoreMatchesGit(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		rules string
+		files map[string]string
+	}{
+		{"empty-patterns", "!\n/\n!/\n! \n/ \n", map[string]string{"kept.txt": "", "nested/kept.txt": ""}},
+		{"classes", "*.[oa]\nfile[0-9].txt\n[!x]note.txt\n", map[string]string{"main.o": "", "main.a": "", "main.c": "", "file2.txt": "", "filex.txt": "", "ynote.txt": "", "xnote.txt": ""}},
+		{"escapes", "\\!important.txt\n\\#notes.txt\nliteral\\*star.txt\n한국.txt\n", map[string]string{"!important.txt": "", "#notes.txt": "", "literal*star.txt": "", "literalXstar.txt": "", "한국.txt": "", "kept.txt": ""}},
+		{"byte-wildcard", "?.txt\n", map[string]string{"a.txt": "", "é.txt": "", "한국.txt": ""}},
+		{"newline-wildcard", "*.tmp\n?.txt\n", map[string]string{"drop\n.tmp": "", "\n.txt": "", "kept.txt": ""}},
+		{"trailing-spaces", "drop.txt   \n", map[string]string{"drop.txt": "", "keep.txt": ""}},
+		{"directory-only", "cache/\n", map[string]string{"cache": "", "nested/cache/drop.txt": "", "nested/keep.txt": ""}},
+		{"excluded-parent", "build/\n!build/keep.txt\n", map[string]string{"build/keep.txt": "", "build/.gitignore": "!keep.txt\n", "keep.txt": ""}},
+		{"recursive", "**/generated.txt\nsrc/**/skip.txt\n", map[string]string{"generated.txt": "", "nested/generated.txt": "", "src/skip.txt": "", "src/deep/skip.txt": "", "src/keep.txt": ""}},
+		{"nested-negation", "*.tmp\n", map[string]string{"drop.tmp": "", "nested/drop.tmp": "", "nested/keep.tmp": "", "nested/.gitignore": "!keep.tmp\n"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gitRoot, root := t.TempDir(), t.TempDir()
+			reviewGit(t, gitRoot, "init")
+			files := make(map[string]string, len(test.files)+1)
+			files[".gitignore"] = test.rules
+			for name, body := range test.files {
+				files[name] = body
+			}
+			for _, fixture := range []string{gitRoot, root} {
+				for name, body := range files {
+					path := filepath.Join(fixture, name)
+					if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					writeReviewFile(t, path, body)
+				}
+			}
+			command := exec.Command("/usr/bin/git", "-c", "core.excludesFile=/dev/null", "ls-files", "--others", "--exclude-standard", "-z")
+			command.Dir = gitRoot
+			output, err := command.Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Split(strings.TrimSuffix(string(output), "\x00"), "\x00")
+			reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+			paths, err := reader.List(context.Background(), domain.LiveSourceWorktree)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, path := range paths {
+				got = append(got, path.String())
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("non-Git candidates = %q; Git candidates = %q", got, want)
+			}
+		})
+	}
 }

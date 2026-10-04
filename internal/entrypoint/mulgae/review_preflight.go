@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
@@ -18,53 +18,36 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v7"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v8"
 
-// ReviewPreflightService projects the exact capture and configured execution
-// envelope without provider discovery, qualification, invocation, or durable
-// publication.
+// ReviewPreflightService admits original-source selection without invoking
+// providers or creating execution or publication state. Selected artist inputs
+// are read for validation; ordinary preflight only lists native source reads.
 type ReviewPreflightService interface {
 	PreflightReview(context.Context, ReviewRequest, ports.AnchoredRoot) (ReviewPreflightResult, error)
 }
 
-// ReviewPreflightResult is the schema-facing, deterministic execution-free
-// review projection. Every slice is owned by the result.
+// ReviewPreflightResult describes the current selection and configured routes.
+// Its source identity binds selection metadata, not mutable file contents.
 type ReviewPreflightResult struct {
-	Capabilities    query.VerifiedReadCapabilities `json:"capabilities"`
-	ProjectBinding  string                         `json:"project_binding"`
-	CaptureIdentity string                         `json:"capture_identity"`
-	RequestReceipt  *reviewrun.RequestReceipt      `json:"request_receipt"`
-	SchemaVersion   string                         `json:"schema_version"`
-	Status          string                         `json:"status"`
-	Qualification   string                         `json:"qualification"`
-	Target          ReviewPreflightTarget          `json:"target"`
-	Warnings        []string                       `json:"warnings"`
-	FileSets        []ReviewPreflightFileSet       `json:"file_sets"`
-	GeneratedFiles  []ReviewPreflightGeneratedFile `json:"generated_files"`
-	Transmissions   []ReviewPreflightTransmission  `json:"transmissions"`
-	Budget          ReviewPreflightBudget          `json:"budget"`
+	SchemaVersion        string                         `json:"schema_version"`
+	Capabilities         query.VerifiedReadCapabilities `json:"capabilities"`
+	ProjectBinding       string                         `json:"project_binding"`
+	ConfigurationSHA256  string                         `json:"configuration_sha256"`
+	SourceIdentitySHA256 string                         `json:"source_identity_sha256"`
+	Target               json.RawMessage                `json:"target"`
+	CandidateCount       int                            `json:"candidate_count"`
+	Status               string                         `json:"status"`
+	Qualification        string                         `json:"qualification"`
+	Warnings             []string                       `json:"warnings"`
+	ReadPlan             []ReviewPreflightRead          `json:"read_plan"`
+	Transmissions        []ReviewPreflightTransmission  `json:"transmissions"`
+	Budget               ReviewPreflightBudget          `json:"budget"`
 }
 
-type ReviewPreflightTarget struct {
-	RequestedKind string `json:"requested_kind"`
-	CapturedKind  string `json:"captured_kind"`
-	GitMode       string `json:"git_mode"`
-	SHA256        string `json:"sha256"`
-	Size          int64  `json:"size"`
-}
-
-type ReviewPreflightFileSet struct {
-	ID             string                `json:"id"`
-	PolicyIdentity string                `json:"policy_identity"`
-	Files          []ReviewPreflightFile `json:"files"`
-}
-
-type ReviewPreflightFile = reviewrun.PreflightFile
-
-type ReviewPreflightGeneratedFile struct {
-	Path        string `json:"path"`
-	MediaType   string `json:"media_type"`
-	Disposition string `json:"disposition"`
+type ReviewPreflightRead struct {
+	Side domain.LiveSourceSide `json:"side"`
+	Path string                `json:"path"`
 }
 
 type ReviewPreflightTransmission struct {
@@ -75,7 +58,6 @@ type ReviewPreflightTransmission struct {
 	ConfiguredTimeout string `json:"configured_timeout"`
 	PermissionMode    string `json:"permission_mode"`
 	TargetChannel     string `json:"target_channel"`
-	FileSetID         string `json:"file_set_id"`
 }
 
 type ReviewPreflightBudget struct {
@@ -106,256 +88,140 @@ type ReviewPreflightRolePath struct {
 	Deadline           string `json:"deadline"`
 }
 
-type reviewPreflightValidationFailure struct {
-	code          string
-	invariant     string
-	fileCount     int
-	byteCount     int64
-	maxFiles      int
-	maxBytes      int64
-	hasLimitFacts bool
-}
+type reviewPreflightValidationFailure struct{ code, invariant string }
 
 func (failure *reviewPreflightValidationFailure) Error() string {
 	return "review preflight projection violated an internal invariant"
 }
 
-func newReviewPreflightValidationFailure(invariant string) error {
-	return &reviewPreflightValidationFailure{
-		code:      "preflight_result_validation_failed",
-		invariant: invariant,
+func NewLiveReviewPreflightResult(target ports.LiveSourceTarget, binding domain.ProjectBinding, configurationSHA256 string, reads []ports.LiveSourceRead, plan reviewrun.ExecutionPlan, budget review.RunBudgetReceipt) (ReviewPreflightResult, error) {
+	source, err := evidence.NewLiveSourceIdentity(target)
+	if err != nil || binding.String() == "" && target.Selector().Scope() != domain.LiveSourceWorkspace || !budget.Eligible() || len(plan.Assignments) != len(plan.Budgets) {
+		return ReviewPreflightResult{}, fmt.Errorf("live preflight: invalid admitted plan")
 	}
-}
-
-func newReviewPreflightLimitValidationFailure(policyIdentity string, fileCount int, byteCount int64, maxFiles int, maxBytes int64) error {
-	code := "preflight_result_validation_failed"
-	invariant := "snapshot_resource_limit"
-	if strings.HasSuffix(policyIdentity, ";layout=ordinary-directories-v1") {
-		code = "provider_view_limit_validation_failed"
-		invariant = "provider_view_resource_limit"
+	result := ReviewPreflightResult{SchemaVersion: reviewPreflightSchemaVersion,
+		Capabilities:   query.VerifiedReadCapabilities{ProjectBinding: "v1", LiveSource: "v1"},
+		ProjectBinding: binding.String(), ConfigurationSHA256: configurationSHA256,
+		SourceIdentitySHA256: source.SHA256(), Target: source.Bytes(), CandidateCount: len(target.Changes()),
+		Status: "eligible", Qualification: "not_run", Warnings: []string{},
+		ReadPlan: make([]ReviewPreflightRead, 0, len(reads)), Transmissions: []ReviewPreflightTransmission{},
 	}
-	return &reviewPreflightValidationFailure{
-		code: code, invariant: invariant, fileCount: fileCount, byteCount: byteCount,
-		maxFiles: maxFiles, maxBytes: maxBytes, hasLimitFacts: true,
+	if binding.String() == "" {
+		result.Capabilities.ProjectBinding = ""
 	}
-}
-
-// NewReviewPreflightResult converts the already-captured snapshot and the
-// authoritative pure budget receipt into the stable external projection.
-func NewReviewPreflightResult(
-	material ports.CapturedReviewMaterial,
-	workspaceReceipt ports.WorkspaceSnapshotReceipt,
-	requestedKind string,
-	plan reviewrun.ExecutionPlan,
-	budgetReceipt review.RunBudgetReceipt,
-) (ReviewPreflightResult, error) {
-	if !material.Valid() || !workspaceReceipt.Valid() || !budgetReceipt.Eligible() || requestedKind == "" || len(plan.Assignments) == 0 || len(plan.Budgets) != len(plan.Assignments) {
-		return ReviewPreflightResult{}, fmt.Errorf("review preflight: invalid captured plan")
+	for _, read := range reads {
+		result.ReadPlan = append(result.ReadPlan, ReviewPreflightRead{Side: read.Side(), Path: read.Path().String()})
 	}
-	var captureIdentity string
-	if manifest, err := reviewrun.NewCaptureManifest(material); err == nil {
-		identity, identityErr := manifest.Identity()
-		if identityErr != nil {
-			return ReviewPreflightResult{}, identityErr
-		}
-		captureIdentity = identity.String()
-	} else if !errors.Is(err, reviewrun.ErrCaptureIdentityUnavailable) {
-		return ReviewPreflightResult{}, err
+	ceilings := budget.Ceilings()
+	result.Budget = ReviewPreflightBudget{Eligible: true, ReasonCode: string(budget.ReasonCode()), MaxActiveLanes: budget.MaxActiveLanes(), TotalInvocations: budget.TotalInvocations(), CriticalPathDeadline: budget.CriticalPathDeadline().String(), RunDeadline: budget.RunDeadline().String(),
+		Ceilings: ReviewPreflightCeilings{ProviderTimeout: appconfig.ProviderTimeoutText(ceilings.MaxTimeout()), RolePathDeadline: ceilings.MaxRolePathDeadline().String(), RunDeadline: ceilings.MaxRunDeadline().String(), MaxInvocationsPerRole: ceilings.MaxInvocationsPerRole(), MaxInvocationsPerRun: ceilings.MaxInvocationsPerRun()}, RolePaths: []ReviewPreflightRolePath{},
 	}
-	providerWorkspace, err := material.ProviderWorkspace()
-	if err != nil {
-		return ReviewPreflightResult{}, fmt.Errorf("review preflight: provider workspace: %w", err)
-	}
-	if err := validatePreflightSnapshotBinding(providerWorkspace, workspaceReceipt); err != nil {
-		return ReviewPreflightResult{}, err
-	}
-	files := workspaceReceipt.Files()
-	fileRows := make([]ReviewPreflightFile, 0, len(files))
-	for _, file := range files {
-		disposition := "text"
-		if !file.IsText() {
-			disposition = "binary_preserved"
-		}
-		fileRows = append(fileRows, ReviewPreflightFile{
-			Path: file.Path().String(), MediaType: file.MediaType(), Size: int64(len(file.Bytes())),
-			SHA256: file.SHA256(), Disposition: disposition,
-		})
-	}
-	fileSetID, err := reviewPreflightFileSetID(workspaceReceipt.PolicyIdentity(), fileRows)
-	if err != nil {
-		return ReviewPreflightResult{}, err
-	}
-	transmissions := make([]ReviewPreflightTransmission, 0, len(plan.Assignments))
-	if !material.Target().NoChange() {
+	if target.NoChange() {
+		result.Status = "no_change"
+		result.Budget.ReasonCode, result.Budget.MaxActiveLanes, result.Budget.TotalInvocations = "no_change", 0, 0
+		result.Budget.CriticalPathDeadline, result.Budget.RunDeadline = "0s", "0s"
+	} else {
 		for index, assignment := range plan.Assignments {
-			transmissions = append(transmissions, preflightTransmission(
-				assignment.Role(), "primary", plan.Budgets[index].Primary(), fileSetID,
-			))
+			route := plan.Budgets[index].Primary()
+			instance := route.Route().ProviderInstance()
+			result.Transmissions = append(result.Transmissions, ReviewPreflightTransmission{Role: string(assignment.Role()), RouteKind: "primary", ProviderInstance: instance, ProviderFamily: strings.SplitN(instance, "-", 2)[0], ConfiguredTimeout: appconfig.ProviderTimeoutText(route.Limits().Timeout()), PermissionMode: "read_only", TargetChannel: "native_source"})
+		}
+		for _, path := range budget.RolePathDeadlines() {
+			result.Budget.RolePaths = append(result.Budget.RolePaths, ReviewPreflightRolePath{Role: string(path.Role()), ProviderInstance: path.ProviderInstance(), InvocationCount: path.InvocationCount(), TransitionCount: path.TransitionCount(), InvocationTimeouts: path.InvocationTimeouts().String(), Deadline: path.Deadline().String()})
 		}
 	}
-	ceilings := budgetReceipt.Ceilings()
-	paths := budgetReceipt.RolePathDeadlines()
-	pathRows := make([]ReviewPreflightRolePath, len(paths))
-	for index, path := range paths {
-		pathRows[index] = ReviewPreflightRolePath{
-			Role: string(path.Role()), ProviderInstance: path.ProviderInstance(), InvocationCount: path.InvocationCount(),
-			TransitionCount: path.TransitionCount(), InvocationTimeouts: path.InvocationTimeouts().String(),
-			Deadline: path.Deadline().String(),
-		}
-	}
-	targetBytes := material.Target().Bytes()
-	status := "eligible"
-	reasonCode := string(budgetReceipt.ReasonCode())
-	maxActiveLanes, totalInvocations := budgetReceipt.MaxActiveLanes(), budgetReceipt.TotalInvocations()
-	criticalPath, runDeadline := budgetReceipt.CriticalPathDeadline().String(), budgetReceipt.RunDeadline().String()
-	if material.Target().NoChange() {
-		status, reasonCode = "no_change", "no_change"
-		maxActiveLanes, totalInvocations = 0, 0
-		criticalPath, runDeadline, pathRows = "0s", "0s", []ReviewPreflightRolePath{}
-	}
-	result := ReviewPreflightResult{
-		SchemaVersion:   reviewPreflightSchemaVersion,
-		CaptureIdentity: captureIdentity, Capabilities: query.VerifiedReadCapabilities{CaptureIdentity: "v1", CompositeEvidence: "v1"},
-		Status:        status,
-		Qualification: "not_run",
-		Target: ReviewPreflightTarget{
-			RequestedKind: requestedKind, CapturedKind: string(material.Target().Kind()), GitMode: string(material.Target().Identity().GitMode()),
-			SHA256: "sha256:" + material.Target().Identity().SHA256(), Size: int64(len(targetBytes)),
-		},
-		Warnings: []string{},
-		FileSets: []ReviewPreflightFileSet{{
-			ID: fileSetID, PolicyIdentity: workspaceReceipt.PolicyIdentity(), Files: fileRows,
-		}},
-		GeneratedFiles: []ReviewPreflightGeneratedFile{{
-			Path: ports.WorkspaceSnapshotManifestName, MediaType: "application/json", Disposition: "generated_at_execution",
-		}},
-		Transmissions: transmissions,
-		Budget: ReviewPreflightBudget{
-			Eligible: true, ReasonCode: reasonCode, MaxActiveLanes: maxActiveLanes,
-			TotalInvocations:     totalInvocations,
-			CriticalPathDeadline: criticalPath, RunDeadline: runDeadline,
-			Ceilings: ReviewPreflightCeilings{
-				ProviderTimeout: appconfig.ProviderTimeoutText(ceilings.MaxTimeout()), RolePathDeadline: ceilings.MaxRolePathDeadline().String(),
-				RunDeadline: ceilings.MaxRunDeadline().String(), MaxInvocationsPerRole: ceilings.MaxInvocationsPerRole(),
-				MaxInvocationsPerRun: ceilings.MaxInvocationsPerRun(),
-			},
-			RolePaths: pathRows,
-		},
-	}
-	return result, nil
+	return result, result.Validate()
 }
 
-func validatePreflightSnapshotBinding(snapshot ports.WorkspaceSnapshotRequest, receipt ports.WorkspaceSnapshotReceipt) error {
-	if snapshot.PolicyIdentity() != receipt.PolicyIdentity() {
-		return fmt.Errorf("review preflight: workspace receipt policy mismatch")
-	}
-	expected, observed := snapshot.Files(), receipt.Files()
-	if len(expected) != len(observed) {
-		return fmt.Errorf("review preflight: workspace receipt file count mismatch")
-	}
-	for index := range expected {
-		if expected[index].Path() != observed[index].Path() || expected[index].MediaType() != observed[index].MediaType() ||
-			expected[index].SHA256() != observed[index].SHA256() || !bytes.Equal(expected[index].Bytes(), observed[index].Bytes()) {
-			return fmt.Errorf("review preflight: workspace receipt file mismatch")
-		}
-	}
-	return nil
-}
-
-// Validate rejects malformed service projections before either renderer can
-// expose them as successful preflight evidence.
+// Validate checks selection, native read sides, and the independently rebuilt
+// route budget before exposing a successful projection.
 func (result ReviewPreflightResult) Validate() (err error) {
 	defer func() {
-		if err == nil {
-			return
-		}
-		if _, ok := err.(*reviewPreflightValidationFailure); !ok {
-			err = newReviewPreflightValidationFailure("result_projection")
+		if err != nil {
+			err = &reviewPreflightValidationFailure{code: "preflight_result_validation_failed", invariant: "result_projection"}
 		}
 	}()
+	if result.SchemaVersion != reviewPreflightSchemaVersion || result.Qualification != "not_run" || (result.Status != "eligible" && result.Status != "no_change") || result.CandidateCount < 0 || !result.Budget.Eligible || len(result.Warnings) != 0 {
+		return fmt.Errorf("live preflight: invalid result")
+	}
 	if err := result.Capabilities.Validate(); err != nil {
 		return err
 	}
-	if result.CaptureIdentity != "" {
-		if _, err := domain.ParseCaptureIdentity(result.CaptureIdentity); err != nil {
+	if result.Capabilities.LiveSource != "v1" || (result.Capabilities.ProjectBinding == "v1") != (result.ProjectBinding != "") || result.Capabilities.ExecutionGuard != "" || result.Capabilities.CaptureIdentity != "" {
+		return fmt.Errorf("live preflight: invalid capabilities")
+	}
+	if result.ProjectBinding != "" {
+		if _, err := domain.ParseProjectBinding(result.ProjectBinding); err != nil {
 			return err
 		}
 	}
-	if result.ProjectBinding == "" {
-		if result.RequestReceipt != nil || result.Capabilities.ExecutionGuard != "" || result.Capabilities.ProjectBinding != "" {
-			return fmt.Errorf("review preflight: unavailable binding carries admission")
-		}
-	} else {
-		if result.RequestReceipt == nil {
-			return fmt.Errorf("review preflight: admitted request receipt missing")
-		}
-		if _, err := result.RequestReceipt.Identity(); err != nil {
+	if !preflightSHA256(result.ConfigurationSHA256) {
+		return fmt.Errorf("live preflight: invalid configuration identity")
+	}
+	var canonical bytes.Buffer
+	if err := json.Compact(&canonical, result.Target); err != nil {
+		return err
+	}
+	source, err := evidence.DecodeLiveSourceIdentity(canonical.Bytes())
+	if err != nil || source.SHA256() != result.SourceIdentitySHA256 {
+		return fmt.Errorf("live preflight: invalid source identity")
+	}
+	if result.ProjectBinding == "" && source.Target().Selector().Scope() != domain.LiveSourceWorkspace {
+		return fmt.Errorf("live preflight: Git source has no project binding")
+	}
+	previousSide, previousPath := domain.LiveSourceSide(""), ""
+	seenSides := map[domain.LiveSourceSide]bool{}
+	for _, read := range result.ReadPlan {
+		if _, err := ports.NewSafeRelativePath(read.Path); err != nil {
 			return err
 		}
-		if result.RequestReceipt.ProjectBinding != result.ProjectBinding || result.RequestReceipt.CaptureIdentity != result.CaptureIdentity || result.Capabilities.ExecutionGuard != "v1" || result.Capabilities.ProjectBinding != "v1" {
-			return fmt.Errorf("review preflight: receipt binding mismatch")
+		validSide := false
+		switch source.Target().Selector().Scope() {
+		case domain.LiveSourceWorkspace:
+			validSide = read.Side == domain.LiveSourceWorktree
+		case domain.LiveSourceStage:
+			validSide = read.Side == domain.LiveSourceIndex || !source.Target().EmptyBase() && read.Side == domain.LiveSourceBefore
+		case domain.LiveSourceHead:
+			validSide = read.Side == domain.LiveSourceAfter
+		default:
+			validSide = read.Side == domain.LiveSourceAfter || !source.Target().EmptyBase() && read.Side == domain.LiveSourceBefore
 		}
-	}
-	if result.SchemaVersion != reviewPreflightSchemaVersion || result.Qualification != "not_run" ||
-		(result.Status != "eligible" && result.Status != "no_change") || !validPreflightTarget(result.Target) ||
-		len(result.FileSets) != 1 || len(result.GeneratedFiles) != 1 || !result.Budget.Eligible {
-		return fmt.Errorf("review preflight: invalid result")
-	}
-	if len(result.Warnings) != 0 {
-		return fmt.Errorf("review preflight: invalid warnings")
-	}
-	fileSet := result.FileSets[0]
-	if !preflightSHA256(fileSet.ID) || fileSet.PolicyIdentity == "" {
-		return fmt.Errorf("review preflight: invalid file set")
-	}
-	previous := ""
-	for _, file := range fileSet.Files {
-		path, pathErr := ports.NewSafeRelativePath(file.Path)
-		if pathErr != nil || !path.Valid() || file.Path == ports.WorkspaceSnapshotManifestName || file.Path <= previous ||
-			file.Size < 0 || !preflightSHA256(file.SHA256) ||
-			(file.MediaType == "text/plain" && file.Disposition != "text") ||
-			(file.MediaType != "text/plain" && file.MediaType != "application/octet-stream" && file.MediaType != "image/png" && file.MediaType != "image/jpeg" && file.MediaType != "image/webp") ||
-			(file.MediaType != "text/plain" && file.Disposition != "binary_preserved") {
-			return fmt.Errorf("review preflight: invalid file")
+		if !validSide {
+			return fmt.Errorf("live preflight: invalid read side")
 		}
-		previous = file.Path
-	}
-	recomputed, err := reviewPreflightFileSetID(fileSet.PolicyIdentity, fileSet.Files)
-	if err != nil || recomputed != fileSet.ID {
-		return fmt.Errorf("review preflight: file set identity mismatch")
-	}
-	generated := result.GeneratedFiles[0]
-	if generated.Path != ports.WorkspaceSnapshotManifestName || generated.MediaType != "application/json" || generated.Disposition != "generated_at_execution" {
-		return fmt.Errorf("review preflight: invalid generated file")
+		if previousSide != read.Side {
+			if seenSides[read.Side] || read.Side == domain.LiveSourceBefore && previousSide != "" {
+				return fmt.Errorf("live preflight: invalid read order")
+			}
+			seenSides[read.Side] = true
+			previousPath = ""
+		}
+		if read.Path <= previousPath {
+			return fmt.Errorf("live preflight: duplicate or unordered source path")
+		}
+		previousSide, previousPath = read.Side, read.Path
 	}
 	if err := validatePreflightBudget(result.Budget, result.Status); err != nil {
 		return err
 	}
 	if result.Status == "no_change" {
-		if len(result.Transmissions) != 0 {
-			return fmt.Errorf("review preflight: no-change result has transmissions")
+		if result.CandidateCount != 0 || len(result.Transmissions) != 0 || result.Budget.CriticalPathDeadline != "0s" || result.Budget.RunDeadline != "0s" {
+			return fmt.Errorf("live preflight: invalid no-change projection")
 		}
 		return nil
 	}
-	if len(result.Transmissions) == 0 {
-		return fmt.Errorf("review preflight: eligible result has no transmissions")
+	if result.CandidateCount == 0 || len(result.Transmissions) == 0 {
+		return fmt.Errorf("live preflight: missing candidate or route")
 	}
-	// One role, one provider, one transmission: role ordinals strictly increase.
 	lastRole := -1
 	for _, transmission := range result.Transmissions {
-		role := domain.Role(transmission.Role)
-		family := reviewrun.Family(transmission.ProviderFamily)
+		role, family := domain.Role(transmission.Role), reviewrun.Family(transmission.ProviderFamily)
 		ordinal := preflightRoleOrdinal(role)
-		if ordinal < 0 || ordinal <= lastRole || transmission.RouteKind != "primary" ||
-			!reviewrun.RoleProviderInstanceMatches(family, role, transmission.ProviderInstance) ||
-			transmission.TargetChannel != "prompt" || transmission.FileSetID != fileSet.ID {
-			return fmt.Errorf("review preflight: invalid transmission order")
+		if ordinal < 0 || ordinal <= lastRole || transmission.RouteKind != "primary" || !reviewrun.RoleProviderInstanceMatches(family, role, transmission.ProviderInstance) || transmission.TargetChannel != "native_source" || transmission.PermissionMode != "read_only" || !activePreflightFamily(family) {
+			return fmt.Errorf("live preflight: invalid native route")
 		}
 		if _, err := appconfig.ParseProviderTimeout(transmission.ConfiguredTimeout); err != nil {
-			return fmt.Errorf("review preflight: invalid transmission timeout")
-		}
-		if !activePreflightFamily(family) || transmission.PermissionMode != "not_applicable" {
-			return fmt.Errorf("review preflight: invalid transmission provider")
+			return err
 		}
 		lastRole = ordinal
 	}
@@ -433,24 +299,6 @@ func preflightRouteBudget(transmission ReviewPreflightTransmission) (review.Rout
 	return review.NewRouteBudget(route, limits)
 }
 
-func validPreflightTarget(target ReviewPreflightTarget) bool {
-	switch target.RequestedKind {
-	case "workspace", "stage", "dirty", "diff", "patch", "stdin":
-	default:
-		return false
-	}
-	if target.Size < 0 || !preflightSHA256(target.SHA256) {
-		return false
-	}
-	switch domain.TargetKind(target.CapturedKind) {
-	case domain.TargetGit, domain.TargetWorkspace, domain.TargetPatch, domain.TargetStdin:
-	default:
-		return false
-	}
-	mode := domain.GitTargetMode(target.GitMode)
-	return target.CapturedKind == string(domain.TargetGit) && mode.Valid() || target.CapturedKind != string(domain.TargetGit) && target.GitMode == ""
-}
-
 func validatePreflightBudget(budget ReviewPreflightBudget, status string) error {
 	for _, value := range []string{budget.CriticalPathDeadline, budget.RunDeadline, budget.Ceilings.RolePathDeadline, budget.Ceilings.RunDeadline} {
 		if duration, err := time.ParseDuration(value); err != nil || duration < 0 {
@@ -513,16 +361,6 @@ func preflightRoleOrdinal(role domain.Role) int {
 	return -1
 }
 
-func preflightTransmission(role domain.Role, routeKind string, budget review.RouteBudget, fileSetID string) ReviewPreflightTransmission {
-	instance := budget.Route().ProviderInstance()
-	family := strings.SplitN(instance, "-", 2)[0]
-	return ReviewPreflightTransmission{
-		Role: string(role), RouteKind: routeKind, ProviderInstance: instance, ProviderFamily: family,
-		ConfiguredTimeout: appconfig.ProviderTimeoutText(budget.Limits().Timeout()), PermissionMode: reviewrun.PreflightPermissionMode,
-		TargetChannel: reviewrun.PreflightTargetChannel, FileSetID: fileSetID,
-	}
-}
-
 func activePreflightFamily(family reviewrun.Family) bool {
 	for _, candidate := range reviewrun.Families() {
 		if family == candidate {
@@ -532,44 +370,21 @@ func activePreflightFamily(family reviewrun.Family) bool {
 	return false
 }
 
-func reviewPreflightFileSetID(policy string, files []ReviewPreflightFile) (string, error) {
-	return reviewrun.PreflightFileSetID(policy, files)
-}
-
 func renderReviewPreflightHuman(result ReviewPreflightResult) []byte {
 	var output strings.Builder
-	fmt.Fprintf(&output, "review preflight: %s\nqualification: %s\n", result.Status, result.Qualification)
-	for _, warning := range result.Warnings {
-		fmt.Fprintf(&output, "warning: %s\n", warning)
+	binding := result.ProjectBinding
+	if binding == "" {
+		binding = "unavailable (non-Git workspace)"
 	}
-	fmt.Fprintf(&output, "status: %s\ntarget: requested=%s captured=%s git_mode=%s %d bytes %s\n",
-		result.Status, result.Target.RequestedKind, result.Target.CapturedKind, result.Target.GitMode, result.Target.Size, result.Target.SHA256)
-	for _, transmission := range result.Transmissions {
-		fmt.Fprintf(&output, "route: %s %s %s timeout=%s permission=%s target_channel=%s file_set=%s\n",
-			transmission.Role, transmission.RouteKind, transmission.ProviderInstance,
-			transmission.ConfiguredTimeout, transmission.PermissionMode, transmission.TargetChannel, transmission.FileSetID)
+	fmt.Fprintf(&output, "review preflight: %s\nqualification: %s\nproject binding: %s\nsource identity: %s\nselection: %s\ncandidates: %d\n", result.Status, result.Qualification, binding, result.SourceIdentitySHA256, result.Target, result.CandidateCount)
+	for _, read := range result.ReadPlan {
+		fmt.Fprintf(&output, "read: %s %s\n", read.Side, read.Path)
 	}
-	for _, fileSet := range result.FileSets {
-		fmt.Fprintf(&output, "file set: %s policy=%s\n", fileSet.ID, fileSet.PolicyIdentity)
-		for _, file := range fileSet.Files {
-			fmt.Fprintf(&output, "file: %s media=%s size=%d sha256=%s disposition=%s\n",
-				file.Path, file.MediaType, file.Size, file.SHA256, file.Disposition)
-		}
+	for _, route := range result.Transmissions {
+		fmt.Fprintf(&output, "route: %s %s timeout=%s permission=%s target_channel=%s\n", route.Role, route.ProviderInstance, route.ConfiguredTimeout, route.PermissionMode, route.TargetChannel)
 	}
-	for _, file := range result.GeneratedFiles {
-		fmt.Fprintf(&output, "generated file: %s media=%s disposition=%s\n", file.Path, file.MediaType, file.Disposition)
-	}
-	fmt.Fprintf(&output, "budget: %s invocations=%d critical_path=%s run_deadline=%s max_active_lanes=%d\n",
-		result.Budget.ReasonCode, result.Budget.TotalInvocations,
-		result.Budget.CriticalPathDeadline, result.Budget.RunDeadline, result.Budget.MaxActiveLanes)
-	fmt.Fprintf(&output, "ceilings: provider_timeout=%s role_path_deadline=%s run_deadline=%s role_invocations=%d run_invocations=%d\n",
-		result.Budget.Ceilings.ProviderTimeout, result.Budget.Ceilings.RolePathDeadline, result.Budget.Ceilings.RunDeadline,
-		result.Budget.Ceilings.MaxInvocationsPerRole, result.Budget.Ceilings.MaxInvocationsPerRun)
-	for _, path := range result.Budget.RolePaths {
-		fmt.Fprintf(&output, "role path: %s provider=%s invocations=%d transitions=%d provider_time=%s deadline=%s\n",
-			path.Role, path.ProviderInstance, path.InvocationCount, path.TransitionCount, path.InvocationTimeouts, path.Deadline)
-	}
-	return []byte(strings.TrimSuffix(output.String(), "\n"))
+	fmt.Fprintf(&output, "budget: %s invocations=%d run_deadline=%s max_active_lanes=%d", result.Budget.ReasonCode, result.Budget.TotalInvocations, result.Budget.RunDeadline, result.Budget.MaxActiveLanes)
+	return []byte(output.String())
 }
 
 func reviewPreflightFailureJSON() []byte {

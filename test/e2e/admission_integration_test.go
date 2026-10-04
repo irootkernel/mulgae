@@ -32,6 +32,7 @@ func TestIntegrationIsolatedReleaseFixtureGuardedAdmission(t *testing.T) {
 		t.Helper()
 		result := runMulgaeBinaryWithEnv(t, binary, project, environment, args...)
 		if result.exitCode != want {
+			logFakeProviderPanic(t, project)
 			t.Fatalf("%v: exit=%d stdout=%s stderr=%s", args, result.exitCode, result.stdout, result.stderr)
 		}
 		var envelope map[string]any
@@ -44,9 +45,8 @@ func TestIntegrationIsolatedReleaseFixtureGuardedAdmission(t *testing.T) {
 		t.Helper()
 		return run(0, "review", mode, "--roles", "logic", "--preflight", "--output", "json")["result"].(map[string]any)["preflight"].(map[string]any)
 	}
-	guards := func(p map[string]any) []string {
-		return []string{"--expected-project-binding", p["project_binding"].(string), "--expected-request-digest", p["request_receipt"].(map[string]any)["request_digest"].(string)}
-	}
+	binding := run(0, "context", "--output", "json")["result"].(map[string]any)["project_binding"].(string)
+	guards := func(map[string]any) []string { return []string{"--expected-project-binding", binding} }
 	stage := preflight("--stage")
 	if stage["status"] != "no_change" {
 		t.Fatal("stage fixture changed")
@@ -59,7 +59,7 @@ func TestIntegrationIsolatedReleaseFixtureGuardedAdmission(t *testing.T) {
 	}
 	first := execute("--stage", stage)
 	second := execute("--stage", stage)
-	if first["guarded"] != true || first["request_digest"] != stage["request_receipt"].(map[string]any)["request_digest"] || first["run_id"] == second["run_id"] {
+	if first["guarded"] != true || first["source_identity_sha256"] != stage["source_identity_sha256"] || first["run_id"] == second["run_id"] {
 		t.Fatal("guard result or repeated-start identity invalid")
 	}
 	afterLog, _ := os.ReadFile(providerLog)
@@ -68,10 +68,10 @@ func TestIntegrationIsolatedReleaseFixtureGuardedAdmission(t *testing.T) {
 	}
 	// A different process verifies the newly retained support after publication.
 	run(0, "status", "--run", first["run_id"].(string), "--output", "json")
-	args := append([]string{"review", "--stage", "--roles", "logic", "--objective", "changed objective", "--output", "json"}, guards(stage)...)
+	args := []string{"review", "--stage", "--roles", "logic", "--expected-project-binding", "sha256:" + strings.Repeat("a", 64), "--output", "json"}
 	rejected := run(2, args...)
 	reasons, _ := json.Marshal(rejected["reasons"])
-	if !strings.Contains(string(reasons), "request_digest_mismatch") {
+	if !strings.Contains(string(reasons), "project_binding_mismatch") {
 		t.Fatalf("wrong admission rejection: %s", reasons)
 	}
 	afterLog, _ = os.ReadFile(providerLog)
@@ -83,19 +83,28 @@ func TestIntegrationIsolatedReleaseFixtureGuardedAdmission(t *testing.T) {
 	if string(afterLog) != string(baselineLog) {
 		t.Fatal("MCP no-change or rejection invoked provider")
 	}
-	dirty := preflight("--dirty")
-	mustWriteTestFile(t, filepath.Join(project, "docs", "linked.md"), []byte("changed unchanged-side support\n"))
-	args = append([]string{"review", "--dirty", "--roles", "logic", "--output", "json"}, guards(dirty)...)
-	run(2, args...)
-	accepted := execute("--dirty", preflight("--dirty"))
+	for _, retired := range [][]string{
+		{"review", "--dirty"}, {"review", "--stdin"}, {"review", "--patch", "target.diff"},
+		{"review", "--workspace", "--expected-request-digest", "sha256:" + strings.Repeat("b", 64)},
+		{"followup"}, {"delta"}, {"rerun"}, {"compose"},
+	} {
+		result := runMulgaeBinaryWithEnv(t, binary, project, environment, append(retired, "--output", "json")...)
+		if result.exitCode != 2 || len(result.stdout) != 0 || len(result.stderr) == 0 {
+			t.Fatalf("retired grammar admitted: %v: %+v", retired, result)
+		}
+	}
+	if after, _ := os.ReadFile(providerLog); !bytes.Equal(after, baselineLog) {
+		t.Fatal("retired request invoked provider")
+	}
+	accepted := execute("--workspace", preflight("--workspace"))
 	if accepted["guarded"] != true {
-		t.Fatal("changed review not guarded")
+		t.Fatal("live review not guarded")
 	}
 	run(0, "status", "--run", accepted["run_id"].(string), "--output", "json")
-	// Corruption is tested only inside this disposable fixture publication.
-	manifest := filepath.Join(project, ".mulgae", first["session_id"].(string), first["run_id"].(string), "target", "capture-manifest.json")
-	mustWriteTestFile(t, manifest, []byte("corrupt fixture capture"))
+	manifest := filepath.Join(project, ".mulgae", first["session_id"].(string), first["run_id"].(string), "source", "source.json")
+	mustWriteTestFile(t, manifest, []byte("corrupt fixture source metadata"))
 	run(7, "status", "--run", first["run_id"].(string), "--output", "json")
+
 }
 
 func checkGuardedMCPReview(t *testing.T, binary, project string, environment []string, cliPreflight map[string]any) {
@@ -157,13 +166,11 @@ func checkGuardedMCPReview(t *testing.T, binary, project string, environment []s
 		return call("tools/call", map[string]any{"name": name, "arguments": arguments})["structuredContent"].(map[string]any)
 	}
 	binding := cliPreflight["project_binding"].(string)
-	digest := cliPreflight["request_receipt"].(map[string]any)["request_digest"].(string)
 	arguments := map[string]any{"target": map[string]any{"kind": "stage"}, "roles": []string{"logic"}, "expected_project_binding": binding}
 	preflight := tool("preflight_review", arguments)
-	if preflight["outcome"] != "success" || preflight["data"].(map[string]any)["request_receipt"].(map[string]any)["request_digest"] != digest {
+	if preflight["outcome"] != "success" || preflight["data"].(map[string]any)["source_identity_sha256"] != cliPreflight["source_identity_sha256"] {
 		t.Fatalf("CLI/MCP receipt mismatch: %#v", preflight)
 	}
-	arguments["expected_request_digest"] = digest
 	foreground := tool("run_review", arguments)
 	if foreground["outcome"] != "success" || foreground["data"].(map[string]any)["guarded"] != true {
 		t.Fatalf("guarded foreground: %#v", foreground)
@@ -174,7 +181,7 @@ func checkGuardedMCPReview(t *testing.T, binary, project string, environment []s
 	}
 	invocation := started["data"].(map[string]any)["invocation_id"].(string)
 	terminal := tool("await_review", map[string]any{"invocation_id": invocation})
-	if terminal["outcome"] != "success" || terminal["data"].(map[string]any)["request_digest"] != digest || terminal["data"].(map[string]any)["run_id"] == foreground["data"].(map[string]any)["run_id"] {
+	if terminal["outcome"] != "success" || terminal["data"].(map[string]any)["source_identity_sha256"] != cliPreflight["source_identity_sha256"] || terminal["data"].(map[string]any)["run_id"] == foreground["data"].(map[string]any)["run_id"] {
 		t.Fatalf("guarded await: %#v", terminal)
 	}
 	arguments["expected_project_binding"] = "sha256:" + strings.Repeat("a", 64)

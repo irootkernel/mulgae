@@ -1,8 +1,8 @@
 # Mulgae
 
-Mulgae is a local, multi-provider AI code review CLI. It captures an immutable
-target, runs role-specific reviews through ZCode by default, validates the
-results, verifies evidence, and publishes durable artifacts under `.mulgae/`.
+Mulgae is a local, multi-provider AI code review CLI. It reads the original workspace, index or resolved Git objects from a neutral
+reviewer directory, runs role-specific reviews through configured providers,
+verifies evidence, and publishes durable results under `.mulgae/`.
 
 Mulgae roles are functional review lenses.
 They are not people, teams, or organizational authorities.

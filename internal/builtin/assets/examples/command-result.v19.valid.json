@@ -1,0 +1,30 @@
+{
+  "command": "read-report",
+  "completed_at": "2026-09-04T06:00:00Z",
+  "exit": {
+    "code": 0,
+    "kind": "success"
+  },
+  "reasons": [],
+  "request": {
+    "command": "read-report",
+    "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e",
+    "run_id": "r_01900000-0000-7000-8000-000000000002",
+    "output_format": "json",
+    "role": "logic"
+  },
+  "result": {
+    "run_id": "r_01900000-0000-7000-8000-000000000002",
+    "role": "logic",
+    "publication_receipt": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "content_sha256": "sha256:497b7725a00101d6cf82489ef502fb0918962b10aaa7279962ab5ec3edc62533",
+    "media_type": "text/markdown",
+    "encoding": "utf8",
+    "offset": 0,
+    "total_bytes": 9,
+    "returned_bytes": 9,
+    "next_offset": null,
+    "content": "# Report\n"
+  },
+  "schema_version": "mulgae-command-result.v19"
+}

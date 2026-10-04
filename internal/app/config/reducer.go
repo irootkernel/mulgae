@@ -1,4 +1,4 @@
-// Package config admits the project-local Config v4 pair and projects the fixed
+// Package config admits the project-local Config v5 pair and projects the fixed
 // runtime policy consumed by review composition.
 package config
 
@@ -7,17 +7,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 	"time"
 )
-
-type WorkspaceAccess string
-
-const (
-	WorkspaceNone             WorkspaceAccess = "none"
-	WorkspaceReadonlySnapshot WorkspaceAccess = "readonly_snapshot"
-)
-
-func (access WorkspaceAccess) Valid() bool {
-	return access == WorkspaceNone || access == WorkspaceReadonlySnapshot
-}
 
 type ResolvedRole struct {
 	enabled           bool
@@ -129,9 +118,7 @@ func (resolved ResolvedConfig) Role(role domain.Role) (ResolvedRole, bool) {
 func (resolved ResolvedConfig) RequiredRoles() []domain.Role {
 	return append([]domain.Role(nil), resolved.requiredRoles...)
 }
-func (resolved ResolvedConfig) WorkspaceAccess() WorkspaceAccess {
-	return WorkspaceAccess(resolved.raw.Execution.WorkspaceAccess)
-}
+
 func (resolved ResolvedConfig) RequestChangesOn() []domain.Severity {
 	return append([]domain.Severity(nil), resolved.requestChangesOn...)
 }

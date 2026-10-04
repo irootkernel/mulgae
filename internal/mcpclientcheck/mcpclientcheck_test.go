@@ -350,6 +350,19 @@ func requiredExecutable(t *testing.T, name string) string {
 	return path
 }
 
+func TestClientMachineOutputKeepsStderrSeparate(t *testing.T) {
+	output := run(t, "/bin/sh", []string{"-c", `printf '{"connected":true}\n'; printf 'Warning: diagnostic\n' >&2`}, t.TempDir(), nil)
+	var result struct {
+		Connected bool `json:"connected"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("machine output includes diagnostics: %v", err)
+	}
+	if !result.Connected {
+		t.Fatal("machine output lost the successful result")
+	}
+}
+
 func run(t *testing.T, binary string, arguments []string, directory string, overrides []string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), clientTimeout)
@@ -357,11 +370,11 @@ func run(t *testing.T, binary string, arguments []string, directory string, over
 	command := exec.CommandContext(ctx, binary, arguments...)
 	command.Dir = directory
 	command.Env = append(os.Environ(), overrides...)
-	var output limitedBuffer
+	var output, diagnostics limitedBuffer
 	command.Stdout = &output
-	command.Stderr = &output
+	command.Stderr = &diagnostics
 	if err := command.Run(); err != nil {
-		t.Fatalf("%s %v: %v; output=%q", binary, arguments, err, output.String())
+		t.Fatalf("%s %v: %v; stdout=%q; stderr=%q", binary, arguments, err, output.String(), diagnostics.String())
 	}
 	if ctx.Err() != nil {
 		t.Fatalf("%s %v: %v", binary, arguments, ctx.Err())

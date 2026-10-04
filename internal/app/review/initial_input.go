@@ -46,7 +46,14 @@ func (runtime *ProviderInvocationRuntime) prepareInitial(ctx context.Context, jo
 		if err := material.Prompt.Validate(); err != nil {
 			return err
 		}
-		if sha256Identifier(material.Target) != "sha256:"+job.Target().SHA256() {
+		targetSHA256 := job.Target().SHA256()
+		if runtime.liveIdentity.Valid() {
+			targetSHA256 = job.Target().SourceIdentitySHA256()
+			if !bytes.Equal(material.Target, runtime.liveIdentity.Bytes()) || len(material.CapturedArchive) != 0 {
+				return fmt.Errorf("initial inputs: live source authority mismatch")
+			}
+		}
+		if sha256Identifier(material.Target) != "sha256:"+targetSHA256 {
 			return fmt.Errorf("initial inputs: target mismatch")
 		}
 		if !frozen {
@@ -106,16 +113,6 @@ func (runtime *ProviderInvocationRuntime) DrainInitialInputsForRun(runID domain.
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].AttemptID().String() < result[j].AttemptID().String() })
 	return result
-}
-
-func (runtime exactReplayInvocationRuntime) PrepareInitial(ctx context.Context, jobs []InvocationJob) error {
-	source, ok := runtime.runtime.source.(ExactReplayPromptSource)
-	if !ok {
-		return fmt.Errorf("initial inputs: exact replay source unavailable")
-	}
-	return runtime.runtime.prepareInitial(ctx, jobs, func(job InvocationJob) (RuntimePrompt, error) {
-		return source.ExactReplayPrompt(ctx, job, cloneExactReplayInput(runtime.input))
-	})
 }
 
 // DiscardInitialInputsForRun releases prepared ownership without materializing

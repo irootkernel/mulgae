@@ -4,6 +4,11 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.25 - Unreleased
 
+### Changed
+
+- Review original workspace, index and Git sources through CLI/MCP with neutral read-only execution and independent project binding,
+  requiring manual Config v5 migration and retiring capture-bound selectors and child/replay/compose execution while preserving historical reads, exports and publication reconciliation.
+
 ## v0.1.24 - 2026-09-29
 
 ### Added

@@ -3,8 +3,7 @@
 ## Purpose
 
 Mulgae makes AI-assisted code review reproducible enough to inspect, automate,
-and audit locally. A review is more than provider text: it has an immutable
-target, explicit role and provider assignments, bounded execution, a validated
+and audit locally. A review is more than provider text: it has explicit source selection, explicit role and provider assignments, bounded execution, a validated
 result, evidence status, lineage, and a durable publication record.
 
 ## Product goals
@@ -18,8 +17,10 @@ result, evidence status, lineage, and a durable publication record.
    separate adapters behind common application ports. Independent runs and projects do
    not consume one another's execution budget through a Mulgae-owned provider
    queue or lock; concurrency remains bounded explicitly within each process.
-4. **Reproducible inputs.** Mulgae captures an immutable target and records
-   prompts, provider identity, attempts, and hashes needed to understand it.
+4. **Honest source provenance.** Mulgae reads original workspace/index state or
+   fixed Git objects and records selection, prompts, providers and evidence.
+   Mutable-source consistency is the caller's responsibility; no snapshot or
+   replay guarantee is claimed.
 5. **Fail-closed contracts.** Untrusted provider output is admitted only as
    UTF-8 without a product byte ceiling. Markdown/free-form role reports are primary; optional exact
    JSON structured extraction requires parsing, schema, semantic, and evidence
@@ -35,7 +36,7 @@ result, evidence status, lineage, and a durable publication record.
    Mulgae
    instructs the extraction to add nothing the report did not claim, but it
    cannot prove that correspondence, so it admits a transcription only when it
-   verified every finding against the immutable target itself. The prose report
+   verified every finding against the declared source side itself. The prose report
    remains the primary record of what the role actually said.
 7. **Local ownership.** Shared project policy and private machine/runtime state
    remain project-local beneath `.mulgae/`; only the policy is Git-shareable.
@@ -43,13 +44,10 @@ result, evidence status, lineage, and a durable publication record.
    provides stable versioned envelopes and typed exits, while an attached
    stdio MCP process provides request/response automation and a bounded,
    session-local event-driven review wait without CLI polling or durable jobs.
-9. **Exact composite recovery.** An operator may recover missing selected-role
-   coverage by selecting completed reruns of the same immutable target. Mulgae
-   verifies their exact lineage and source integrity, preserves every accepted
-   root result, and publishes one self-contained immutable composite review
-   without invoking a provider again. Failed ordinary reviews and reruns may
-   retain separate immutable recovery inputs after verified process termination
-   and workspace cleanup. Those inputs never constitute a final review.
+9. **Historical integrity.** Existing ordinary, child, composite, failed and
+   no-change artifacts remain verified, readable and exportable. Native cleanup
+   protects required ancestors; publication reconciliation stays provider-free.
+   New execution provides no source replay or child/composite recovery operation.
 
 ## Non-goals
 
@@ -61,7 +59,8 @@ Mulgae does not:
 - merge arbitrary reviews, replace a successful root role, select recovery runs
   automatically, or compose runs whose target or lineage does not match;
 - execute commands supplied by project configuration;
-- give a provider live access to the reviewed project tree;
+- create source snapshots, copied checkouts, worktrees or full-source archives;
+- claim an atomic workspace/index view or source replay authority;
 - upload artifacts to a hosted Mulgae service;
 - support platforms outside `darwin/arm64` in the initial release;
 - preserve pre-release names, paths, environment variables, or contracts.
@@ -71,7 +70,7 @@ Mulgae does not:
 The first public release is intentionally narrow:
 
 - one binary named `mulgae`, including the `mulgae mcp` attached transport;
-- Config v4 split between tracked `.mulgae/config.yaml` project policy and
+- Config v5 split between tracked `.mulgae/config.yaml` project policy and
   untracked mode-`0600` `.mulgae/local.yaml` machine paths;
 - independently versioned machine contracts;
 - ZCode, Grok, and Codex provider families;

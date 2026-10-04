@@ -55,8 +55,25 @@ func NewLiveReviewExecution(ctx context.Context, source LiveSourceReader, home R
 	if err := home.Revalidate(); err != nil {
 		return LiveReviewExecution{}, err
 	}
+	reads, err := LiveSourceReadPlan(ctx, source)
+	if err != nil {
+		return LiveReviewExecution{}, err
+	}
+	execution := LiveReviewExecution{source: source, home: home, binding: binding, neutral: home.Root(), target: source.Target(), credentials: append([]AnchoredRoot(nil), credentials...), reads: reads}
+	if err := execution.Revalidate(ctx); err != nil {
+		return LiveReviewExecution{}, err
+	}
+	return execution, nil
+}
+
+// LiveSourceReadPlan enumerates admitted paths without reading file bodies or
+// creating a reviewer home. Preflight and native execution share this plan.
+func LiveSourceReadPlan(ctx context.Context, source LiveSourceReader) ([]LiveSourceRead, error) {
+	if ctx == nil || source == nil {
+		return nil, fmt.Errorf("live source read plan: missing authority")
+	}
 	target := source.Target()
-	var reads []LiveSourceRead
+	reads := make([]LiveSourceRead, 0)
 	afterSide := domain.LiveSourceAfter
 	switch target.Selector().Scope() {
 	case domain.LiveSourceWorkspace:
@@ -77,7 +94,7 @@ func NewLiveReviewExecution(ctx context.Context, source LiveSourceReader, home R
 		}
 		paths, err := source.List(ctx, side)
 		if err != nil {
-			return LiveReviewExecution{}, err
+			return nil, err
 		}
 		for _, path := range paths {
 			command := ""
@@ -88,11 +105,7 @@ func NewLiveReviewExecution(ctx context.Context, source LiveSourceReader, home R
 			reads = append(reads, LiveSourceRead{side: side, path: path, command: command})
 		}
 	}
-	execution := LiveReviewExecution{source: source, home: home, binding: binding, neutral: home.Root(), target: target, credentials: append([]AnchoredRoot(nil), credentials...), reads: reads}
-	if err := execution.Revalidate(ctx); err != nil {
-		return LiveReviewExecution{}, err
-	}
-	return execution, nil
+	return reads, nil
 }
 
 func (execution LiveReviewExecution) Valid() bool {

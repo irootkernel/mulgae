@@ -193,7 +193,6 @@ type schemaExamplePair struct {
 
 var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-capture-manifest.v1.schema.json", "example:capture-manifest.v1.valid.json"},
-	{"https://mulgae.local/schemas/mulgae-request-receipt.v1.schema.json", "example:request-receipt.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-publication-receipt.v2.schema.json", "example:publication-receipt.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-export-manifest.v2.schema.json", "example:export-manifest.v2.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-publication-receipt.v1.schema.json", "example:publication-receipt.v1.valid.json"},
@@ -207,6 +206,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-command-result.v16.schema.json", "example:command-result.v16.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v17.schema.json", "example:command-result.v17.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v18.schema.json", "example:command-result.v18.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-command-result.v19.schema.json", "example:command-result.v19.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v11.schema.json", "example:command-result.v11.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v10.schema.json", "example:command-result.v10.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v9.schema.json", "example:command-result.v9.valid.json"},
@@ -250,6 +250,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v7.schema.json", "example:review-preflight.v7.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v4.schema.json", "example:review-preflight.v4.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json", "example:review-preflight.v3.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-review-preflight.v8.schema.json", "example:review-preflight.v8.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "example:run-manifest.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json", "example:run-manifest.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "example:validation-receipt.v1.valid.json"},

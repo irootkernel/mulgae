@@ -39,14 +39,14 @@ project/preflight binding, coherent public result reads, and retained composite
 evidence. Its canonical outcomes are linked from
 [EPIC-007](roadmap/README.md#epic-007-verified-review-contracts).
 
-The next adopted work is [live workspace and Git review](specs/live-workspace-and-git-review.md)
+Current public execution follows [live workspace and Git review](specs/live-workspace-and-git-review.md)
 for EPIC-009. Its [dossier](todo/EPIC-009-live-workspace-and-git-review.md) develops
 snapshot-free source access, neutral reviewer execution, compatibility, and verification.
 
 [Review completeness and iteration](specs/review-completeness-and-iteration.md)
 and its [EPIC-008 dossier](todo/EPIC-008-review-completeness-and-iteration.md)
 are held for redesign after EPIC-009 acceptance. Their earlier planned interfaces
-remain unimplemented. Current runtime authority is unchanged by this adoption.
+remain unimplemented. Their adoption grants no current execution capability.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The

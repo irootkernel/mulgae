@@ -28,16 +28,12 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
-	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	"github.com/irootkernel/mulgae/internal/app/doctor"
 	appexport "github.com/irootkernel/mulgae/internal/app/export"
-	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	appheartbeat "github.com/irootkernel/mulgae/internal/app/heartbeat"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
-	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
-	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	appschema "github.com/irootkernel/mulgae/internal/app/schema"
 	"github.com/irootkernel/mulgae/internal/builtin"
@@ -47,7 +43,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v18.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v19.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -391,8 +387,8 @@ func TestApplicationCommandHandlersMatchCanonicalRegistry(t *testing.T) {
 	specs := cli.CommandSpecs()
 	handlers := applicationCommandHandlers()
 
-	if len(specs) != 23 {
-		t.Fatalf("canonical registry has %d commands, want 23", len(specs))
+	if len(specs) != 19 {
+		t.Fatalf("canonical registry has %d commands, want 19", len(specs))
 	}
 	if err := validateApplicationCommandHandlers(specs, handlers); err != nil {
 		t.Fatalf("application handler map is not complete: %v", err)
@@ -500,304 +496,9 @@ func TestApplicationHelpAndUsageOutput(t *testing.T) {
 		t.Fatalf("removed help roles result = %#v", removedRolesTopic)
 	}
 
-	unavailable := fixture.application.Run(ctx, []string{"review", "--dirty"}, root)
+	unavailable := fixture.application.Run(ctx, []string{"review", "--workspace"}, root)
 	if unavailable.ExitCode() != app.ExitCodeReadiness || len(unavailable.Stdout()) != 0 || len(unavailable.Stderr()) == 0 {
 		t.Fatalf("authority-absent review result = %#v", unavailable)
-	}
-}
-
-func TestApplicationComposeUnavailableReturnsV8ReconciliationEnvelope(t *testing.T) {
-	fixture := newFoundationFixture(t)
-	result := fixture.application.Run(context.Background(), []string{
-		"compose", "--root-run", "r_019f596a-cf80-7c67-b265-f37053d51ccf",
-		"--recovery-run", "r_019f596a-cf81-7c67-b265-f37053d51ccf", "--output", "json",
-	}, testAnchoredRoot(t))
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
-	var envelope struct {
-		SchemaVersion string         `json:"schema_version"`
-		Result        map[string]any `json:"result"`
-	}
-	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.SchemaVersion != "mulgae-command-result.v18" || envelope.Result["kind"] != "composite_failed" ||
-		envelope.Result["root_run_id"] == nil || envelope.Result["reconciliation_state"] != "not_committed" || envelope.Result["retry_safe"] != true {
-		t.Fatalf("compose failure envelope = %#v", envelope)
-	}
-}
-
-type compositeReviewServiceFunc func(context.Context, appreviewcompose.Request) (appreviewcompose.PublishedResult, error)
-
-func (service compositeReviewServiceFunc) ComposeReview(ctx context.Context, request appreviewcompose.Request) (appreviewcompose.PublishedResult, error) {
-	return service(ctx, request)
-}
-
-func TestApplicationComposeProjectsCommittedPolicyOutcome(t *testing.T) {
-	fixture := newFoundationFixture(t)
-	published := compositePublishedResult(t, domain.ExitCommittedCIRejected, domain.CIFail)
-	fixture.application.compositeReviews = compositeReviewServiceFunc(func(_ context.Context, request appreviewcompose.Request) (appreviewcompose.PublishedResult, error) {
-		if request.RootRunID != published.RootRunID() || !reflect.DeepEqual(request.RecoveryRuns, published.RecoveryRunIDs()) {
-			t.Fatalf("compose request = %#v", request)
-		}
-		return published, nil
-	})
-	arguments := []string{"compose", "--root-run", published.RootRunID().String()}
-	for _, runID := range published.RecoveryRunIDs() {
-		arguments = append(arguments, "--recovery-run", runID.String())
-	}
-	arguments = append(arguments, "--output", "json")
-	result := fixture.application.Run(context.Background(), arguments, testAnchoredRoot(t))
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodePolicy)
-	var envelope struct {
-		Exit struct {
-			Kind string `json:"kind"`
-		} `json:"exit"`
-		Result map[string]any `json:"result"`
-	}
-	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.Exit.Kind != "policy" || envelope.Result["kind"] != "composite_published" ||
-		envelope.Result["run_id"] != published.RunID().String() || envelope.Result["ci_decision"] != string(domain.CIFail) ||
-		envelope.Result["reconciliation_state"] != "created" || envelope.Result["retry_safe"] != true {
-		t.Fatalf("compose success envelope = %#v", envelope)
-	}
-}
-
-func compositePublishedResult(t *testing.T, exitCode domain.OperationalExitCode, ci domain.CIDecision) appreviewcompose.PublishedResult {
-	t.Helper()
-	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
-	rootRunID, _ := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
-	recoveryRunID, _ := domain.ParseRunID("r_019f596a-cf82-7c67-b265-f37053d51ccf")
-	runID, _ := domain.ParseRunID("r_019f596a-cf83-7c67-b265-f37053d51ccf")
-	reviewID, _ := domain.ParseReviewID("019f596a-d174-7321-b920-c2d312c82cc2")
-	reasonCode := "policy_evaluated"
-	if exitCode == domain.ExitCommittedCIRejected {
-		reasonCode = "request_changes_threshold"
-	}
-	reason, err := domain.NewExitReason(exitCode, reasonCode)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, err := domain.NewOperationalExitInput([]domain.ExitReason{reason})
-	if err != nil {
-		t.Fatal(err)
-	}
-	exit, err := domain.ReduceOperationalExit(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := appreviewcompose.NewPublishedResult(appreviewcompose.PublishedResultInput{
-		SessionID: sessionID, RunID: runID, ReviewID: reviewID, RootRunID: rootRunID,
-		RecoveryRunIDs: []domain.RunID{recoveryRunID}, TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		RecoveredRoles: []domain.Role{domain.RoleSecurity}, RoleReportURIs: []appreviewcompose.RoleReportURI{
-			{Role: domain.RoleLogic, URI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/role-reports/logic.md"},
-			{Role: domain.RoleSecurity, URI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/role-reports/security.md"},
-		},
-		Coverage: domain.CoverageComplete, Content: domain.ContentRequestChanges,
-		StructuredExtractionStatus: domain.StructuredExtractionStructured, CIDecision: ci,
-		PublicationStatus: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionReconstructCompletedStatus,
-		TerminalExit: exit, ReconciliationState: "created",
-		RunManifestURI:    ".mulgae/" + sessionID.String() + "/" + runID.String() + "/manifest.json",
-		ReviewArtifactURI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/review_" + reviewID.String() + ".json",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
-}
-
-type identifiedCompositeTestFailure struct {
-	sessionID domain.SessionID
-	runID     domain.RunID
-}
-
-func (failure identifiedCompositeTestFailure) Error() string { return "private publication failure" }
-func (failure identifiedCompositeTestFailure) ReasonCode() string {
-	return domain.CompositePublicationIncomplete
-}
-func (failure identifiedCompositeTestFailure) CompositeIdentity() (domain.SessionID, domain.RunID, bool) {
-	return failure.sessionID, failure.runID, true
-}
-
-type compositeValidationTestFailure struct{ reason string }
-
-func (compositeValidationTestFailure) Error() string { return "private validation failure" }
-func (failure compositeValidationTestFailure) ReasonCode() string {
-	if failure.reason == "" {
-		return domain.CompositeValidationFailed
-	}
-	return failure.reason
-}
-
-func TestCompositeValidationFailureGuidanceIncludesCanonicalProjectRoot(t *testing.T) {
-	failure := executionFailureFor(app.CommandCompose, compositeValidationTestFailure{}, domain.FailureArtifact)
-	if failure.recommendedNextCommand != "run from the canonical Git worktree root, then verify the exact root and recovery run identities" ||
-		failure.retryable || failure.stage != "compose.validation" || failure.code != domain.CompositeValidationFailed {
-		t.Fatalf("composite validation guidance = %#v", failure)
-	}
-}
-
-func TestCompositeReasonCodesProjectStableCLIClassification(t *testing.T) {
-	for _, reason := range domain.CompositeReasonCodes() {
-		t.Run(reason, func(t *testing.T) {
-			failure := executionFailureFor(app.CommandCompose, compositeValidationTestFailure{reason: reason}, domain.FailureArtifact)
-			wantStage := "compose.validation"
-			if reason == domain.CompositePublicationIncomplete {
-				wantStage = "compose.publication"
-			}
-			if failure.code != reason || failure.class != domain.FailureArtifact || failure.stage != wantStage ||
-				failure.exit != app.ExitCodeArtifact || failure.retryable || !failure.hasRetryable {
-				t.Fatalf("composite reason projection = %#v", failure)
-			}
-		})
-	}
-}
-
-func TestCompositePublicationFailureHumanGuidanceIncludesExactReconciliationIdentity(t *testing.T) {
-	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	runID, err := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	failure := executionFailureFor(app.CommandCompose, identifiedCompositeTestFailure{sessionID: sessionID, runID: runID}, domain.FailureArtifact)
-	if failure.humanMessage != "mulgae: composite_publication_incomplete\nsession_id: "+sessionID.String()+"\nrun_id: "+runID.String() ||
-		failure.recommendedNextCommand != "mulgae status --run "+runID.String()+" --output json" || failure.retryable || failure.stage != "compose.publication" {
-		t.Fatalf("composite reconciliation guidance = %#v", failure)
-	}
-}
-
-func TestApplicationComposePublicationFailureReturnsStatusRequiredEnvelope(t *testing.T) {
-	fixture := newFoundationFixture(t)
-	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	runID, err := domain.ParseRunID("r_019f596a-cf83-7c67-b265-f37053d51ccf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.application.compositeReviews = compositeReviewServiceFunc(func(context.Context, appreviewcompose.Request) (appreviewcompose.PublishedResult, error) {
-		return appreviewcompose.PublishedResult{}, identifiedCompositeTestFailure{sessionID: sessionID, runID: runID}
-	})
-	result := fixture.application.Run(context.Background(), []string{
-		"compose", "--root-run", "r_019f596a-cf81-7c67-b265-f37053d51ccf",
-		"--recovery-run", "r_019f596a-cf82-7c67-b265-f37053d51ccf", "--output", "json",
-	}, testAnchoredRoot(t))
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
-	var envelope struct {
-		Reasons []struct {
-			Code      string `json:"code"`
-			Retryable bool   `json:"retryable"`
-		} `json:"reasons"`
-		Result map[string]any `json:"result"`
-	}
-	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != domain.CompositePublicationIncomplete || envelope.Reasons[0].Retryable ||
-		envelope.Result["kind"] != "composite_failed" || envelope.Result["session_id"] != sessionID.String() || envelope.Result["run_id"] != runID.String() ||
-		envelope.Result["reconciliation_state"] != "status_required" || envelope.Result["retry_safe"] != false {
-		t.Fatalf("compose reconciliation envelope = %#v", envelope)
-	}
-}
-
-func TestCompositePostCommitFailurePreservesStatusIdentity(t *testing.T) {
-	published := compositePublishedResult(t, domain.ExitCommittedPass, domain.CIPass)
-	request := ComposeRequest{rootRunID: published.RootRunID().String()}
-	for _, runID := range published.RecoveryRunIDs() {
-		request.recoveryRuns = append(request.recoveryRuns, runID.String())
-	}
-	var result map[string]any
-	if err := json.Unmarshal(compositeFailureResultJSONForPublished(published, request), &result); err != nil {
-		t.Fatal(err)
-	}
-	if result["session_id"] != published.SessionID().String() || result["run_id"] != published.RunID().String() ||
-		result["root_run_id"] != published.RootRunID().String() || result["reconciliation_state"] != "status_required" || result["retry_safe"] != false {
-		t.Fatalf("post-commit failure result = %#v", result)
-	}
-}
-
-func TestCompositeCommonRenderingFailuresPreserveStatusIdentity(t *testing.T) {
-	fixture := newFoundationFixture(t)
-	published := compositePublishedResult(t, domain.ExitCommittedPass, domain.CIPass)
-	fixture.application.compositeReviews = compositeReviewServiceFunc(func(context.Context, appreviewcompose.Request) (appreviewcompose.PublishedResult, error) {
-		return published, nil
-	})
-	arguments := []string{"compose", "--root-run", published.RootRunID().String(), "--output", "json"}
-	for _, runID := range published.RecoveryRunIDs() {
-		arguments = append(arguments, "--recovery-run", runID.String())
-	}
-	invocation := mustParse(t, arguments)
-	run := fixture.application.handleCompose(context.Background(), invocation)
-	if run.failure != nil {
-		t.Fatalf("handleCompose() failure = %v", run.failure)
-	}
-
-	tests := []struct {
-		name    string
-		prepare func(execution) execution
-	}{
-		{
-			name: "committed outcome construction",
-			prepare: func(run execution) execution {
-				run.data = nil
-				return run
-			},
-		},
-		{
-			name: "envelope rendering",
-			prepare: func(run execution) execution {
-				renderer, err := cli.NewEnvelopeRenderer(fixture.application.clock, &rejectOnceSchemaValidator{delegate: fixture.validator, reject: true})
-				if err != nil {
-					t.Fatal(err)
-				}
-				fixture.application.renderer = renderer
-				return run
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			result := fixture.application.renderSuccess(context.Background(), invocation, test.prepare(run))
-			assertFoundationEnvelope(t, fixture, result, app.ExitCodeInternal)
-			var envelope struct {
-				Reasons []struct {
-					Code string `json:"code"`
-				} `json:"reasons"`
-				Result map[string]any `json:"result"`
-			}
-			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-				t.Fatal(err)
-			}
-			if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != domain.CompositePublicationIncomplete ||
-				envelope.Result["session_id"] != published.SessionID().String() || envelope.Result["run_id"] != published.RunID().String() ||
-				envelope.Result["reconciliation_state"] != "status_required" || envelope.Result["retry_safe"] != false {
-				t.Fatalf("post-commit rendering failure result = %#v", envelope.Result)
-			}
-		})
-	}
-}
-
-func TestCompositePostCommitHumanFailurePreservesStatusIdentity(t *testing.T) {
-	fixture := newFoundationFixture(t)
-	published := compositePublishedResult(t, domain.ExitCommittedPass, domain.CIPass)
-	request := ComposeRequest{rootRunID: published.RootRunID().String()}
-	arguments := []string{"compose", "--root-run", published.RootRunID().String()}
-	for _, runID := range published.RecoveryRunIDs() {
-		request.recoveryRuns = append(request.recoveryRuns, runID.String())
-		arguments = append(arguments, "--recovery-run", runID.String())
-	}
-	invocation := mustParse(t, arguments)
-	run := compositePublishedFailureExecution(app.CommandCompose, published, request, "composite result projection failed", errors.New("injected projection failure"))
-	result := fixture.application.renderFailure(context.Background(), invocation, run)
-	want := "mulgae: composite_publication_incomplete\nsession_id: " + published.SessionID().String() + "\nrun_id: " + published.RunID().String() +
-		"\ncode: composite_publication_incomplete\nstage: compose.publication\nhint: run mulgae status --run " + published.RunID().String() + " --output json\n"
-	if result.ExitCode() != app.ExitCodeInternal || len(result.Stdout()) != 0 || string(result.Stderr()) != want {
-		t.Fatalf("post-commit human result = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
 	}
 }
 
@@ -857,141 +558,6 @@ func TestApplicationRolesListsStaticInventory(t *testing.T) {
 		if role.ID != wantIDs[index] || role.Mandatory != (role.ID == "logic") || role.Availability != wantAvailability {
 			t.Fatalf("roles JSON row %d = %#v", index, role)
 		}
-	}
-}
-
-func TestApplicationRejectedChildWorkflowJSONPreservesFailureContract(t *testing.T) {
-	for _, test := range []struct {
-		name          string
-		argv          []string
-		resolverError error
-		attemptError  error
-		state         string
-		code          string
-		category      string
-		exit          app.ExitCode
-		nilContext    bool
-	}{
-		{
-			name:  "delta syntax is rejected before latest resolution",
-			argv:  []string{"delta", "--since-run", "latest", "--dirty", "--output", "json"},
-			state: "invalid", code: "invalid_command_usage", exit: app.ExitCodeUsage,
-		},
-		{
-			name:  "followup syntax is rejected before latest resolution",
-			argv:  []string{"followup", "--run", "latest", "--finding", "F001", "--output", "json"},
-			state: "invalid", code: "invalid_command_usage", exit: app.ExitCodeUsage,
-		},
-		{
-			name:  "compose syntax is rejected before execution",
-			argv:  []string{"compose", "--root-run", "latest", "--recovery-run", testRecoveryRunID, "--output", "json"},
-			state: "invalid", code: "invalid_command_usage", exit: app.ExitCodeUsage,
-		},
-		{
-			name:          "latest run unavailable",
-			argv:          []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json"},
-			resolverError: fmt.Errorf("%w: no committed runs", ErrSelectorUnavailable),
-			state:         "unresolved", code: "run_selector_unavailable", category: "artifact", exit: app.ExitCodeArtifact,
-		},
-		{
-			name:          "nil context still renders an unresolved envelope",
-			argv:          []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json"},
-			resolverError: fmt.Errorf("%w: no committed runs", ErrSelectorUnavailable),
-			state:         "unresolved", code: "run_selector_unavailable", category: "artifact", exit: app.ExitCodeArtifact,
-			nilContext: true,
-		},
-		{
-			name:          "project root mismatch",
-			argv:          []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
-			resolverError: ErrProjectRootMismatch,
-			state:         "unresolved", code: "project_root_mismatch", exit: app.ExitCodeUsage,
-		},
-		{
-			name:         "provider instance attempt unavailable",
-			argv:         []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "zcode", "--output", "json"},
-			attemptError: fmt.Errorf("%w: no exact provider instance", ErrSelectorUnavailable),
-			state:        "unresolved", code: "attempt_selector_unavailable", exit: app.ExitCodeArtifact,
-		},
-		{
-			name:          "selector resolver internal failure",
-			argv:          []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json"},
-			resolverError: errors.New("resolver failed"),
-			state:         "unresolved", code: "selector_resolution_failed", exit: app.ExitCodeInternal,
-		},
-		{
-			name:          "selector cancellation remains cancellation",
-			argv:          []string{"followup", "--run", "latest", "--finding", "F001", "--dirty", "--output", "json"},
-			resolverError: context.Canceled,
-			state:         "unresolved", code: "request_cancelled", category: "cancellation", exit: app.ExitCodeCancellation,
-		},
-		{
-			name:          "selector artifact failure remains typed",
-			argv:          []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic", "--output", "json"},
-			resolverError: mustG006Failure(t, domain.FailureArtifact),
-			state:         "unresolved", code: "artifact_unavailable", category: "artifact", exit: app.ExitCodeArtifact,
-		},
-		{
-			name:          "selector security failure remains typed",
-			argv:          []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
-			resolverError: mustG006Failure(t, domain.FailureSecurityPolicy),
-			state:         "unresolved", code: "security_rejected", category: "security", exit: app.ExitCodeSecurity,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newFoundationFixture(t)
-			resolver := &g008ResolverFake{err: test.resolverError, attemptErr: test.attemptError}
-			fixture.application.requestResolver = resolver
-			var ctx context.Context = context.Background()
-			if test.nilContext {
-				ctx = nil
-			}
-			result := fixture.application.Run(ctx, test.argv, testAnchoredRoot(t))
-			assertFoundationEnvelope(t, fixture, result, test.exit)
-			if len(result.Stderr()) != 0 {
-				t.Fatalf("rejected child stderr = %q", result.Stderr())
-			}
-			var envelope struct {
-				Request struct {
-					RequestID    string `json:"request_id"`
-					Command      string `json:"command"`
-					RequestState string `json:"request_state"`
-					OutputFormat string `json:"output_format"`
-				} `json:"request"`
-				Reasons []struct {
-					Category string `json:"category"`
-					Code     string `json:"code"`
-					Message  string `json:"message"`
-				} `json:"reasons"`
-			}
-			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-				t.Fatal(err)
-			}
-			if envelope.Request.RequestID != foundationRequestID || envelope.Request.Command != test.argv[0] || envelope.Request.RequestState != test.state || envelope.Request.OutputFormat != "json" || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != test.code {
-				t.Fatalf("rejected child envelope = %#v", envelope)
-			}
-			if test.code == "invalid_command_usage" && envelope.Reasons[0].Category != "usage" {
-				t.Fatalf("invalid usage category = %q, want usage", envelope.Reasons[0].Category)
-			}
-			if test.category != "" && envelope.Reasons[0].Category != test.category {
-				t.Fatalf("reason category = %q, want %q", envelope.Reasons[0].Category, test.category)
-			}
-			if test.code == "invalid_command_usage" && len(resolver.runCalls)+len(resolver.attemptCalls)+resolver.targetCalls != 0 {
-				t.Fatalf("invalid syntax invoked resolver: %#v", resolver)
-			}
-			if test.code == "selector_resolution_failed" && (envelope.Reasons[0].Message != "Selector resolution failed before command execution." || strings.Contains(envelope.Reasons[0].Message, "resolver failed")) {
-				t.Fatalf("internal selector reason leaked implementation detail: %#v", envelope.Reasons[0])
-			}
-		})
-	}
-}
-
-func TestApplicationRejectedChildWorkflowHumanPreservesCancellation(t *testing.T) {
-	fixture := newFoundationFixture(t)
-	fixture.application.requestResolver = &g008ResolverFake{err: context.Canceled}
-	result := fixture.application.Run(context.Background(), []string{"delta", "--since-run", "latest", "--dirty", "--roles", "logic"}, testAnchoredRoot(t))
-	want := "mulgae: request was cancelled\ncode: request_cancelled\nstage: cli.delta.resolve\nhint: retry the command when ready\n"
-	if result.ExitCode() != app.ExitCodeCancellation || len(result.Stdout()) != 0 || !bytes.Equal(result.Stderr(), []byte(want)) {
-		t.Fatalf("human selector cancellation = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
 	}
 }
 
@@ -1738,30 +1304,6 @@ func TestApplicationProjectsFailuresToSamePermittedExitsInHumanAndJSON(t *testin
 	}
 }
 
-func TestApplicationComposeCancellationPreservesExactSelection(t *testing.T) {
-	fixture := newFoundationFixture(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	result := fixture.application.Run(ctx, []string{
-		"compose", "--root-run", testRunID, "--recovery-run", testRecoveryRunID, "--output", "json",
-	}, testAnchoredRoot(t))
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeCancellation)
-	var envelope struct {
-		Result struct {
-			RootRunID      *string  `json:"root_run_id"`
-			RecoveryRunIDs []string `json:"recovery_run_ids"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.Result.RootRunID == nil || *envelope.Result.RootRunID != testRunID ||
-		!reflect.DeepEqual(envelope.Result.RecoveryRunIDs, []string{testRecoveryRunID}) {
-		t.Fatalf("cancelled compose selection = root:%v recoveries:%v", envelope.Result.RootRunID, envelope.Result.RecoveryRunIDs)
-	}
-}
-
 func TestLocalDoctorHumanOutputIsANSIFreeAndUsesFixedInventory(t *testing.T) {
 	diagnosis := doctor.LocalDoctorResult{
 		Readiness: doctor.LocalReadiness{State: "degraded", ExitCode: 0},
@@ -1878,7 +1420,7 @@ func TestApplicationDoctorDistinguishesMissingMachineConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project = bytes.Replace(project, []byte("version: 4"), []byte("version: 3"), 1)
+	project = bytes.Replace(project, []byte("version: 5"), []byte("version: 3"), 1)
 	if err := os.WriteFile(projectPath, project, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -2646,7 +2188,7 @@ func TestApplicationReviewFailsClosedAndPromptIsNotACommand(t *testing.T) {
 		argv []string
 		exit app.ExitCode
 	}{
-		{name: "review", argv: []string{"review", "--dirty"}, exit: app.ExitCodeReadiness},
+		{name: "review", argv: []string{"review", "--workspace"}, exit: app.ExitCodeReadiness},
 		{name: "prompt", argv: []string{"prompt", "--run", testRunID, "--attempt", testAttemptID}, exit: app.ExitCodeUsage},
 	}
 	for _, test := range tests {
@@ -2690,51 +2232,6 @@ func (fake *reviewRunFake) PreflightReview(ctx context.Context, request ReviewRe
 	return fake.preflightResult, fake.preflightErr
 }
 
-type reviewRunInputSourceFactoryFake struct {
-	calls   int
-	ctx     context.Context
-	request reviewrun.InputCaptureRequest
-	source  reviewrun.ImmutableInputSource
-	err     error
-	events  *[]string
-}
-
-func (fake *reviewRunInputSourceFactoryFake) NewImmutableInputSource(
-	ctx context.Context,
-	request reviewrun.InputCaptureRequest,
-) (reviewrun.ImmutableInputSource, error) {
-	fake.calls++
-	fake.ctx = ctx
-	fake.request = request
-	if fake.events != nil {
-		*fake.events = append(*fake.events, "factory")
-	}
-	return fake.source, fake.err
-}
-
-type typedNilReviewRunInputSourceFactory struct{}
-
-func (*typedNilReviewRunInputSourceFactory) NewImmutableInputSource(
-	context.Context,
-	reviewrun.InputCaptureRequest,
-) (reviewrun.ImmutableInputSource, error) {
-	return nil, nil
-}
-
-type reviewRunInputSourceFake struct {
-	calls  int
-	err    error
-	events *[]string
-}
-
-func (fake *reviewRunInputSourceFake) Capture(context.Context, reviewrun.Request) (reviewrun.CapturedRunInput, error) {
-	fake.calls++
-	if fake.events != nil {
-		*fake.events = append(*fake.events, "capture")
-	}
-	return reviewrun.CapturedRunInput{}, fake.err
-}
-
 func testReviewRunAnchoredRoot(t *testing.T) ports.AnchoredRoot {
 	t.Helper()
 	root, err := ports.NewAnchoredRoot(testAnchoredRoot(t))
@@ -2742,20 +2239,6 @@ func testReviewRunAnchoredRoot(t *testing.T) ports.AnchoredRoot {
 		t.Fatal(err)
 	}
 	return root
-}
-
-func TestNewReviewRunServicePreservesNilDependencies(t *testing.T) {
-	factory := &reviewRunInputSourceFactoryFake{}
-	if got := NewReviewRunService(nil, factory); got != nil {
-		t.Fatalf("nil service adapter = %#v, want nil", got)
-	}
-	if got := NewReviewRunService(new(reviewrun.Service), nil); got != nil {
-		t.Fatalf("nil factory adapter = %#v, want nil", got)
-	}
-	var typedNil *typedNilReviewRunInputSourceFactory
-	if got := NewReviewRunService(new(reviewrun.Service), typedNil); got != nil {
-		t.Fatalf("typed-nil factory adapter = %#v, want nil", got)
-	}
 }
 
 func TestPolicyReviewRunServiceUsesProjectDefaultOrExactExplicitSubset(t *testing.T) {
@@ -2827,72 +2310,6 @@ func TestPolicyReviewRunServiceResolvesArtistOverridesAgainstConfigV1Defaults(t 
 	}
 }
 
-func TestReviewRunAdapterCapturesOnceBeforeServiceAndPropagatesRequest(t *testing.T) {
-	root := testReviewRunAnchoredRoot(t)
-	ctx := context.WithValue(context.Background(), "review-run-adapter", "context")
-	request := ReviewRequest{
-		target:          TargetRequest{kind: "diff", value: "HEAD~1"},
-		objective:       "review only the request adapter",
-		hasObjective:    true,
-		roles:           []string{"artist"},
-		artistBriefPath: "docs/roadmap.md", hasArtistBrief: true,
-		artistDesignGlobs: []string{"design-specs/**/*.png"},
-		sessionID:         g006SessionID,
-		hasSessionID:      true,
-	}
-	captureErr := errors.New("capture failed")
-	events := []string{}
-	source := &reviewRunInputSourceFake{err: captureErr, events: &events}
-	factory := &reviewRunInputSourceFactoryFake{source: source, events: &events}
-	service := NewReviewRunService(new(reviewrun.Service), factory)
-
-	_, err := service.StartReviewRun(ctx, request, root)
-	if !errors.Is(err, captureErr) {
-		t.Fatalf("StartReviewRun error = %v, want capture error", err)
-	}
-	if factory.calls != 1 || source.calls != 1 {
-		t.Fatalf("factory calls = %d, source captures = %d, want 1 each", factory.calls, source.calls)
-	}
-	if !reflect.DeepEqual(events, []string{"factory", "capture"}) {
-		t.Fatalf("call order = %#v, want factory before service capture", events)
-	}
-	capturedObjective, hasObjective := factory.request.Objective()
-	artistInputs, hasArtistInputs := factory.request.ArtistInputs()
-	if factory.ctx != ctx || factory.request.Root() != root || factory.request.Target().Kind() != ports.ReviewTargetDiff ||
-		factory.request.Target().Value() != "HEAD~1" || !hasObjective || string(capturedObjective) != request.objective ||
-		!hasArtistInputs || artistInputs.BriefPath() != "docs/roadmap.md" || !reflect.DeepEqual(artistInputs.DesignSpecGlobs(), []string{"design-specs/**/*.png"}) {
-		t.Fatalf("factory input = %#v, want exact typed context/request/root", factory.request)
-	}
-}
-
-func TestReviewRunAdapterRejectsMalformedRequestBeforeCapture(t *testing.T) {
-	factory := &reviewRunInputSourceFactoryFake{}
-	service := NewReviewRunService(new(reviewrun.Service), factory)
-
-	_, err := service.StartReviewRun(context.Background(), ReviewRequest{}, testReviewRunAnchoredRoot(t))
-	if err == nil {
-		t.Fatal("StartReviewRun accepted malformed request")
-	}
-	if factory.calls != 0 {
-		t.Fatalf("factory calls = %d, want 0", factory.calls)
-	}
-}
-
-func TestReviewRunAdapterPropagatesFactoryError(t *testing.T) {
-	factoryErr := errors.New("factory failed")
-	factory := &reviewRunInputSourceFactoryFake{err: factoryErr}
-	service := NewReviewRunService(new(reviewrun.Service), factory)
-	request := ReviewRequest{target: TargetRequest{kind: "diff", value: "HEAD"}, roles: []string{"logic"}}
-
-	_, err := service.StartReviewRun(context.Background(), request, testReviewRunAnchoredRoot(t))
-	if !errors.Is(err, factoryErr) {
-		t.Fatalf("StartReviewRun error = %v, want factory error", err)
-	}
-	if factory.calls != 1 {
-		t.Fatalf("factory calls = %d, want 1", factory.calls)
-	}
-}
-
 func TestApplicationReviewRunServiceSeam(t *testing.T) {
 	root := testAnchoredRoot(t)
 	valid := NewReviewRunResult(
@@ -2902,6 +2319,9 @@ func TestApplicationReviewRunServiceSeam(t *testing.T) {
 		g006ReviewArtifactURI,
 		g008CommittedTerminalExit(t, domain.ExitCommittedPass),
 	)
+	valid.sourceIdentity = testCurrentTargetSHA256
+	valid.projectBinding = testCurrentTargetSHA256
+
 	classified, err := domain.NewFailure("test.review", domain.FailureArtifact, "review artifact unavailable", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -2930,7 +2350,7 @@ func TestApplicationReviewRunServiceSeam(t *testing.T) {
 				fixture.application.reviewRuns = fake
 			}
 			ctx := context.WithValue(context.Background(), "review-context", test.name)
-			argv := []string{"review", "--dirty"}
+			argv := []string{"review", "--workspace"}
 			if test.wantCalls != 0 {
 				argv = append(argv, "--output", "json")
 			}
@@ -3010,16 +2430,10 @@ func TestApplicationReviewPreflightUsesOnlyExecutionFreeService(t *testing.T) {
 
 func TestApplicationReviewPreflightAcceptsLargeProjection(t *testing.T) {
 	result := loadReviewPreflightExample(t)
-	files := make([]ReviewPreflightFile, 33)
-	for index := range files {
-		files[index] = ReviewPreflightFile{
-			Path: fmt.Sprintf("files/%05d.png", index), MediaType: "image/png",
-			Size:        4 << 20,
-			SHA256:      "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-			Disposition: "binary_preserved",
-		}
+	result.ReadPlan = make([]ReviewPreflightRead, 10_002)
+	for index := range result.ReadPlan {
+		result.ReadPlan[index] = ReviewPreflightRead{Side: "index", Path: fmt.Sprintf("files/%05d.png", index)}
 	}
-	setReviewPreflightFiles(t, &result, "index;layout=ordinary-directories-v1", files)
 	fixture := newFoundationFixture(t)
 	fixture.application.reviewRuns = &reviewRunFake{preflightResult: result}
 	machine := fixture.application.Run(context.Background(), []string{"review", "--stage", "--preflight", "--output", "json"}, testAnchoredRoot(t))
@@ -3054,7 +2468,7 @@ func TestApplicationHumanFailuresAlwaysIncludeSafeCodeStageAndHint(t *testing.T)
 	}
 	fixture := newFoundationFixture(t)
 	fixture.application.reviewRuns = &reviewRunFake{err: providerUnavailable}
-	result := fixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
+	result := fixture.application.Run(context.Background(), []string{"review", "--workspace"}, testAnchoredRoot(t))
 	stderr := string(result.Stderr())
 	if result.ExitCode() != app.ExitCodeReadiness || !strings.Contains(stderr, "code: provider_unavailable") ||
 		!strings.Contains(stderr, "stage: cli.review") || !strings.Contains(stderr, "hint: run mulgae doctor") ||
@@ -3062,7 +2476,7 @@ func TestApplicationHumanFailuresAlwaysIncludeSafeCodeStageAndHint(t *testing.T)
 		t.Fatalf("actionable human failure = exit %d stderr=%q", result.ExitCode(), stderr)
 	}
 
-	usage := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--stage"}, testAnchoredRoot(t))
+	usage := fixture.application.Run(context.Background(), []string{"review", "--workspace", "--stage"}, testAnchoredRoot(t))
 	if usage.ExitCode() != app.ExitCodeUsage || !strings.Contains(string(usage.Stderr()), "hint: run mulgae help workflows") {
 		t.Fatalf("actionable usage failure = exit %d stderr=%q", usage.ExitCode(), usage.Stderr())
 	}
@@ -3071,7 +2485,7 @@ func TestApplicationHumanFailuresAlwaysIncludeSafeCodeStageAndHint(t *testing.T)
 func TestApplicationUntypedReviewFailureRetainsReadinessFallback(t *testing.T) {
 	fixture := newFoundationFixture(t)
 	fixture.application.reviewRuns = &reviewRunFake{err: errors.New("private adapter detail")}
-	result := fixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
+	result := fixture.application.Run(context.Background(), []string{"review", "--workspace"}, testAnchoredRoot(t))
 	stderr := string(result.Stderr())
 	if result.ExitCode() != app.ExitCodeReadiness || !strings.Contains(stderr, "code: provider_unavailable") ||
 		!strings.Contains(stderr, "stage: cli.review") || !strings.Contains(stderr, "hint: run mulgae doctor") ||
@@ -3095,7 +2509,7 @@ func TestApplicationReviewPreparationFailureIsInternalAndActionable(t *testing.T
 	fixture.application.reviewRuns = &reviewRunFake{err: terminalErr}
 	result := fixture.application.Run(
 		context.Background(),
-		[]string{"review", "--dirty", "--output", "json"},
+		[]string{"review", "--workspace", "--output", "json"},
 		testAnchoredRoot(t),
 	)
 	assertFoundationEnvelope(t, fixture, result, app.ExitCodeInternal)
@@ -3124,7 +2538,7 @@ func TestApplicationReviewPreparationFailureIsInternalAndActionable(t *testing.T
 
 	humanFixture := newFoundationFixture(t)
 	humanFixture.application.reviewRuns = &reviewRunFake{err: terminalErr}
-	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--workspace"}, testAnchoredRoot(t))
 	humanStderr := string(human.Stderr())
 	if human.ExitCode() != app.ExitCodeInternal ||
 		!strings.Contains(humanStderr, "stage: review.prepare.coordinator_admission") ||
@@ -3148,7 +2562,7 @@ func TestApplicationIndependentCleanupFailureDoesNotSuppressReviewPreparationFai
 			fixture := newFoundationFixture(t)
 			joined := reviewrun.NewAllocatedRunIdentityError(sessionID, runID, errors.Join(preparation, competing))
 			fixture.application.reviewRuns = &reviewRunFake{err: joined}
-			result := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
+			result := fixture.application.Run(context.Background(), []string{"review", "--workspace", "--output", "json"}, testAnchoredRoot(t))
 			assertFoundationEnvelope(t, fixture, result, app.ExitCodeInternal)
 			if !bytes.Contains(result.Stdout(), []byte(`"code":"review_preparation_failed"`)) ||
 				bytes.Contains(result.Stdout(), []byte(`"code":"artifact_unavailable"`)) ||
@@ -3182,7 +2596,7 @@ func TestApplicationReviewFailurePreservesAllocatedRunIdentity(t *testing.T) {
 	fixture.application.reviewRuns = &reviewRunFake{err: terminalErr}
 	result := fixture.application.Run(
 		context.Background(),
-		[]string{"review", "--dirty", "--output", "json"},
+		[]string{"review", "--workspace", "--output", "json"},
 		testAnchoredRoot(t),
 	)
 	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
@@ -3222,7 +2636,7 @@ func TestApplicationReviewReportsRateLimitedQualificationFailure(t *testing.T) {
 	}
 	machine := fixture.application.Run(
 		context.Background(),
-		[]string{"review", "--dirty", "--output", "json"},
+		[]string{"review", "--workspace", "--output", "json"},
 		testAnchoredRoot(t),
 	)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeReadiness)
@@ -3271,7 +2685,7 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	fixture.application.reviewRuns = &reviewRunFake{err: referencedExecutionErr}
 	machine := fixture.application.Run(
 		context.Background(),
-		[]string{"review", "--dirty", "--output", "json"},
+		[]string{"review", "--workspace", "--output", "json"},
 		testAnchoredRoot(t),
 	)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSecurity)
@@ -3296,7 +2710,7 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 
 	humanFixture := newFoundationFixture(t)
 	humanFixture.application.reviewRuns = &reviewRunFake{err: referencedExecutionErr}
-	human := humanFixture.application.Run(context.Background(), []string{"review", "--dirty"}, testAnchoredRoot(t))
+	human := humanFixture.application.Run(context.Background(), []string{"review", "--workspace"}, testAnchoredRoot(t))
 	if human.ExitCode() != app.ExitCodeSecurity || len(human.Stdout()) != 0 ||
 		!strings.Contains(string(human.Stderr()), "code: provider_execution_failed\nstage: provider.execute\nhint: run mulgae doctor") ||
 		!strings.Contains(string(human.Stderr()), "diagnostic_uri: "+diagnosticURI.String()) {
@@ -3304,35 +2718,37 @@ func TestApplicationReviewReportsAttributedProviderExecutionFailure(t *testing.T
 	}
 }
 
-func TestApplicationReviewReportsCaptureStageAndSubtype(t *testing.T) {
-	capture, err := ports.NewReviewCaptureFailure(
-		ports.ReviewCaptureUnsupported,
-		"client/e2e/screenshots/example.png",
-		domain.RoleLogic,
-		"use role-aware binary capture",
-		errors.New("binary input is not supported by the selected path"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture := newFoundationFixture(t)
-	fixture.application.reviewRuns = &reviewRunFake{err: capture}
-	result := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
-	var envelope struct {
-		Reasons []struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"reasons"`
-	}
-	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != "unsupported_content" ||
-		!strings.Contains(envelope.Reasons[0].Message, "stage review.capture") ||
-		!strings.Contains(envelope.Reasons[0].Message, "role: logic") || !strings.Contains(envelope.Reasons[0].Message, "client/e2e/screenshots/example.png") ||
-		!strings.Contains(envelope.Reasons[0].Message, "use role-aware binary capture") {
-		t.Fatalf("capture envelope = %#v", envelope)
+func TestApplicationReviewReportsLiveSourceStageWithoutPrivateCause(t *testing.T) {
+	for _, test := range []struct {
+		code ports.LiveSourceErrorCode
+		exit app.ExitCode
+	}{
+		{ports.LiveSourceInvalid, app.ExitCodeUsage},
+		{ports.LiveSourceConflict, app.ExitCodeUsage},
+		{ports.LiveSourceRevision, app.ExitCodeUsage},
+		{ports.LiveSourceNoMergeBase, app.ExitCodeUsage},
+		{ports.LiveSourceUnsupported, app.ExitCodeUsage},
+		{ports.LiveSourceUnsafe, app.ExitCodeSecurity},
+		{ports.LiveSourceUnavailable, app.ExitCodeArtifact},
+	} {
+		t.Run(string(test.code), func(t *testing.T) {
+			fixture := newFoundationFixture(t)
+			fixture.application.reviewRuns = &reviewRunFake{err: ports.NewLiveSourceError(test.code, errors.New("private-source-path credential-token"))}
+			result := fixture.application.Run(context.Background(), []string{"review", "--workspace", "--output", "json"}, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, test.exit)
+			var envelope struct {
+				Reasons []struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"reasons"`
+			}
+			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != string(test.code) || !strings.Contains(envelope.Reasons[0].Message, "stage review.source") || strings.Contains(string(result.Stdout()), "private-source-path") || strings.Contains(string(result.Stdout()), "credential-token") {
+				t.Fatalf("source envelope = %s", result.Stdout())
+			}
+		})
 	}
 }
 
@@ -3350,34 +2766,15 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 		}
 		return failure
 	}
-	unsupported, err := ports.NewReviewCaptureFailure(
-		ports.ReviewCaptureUnsupported, "screenshots/invalid.png", domain.RoleLogic,
-		"use role-aware binary capture", errors.New("invalid PNG signature"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	policyBlocked, err := ports.NewReviewCapturePolicyFailure(
-		"fixtures/policy.txt", domain.RoleSecurity, "test-policy", "content-policy-v1", errors.New("policy rejected capture"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifestLarge, err := ports.NewReviewCaptureManifestFailure(9<<20, 8<<20, errors.New("manifest too large"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	tests := []struct {
 		name, code, stage, messageFact string
 		exit                           app.ExitCode
 		err                            error
 		provider                       bool
-		policyConfig                   bool
 	}{
-		{name: "capture failed", code: "capture_failed", stage: "review.capture", exit: app.ExitCodeArtifact, err: ports.WrapReviewCaptureFailure(errors.New("snapshot unavailable"))},
-		{name: "unsupported content", code: "unsupported_content", stage: "review.capture", exit: app.ExitCodeArtifact, err: unsupported},
-		{name: "capture manifest too large", code: "capture_manifest_too_large", stage: "review.capture", exit: app.ExitCodeArtifact, err: manifestLarge},
-		{name: "content policy blocked", code: "content_policy_blocked", stage: "review.capture", exit: app.ExitCodeSecurity, err: policyBlocked, policyConfig: true},
+		{name: "source unavailable", code: "source_unavailable", stage: "review.source", exit: app.ExitCodeArtifact, err: ports.NewLiveSourceError(ports.LiveSourceUnavailable, errors.New("source unavailable"))},
+		{name: "unsupported content", code: "unsupported_content", stage: "review.source", exit: app.ExitCodeUsage, err: ports.NewLiveSourceError(ports.LiveSourceUnsupported, errors.New("invalid PNG signature"))},
+		{name: "unsafe source", code: "unsafe_source", stage: "review.source", exit: app.ExitCodeSecurity, err: ports.NewLiveSourceError(ports.LiveSourceUnsafe, errors.New("unsafe source"))},
 		{name: "provider timeout", code: "provider_timeout", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderTimeout, domain.FailureTimeout), provider: true},
 		{name: "provider rate limited", code: "provider_rate_limited", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionRateLimit, domain.FailureRateLimit), provider: true},
 		{name: "provider permission denied", code: "provider_permission_denied", stage: "provider.execute", exit: app.ExitCodeReadiness, err: providerFailure(review.AttemptConditionProviderPermissionDenied, domain.FailureAuthentication), provider: true},
@@ -3391,7 +2788,7 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newFoundationFixture(t)
 			fixture.application.reviewRuns = &reviewRunFake{err: test.err}
-			result := fixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
+			result := fixture.application.Run(context.Background(), []string{"review", "--workspace", "--output", "json"}, testAnchoredRoot(t))
 			assertFoundationEnvelope(t, fixture, result, test.exit)
 			var envelope struct {
 				Reasons []struct {
@@ -3409,7 +2806,6 @@ func TestApplicationReviewFailureTaxonomyReportsTheActualPipelineStage(t *testin
 			if envelope.Reasons[0].Code != test.code ||
 				envelope.Reasons[0].Code == "readiness_unverified" || !strings.Contains(message, "stage "+test.stage) || !strings.Contains(message, "hint:") ||
 				test.provider && (!strings.Contains(message, "role=logic") || !strings.Contains(message, "provider=zcode-logic")) ||
-				test.policyConfig && !strings.Contains(message, "effective configuration: detector_policy=content-policy-v1; detector_code=test-policy") ||
 				test.messageFact != "" && !strings.Contains(message, test.messageFact) {
 				t.Fatalf("failure taxonomy = %#v, want code %q at stage %q", envelope.Reasons, test.code, test.stage)
 			}
@@ -3496,27 +2892,8 @@ func (fake diagnosticQueryFake) ReadSessionRunStatus(_ context.Context, root por
 	return fake.status, fake.err
 }
 
-type g008FollowupFake struct{}
-
-func (g008FollowupFake) StartFollowupRun(context.Context, appfollowup.Request) (StartedRun, error) {
-	return StartedRun{}, errors.New("unexpected followup call")
-}
-
-type g008DeltaFake struct{}
-
-func (g008DeltaFake) StartDeltaRun(context.Context, appdelta.StartRequest) (StartedRun, error) {
-	return StartedRun{}, errors.New("unexpected delta call")
-}
-
-type g008RerunFake struct{}
-
-func (g008RerunFake) StartRerun(context.Context, appreplay.Request) (StartedRun, error) {
-	return StartedRun{}, errors.New("unexpected rerun call")
-}
-
-func g008Dependencies() (FollowupRunService, DeltaRunService, RerunService, RetentionService, RedactedExportService) {
-	return g008FollowupFake{}, g008DeltaFake{}, g008RerunFake{},
-		RetentionServiceFunc(func(context.Context, RetentionRequest) (RetentionResult, error) {
+func g008Dependencies() (RetentionService, RedactedExportService) {
+	return RetentionServiceFunc(func(context.Context, RetentionRequest) (RetentionResult, error) {
 			return RetentionResult{}, errors.New("unexpected clean call")
 		}),
 		RedactedExportServiceFunc(func(context.Context, RedactedExportRequest) (RedactedExportResult, error) {
@@ -3604,76 +2981,6 @@ func TestApplicationPreservesResolverOperationalFailures(t *testing.T) {
 	}
 }
 
-type g008FollowupE2EFake struct {
-	requests                   []appfollowup.Request
-	err                        error
-	terminalExit               domain.OperationalExitDecision
-	resolution                 *domain.FollowupResolution
-	structuredExtractionStatus domain.StructuredExtractionStatus
-}
-
-func (fake *g008FollowupE2EFake) StartFollowupRun(_ context.Context, request appfollowup.Request) (StartedRun, error) {
-	fake.requests = append(fake.requests, request)
-	if fake.err != nil {
-		return StartedRun{}, fake.err
-	}
-	runID := "r_019f596a-d050-79e7-b2b7-59822f012273"
-	status := fake.structuredExtractionStatus
-	if status == "" {
-		status = domain.StructuredExtractionStructured
-	}
-	return StartedRun{
-		SessionID:                  g006SessionID,
-		RunID:                      runID,
-		ArtifactURI:                ".mulgae/followup/new-review.json",
-		FollowupResolution:         fake.resolution,
-		StructuredExtractionStatus: status,
-		TerminalExit:               fake.terminalExit,
-		RoleReportURIs: []RoleReportURI{{
-			Role: "logic",
-			URI:  ".mulgae/" + g006SessionID + "/" + runID + "/role-reports/logic.md",
-		}},
-	}, nil
-}
-
-type g008DeltaE2EFake struct {
-	requests     []appdelta.StartRequest
-	err          error
-	terminalExit domain.OperationalExitDecision
-}
-
-func (fake *g008DeltaE2EFake) StartDeltaRun(_ context.Context, request appdelta.StartRequest) (StartedRun, error) {
-	fake.requests = append(fake.requests, request)
-	if fake.err != nil {
-		return StartedRun{}, fake.err
-	}
-	return StartedRun{
-		SessionID:    g006SessionID,
-		RunID:        "r_019f596a-d051-79e7-b2b7-59822f012273",
-		ArtifactURI:  ".mulgae/delta/new-review.json",
-		TerminalExit: fake.terminalExit,
-	}, nil
-}
-
-type g008RerunE2EFake struct {
-	requests     []appreplay.Request
-	err          error
-	terminalExit domain.OperationalExitDecision
-}
-
-func (fake *g008RerunE2EFake) StartRerun(_ context.Context, request appreplay.Request) (StartedRun, error) {
-	fake.requests = append(fake.requests, request)
-	if fake.err != nil {
-		return StartedRun{}, fake.err
-	}
-	return StartedRun{
-		SessionID:    g006SessionID,
-		RunID:        "r_019f596a-d052-79e7-b2b7-59822f012273",
-		ArtifactURI:  ".mulgae/rerun/prompt-manifest.json",
-		TerminalExit: fake.terminalExit,
-	}, nil
-}
-
 type g008RetentionE2EFake struct {
 	requests []RetentionRequest
 	err      error
@@ -3710,25 +3017,14 @@ func (fake *g008ExportE2EFake) ExportRedactedRun(_ context.Context, request Reda
 
 type g008WorkflowFakes struct {
 	resolver  *g008ResolverFake
-	followup  *g008FollowupE2EFake
-	delta     *g008DeltaE2EFake
-	rerun     *g008RerunE2EFake
 	retention *g008RetentionE2EFake
 	export    *g008ExportE2EFake
 }
 
 func newG008WorkflowFakes(t *testing.T) g008WorkflowFakes {
 	t.Helper()
-	stillOpen := domain.FollowupStillOpen
 	return g008WorkflowFakes{
-		resolver: &g008ResolverFake{},
-		followup: &g008FollowupE2EFake{
-			resolution:                 &stillOpen,
-			structuredExtractionStatus: domain.StructuredExtractionStructured,
-			terminalExit:               g008CommittedTerminalExit(t, domain.ExitCommittedCIRejected),
-		},
-		delta:     &g008DeltaE2EFake{terminalExit: g008CommittedTerminalExit(t, domain.ExitCommittedPass)},
-		rerun:     &g008RerunE2EFake{terminalExit: g008CommittedTerminalExit(t, domain.ExitIncompleteCoverage)},
+		resolver:  &g008ResolverFake{},
 		retention: &g008RetentionE2EFake{},
 		export:    &g008ExportE2EFake{},
 	}
@@ -3935,7 +3231,7 @@ func TestApplicationStatusReadsDiagnosticOnlyRunWhenPublicationIsAbsent(t *testi
 	}
 	if !envelope.Result.DiagnosticOnly || envelope.Result.PublicationAuthority ||
 		envelope.Result.TerminalCause == nil || *envelope.Result.TerminalCause != string(domain.DiagnosticCauseProviderSpawnFailed) ||
-		envelope.Result.TerminalPhase != nil || envelope.Result.RecoveryAction != "rerun_review" || envelope.Result.DiagnosticSummary == nil ||
+		envelope.Result.TerminalPhase != nil || envelope.Result.RecoveryAction != "none" || envelope.Result.DiagnosticSummary == nil ||
 		envelope.Result.DiagnosticSummary.InvariantID != ports.ProviderObservationInvariantRejected ||
 		envelope.Result.DiagnosticSummary.ProviderSessionFingerprint != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("diagnostic status envelope = %#v", envelope.Result)
@@ -4786,7 +4082,7 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	followup, delta, rerun, retention, exports := g008Dependencies()
+	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	dependencies := Dependencies{
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
@@ -4798,9 +4094,6 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
 		RequestResolver:         resolver,
-		FollowupRuns:            followup,
-		DeltaRuns:               delta,
-		Reruns:                  rerun,
 		Retention:               retention,
 		Exports:                 exports,
 	}
@@ -4817,9 +4110,6 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 	}
 	dependencies.PublicationReports = nil
 	dependencies.RequestResolver = nil
-	dependencies.FollowupRuns = nil
-	dependencies.DeltaRuns = nil
-	dependencies.Reruns = nil
 	dependencies.Retention = nil
 	dependencies.Exports = nil
 	standalone, err := NewApplication(dependencies)
@@ -4849,18 +4139,15 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 		{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
 	} {
 		result := resolvedStandalone.Run(context.Background(), argv, testAnchoredRoot(t))
-		if result.ExitCode() != app.ExitCodeReadiness {
-			t.Fatalf("standalone %v exit = %d, want %d; stdout=%q stderr=%q", argv, result.ExitCode(), app.ExitCodeReadiness, result.Stdout(), result.Stderr())
+		if result.ExitCode() != app.ExitCodeUsage {
+			t.Fatalf("standalone %v exit = %d, want %d; stdout=%q stderr=%q", argv, result.ExitCode(), app.ExitCodeUsage, result.Stdout(), result.Stderr())
 		}
 	}
 	export := resolvedStandalone.Run(context.Background(), []string{"export", "--run", "latest", "--output-path", "exports/redacted.zip", "--output", "json"}, testAnchoredRoot(t))
 	if export.ExitCode() != app.ExitCodeSuccess {
 		t.Fatalf("offline export/latest exit = %d, want %d; stdout=%q stderr=%q", export.ExitCode(), app.ExitCodeSuccess, export.Stdout(), export.Stderr())
 	}
-	dependencies.FollowupRuns = followup
-	if _, err := NewApplication(dependencies); err == nil {
-		t.Fatal("NewApplication accepted a partial online G008 dependency group")
-	}
+
 }
 func TestIntegrationApplicationG008FakeWorkflow(t *testing.T) {
 	tests := []struct {
@@ -4872,12 +4159,6 @@ func TestIntegrationApplicationG008FakeWorkflow(t *testing.T) {
 		json   bool
 		reason string
 	}{
-		{name: "followup human", argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}, human: "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: still_open\nstructured_extraction_status: structured", kind: "followup_started", exit: app.ExitCodePolicy},
-		{name: "followup JSON", argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"}, kind: "followup_started", exit: app.ExitCodePolicy, json: true, reason: "request_changes_threshold"},
-		{name: "delta human", argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing"}, human: "delta started: r_019f596a-d051-79e7-b2b7-59822f012273", kind: "delta_started"},
-		{name: "delta JSON", argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"}, kind: "delta_started", json: true},
-		{name: "rerun human", argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose"}, human: "rerun started: r_019f596a-d052-79e7-b2b7-59822f012273", kind: "rerun_started", exit: app.ExitCodeReadiness},
-		{name: "rerun JSON", argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"}, kind: "rerun_started", exit: app.ExitCodeReadiness, json: true, reason: "required_role_incomplete"},
 		{name: "clean human", argv: []string{"clean", "--older-than", "30d"}, human: "clean completed: removed 3 runs and 8192 bytes", kind: "clean_completed"},
 		{name: "clean JSON", argv: []string{"clean", "--all", "--dry-run", "--output", "json"}, kind: "clean_completed", json: true},
 		{name: "export human", argv: []string{"export", "--run", "latest"}, human: "export created: .mulgae/exports/" + testRunID + ".zip", kind: "export_created"},
@@ -4912,285 +4193,23 @@ func TestIntegrationApplicationG008FakeWorkflow(t *testing.T) {
 		})
 	}
 }
-func TestApplicationG008FollowupRendersEveryResolutionExactly(t *testing.T) {
-	for _, resolution := range []domain.FollowupResolution{
-		domain.FollowupResolved,
-		domain.FollowupPartiallyResolved,
-		domain.FollowupStillOpen,
-		domain.FollowupUnclear,
+
+func TestApplicationRetentionFailuresPreserveTypedExits(t *testing.T) {
+	for _, test := range []struct {
+		cause error
+		exit  app.ExitCode
+	}{
+		{mustG006ArtifactFailure(t), app.ExitCodeArtifact},
+		{mustG006Failure(t, domain.FailureSecurityPolicy), app.ExitCodeSecurity},
 	} {
-		t.Run(string(resolution), func(t *testing.T) {
-			for _, output := range []string{"human", "json"} {
-				t.Run(output, func(t *testing.T) {
-					fakes := newG008WorkflowFakes(t)
-					value := resolution
-					fakes.followup.resolution = &value
-					fakes.followup.structuredExtractionStatus = domain.StructuredExtractionStructured
-					argv := []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}
-					if output == "json" {
-						argv = append(argv, "--output", "json")
-					}
-					result := newG008Fixture(t, fakes).application.Run(context.Background(), argv, testAnchoredRoot(t))
-					if output == "human" {
-						want := "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: " + string(resolution) + "\nstructured_extraction_status: structured"
-						if result.ExitCode() != app.ExitCodePolicy || !bytes.Equal(result.Stdout(), expectedTextOutput([]byte(want))) || len(result.Stderr()) != 0 {
-							t.Fatalf("human result = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
-						}
-						return
-					}
-					var envelope struct {
-						Result struct {
-							Resolution                 string `json:"resolution"`
-							StructuredExtractionStatus string `json:"structured_extraction_status"`
-						} `json:"result"`
-					}
-					if result.ExitCode() != app.ExitCodePolicy {
-						t.Fatalf("JSON exit = %d, want %d", result.ExitCode(), app.ExitCodePolicy)
-					}
-					if err := json.Unmarshal(result.Stdout(), &envelope); err != nil ||
-						envelope.Result.Resolution != string(resolution) ||
-						envelope.Result.StructuredExtractionStatus != "structured" {
-						t.Fatalf("JSON result = stdout %q error %v", result.Stdout(), err)
-					}
-				})
-			}
-		})
-	}
-}
-
-func TestApplicationG008FollowupRendersReportsOnlyWithNullResolution(t *testing.T) {
-	for _, output := range []string{"human", "json"} {
-		t.Run(output, func(t *testing.T) {
-			fakes := newG008WorkflowFakes(t)
-			fakes.followup.resolution = nil
-			fakes.followup.structuredExtractionStatus = domain.StructuredExtractionReportsOnly
-			fakes.followup.terminalExit = g008CommittedTerminalExit(t, domain.ExitCommittedPass)
-			argv := []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security"}
-			if output == "json" {
-				argv = append(argv, "--output", "json")
-			}
-			result := newG008Fixture(t, fakes).application.Run(context.Background(), argv, testAnchoredRoot(t))
-			if output == "human" {
-				want := "followup started: r_019f596a-d050-79e7-b2b7-59822f012273\nresolution: null\nstructured_extraction_status: reports_only"
-				if result.ExitCode() != app.ExitCodeSuccess || !bytes.Equal(result.Stdout(), expectedTextOutput([]byte(want))) || len(result.Stderr()) != 0 {
-					t.Fatalf("human result = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
-				}
-				return
-			}
-			var envelope struct {
-				Result struct {
-					Resolution                 *string `json:"resolution"`
-					StructuredExtractionStatus string  `json:"structured_extraction_status"`
-					RoleReportURIs             []struct {
-						Role string `json:"role"`
-						URI  string `json:"uri"`
-					} `json:"role_report_uris"`
-				} `json:"result"`
-			}
-			if result.ExitCode() != app.ExitCodeSuccess {
-				t.Fatalf("JSON exit = %d, want %d stdout %q", result.ExitCode(), app.ExitCodeSuccess, result.Stdout())
-			}
-			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-				t.Fatal(err)
-			}
-			if envelope.Result.Resolution != nil ||
-				envelope.Result.StructuredExtractionStatus != "reports_only" ||
-				len(envelope.Result.RoleReportURIs) != 1 {
-				t.Fatalf("JSON reports-only result = %#v", envelope.Result)
-			}
-		})
-	}
-}
-
-func TestApplicationG008FailureCancellationAndTypedExits(t *testing.T) {
-	security := mustG006Failure(t, domain.FailureSecurityPolicy)
-	mutation, err := domain.NewFailure("child.source_reobservation", domain.FailureSecurityPolicy, "source changed during child execution", errors.New("source mutation"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tests := []struct {
-		name string
-		argv []string
-		exit app.ExitCode
-		set  func(g008WorkflowFakes)
-	}{
-		{
-			name: "cancelled followup",
-			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
-			exit: app.ExitCodeCancellation,
-			set:  func(fakes g008WorkflowFakes) { fakes.followup.err = context.Canceled },
-		},
-		{
-			name: "delta cancellation",
-			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
-			exit: app.ExitCodeCancellation,
-			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = context.Canceled },
-		},
-		{
-			name: "rerun cancellation",
-			argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"},
-			exit: app.ExitCodeCancellation,
-			set:  func(fakes g008WorkflowFakes) { fakes.rerun.err = context.Canceled },
-		},
-		{
-			name: "followup missing terminal exit authority",
-			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
-			exit: app.ExitCodeInternal,
-			set:  func(fakes g008WorkflowFakes) { fakes.followup.terminalExit = domain.OperationalExitDecision{} },
-		},
-		{
-			name: "typed security delta",
-			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
-			exit: app.ExitCodeSecurity,
-			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = security },
-		},
-		{
-			name: "followup source mutation",
-			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
-			exit: app.ExitCodeSecurity,
-			set:  func(fakes g008WorkflowFakes) { fakes.followup.err = mutation },
-		},
-		{
-			name: "delta source mutation",
-			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
-			exit: app.ExitCodeSecurity,
-			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = mutation },
-		},
-		{
-			name: "rerun source mutation",
-			argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"},
-			exit: app.ExitCodeSecurity,
-			set:  func(fakes g008WorkflowFakes) { fakes.rerun.err = mutation },
-		},
-		{
-			name: "followup source corruption",
-			argv: []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
-			exit: app.ExitCodeArtifact,
-			set: func(fakes g008WorkflowFakes) {
-				fakes.followup.err = &appfollowup.Error{Kind: appfollowup.ErrorSource, Stage: "source", Err: errors.New("source corrupt")}
-			},
-		},
-		{
-			name: "delta source corruption",
-			argv: []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
-			exit: app.ExitCodeArtifact,
-			set:  func(fakes g008WorkflowFakes) { fakes.delta.err = errors.New("source corrupt") },
-		},
-		{
-			name: "rerun source corruption",
-			argv: []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"},
-			exit: app.ExitCodeArtifact,
-			set:  func(fakes g008WorkflowFakes) { fakes.rerun.err = appreplay.ErrSourceCorrupt },
-		},
-		{
-			name: "typed artifact clean",
-			argv: []string{"clean", "--all", "--dry-run", "--output", "json"},
-			exit: app.ExitCodeArtifact,
-			set:  func(fakes g008WorkflowFakes) { fakes.retention.err = mustG006ArtifactFailure(t) },
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			fakes := newG008WorkflowFakes(t)
-			test.set(fakes)
-			fixture := newG008Fixture(t, fakes)
-			result := fixture.application.Run(context.Background(), test.argv, testAnchoredRoot(t))
-			assertFoundationEnvelope(t, fixture, result, test.exit)
-			assertG008FakeRequest(t, test.name, fakes)
-		})
-	}
-}
-
-func TestApplicationG008ProviderExecutionFailuresAreNonSuccess(t *testing.T) {
-	tests := []struct {
-		name      string
-		argv      []string
-		class     domain.FailureClass
-		condition review.AttemptCondition
-		set       func(g008WorkflowFakes, error)
-	}{
-		{
-			name:      "followup provider unavailable",
-			argv:      []string{"followup", "--run", "latest", "--finding", "F001", "--stdin", "--objective", "verify fix", "--role", "security", "--output", "json"},
-			class:     domain.FailureProviderUnavailable,
-			condition: review.AttemptConditionProviderUnavailable,
-			set:       func(fakes g008WorkflowFakes, err error) { fakes.followup.err = err },
-		},
-		{
-			name:      "delta invalid output",
-			argv:      []string{"delta", "--since-run", "latest", "--stdin", "--roles", "logic,testing", "--output", "json"},
-			class:     domain.FailureInvalidOutput,
-			condition: review.AttemptConditionInvalidProviderOutput,
-			set:       func(fakes g008WorkflowFakes, err error) { fakes.delta.err = err },
-		},
-		{
-			name:      "rerun exact timeout",
-			argv:      []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
-			class:     domain.FailureTimeout,
-			condition: review.AttemptConditionTimeout,
-			set:       func(fakes g008WorkflowFakes, err error) { fakes.rerun.err = err },
-		},
-		{
-			name:      "rerun recomposed authentication",
-			argv:      []string{"rerun", "--run", "latest", "--role", "logic", "--provider", "testing", "--replay", "recompose", "--output", "json"},
-			class:     domain.FailureAuthentication,
-			condition: review.AttemptConditionAuthentication,
-			set:       func(fakes g008WorkflowFakes, err error) { fakes.rerun.err = err },
-		},
-		{
-			name:      "rerun exact rate limited",
-			argv:      []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"},
-			class:     domain.FailureRateLimit,
-			condition: review.AttemptConditionRateLimit,
-			set:       func(fakes g008WorkflowFakes, err error) { fakes.rerun.err = err },
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			fact, err := reviewrun.NewProviderExecutionFailure("zcode-security", domain.RoleSecurity, string(test.condition), test.class)
-			if err != nil {
-				t.Fatal(err)
-			}
-			aggregate := reviewrun.NewProviderExecutionFailuresError([]reviewrun.ProviderExecutionFailure{fact})
-			failure, err := domain.NewFailure("childrun.execute", test.class, "provider execution failed", aggregate)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fakes := newG008WorkflowFakes(t)
-			test.set(fakes, failure)
-			fixture := newG008Fixture(t, fakes)
-			result := fixture.application.Run(context.Background(), test.argv, testAnchoredRoot(t))
-			assertFoundationEnvelope(t, fixture, result, app.ExitCodeReadiness)
-			var envelope struct {
-				OK      bool `json:"ok"`
-				Reasons []struct {
-					Code      string `json:"code"`
-					Retryable bool   `json:"retryable"`
-				} `json:"reasons"`
-			}
-			if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-				t.Fatal(err)
-			}
-			wantCode := "provider_execution_failed"
-			switch test.condition {
-			case review.AttemptConditionInvalidProviderOutput:
-				wantCode = "candidate_validation_failed"
-			case review.AttemptConditionTimeout:
-				wantCode = "execution_timeout"
-			case review.AttemptConditionRateLimit:
-				wantCode = "provider_rate_limited"
-			}
-			if envelope.OK || len(envelope.Reasons) != 1 || envelope.Reasons[0].Code != wantCode || envelope.Reasons[0].Retryable {
-				t.Fatalf("provider execution envelope = %#v", envelope)
-			}
-			if test.name == "rerun exact timeout" || test.name == "rerun exact rate limited" {
-				if len(fakes.rerun.requests) != 1 || fakes.rerun.requests[0].ReplayMode != appreplay.ExactReplay {
-					t.Fatalf("exact rerun requests = %#v", fakes.rerun.requests)
-				}
-			} else {
-				assertG008FakeRequest(t, test.name, fakes)
-			}
-		})
+		fakes := newG008WorkflowFakes(t)
+		fakes.retention.err = test.cause
+		fixture := newG008Fixture(t, fakes)
+		result := fixture.application.Run(context.Background(), []string{"clean", "--all", "--dry-run", "--output", "json"}, testAnchoredRoot(t))
+		assertFoundationEnvelope(t, fixture, result, test.exit)
+		if len(fakes.retention.requests) != 1 {
+			t.Fatal("cleanup dispatch lost")
+		}
 	}
 }
 
@@ -5225,81 +4244,9 @@ func TestApplicationG008ExportSecurityFailureRedactsSuccessFields(t *testing.T) 
 	}
 }
 
-func TestApplicationG008FollowupPreservesNonNumericFindingID(t *testing.T) {
-	fakes := newG008WorkflowFakes(t)
-	fixture := newG008Fixture(t, fakes)
-
-	result := fixture.application.Run(context.Background(), []string{
-		"followup", "--run", "latest", "--finding", "F_SOURCE-1", "--stdin",
-		"--objective", "verify fix", "--role", "security", "--output", "json",
-	}, testAnchoredRoot(t))
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodePolicy)
-
-	if len(fakes.followup.requests) != 1 {
-		t.Fatalf("followup requests = %#v", fakes.followup.requests)
-	}
-	if got := fakes.followup.requests[0].FindingID; got != "F_SOURCE-1" {
-		t.Fatalf("followup finding ID = %q, want %q", got, "F_SOURCE-1")
-	}
-}
-func TestApplicationG008HumanFailureDefensivelyCopiesStderr(t *testing.T) {
-	fakes := newG008WorkflowFakes(t)
-	fakes.followup.err = context.Canceled
-	fixture := newG008Fixture(t, fakes)
-	result := fixture.application.Run(context.Background(), []string{
-		"followup", "--run", "latest", "--finding", "F001", "--stdin",
-		"--objective", "verify fix", "--role", "security",
-	}, testAnchoredRoot(t))
-	if result.ExitCode() != app.ExitCodeCancellation || len(result.Stdout()) != 0 {
-		t.Fatalf("human cancellation = exit %d stdout %q stderr %q", result.ExitCode(), result.Stdout(), result.Stderr())
-	}
-	stderr := result.Stderr()
-	stderr[0] = '!'
-	if result.Stderr()[0] == '!' {
-		t.Fatal("Result.Stderr exposed mutable application-owned bytes")
-	}
-	assertG008FakeRequest(t, "cancelled followup", fakes)
-}
-
 func assertG008FakeRequest(t *testing.T, name string, fakes g008WorkflowFakes) {
 	t.Helper()
 	switch {
-	case strings.HasPrefix(name, "followup"), strings.HasPrefix(name, "cancelled followup"):
-		if len(fakes.followup.requests) != 1 || len(fakes.resolver.runCalls) != 1 || fakes.resolver.runCalls[0] != "latest" || fakes.resolver.targetCalls != 1 {
-			t.Fatalf("followup calls = requests %#v runs %#v target calls %d", fakes.followup.requests, fakes.resolver.runCalls, fakes.resolver.targetCalls)
-		}
-		request := fakes.followup.requests[0]
-		if request.SourceRunID.String() != testRunID || request.FindingID != "F001" || string(request.Target.Kind) != "stdin" || request.Target.Value != "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
-			request.Objective == nil || *request.Objective != "verify fix" || request.Role == nil || *request.Role != domain.RoleSecurity {
-			t.Fatalf("followup request = %#v", request)
-		}
-		if request.SourceRunID.String() == "r_019f596a-d050-79e7-b2b7-59822f012273" {
-			t.Fatal("followup source run ID equals returned child run ID")
-		}
-	case strings.HasPrefix(name, "delta"), strings.HasPrefix(name, "typed security delta"):
-		if len(fakes.delta.requests) != 1 || len(fakes.resolver.runCalls) != 1 || fakes.resolver.runCalls[0] != "latest" || fakes.resolver.targetCalls != 1 {
-			t.Fatalf("delta calls = requests %#v runs %#v target calls %d", fakes.delta.requests, fakes.resolver.runCalls, fakes.resolver.targetCalls)
-		}
-		request := fakes.delta.requests[0]
-		if request.SourceRunID.String() != testRunID || string(request.Target.Kind) != "stdin" || request.Target.Value != "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
-			!reflect.DeepEqual(request.Roles, []domain.Role{domain.RoleLogic, domain.RoleTesting}) {
-			t.Fatalf("delta request = %#v", request)
-		}
-		if request.SourceRunID.String() == "r_019f596a-d051-79e7-b2b7-59822f012273" {
-			t.Fatal("delta source run ID equals returned child run ID")
-		}
-	case strings.HasPrefix(name, "rerun"):
-		if len(fakes.rerun.requests) != 1 || len(fakes.resolver.runCalls) != 1 || len(fakes.resolver.attemptCalls) != 1 {
-			t.Fatalf("rerun calls = requests %#v runs %#v attempts %#v", fakes.rerun.requests, fakes.resolver.runCalls, fakes.resolver.attemptCalls)
-		}
-		request := fakes.rerun.requests[0]
-		if request.SourceRunID.String() != testRunID || request.SourceAttemptID.String() != testAttemptID || request.ReplayMode != appreplay.RecomposeReplay ||
-			!reflect.DeepEqual(fakes.resolver.attemptCalls[0], g008AttemptResolution{runID: testRunID, role: "logic", provider: "testing"}) {
-			t.Fatalf("rerun request = %#v, resolutions = %#v", request, fakes.resolver.attemptCalls)
-		}
-		if request.SourceRunID.String() == "r_019f596a-d052-79e7-b2b7-59822f012273" {
-			t.Fatal("rerun source run ID equals returned child run ID")
-		}
 	case strings.HasPrefix(name, "clean"), strings.HasPrefix(name, "typed artifact clean"):
 		if len(fakes.retention.requests) != 1 {
 			t.Fatalf("clean requests = %#v", fakes.retention.requests)
@@ -5350,9 +4297,6 @@ func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
 		RequestResolver:         fakes.resolver,
-		FollowupRuns:            fakes.followup,
-		DeltaRuns:               fakes.delta,
-		Reruns:                  fakes.rerun,
 		Retention:               fakes.retention,
 		Exports:                 fakes.export,
 	})
@@ -5411,7 +4355,7 @@ func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *te
 		argv []string
 		exit app.ExitCode
 	}{
-		{name: "review", argv: []string{"review", "--dirty", "--output", "json"}, exit: app.ExitCodeUsage},
+		{name: "review", argv: []string{"review", "--workspace", "--output", "json"}, exit: app.ExitCodeUsage},
 	} {
 		if stdout, stderr, exit := run(test.argv...); exit != test.exit || len(stdout) == 0 || len(stderr) != 0 {
 			t.Fatalf("production fail-closed command %s = exit %d stdout %q stderr %q", test.name, exit, stdout, stderr)
@@ -5431,10 +4375,9 @@ func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *te
 		{"rerun", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"},
 	} {
 		stdout, stderr, exit := run(argv...)
-		if exit != app.ExitCodeUsage || len(stderr) != 0 {
-			t.Fatalf("production config-gated G008 command %v = exit %d stderr %q", argv, exit, stderr)
+		if exit != app.ExitCodeUsage || len(stdout) != 0 || !bytes.Equal(stderr, []byte("mulgae: invalid command usage\nhint: run mulgae help workflows\n")) {
+			t.Fatalf("retired production command %v = exit %d stdout %q stderr %q", argv, exit, stdout, stderr)
 		}
-		assertFoundationEnvelope(t, fixture, newResult(stdout, stderr, exit), app.ExitCodeUsage)
 	}
 	exportRoot := t.TempDir()
 	if err := os.Mkdir(filepath.Join(exportRoot, ".mulgae"), 0o700); err != nil {
@@ -5618,7 +4561,7 @@ func newG006FixtureWithWriter(
 	if err != nil {
 		t.Fatal(err)
 	}
-	followup, delta, rerun, retention, exports := g008Dependencies()
+	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
 		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
@@ -5632,9 +4575,6 @@ func newG006FixtureWithWriter(
 		PublicationQueries:   query,
 		ProjectContexts:      mustVerifiedReadContexts(t),
 		PublicationReports:   report,
-		FollowupRuns:         followup,
-		DeltaRuns:            delta,
-		Reruns:               rerun,
 		Retention:            retention,
 		Exports:              exports,
 	})
@@ -5763,7 +4703,7 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 	if err != nil {
 		t.Fatal(err)
 	}
-	followup, delta, rerun, retention, exports := g008Dependencies()
+	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
@@ -5776,9 +4716,6 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 		ProviderVersionObserver: doctorVersionObserver{},
 		RequestResolver:         resolver,
 		EvidenceReader:          evidence,
-		FollowupRuns:            followup,
-		DeltaRuns:               delta,
-		Reruns:                  rerun,
 		Retention:               retention,
 		Exports:                 exports,
 	})
@@ -5801,7 +4738,7 @@ func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileW
 		t.Fatal(err)
 	}
 	writer := &receiptCapturingFoundationWriter{delegate: secureWriter}
-	followup, delta, rerun, retention, exports := g008Dependencies()
+	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
@@ -5813,9 +4750,6 @@ func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileW
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
 		RequestResolver:         resolver,
-		FollowupRuns:            followup,
-		DeltaRuns:               delta,
-		Reruns:                  rerun,
 		Retention:               retention,
 		Exports:                 exports,
 	})
@@ -5986,7 +4920,7 @@ func TestProviderFailureHintRoutesByRemediation(t *testing.T) {
 
 	const (
 		doctor = "mulgae doctor"
-		rerun  = "mulgae rerun"
+		rerun  = "mulgae help workflows"
 		config = "mulgae config --mode effective"
 	)
 	want := map[review.AttemptCondition]string{
@@ -6033,40 +4967,7 @@ func TestProviderFailureHintRoutesByRemediation(t *testing.T) {
 	}
 }
 
-func TestRerunFailurePreservesAllocatedIdentityWithoutPromptAuthority(t *testing.T) {
-	session, err := domain.ParseSessionID(g006SessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := domain.ParseRunID(testRecoveryRunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fakes := newG008WorkflowFakes(t)
-	failure, err := domain.NewFailure("rerun.test", domain.FailureInternal, "injected child failure", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fakes.rerun.err = reviewrun.NewAllocatedRunIdentityError(session, run, failure)
-	fixture := newG008Fixture(t, fakes)
-	result := fixture.application.Run(context.Background(), []string{"rerun", "--run", testRunID, "--attempt", testAttemptID, "--output", "json"}, testAnchoredRoot(t))
-	assertFoundationEnvelope(t, fixture, result, app.ExitCodeInternal)
-	var envelope struct {
-		Result struct {
-			SessionID *string `json:"session_id"`
-			RunID     *string `json:"run_id"`
-			PromptURI *string `json:"prompt_manifest_uri"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.Result.SessionID == nil || *envelope.Result.SessionID != session.String() || envelope.Result.RunID == nil || *envelope.Result.RunID != run.String() || envelope.Result.PromptURI != nil {
-		t.Fatalf("failure lost allocated identity or fabricated prompt authority: %s", result.Stdout())
-	}
-}
-
-func TestApplicationReviewAndRerunPreservePrimaryFailureWithRecoveryDescription(t *testing.T) {
+func TestApplicationReviewPreservesPrimaryFailureWithRecoveryDescription(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		class         domain.FailureClass
@@ -6106,17 +5007,11 @@ func TestApplicationReviewAndRerunPreservePrimaryFailureWithRecoveryDescription(
 			}
 			rootFixture := newFoundationFixture(t)
 			rootFixture.application.reviewRuns = &reviewRunFake{err: recoveryFailure}
-			rootResult := rootFixture.application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, testAnchoredRoot(t))
+			rootResult := rootFixture.application.Run(context.Background(), []string{"review", "--workspace", "--output", "json"}, testAnchoredRoot(t))
 			assertFoundationEnvelope(t, rootFixture, rootResult, test.exit)
 			assertApplicationFailureJSONExit(t, rootResult, test.exit)
 			assertApplicationRecoveryErrorRedacted(t, rootResult.Stdout())
-			fakes := newG008WorkflowFakes(t)
-			fakes.rerun.err = fmt.Errorf("child rerun: %w", recoveryFailure)
-			fixture := newG008Fixture(t, fakes)
-			result := fixture.application.Run(context.Background(), []string{"rerun", "--run", "latest", "--attempt", testAttemptID, "--output", "json"}, testAnchoredRoot(t))
-			assertFoundationEnvelope(t, fixture, result, test.exit)
-			assertApplicationFailureJSONExit(t, result, test.exit)
-			assertApplicationRecoveryErrorRedacted(t, result.Stdout())
+
 		})
 	}
 }

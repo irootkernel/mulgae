@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -14,32 +13,28 @@ import (
 
 type authorityCandidateSource struct{ candidates []QualifiedRunCandidate }
 
-func (source authorityCandidateSource) NewQualifiedRunCandidates(context.Context, CapturedRunInput, RunSelection) ([]QualifiedRunCandidate, error) {
+func authorityLiveExecution(t *testing.T) ports.LiveReviewExecution {
+	t.Helper()
+	selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
+	path, _ := ports.NewSafeRelativePath("source.go")
+	target, _ := ports.NewLiveSourceTarget(selector, ports.GitObjectID{}, ports.GitObjectID{}, false, []ports.LiveSourceChange{{Kind: "included", After: path}})
+	root, _ := ports.NewAnchoredRoot("/project")
+	git, _ := ports.NewAnchoredRoot("/project/.git")
+	home, _ := ports.NewAnchoredRoot("/neutral")
+	credentials, _ := ports.NewAnchoredRoot("/credentials")
+	reader := &promptLiveReader{target: target, binding: ports.ProjectBindingObservation{Root: root, GitDirectory: git, CommonDirectory: git, RootIdentity: ports.ProjectDirectoryIdentity{Device: 1, Inode: 2}, GitIdentity: ports.ProjectDirectoryIdentity{Device: 1, Inode: 3}, CommonIdentity: ports.ProjectDirectoryIdentity{Device: 1, Inode: 3}}}
+	execution, err := ports.NewLiveReviewExecution(context.Background(), reader, promptLiveHome{root: home}, []ports.AnchoredRoot{credentials})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return execution
+}
+
+func (source authorityCandidateSource) BindLiveQualifiedRunContext(ctx context.Context, _ ports.LiveReviewExecution) (context.Context, error) {
+	return ctx, nil
+}
+func (source authorityCandidateSource) NewLiveQualifiedRunCandidates(context.Context, ports.LiveSourceTarget, RunSelection) ([]QualifiedRunCandidate, error) {
 	return source.candidates, nil
-}
-
-type authorityLease struct {
-	identity ports.WorkspaceSnapshotIdentity
-}
-
-func (lease authorityLease) WorkspaceSnapshotIdentity() ports.WorkspaceSnapshotIdentity {
-	return lease.identity
-}
-func (authorityLease) RevalidateForExecution() (ports.WorkspaceExecutionGuard, error) {
-	return nil, nil
-}
-func (authorityLease) Receipt() ports.WorkspaceSnapshotReceipt {
-	return ports.WorkspaceSnapshotReceipt{}
-}
-func (authorityLease) Release(ports.WorkspaceCompletionEvidence) (ports.WorkspaceTerminalReceipt, error) {
-	return ports.WorkspaceTerminalReceipt{}, nil
-}
-func (authorityLease) Abort(ports.WorkspaceAbortEvidence) error { return nil }
-
-type authorityReader struct{}
-
-func (authorityReader) ReadImmutableTarget(context.Context, string, evidence.Side, ports.SafeRelativePath) (evidence.ImmutableTargetAvailability, []byte, error) {
-	return evidence.ImmutableTargetUnavailable, nil, nil
 }
 
 func TestRunAuthorityAdapterMapsQualifiedRunToServiceAuthority(t *testing.T) {
@@ -58,7 +53,7 @@ func TestRunAuthorityAdapterMapsQualifiedRunToServiceAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := adapter.NewQualifiedRun(context.Background(), authorityCaptured(t), authoritySelection(t))
+	authority, err := adapter.NewQualifiedLiveRun(context.Background(), authorityLiveExecution(t), authoritySelection(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +93,7 @@ func TestRunAuthorityAdapterDrainsOnPlannerConstructionFailure(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if _, err := adapter.NewQualifiedRun(ctx, authorityCaptured(t), authoritySelection(t)); err == nil || registry.closed != 1 {
+	if _, err := adapter.NewQualifiedLiveRun(ctx, authorityLiveExecution(t), authoritySelection(t)); err == nil || registry.closed != 1 {
 		t.Fatalf("planner construction = %v; closes=%d", err, registry.closed)
 	}
 	if len(registry.closeContexts) != 1 || registry.closeContexts[0] == ctx {
@@ -122,7 +117,7 @@ func TestRunAuthorityAdapterPlannerCleanupRetainsRetryOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = adapter.NewQualifiedRun(context.Background(), authorityCaptured(t), authoritySelection(t))
+	_, err = adapter.NewQualifiedLiveRun(context.Background(), authorityLiveExecution(t), authoritySelection(t))
 	if err == nil || registry.closed != 2 {
 		t.Fatalf("planner construction = %v; closes=%d", err, registry.closed)
 	}
@@ -190,29 +185,6 @@ func TestQualificationCandidatesAreRestrictedToSelectedAssignments(t *testing.T)
 	}
 }
 
-func TestImmutableReviewInputRetainsObjectivePresence(t *testing.T) {
-	target, err := ports.NewCapturedReviewPatchTarget([]byte("patch"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	absent, err := NewImmutableReviewInput(target, nil, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if absent.HasObjective() || absent.Objective() != nil {
-		t.Fatalf("absent objective = present %t, bytes %q", absent.HasObjective(), absent.Objective())
-	}
-	empty, err := NewImmutableReviewInput(target, []byte{}, true, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !empty.HasObjective() || len(empty.Objective()) != 0 {
-		t.Fatalf("present empty objective = present %t, bytes %q", empty.HasObjective(), empty.Objective())
-	}
-	if _, err := NewImmutableReviewInput(target, []byte("objective"), false, nil); err == nil {
-		t.Fatal("absent objective with bytes accepted")
-	}
-}
 func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 	t.Helper()
 	definition, _ := authorityProbeDefinition(t, FamilyGrok, "grok-main", "1.0.34", t.TempDir())
@@ -226,11 +198,11 @@ func authorityCandidate(t *testing.T) QualifiedRunCandidate {
 			argv: definition.BaseArgv(), sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
 			reason: "unqualified_discovery",
 		},
-		Definition:       definition,
-		SnapshotManifest: "manifest-1",
-		SupportedRoles:   []domain.Role{domain.RoleLogic},
-		BaseRole:         domain.RoleLogic,
-		Limits:           limits,
+		Definition:              definition,
+		ExecutionTargetIdentity: "manifest-1",
+		SupportedRoles:          []domain.Role{domain.RoleLogic},
+		BaseRole:                domain.RoleLogic,
+		Limits:                  limits,
 	}
 }
 
@@ -249,11 +221,11 @@ func authorityCandidateForRoles(t *testing.T, family Family, instance string, ro
 			applicationVersion: definition.ApplicationVersion(), applicationVersionClassification: ClassifyZCodeApplicationVersion(definition.ApplicationVersion()), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 			reason: "unqualified_discovery",
 		},
-		Definition:       definition,
-		SnapshotManifest: "manifest-1",
-		SupportedRoles:   append([]domain.Role(nil), roles...),
-		BaseRole:         roles[0],
-		Limits:           limits,
+		Definition:              definition,
+		ExecutionTargetIdentity: "manifest-1",
+		SupportedRoles:          append([]domain.Role(nil), roles...),
+		BaseRole:                roles[0],
+		Limits:                  limits,
 	}
 }
 
@@ -277,27 +249,6 @@ func newAuthorityRegistry(t *testing.T) *qualifierRegistry {
 		namespaces: make(map[string]ports.ProviderQualificationNamespace),
 		receipt:    aggregate,
 	}
-}
-
-func authorityCaptured(t *testing.T) CapturedRunInput {
-	t.Helper()
-	target, err := ports.NewCapturedReviewPatchTarget([]byte("patch"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, err := NewImmutableReviewInput(target, nil, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	identity, err := ports.NewWorkspaceSnapshotIdentity("/private/snapshot", "snapshot-0123456789abcdef0123456789abcdef", "sha256:"+qualifierTestSHA, "policy", 1, 2, 3, 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	captured, err := NewCapturedRunInput(input, authorityLease{identity: identity}, authorityReader{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return captured
 }
 
 func authoritySelection(t *testing.T) RunSelection {

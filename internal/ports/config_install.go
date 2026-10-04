@@ -182,7 +182,7 @@ type ConfigSourceFactory interface {
 	OpenConfigSource(AnchoredRoot, bool) (ConfigSource, error)
 }
 
-// SplitConfigSource exposes the separately admitted Config v4 authorities.
+// SplitConfigSource exposes the separately admitted Config v5 authorities.
 type SplitConfigSource interface {
 	ConfigSource
 	ProjectPresent() bool
@@ -190,7 +190,7 @@ type SplitConfigSource interface {
 	LocalBytes() []byte
 }
 
-// SplitConfigInstaller installs or refreshes Config v4 without allowing the
+// SplitConfigInstaller installs or refreshes Config v5 without allowing the
 // machine-local operation to rewrite shared project policy.
 type SplitConfigInstaller interface {
 	ConfigInstaller

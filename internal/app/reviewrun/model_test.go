@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +85,7 @@ func TestCapturedReviewTargetValidatesExactBytesAndGitMetadata(t *testing.T) {
 	}
 }
 
-func TestRunSelectionAndImmutableInputDefendOwnedValues(t *testing.T) {
+func TestRunSelectionDefendsOwnedValues(t *testing.T) {
 	roles := []domain.Role{domain.RoleSecurity, domain.RoleLogic}
 	session, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
 	if err != nil {
@@ -121,186 +120,6 @@ func TestRunSelectionAndImmutableInputDefendOwnedValues(t *testing.T) {
 		}
 	}
 
-	target := reviewRunPatchTarget(t)
-	objective := []byte("objective")
-	projectContext := []byte("context")
-	input, err := NewImmutableReviewInput(target, objective, true, projectContext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	objective[0], projectContext[0] = 'X', 'X'
-	if got := string(input.Objective()); got != "objective" {
-		t.Fatalf("Objective() = %q", got)
-	}
-	contextCopy := input.ProjectContext()
-	contextCopy[0] = 'Y'
-	if got := string(input.ProjectContext()); got != "context" {
-		t.Fatalf("ProjectContext() = %q", got)
-	}
-	absent, err := NewImmutableReviewInput(target, nil, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if absent.HasObjective() || absent.Objective() != nil {
-		t.Fatalf("absent objective = present %t, bytes %q", absent.HasObjective(), absent.Objective())
-	}
-	empty, err := NewImmutableReviewInput(target, []byte{}, true, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !empty.HasObjective() || len(empty.Objective()) != 0 {
-		t.Fatalf("present empty objective = present %t, bytes %q", empty.HasObjective(), empty.Objective())
-	}
-	if _, err := NewImmutableReviewInput(target, []byte("objective"), false, nil); err == nil {
-		t.Fatal("absent objective with bytes accepted")
-	}
-	if _, err := NewImmutableReviewInput(ports.CapturedReviewTarget{}, nil, false, nil); err == nil {
-		t.Fatal("zero target accepted")
-	}
-}
-func TestImmutableReviewInputPreservesProjectContextPresence(t *testing.T) {
-	target := reviewRunPatchTarget(t)
-	for _, test := range []struct {
-		name    string
-		context []byte
-		present bool
-	}{
-		{name: "absent", context: nil, present: false},
-		{name: "present empty", context: []byte{}, present: true},
-		{name: "present bytes", context: []byte("context"), present: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			input, err := NewImmutableReviewInputWithProjectContext(target, nil, false, test.context, test.present)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if input.HasProjectContext() != test.present {
-				t.Fatalf("HasProjectContext() = %t, want %t", input.HasProjectContext(), test.present)
-			}
-			if test.present && len(test.context) > 0 {
-				test.context[0] = 'X'
-				if got := string(input.ProjectContext()); got != "context" {
-					t.Fatalf("ProjectContext() = %q", got)
-				}
-				copy := input.ProjectContext()
-				copy[0] = 'Y'
-				if got := string(input.ProjectContext()); got != "context" {
-					t.Fatalf("ProjectContext() retained accessor mutation: %q", got)
-				}
-			}
-			source, err := newPromptSource(input, review.TemplateSet{}, &reviewRunPromptIssuer{}, reviewRunRoleTask, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if source.input.HasProjectContext() != test.present {
-				t.Fatalf("cloned HasProjectContext() = %t, want %t", source.input.HasProjectContext(), test.present)
-			}
-		})
-	}
-	if _, err := NewImmutableReviewInputWithProjectContext(target, nil, false, []byte("context"), false); err == nil {
-		t.Fatal("absent project context with bytes accepted")
-	}
-	absent, err := NewImmutableReviewInput(target, nil, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	presentEmpty, err := NewImmutableReviewInput(target, nil, false, []byte{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if absent.HasProjectContext() || !presentEmpty.HasProjectContext() {
-		t.Fatalf("compatibility constructor presence = absent %t, present empty %t", absent.HasProjectContext(), presentEmpty.HasProjectContext())
-	}
-}
-
-func TestPromptCompilerProjectContextFramePresence(t *testing.T) {
-	template, err := prompt.NewTrustedTemplate("test", "1", []byte("trusted"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := reviewRunPromptScope(t)
-	target := reviewRunPatchTarget(t)
-	for _, test := range []struct {
-		name    string
-		context []byte
-		present bool
-		want    int
-	}{
-		{name: "absent", present: false, want: 0},
-		{name: "present empty", context: []byte{}, present: true, want: 1},
-		{name: "present bytes", context: []byte("context"), present: true, want: 1},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			input, err := NewImmutableReviewInputWithProjectContext(target, nil, false, test.context, test.present)
-			if err != nil {
-				t.Fatal(err)
-			}
-			compiler, err := prompt.NewCompiler(template, &reviewRunPromptIssuer{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			compiled, err := compiler.Compile(compileInputForReview(scope, input, domain.RoleLogic))
-			if err != nil {
-				t.Fatal(err)
-			}
-			count := 0
-			for _, section := range compiled.Sections() {
-				if section.Kind() == prompt.SectionProjectContext {
-					count++
-					if test.name == "present bytes" && string(section.Payload()) != "context" {
-						t.Fatalf("project-context payload = %q", section.Payload())
-					}
-				}
-			}
-			if count != test.want {
-				t.Fatalf("project-context frame count = %d, want %d", count, test.want)
-			}
-		})
-	}
-}
-
-func TestRootReviewPromptReferencesWorkspaceTargetWithoutInliningBody(t *testing.T) {
-	target := reviewRunPatchTarget(t)
-	input, err := NewImmutableReviewInput(target, nil, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	compiled := compileInputForReview(reviewRunPromptScope(t), input, domain.RoleLogic)
-	var reference struct {
-		SchemaVersion string `json:"schema_version"`
-		Path          string `json:"path"`
-		SHA256        string `json:"sha256"`
-		Size          int    `json:"size"`
-	}
-	if err := json.Unmarshal(compiled.ReviewTarget.Bytes(), &reference); err != nil {
-		t.Fatal(err)
-	}
-	if reference.SchemaVersion != "mulgae-review-target-reference.v1" ||
-		reference.Path != ports.WorkspaceReviewTargetName ||
-		reference.SHA256 != "sha256:"+target.Identity().SHA256() ||
-		reference.Size != len(target.Bytes()) || bytes.Equal(compiled.ReviewTarget.Bytes(), target.Bytes()) {
-		t.Fatalf("review target reference = %#v", reference)
-	}
-}
-
-func TestArtistPromptContextIsIsolatedFromOtherRoles(t *testing.T) {
-	target := reviewRunPatchTarget(t)
-	context := []byte("shared project context\n" + `{"schema_version":"mulgae-artist-inputs.v1","status":"ready","task_path":"docs/roadmap.md","task":"Check visual hierarchy.","visual_assets":[{"path":"design-specs/current.png","sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","media_type":"image/png"}]}`)
-	input, err := NewImmutableReviewInput(target, nil, false, context)
-	if err != nil {
-		t.Fatal(err)
-	}
-	artist := compileInputForReview(reviewRunPromptScope(t), input, domain.RoleArtist)
-	if artist.ProjectContext == nil || string(artist.ProjectContext.Bytes()) != "shared project context" || artist.TaskRequirements == nil || string(artist.TaskRequirements.Bytes()) != "Check visual hierarchy." || artist.VisualAssetsManifest == nil {
-		t.Fatalf("artist compile input = %#v", artist)
-	}
-	logic := compileInputForReview(reviewRunPromptScope(t), input, domain.RoleLogic)
-	if logic.ProjectContext == nil || string(logic.ProjectContext.Bytes()) != "shared project context" || logic.TaskRequirements != nil || logic.VisualAssetsManifest != nil {
-		t.Fatalf("logic received artist-only inputs: %#v", logic)
-	}
-	if strings.Contains(string(logic.ProjectContext.Bytes()), "Check visual hierarchy") {
-		t.Fatal("logic project context exposed artist brief")
-	}
 }
 
 type reviewRunPromptIssuer struct{}

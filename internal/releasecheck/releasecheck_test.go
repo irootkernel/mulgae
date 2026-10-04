@@ -76,7 +76,7 @@ func TestInstalledRootModuleContract(t *testing.T) {
 		}
 	}
 	workflows, workflowsStderr := runInstalled(t, binary, "help", "workflows")
-	if workflowsStderr != "" || !strings.Contains(workflows, "# Workflows") || !strings.Contains(workflows, "--diff REVISION_RANGE") {
+	if workflowsStderr != "" || !strings.Contains(workflows, "# Workflows") || !strings.Contains(workflows, "--diff LEFT..RIGHT") {
 		t.Fatalf("workflow help = stdout %q stderr %q", workflows, workflowsStderr)
 	}
 }

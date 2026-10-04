@@ -9,17 +9,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// RequestAdmission derives the plan and receipt from the captured input and the
-// already admitted configuration. It has no provider or publication authority.
-type RequestAdmission interface {
-	Admit(context.Context, Request, CapturedRunInput, domain.ProjectBinding) (AdmittedRequest, error)
-}
-
-type AdmittedRequest struct {
-	Receipt RequestReceipt
-	Plan    ExecutionPlan
-}
-
 func guardFailure(reason error) error {
 	failure, err := domain.NewFailure("review.admission", domain.FailureConfiguration, reason.Error(), reason)
 	if err != nil {
@@ -28,9 +17,35 @@ func guardFailure(reason error) error {
 	return failure
 }
 
-func observedProjectBinding(lease ports.ProjectBindingLease) (domain.ProjectBinding, error) {
-	observation := lease.Observation()
-	return NewProjectBinding(observation.Root, observation.GitDirectory, observation.CommonDirectory, observation.RootIdentity, observation.GitIdentity, observation.CommonIdentity)
+// LiveSourceFailureClass maps the closed source boundary codes to application
+// failure policy. Native Git diagnostics and paths are never public reasons.
+func LiveSourceFailureClass(code ports.LiveSourceErrorCode) (domain.FailureClass, bool) {
+	switch code {
+	case ports.LiveSourceUnsafe:
+		return domain.FailureSecurityPolicy, true
+	case ports.LiveSourceInvalid, ports.LiveSourceConflict, ports.LiveSourceRevision, ports.LiveSourceNoMergeBase, ports.LiveSourceUnsupported:
+		return domain.FailureConfiguration, true
+	case ports.LiveSourceUnavailable:
+		return domain.FailureArtifact, true
+	default:
+		return "", false
+	}
+}
+
+func liveSourceAdmissionFailure(cause error) error {
+	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		return cause
+	}
+	var source *ports.LiveSourceError
+	if errors.As(cause, &source) && source != nil {
+		if class, ok := LiveSourceFailureClass(source.Code()); ok {
+			failure, err := domain.NewFailure("review.source", class, "live source admission failed", cause)
+			if err == nil {
+				return failure
+			}
+		}
+	}
+	return cause
 }
 
 func projectAdmissionFailure(cause error) error {

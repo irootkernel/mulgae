@@ -255,11 +255,9 @@ func TestServeRegistersBoundedToolSurfaceAndReturnsCommonEnvelope(t *testing.T) 
 		if tool["outputSchema"].(map[string]any)["$id"] != "https://mulgae.local/schemas/mulgae-mcp-tool-result.v1.schema.json" {
 			t.Fatalf("tool output schema = %#v", tool["outputSchema"])
 		}
-		if tool["name"] == toolComposeReview && tool["annotations"].(map[string]any)["idempotentHint"] == true {
-			t.Fatalf("compose_review must not advertise blind-retry idempotence: %#v", tool["annotations"])
-		}
+
 	}
-	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_context,get_run,inspect_review,list_findings,list_runs,preflight_review,run_review,start_review" {
+	if strings.Join(names, ",") != "await_review,cancel_review,get_context,get_run,inspect_review,list_findings,list_runs,preflight_review,run_review,start_review" {
 		t.Fatalf("tool names = %v", names)
 	}
 
@@ -513,90 +511,6 @@ func TestServeRunReviewPreservesRequestChangesOutcome(t *testing.T) {
 	structured := result["structuredContent"].(map[string]any)
 	if structured["outcome"] != toolOutcomeRequestChanges || result["isError"] != nil || backend.runReviewCalls != 1 {
 		t.Fatalf("run_review result = %#v, calls = %d", result, backend.runReviewCalls)
-	}
-}
-
-func TestServeComposeReviewDispatchesExactSelection(t *testing.T) {
-	backend := &toolBackendFake{}
-	call := latestRequest(1, "tools/call", `{"name":"compose_review","arguments":{"root_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","recovery_run_ids":["r_019f596a-cf81-7c67-b265-f37053d51ccf"]}}`)
-	response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), call)[0])
-	result := response["result"].(map[string]any)["structuredContent"].(map[string]any)
-	if backend.composeCalls != 1 || backend.composeInput.RootRunID != "r_019f596a-cf80-7c67-b265-f37053d51ccf" ||
-		len(backend.composeInput.RecoveryRuns) != 1 || result["outcome"] != toolOutcomeSuccess {
-		t.Fatalf("compose dispatch = calls:%d input:%#v result:%#v", backend.composeCalls, backend.composeInput, result)
-	}
-}
-
-type mcpCompositeTestFailure struct {
-	reason    string
-	sessionID domain.SessionID
-	runID     domain.RunID
-	cause     error
-}
-
-type mcpCompositeReasonTestFailure struct{ reason string }
-
-func (failure mcpCompositeReasonTestFailure) Error() string      { return "private composite failure" }
-func (failure mcpCompositeReasonTestFailure) ReasonCode() string { return failure.reason }
-
-func (failure mcpCompositeTestFailure) Error() string      { return "private composite failure" }
-func (failure mcpCompositeTestFailure) ReasonCode() string { return failure.reason }
-func (failure mcpCompositeTestFailure) Unwrap() error      { return failure.cause }
-func (failure mcpCompositeTestFailure) CompositeIdentity() (domain.SessionID, domain.RunID, bool) {
-	return failure.sessionID, failure.runID, true
-}
-
-func TestComposePublicationErrorRequiresStatusBeforeRetryAndPreservesFailureClass(t *testing.T) {
-	sessionID, err := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	runID, err := domain.ParseRunID("r_019f596a-cf81-7c67-b265-f37053d51ccf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cause, err := domain.NewFailure("publication.commit", domain.FailureSecurityPolicy, "private", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	failure := publicToolError(mcpCompositeTestFailure{
-		reason: domain.CompositePublicationIncomplete, sessionID: sessionID, runID: runID, cause: cause,
-	}, toolComposeReview)
-	if failure.Class != "security" || failure.Stage != "publication" || failure.Retryable ||
-		failure.SessionID == nil || *failure.SessionID != sessionID.String() ||
-		failure.RunID == nil || *failure.RunID != runID.String() {
-		t.Fatalf("composite publication tool error = %#v", failure)
-	}
-}
-
-func TestComposeFailureReasonCodesProjectStableClassification(t *testing.T) {
-	for _, reason := range domain.CompositeReasonCodes() {
-		t.Run(reason, func(t *testing.T) {
-			failure := publicToolError(mcpCompositeReasonTestFailure{reason: reason}, toolComposeReview)
-			wantStage := "validation"
-			if reason == domain.CompositePublicationIncomplete {
-				wantStage = "publication"
-			}
-			if failure.Code != reason || failure.Class != "artifact" || failure.Stage != wantStage || failure.Retryable ||
-				failure.SessionID != nil || failure.RunID != nil {
-				t.Fatalf("composite reason projection = %#v", failure)
-			}
-		})
-	}
-}
-
-func TestComposeFailureNeverAuthorizesGenericReadinessRetry(t *testing.T) {
-	for _, class := range []domain.FailureClass{domain.FailureQuota, domain.FailureRateLimit} {
-		t.Run(string(class), func(t *testing.T) {
-			cause, err := domain.NewFailure("compose.unreachable", class, "private", errors.New("private"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			failure := publicToolError(cause, toolComposeReview)
-			if failure.Class != "readiness" || failure.Code != "review_unavailable" || failure.Retryable {
-				t.Fatalf("generic compose readiness failure = %#v", failure)
-			}
-		})
 	}
 }
 
@@ -1082,7 +996,7 @@ func TestServePreflightAndBoundedResourceTemplates(t *testing.T) {
 		t.Fatalf("preflight result = %#v, calls = %d", preflight, backend.preflightCalls)
 	}
 	templates := decodeResponse(t, responses[2])["result"].(map[string]any)["resourceTemplates"].([]any)
-	if len(templates) != 3 || templates[1].(map[string]any)["uriTemplate"] != evidenceResourceTemplate ||
+	if len(templates) != 4 || templates[1].(map[string]any)["uriTemplate"] != evidenceResourceTemplate ||
 		templates[2].(map[string]any)["uriTemplate"] != reportResourceTemplate {
 		t.Fatalf("resource templates = %#v", templates)
 	}
@@ -1178,25 +1092,6 @@ func TestToolAdmissionRejectsAmbiguousOrUnboundedArguments(t *testing.T) {
 	for _, input := range tests {
 		if err := validateRunReviewInput(input); !errors.Is(err, errInvalidToolArguments) {
 			t.Fatalf("validateRunReviewInput(%#v) = %v", input, err)
-		}
-	}
-	validCompose := ComposeReviewInput{RootRunID: "r_019f596a-cf80-7c67-b265-f37053d51ccf", RecoveryRuns: []string{"r_019f596a-cf81-7c67-b265-f37053d51ccf"}}
-	if err := validateComposeReviewInput(validCompose); err != nil {
-		t.Fatalf("valid compose input = %v", err)
-	}
-	tooManyRecoveries := make([]string, len(domain.FixedRoleOrder())+1)
-	for index := range tooManyRecoveries {
-		tooManyRecoveries[index] = fmt.Sprintf("r_019f596a-cf%02x-7c67-b265-f37053d51ccf", index+1)
-	}
-	for _, input := range []ComposeReviewInput{
-		{},
-		{RootRunID: "latest", RecoveryRuns: validCompose.RecoveryRuns},
-		{RootRunID: validCompose.RootRunID, RecoveryRuns: []string{validCompose.RootRunID}},
-		{RootRunID: validCompose.RootRunID, RecoveryRuns: []string{validCompose.RecoveryRuns[0], validCompose.RecoveryRuns[0]}},
-		{RootRunID: validCompose.RootRunID, RecoveryRuns: tooManyRecoveries},
-	} {
-		if err := validateComposeReviewInput(input); !errors.Is(err, errInvalidToolArguments) {
-			t.Fatalf("validateComposeReviewInput(%#v) = %v", input, err)
 		}
 	}
 	var decoded GetRunInput
@@ -1392,6 +1287,10 @@ func toolTestConfigWithIDs(t *testing.T, backend Backend, ids ...string) Config 
 }
 
 type toolBackendFake struct {
+	listRunsCalls      int
+	listRunsInput      ListRunsInput
+	findingCalls       int
+	findingInput       ListFindingsInput
 	runReviewOutcome   string
 	runReviewErr       error
 	runReviewCalls     int
@@ -1401,8 +1300,6 @@ type toolBackendFake struct {
 	runReviewCancelled chan error
 	runReviewFinished  chan struct{}
 	preflightCalls     int
-	composeCalls       int
-	composeInput       ComposeReviewInput
 	getRunData         map[string]any
 	getRunErr          error
 	getRunCalls        int
@@ -1443,18 +1340,14 @@ func (fake *toolBackendFake) RunReview(ctx context.Context, _ string, input RunR
 	return BackendResult{Outcome: outcome, Data: map[string]any{"run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf"}}, nil
 }
 
-func (fake *toolBackendFake) ComposeReview(_ context.Context, _ string, input ComposeReviewInput) (BackendResult, error) {
-	fake.composeCalls++
-	fake.composeInput = input
-	return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{"run_id": "r_019f596a-cf80-7c67-b265-f37053d51ccf"}}, nil
-}
-
 func (fake *toolBackendFake) PreflightReview(context.Context, string, RunReviewInput) (BackendResult, error) {
 	fake.preflightCalls++
 	return BackendResult{Outcome: toolOutcomeSuccess, Data: map[string]any{"status": "eligible"}}, nil
 }
 
-func (fake *toolBackendFake) ListRuns(context.Context, ListRunsInput) (map[string]any, error) {
+func (fake *toolBackendFake) ListRuns(_ context.Context, input ListRunsInput) (map[string]any, error) {
+	fake.listRunsCalls++
+	fake.listRunsInput = input
 	return map[string]any{"runs": []any{}, "next_cursor": nil, "omitted_count": 0}, nil
 }
 
@@ -1463,7 +1356,9 @@ func (fake *toolBackendFake) GetRun(context.Context, GetRunInput) (map[string]an
 	return cloneMap(fake.getRunData), fake.getRunErr
 }
 
-func (fake *toolBackendFake) ListFindings(context.Context, ListFindingsInput) (map[string]any, error) {
+func (fake *toolBackendFake) ListFindings(_ context.Context, input ListFindingsInput) (map[string]any, error) {
+	fake.findingCalls++
+	fake.findingInput = input
 	return map[string]any{"findings": []any{}}, nil
 }
 
@@ -1488,6 +1383,37 @@ func decodeResponse(t *testing.T, raw []byte) map[string]any {
 		t.Fatalf("decode response %q: %v", raw, err)
 	}
 	return response
+}
+
+func TestServeFindingPageLimitMatchesSchema(t *testing.T) {
+	for _, tool := range []string{toolInspectReview, toolListFindings} {
+		for _, test := range []struct {
+			name  string
+			limit string
+			want  int
+		}{
+			{name: "omitted", want: 100},
+			{name: "minimum", limit: `,"limit":1`, want: 1},
+			{name: "maximum", limit: `,"limit":1000`, want: 1000},
+			{name: "zero", limit: `,"limit":0`},
+			{name: "negative", limit: `,"limit":-1`},
+			{name: "above maximum", limit: `,"limit":1001`},
+		} {
+			t.Run(tool+"/"+test.name, func(t *testing.T) {
+				backend := &toolBackendFake{}
+				params := fmt.Sprintf(`{"name":%q,"arguments":{"run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf"%s}}`, tool, test.limit)
+				response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), latestRequest(1, "tools/call", params))[0])
+				result := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+				if test.want == 0 {
+					if backend.findingCalls != 0 || result["outcome"] != "error" || result["error"].(map[string]any)["code"] != "invalid_arguments" {
+						t.Fatalf("invalid limit reached backend: calls=%d response=%#v", backend.findingCalls, response)
+					}
+				} else if backend.findingCalls != 1 || backend.findingInput.Limit != test.want || result["outcome"] != "success" {
+					t.Fatalf("limit = %d, calls=%d response=%#v", backend.findingInput.Limit, backend.findingCalls, response)
+				}
+			})
+		}
+	}
 }
 
 func TestPublicToolErrorPreservesPrimaryFailureWithRecoveryDescription(t *testing.T) {
@@ -1525,6 +1451,46 @@ func TestGetContextAcceptsOnlyEmptyArguments(t *testing.T) {
 				}
 			} else if response["error"] == nil && (!ok || result["isError"] != true) {
 				t.Fatalf("context admitted selectors: %#v", response)
+			}
+		})
+	}
+}
+
+func TestServeRejectsRetiredComposeToolBeforeReviewDispatch(t *testing.T) {
+	backend := &toolBackendFake{}
+	call := latestRequest(1, "tools/call", `{"name":"compose_review","arguments":{"root_run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","recovery_run_ids":["r_019f596a-cf81-7c67-b265-f37053d51ccf"]}}`)
+	response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), call)[0])
+	if _, present := response["error"]; !present || backend.runReviewCalls != 0 {
+		t.Fatalf("retired tool was admitted: %#v", response)
+	}
+}
+
+func TestServeRunPageBoundsAndCursor(t *testing.T) {
+	const cursor = "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cf80-7c67-b265-f37053d51ccf"
+	for _, test := range []struct {
+		name, arguments string
+		wantLimit       int
+		wantCursor      string
+	}{
+		{name: "omitted", arguments: `{}`, wantLimit: 20},
+		{name: "minimum", arguments: `{"limit":1}`, wantLimit: 1},
+		{name: "maximum with cursor", arguments: `{"limit":100,"cursor":"` + cursor + `"}`, wantLimit: 100, wantCursor: cursor},
+		{name: "zero", arguments: `{"limit":0}`},
+		{name: "negative", arguments: `{"limit":-1}`},
+		{name: "above maximum", arguments: `{"limit":101}`},
+		{name: "malformed cursor", arguments: `{"cursor":"latest"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			backend := &toolBackendFake{}
+			params := fmt.Sprintf(`{"name":"list_runs","arguments":%s}`, test.arguments)
+			response := decodeResponse(t, serveRequestsWithConfig(t, toolTestConfig(t, backend), latestRequest(1, "tools/call", params))[0])
+			result := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+			if test.wantLimit == 0 {
+				if backend.listRunsCalls != 0 || result["outcome"] != "error" || result["error"].(map[string]any)["code"] != "invalid_arguments" {
+					t.Fatalf("invalid page reached backend: calls=%d response=%#v", backend.listRunsCalls, response)
+				}
+			} else if backend.listRunsCalls != 1 || backend.listRunsInput.Limit != test.wantLimit || backend.listRunsInput.Cursor != test.wantCursor || result["outcome"] != "success" {
+				t.Fatalf("page = %+v, calls=%d response=%#v", backend.listRunsInput, backend.listRunsCalls, response)
 			}
 		})
 	}

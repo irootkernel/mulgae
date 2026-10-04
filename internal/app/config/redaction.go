@@ -11,7 +11,6 @@ type RedactedPolicy struct {
 	ProviderTimeouts    []RedactedProviderTimeout `json:"provider_timeouts" yaml:"provider_timeouts"`
 	Warnings            []string                  `json:"warnings" yaml:"warnings"`
 	RequiredRoles       []domain.Role             `json:"required_roles" yaml:"required_roles"`
-	WorkspaceAccess     WorkspaceAccess           `json:"workspace_access" yaml:"workspace_access"`
 	RequestChangesOn    []domain.Severity         `json:"request_changes_on" yaml:"request_changes_on"`
 	RequireVerifiedFor  []domain.Severity         `json:"require_verified_for" yaml:"require_verified_for"`
 	RoleMaxInvocations  int                       `json:"role_max_invocations" yaml:"role_max_invocations"`
@@ -46,6 +45,6 @@ func Redact(resolved ResolvedConfig) RedactedConfig {
 		}
 	}
 	warnings := []string{}
-	return RedactedConfig{ConfiguredProviderIDs: resolved.raw.Providers.Families(), Policy: RedactedPolicy{RoleAssignments: assignments, ProviderTimeouts: timeouts, Warnings: warnings, RequiredRoles: resolved.RequiredRoles(), WorkspaceAccess: resolved.WorkspaceAccess(), RequestChangesOn: resolved.RequestChangesOn(), RequireVerifiedFor: resolved.RequireVerifiedFor(), RoleMaxInvocations: resolved.RoleMaxInvocations(), RunMaxInvocations: resolved.RunMaxInvocations(), ExtractionEnabled: resolved.ExtractionEnabled(), CIFailOnSeverity: resolved.CIFailOnSeverity(), DegradedReviewFails: resolved.DegradedReviewFails()}}
+	return RedactedConfig{ConfiguredProviderIDs: resolved.raw.Providers.Families(), Policy: RedactedPolicy{RoleAssignments: assignments, ProviderTimeouts: timeouts, Warnings: warnings, RequiredRoles: resolved.RequiredRoles(), RequestChangesOn: resolved.RequestChangesOn(), RequireVerifiedFor: resolved.RequireVerifiedFor(), RoleMaxInvocations: resolved.RoleMaxInvocations(), RunMaxInvocations: resolved.RunMaxInvocations(), ExtractionEnabled: resolved.ExtractionEnabled(), CIFailOnSeverity: resolved.CIFailOnSeverity(), DegradedReviewFails: resolved.DegradedReviewFails()}}
 }
 func (resolved ResolvedConfig) Redacted() RedactedConfig { return Redact(resolved) }

@@ -204,7 +204,7 @@ func TestRemapCurrentQualificationResultRejectsAuthorityBleedAcrossInstances(t *
 		AdapterProfile: "zcode-logic", Version: "0.16.3", Executable: "/private/bin/node",
 		ExecutableSHA256: "sha256:runtime", Launcher: testZCodeLauncher, LauncherSHA256: "sha256:launcher",
 		ApplicationVersion: "3.12.3", ApplicationMetadata: testZCodeApplicationMetadata, ApplicationMetadataSHA256: testZCodeApplicationMetadataSHA256,
-		SnapshotManifest: "snapshot", NamespaceLease: "zcode-logic:generation", NamespaceGeneration: "generation",
+		ExecutionTargetIdentity: "snapshot", NamespaceLease: "zcode-logic:generation", NamespaceGeneration: "generation",
 	}
 	authorityID := "sha256:authority"
 	proof := &validatedAuthorityProof{directAuthorityID: authorityID, identity: sourceIdentity, expiresAt: expires}
@@ -345,11 +345,11 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 			applicationVersion: definition.ApplicationVersion(), applicationVersionClassification: ClassifyZCodeApplicationVersion(definition.ApplicationVersion()), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 			reason: "unqualified_discovery",
 		},
-		Definition:       definition,
-		SnapshotManifest: "manifest-1",
-		SupportedRoles:   []domain.Role{role},
-		BaseRole:         role,
-		Limits:           limits,
+		Definition:              definition,
+		ExecutionTargetIdentity: "manifest-1",
+		SupportedRoles:          []domain.Role{role},
+		BaseRole:                role,
+		Limits:                  limits,
 	}
 }
 

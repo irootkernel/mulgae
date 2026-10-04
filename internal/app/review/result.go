@@ -190,13 +190,12 @@ func (templates TemplateSet) ComposeRootReviewRepair(original prompt.TrustedTemp
 	if err != nil {
 		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: repair plan: %w", err)
 	}
-	role := strings.TrimPrefix(original.ID(), "builtin:template/root-review/")
-	if role == original.ID() || !domain.Role(role).Valid() {
+	if !validRootReviewTemplateID(original.ID()) {
 		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: invalid root-review template %q", original.ID())
 	}
 	layers := append(baseLayers, templates.Repair(), planLayer)
 	return prompt.ComposeTrustedTemplate(
-		"builtin:template/root-review/"+role+"/repair",
+		original.ID()+"/repair",
 		"1",
 		layers...,
 	)
@@ -210,16 +209,23 @@ func (templates TemplateSet) ComposeRootReviewExtraction(original prompt.Trusted
 	if err != nil {
 		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: extraction base: %w", err)
 	}
-	role := strings.TrimPrefix(original.ID(), "builtin:template/root-review/")
-	if role == original.ID() || !domain.Role(role).Valid() {
+	if !validRootReviewTemplateID(original.ID()) {
 		return prompt.TrustedTemplate{}, fmt.Errorf("review templates: invalid root-review template %q", original.ID())
 	}
 	layers := append(baseLayers, templates.Extract())
 	return prompt.ComposeTrustedTemplate(
-		"builtin:template/root-review/"+role+"/extract",
+		original.ID()+"/extract",
 		"1",
 		layers...,
 	)
+}
+
+func validRootReviewTemplateID(id string) bool {
+	role, found := strings.CutPrefix(id, "builtin:template/root-review/")
+	if !found {
+		role, found = strings.CutPrefix(id, "builtin:template/live-review/")
+	}
+	return found && domain.Role(role).Valid()
 }
 
 // OutputDestinationTrustedLayerID is the fixed identity of the Mulgae-owned

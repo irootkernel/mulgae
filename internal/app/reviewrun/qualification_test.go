@@ -123,7 +123,7 @@ func TestValidateQualificationRejectsIdentityMismatches(t *testing.T) {
 		change func(*Identity)
 	}{
 		{name: "profile", change: func(identity *Identity) { identity.ProfileGeneration = "profile-2" }},
-		{name: "snapshot", change: func(identity *Identity) { identity.SnapshotManifest = "manifest-2" }},
+		{name: "snapshot", change: func(identity *Identity) { identity.ExecutionTargetIdentity = "manifest-2" }},
 		{name: "lease", change: func(identity *Identity) { identity.NamespaceLease = "lease-2" }},
 	}
 	for _, test := range tests {

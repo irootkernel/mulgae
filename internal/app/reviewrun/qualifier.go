@@ -89,12 +89,12 @@ type CurrentRoleReceipt struct {
 // QualifiedRunCandidate binds one identity-only discovered profile to its
 // declared production process profile and role authority.
 type QualifiedRunCandidate struct {
-	Profile          DiscoveredProviderProfile
-	Definition       ports.ProviderRuntimeDefinition
-	SnapshotManifest string
-	SupportedRoles   []domain.Role
-	BaseRole         domain.Role
-	Limits           review.InvocationLimits
+	Profile                 DiscoveredProviderProfile
+	Definition              ports.ProviderRuntimeDefinition
+	ExecutionTargetIdentity string
+	SupportedRoles          []domain.Role
+	BaseRole                domain.Role
+	Limits                  review.InvocationLimits
 }
 
 // QualifiedRunRegistry is the retained production execution authority.
@@ -484,7 +484,7 @@ func (factory *QualifiedRunFactory) admitFamilyQualificationGroup(ctx context.Co
 }
 
 func validateQualifiedRunCandidate(candidate QualifiedRunCandidate, seen map[string]struct{}) error {
-	if !candidate.Profile.Family().Valid() || !candidate.Limits.Valid() || candidate.SnapshotManifest == "" {
+	if !candidate.Profile.Family().Valid() || !candidate.Limits.Valid() || candidate.ExecutionTargetIdentity == "" {
 		return fmt.Errorf("review run: invalid qualified run candidate")
 	}
 	if _, err := canonicalQualificationRoles(candidate.BaseRole, candidate.SupportedRoles); err != nil {
@@ -507,7 +507,7 @@ func qualificationIdentity(candidate QualifiedRunCandidate, definition ports.Pro
 		AdapterProfile: definition.ProfileID(), Version: definition.Version(), Executable: definition.Executable(),
 		ExecutableSHA256: definition.ExecutableSHA256(), Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
 		ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
-		SnapshotManifest: candidate.SnapshotManifest, NamespaceLease: definition.Instance() + ":" + generation, NamespaceGeneration: generation,
+		ExecutionTargetIdentity: candidate.ExecutionTargetIdentity, NamespaceLease: definition.Instance() + ":" + generation, NamespaceGeneration: generation,
 	}
 }
 
@@ -544,7 +544,7 @@ func qualificationReceiptID(receipt Receipt) string {
 		receipt.Kind, receipt.State, receipt.ExpiresAt.UTC().Format(time.RFC3339Nano), receipt.Identity.Family, receipt.Identity.Instance,
 		receipt.Identity.ProfileGeneration, receipt.Identity.AdapterProfile, receipt.Identity.Version, receipt.Identity.Executable,
 		receipt.Identity.ExecutableSHA256, receipt.Identity.Launcher, receipt.Identity.LauncherSHA256, receipt.Identity.ApplicationVersion,
-		receipt.Identity.ApplicationMetadata, receipt.Identity.ApplicationMetadataSHA256, receipt.Identity.SnapshotManifest,
+		receipt.Identity.ApplicationMetadata, receipt.Identity.ApplicationMetadataSHA256, receipt.Identity.ExecutionTargetIdentity,
 		receipt.Identity.NamespaceLease, receipt.Identity.NamespaceGeneration, receipt.AuthorityID, receipt.AuthorityScope,
 		receipt.Provenance.Version, receipt.Provenance.Path, receipt.Provenance.SHA256, receipt.Provenance.Profile))))
 }
@@ -554,7 +554,7 @@ func currentRoleReceiptID(receipt CurrentRoleReceipt) string {
 		receipt.Role, receipt.State, receipt.Identity.Family, receipt.Identity.Instance, receipt.Identity.ProfileGeneration,
 		receipt.Identity.AdapterProfile, receipt.Identity.Version, receipt.Identity.Executable, receipt.Identity.ExecutableSHA256,
 		receipt.Identity.Launcher, receipt.Identity.LauncherSHA256, receipt.Identity.ApplicationVersion, receipt.Identity.ApplicationMetadata,
-		receipt.Identity.ApplicationMetadataSHA256, receipt.Identity.SnapshotManifest, receipt.Identity.NamespaceLease,
+		receipt.Identity.ApplicationMetadataSHA256, receipt.Identity.ExecutionTargetIdentity, receipt.Identity.NamespaceLease,
 		receipt.Identity.NamespaceGeneration))))
 }
 

@@ -2,11 +2,12 @@ package config
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
-	"runtime"
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/irootkernel/mulgae/internal/builtin"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestConfigV4SplitKeepsMachinePathsOutOfProjectPolicy(t *testing.T) {
@@ -78,7 +79,7 @@ func TestConfigV4SplitRejectsLegacyAndProviderSetMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := []byte(strings.Replace(string(project), "version: 4", "version: 3", 1))
+	legacy := []byte(strings.Replace(string(project), "version: 5", "version: 3", 1))
 	if _, err := DecodeSplit(legacy, local); err == nil {
 		t.Fatal("Config v1 was accepted")
 	}
@@ -91,31 +92,30 @@ func TestConfigV4SplitRejectsLegacyAndProviderSetMismatch(t *testing.T) {
 	}
 }
 
-func TestRepositoryProjectConfigIsCanonicalSharedPolicy(t *testing.T) {
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve test source")
+func TestCanonicalProjectExampleIsSharedPolicy(t *testing.T) {
+	id, err := ports.ParseAssetID("example:project-config.yaml")
+	if err != nil {
+		t.Fatal(err)
 	}
-	path := filepath.Join(filepath.Dir(filename), "..", "..", "..", ".mulgae", "config.yaml")
-	project, err := os.ReadFile(path)
+	_, project, err := builtin.NewCatalog().Read(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, forbidden := range []string{"native_user:", "app_bundle:", "executable:", "node_executable:", "launcher:", "data_home:", "fallback_repair_attempts:"} {
 		if bytes.Contains(project, []byte(forbidden)) {
-			t.Fatalf("repository project config contains machine-local field %q", forbidden)
+			t.Fatalf("project example contains machine-local field %q", forbidden)
 		}
 	}
-	local := []byte("version: 4\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    app_bundle: \"/Applications/ZCode.app\"\n  grok:\n    executable: \"/usr/bin/grok\"\n  codex:\n    executable: \"/usr/local/bin/codex\"\n")
+	local := []byte("version: 5\nnative_user:\n  home: \"/Users/test\"\nproviders:\n  zcode:\n    app_bundle: \"/Applications/ZCode.app\"\n")
 	config, err := DecodeSplit(project, local)
 	if err != nil {
-		t.Fatalf("decode repository project config: %v", err)
+		t.Fatalf("decode project example: %v", err)
 	}
 	canonical, _, err := EncodeSplit(config)
 	if err != nil {
-		t.Fatalf("encode repository project config: %v", err)
+		t.Fatalf("encode project example: %v", err)
 	}
 	if !bytes.Equal(project, canonical) {
-		t.Fatalf("repository project config is not canonical:\n%s", canonical)
+		t.Fatalf("project example is not canonical:\n%s", canonical)
 	}
 }

@@ -25,8 +25,7 @@ import (
 var errLiveDirectory = errors.New("source path is a directory")
 var errLiveNotRegular = errors.New("source path is not a regular file")
 
-// LiveSourceAdapter opens original sources. It is deliberately not wired into
-// production composition while the remaining live-execution tasks are pending.
+// LiveSourceAdapter opens original sources without materializing copies.
 type LiveSourceAdapter struct {
 	runner         Runner
 	protectedRoots []ports.AnchoredRoot
@@ -819,3 +818,53 @@ func liveSortedPaths(entries map[string]ports.GitObjectID) ([]ports.SafeRelative
 	}
 	return paths, nil
 }
+
+// OpenUnboundWorkspaceRoot pins only a non-Git root, without selecting or reading
+// source files. It cannot turn failed Git binding into a new startup anchor.
+func OpenUnboundWorkspaceRoot(ctx context.Context, root ports.AnchoredRoot) (ports.WorkspaceRootLease, error) {
+	if ctx == nil || !root.Valid() {
+		return nil, sourceError(ports.LiveSourceInvalid, fmt.Errorf("invalid workspace root"))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	source, directory, err := openCanonicalRepositoryRoot(root.String())
+	if err != nil {
+		return nil, sourceError(ports.LiveSourceUnsafe, err)
+	}
+	reader := &liveSourceReader{root: root, source: source, rootDir: directory}
+	var observed unix.Stat_t
+	err = unix.Fstat(int(directory.file.Fd()), &observed)
+	if err == nil {
+		reader.root, err = bindingDescriptorRoot(directory.file, observed)
+	}
+	lease := &unboundWorkspaceRootLease{reader: reader}
+	if err == nil {
+		err = lease.Revalidate(ctx)
+	}
+	if err != nil {
+		return nil, sourceError(ports.LiveSourceUnsafe, errors.Join(err, reader.Close()))
+	}
+	return lease, nil
+}
+
+type unboundWorkspaceRootLease struct{ reader *liveSourceReader }
+
+func (lease *unboundWorkspaceRootLease) Revalidate(ctx context.Context) error {
+	reader := lease.reader
+	reader.mu.Lock()
+	defer reader.mu.Unlock()
+	if err := reader.revalidate(ctx); err != nil {
+		return err
+	}
+	var entry unix.Stat_t
+	if err := unix.Fstatat(int(reader.rootDir.file.Fd()), ".git", &entry, unix.AT_SYMLINK_NOFOLLOW); err != unix.ENOENT {
+		if err == nil {
+			err = fmt.Errorf("non-Git startup root acquired Git metadata")
+		}
+		return sourceError(ports.LiveSourceUnsafe, err)
+	}
+	return ctx.Err()
+}
+
+func (lease *unboundWorkspaceRootLease) Close() error { return lease.reader.Close() }

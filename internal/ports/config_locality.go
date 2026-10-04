@@ -158,7 +158,7 @@ type ConfigLocalityContext struct {
 }
 
 func NewConfigLocalityContext(repositoryID string, rootDevice, rootInode uint64, rootUID, rootMode uint32, headCommit, headTree, indexSHA256 string, indexEntryCount int, hasUnmerged bool, applicable []string, config ConfigFileProof, target ParsedTargetProof) (ConfigLocalityContext, error) {
-	if repositoryID == "" || rootDevice == 0 || rootInode == 0 || headCommit == "" || headTree == "" || indexSHA256 == "" || indexEntryCount < 0 || target.SHA256 == "" {
+	if repositoryID == "" || rootDevice == 0 || rootInode == 0 || (headCommit == "") != (headTree == "") || (headCommit == "" && len(applicable) != 0) || indexSHA256 == "" || indexEntryCount < 0 || target.SHA256 == "" {
 		return ConfigLocalityContext{}, fmt.Errorf("config locality context: incomplete")
 	}
 	if hasUnmerged || !target.PrivatePathFree {

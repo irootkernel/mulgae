@@ -86,7 +86,7 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 	return Resolution{config: resolved, sha256: sha256, canonical: canonical, provenance: provenanceRows(decoded), source: source}, nil
 }
 
-// BundleSHA256 returns the stable identity of an ordered Config v4 pair.
+// BundleSHA256 returns the stable identity of an ordered Config v5 pair.
 func BundleSHA256(project, local []byte) string {
 	digest := sha256.New()
 	digest.Write([]byte("Mulgae-CONFIG-v4\x00project\x00"))
@@ -107,7 +107,6 @@ func provenanceRows(config Config) []ProvenanceRow {
 		"providers.zcode.configured", "providers.zcode.app_bundle", "providers.zcode.model", "providers.zcode.reasoning_effort", "providers.zcode.timeout",
 		"providers.grok.configured", "providers.grok.executable", "providers.grok.timeout",
 		"providers.codex.configured", "providers.codex.executable", "providers.codex.default_credential_profile", "providers.codex.credential_homes", "providers.codex.model", "providers.codex.reasoning_effort", "providers.codex.timeout",
-		"execution.workspace_access",
 		"roles.logic.enabled", "roles.logic.primary_provider", "roles.logic.credential_profile",
 		"roles.security.enabled", "roles.security.primary_provider", "roles.security.credential_profile",
 		"roles.maintainability.enabled", "roles.maintainability.primary_provider", "roles.maintainability.credential_profile",
@@ -124,7 +123,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "native_user.home" || strings.HasSuffix(field, ".executable") || field == "providers.zcode.app_bundle" || field == "providers.codex.credential_homes" {
 			source, class = "local", "machine"
 		}
-		if field == "project.root" || len(field) >= 10 && (field[:10] == "execution." && field != "execution.workspace_access") || len(field) >= 8 && field[:8] == "runtime." || len(field) >= 9 && field[:9] == "provider." || len(field) >= 10 && field[:10] == "artifacts." || len(field) >= 7 && field[:7] == "safety." {
+		if field == "project.root" || len(field) >= 10 && field[:10] == "execution." || len(field) >= 8 && field[:8] == "runtime." || len(field) >= 9 && field[:9] == "provider." || len(field) >= 10 && field[:10] == "artifacts." || len(field) >= 7 && field[:7] == "safety." {
 			source, disposition, class = "code", "fixed", "invariant"
 		}
 		if field == "project.context" && config.Project.Context == "" || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.grok.configured" && config.Providers.Grok == nil || field == "providers.codex.configured" && config.Providers.Codex == nil {

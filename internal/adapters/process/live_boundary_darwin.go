@@ -46,6 +46,7 @@ func liveBoundaryArgv(ctx context.Context, request ports.ProcessRequest) (string
 		profile.WriteString(" (require-not (literal \"/dev/null\"))))\n")
 	}
 	ancestors := map[string]bool{}
+	missingCredentials := map[string]bool{}
 	for _, group := range []struct {
 		roots      []ports.AnchoredRoot
 		operations string
@@ -56,7 +57,12 @@ func liveBoundaryArgv(ctx context.Context, request ports.ProcessRequest) (string
 		for _, root := range group.roots {
 			path := root.String()
 			if err := validateLiveBoundaryDirectory(path); err != nil {
-				return "", nil, fmt.Errorf("process runner: live boundary admission: %w", err)
+				if group.operations != "file-read* file-write* file-link" || !errors.Is(err, os.ErrNotExist) {
+					return "", nil, fmt.Errorf("process runner: live boundary admission: %w", err)
+				}
+				// Optional, unconfigured credential homes still receive deny rules.
+				// The descriptor walk rejects symlinks in every existing ancestor.
+				missingCredentials[path] = true
 			}
 			profile.WriteString("(deny " + group.operations + " (subpath " + strconv.Quote(path) + "))\n")
 			profile.WriteString("(deny network-outbound (remote unix-socket (subpath " + strconv.Quote(path) + ")))\n")
@@ -73,6 +79,9 @@ func liveBoundaryArgv(ctx context.Context, request ports.ProcessRequest) (string
 		aliasRoots = append(aliasRoots, root)
 	}
 	for _, root := range aliasRoots {
+		if missingCredentials[root.String()] {
+			continue
+		}
 		if err := validateLiveRootFileLinks(admissionContext, root.String()); err != nil {
 			return "", nil, fmt.Errorf("process runner: live file alias admission: %w", err)
 		}

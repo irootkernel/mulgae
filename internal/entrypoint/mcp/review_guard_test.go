@@ -19,11 +19,9 @@ func TestReviewGuardValidationAndPublicFailure(t *testing.T) {
 		want      error
 	}{
 		{"unguarded", RunReviewInput{}, false, nil},
-		{"paired", RunReviewInput{ExpectedProjectBinding: &d, ExpectedRequestDigest: &d}, false, nil},
+		{"independent binding", RunReviewInput{ExpectedProjectBinding: &d}, false, nil},
 		{"preflight", RunReviewInput{ExpectedProjectBinding: &d}, true, nil},
-		{"half", RunReviewInput{ExpectedProjectBinding: &d}, false, reviewrun.ErrGuardIncomplete},
-		{"invalid", RunReviewInput{ExpectedProjectBinding: &bad, ExpectedRequestDigest: &d}, false, reviewrun.ErrGuardInvalid},
-		{"preflight request", RunReviewInput{ExpectedProjectBinding: &d, ExpectedRequestDigest: &d}, true, reviewrun.ErrGuardIncomplete},
+		{"invalid", RunReviewInput{ExpectedProjectBinding: &bad}, false, reviewrun.ErrGuardInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validateReviewGuard(test.input, test.preflight)
@@ -42,14 +40,13 @@ func TestReviewGuardValidationAndPublicFailure(t *testing.T) {
 
 func TestServePreservesReviewGuardsAcrossForegroundAndStart(t *testing.T) {
 	binding := "sha256:" + strings.Repeat("a", 64)
-	digest := "sha256:" + strings.Repeat("b", 64)
 	for _, tool := range []string{toolRunReview, toolStartReview} {
 		t.Run(tool, func(t *testing.T) {
 			backend := &toolBackendFake{}
 			config := toolTestConfigWithIDs(t, backend,
 				"i_019f596a-cf80-7c67-b265-f37053d51ccf",
 				"i_019f596a-cf81-7c67-b265-f37053d51ccf")
-			call := latestRequest(2, "tools/call", fmt.Sprintf(`{"name":%q,"arguments":{"target":{"kind":"stage"},"expected_project_binding":%q,"expected_request_digest":%q}}`, tool, binding, digest))
+			call := latestRequest(2, "tools/call", fmt.Sprintf(`{"name":%q,"arguments":{"target":{"kind":"stage"},"expected_project_binding":%q}}`, tool, binding))
 			requests := []string{latestRequest(1, "server/discover", `{}`), call}
 			if tool == toolStartReview {
 				requests = append(requests, latestRequest(3, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf"}}`))
@@ -60,8 +57,23 @@ func TestServePreservesReviewGuardsAcrossForegroundAndStart(t *testing.T) {
 				t.Fatalf("terminal = %#v", terminal)
 			}
 			actual := backend.runReviewInput
-			if backend.runReviewCalls != 1 || actual.ExpectedProjectBinding == nil || *actual.ExpectedProjectBinding != binding || actual.ExpectedRequestDigest == nil || *actual.ExpectedRequestDigest != digest {
+			if backend.runReviewCalls != 1 || actual.ExpectedProjectBinding == nil || *actual.ExpectedProjectBinding != binding {
 				t.Fatalf("guard transport lost: %+v, calls=%d", actual, backend.runReviewCalls)
+			}
+		})
+	}
+}
+
+func TestServeRejectsCaptureBoundRequestsBeforeProviderDispatch(t *testing.T) {
+	for _, tool := range []string{toolRunReview, toolStartReview, toolPreflight} {
+		t.Run(tool, func(t *testing.T) {
+			backend := &toolBackendFake{}
+			call := latestRequest(2, "tools/call", fmt.Sprintf(`{"name":%q,"arguments":{"target":{"kind":"stage"},"expected_request_digest":%q}}`, tool, "sha256:"+strings.Repeat("a", 64)))
+			responses := serveRequestsWithConfig(t, toolTestConfig(t, backend), latestRequest(1, "server/discover", `{}`), call)
+			response := decodeResponse(t, responses[1])
+			result, present := response["result"].(map[string]any)
+			if !present || result["isError"] != true || backend.runReviewCalls != 0 || backend.preflightCalls != 0 {
+				t.Fatalf("capture-bound request reached provider authority: %#v", response)
 			}
 		})
 	}

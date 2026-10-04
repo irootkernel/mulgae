@@ -199,7 +199,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{{Profile: profile, Definition: definition, SnapshotManifest: "snapshot-manifest", SupportedRoles: []domain.Role{domain.RoleLogic}, BaseRole: domain.RoleLogic, Limits: limits}})
+	_, err = factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{{Profile: profile, Definition: definition, ExecutionTargetIdentity: "snapshot-manifest", SupportedRoles: []domain.Role{domain.RoleLogic}, BaseRole: domain.RoleLogic, Limits: limits}})
 	if err == nil || registry.closed != 1 {
 		t.Fatalf("ZCode security-inconclusive qualification admitted: %v; closes=%d", err, registry.closed)
 	}
@@ -236,7 +236,7 @@ func terminalEvidence(instance string) qualifiedProviderEvidence {
 	identity := Identity{
 		Family: FamilyZCode, Instance: instance, ProfileGeneration: "profile-generation", AdapterProfile: "zcode-default",
 		Version: "0.16.5", Executable: "/private/bin/zcode", ExecutableSHA256: qualifierTestSHA,
-		Launcher: "/private/bin/zcode", LauncherSHA256: qualifierTestSHA, SnapshotManifest: "snapshot-manifest",
+		Launcher: "/private/bin/zcode", LauncherSHA256: qualifierTestSHA, ExecutionTargetIdentity: "snapshot-manifest",
 		ApplicationVersion: "3.12.3", ApplicationMetadata: "/Applications/ZCode.app/Contents/Info.plist", ApplicationMetadataSHA256: "sha256:" + strings.Repeat("b", 64),
 		NamespaceLease: instance + ":generation", NamespaceGeneration: "generation",
 	}

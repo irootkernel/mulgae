@@ -1,6 +1,7 @@
 package reviewrun
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -23,19 +24,6 @@ func contractProjectBinding(t *testing.T, rootPath string, inode uint64) domain.
 		t.Fatal(err)
 	}
 	return id
-}
-
-func contractRequestInput(t *testing.T) RequestIdentityInput {
-	t.Helper()
-	input := RequestIdentityInput{Roles: []domain.Role{domain.RoleLogic}}
-	for name, destination := range map[string]*string{"target_selection": &input.TargetSelectionSHA256, "policy": &input.PolicySHA256, "routes": &input.RoutesSHA256, "assets": &input.AssetsSHA256, "budget": &input.BudgetSHA256, "workflow": &input.WorkflowSHA256} {
-		digest, err := RequestComponentDigest(name, []byte(`{}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		*destination = digest
-	}
-	return input
 }
 
 func TestProjectBindingSeparatesRootsAndDescriptorReplacement(t *testing.T) {
@@ -72,87 +60,24 @@ func TestProjectBindingSeparatesRootsAndDescriptorReplacement(t *testing.T) {
 	}
 }
 
-func TestRequestIdentitySeparatesRequestOnlyInputsFromCapture(t *testing.T) {
-	manifest, err := NewCaptureManifest(captureContractMaterial(t, "support", "policy", "", false))
-	if err != nil {
-		t.Fatal(err)
+func TestLiveProjectBindingKeepsNonGitWorkspaceUnguarded(t *testing.T) {
+	root, _ := ports.NewAnchoredRoot("/project")
+	observed := ports.ProjectBindingObservation{Root: root, RootIdentity: ports.ProjectDirectoryIdentity{Device: 1, Inode: 2}}
+	workspace, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
+	binding, err := AdmitLiveProjectBinding(observed, workspace, domain.ProjectBinding{})
+	if err != nil || binding.String() != "" {
+		t.Fatalf("non-Git workspace fabricated or required a Git binding: %v", err)
 	}
-	capture, err := manifest.Identity()
-	if err != nil {
-		t.Fatal(err)
+	expected := contractProjectBinding(t, "/project", 2)
+	if _, err := AdmitLiveProjectBinding(observed, workspace, expected); !errors.Is(err, ErrContractUnsupported) {
+		t.Fatalf("expected binding was silently ignored: %v", err)
 	}
-	project := contractProjectBinding(t, "/project/one", 1)
-	input := contractRequestInput(t)
-	base, err := NewRequestReceipt(project, capture, input)
-	if err != nil {
-		t.Fatal(err)
+	head, _ := ports.NewLiveSourceSelector(domain.LiveSourceHead, "")
+	if _, err := AdmitLiveProjectBinding(observed, head, domain.ProjectBinding{}); !errors.Is(err, ErrContractUnsupported) {
+		t.Fatalf("Git source was admitted without Git authority: %v", err)
 	}
-	for name, mutate := range map[string]func(*RequestIdentityInput){
-		"explicit empty objective": func(i *RequestIdentityInput) { i.ObjectivePresent = true },
-		"objective":                func(i *RequestIdentityInput) { i.ObjectivePresent = true; i.Objective = []byte("new objective") },
-		"explicit roles":           func(i *RequestIdentityInput) { i.RolesExplicit = true },
-		"roles":                    func(i *RequestIdentityInput) { i.Roles = []domain.Role{domain.RoleLogic, domain.RoleSecurity} },
-		"model policy":             func(i *RequestIdentityInput) { i.PolicySHA256 = identitySHA256([]byte("changed")) },
-		"profile route":            func(i *RequestIdentityInput) { i.RoutesSHA256 = identitySHA256([]byte("changed")) },
-		"assets":                   func(i *RequestIdentityInput) { i.AssetsSHA256 = identitySHA256([]byte("changed")) },
-		"budget":                   func(i *RequestIdentityInput) { i.BudgetSHA256 = identitySHA256([]byte("changed")) },
-		"workflow":                 func(i *RequestIdentityInput) { i.WorkflowSHA256 = identitySHA256([]byte("changed")) },
-		"requested selector":       func(i *RequestIdentityInput) { i.TargetSelectionSHA256 = identitySHA256([]byte("changed")) },
-	} {
-		t.Run(name, func(t *testing.T) {
-			candidate := input
-			mutate(&candidate)
-			got, err := NewRequestReceipt(project, capture, candidate)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.RequestDigest == base.RequestDigest || got.CaptureIdentity != base.CaptureIdentity {
-				t.Fatal("request and capture identities were conflated")
-			}
-		})
-	}
-	base.RequestDigest = identitySHA256(nil)
-	if _, err := base.Identity(); err == nil {
-		t.Fatal("tampered request digest accepted")
-	}
-	input.Roles = []domain.Role{domain.RoleLogic, domain.RoleLogic}
-	if _, err := NewRequestReceipt(project, capture, input); err == nil {
-		t.Fatal("duplicate roles accepted")
-	}
-}
-
-func TestExecutionGuardRejectsIncompleteUnsupportedAndMismatchedInput(t *testing.T) {
-	project := contractProjectBinding(t, "/project/one", 1)
-	request, err := domain.ParseRequestIdentity(identitySHA256([]byte("request")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		project, request string
-		want             error
-	}{{project.String(), "", ErrGuardIncomplete}, {"", request.String(), ErrGuardIncomplete}, {"bad", request.String(), ErrGuardInvalid}} {
-		if _, err := NewExecutionGuard(test.project, test.request); err != test.want {
-			t.Fatalf("guard error = %v, want %v", err, test.want)
-		}
-	}
-	guard, err := NewExecutionGuard(project.String(), request.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !guard.Guarded() || guard.CheckProject(project, true) != nil || guard.CheckRequest(request) != nil {
-		t.Fatal("matching guard rejected")
-	}
-	if guard.CheckProject(project, false) != ErrContractUnsupported {
-		t.Fatal("unsupported guard accepted")
-	}
-	if guard.CheckProject(contractProjectBinding(t, "/project/two", 1), true) != ErrProjectBindingMismatch {
-		t.Fatal("foreign root accepted")
-	}
-	if guard.CheckRequest(domain.RequestIdentity{}) != ErrRequestDigestMismatch {
-		t.Fatal("missing request accepted")
-	}
-	legacy, err := NewExecutionGuard("", "")
-	if err != nil || legacy.Guarded() || legacy.CheckProject(domain.ProjectBinding{}, false) != nil || legacy.CheckRequest(domain.RequestIdentity{}) != nil {
-		t.Fatal("legacy behavior changed")
+	observed.GitDirectory = root
+	if _, err := AdmitLiveProjectBinding(observed, workspace, domain.ProjectBinding{}); err == nil {
+		t.Fatal("partial Git authority was admitted as a non-Git workspace")
 	}
 }

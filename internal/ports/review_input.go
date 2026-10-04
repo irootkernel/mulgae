@@ -11,40 +11,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-type ReviewTargetSelectorKind string
-
-const (
-	ReviewTargetWorkspace ReviewTargetSelectorKind = "workspace"
-	ReviewTargetStage     ReviewTargetSelectorKind = "stage"
-	ReviewTargetDirty     ReviewTargetSelectorKind = "dirty"
-	ReviewTargetDiff      ReviewTargetSelectorKind = "diff"
-	ReviewTargetPatch     ReviewTargetSelectorKind = "patch"
-	ReviewTargetStdin     ReviewTargetSelectorKind = "stdin"
-)
-
-type ReviewTargetSelector struct {
-	kind  ReviewTargetSelectorKind
-	value string
-}
-
-func NewReviewTargetSelector(kind ReviewTargetSelectorKind, value string) (ReviewTargetSelector, error) {
-	if strings.TrimSpace(value) == "" || len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n") {
-		return ReviewTargetSelector{}, fmt.Errorf("review target selector: invalid value")
-	}
-	switch kind {
-	case ReviewTargetWorkspace, ReviewTargetStage, ReviewTargetDirty, ReviewTargetDiff, ReviewTargetPatch, ReviewTargetStdin:
-	default:
-		return ReviewTargetSelector{}, fmt.Errorf("review target selector: invalid kind")
-	}
-	return ReviewTargetSelector{kind: kind, value: value}, nil
-}
-func (selector ReviewTargetSelector) Kind() ReviewTargetSelectorKind { return selector.kind }
-func (selector ReviewTargetSelector) Value() string                  { return selector.value }
-func (selector ReviewTargetSelector) Valid() bool {
-	_, err := NewReviewTargetSelector(selector.kind, selector.value)
-	return err == nil
-}
-
 type ReviewInputChannel string
 
 const (
@@ -101,17 +67,6 @@ func (detection ReviewInputDetection) Valid() bool {
 
 type ReviewInputContentDetector interface {
 	DetectReviewInput(context.Context, ReviewInputChannel, string, []byte) (ReviewInputDetection, error)
-}
-
-// ReviewInputContentDetectorIdentity identifies the fixed detector policy that
-// admitted captured review bytes. Production capture rejects detectors that do
-// not provide this immutable identity.
-type ReviewInputContentDetectorIdentity interface {
-	ReviewInputDetectorIdentity() string
-}
-
-type CapturedStdinStore interface {
-	TakeCapturedStdin(context.Context, string) ([]byte, error)
 }
 
 // CapturedReviewTarget is an immutable review input with an identity bound to
@@ -609,13 +564,9 @@ func (material CapturedReviewMaterial) Valid() bool {
 	return err == nil
 }
 
-type ReviewTargetCapturer interface {
-	CaptureReviewTarget(context.Context, AnchoredRoot, ReviewTargetSelector) (CapturedReviewMaterial, error)
-}
-
 // ArtistReviewInputs identifies one review-scoped brief and primary visual
 // discovery hints. Paths remain project-relative and are interpreted by
-// the target capturer against the selected immutable snapshot.
+// the live source reader against the selected workspace, index, or Git objects.
 type ArtistReviewInputs struct {
 	briefPath       string
 	designSpecGlobs []string
@@ -649,10 +600,4 @@ func (inputs ArtistReviewInputs) Valid() bool {
 	validated, err := NewArtistReviewInputs(inputs.briefPath, inputs.designSpecGlobs)
 	_ = validated
 	return err == nil
-}
-
-// ArtistReviewTargetCapturer is the optional review-scoped artist extension.
-// Ordinary captures retain the smaller ReviewTargetCapturer contract.
-type ArtistReviewTargetCapturer interface {
-	CaptureReviewTargetWithArtistInputs(context.Context, AnchoredRoot, ReviewTargetSelector, ArtistReviewInputs) (CapturedReviewMaterial, error)
 }

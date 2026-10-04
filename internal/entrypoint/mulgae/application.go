@@ -16,18 +16,14 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/cli"
 	"github.com/irootkernel/mulgae/internal/app"
-	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	"github.com/irootkernel/mulgae/internal/app/doctor"
-	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	appheartbeat "github.com/irootkernel/mulgae/internal/app/heartbeat"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	apppublication "github.com/irootkernel/mulgae/internal/app/publication"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
-	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
-	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -45,6 +41,8 @@ type RequestIDGenerator interface {
 type PublicationQueryService interface {
 	ReadReport(context.Context, ports.PublicationRun, domain.ProjectBinding, string, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	ReadEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, appquery.ContentContinuation) (appquery.ContentChunk, error)
+	ReadSourceEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, appquery.ContentContinuation) (appquery.ContentChunk, error)
+	ReadSourceImage(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, string, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	Inspect(context.Context, ports.PublicationRun, domain.ProjectBinding, appquery.InspectionRequest) (appquery.Inspection, error)
 	ReadFinding(context.Context, ports.PublicationRun, domain.ProjectBinding, string, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	ResolveRun(context.Context, ports.AnchoredRoot, domain.RunID) (ports.PublicationRun, error)
@@ -194,38 +192,6 @@ func (adapter publicationReportAdapter) Render(
 	}, nil
 }
 
-// StartedRun is the authoritative projection of a newly started child workflow.
-type StartedRun struct {
-	SessionID                  string
-	RunID                      string
-	ArtifactURI                string
-	FollowupResolution         *domain.FollowupResolution
-	StructuredExtractionStatus domain.StructuredExtractionStatus
-	RoleReportURIs             []RoleReportURI
-	TerminalExit               domain.OperationalExitDecision
-}
-
-// FollowupRunService is the command-facing followup workflow boundary.
-type FollowupRunService interface {
-	StartFollowupRun(context.Context, appfollowup.Request) (StartedRun, error)
-}
-
-// DeltaRunService is the command-facing delta workflow boundary.
-type DeltaRunService interface {
-	StartDeltaRun(context.Context, appdelta.StartRequest) (StartedRun, error)
-}
-
-// RerunService is the command-facing rerun workflow boundary.
-type RerunService interface {
-	StartRerun(context.Context, appreplay.Request) (StartedRun, error)
-}
-
-// CompositeReviewService is the shared provider-free mutation used by both CLI
-// and MCP entrypoints.
-type CompositeReviewService interface {
-	ComposeReview(context.Context, appreviewcompose.Request) (appreviewcompose.PublishedResult, error)
-}
-
 // ReviewRunService is the command-facing independent review workflow boundary.
 // It receives the parsed immutable request and an already anchored project root;
 // it owns all provider execution and P2 publication authority.
@@ -248,9 +214,9 @@ type RoleReportURI struct {
 
 // ReviewRunResult is the immutable terminal P2 projection returned by ReviewRunService.
 type ReviewRunResult struct {
-	captureIdentity   string
+	projectBinding    string
+	sourceIdentity    string
 	guarded           bool
-	admission         *reviewrun.RequestReceipt
 	sessionID         string
 	runID             string
 	runManifestURI    string
@@ -289,20 +255,9 @@ func newReviewRunResultWithFailures(
 	return result
 }
 
-func (result ReviewRunResult) Guarded() bool { return result.guarded }
-func (result ReviewRunResult) ProjectBinding() string {
-	if result.admission == nil {
-		return ""
-	}
-	return result.admission.ProjectBinding
-}
-func (result ReviewRunResult) CaptureIdentity() string { return result.captureIdentity }
-func (result ReviewRunResult) RequestDigest() string {
-	if result.admission == nil {
-		return ""
-	}
-	return result.admission.RequestDigest
-}
+func (result ReviewRunResult) Guarded() bool                { return result.guarded }
+func (result ReviewRunResult) ProjectBinding() string       { return result.projectBinding }
+func (result ReviewRunResult) SourceIdentitySHA256() string { return result.sourceIdentity }
 
 // SessionID returns the terminal review session ID.
 func (result ReviewRunResult) SessionID() string { return result.sessionID }
@@ -367,20 +322,6 @@ func (result ReviewRunResult) Validate() error {
 		}
 	}
 	return nil
-}
-
-// ReviewRunInputSourceFactory is the application-owned immutable capture
-// factory. The entrypoint maps command values into its typed request only.
-type ReviewRunInputSourceFactory = reviewrun.ImmutableInputSourceFactory
-
-// NewReviewRunService adapts the provider-neutral review-run service to the
-// command boundary. Nil and typed-nil dependencies preserve the optional review
-// provider-unavailable path.
-func NewReviewRunService(service *reviewrun.Service, factory ReviewRunInputSourceFactory) ReviewRunService {
-	if service == nil || nilApplicationDependency(factory) {
-		return nil
-	}
-	return reviewRunAdapter{service: service, factory: factory}
 }
 
 // NewUnavailableReviewRunService retains a safe, typed composition diagnostic
@@ -527,100 +468,23 @@ func ResolveReviewPolicyRequest(request ReviewRequest, enabled map[domain.Role]b
 	return request, nil
 }
 
-type reviewRunAdapter struct {
-	service *reviewrun.Service
-	factory ReviewRunInputSourceFactory
-}
-
-func (adapter reviewRunAdapter) StartReviewRun(
-	ctx context.Context,
-	request ReviewRequest,
-	root ports.AnchoredRoot,
-) (ReviewRunResult, error) {
-	if ctx == nil {
-		return ReviewRunResult{}, errors.New("review run: context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return ReviewRunResult{}, err
-	}
-	if !validReviewRunRequest(request) || !root.Valid() {
-		return ReviewRunResult{}, errors.New("review run: malformed request")
-	}
-
-	targetSelector, err := ports.NewReviewTargetSelector(ports.ReviewTargetSelectorKind(request.Target().Kind()), request.Target().Value())
-	if err != nil {
-		return ReviewRunResult{}, err
-	}
-	objective, hasObjective := request.Objective()
-	var captureRequest reviewrun.InputCaptureRequest
-	if containsString(request.roles, string(domain.RoleArtist)) {
-		var artistInputs ports.ArtistReviewInputs
-		var artistErr error
-		if request.artistAutomatic {
-			artistInputs, artistErr = ports.NewAutomaticArtistReviewInputs(request.artistBriefPath, request.artistDesignGlobs)
-		} else {
-			artistInputs, artistErr = ports.NewArtistReviewInputs(request.artistBriefPath, request.artistDesignGlobs)
-		}
-		if artistErr != nil {
-			return ReviewRunResult{}, artistErr
-		}
-		if request.artistAutomatic {
-			captureRequest, err = reviewrun.NewInputCaptureRequestWithAutomaticArtistInputs(root, targetSelector, []byte(objective), hasObjective, artistInputs)
-		} else {
-			captureRequest, err = reviewrun.NewInputCaptureRequestWithArtistInputs(root, targetSelector, []byte(objective), hasObjective, artistInputs)
-		}
-	} else {
-		captureRequest, err = reviewrun.NewInputCaptureRequest(root, targetSelector, []byte(objective), hasObjective)
-	}
-	if err != nil {
-		return ReviewRunResult{}, err
-	}
-	source, err := adapter.factory.NewImmutableInputSource(ctx, captureRequest)
-	if err != nil {
-		return ReviewRunResult{}, ports.WrapReviewCaptureFailure(err)
-	}
-	if nilApplicationDependency(source) {
-		return ReviewRunResult{}, errors.New("review run: immutable input source is required")
-	}
-	roles := request.Roles()
-	selected := make([]domain.Role, len(roles))
-	for index, role := range roles {
-		selected[index] = domain.Role(role)
-	}
-	var session *domain.SessionID
-	if value, present := request.SessionID(); present {
-		parsed, parseErr := domain.ParseSessionID(value)
-		if parseErr != nil {
-			return ReviewRunResult{}, fmt.Errorf("review run: invalid session ID: %w", parseErr)
-		}
-		session = &parsed
-	}
-	selection, err := reviewrun.NewRunSelection(selected, session)
-	if err != nil {
-		return ReviewRunResult{}, err
-	}
-	_, artifactRoot, err := publicationRoots(root.String())
-	if err != nil {
-		return ReviewRunResult{}, err
-	}
-	guard, err := reviewrun.NewExecutionGuard(request.expectedProjectBinding, request.expectedRequestDigest)
-	if err != nil {
-		return ReviewRunResult{}, err
-	}
-	result, err := adapter.service.Execute(ctx, reviewrun.Request{InputSource: source, ProjectRoot: root, ArtifactRoot: artifactRoot, Selection: selection, CaptureRequest: captureRequest, RolesExplicit: request.RequestedRolesExplicit(), Guard: guard})
-	if err != nil {
-		return ReviewRunResult{}, err
-	}
-	return projectReviewRunResult(result)
-}
-
 func validReviewRunRequest(request ReviewRequest) bool {
 	switch request.target.kind {
-	case "workspace", "stage", "dirty", "diff", "patch", "stdin":
+	case "workspace", "stage", "head", "commit", "diff":
 	default:
 		return false
 	}
-	if !validTargetValue(request.target.value) || request.hasObjective && !validObjective(request.objective) || len(request.roles) == 0 {
+	value := request.target.value
+	if request.target.kind == "workspace" || request.target.kind == "stage" || request.target.kind == "head" {
+		if value != "" && value != request.target.kind {
+			return false
+		}
+		value = ""
+	}
+	if _, err := ports.NewLiveSourceSelector(domain.LiveSourceScope(request.target.kind), value); err != nil {
+		return false
+	}
+	if request.hasObjective && !validObjective(request.objective) || len(request.roles) == 0 {
 		return false
 	}
 	if request.hasArtistBrief != (request.artistBriefPath != "") || request.hasArtistBrief && !validRelativePath(request.artistBriefPath) {
@@ -715,11 +579,10 @@ func projectReviewRunResult(result reviewrun.Result) (ReviewRunResult, error) {
 		failures,
 		roleReportURIs,
 	)
-	projected.captureIdentity = result.CaptureIdentity()
-	if receipt, present := result.AdmissionReceipt(); present {
-		projected.admission = &receipt
-		projected.guarded = result.Guarded()
-	}
+	projected.projectBinding = result.LiveProjectBinding().String()
+	projected.sourceIdentity = result.SourceIdentitySHA256()
+	projected.guarded = result.Guarded()
+
 	return projected, nil
 }
 
@@ -770,31 +633,6 @@ func sha256HexDigest(content []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func followupRoleReportURIs(reports []appfollowup.RoleReportURI) []RoleReportURI {
-	uris := make([]RoleReportURI, 0, len(reports))
-	for _, report := range reports {
-		uris = append(uris, RoleReportURI{Role: report.Role, URI: report.URI})
-	}
-	return uris
-}
-
-func deltaRoleReportURIs(reports []appdelta.RoleReportURI) []RoleReportURI {
-	uris := make([]RoleReportURI, 0, len(reports))
-	for _, report := range reports {
-		uris = append(uris, RoleReportURI{Role: report.Role, URI: report.URI})
-	}
-	return uris
-}
-
-func rerunRoleReportURIs(reports []appreplay.RoleReportURI) []RoleReportURI {
-	uris := make([]RoleReportURI, 0, len(reports))
-	for _, report := range reports {
-		uris = append(uris, RoleReportURI{Role: report.Role, URI: report.URI})
-	}
-	return uris
-}
-
-// RetentionRequest is the complete schema-backed clean command selection.
 type RetentionRequest struct {
 	OlderThanDays int64
 	All           bool
@@ -834,175 +672,8 @@ type RedactedExportService interface {
 	ExportRedactedRun(context.Context, RedactedExportRequest) (RedactedExportResult, error)
 }
 
-// NewFollowupRunService adapts the followup application service to command wiring.
-func NewFollowupRunService(service *appfollowup.Service) FollowupRunService {
-	if service == nil {
-		return nil
-	}
-	return followupRunAdapter{service: service}
-}
-
-type followupRunAdapter struct{ service *appfollowup.Service }
-
-func (adapter followupRunAdapter) StartFollowupRun(ctx context.Context, request appfollowup.Request) (StartedRun, error) {
-	result, err := adapter.service.StartFollowupRun(ctx, request)
-	if err != nil {
-		return StartedRun{}, err
-	}
-	if err := result.ValidateTerminalExit(); err != nil {
-		return StartedRun{}, fmt.Errorf("followup result terminal exit: %w", err)
-	}
-	terminalExit, available := result.TerminalExit()
-	if !available {
-		return StartedRun{}, errors.New("followup result terminal exit is unavailable")
-	}
-	output := result.ValidatedOutput()
-	status := output.StructuredExtractionStatus()
-	var resolution *domain.FollowupResolution
-	switch {
-	case output.ReportsOnly() && status == domain.StructuredExtractionReportsOnly:
-		if output.Resolution().Valid() {
-			return StartedRun{}, errors.New("reports-only followup must not invent a resolution")
-		}
-	case !output.ReportsOnly() && status == domain.StructuredExtractionStructured && output.Resolution().Valid():
-		value := output.Resolution()
-		resolution = &value
-	default:
-		return StartedRun{}, errors.New("followup result extraction authority is inconsistent")
-	}
-	return StartedRun{
-		SessionID:                  result.SessionID().String(),
-		RunID:                      result.RunID().String(),
-		ArtifactURI:                result.FollowupArtifactURI(),
-		FollowupResolution:         resolution,
-		StructuredExtractionStatus: status,
-		RoleReportURIs:             followupRoleReportURIs(result.RoleReportURIs()),
-		TerminalExit:               terminalExit,
-	}, nil
-}
-
-// NewDeltaRunService adapts the delta application service to command wiring.
-func NewDeltaRunService(service *appdelta.Service) DeltaRunService {
-	if service == nil {
-		return nil
-	}
-	return deltaRunAdapter{service: service}
-}
-
-type deltaRunAdapter struct{ service *appdelta.Service }
-
-func (adapter deltaRunAdapter) StartDeltaRun(ctx context.Context, request appdelta.StartRequest) (StartedRun, error) {
-	result, err := adapter.service.StartDeltaRun(ctx, request)
-	if err != nil {
-		return StartedRun{}, err
-	}
-	if err := result.ValidateTerminalExit(); err != nil {
-		return StartedRun{}, fmt.Errorf("delta result terminal exit: %w", err)
-	}
-	terminalExit, available := result.TerminalExit()
-	if !available {
-		return StartedRun{}, errors.New("delta result terminal exit is unavailable")
-	}
-	return StartedRun{
-		SessionID: result.SessionID.String(), RunID: result.RunID.String(), ArtifactURI: result.ReviewArtifactURI,
-		RoleReportURIs: deltaRoleReportURIs(result.RoleReportURIs), TerminalExit: terminalExit,
-	}, nil
-}
-
-// NewRerunService adapts the rerun application service to command wiring.
-func NewRerunService(service *appreplay.Service) RerunService {
-	if service == nil {
-		return nil
-	}
-	return rerunAdapter{service: service}
-}
-
-type rerunAdapter struct{ service *appreplay.Service }
-
-func (adapter rerunAdapter) StartRerun(ctx context.Context, request appreplay.Request) (StartedRun, error) {
-	result, err := adapter.service.StartRerun(ctx, request)
-	if err != nil {
-		return StartedRun{}, err
-	}
-	if err := result.ValidateTerminalExit(); err != nil {
-		return StartedRun{}, fmt.Errorf("rerun result terminal exit: %w", err)
-	}
-	terminalExit, available := result.TerminalExit()
-	if !available {
-		return StartedRun{}, errors.New("rerun result terminal exit is unavailable")
-	}
-	return StartedRun{
-		SessionID: result.SessionID.String(), RunID: result.RunID.String(), ArtifactURI: result.PromptManifestURI,
-		RoleReportURIs: rerunRoleReportURIs(result.RoleReportURIs), TerminalExit: terminalExit,
-	}, nil
-}
-
-// ComposeReview executes the exact transport-neutral composition mutation.
-func (application *Application) ComposeReview(ctx context.Context, request ComposeRequest) (appreviewcompose.PublishedResult, error) {
-	if application == nil || nilApplicationDependency(application.compositeReviews) {
-		return appreviewcompose.PublishedResult{}, fmt.Errorf("composite review service is unavailable")
-	}
-	rootRunID, err := domain.ParseRunID(request.RootRunID())
-	if err != nil {
-		return appreviewcompose.PublishedResult{}, fmt.Errorf("composite root run ID: %w", err)
-	}
-	recoveryValues := request.RecoveryRunIDs()
-	recoveryRunIDs := make([]domain.RunID, len(recoveryValues))
-	for index, value := range recoveryValues {
-		recoveryRunIDs[index], err = domain.ParseRunID(value)
-		if err != nil {
-			return appreviewcompose.PublishedResult{}, fmt.Errorf("composite recovery run ID: %w", err)
-		}
-	}
-	return application.compositeReviews.ComposeReview(ctx, appreviewcompose.Request{RootRunID: rootRunID, RecoveryRuns: recoveryRunIDs})
-}
-
 // ProjectCompositeResult returns the one shared public data shape consumed by
 // CLI structured output and MCP tool results.
-func ProjectCompositeResult(result appreviewcompose.PublishedResult) (map[string]any, error) {
-	if result.PublicationStatus() != domain.PublicationCommitted || result.RecoveryAction() != domain.RecoveryActionReconstructCompletedStatus ||
-		result.CoverageStatus() != domain.CoverageComplete || !result.ContentVerdict().Valid() ||
-		!result.StructuredExtractionStatus().Valid() || !result.CIDecision().Valid() ||
-		(result.ReconciliationState() != domain.CompositionCreated && result.ReconciliationState() != domain.CompositionReconciled) ||
-		!strings.HasPrefix(result.TargetSHA256(), "sha256:") {
-		return nil, fmt.Errorf("composite result projection is invalid")
-	}
-	recovered := result.RecoveredRoles()
-	recoveredRoles := make([]string, len(recovered))
-	for index, role := range recovered {
-		if !role.Valid() {
-			return nil, fmt.Errorf("composite recovered role is invalid")
-		}
-		recoveredRoles[index] = string(role)
-	}
-	reports := result.RoleReportURIs()
-	roleReportURIs := make([]any, len(reports))
-	for index, report := range reports {
-		if !report.Role.Valid() || !strings.HasPrefix(report.URI, ".mulgae/") {
-			return nil, fmt.Errorf("composite report projection is invalid")
-		}
-		roleReportURIs[index] = map[string]any{"role": string(report.Role), "uri": report.URI}
-	}
-	recoveryRunIDs := result.RecoveryRunIDs()
-	projectedRecoveryRunIDs := make([]string, len(recoveryRunIDs))
-	for index, runID := range recoveryRunIDs {
-		projectedRecoveryRunIDs[index] = runID.String()
-	}
-	return map[string]any{
-		"kind": "composite_published", "session_id": result.SessionID().String(),
-		"run_id": result.RunID().String(), "review_id": result.ReviewID().String(),
-		"root_run_id": result.RootRunID().String(), "recovery_run_ids": projectedRecoveryRunIDs,
-		"run_type": string(domain.RunTypeComposite), "run_manifest_uri": result.RunManifestURI(),
-		"review_artifact_uri": result.ReviewArtifactURI(), "role_report_uris": roleReportURIs,
-		"publication_status": string(result.PublicationStatus()), "target_sha256": result.TargetSHA256(),
-		"recovered_roles": recoveredRoles, "coverage_status": string(result.CoverageStatus()),
-		"content_verdict": string(result.ContentVerdict()), "structured_extraction_status": string(result.StructuredExtractionStatus()),
-		"ci_decision": string(result.CIDecision()), "reconciliation_state": string(result.ReconciliationState()),
-		"recovery_action": string(result.RecoveryAction()), "retry_safe": true,
-	}, nil
-}
-
-// RetentionServiceFunc adapts a command retention function to RetentionService.
 type RetentionServiceFunc func(context.Context, RetentionRequest) (RetentionResult, error)
 
 func (fn RetentionServiceFunc) CleanRuns(ctx context.Context, request RetentionRequest) (RetentionResult, error) {
@@ -1040,11 +711,7 @@ type Dependencies struct {
 	PublicationQueries      PublicationQueryService
 	DiagnosticQueries       ports.RuntimeDiagnosticQuery
 	PublicationReports      PublicationReportService
-	FollowupRuns            FollowupRunService
 	ReviewRuns              ReviewRunService
-	DeltaRuns               DeltaRunService
-	Reruns                  RerunService
-	CompositeReviews        CompositeReviewService
 	Retention               RetentionService
 	Exports                 RedactedExportService
 	EvidenceReader          doctor.EvidenceReader
@@ -1068,11 +735,7 @@ type Application struct {
 	publicationQueries PublicationQueryService
 	diagnosticQueries  ports.RuntimeDiagnosticQuery
 	publicationReports PublicationReportService
-	followupRuns       FollowupRunService
 	reviewRuns         ReviewRunService
-	deltaRuns          DeltaRunService
-	reruns             RerunService
-	compositeReviews   CompositeReviewService
 	retention          RetentionService
 	exports            RedactedExportService
 	evidenceReader     doctor.EvidenceReader
@@ -1200,38 +863,13 @@ func newApplication(
 	if nilApplicationDependency(dependencies.PublicationQueries) != nilApplicationDependency(dependencies.PublicationReports) {
 		return nil, fmt.Errorf("mulgae application: incomplete G006 service dependencies")
 	}
-	onlineDependencies := []any{
-		dependencies.FollowupRuns,
-		dependencies.DeltaRuns,
-		dependencies.Reruns,
-	}
-	onlinePresent := 0
-	for _, dependency := range onlineDependencies {
-		if !nilApplicationDependency(dependency) {
-			onlinePresent++
-		}
-	}
-	if onlinePresent != 0 && onlinePresent != len(onlineDependencies) {
-		return nil, fmt.Errorf("mulgae application: incomplete online G008 service dependencies")
-	}
 	if nilApplicationDependency(dependencies.RequestResolver) {
 		dependencies.RequestResolver = nil
 	}
 	if nilApplicationDependency(dependencies.ReviewRuns) {
 		dependencies.ReviewRuns = nil
 	}
-	if nilApplicationDependency(dependencies.FollowupRuns) {
-		dependencies.FollowupRuns = nil
-	}
-	if nilApplicationDependency(dependencies.DeltaRuns) {
-		dependencies.DeltaRuns = nil
-	}
-	if nilApplicationDependency(dependencies.Reruns) {
-		dependencies.Reruns = nil
-	}
-	if nilApplicationDependency(dependencies.CompositeReviews) {
-		dependencies.CompositeReviews = nil
-	}
+
 	if nilApplicationDependency(dependencies.Retention) {
 		dependencies.Retention = nil
 	}
@@ -1262,11 +900,7 @@ func newApplication(
 		publicationQueries: dependencies.PublicationQueries,
 		diagnosticQueries:  dependencies.DiagnosticQueries,
 		publicationReports: dependencies.PublicationReports,
-		followupRuns:       dependencies.FollowupRuns,
 		reviewRuns:         dependencies.ReviewRuns,
-		deltaRuns:          dependencies.DeltaRuns,
-		reruns:             dependencies.Reruns,
-		compositeReviews:   dependencies.CompositeReviews,
 		retention:          dependencies.Retention,
 		exports:            dependencies.Exports,
 		evidenceReader:     evidenceReader,
@@ -1296,14 +930,6 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 		invocation, err = Parse(cloneApplicationStrings(argv), canonicalDefaultRoot, requestID)
 	}
 	if err != nil {
-		if command, outputFormat, recognized := childWorkflowIntent(argv); recognized {
-			state := "unresolved"
-			failure := selectorFailure(command, requestID, err)
-			if errors.Is(err, ErrUsage) {
-				state = "invalid"
-			}
-			return application.renderRejectedChildWorkflow(ctx, requestID, command, state, outputFormat, failure)
-		}
 		var readError appquery.ReadContractError
 		if errors.As(err, &readError) {
 			return errorResult(app.ExitCodeUsage, "mulgae: "+readError.Error())
@@ -1355,25 +981,6 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 	return application.renderSuccess(ctx, invocation, execution)
 }
 
-func childWorkflowIntent(argv []string) (app.CommandName, OutputFormat, bool) {
-	if len(argv) == 0 {
-		return "", OutputFormatHuman, false
-	}
-	command := app.CommandName(argv[0])
-	switch command {
-	case app.CommandFollowup, app.CommandDelta, app.CommandRerun, app.CommandCompose:
-	default:
-		return "", OutputFormatHuman, false
-	}
-	outputFormat := OutputFormatHuman
-	for index := 1; index+1 < len(argv); index++ {
-		if argv[index] == "--output" && argv[index+1] == string(OutputFormatJSON) {
-			outputFormat = OutputFormatJSON
-		}
-	}
-	return command, outputFormat, true
-}
-
 func selectorFailure(command app.CommandName, requestID string, err error) *executionFailure {
 	failure := executionFailureFor(command, err, domain.FailureInternal)
 	failure.stage = "cli." + string(command) + ".resolve"
@@ -1422,30 +1029,6 @@ func selectorFailure(command app.CommandName, requestID string, err error) *exec
 func rejectedSelectorHumanResult(failure *executionFailure) Result {
 	human := appendHumanFailureDetails([]byte(failure.humanMessage), *failure)
 	return errorResult(projectedFailureExit(app.CommandExport, failure.exit), string(human))
-}
-
-func (application *Application) renderRejectedChildWorkflow(ctx context.Context, requestID string, command app.CommandName, state string, outputFormat OutputFormat, failure *executionFailure) Result {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	requestJSON, err := json.Marshal(struct {
-		RequestID    string       `json:"request_id"`
-		Command      string       `json:"command"`
-		RequestState string       `json:"request_state"`
-		OutputFormat OutputFormat `json:"output_format"`
-	}{requestID, string(command), state, outputFormat})
-	if err != nil {
-		return errorResult(app.ExitCodeInternal, "mulgae: command result could not be rendered")
-	}
-	invocation := Invocation{
-		command:        command,
-		availability:   AvailabilityFoundation,
-		requestID:      requestID,
-		outputFormat:   outputFormat,
-		requestJSON:    requestJSON,
-		hasRequestJSON: true,
-	}
-	return application.renderFailure(envelopeContext(ctx), invocation, execution{failure: failure})
 }
 
 func (application *Application) renderRejectedInit(ctx context.Context, requestID string) Result {
@@ -1743,12 +1326,6 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			RunManifestURI    *string `json:"run_manifest_uri"`
 			ReviewArtifactURI *string `json:"review_artifact_uri"`
 		}{"review_started", nil, nil, nil, nil})
-	case app.CommandCompose:
-		request, available := invocation.Compose()
-		if !available {
-			return compositeFailureResultJSON(), nil
-		}
-		return json.Marshal(compositeFailureResultData(request.RootRunID(), request.RecoveryRunIDs()))
 	case app.CommandDoctor:
 		return json.Marshal(struct {
 			Kind            string  `json:"kind"`
@@ -1823,28 +1400,6 @@ func failureResultJSON(invocation Invocation) ([]byte, error) {
 			ExcerptBase64 *string `json:"excerpt_base64"`
 			ExcerptSHA256 *string `json:"excerpt_sha256"`
 		}{"excerpt_failed", "unverifiable", nil, nil, nil})
-	case app.CommandFollowup:
-		return json.Marshal(struct {
-			Kind                string  `json:"kind"`
-			SessionID           *string `json:"session_id"`
-			RunID               *string `json:"run_id"`
-			FollowupArtifactURI *string `json:"followup_artifact_uri"`
-			Resolution          *string `json:"resolution"`
-		}{"followup_started", nil, nil, nil, nil})
-	case app.CommandDelta:
-		return json.Marshal(struct {
-			Kind              string  `json:"kind"`
-			SessionID         *string `json:"session_id"`
-			RunID             *string `json:"run_id"`
-			ReviewArtifactURI *string `json:"review_artifact_uri"`
-		}{"delta_started", nil, nil, nil})
-	case app.CommandRerun:
-		return json.Marshal(struct {
-			Kind              string  `json:"kind"`
-			SessionID         *string `json:"session_id"`
-			RunID             *string `json:"run_id"`
-			PromptManifestURI *string `json:"prompt_manifest_uri"`
-		}{"rerun_started", nil, nil, nil})
 	case app.CommandClean:
 		return json.Marshal(struct {
 			Kind             string `json:"kind"`
@@ -1880,68 +1435,10 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 	if errors.As(err, &readError) && reducedFailureClass(err, domain.FailureConfiguration) == domain.FailureConfiguration {
 		return &executionFailure{class: domain.FailureConfiguration, code: readError.Error(), message: "The verified read selectors no longer match the publication.", humanMessage: "mulgae: " + readError.Error(), stage: "query", exit: app.ExitCodeUsage, retryable: false, hasRetryable: true}
 	}
-	var composite interface{ ReasonCode() string }
-	if command == app.CommandCompose && errors.As(err, &composite) && domain.ValidCompositeReasonCode(composite.ReasonCode()) {
-		code := composite.ReasonCode()
-		statusRequired := code == domain.CompositePublicationIncomplete
-		retryable := false
-		hint := "run from the canonical Git worktree root, then verify the exact root and recovery run identities"
-		humanMessage := "mulgae: " + code
-		stage := "compose.validation"
-		if statusRequired {
-			stage = "compose.publication"
-			hint = "inspect the returned composite run with status before repeating the same exact mapping"
-			var identified interface {
-				CompositeIdentity() (domain.SessionID, domain.RunID, bool)
-			}
-			if errors.As(err, &identified) {
-				if sessionID, runID, ok := identified.CompositeIdentity(); ok {
-					humanMessage = fmt.Sprintf("mulgae: %s\nsession_id: %s\nrun_id: %s", code, sessionID, runID)
-					hint = "mulgae status --run " + runID.String() + " --output json"
-				}
-			}
-		}
-		return &executionFailure{
-			class: reducedFailureClass(err, fallback), code: code,
-			message:      "The exact composite review request could not be committed.",
-			humanMessage: humanMessage, stage: stage, exit: requestedExit(reducedFailureClass(err, fallback)),
-			retryable: retryable, hasRetryable: true, recommendedNextCommand: hint,
-		}
-	}
-	if capture, ok := ports.ReviewCaptureFailureFromError(err); ok {
-		class := domain.FailureArtifact
-		if capture.Code() == ports.ReviewCapturePolicyBlocked {
-			class = domain.FailureSecurityPolicy
-		}
-		facts := make([]string, 0, 5)
-		if capture.Summary() != "" {
-			facts = append(facts, "summary: "+capture.Summary())
-		}
-		if capture.Path() != "" {
-			facts = append(facts, "path: "+capture.Path())
-		}
-		if capture.Role() != "" {
-			facts = append(facts, "role: "+string(capture.Role()))
-		}
-		if capture.EffectiveConfiguration() != "" {
-			facts = append(facts, "effective configuration: "+capture.EffectiveConfiguration())
-		}
-		if capture.Hint() != "" {
-			facts = append(facts, "hint: "+capture.Hint())
-		}
-		message := "Review input capture failed at stage review.capture."
-		if len(facts) != 0 {
-			message += " " + strings.Join(facts, "; ") + "."
-		}
-		return &executionFailure{
-			class:                  class,
-			code:                   string(capture.Code()),
-			message:                message,
-			humanMessage:           "mulgae: " + string(capture.Code()) + ": " + strings.Join(facts, "; "),
-			stage:                  "review.capture",
-			exit:                   requestedExit(class),
-			recommendedNextCommand: "mulgae doctor",
-			role:                   string(capture.Role()),
+	var source *ports.LiveSourceError
+	if errors.As(err, &source) && source != nil {
+		if sourceClass, ok := reviewrun.LiveSourceFailureClass(source.Code()); ok && reducedFailureClass(err, sourceClass) == sourceClass {
+			return &executionFailure{class: sourceClass, code: string(source.Code()), message: "Review source admission failed at stage review.source; hint: run mulgae help workflows.", humanMessage: "mulgae: " + string(source.Code()), stage: "review.source", exit: requestedExit(sourceClass), recommendedNextCommand: "mulgae help workflows", retryable: false, hasRetryable: true}
 		}
 	}
 	if providers, loginRequired := reviewrun.ProviderLoginRequiredProvidersFromError(err); loginRequired &&
@@ -2190,7 +1687,7 @@ func providerFailureHint(condition review.AttemptCondition) string {
 		return "mulgae doctor"
 	case review.ConditionProviderFault(condition):
 		// The provider failed this once. Run the role again, here or elsewhere.
-		return "mulgae rerun"
+		return "mulgae help workflows"
 	default:
 		// Not the provider's fault; doctor stays the conservative entry point.
 		return "mulgae doctor"
@@ -2313,10 +1810,6 @@ func permittedFailureExit(command app.CommandName, requested app.ExitCode) bool 
 		app.CommandHeartbeat:   {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandRoles:       {app.ExitCodeUsage: true},
 		app.CommandReview:      {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandFollowup:    {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandDelta:       {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandRerun:       {app.ExitCodePolicy: true, app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
-		app.CommandCompose:     {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
 		app.CommandClean:       {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
 		app.CommandExport:      {app.ExitCodeUsage: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true},
 		app.CommandConfig:      {app.ExitCodeUsage: true, app.ExitCodeReadiness: true, app.ExitCodeArtifact: true, app.ExitCodeSecurity: true, app.ExitCodeCancellation: true, app.ExitCodeInternal: true},
@@ -2383,7 +1876,7 @@ func newResult(stdout, stderr []byte, exit app.ExitCode) Result {
 }
 func isG008Command(command app.CommandName) bool {
 	switch command {
-	case app.CommandFollowup, app.CommandDelta, app.CommandRerun, app.CommandClean, app.CommandExport:
+	case app.CommandClean, app.CommandExport:
 		return true
 	default:
 		return false

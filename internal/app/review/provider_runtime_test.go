@@ -498,24 +498,6 @@ func TestAttemptCaptureArtifactsAreDefensive(t *testing.T) {
 	}
 }
 
-func TestReplayAndDeltaInputsDefensivelyBindBytesAndParameters(t *testing.T) {
-	delta := DeltaInvocationMaterial{SourceTarget: []byte("source"), CurrentTarget: []byte("current"), Delta: []byte("delta")}
-	replay := ExactReplayInput{SourceProviderInstance: "fake.logic", Stdin: []byte("stdin"), AdapterParameters: map[string]string{"model": "fixed"}}
-	deltaCopy := cloneDeltaInvocationMaterial(delta)
-	replayCopy := cloneExactReplayInput(replay)
-	delta.SourceTarget[0] = 'X'
-	replay.Stdin[0] = 'X'
-	replay.AdapterParameters["model"] = "other"
-	if replayCopy.SourceProviderInstance != "fake.logic" || string(deltaCopy.SourceTarget) != "source" ||
-		string(replayCopy.Stdin) != "stdin" ||
-		!reflect.DeepEqual(replayCopy.AdapterParameters, map[string]string{"model": "fixed"}) {
-		t.Fatal("explicit invocation input exposed caller mutation")
-	}
-	if sameAdapterParameters(replayCopy.AdapterParameters, replay.AdapterParameters) {
-		t.Fatal("adapter tuple mismatch was accepted")
-	}
-}
-
 type explicitRuntimeTestIssuer struct {
 	source    prompt.SourceInvocationID
 	execution prompt.ExecutionInvocationID
@@ -548,7 +530,7 @@ func (provider concurrentExplicitRuntimeProvider) Invoke(ctx context.Context, in
 	}
 }
 
-func TestExplicitRuntimeInvocationsDoNotSerializeDistinctProviders(t *testing.T) {
+func TestRuntimeInvocationsDoNotSerializeDistinctProviders(t *testing.T) {
 	targetBytes := []byte("immutable target")
 	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
 		Kind: domain.TargetStdin, SHA256: strings.TrimPrefix(sha256Identifier(targetBytes), "sha256:"),
@@ -623,10 +605,11 @@ func TestExplicitRuntimeInvocationsDoNotSerializeDistinctProviders(t *testing.T)
 		validator: newReviewValidator(t), verifier: verifier, policy: DefaultEvidencePolicy(),
 		pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory),
 	}
+	runtime.source = runtimeFixturePrompts{jobs[0].AttemptID(): materials[0], jobs[1].AttemptID(): materials[1]}
 	done := make(chan struct{}, len(roles))
 	for index := range roles {
 		go func(index int) {
-			_ = runtime.invokeExplicitMaterial(context.Background(), jobs[index], materials[index], false)
+			_ = runtime.Invoke(context.Background(), jobs[index])
 			done <- struct{}{}
 		}(index)
 	}
@@ -1215,7 +1198,8 @@ func TestProviderRuntimePureProseAcceptsWithoutRepair(t *testing.T) {
 	prose := []byte("  # logic review\n\nLooks fine.\n  ")
 	provider := &recordingReviewProvider{responses: []reviewProviderResponse{{stdout: prose}}}
 	runtime, job, material := providerRuntimeExplicitFixture(t, provider)
-	outcome := runtime.invokeExplicitMaterial(context.Background(), job, material, false)
+	runtime.source = explicitRuntimePromptSource{material}
+	outcome := runtime.Invoke(context.Background(), job)
 	if !outcome.Succeeded() || len(provider.invocations) != 1 || len(runtime.pending) != 0 {
 		t.Fatalf("prose outcome=%#v invocations=%d pending=%d", outcome, len(provider.invocations), len(runtime.pending))
 	}
@@ -1229,7 +1213,8 @@ func TestProviderRuntimeMalformedStructuredLikeSchedulesAtMostOneRepair(t *testi
 	malformed := []byte("```json\n{\"findings\":\n```")
 	provider := &recordingReviewProvider{responses: []reviewProviderResponse{{stdout: malformed}}}
 	runtime, job, material := providerRuntimeExplicitFixture(t, provider)
-	outcome := runtime.invokeExplicitMaterial(context.Background(), job, material, false)
+	runtime.source = explicitRuntimePromptSource{material}
+	outcome := runtime.Invoke(context.Background(), job)
 	if outcome.Succeeded() || len(provider.invocations) != 1 {
 		t.Fatalf("malformed structured-like outcome=%#v invocations=%d", outcome, len(provider.invocations))
 	}
@@ -1252,7 +1237,8 @@ func TestProviderRuntimeTrailingJSONIsFreeFormNotRepair(t *testing.T) {
 	trailing := []byte("{\"findings\":[]}\ntrailing")
 	provider := &recordingReviewProvider{responses: []reviewProviderResponse{{stdout: trailing}}}
 	runtime, job, material := providerRuntimeExplicitFixture(t, provider)
-	outcome := runtime.invokeExplicitMaterial(context.Background(), job, material, false)
+	runtime.source = explicitRuntimePromptSource{material}
+	outcome := runtime.Invoke(context.Background(), job)
 	if !outcome.Succeeded() || len(provider.invocations) != 1 || len(runtime.pending) != 0 {
 		t.Fatalf("trailing JSON outcome=%#v invocations=%d pending=%d", outcome, len(provider.invocations), len(runtime.pending))
 	}
@@ -1270,7 +1256,8 @@ func TestProviderRuntimeMalformedThenFreeFormRepairPublishesReportsOnly(t *testi
 		{stdout: repairProse},
 	}}
 	runtime, initialJob, material := providerRuntimeExplicitFixture(t, provider)
-	initial := runtime.invokeExplicitMaterial(context.Background(), initialJob, material, false)
+	runtime.source = explicitRuntimePromptSource{material}
+	initial := runtime.Invoke(context.Background(), initialJob)
 	if initial.Succeeded() || len(provider.invocations) != 1 {
 		t.Fatalf("initial malformed outcome=%#v invocations=%d", initial, len(provider.invocations))
 	}
@@ -1295,7 +1282,8 @@ func TestProviderRuntimeMalformedThenFreeFormRepairPublishesReportsOnly(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	repaired := runtime.invokeExplicitMaterial(context.Background(), repairJob, material, false)
+	runtime.source = explicitRuntimePromptSource{material}
+	repaired := runtime.Invoke(context.Background(), repairJob)
 	if !repaired.Succeeded() || len(provider.invocations) != 2 || len(runtime.pending) != 0 {
 		t.Fatalf("repair outcome=%#v invocations=%d pending=%d", repaired, len(provider.invocations), len(runtime.pending))
 	}
@@ -1387,7 +1375,7 @@ func providerRuntimeExplicitFixture(t *testing.T, provider ports.ReviewProvider)
 	runtime := &ProviderInvocationRuntime{
 		provider: provider, validator: newReviewValidator(t), verifier: verifier, policy: DefaultEvidencePolicy(),
 		pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture),
-		inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{}),
+		inventory: make(map[captureKey]RuntimeArtifactInventory),
 	}
 	return runtime, job, RuntimePrompt{Prompt: compiled, Target: targetBytes, AdapterProfile: "test-profile"}
 }
@@ -1893,25 +1881,6 @@ func TestProviderInvocationCarriesStagedDestinationThroughRepair(t *testing.T) {
 		t.Fatal("a substituted staged destination was accepted as the same invocation")
 	}
 
-	// Source-scoped replay material still carries the destination resolved for
-	// its current launch; the provider invocation and trusted layer must agree.
-	replayProvider := &recordingObservedProvider{t: t, responses: []providerRuntimeObservation{{staged: repairProse}}}
-	replayRuntime, replayJob, replaySource := providerRuntimeObservedFixture(t, replayProvider, locator)
-	replayMaterial, err := replaySource.Prompt(context.Background(), replayJob, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if outcome := replayRuntime.invokeExplicitMaterial(context.Background(), replayJob, replayMaterial, true); !outcome.Succeeded() {
-		t.Fatalf("exact replay outcome = %#v", outcome)
-	}
-	if len(replayProvider.invocations) != 1 {
-		t.Fatalf("exact replay invocations = %d", len(replayProvider.invocations))
-	}
-	replayDestination, ok := replayProvider.invocations[0].StagedOutputDestination()
-	if !ok {
-		t.Fatal("exact replay invocation omitted its staged output destination")
-	}
-	assertStagedDestinationLayerLast(t, replayMaterial, replayDestination)
 }
 
 func TestInvokeAppendsDestinationLayerLastForStagedRoutes(t *testing.T) {
@@ -2077,4 +2046,11 @@ func TestProviderRuntimeRawSecretDropRedactsEveryStdoutDerivedCandidate(t *testi
 			}
 		})
 	}
+}
+
+// runtimeFixturePrompts provides immutable per-job packets for concurrency tests.
+type runtimeFixturePrompts map[domain.AttemptID]RuntimePrompt
+
+func (source runtimeFixturePrompts) Prompt(ctx context.Context, job InvocationJob, repair *InvocationRepairInput) (RuntimePrompt, error) {
+	return (explicitRuntimePromptSource{material: source[job.AttemptID()]}).Prompt(ctx, job, repair)
 }

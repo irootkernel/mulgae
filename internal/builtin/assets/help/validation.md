@@ -21,7 +21,7 @@ publication.
 
 A transcribed finding stays a provider claim. Mulgae cannot prove that it
 restates something the accepted report said, so it admits a transcription only
-when every finding verified against the immutable target. One unverified finding
+when every finding verified against the declared source side. One unverified finding
 rejects the whole transcription at any severity, and the role stays
 reports-only. Read the role report for what the role actually said.
 
@@ -32,7 +32,7 @@ repair and then proceeds through:
 2. trusted identity and state injection;
 3. normalized output schema validation;
 4. semantic and field-ownership checks;
-5. evidence verification against the immutable target.
+5. evidence verification against the declared source side.
 
 On that optional structured path, Mulgae rejects trailing data, unknown fields,
 oversized output, unsupported schemas, and semantic contradictions.

@@ -209,7 +209,7 @@ func (runtime *ProviderInvocationRuntime) BindRuntimeDiagnostics(resolver Runtim
 // the runtime executes its first invocation. It is intentionally one-shot: the
 // destination of every launch must be resolved by exactly one authority.
 func (runtime *ProviderInvocationRuntime) BindProviderOutputStaging(locator ports.ProviderOutputStagingLocator) error {
-	if runtime == nil || nilInterface(locator) {
+	if runtime == nil || nilInterface(locator) || runtime.liveIdentity.Valid() {
 		return fmt.Errorf("provider invocation runtime: invalid provider output staging locator")
 	}
 	runtime.mu.Lock()
@@ -243,52 +243,6 @@ func ResolveStagedOutputDestination(
 	return destination, true
 }
 
-// DeltaInvocationMaterial is the immutable A-to-B input for one delta
-// invocation. Source and current bytes are independently bound to their
-// identities; Delta is comparator-owned material and is never recomputed here.
-type DeltaInvocationMaterial struct {
-	SourceRunID           domain.RunID
-	SourceTarget          []byte
-	SourceTargetIdentity  domain.TargetIdentity
-	CurrentTarget         []byte
-	CurrentTargetIdentity domain.TargetIdentity
-	Delta                 []byte
-}
-
-// DeltaInvocationPromptSource composes a canonical delta-aware prompt. It is
-// intentionally separate from Prompt so delta execution cannot fall back to a
-// current-target-only prompt.
-type DeltaInvocationPromptSource interface {
-	DeltaPrompt(context.Context, InvocationJob, DeltaInvocationMaterial, *InvocationRepairInput) (RuntimePrompt, error)
-}
-
-// ExactReplayInput is the stored provider-wire authority for one selected
-// attempt. The prompt source mints a fresh execution identity and may rebind
-// only a Mulgae-owned per-launch staged output destination.
-type ExactReplayInput struct {
-	SourceScope                 string
-	SourceRunID                 domain.RunID
-	SourceAttemptID             domain.AttemptID
-	SourceProviderInstance      string
-	Stdin                       []byte
-	CompleteStdinSHA256         string
-	SourceInvocationID          string
-	SourceExecutionInvocationID string
-	TemplateID                  string
-	TemplateVersion             string
-	TemplateSHA256              string
-	Role                        domain.Role
-	AdapterProfile              string
-	AdapterParameters           map[string]string
-}
-
-// ExactReplayPromptSource replays stored source authority into a fresh execution
-// identity. Implementations preserve stored frames and may rebind only the
-// Mulgae-owned staged output destination and its manifest parameter.
-type ExactReplayPromptSource interface {
-	ExactReplayPrompt(context.Context, InvocationJob, ExactReplayInput) (RuntimePrompt, error)
-}
-
 // AttemptCapture binds defensive captured provider streams to one coordinator
 // attempt and invocation sequence. Artifacts with SecurityRejected set never
 // expose their rejected bytes.
@@ -316,8 +270,12 @@ type ProviderInvocationRuntime struct {
 	workspace         ports.WorkspaceExecutionAuthority
 	workspaceIdentity ports.WorkspaceSnapshotIdentity
 	hasWorkspace      bool
+	liveExecution     ports.LiveReviewExecution
+	liveIdentity      evidence.LiveSourceIdentity
+	liveVisuals       map[string]string
+	liveArtist        bool
+	liveArtistReady   bool
 	policy            EvidencePolicy
-	allowSourceScope  bool
 	diagnostics       RuntimeDiagnosticSinkResolver
 	staging           ports.ProviderOutputStagingLocator
 
@@ -326,7 +284,6 @@ type ProviderInvocationRuntime struct {
 	pendingExtraction map[domain.AttemptID]InvocationExtractionInput
 	captures          map[captureKey]AttemptCapture
 	inventory         map[captureKey]RuntimeArtifactInventory
-	activeExplicit    map[captureKey]struct{}
 	preparedInitial   map[domain.AttemptID]preparedInitialInput
 }
 
@@ -350,7 +307,7 @@ func NewProviderInvocationRuntime(provider ports.ReviewProvider, source Invocati
 	if verifier == nil {
 		return nil, fmt.Errorf("provider invocation runtime: nil evidence verifier")
 	}
-	return &ProviderInvocationRuntime{provider: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{})}, nil
+	return &ProviderInvocationRuntime{provider: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory)}, nil
 }
 
 // NewObservedProviderInvocationRuntime constructs a runtime directly from the
@@ -369,7 +326,7 @@ func NewObservedProviderInvocationRuntime(provider ports.ObservedReviewProvider,
 	if verifier == nil {
 		return nil, fmt.Errorf("provider invocation runtime: nil evidence verifier")
 	}
-	return &ProviderInvocationRuntime{observed: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory), activeExplicit: make(map[captureKey]struct{})}, nil
+	return &ProviderInvocationRuntime{observed: provider, source: source, validator: validator, verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput), captures: make(map[captureKey]AttemptCapture), inventory: make(map[captureKey]RuntimeArtifactInventory)}, nil
 }
 
 // NewObservedProviderInvocationRuntimeWithDiagnostics constructs an observed
@@ -389,6 +346,52 @@ func NewObservedProviderInvocationRuntimeWithDiagnostics(
 		return nil, err
 	}
 	runtime.diagnostics = diagnostics
+	return runtime, nil
+}
+
+// BindLiveArtistEvidence accepts only verifier-owned selected image receipts.
+// Bind it before coordinator execution; prompts cannot grant visual authority.
+func (runtime *ProviderInvocationRuntime) BindLiveArtistEvidence(images []evidence.LiveBinaryReceipt, ready bool) error {
+	if runtime == nil || !runtime.liveIdentity.Valid() || runtime.liveArtist {
+		return fmt.Errorf("live artist evidence: unavailable or already bound")
+	}
+	assets := make(map[string]string, len(images))
+	for _, image := range images {
+		if !image.Valid() || image.Source().SHA256() != runtime.liveIdentity.SHA256() {
+			return fmt.Errorf("live artist evidence: mismatched source")
+		}
+		key := string(image.Side()) + "\x00" + image.Path().String()
+		if _, duplicate := assets[key]; duplicate {
+			return fmt.Errorf("live artist evidence: duplicate image")
+		}
+		assets[key] = image.FileSHA256()
+	}
+	if ready && len(assets) == 0 {
+		return fmt.Errorf("live artist evidence: readiness lacks images")
+	}
+	runtime.liveVisuals, runtime.liveArtist, runtime.liveArtistReady = assets, true, ready
+	return nil
+}
+
+// NewObservedProviderInvocationRuntimeInLiveSource keeps native launch authority
+// and evidence selection bound to the same original source reader.
+func NewObservedProviderInvocationRuntimeInLiveSource(provider ports.ObservedReviewProvider, source InvocationPromptSource, execution ports.LiveReviewExecution, validator *validation.ReviewValidator, diagnostics RuntimeDiagnosticSinkResolver) (*ProviderInvocationRuntime, error) {
+	if !execution.Valid() || nilInterface(diagnostics) {
+		return nil, fmt.Errorf("provider invocation runtime: invalid live source authority")
+	}
+	verifier, err := evidence.NewLiveVerifier(execution.SourceReader())
+	if err != nil {
+		return nil, err
+	}
+	identity, err := evidence.NewLiveSourceIdentity(execution.Target())
+	if err != nil {
+		return nil, err
+	}
+	runtime, err := NewObservedProviderInvocationRuntimeWithDiagnostics(provider, source, validator, verifier, diagnostics)
+	if err != nil {
+		return nil, err
+	}
+	runtime.liveExecution, runtime.liveIdentity = execution, identity
 	return runtime, nil
 }
 
@@ -642,9 +645,13 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if err != nil {
 		return runtimeCondition(job, runtimePromptErrorCondition(invocationCtx, err))
 	}
+	targetSHA256 := job.Target().SHA256()
+	if runtime.liveIdentity.Valid() {
+		targetSHA256 = job.Target().SourceIdentitySHA256()
+	}
 	if err := material.Prompt.Validate(); err != nil ||
 		!runtime.promptMatchesJob(material.Prompt, job) ||
-		sha256Identifier(material.Target) != "sha256:"+job.Target().SHA256() {
+		sha256Identifier(material.Target) != "sha256:"+targetSHA256 {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
 	// A staged launch must state its own resolved absolute path to the provider.
@@ -657,7 +664,15 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if err := runtime.recordRuntimeArtifact(job, material); err != nil {
 		return runtimeCondition(job, AttemptConditionConfigurationViolation)
 	}
-	runtimeArtifactsExpected = true
+	runtimeArtifactsExpected = !runtime.liveIdentity.Valid()
+	if runtime.liveIdentity.Valid() {
+		if err := runtime.liveExecution.Revalidate(invocationCtx); err != nil {
+			if invocationCtx.Err() != nil {
+				return runtimeCondition(job, runtimeContextCondition(invocationCtx.Err()))
+			}
+			return runtimeCondition(job, AttemptConditionSecurityViolation)
+		}
+	}
 	providerInvocation, err := runtime.providerInvocation(job, material)
 	if err != nil {
 		return runtimeCondition(job, runtimeProviderErrorCondition(invocationCtx, err))
@@ -748,6 +763,12 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	}
 
 	scope := validation.ReviewValidationScope{TargetSHA256: job.Target().SHA256(), Role: job.Role(), ProviderInstance: job.Route().ProviderInstance()}
+	if runtime.liveIdentity.Valid() {
+		scope.TargetSHA256, scope.LiveSource = "", runtime.liveIdentity
+		if job.Role() == domain.RoleArtist {
+			scope.ArtistInputsConfigured, scope.ArtistInputsReady, scope.VisualAssets = runtime.liveArtist, runtime.liveArtistReady, runtime.liveVisuals
+		}
+	}
 	if job.Role() == domain.RoleArtist && len(material.CapturedArchive) > 0 {
 		if captured, archiveErr := ports.UnmarshalCapturedReviewMaterial(material.CapturedArchive); archiveErr == nil {
 			scope.ArtistInputsConfigured = true
@@ -973,152 +994,6 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	return runtime.accept(invocationCtx, job, validated, primaryReport, transport)
 }
 
-// InvokeDelta executes a delta-aware invocation through the explicit delta
-// prompt source. Initial and its one coordinator-authorized repair both retain
-// the same immutable A-to-B material; no ordinary prompt fallback is available.
-func (runtime *ProviderInvocationRuntime) InvokeDelta(ctx context.Context, job InvocationJob, input DeltaInvocationMaterial) AttemptOutcome {
-	if runtime == nil ||
-		(job.Purpose() != domain.InvocationInitial && job.Purpose() != domain.InvocationRetry && job.Purpose() != domain.InvocationRepair) ||
-		input.SourceRunID.String() == "" ||
-		sha256Identifier(input.SourceTarget) != "sha256:"+input.SourceTargetIdentity.SHA256() ||
-		sha256Identifier(input.CurrentTarget) != "sha256:"+input.CurrentTargetIdentity.SHA256() ||
-		input.CurrentTargetIdentity != job.Target() {
-		return runtimeCondition(job, AttemptConditionConfigurationViolation)
-	}
-	source, ok := runtime.source.(DeltaInvocationPromptSource)
-	if !ok {
-		return runtimeCondition(job, AttemptConditionConfigurationViolation)
-	}
-	var repair *InvocationRepairInput
-	if job.Purpose() == domain.InvocationRepair {
-		runtime.mu.Lock()
-		input, exists := runtime.pending[job.AttemptID()]
-		runtime.mu.Unlock()
-		if !exists {
-			return runtimeCondition(job, AttemptConditionInternalInvariant)
-		}
-		copy := cloneInvocationRepairInput(input)
-		repair = &copy
-	}
-	material, err := source.DeltaPrompt(ctx, job, cloneDeltaInvocationMaterial(input), repair)
-	if err != nil {
-		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
-	}
-	return runtime.invokeExplicitMaterial(ctx, job, material, false)
-}
-
-// InvokeExactReplay executes exactly one stored provider wire invocation using
-// a fresh execution identity supplied by the explicit replay prompt source.
-func (runtime *ProviderInvocationRuntime) InvokeExactReplay(ctx context.Context, job InvocationJob, input ExactReplayInput) AttemptOutcome {
-	if runtime == nil || (job.Purpose() != domain.InvocationInitial && job.Purpose() != domain.InvocationRetry) || input.Role != job.Role() ||
-		input.SourceRunID.String() == "" || input.SourceAttemptID.String() == "" || input.SourceScope == "" ||
-		!validCoordinatorProviderInstance(input.SourceProviderInstance) ||
-		input.SourceProviderInstance != job.Route().ProviderInstance() ||
-		input.CompleteStdinSHA256 == "" || prompt.CompleteStdinSHA256(input.Stdin) != input.CompleteStdinSHA256 ||
-		input.SourceInvocationID == "" || input.SourceExecutionInvocationID == "" || input.TemplateID == "" || input.TemplateVersion == "" || input.TemplateSHA256 == "" {
-		return runtimeCondition(job, AttemptConditionConfigurationViolation)
-	}
-	source, ok := runtime.source.(ExactReplayPromptSource)
-	if !ok {
-		return runtimeCondition(job, AttemptConditionConfigurationViolation)
-	}
-	material, prepared := runtime.initialMaterial(job)
-	var err error
-	if !prepared {
-		material, err = source.ExactReplayPrompt(ctx, job, cloneExactReplayInput(input))
-	}
-	if err != nil {
-		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
-	}
-	scope := material.Prompt.Scope()
-	destination, staged := runtime.stagedOutputDestination(job)
-	if scope.SessionID() != job.SessionID() ||
-		scope.FrameScope().String() != input.SourceScope ||
-		scope.SourceInvocationID().String() != input.SourceInvocationID ||
-		material.AdapterProfile != input.AdapterProfile {
-		return runtimeCondition(job, AttemptConditionConfigurationViolation)
-	}
-	if staged {
-		if !promptDeclaresStagedOutputDestination(material.Prompt, destination) ||
-			!adapterParametersDeclareTrustedLayerManifest(material) ||
-			!sameAdapterParametersExceptTrustedLayerManifest(material.AdapterParameters, input.AdapterParameters) {
-			return runtimeCondition(job, AttemptConditionConfigurationViolation)
-		}
-	} else if material.Prompt.CompleteStdinSHA256() != input.CompleteStdinSHA256 ||
-		string(material.Prompt.Stdin()) != string(input.Stdin) ||
-		!sameAdapterParameters(material.AdapterParameters, input.AdapterParameters) {
-		return runtimeCondition(job, AttemptConditionConfigurationViolation)
-	}
-	return runtime.invokeExplicitMaterial(ctx, job, material, true)
-}
-
-func (runtime *ProviderInvocationRuntime) invokeExplicitMaterial(ctx context.Context, job InvocationJob, material RuntimePrompt, allowSourceScope bool) AttemptOutcome {
-	if ctx == nil {
-		return runtimeCondition(job, AttemptConditionConfigurationViolation)
-	}
-	key := captureKey{job.AttemptID(), invocationSequence(job.Purpose())}
-	runtime.mu.Lock()
-	_, inventoryExists := runtime.inventory[key]
-	_, invocationActive := runtime.activeExplicit[key]
-	if inventoryExists || invocationActive {
-		runtime.mu.Unlock()
-		return runtimeCondition(job, AttemptConditionConfigurationViolation)
-	}
-	if runtime.activeExplicit == nil {
-		runtime.activeExplicit = make(map[captureKey]struct{})
-	}
-	runtime.activeExplicit[key] = struct{}{}
-	clonePending := make(map[domain.AttemptID]InvocationRepairInput)
-	if pending, ok := runtime.pending[job.AttemptID()]; ok {
-		clonePending[job.AttemptID()] = cloneInvocationRepairInput(pending)
-	}
-	cloneExtraction := make(map[domain.AttemptID]InvocationExtractionInput)
-	if extraction, ok := runtime.pendingExtraction[job.AttemptID()]; ok {
-		cloneExtraction[job.AttemptID()] = cloneInvocationExtractionInput(extraction)
-	}
-	runtime.mu.Unlock()
-	clone := &ProviderInvocationRuntime{
-		provider: runtime.provider, observed: runtime.observed, source: explicitRuntimePromptSource{material: material},
-		validator: runtime.validator, verifier: runtime.verifier, workspace: runtime.workspace,
-		workspaceIdentity: runtime.workspaceIdentity, hasWorkspace: runtime.hasWorkspace, policy: runtime.policy,
-		allowSourceScope: allowSourceScope, diagnostics: runtime.diagnostics, staging: runtime.staging,
-		pending: clonePending, pendingExtraction: cloneExtraction, captures: make(map[captureKey]AttemptCapture),
-		inventory: make(map[captureKey]RuntimeArtifactInventory),
-	}
-	outcome := clone.Invoke(ctx, job)
-	clone.mu.Lock()
-	captures := clone.captures
-	inventory := clone.inventory
-	pending, pendingExists := clone.pending[job.AttemptID()]
-	extraction, extractionExists := clone.pendingExtraction[job.AttemptID()]
-	clone.mu.Unlock()
-	runtime.mu.Lock()
-	defer runtime.mu.Unlock()
-	delete(runtime.activeExplicit, key)
-	for key := range inventory {
-		if _, exists := runtime.inventory[key]; exists {
-			return runtimeCondition(job, AttemptConditionInternalInvariant)
-		}
-	}
-	for key, value := range captures {
-		runtime.captures[key] = cloneAttemptCapture(value)
-	}
-	for key, value := range inventory {
-		runtime.inventory[key] = cloneRuntimeArtifactInventory(value)
-	}
-	if pendingExists {
-		runtime.pending[job.AttemptID()] = cloneInvocationRepairInput(pending)
-	} else {
-		delete(runtime.pending, job.AttemptID())
-	}
-	if extractionExists {
-		runtime.pendingExtraction[job.AttemptID()] = cloneInvocationExtractionInput(extraction)
-	} else {
-		delete(runtime.pendingExtraction, job.AttemptID())
-	}
-	return outcome
-}
-
 type explicitRuntimePromptSource struct {
 	material RuntimePrompt
 }
@@ -1136,19 +1011,6 @@ func (source explicitRuntimePromptSource) Prompt(_ context.Context, _ Invocation
 	}, nil
 }
 
-func cloneDeltaInvocationMaterial(input DeltaInvocationMaterial) DeltaInvocationMaterial {
-	input.SourceTarget = append([]byte(nil), input.SourceTarget...)
-	input.CurrentTarget = append([]byte(nil), input.CurrentTarget...)
-	input.Delta = append([]byte(nil), input.Delta...)
-	return input
-}
-
-func cloneExactReplayInput(input ExactReplayInput) ExactReplayInput {
-	input.Stdin = append([]byte(nil), input.Stdin...)
-	input.AdapterParameters = cloneAdapterParameters(input.AdapterParameters)
-	return input
-}
-
 func cloneAdapterParameters(parameters map[string]string) map[string]string {
 	result := make(map[string]string, len(parameters))
 	for key, value := range parameters {
@@ -1157,46 +1019,6 @@ func cloneAdapterParameters(parameters map[string]string) map[string]string {
 	return result
 }
 
-func sameAdapterParameters(left, right map[string]string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for key, value := range left {
-		if right[key] != value {
-			return false
-		}
-	}
-	return true
-}
-
-func sameAdapterParametersExceptTrustedLayerManifest(left, right map[string]string) bool {
-	if _, ok := left[prompt.TrustedLayerManifestAdapterParameter]; !ok {
-		return false
-	}
-	if _, ok := right[prompt.TrustedLayerManifestAdapterParameter]; !ok {
-		return false
-	}
-	if len(left) != len(right) {
-		return false
-	}
-	for key, value := range left {
-		if key == prompt.TrustedLayerManifestAdapterParameter {
-			continue
-		}
-		if right[key] != value {
-			return false
-		}
-	}
-	return true
-}
-
-func adapterParametersDeclareTrustedLayerManifest(material RuntimePrompt) bool {
-	manifest, err := material.Prompt.TrustedTemplate().TrustedLayerManifestJSON()
-	if err != nil {
-		return false
-	}
-	return material.AdapterParameters[prompt.TrustedLayerManifestAdapterParameter] == manifest
-}
 func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job InvocationJob, validated validation.ValidatedReview, primaryReport []byte, transport ports.ProviderOutputTransport) AttemptOutcome {
 	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
 	if err != nil {
@@ -1589,13 +1411,18 @@ func (runtime *ProviderInvocationRuntime) promptMatchesJob(compiled prompt.Compi
 	if scope.SessionID() != job.SessionID() {
 		return false
 	}
-	return runtime.allowSourceScope ||
-		(scope.RunID() == job.RunID() && scope.AttemptID() == job.AttemptID())
+	return scope.RunID() == job.RunID() && scope.AttemptID() == job.AttemptID()
 }
 func (runtime *ProviderInvocationRuntime) recordRuntimeArtifact(job InvocationJob, material RuntimePrompt) error {
+	if runtime.liveIdentity.Valid() {
+		target, err := runtime.liveIdentity.RunTarget()
+		if err != nil || job.Target() != target || len(material.CapturedArchive) != 0 || !bytes.Equal(material.Target, runtime.liveIdentity.Bytes()) {
+			return fmt.Errorf("invalid live source prompt binding")
+		}
+	}
 	scope := material.Prompt.Scope()
 	if scope.RunID().String() == "" ||
-		(!runtime.allowSourceScope && scope.AttemptID() != job.AttemptID()) ||
+		scope.AttemptID() != job.AttemptID() ||
 		material.Prompt.CompleteStdinSHA256() == "" {
 		return fmt.Errorf("invalid runtime artifact scope")
 	}
@@ -1654,6 +1481,9 @@ func (runtime *ProviderInvocationRuntime) providerInvocation(job InvocationJob, 
 	}
 	if err != nil {
 		return ports.ProviderInvocation{}, err
+	}
+	if runtime.liveIdentity.Valid() {
+		return ports.NewProviderInvocationInLiveSource(invocation, runtime.liveExecution)
 	}
 	destination, staged := runtime.stagedOutputDestination(job)
 	if !staged {

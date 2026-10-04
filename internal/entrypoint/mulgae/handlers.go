@@ -22,17 +22,13 @@ import (
 	adapterenvironment "github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/app"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
-	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	"github.com/irootkernel/mulgae/internal/app/doctor"
-	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	appheartbeat "github.com/irootkernel/mulgae/internal/app/heartbeat"
 	apphelp "github.com/irootkernel/mulgae/internal/app/help"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	"github.com/irootkernel/mulgae/internal/app/providers"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
-	appreplay "github.com/irootkernel/mulgae/internal/app/rerun"
 	"github.com/irootkernel/mulgae/internal/app/review"
-	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	approles "github.com/irootkernel/mulgae/internal/app/roles"
 	appschema "github.com/irootkernel/mulgae/internal/app/schema"
@@ -105,18 +101,6 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 		app.CommandReview: func(application *Application, ctx context.Context, invocation Invocation, root string) execution {
 			return application.handleReview(ctx, invocation, root)
 		},
-		app.CommandFollowup: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
-			return application.handleFollowup(ctx, invocation)
-		},
-		app.CommandDelta: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
-			return application.handleDelta(ctx, invocation)
-		},
-		app.CommandRerun: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
-			return application.handleRerun(ctx, invocation)
-		},
-		app.CommandCompose: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
-			return application.handleCompose(ctx, invocation)
-		},
 		app.CommandClean: func(application *Application, ctx context.Context, invocation Invocation, _ string) execution {
 			return application.handleClean(ctx, invocation)
 		},
@@ -124,102 +108,6 @@ func applicationCommandHandlers() map[app.CommandName]applicationCommandHandler 
 			return application.handleExport(ctx, invocation, root)
 		},
 	}
-}
-
-func (application *Application) handleCompose(ctx context.Context, invocation Invocation) execution {
-	request, available := invocation.Compose()
-	if !available {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
-	}
-	result, err := application.ComposeReview(ctx, request)
-	if err != nil {
-		return execution{
-			failureData: compositeFailureResultJSONFor(err, request),
-			failure:     executionFailureFor(invocation.Command(), err, domain.FailureArtifact),
-		}
-	}
-	projected, err := ProjectCompositeResult(result)
-	if err != nil {
-		return compositePublishedFailureExecution(invocation.Command(), result, request, "composite result projection failed", err)
-	}
-	data, err := json.Marshal(projected)
-	if err != nil {
-		return compositePublishedFailureExecution(invocation.Command(), result, request, "composite result encoding failed", err)
-	}
-	exit, reasons, err := committedTerminalOutcome(result.TerminalExit())
-	if err != nil {
-		return compositePublishedFailureExecution(invocation.Command(), result, request, "composite terminal outcome projection failed", err)
-	}
-	return execution{
-		human:            []byte("composite committed: " + result.RunID().String() + " (" + string(result.ReconciliationState()) + ")"),
-		data:             data,
-		failureData:      compositeFailureResultJSONForPublished(result, request),
-		exit:             exit,
-		committedReasons: reasons,
-		postCommitFailure: func(cause error) error {
-			return appreviewcompose.NewReconciliationFailure(result, "composite result rendering failed", cause)
-		},
-	}
-}
-
-func compositePublishedFailureExecution(command app.CommandName, result appreviewcompose.PublishedResult, request ComposeRequest, detail string, cause error) execution {
-	err := appreviewcompose.NewReconciliationFailure(result, detail, cause)
-	return execution{
-		failureData: compositeFailureResultJSONForPublished(result, request),
-		failure:     executionFailureFor(command, err, domain.FailureInternal),
-	}
-}
-
-func compositeFailureResultJSON() []byte {
-	data, _ := json.Marshal(compositeFailureResultData("", []string{}))
-	return data
-}
-
-func compositeFailureResultJSONFor(err error, request ComposeRequest) []byte {
-	data := compositeFailureResultData(request.RootRunID(), request.RecoveryRunIDs())
-	var identified interface {
-		CompositeIdentity() (domain.SessionID, domain.RunID, bool)
-	}
-	if errors.As(err, &identified) {
-		if sessionID, runID, ok := identified.CompositeIdentity(); ok {
-			setCompositeStatusRequired(data, sessionID, runID)
-		}
-	}
-	encoded, _ := json.Marshal(data)
-	return encoded
-}
-
-func compositeFailureResultJSONForPublished(result appreviewcompose.PublishedResult, request ComposeRequest) []byte {
-	data := compositeFailureResultData(request.RootRunID(), request.RecoveryRunIDs())
-	if _, err := domain.ParseSessionID(result.SessionID().String()); err == nil {
-		if _, err := domain.ParseRunID(result.RunID().String()); err == nil {
-			setCompositeStatusRequired(data, result.SessionID(), result.RunID())
-		}
-	}
-	encoded, _ := json.Marshal(data)
-	return encoded
-}
-
-func compositeFailureResultData(rootRunID string, recoveryRunIDs []string) map[string]any {
-	var rootRunValue any
-	if rootRunID != "" {
-		rootRunValue = rootRunID
-	}
-	return map[string]any{
-		"kind": "composite_failed", "session_id": nil, "run_id": nil, "review_id": nil,
-		"root_run_id": rootRunValue, "recovery_run_ids": recoveryRunIDs,
-		"run_type": string(domain.RunTypeComposite), "run_manifest_uri": nil, "review_artifact_uri": nil,
-		"role_report_uris": []any{}, "publication_status": nil, "target_sha256": nil,
-		"recovered_roles": []string{}, "coverage_status": nil, "content_verdict": nil,
-		"structured_extraction_status": nil, "ci_decision": nil, "reconciliation_state": string(domain.CompositionNotCommitted),
-		"recovery_action": nil, "retry_safe": true,
-	}
-}
-
-func setCompositeStatusRequired(data map[string]any, sessionID domain.SessionID, runID domain.RunID) {
-	data["session_id"], data["run_id"] = sessionID.String(), runID.String()
-	data["reconciliation_state"] = string(domain.CompositionStatusRequired)
-	data["retry_safe"] = false
 }
 
 func validateApplicationCommandHandlers(specs []cli.CommandSpec, handlers map[app.CommandName]applicationCommandHandler) error {
@@ -269,12 +157,6 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 			var validation *reviewPreflightValidationFailure
 			if errors.As(err, &validation) {
 				message := "Review preflight validation failed at stage review.preflight.validate: invariant=" + validation.invariant
-				if validation.hasLimitFacts {
-					message += fmt.Sprintf(
-						"; file_count=%d; byte_count=%d; max_files=%d; max_bytes=%d",
-						validation.fileCount, validation.byteCount, validation.maxFiles, validation.maxBytes,
-					)
-				}
 				message += "; hint: run mulgae doctor."
 				return execution{failureData: reviewPreflightFailureJSON(), failure: &executionFailure{
 					class: domain.FailureInternal, code: validation.code, message: message,
@@ -337,11 +219,10 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 			Role string `json:"role"`
 			URI  string `json:"uri"`
 		} `json:"role_report_uris"`
-		Guarded         bool   `json:"guarded"`
-		ProjectBinding  string `json:"project_binding"`
-		CaptureIdentity string `json:"capture_identity"`
-		RequestDigest   string `json:"request_digest"`
-	}{"review_started", sessionID, runID, runManifestURI, reviewArtifactURI, roleReportURIs, result.Guarded(), result.ProjectBinding(), result.CaptureIdentity(), result.RequestDigest()})
+		Guarded              bool   `json:"guarded"`
+		ProjectBinding       string `json:"project_binding"`
+		SourceIdentitySHA256 string `json:"source_identity_sha256"`
+	}{"review_started", sessionID, runID, runManifestURI, reviewArtifactURI, roleReportURIs, result.Guarded(), result.ProjectBinding(), result.SourceIdentitySHA256()})
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
@@ -354,7 +235,7 @@ func (application *Application) handleReview(ctx context.Context, invocation Inv
 	}
 }
 
-// PreflightReview captures and validates the execution-free review projection
+// PreflightReview admits and validates the execution-free review projection
 // through the same configured authority used by the CLI.
 func (application *Application) PreflightReview(
 	ctx context.Context,
@@ -498,208 +379,6 @@ func mergeCommittedReasonDetails(reasonCodes []string, attributed []app.Committe
 	return merged, nil
 }
 
-func (application *Application) handleFollowup(ctx context.Context, invocation Invocation) execution {
-	request, available := invocation.Followup()
-	if !available {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
-	}
-	if application.followupRuns == nil {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("followup service unavailable"), domain.FailureProviderUnavailable)}
-	}
-	sourceRunID, err := domain.ParseRunID(request.SourceRunID())
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-	}
-	target, err := followupTarget(request.Target())
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-	}
-	var objective *string
-	if value, present := request.Objective(); present {
-		objective = &value
-	}
-	var role *domain.Role
-	if value, present := request.Role(); present {
-		parsed := domain.Role(value)
-		if !parsed.Valid() {
-			return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid role"), domain.FailureConfiguration)}
-		}
-		role = &parsed
-	}
-	result, err := application.followupRuns.StartFollowupRun(ctx, appfollowup.Request{
-		SourceRunID: sourceRunID, FindingID: request.FindingID(), Target: target, Objective: objective, Role: role,
-	})
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
-	}
-	sessionID, runID, artifact := result.SessionID, result.RunID, result.ArtifactURI
-	status := result.StructuredExtractionStatus
-	roleReportURIs, err := commandRoleReportURIs(sessionID, runID, result.RoleReportURIs)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	if !validCommandRunID(runID) || !validCommandURI(artifact) || !status.Valid() {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid followup result"), domain.FailureInternal)}
-	}
-	var resolutionValue *string
-	switch status {
-	case domain.StructuredExtractionStructured:
-		if result.FollowupResolution == nil || !result.FollowupResolution.Valid() {
-			return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid structured followup resolution"), domain.FailureInternal)}
-		}
-		value := string(*result.FollowupResolution)
-		resolutionValue = &value
-	case domain.StructuredExtractionReportsOnly:
-		if result.FollowupResolution != nil {
-			return execution{failure: executionFailureFor(invocation.Command(), errors.New("reports-only followup must leave resolution null"), domain.FailureInternal)}
-		}
-	default:
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid followup extraction status"), domain.FailureInternal)}
-	}
-	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	data, err := json.Marshal(struct {
-		Kind                       string  `json:"kind"`
-		SessionID                  string  `json:"session_id"`
-		RunID                      string  `json:"run_id"`
-		FollowupArtifactURI        string  `json:"followup_artifact_uri"`
-		Resolution                 *string `json:"resolution"`
-		StructuredExtractionStatus string  `json:"structured_extraction_status"`
-		RoleReportURIs             []struct {
-			Role string `json:"role"`
-			URI  string `json:"uri"`
-		} `json:"role_report_uris"`
-	}{"followup_started", sessionID, runID, artifact, resolutionValue, string(status), roleReportURIs})
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	humanResolution := "null"
-	if resolutionValue != nil {
-		humanResolution = *resolutionValue
-	}
-	return execution{
-		human: []byte("followup started: " + runID + "\nresolution: " + humanResolution + "\nstructured_extraction_status: " + string(status)),
-		data:  data, exit: exit, committedReasons: reasons,
-	}
-}
-
-func (application *Application) handleDelta(ctx context.Context, invocation Invocation) execution {
-	request, available := invocation.Delta()
-	if !available {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
-	}
-	if application.deltaRuns == nil {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("delta service unavailable"), domain.FailureProviderUnavailable)}
-	}
-	sourceRunID, err := domain.ParseRunID(request.SourceRunID())
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-	}
-	target, err := deltaTarget(request.Target())
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-	}
-	roles := make([]domain.Role, len(request.Roles()))
-	for index, value := range request.Roles() {
-		roles[index] = domain.Role(value)
-		if !roles[index].Valid() {
-			return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid role"), domain.FailureConfiguration)}
-		}
-	}
-	result, err := application.deltaRuns.StartDeltaRun(ctx, appdelta.StartRequest{SourceRunID: sourceRunID, Target: target, Roles: roles})
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
-	}
-	sessionID, runID, artifact := result.SessionID, result.RunID, result.ArtifactURI
-	roleReportURIs, err := commandRoleReportURIs(sessionID, runID, result.RoleReportURIs)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	if !validCommandRunID(runID) || !validCommandURI(artifact) {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid delta result"), domain.FailureInternal)}
-	}
-	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	data, err := json.Marshal(struct {
-		Kind              string `json:"kind"`
-		SessionID         string `json:"session_id"`
-		RunID             string `json:"run_id"`
-		ReviewArtifactURI string `json:"review_artifact_uri"`
-		RoleReportURIs    []struct {
-			Role string `json:"role"`
-			URI  string `json:"uri"`
-		} `json:"role_report_uris"`
-	}{"delta_started", sessionID, runID, artifact, roleReportURIs})
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	return execution{human: []byte("delta started: " + runID), data: data, exit: exit, committedReasons: reasons}
-}
-
-func (application *Application) handleRerun(ctx context.Context, invocation Invocation) execution {
-	request, available := invocation.Rerun()
-	if !available {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
-	}
-	if application.reruns == nil {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("rerun service unavailable"), domain.FailureProviderUnavailable)}
-	}
-	sourceRunID, err := domain.ParseRunID(request.SourceRunID())
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-	}
-	sourceAttemptID, err := domain.ParseAttemptID(request.SourceAttemptID())
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
-	}
-	mode := appreplay.ReplayMode(request.ReplayMode())
-	result, err := application.reruns.StartRerun(ctx, appreplay.Request{SourceRunID: sourceRunID, SourceAttemptID: sourceAttemptID, ReplayMode: mode})
-	if err != nil {
-		var sessionID, runID *string
-		if session, run, ok := reviewrun.RuntimeDiagnosticIdentityFromError(err); ok {
-			sessionValue, runValue := session.String(), run.String()
-			sessionID, runID = &sessionValue, &runValue
-		}
-		data, projectionErr := json.Marshal(struct {
-			Kind              string  `json:"kind"`
-			SessionID         *string `json:"session_id"`
-			RunID             *string `json:"run_id"`
-			PromptManifestURI *string `json:"prompt_manifest_uri"`
-		}{"rerun_started", sessionID, runID, nil})
-		return execution{failureData: data, failure: executionFailureFor(invocation.Command(), errors.Join(err, projectionErr), domain.FailureArtifact)}
-	}
-	sessionID, runID, manifest := result.SessionID, result.RunID, result.ArtifactURI
-	roleReportURIs, err := commandRoleReportURIs(sessionID, runID, result.RoleReportURIs)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	if !validCommandRunID(runID) || !validCommandURI(manifest) {
-		return execution{failure: executionFailureFor(invocation.Command(), errors.New("invalid rerun result"), domain.FailureInternal)}
-	}
-	exit, reasons, err := committedTerminalOutcome(result.TerminalExit)
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	data, err := json.Marshal(struct {
-		Kind              string `json:"kind"`
-		SessionID         string `json:"session_id"`
-		RunID             string `json:"run_id"`
-		PromptManifestURI string `json:"prompt_manifest_uri"`
-		RoleReportURIs    []struct {
-			Role string `json:"role"`
-			URI  string `json:"uri"`
-		} `json:"role_report_uris"`
-	}{"rerun_started", sessionID, runID, manifest, roleReportURIs})
-	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
-	}
-	return execution{human: []byte("rerun started: " + runID), data: data, exit: exit, committedReasons: reasons}
-}
-
 func (application *Application) handleClean(ctx context.Context, invocation Invocation) execution {
 	request, available := invocation.Clean()
 	if !available {
@@ -763,32 +442,6 @@ func (application *Application) handleExport(ctx context.Context, invocation Inv
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureInternal)}
 	}
 	return execution{human: []byte("export created: " + result.BundleURI), data: data}
-}
-
-func followupTarget(request TargetRequest) (appfollowup.Target, error) {
-	kind := appfollowup.TargetKind(request.Kind())
-	switch kind {
-	case appfollowup.TargetWorkspace, appfollowup.TargetStage, appfollowup.TargetDirty, appfollowup.TargetDiff, appfollowup.TargetPatch, appfollowup.TargetStdin:
-		if strings.TrimSpace(request.Value()) == "" {
-			return appfollowup.Target{}, errors.New("empty target")
-		}
-		return appfollowup.Target{Kind: kind, Value: request.Value()}, nil
-	default:
-		return appfollowup.Target{}, errors.New("unsupported target")
-	}
-}
-
-func deltaTarget(request TargetRequest) (appdelta.TargetRequest, error) {
-	kind := appdelta.TargetKind(request.Kind())
-	switch kind {
-	case appdelta.TargetWorkspace, appdelta.TargetStage, appdelta.TargetDirty, appdelta.TargetDiff, appdelta.TargetPatch, appdelta.TargetStdin:
-		if len(request.Value()) == 0 || len(request.Value()) > 4096 || strings.TrimSpace(request.Value()) == "" || strings.ContainsAny(request.Value(), "\x00\r\n") {
-			return appdelta.TargetRequest{}, errors.New("invalid target")
-		}
-		return appdelta.TargetRequest{Kind: kind, Value: request.Value()}, nil
-	default:
-		return appdelta.TargetRequest{}, errors.New("unsupported target")
-	}
 }
 
 func validCommandURI(value string) bool {
@@ -2347,7 +2000,7 @@ func diagnosticStatusResultData(request StatusRequest, status ports.RuntimeDiagn
 	if terminalPhase != "" {
 		terminalPhaseValue = &terminalPhase
 	}
-	recoveryAction := "rerun_review"
+	recoveryAction := "none"
 	diagnosticSummary, hasDiagnosticSummary := status.DiagnosticSummary()
 	return json.Marshal(struct {
 		FailedRunRecovery    recovery.Status          `json:"failed_run_recovery"`
@@ -2398,9 +2051,9 @@ func diagnosticStatusHumanOutput(status ports.RuntimeDiagnosticRunStatus) []byte
 		}
 	}
 	if phase.Valid() {
-		return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d terminal_phase=%s recovery_action=rerun_review publication_authority=false%s", status.RunID().String(), status.State(), completed, total, failed, phase, suffix))
+		return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d terminal_phase=%s recovery_action=none publication_authority=false%s", status.RunID().String(), status.State(), completed, total, failed, phase, suffix))
 	}
-	return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d recovery_action=rerun_review publication_authority=false%s", status.RunID().String(), status.State(), completed, total, failed, suffix))
+	return []byte(fmt.Sprintf("diagnostic run %s: state=%s role_paths=%d/%d failed=%d recovery_action=none publication_authority=false%s", status.RunID().String(), status.State(), completed, total, failed, suffix))
 }
 
 func roleStrings(roles []domain.Role) []string {
@@ -2711,7 +2364,8 @@ func classifyHandlerFailure(stage string, fallback domain.FailureClass, reason s
 			return cause
 		}
 		var failure *domain.Failure
-		if errors.As(cause, &failure) ||
+		var source *ports.LiveSourceError
+		if errors.As(cause, &failure) || errors.As(cause, &source) ||
 			errors.Is(cause, context.Canceled) ||
 			errors.Is(cause, context.DeadlineExceeded) {
 			return cause

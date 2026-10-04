@@ -4,35 +4,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/irootkernel/mulgae/internal/app/childrun"
 	appclean "github.com/irootkernel/mulgae/internal/app/clean"
-	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	appexport "github.com/irootkernel/mulgae/internal/app/export"
-	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
-	apprerun "github.com/irootkernel/mulgae/internal/app/rerun"
-	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // G008IdentityGenerator supplies the distinct identities needed by command
-// envelopes, delta children, and rerun children.
+// envelopes and verified export identities.
 type G008IdentityGenerator interface {
 	RequestIDGenerator
 	NewRunID(time.Time) (domain.RunID, error)
-}
-
-// G008OnlineAuthority is the complete, explicit authority required to create
-// online child workflows. A nil authority leaves all three workflows absent;
-// a partial authority is rejected rather than inferred from adjacent services.
-type G008OnlineAuthority struct {
-	FollowupTargetCapturer appfollowup.CurrentTargetCapturer
-	DeltaTargetCapturer    appdelta.TargetCapturer
-	DeltaComparator        appdelta.Comparator
-	ChildExecutor          *childrun.Executor
-	FollowupExecutor       *childrun.FollowupExecutor
-	RerunAssignments       []review.Assignment
 }
 
 // G008Composition is the complete input for the G008 Dependencies projection.
@@ -45,8 +28,6 @@ type G008Composition struct {
 	IDs                  G008IdentityGenerator
 	ExportInstaller      appexport.ExportInstaller
 	PublicationAuthority ports.PublicationStore
-
-	Online *G008OnlineAuthority
 
 	CleanStore     appclean.ApplyStore
 	CleanValidator appclean.SchemaValidator
@@ -93,33 +74,5 @@ func NewG008Dependencies(composition G008Composition) (Dependencies, error) {
 		dependencies.Retention = NewRetentionService(clean)
 	}
 
-	if composition.Online == nil {
-		return dependencies, nil
-	}
-	authority := composition.Online
-	if nilApplicationDependency(authority.FollowupTargetCapturer) || nilApplicationDependency(authority.DeltaTargetCapturer) || nilApplicationDependency(authority.DeltaComparator) || authority.ChildExecutor == nil || authority.FollowupExecutor == nil || len(authority.RerunAssignments) == 0 {
-		return Dependencies{}, fmt.Errorf("G008 composition: incomplete online authority")
-	}
-	sources, err := NewG008Sources(composition.ArtifactRoot, composition.RequestResolver, composition.Queries)
-	if err != nil {
-		return Dependencies{}, fmt.Errorf("G008 composition: sources: %w", err)
-	}
-	followup, err := appfollowup.NewService(sources, authority.FollowupTargetCapturer, authority.FollowupExecutor)
-	if err != nil {
-		return Dependencies{}, fmt.Errorf("G008 composition: followup service: %w", err)
-	}
-	delta, err := appdelta.NewService(composition.Clock, composition.IDs, sources, authority.DeltaTargetCapturer, authority.DeltaComparator, authority.ChildExecutor)
-	if err != nil {
-		return Dependencies{}, fmt.Errorf("G008 composition: delta service: %w", err)
-	}
-	rerun, err := apprerun.NewService(sources, authority.ChildExecutor, apprerun.Config{
-		Clock: composition.Clock, IDs: composition.IDs, Assignments: authority.RerunAssignments,
-	})
-	if err != nil {
-		return Dependencies{}, fmt.Errorf("G008 composition: rerun service: %w", err)
-	}
-	dependencies.FollowupRuns = NewFollowupRunService(followup)
-	dependencies.DeltaRuns = NewDeltaRunService(delta)
-	dependencies.Reruns = NewRerunService(rerun)
 	return dependencies, nil
 }

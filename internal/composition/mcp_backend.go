@@ -6,14 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/app/query"
-	"github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
@@ -23,6 +21,7 @@ import (
 
 type mcpBackend struct {
 	projectContexts *query.ProjectContextService
+	workspaceLease  ports.WorkspaceRootLease
 	contextLease    ports.ProjectBindingLease
 	contextError    error
 	projectRoot     ports.AnchoredRoot
@@ -91,26 +90,12 @@ func (backend *mcpBackend) PreflightReview(
 }
 
 func summarizeMCPPreflight(result mulgaeentry.ReviewPreflightResult) (map[string]any, error) {
-	fileSets := make([]any, 0, len(result.FileSets))
-	for _, set := range result.FileSets {
-		var totalBytes int64
-		for _, file := range set.Files {
-			if file.Size > 0 && totalBytes > math.MaxInt64-file.Size {
-				return nil, newMCPFailure("mcp.preflight", domain.FailureInternal, "MCP preflight file summary overflowed", nil)
-			}
-			totalBytes += file.Size
-		}
-		fileSets = append(fileSets, map[string]any{
-			"id": set.ID, "policy_identity": set.PolicyIdentity,
-			"file_count": len(set.Files), "total_bytes": totalBytes,
-		})
-	}
 	return map[string]any{
-		"status": result.Status, "qualification": result.Qualification, "target": result.Target,
-		"warnings":  result.Warnings,
-		"file_sets": fileSets, "generated_files": result.GeneratedFiles,
-		"transmissions": result.Transmissions, "budget": result.Budget,
-		"project_binding": result.ProjectBinding, "capture_identity": result.CaptureIdentity, "request_receipt": result.RequestReceipt, "capabilities": result.Capabilities,
+		"schema_version": result.SchemaVersion, "status": result.Status, "qualification": result.Qualification,
+		"target": result.Target, "candidate_count": result.CandidateCount, "read_count": len(result.ReadPlan),
+		"warnings": result.Warnings, "transmissions": result.Transmissions, "budget": result.Budget,
+		"project_binding": result.ProjectBinding, "configuration_sha256": result.ConfigurationSHA256,
+		"source_identity_sha256": result.SourceIdentitySHA256, "capabilities": result.Capabilities,
 	}, nil
 }
 
@@ -169,74 +154,25 @@ func (backend *mcpBackend) RunReview(
 		"run_manifest_uri": result.RunManifestURI(), "review_artifact_uri": result.ReviewArtifactURI(),
 		"role_report_uris": reports, "report_resource_uri": reportURI,
 		"terminal_exit_code": int(decision.Code()), "reasons": reasons,
-		"guarded": result.Guarded(), "project_binding": result.ProjectBinding(), "capture_identity": result.CaptureIdentity(), "request_digest": result.RequestDigest(),
+		"guarded": result.Guarded(), "project_binding": result.ProjectBinding(), "source_identity_sha256": result.SourceIdentitySHA256(),
 	}}, nil
 }
 
-func (backend *mcpBackend) ComposeReview(
-	ctx context.Context,
-	requestID string,
-	input mcpentry.ComposeReviewInput,
-) (mcpentry.BackendResult, error) {
-	if err := backend.preflight(ctx); err != nil {
-		return mcpentry.BackendResult{}, err
-	}
-	arguments := []string{"compose", "--root-run", input.RootRunID}
-	for _, runID := range input.RecoveryRuns {
-		arguments = append(arguments, "--recovery-run", runID)
-	}
-	invocation, err := mulgaeentry.Parse(arguments, backend.projectRoot.String(), requestID)
-	if err != nil {
-		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", domain.FailureConfiguration, "MCP composition request is invalid", err)
-	}
-	request, available := invocation.Compose()
-	if !available {
-		return mcpentry.BackendResult{}, newMCPFailure("mcp.compose", domain.FailureInternal, "MCP composition request is unavailable", nil)
-	}
-	result, err := backend.application.ComposeReview(ctx, request)
-	if err != nil {
-		return mcpentry.BackendResult{}, err
-	}
-	return projectMCPCompositeResult(result)
-}
-
-func projectMCPCompositeResult(result reviewcompose.PublishedResult) (mcpentry.BackendResult, error) {
-	data, err := mulgaeentry.ProjectCompositeResult(result)
-	if err != nil {
-		return mcpentry.BackendResult{}, mcpCompositeProjectionFailure(result, "MCP composition result is invalid", err)
-	}
-	reportURI, err := mcpentry.NewReportResourceURI(result.RunID().String())
-	if err != nil {
-		return mcpentry.BackendResult{}, mcpCompositeProjectionFailure(result, "MCP composition report URI is invalid", err)
-	}
-	data["report_resource_uri"] = reportURI
-	outcome := "success"
-	if result.CIDecision() == domain.CIFail {
-		outcome = "request_changes"
-	}
-	return mcpentry.BackendResult{Outcome: outcome, Data: data}, nil
-}
-
-func mcpCompositeProjectionFailure(result reviewcompose.PublishedResult, detail string, cause error) error {
-	failure := newMCPFailure("mcp.compose", domain.FailureInternal, detail, cause)
-	return reviewcompose.NewReconciliationFailure(result, detail, failure)
-}
-
 func mcpReviewArguments(input mcpentry.RunReviewInput) ([]string, error) {
+	if _, err := ports.NewLiveSourceSelector(domain.LiveSourceScope(input.Target.Kind), input.Target.Value); err != nil {
+		return nil, fmt.Errorf("MCP review target is invalid")
+	}
 	arguments := []string{"review"}
 	switch input.Target.Kind {
-	case "workspace", "stage", "dirty":
+	case "workspace", "stage", "head":
 		arguments = append(arguments, "--"+input.Target.Kind)
-	case "diff", "patch":
+	case "diff", "commit":
 		arguments = append(arguments, "--"+input.Target.Kind, input.Target.Value)
 	default:
 		return nil, fmt.Errorf("MCP review target is invalid")
 	}
 	if input.ExpectedProjectBinding != nil {
 		arguments = append(arguments, "--expected-project-binding", *input.ExpectedProjectBinding)
-	}
-	if input.ExpectedRequestDigest != nil {
-		arguments = append(arguments, "--expected-request-digest", *input.ExpectedRequestDigest)
 	}
 	if input.Objective != "" {
 		arguments = append(arguments, "--objective", input.Objective)
@@ -478,7 +414,13 @@ func (backend *mcpBackend) ReadResource(ctx context.Context, request mcpentry.Re
 		case mcpentry.ResourceReport:
 			chunk, err = backend.queries.ReadReport(ctx, run, binding, request.Role(), request.Continuation())
 		case mcpentry.ResourceEvidence:
-			chunk, err = backend.queries.ReadEvidence(ctx, run, binding, request.FindingID(), request.TargetSHA256(), request.EvidenceIndex(), request.Continuation())
+			if request.SourceIdentitySHA256() != "" {
+				chunk, err = backend.queries.ReadSourceEvidence(ctx, run, binding, request.FindingID(), request.SourceIdentitySHA256(), request.EvidenceIndex(), request.Continuation())
+			} else {
+				chunk, err = backend.queries.ReadEvidence(ctx, run, binding, request.FindingID(), request.TargetSHA256(), request.EvidenceIndex(), request.Continuation())
+			}
+		case mcpentry.ResourceSourceImage:
+			chunk, err = backend.queries.ReadSourceImage(ctx, run, binding, request.SourceIdentitySHA256(), request.SourceSide(), request.SourcePath(), request.Continuation())
 		default:
 			return mcpentry.ResourceContent{}, newMCPFailure("mcp.resource", domain.FailureConfiguration, "MCP resource kind is invalid", nil)
 		}
@@ -589,7 +531,14 @@ func (backend *mcpBackend) GetContext(ctx context.Context) (map[string]any, erro
 
 // checkReviewProject keeps review admission bound to the server startup lease.
 func (backend *mcpBackend) checkReviewProject(ctx context.Context, expected *string) error {
-	if backend.contextLease == nil && expected == nil {
+	if backend.contextLease == nil && expected == nil && backend.workspaceLease != nil {
+		if err := backend.workspaceLease.Revalidate(ctx); err != nil {
+			class := domain.FailureSecurityPolicy
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				class = domain.FailureCancelled
+			}
+			return newMCPFailure("mcp.admission", class, "startup workspace is unavailable or changed", err)
+		}
 		return nil
 	}
 	observed, err := backend.GetContext(ctx)

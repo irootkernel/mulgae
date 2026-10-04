@@ -658,7 +658,7 @@ type Identity struct {
 	ApplicationVersion        string
 	ApplicationMetadata       string
 	ApplicationMetadataSHA256 string
-	SnapshotManifest          string
+	ExecutionTargetIdentity   string
 	NamespaceLease            string
 	NamespaceGeneration       string
 }
@@ -669,7 +669,7 @@ func (identity Identity) complete() bool {
 		identity.ProfileGeneration == "" || identity.AdapterProfile == "" ||
 		identity.Version == "" || !canonicalAbsolute(identity.Executable) ||
 		identity.ExecutableSHA256 == "" || !canonicalAbsolute(identity.Launcher) ||
-		identity.LauncherSHA256 == "" || identity.SnapshotManifest == "" ||
+		identity.LauncherSHA256 == "" || identity.ExecutionTargetIdentity == "" ||
 		identity.NamespaceLease == "" || identity.NamespaceGeneration == "" {
 		return false
 	}

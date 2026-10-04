@@ -1044,7 +1044,7 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 		Version: probeVersion, Executable: definition.Executable(), ExecutableSHA256: definition.ExecutableSHA256(),
 		Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
 		ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
-		NamespaceLease: definition.Instance() + ":" + namespace.Generation(), NamespaceGeneration: namespace.Generation(), SnapshotManifest: "manifest-1",
+		NamespaceLease: definition.Instance() + ":" + namespace.Generation(), NamespaceGeneration: namespace.Generation(), ExecutionTargetIdentity: "manifest-1",
 	}
 	receipts, err := currentProbeAppReceipts(portCurrentProbeReceipts(result.Receipts), identity, definition, namespace.Generation(), []domain.Role{domain.RoleLogic})
 	if err != nil {

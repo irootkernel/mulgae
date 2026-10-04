@@ -369,48 +369,6 @@ func (id GitObjectID) String() string { return id.value }
 // Valid reports whether id is a canonical Git object identifier.
 func (id GitObjectID) Valid() bool { return validateGitObjectID(id.value) == nil }
 
-// GitCaptureRequest selects a Git target before symbolic references are
-// resolved. The resulting CapturedGitTarget, not these references, is the
-// immutable target identity.
-type GitCaptureRequest struct {
-	projectRoot      AnchoredRoot
-	baseReference    string
-	headReference    string
-	includeUntracked bool
-}
-
-// NewGitCaptureRequest validates a Git target selection. Both references are
-// required so a capture request has an explicit comparison basis.
-func NewGitCaptureRequest(projectRoot AnchoredRoot, baseReference, headReference string, includeUntracked bool) (GitCaptureRequest, error) {
-	if !projectRoot.Valid() {
-		return GitCaptureRequest{}, fmt.Errorf("Git capture request: invalid project root")
-	}
-	if err := validateGitReference(baseReference); err != nil {
-		return GitCaptureRequest{}, fmt.Errorf("Git capture request: invalid base reference: %w", err)
-	}
-	if err := validateGitReference(headReference); err != nil {
-		return GitCaptureRequest{}, fmt.Errorf("Git capture request: invalid head reference: %w", err)
-	}
-	return GitCaptureRequest{
-		projectRoot:      projectRoot,
-		baseReference:    baseReference,
-		headReference:    headReference,
-		includeUntracked: includeUntracked,
-	}, nil
-}
-
-// ProjectRoot returns the approved project root.
-func (request GitCaptureRequest) ProjectRoot() AnchoredRoot { return request.projectRoot }
-
-// BaseReference returns the requested base revision before resolution.
-func (request GitCaptureRequest) BaseReference() string { return request.baseReference }
-
-// HeadReference returns the requested head revision before resolution.
-func (request GitCaptureRequest) HeadReference() string { return request.headReference }
-
-// IncludeUntracked reports whether the capture must include an untracked manifest.
-func (request GitCaptureRequest) IncludeUntracked() bool { return request.includeUntracked }
-
 // CapturedGitTarget is the immutable Git target identity and its canonical
 // captured bytes. Bytes returns a defensive copy.
 type CapturedGitTarget struct {
@@ -483,11 +441,6 @@ func (target CapturedGitTarget) Bytes() []byte { return cloneBytes(target.bytes)
 type TrustedProjectReader interface {
 	ResolveCommit(context.Context, AnchoredRoot, string) (GitObjectID, error)
 	ReadFileAtCommit(context.Context, AnchoredRoot, GitObjectID, SafeRelativePath) ([]byte, error)
-}
-
-// GitTargetCapture resolves revisions and captures immutable Git target bytes.
-type GitTargetCapture interface {
-	Capture(context.Context, GitCaptureRequest) (CapturedGitTarget, error)
 }
 
 // PlatformObservation describes the platform observed by a readiness check.

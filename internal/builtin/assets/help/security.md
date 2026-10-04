@@ -1,115 +1,48 @@
 # Security
 
-The project, target, project context, and provider output are untrusted.
-Providers do not receive live access to the project tree. Mulgae captures the
-target, materializes an isolated read-only workspace, lets adapters grant
-selective read access to that sealed directory view, projects only required
-provider credentials, bounds subprocess lifetime, preserves complete provider
-stdout and stderr without a product byte ceiling, and keeps the streams separate.
-Workspace drift detected after execution overrides provider success. A single
-tree is exposed under `current/`; Git comparisons expose `before/` and `after/`.
+The project, project context, selected source and provider output are untrusted.
+Trusted Mulgae code owns admission, role/provider identity, process policy,
+evidence verification, reduction and atomic publication. Project configuration
+cannot supply executable commands.
 
-Structured extraction sends an accepted role report back to the same provider in
-one further prompt. Those bytes remain provider output and re-enter as an
-untrusted framed payload, never as a trusted layer; the extraction contract
-states they are data to transcribe rather than instructions or authority. That
-invocation gets the same read-only workspace view, no write grant, and always
-returns on stdout. It cannot emit identity, verification, coverage, or
-publication state, and Mulgae publishes its findings only after verifying every
-one of them against the immutable target. Only an ordinary transcription or
-provider failure is absorbed; a security, mutation, configuration, artifact,
-cancellation, or internal failure seen during extraction still denies
-publication.
+Providers read the admitted original project and Git objects from a pinned
+neutral `~/.mulgae/home` process/session directory. Mulgae preserves a safe
+regular guide there and injects it once. It does not load project or ancestor
+instruction files as authority. Project context remains framed untrusted data.
 
-Project configuration cannot introduce executable commands. Supported provider
-adapters are compiled into Mulgae.
+ZCode and Grok require an outer Seatbelt policy for review and extraction.
+It denies source, Git and guide writes; credential-root reads, writes and links;
+and Unix sockets at protected roots. Grok's native sandbox is off only inside
+this mandatory guard. Codex uses its native read-only profile, approvals never,
+and explicit credential-root denial. All configured credential homes are
+protected, including unselected profiles and aliases. Provider namespaces and
+scratch are private and are removed after verified process drain.
 
-Two provider families are granted bounded review-output authority. A ZCode
-review runs with `Write` enabled so it can place its role report in a fresh per-invocation
-staging directory Mulgae creates under a disposable namespace, outside the
-workspace view and outside `.mulgae`. Exactly one filename is authorized, and Mulgae
-names the absolute path in the last trusted prompt layer. After the process
-exits, Mulgae validates that file through retained descriptors, rejecting
-symlinks, extra hard links, non-regular files, extra entries, ownership, mode,
-or identity drift, invalid UTF-8, NUL bytes, and empty or
-whitespace-only content. Accepted bytes are copied into
-`role-reports/<role>.md`; the provider's own file is never published, and
-staging is always removed. Grok receives the same single-destination outcome
-through ACP only after its session, tool-call ID, edit kind, `Write` variant,
-and exact path agree; all other permissions are rejected. Missing or unusable staged content is an ordinary
-invalid-output failure; a boundary violation fails closed.
+These controls are not general process, IPC, read or network containment.
+Reads outside credential roots and ordinary network requests remain permitted.
+Ignoring source paths is not a filesystem access restriction. Workspace
+selection uses `.gitignore`; `.mulgaeignore` is not processed or generated.
+Keep sensitive material outside the admitted readable source boundary.
 
-Be aware that ZCode has no path-scoped write permission, so that grant is not
-confined to staging by the provider itself. Containment is Mulgae-side: the
-read-only workspace view and its drift check, the disposable namespace, staging-only
-trusted read-back after full process termination, and validate-then-copy
-publication. A stray absolute-path write elsewhere is not blocked by Mulgae; a
-git-managed project tree keeps such a write detectable. This residual risk is
-an accepted owner decision and applies to ZCode review invocations only. It
-does not describe Grok's stricter ACP permission gate.
+Original workspace and index state must remain unchanged during review.
+Directory identity checks do not establish an atomic content view or detect
+all content drift. Committed scopes use fixed object IDs. Trusted Git reads use
+fixed argv and environment with hooks, fsmonitor, external diff, textconv and
+lazy fetch disabled.
 
-Codex uses a disposable `CODEX_HOME`, a read-only permission profile over the
-immutable workspace, approvals set to `never`, and an explicit model-tool deny
-for the projected credential directory. User configuration, rules, project
-instructions, web, apps, plugins, browser, hooks, image generation, and
-multi-agent features are disabled.
+Every provider returns a complete correlated protocol assistant report. There
+is no live-review report-file write grant. Reports, prompt payloads and complete
+provider streams have no product byte ceiling. Optional repair and extraction
+use the same provider and bounded role path; protected failures always deny
+repair or publication.
 
-Security, configuration, artifact, cancellation, and internal failures do not
-authorize repair or publication. Checksums, safe paths, schema identities,
-semantic ownership, and evidence must all agree before a final artifact is
-committed.
+New runs retain source selection metadata, verified excerpts, selected
+PNG/JPEG/WebP evidence, findings and role reports, never a full-source archive.
+Raster extension and signature must agree, and binary bodies remain binary.
+Historical capture readers verify stored manifests and blobs without current
+source fallback. Missing historical evidence is distinct from corruption.
 
-Commit only `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`, any other
-`.mulgae/**` path, provider credential directories, raw transcripts, or
-exported review bundles.
-
-Codex authentication comes only from a descriptor-anchored `auth.json`. Legacy
-configuration uses native `~/.codex`; named credential profiles use their exact
-machine-local homes. Mulgae copies only `auth.json` into a profile-specific
-disposable namespace with mode `0600`; profiles never share qualification or
-execution authority, and the provider permission model does not accept API-key
-environment credentials for the Codex adapter. Codex config, rules, skills, and
-plugins are not copied.
-
-Tracked `.gitignore`, `.mulgaeignore`, and exact `.mulgae/config.yaml` files are
-capture-policy controls, not review evidence. Mulgae accepts them as ordinary
-tracked controls but excludes their paths and contents from every provider
-target, snapshot, evidence record, manifest, and workspace. A patch or stdin
-target containing only excluded control content fails as
-`no_reviewable_content`; a Git target with only those changes is reported as no
-change. Every other tracked `.mulgae/**` path and selected unsafe symlink still
-fails closed.
-
-Review capture does not block source code or test fixtures because they look
-like credentials. The selected providers receive every path in the immutable
-captured workspace view. Use `.mulgaeignore` to exclude `.env`, `*.pem`, `*.key`, credential
-directories, generated data, or any other path that must not be transmitted.
-Each provider workspace includes a v3 `._mulgae_workspace_manifest.json`,
-which lists the exact transmitted paths, sizes, hashes, media types, and
-capture dispositions. Every eligible regular file is preserved byte-for-byte.
-PNG, JPEG, and WebP media types require extension and signature validation;
-other non-text files use `application/octet-stream`. Added and modified hinted
-rasters are listed as primary artist metadata with before/after sides. The
-artist may inspect any other captured image for history or comparison;
-line-oriented
-evidence readers omit their binary bodies instead of decoding them as UTF-8.
-Invalid raster signatures are reported as `unsupported_content`.
-.mulgaeignore still applies. Output redaction and
-configuration credential checks remain separate security boundaries. The
-reference-only captured archive manifest, its SHA-256 blobs, and the workspace
-manifest, rather than Git's path-only marker for every non-text file, bind the
-exact non-text bytes; dirty capture revalidates them before use.
-
-Source capture has no fixed file-count, aggregate-byte, per-file, diff, patch,
-or stdin ceiling. Git comparisons expose complete immutable `before/` and
-`after/` trees; other reviews expose `current/`. Provider execution, output,
-diagnostics, structured publication members, and fixed-size storage reads retain
-their separate operational limits. Source-sized target material, capture
-manifests and blobs, artist inputs, prompt stdin, and the support index are
-persisted at their actual size. Provider-authored role reports have no fixed size
-ceiling.
-
-Credential-like raw provider streams may be omitted from private diagnostics
-without failing an otherwise valid review. Validated final reviews and
-path-authorized source evidence remain publishable; generic writes and exports
-retain their separate secret-rejection controls.
+Commit only `.mulgae/config.yaml`. Keep `.mulgae/local.yaml` mode `0600` and
+untracked, along with credentials, provider homes, runtime artifacts, raw
+transcripts and exports. Public diagnostics and redacted exports must not leak
+native paths, credentials or raw provider transcripts.

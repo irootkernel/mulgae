@@ -14,8 +14,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// Adapter captures immutable Git targets and reads trusted project files from
-// already-resolved commits.
+// Adapter reads trusted project files from already-resolved commits.
 type Adapter struct {
 	runner                       Runner
 	newCanonicalRepository       canonicalRepositoryFactory
@@ -29,7 +28,6 @@ type canonicalRepositoryFactory func(ports.AnchoredRoot, ...string) (canonicalRe
 
 type canonicalObjectRepositoryFactory func(ports.AnchoredRoot, ports.GitObjectID) (canonicalRepository, func() error, error)
 
-var _ ports.GitTargetCapture = (*Adapter)(nil)
 var _ ports.TrustedProjectReader = (*Adapter)(nil)
 
 // New constructs a Git target adapter around an injectable direct-argv runner.
@@ -59,71 +57,6 @@ func (adapter *Adapter) Transcript() []Command {
 	return transcript
 }
 
-// Capture resolves base and head exactly once, then captures only immutable OID
-// inputs. It never invokes Git commands that write repository state.
-func (adapter *Adapter) Capture(ctx context.Context, request ports.GitCaptureRequest) (target ports.CapturedGitTarget, captureErr error) {
-	if adapter == nil || adapter.runner == nil {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture: nil adapter")
-	}
-	if ctx == nil {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture: nil context")
-	}
-	if !request.ProjectRoot().Valid() {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture: invalid project root")
-	}
-
-	repository, cleanup, err := adapter.newCanonicalRepository(request.ProjectRoot(), request.BaseReference(), request.HeadReference())
-	if err != nil {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture canonical repository: %w", err)
-	}
-	defer finalizeCanonicalCleanup(cleanup, "Git capture", &captureErr, func() {
-		target = ports.CapturedGitTarget{}
-	})
-
-	baseObjectID, err := adapter.resolveCommit(ctx, repository, request.BaseReference())
-	if err != nil {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture resolve base: %w", err)
-	}
-	headObjectID, err := adapter.resolveCommit(ctx, repository, request.HeadReference())
-	if err != nil {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture resolve head: %w", err)
-	}
-	headTreeID, err := adapter.headTree(ctx, repository, headObjectID)
-	if err != nil {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture head tree: %w", err)
-	}
-	diff, err := adapter.diff(ctx, repository, baseObjectID, headObjectID)
-	if err != nil {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture diff: %w", err)
-	}
-
-	var inventory []byte
-	if request.IncludeUntracked() {
-		inventory, err = adapter.untrackedInventory(ctx, request.ProjectRoot())
-		if err != nil {
-			return ports.CapturedGitTarget{}, fmt.Errorf("Git capture untracked inventory: %w", err)
-		}
-	}
-
-	capturedBytes := canonicalCapturedBytes(
-		repository.repositoryID,
-		baseObjectID,
-		headObjectID,
-		headTreeID,
-		nil,
-		request.IncludeUntracked(),
-		diff,
-		inventory,
-	)
-	target, err = ports.NewCapturedGitTarget(repository.repositoryID, baseObjectID, headObjectID, headTreeID, nil, capturedBytes)
-	if err != nil {
-		return ports.CapturedGitTarget{}, fmt.Errorf("Git capture target: %w", err)
-	}
-	return target, nil
-}
-
-// ResolveCommit resolves reference exactly once to a canonical immutable commit
-// ID. Callers must pass the returned ID to ReadFileAtCommit rather than a ref.
 func (adapter *Adapter) ResolveCommit(ctx context.Context, root ports.AnchoredRoot, reference string) (commit ports.GitObjectID, resolveErr error) {
 	if adapter == nil || adapter.runner == nil {
 		return ports.GitObjectID{}, fmt.Errorf("Git resolve commit: nil adapter")
@@ -212,44 +145,6 @@ func (adapter *Adapter) headTree(ctx context.Context, repository canonicalReposi
 		return ports.GitObjectID{}, err
 	}
 	return parseObjectID(result.Stdout, "head tree")
-}
-
-func (adapter *Adapter) diff(ctx context.Context, repository canonicalRepository, base, head ports.GitObjectID) ([]byte, error) {
-	result, err := adapter.run(ctx, repository.sourceCommand(
-		"diff",
-		"--binary",
-		"--full-index",
-		"--no-ext-diff",
-		"--no-color",
-		"--no-renames",
-		"--no-indent-heuristic",
-		"--diff-algorithm=myers",
-		"--no-textconv",
-		"--no-relative",
-		"--unified=3",
-		"--inter-hunk-context=0",
-		"--src-prefix=a/",
-		"--dst-prefix=b/",
-		"--submodule=short",
-		"--ignore-submodules=none",
-		base.String(),
-		head.String(),
-	))
-	if err != nil {
-		return nil, err
-	}
-	return cloneBytes(result.Stdout), nil
-}
-
-func (adapter *Adapter) untrackedInventory(ctx context.Context, root ports.AnchoredRoot) ([]byte, error) {
-	result, err := adapter.run(ctx, (Command{
-		Dir:  root.String(),
-		Args: []string{"ls-files", "--others", "--exclude-standard", "-z"},
-	}).withSourceSizedStdout())
-	if err != nil {
-		return nil, err
-	}
-	return cloneBytes(result.Stdout), nil
 }
 
 func (adapter *Adapter) run(ctx context.Context, command Command) (Result, error) {

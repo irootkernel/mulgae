@@ -208,18 +208,18 @@ the runtime sources of truth. Apply these rules when sources disagree:
   repository-root `main.go` only delegates process execution to it.
 - `internal/entrypoint/mulgae` owns parsing, dispatch, output, and selector
   resolution. It must not become the home of domain policy.
-- `internal/app/reviewrun` owns target capture, planning, qualification, prompts,
+- `internal/app/reviewrun` owns live source admission, planning, qualification, prompts,
   and orchestration; `internal/app/review` owns assignments, coordination,
   aggregation, and results.
 - `internal/app/validation` owns provider-wire validation, trusted-field injection,
   semantic checks, and constrained repair. `internal/app/publication` owns atomic
   manifests, attempts, final artifacts, recovery, and integrity.
-- `internal/app/{followup,delta,rerun}` owns child-run lineage and specialized
-  review behavior. `internal/app/{query,report,clean,export}` owns inspection and
-  artifact lifecycle behavior.
+- `internal/app/{query,report,clean,export}` owns verified live and historical
+  inspection and artifact lifecycle behavior. Child/replay/compose execution is
+  retired; historical domain values and support readers remain.
 - `internal/adapters/providercli` owns provider profiles, qualification,
-  credentials, and invocation; workspace and filesystem adapters own isolated
-  capture and secure project-local storage.
+  credentials, and invocation; workspace and filesystem adapters own neutral reviewer homes, qualification
+  fixtures and secure project-local storage.
 - Preserve the dependency direction in `docs/architecture/README.md`.
   Architecture tests enforce this boundary; do not create cycles or reverse
   infrastructure dependencies.
@@ -228,8 +228,11 @@ the runtime sources of truth. Apply these rules when sources disagree:
 
 - Mulgae is a local, multi-provider AI code review CLI. It does not approve a
   merge, release, waiver, security exception, or organizational decision.
-- Capture the review target immutably before provider execution. Providers must
-  not receive live access to the user's project tree.
+- Admit original workspace/index/resolved-Git source before provider execution.
+  Providers read original source from a pinned neutral cwd under native read-only
+  restrictions. Create no source snapshots, copied checkouts, worktrees or
+  full-source replay archives. The caller keeps workspace/index state unchanged;
+  source identity is selection metadata, not an atomic content fingerprint.
 - Treat project content, configuration, provider output, and evidence claims as
   untrusted. Trusted Mulgae code owns admission, identity, state transitions,
   evidence verification, reduction, and publication.
@@ -258,13 +261,14 @@ the runtime sources of truth. Apply these rules when sources disagree:
   versioned contracts. Automation must not depend on human-readable output.
 - Keep process lifetimes, configuration and transport inputs, workspaces,
   structured artifacts, concurrency, diagnostics metadata, and exported data
-  bounded. Provider content is deliberately unbounded: source capture, prompt
+  bounded. Provider content is deliberately unbounded: source observations, prompt
   payloads, role reports, and complete provider stdout and stderr carry no
   product byte ceiling. Do not add one. Avoid leaking native paths,
   credentials, raw provider transcripts, or private source through public
   diagnostics and exports.
-- Use `.mulgaeignore` to exclude files that must not be transmitted to a provider.
-  Do not mistake credential-pattern matching for source-capture admission policy.
+- Workspace discovery follows `.gitignore`; `.mulgaeignore` is neither generated
+  nor processed. Preserve existing user ignore files. Ignoring a path is not a
+  filesystem access restriction; credential roots remain explicit protected boundaries.
 - Preserve supported PNG, JPEG, and WebP files as binary evidence after
   extension and signature validation. Do not decode their bodies as text.
 - The complete release target is native Apple Silicon macOS. New platforms or

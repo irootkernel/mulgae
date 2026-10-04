@@ -5,17 +5,18 @@ package publication
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
-	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
-	"github.com/irootkernel/mulgae/internal/adapters/workspace"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/builtin"
@@ -24,12 +25,6 @@ import (
 )
 
 type publicationIntegrationIDs struct{ reviewID domain.ReviewID }
-
-type publicationArchiveStdin struct{}
-
-func (publicationArchiveStdin) TakeCapturedStdin(context.Context, string) ([]byte, error) {
-	return nil, errors.New("stdin is not used by the archive lifecycle fixture")
-}
 
 func (ids publicationIntegrationIDs) NewReviewID(time.Time) (domain.ReviewID, error) {
 	return ids.reviewID, nil
@@ -325,7 +320,7 @@ func TestIntegrationPublicationAcceptsTenMiBRoleReport(t *testing.T) {
 	}
 }
 
-func TestIntegrationCapturePublicationQueryArchiveRematerializationIsImmutable(t *testing.T) {
+func TestIntegrationHistoricalArchivePublicationAndQueryRemainImmutable(t *testing.T) {
 	ctx := context.Background()
 	project := t.TempDir()
 	publicationArchiveGit(t, project, "init")
@@ -337,20 +332,32 @@ func TestIntegrationCapturePublicationQueryArchiveRematerializationIsImmutable(t
 	publicationArchiveWrite(t, filepath.Join(project, "tracked.txt"), "captured worktree\n")
 	publicationArchiveWrite(t, filepath.Join(project, "untracked.txt"), "captured untracked\n")
 
-	projectRoot, err := ports.NewAnchoredRoot(project)
+	// Build a legacy artifact fixture without restoring a production capture path.
+	tracked, _ := ports.NewSafeRelativePath("tracked.txt")
+	untracked, _ := ports.NewSafeRelativePath("untracked.txt")
+	file := func(path ports.SafeRelativePath, raw string) ports.WorkspaceSnapshotFile {
+		sum := sha256.Sum256([]byte(raw))
+		value, err := ports.NewWorkspaceSnapshotFile(path, []byte(raw), "sha256:"+hex.EncodeToString(sum[:]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	files := []ports.WorkspaceSnapshotFile{file(tracked, "captured worktree\n"), file(untracked, "captured untracked\n")}
+	snapshot, err := ports.NewWorkspaceSnapshotRequest(files, "historical-fixture-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	detector := filesystem.NewContentDetector()
-	capturer, err := gittarget.NewReviewTargetCapturer(gittarget.NewExecRunner(), publicationArchiveStdin{}, detector)
+	object, _ := ports.ParseGitObjectID(strings.Repeat("a", 40))
+	target, err := ports.NewCapturedReviewGitTargetWithMode(domain.GitTargetDirty, "repository:historical-fixture", object, object, object, &object, []byte("historical diff\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	selector, err := ports.NewReviewTargetSelector(ports.ReviewTargetDirty, "dirty")
+	evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceBase: {file(tracked, "base\n")}, ports.CapturedEvidenceWorktree: files})
 	if err != nil {
 		t.Fatal(err)
 	}
-	material, err := capturer.CaptureReviewTarget(ctx, projectRoot, selector)
+	material, err := ports.NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, evidence)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,29 +484,6 @@ func TestIntegrationCapturePublicationQueryArchiveRematerializationIsImmutable(t
 		}
 	}
 
-	materializationRoot, err := ports.NewAnchoredRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	materializer, err := workspace.NewMaterializer(materializationRoot, detector)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := materializer.MaterializeLease(ctx, archived.Snapshot())
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshotPath := lease.WorkspaceSnapshotIdentity().SnapshotPath()
-	t.Cleanup(func() { publicationArchiveMakeWritable(snapshotPath) })
-	for _, file := range material.Snapshot().Files() {
-		got, readErr := os.ReadFile(filepath.Join(snapshotPath, filepath.FromSlash(file.Path().String())))
-		if readErr != nil || !bytes.Equal(got, file.Bytes()) {
-			t.Fatalf("rematerialized %q = %q, %v", file.Path(), got, readErr)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(snapshotPath, "later.txt")); !os.IsNotExist(err) {
-		t.Fatalf("post-P2 live file entered rematerialized archive: %v", err)
-	}
 }
 
 func publicationArchiveGit(t *testing.T, root string, arguments ...string) {
@@ -528,20 +512,6 @@ func publicationArchiveFilesEqual(left, right []ports.WorkspaceSnapshotFile) boo
 		}
 	}
 	return true
-}
-
-func publicationArchiveMakeWritable(root string) {
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		mode := os.FileMode(0o600)
-		if info.IsDir() {
-			mode = 0o700
-		}
-		_ = os.Chmod(path, mode)
-		return nil
-	})
 }
 
 func TestIntegrationPublicationFilesystemRecoversP0StagedToP2(t *testing.T) {

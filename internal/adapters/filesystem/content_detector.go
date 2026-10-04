@@ -14,28 +14,17 @@ import (
 const dangerousProviderInstructionCode = "dangerous_provider_instruction"
 
 // ContentDetector rejects provider auto-instruction files before review input
-// is hashed, persisted, or exposed to a provider. Source-code credential-like
-// text is review evidence, not an admission-policy signal; repository owners
-// control exclusions with .mulgaeignore.
+// is exposed to a provider. Source-code credential-like text is review evidence,
+// not an admission-policy signal. Live workspace selection follows .gitignore.
 type ContentDetector struct{}
 
 var (
-	_ ports.ReviewInputContentDetector         = (*ContentDetector)(nil)
-	_ ports.ReviewInputContentDetectorIdentity = (*ContentDetector)(nil)
-	_ ports.WorkspaceContentDetector           = (*ContentDetector)(nil)
+	_ ports.ReviewInputContentDetector = (*ContentDetector)(nil)
+	_ ports.WorkspaceContentDetector   = (*ContentDetector)(nil)
 )
 
 // NewContentDetector constructs the fixed production content admission policy.
 func NewContentDetector() *ContentDetector { return &ContentDetector{} }
-
-// ReviewInputDetectorIdentity returns the immutable version of the admission
-// policy used to screen review inputs.
-func (detector *ContentDetector) ReviewInputDetectorIdentity() string {
-	if detector == nil {
-		return ""
-	}
-	return "filesystem-content-detector-v2"
-}
 
 // DetectReviewInput checks one complete immutable input channel. Only
 // reference snapshots use their source ID as a workspace path; target,

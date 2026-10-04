@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -92,7 +93,7 @@ func TestProductionCandidateTemplatesBindDistinctFamilyTimeoutsToLimitsAndRuntim
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	candidates, err := source.NewLiveQualifiedRunCandidates(authorityLiveExecution(t).Target(), selection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestProductionCandidatesShardZCodeRolesAcrossSevenInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	candidates, err := source.NewLiveQualifiedRunCandidates(authorityLiveExecution(t).Target(), selection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +188,7 @@ func TestProductionCandidatesUseInjectedPolicyIdentitiesWithClosedCoverage(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	candidates, err := source.NewLiveQualifiedRunCandidates(authorityLiveExecution(t).Target(), selection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +235,7 @@ func TestProductionCandidatesBindConfiguredCodexRuntimeSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	candidates, err := source.NewLiveQualifiedRunCandidates(authorityLiveExecution(t).Target(), selection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +268,7 @@ func TestProductionCandidatesBindConfiguredGrokRuntimeSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	candidates, err := source.NewLiveQualifiedRunCandidates(authorityLiveExecution(t).Target(), selection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +341,7 @@ func TestValidateStartupProfilesRejectsMalformedAndCopiesArgv(t *testing.T) {
 		t.Fatalf("partial ZCode bundle blocked another usable provider: %v", err)
 	}
 }
-func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T) {
+func TestProductionCandidatesBindCurrentProfilesAndLiveSource(t *testing.T) {
 	profiles := []DiscoveredProviderProfile{
 		{family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher, argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery"},
 		{family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok", argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery"},
@@ -354,7 +355,12 @@ func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := source.NewQualifiedRunCandidates(nil, authorityCaptured(t), selection)
+	target := authorityLiveExecution(t).Target()
+	identity, err := evidence.NewLiveSourceIdentity(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := source.NewLiveQualifiedRunCandidates(target, selection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +373,7 @@ func TestProductionCandidatesBindCurrentProfilesAndCapturedManifest(t *testing.T
 		"codex-security": {domain.RoleSecurity}, "codex-testing": {domain.RoleTesting},
 	}
 	for _, candidate := range candidates {
-		if candidate.Definition.Version() != "" || candidate.SnapshotManifest != "sha256:"+qualifierTestSHA {
+		if candidate.Definition.Version() != "" || candidate.ExecutionTargetIdentity != identity.SHA256() {
 			t.Fatalf("candidate = %#v", candidate)
 		}
 		want := wantRoles[candidate.Definition.Instance()]

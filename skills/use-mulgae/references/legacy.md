@@ -12,23 +12,13 @@ evidence that this live server's canonical root equals the requested root.
 Registration/configuration, a tool name, successful preflight and equal patch
 hashes cannot prove it. If launch identity is missing or different, use CLI from
 the requested canonical root before starting. Do not launch another MCP server
-to retarget an existing session. Apply this root boundary to all reads and child
-or recovery workflows as well as execution.
+to retarget an existing session. Apply this root boundary to all reads and publication reconciliation as well as execution.
 
-When native `execution_guard` is absent and an unguarded review is within the
-user's authorization, compare CLI and bound-MCP preflight using exactly the same
-target, objective and roles. Compare `requested_kind`, `captured_kind`, `git_mode`,
-`sha256`, `size`, file-set IDs and policy identities, and role transmissions.
-A difference or observed target change stops provider execution. These checks
-cannot atomically bind a mutable target to later execution and cannot satisfy
-an explicitly requested native guard. Use the same arguments for execution and
-report the unguarded limitation.
-
-An attached server without guard support can still be bypassed before execution
-by a capable native CLI using paired guards. Keep its independently observed
-binding and fresh preflight receipt; do not splice receipts across binaries or
-change the authorized target. If no available path supports a requested guard,
-stop and report the unsupported contract.
+A current `live_source: v1` server uses independent project binding only.
+Empty `execution_guard` and `capture_identity` values do not establish legacy
+absence. Never manufacture capture receipts or duplicate preflights to simulate
+a content-drift guarantee. A required unsupported capability stops its dependent
+action; use a capable CLI from the independently selected root before starting.
 
 ## Legacy result access
 

@@ -121,7 +121,8 @@ type ReviewValidationScope struct {
 	LiveSource       evidence.LiveSourceIdentity
 	Role             domain.Role
 	ProviderInstance string
-	// VisualAssets binds captured design-spec paths to trusted SHA-256 values.
+	// VisualAssets binds captured paths, or live side-and-path keys separated by
+	// NUL, to verifier-owned image observations.
 	// It is used only for artist findings and is never populated from provider output.
 	VisualAssets           map[string]string
 	ArtistInputsConfigured bool
@@ -386,7 +387,13 @@ func validateVisualEvidence(provider map[string]any, scope ReviewValidationScope
 			}
 			path, _ := visual["path"].(string)
 			digest, _ := visual["sha256"].(string)
-			if expected, ok := scope.VisualAssets[path]; !ok || expected != digest {
+			key := path
+			if scope.LiveSource.Valid() {
+				current, _ := evidenceObject["current"].(map[string]any)
+				side, _ := current["side"].(string)
+				key = side + "\x00" + path
+			}
+			if expected, ok := scope.VisualAssets[key]; !ok || expected != digest {
 				return fmt.Errorf("review validation: unverified visual evidence at findings[%d].evidence[%d]", findingIndex, evidenceIndex)
 			}
 		}

@@ -21,6 +21,7 @@ type VerifiedReadRequest struct {
 	FindingID              string
 	Role                   string
 	TargetSHA256           string
+	SourceIdentitySHA256   string
 	EvidenceIndex          int
 	ExpectedProjectBinding string
 	Page                   query.InspectionRequest
@@ -46,6 +47,7 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 	}
 	if command == app.CommandExcerpt {
 		allowed["--current-target-sha256"] = true
+		allowed["--source-identity-sha256"] = true
 		allowed["--evidence-index"] = true
 	}
 	positional, options, err := parseOptions(arguments, allowed)
@@ -85,8 +87,9 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 		}
 		if command == app.CommandExcerpt {
 			request.TargetSHA256 = options["--current-target-sha256"]
-			if !validSHA256Identifier(request.TargetSHA256) {
-				return Invocation{}, usageError("excerpt requires canonical --current-target-sha256")
+			request.SourceIdentitySHA256 = options["--source-identity-sha256"]
+			if (request.TargetSHA256 == "") == (request.SourceIdentitySHA256 == "") || request.TargetSHA256 != "" && !validSHA256Identifier(request.TargetSHA256) || request.SourceIdentitySHA256 != "" && !validSHA256Identifier(request.SourceIdentitySHA256) {
+				return Invocation{}, usageError("excerpt requires exactly one canonical target or source identity")
 			}
 			if raw, present := options["--evidence-index"]; present {
 				n, err := strconv.Atoi(raw)
@@ -135,6 +138,10 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 		}
 	}
 	invocation.verifiedRead = &request
+	var evidenceIndex *int
+	if command == app.CommandExcerpt {
+		evidenceIndex = &request.EvidenceIndex
+	}
 	invocation.requestJSON, err = json.Marshal(struct {
 		RequestID                  string       `json:"request_id"`
 		Command                    string       `json:"command"`
@@ -150,8 +157,9 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 		Offset                     int64        `json:"offset,omitempty"`
 		Role                       string       `json:"role,omitempty"`
 		CurrentTargetSHA256        string       `json:"current_target_sha256,omitempty"`
-		EvidenceIndex              int          `json:"evidence_index,omitempty"`
-	}{requestID, string(command), run, string(request.Page.MinimumSeverity), request.FindingID, output, request.ExpectedProjectBinding, options["--expected-publication-receipt"], options["--expected-content-sha256"], request.Page.Limit, request.Page.Cursor, request.Continuation.Offset, request.Role, request.TargetSHA256, request.EvidenceIndex})
+		SourceIdentitySHA256       string       `json:"source_identity_sha256,omitempty"`
+		EvidenceIndex              *int         `json:"evidence_index,omitempty"`
+	}{requestID, string(command), run, string(request.Page.MinimumSeverity), request.FindingID, output, request.ExpectedProjectBinding, options["--expected-publication-receipt"], options["--expected-content-sha256"], request.Page.Limit, request.Page.Cursor, request.Continuation.Offset, request.Role, request.TargetSHA256, request.SourceIdentitySHA256, evidenceIndex})
 	return invocation, err
 }
 
@@ -179,6 +187,14 @@ func (adapter publicationQueryAdapter) ReadReport(ctx context.Context, run ports
 }
 func (adapter publicationQueryAdapter) ReadEvidence(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, finding, target string, index int, continuation query.ContentContinuation) (query.ContentChunk, error) {
 	return adapter.service.ReadEvidence(ctx, run, binding, finding, target, index, continuation)
+}
+
+func (adapter publicationQueryAdapter) ReadSourceEvidence(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, finding, source string, index int, continuation query.ContentContinuation) (query.ContentChunk, error) {
+	return adapter.service.ReadSourceEvidence(ctx, run, binding, finding, source, index, continuation)
+}
+
+func (adapter publicationQueryAdapter) ReadSourceImage(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, source, side, path string, continuation query.ContentContinuation) (query.ContentChunk, error) {
+	return adapter.service.ReadSourceImage(ctx, run, binding, source, side, path, continuation)
 }
 
 func (application *Application) handleVerifiedRead(ctx context.Context, invocation Invocation, root string) (result execution) {
@@ -238,7 +254,11 @@ func (application *Application) handleVerifiedRead(ctx context.Context, invocati
 		case app.CommandReadReport:
 			chunk, e = application.publicationQueries.ReadReport(ctx, run, binding, request.Role, request.Continuation)
 		case app.CommandExcerpt:
-			chunk, e = application.publicationQueries.ReadEvidence(ctx, run, binding, request.FindingID, request.TargetSHA256, request.EvidenceIndex, request.Continuation)
+			if request.SourceIdentitySHA256 != "" {
+				chunk, e = application.publicationQueries.ReadSourceEvidence(ctx, run, binding, request.FindingID, request.SourceIdentitySHA256, request.EvidenceIndex, request.Continuation)
+			} else {
+				chunk, e = application.publicationQueries.ReadEvidence(ctx, run, binding, request.FindingID, request.TargetSHA256, request.EvidenceIndex, request.Continuation)
+			}
 		}
 		if e != nil {
 			return fail(e)

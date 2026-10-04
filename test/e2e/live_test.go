@@ -29,8 +29,8 @@ import (
 )
 
 const (
-	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
-	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
+	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json"
+	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
 )
 
 type liveE2EEnvironment struct {
@@ -52,16 +52,14 @@ type liveCommandEnvelope struct {
 		Kind string `json:"kind"`
 	} `json:"exit"`
 	Result struct {
-		Kind                string              `json:"kind"`
-		SessionID           *string             `json:"session_id"`
-		RunID               *string             `json:"run_id"`
-		RunManifestURI      *string             `json:"run_manifest_uri"`
-		ReviewArtifactURI   *string             `json:"review_artifact_uri"`
-		FollowupArtifactURI *string             `json:"followup_artifact_uri"`
-		PromptManifestURI   *string             `json:"prompt_manifest_uri"`
-		RoleReportURIs      []liveRoleReportURI `json:"role_report_uris"`
-		Policy              json.RawMessage     `json:"policy"`
-		Doctor              json.RawMessage     `json:"doctor"`
+		Kind              string              `json:"kind"`
+		SessionID         *string             `json:"session_id"`
+		RunID             *string             `json:"run_id"`
+		RunManifestURI    *string             `json:"run_manifest_uri"`
+		ReviewArtifactURI *string             `json:"review_artifact_uri"`
+		RoleReportURIs    []liveRoleReportURI `json:"role_report_uris"`
+		Policy            json.RawMessage     `json:"policy"`
+		Doctor            json.RawMessage     `json:"doctor"`
 	} `json:"result"`
 	Reasons []liveReason `json:"reasons"`
 }
@@ -222,15 +220,15 @@ func TestE2EZCodeGrokReviewAggregation(t *testing.T) {
 
 	expected := map[string]string{"logic": "zcode-logic", "security": "grok-security"}
 	run := runLiveRecoverableWorkflowWithGate(t, validator, environment, project, "zcode-grok-review-aggregation", expected, validateLiveSingleInvocationGate,
-		"review", "--dirty",
-		"--objective", "Review the changed fixture strictly within your assigned functional role. Return a concise Markdown role report. The logic role must read counter.go and reproduce its logic-read marker verbatim. The security role must read report.go and reproduce its security-read marker verbatim. It is valid to report no defects; report only concrete actionable defects supported by the captured target.",
+		"review", "--workspace",
+		"--objective", "Review the changed fixture strictly within your assigned functional role. Return a concise Markdown role report. The logic role must read counter.go and reproduce its logic-read marker verbatim. The security role must read report.go and reproduce its security-read marker verbatim. It is valid to report no defects; report only concrete actionable defects supported by the selected original source.",
 		"--roles", "logic,security", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
 	assertLiveRoleReportMarker(t, project, run, "logic", logicMarker)
 	assertLiveRoleReportMarker(t, project, run, "security", securityMarker)
 	assertLiveReportsOnlyAggregation(t, run)
-	assertLiveRoleReportTransports(t, run, "review", true)
+	assertLiveRoleReportTransports(t, run, "review")
 	assertNoProjectProviderLocks(t, project)
 	doctorAfterReview := runLiveMulgae(t, validator, environment, project, 0, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorAfterReview.Result.Doctor)
@@ -294,7 +292,7 @@ func configureLiveMixedReview(t *testing.T, project string) {
 	config.Resources.RunMaxInvocations = 4
 	projectConfig, localConfig, err := adapterconfig.EncodeSplit(config)
 	if err != nil {
-		t.Fatalf("encode mixed-review Config v4 pair: %v", err)
+		t.Fatalf("encode mixed-review Config v5 pair: %v", err)
 	}
 	writeLiveExistingConfig(t, filepath.Join(project, ".mulgae", "config.yaml"), projectConfig)
 	writeLiveExistingConfig(t, filepath.Join(project, ".mulgae", "local.yaml"), localConfig)
@@ -873,7 +871,7 @@ func TestLiveArtifactURINormalizationIsProjectBound(t *testing.T) {
 func loadLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, project string, envelope liveCommandEnvelope, command string) livePublishedRun {
 	t.Helper()
 	if err := validateLivePublishedEnvelope(envelope); err != nil {
-		t.Fatalf("mulgae %s did not return a committed child identity: %v; exit=%#v reasons=%#v result=%#v", command, err, envelope.Exit, envelope.Reasons, envelope.Result)
+		t.Fatalf("mulgae %s did not return a committed review identity: %v; exit=%#v reasons=%#v result=%#v", command, err, envelope.Exit, envelope.Reasons, envelope.Result)
 	}
 	manifestURI := fmt.Sprintf(".mulgae/%s/%s/manifest.json", *envelope.Result.SessionID, *envelope.Result.RunID)
 	if envelope.Result.RunManifestURI != nil && *envelope.Result.RunManifestURI != manifestURI {
@@ -890,31 +888,23 @@ func loadLivePublishedWorkflow(t *testing.T, validator *jsonschema.Validator, pr
 	}
 	reviewURI := ".mulgae/" + manifest.FinalReview.Path
 	suppliedReviewURI := envelope.Result.ReviewArtifactURI
-	if command == "followup" {
-		suppliedReviewURI = envelope.Result.FollowupArtifactURI
-	}
 	if suppliedReviewURI != nil {
 		normalized, err := normalizeLiveArtifactURI(project, *suppliedReviewURI)
 		if err != nil || normalized != reviewURI {
 			t.Fatalf("mulgae %s returned final review URI %q, want %q: %v", command, *suppliedReviewURI, reviewURI, err)
 		}
 	}
-	if (command == "review" || command == "delta" || command == "followup") && suppliedReviewURI == nil {
+	if suppliedReviewURI == nil {
 		t.Fatalf("mulgae %s omitted its contract-defined final review URI", command)
 	}
-	if command == "rerun" {
-		if envelope.Result.PromptManifestURI == nil {
-			t.Fatal("mulgae rerun omitted its contract-defined prompt manifest URI")
-		}
-		_ = readLiveArtifact(t, project, *envelope.Result.PromptManifestURI)
-	}
+
 	reviewBytes := readLiveArtifact(t, project, reviewURI)
 	validateLiveJSON(t, validator, liveReviewSchema, reviewBytes, command+" review artifact")
 	var review liveReview
 	if err := json.Unmarshal(reviewBytes, &review); err != nil {
 		t.Fatalf("decode %s review: %v", command, err)
 	}
-	if manifest.RunID != *envelope.Result.RunID || review.RunID != manifest.RunID || manifest.RunType != command && !(command == "rerun" && manifest.RunType == "rerun") || review.RunType != manifest.RunType {
+	if manifest.RunID != *envelope.Result.RunID || review.RunID != manifest.RunID || manifest.RunType != command || review.RunType != manifest.RunType {
 		t.Fatalf("%s P2 identity mismatch: manifest=%#v review=%#v", command, manifest, review)
 	}
 	if manifest.ExitCode != envelope.Exit.Code || !manifest.Sealed || manifest.PublicationStatus != "committed" || manifest.PublicationAuthority != "P2" || review.PublicationStatus != "committed" {
@@ -969,7 +959,7 @@ func assertLiveRoleReportInventory(t *testing.T, project string, run livePublish
 			t.Fatalf("role report %q digest = %q, want %q", role, digest, report.SHA256)
 		}
 	}
-	if err := validateLiveRoleReportTransports(run, false); err != nil {
+	if err := validateLiveRoleReportTransports(run); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -990,56 +980,20 @@ func liveProviderFamily(providerInstance string) string {
 	return ""
 }
 
-// liveExpectedRoleReportTransport is the adapter-owned transport a committed
-// role report must record. The transport is per provider family and never
-// configurable: every ZCode or Grok review-family launch, including exact
-// replay, receives a fresh staged_file write grant; every other family keeps
-// stdout.
-func liveExpectedRoleReportTransport(providerInstance, _ string) string {
-	if family := liveProviderFamily(providerInstance); family == "zcode" || family == "grok" {
-		return "staged_file"
-	}
-	return "stdout"
-}
-
-func liveReplayMode(manifest liveManifest) string {
-	if manifest.ImmutableLineage.ReplayMode == nil {
-		return ""
-	}
-	return *manifest.ImmutableLineage.ReplayMode
-}
-
-// validateLiveRoleReportTransports binds every committed role-report inventory
-// entry to the transport its producing provider family is granted. It is part
-// of the canonical-equality surface: an absent, unknown, downgraded, or
-// upgraded transport is a contract violation, never a transient condition.
-// requireStagedFile additionally certifies that the run actually exercised the
-// staged_file route at least once.
-func validateLiveRoleReportTransports(run livePublishedRun, requireStagedFile bool) error {
-	replayMode := liveReplayMode(run.manifest)
-	staged := 0
+// Live reports are collected from native assistant responses. Review providers
+// receive no project or copied-workspace report-file write grant.
+func validateLiveRoleReportTransports(run livePublishedRun) error {
 	for _, report := range run.manifest.RoleReports {
-		if report.Transport != "staged_file" && report.Transport != "stdout" {
-			return fmt.Errorf("role report %q recorded transport %q, want the staged_file|stdout enum", report.Role, report.Transport)
+		if report.Transport != "stdout" {
+			return fmt.Errorf("live role report %q from %q recorded transport %q, want stdout", report.Role, report.ProviderInstance, report.Transport)
 		}
-		want := liveExpectedRoleReportTransport(report.ProviderInstance, replayMode)
-		if report.Transport != want {
-			return fmt.Errorf("role report %q from %q recorded transport %q, want adapter-owned %q (replay_mode=%q)",
-				report.Role, report.ProviderInstance, report.Transport, want, replayMode)
-		}
-		if report.Transport == "staged_file" {
-			staged++
-		}
-	}
-	if requireStagedFile && staged == 0 {
-		return fmt.Errorf("committed role_reports carry no staged_file entry, so this run certified nothing about the provider-written staging transport: %#v", run.manifest.RoleReports)
 	}
 	return nil
 }
 
-func assertLiveRoleReportTransports(t *testing.T, run livePublishedRun, label string, requireStagedFile bool) {
+func assertLiveRoleReportTransports(t *testing.T, run livePublishedRun, label string) {
 	t.Helper()
-	if err := validateLiveRoleReportTransports(run, requireStagedFile); err != nil {
+	if err := validateLiveRoleReportTransports(run); err != nil {
 		t.Fatalf("%s role-report transport inventory is invalid: %v", label, err)
 	}
 }
@@ -1170,7 +1124,7 @@ func assertLiveRoleReportMarker(t *testing.T, project string, run livePublishedR
 	for _, report := range run.envelope.Result.RoleReportURIs {
 		if report.Role == role {
 			if body := readLiveArtifact(t, project, report.URI); !bytes.Contains(body, []byte(marker)) {
-				t.Fatalf("published %s report does not prove captured workspace access", role)
+				t.Fatalf("published %s report does not prove original workspace access", role)
 			}
 			return
 		}

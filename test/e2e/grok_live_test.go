@@ -32,13 +32,13 @@ func TestE2EGrokReleaseBinaryReview(t *testing.T) {
 			if err := validateLivePrimaryProcessTerminals(project, run, expected); err != nil {
 				return err
 			}
-			return validateLiveRoleReportTransports(run, true)
+			return validateLiveRoleReportTransports(run)
 		},
-		"review", "--dirty", "--roles", "logic", "--output", "json",
-		"--objective", "Review the captured change. Return a concise Markdown report with no findings unless the captured source contains a concrete defect.",
+		"review", "--workspace", "--roles", "logic", "--output", "json",
+		"--objective", "Review the original workspace. Return a concise Markdown report with no findings unless the selected original source contains a concrete defect.",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
-	assertLiveRoleReportTransports(t, run, "Grok release-binary review", true)
+	assertLiveRoleReportTransports(t, run, "Grok release-binary review")
 	assertNoProjectProviderLocks(t, project)
 	scenario.status = "passed"
 }

@@ -12,11 +12,10 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
-	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
-	"github.com/irootkernel/mulgae/internal/adapters/reviewinput"
 	"github.com/irootkernel/mulgae/internal/adapters/workspace"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
@@ -33,7 +32,10 @@ type productionRuntimeGraph struct {
 	workspaceRoot   ports.AnchoredRoot
 	namespaceRoot   ports.AnchoredRoot
 	detector        ports.ReviewInputContentDetector
-	inputs          *reviewinput.Factory
+	liveSources     ports.LiveSourceOpener
+	reviewerHome    ports.ReviewerHome
+	credentialRoots []ports.AnchoredRoot
+	liveCommon      prompt.TrustedLayer
 	authority       *reviewrun.RunAuthorityAdapter
 	qualified       *reviewrun.QualifiedRunFactory
 	candidates      *configuredProductionCandidateSource
@@ -50,7 +52,12 @@ func (graph *productionRuntimeGraph) cleanupRoots() error {
 	if graph == nil {
 		return nil
 	}
-	if err := cleanupReviewCompositionRoots(true, graph.namespaceRoot, graph.workspaceRoot); err != nil {
+	var homeErr error
+	if graph.reviewerHome != nil {
+		homeErr = graph.reviewerHome.Close()
+		graph.reviewerHome = nil
+	}
+	if err := errors.Join(homeErr, cleanupReviewCompositionRoots(true, graph.namespaceRoot, graph.workspaceRoot)); err != nil {
 		return reviewCompositionFailure(domain.FailureArtifact, "production temporary root cleanup failed", err)
 	}
 	return nil
@@ -67,9 +74,8 @@ func composeProductionRuntimeGraph(
 	ids review.IdentityGenerator,
 	writer ports.SecureFileWriter,
 	publicationStore ports.PublicationStore,
-	stdin ports.CapturedStdinStore,
 ) (_ *productionRuntimeGraph, err error) {
-	if !build.Valid() || ctx == nil || !root.Valid() || catalog == nil || validator == nil || projectReader == nil || clock == nil || ids == nil || writer == nil || publicationStore == nil || stdin == nil {
+	if !build.Valid() || ctx == nil || !root.Valid() || catalog == nil || validator == nil || projectReader == nil || clock == nil || ids == nil || writer == nil || publicationStore == nil {
 		return nil, fmt.Errorf("production graph: invalid dependencies")
 	}
 	if err := ports.ValidateResourceLimits(); err != nil {
@@ -113,7 +119,6 @@ func composeProductionRuntimeGraph(
 			err = errors.Join(err, graph.cleanupRoots())
 		}
 	}()
-
 	policies := make(map[reviewrun.Family]providercli.RuntimeSafetyPolicy, len(reviewrun.Families()))
 	for _, item := range []struct {
 		family     reviewrun.Family
@@ -138,14 +143,6 @@ func composeProductionRuntimeGraph(
 	materializer, err := workspace.NewMaterializer(workspaceRoot, detector)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: workspace materializer: %w", err)
-	}
-	capturer, err := gittarget.NewReviewTargetCapturer(gittarget.NewExecRunner(), stdin, detector)
-	if err != nil {
-		return nil, fmt.Errorf("production graph: target capturer: %w", err)
-	}
-	inputs, err := reviewinput.NewImmutableInputSourceFactory(capturer, detector, materializer)
-	if err != nil {
-		return nil, fmt.Errorf("production graph: input source: %w", err)
 	}
 	runner, err := processadapter.NewRunner(clock)
 	if err != nil {
@@ -249,58 +246,28 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: templates: %w", err)
 	}
-	graph.detector, graph.inputs, graph.authority, graph.qualified, graph.candidates, graph.fixtures, graph.reviewValidator = detector, inputs, authority, qualified, candidates, fixtures, reviewValidator
+	graph.detector, graph.authority, graph.qualified, graph.candidates, graph.fixtures, graph.reviewValidator = detector, authority, qualified, candidates, fixtures, reviewValidator
 	graph.publisher, graph.diagnostics, graph.templates = publisher, diagnostics, templates
 	return graph, nil
 }
 
-func (graph *productionRuntimeGraph) sourceBoundAuthority(role domain.Role, providerInstance string) (*reviewrun.RunAuthorityAdapter, error) {
-	if graph == nil || graph.qualified == nil || graph.candidates == nil || !role.Valid() {
-		return nil, fmt.Errorf("production graph: source-bound authority is unavailable")
+func (graph *productionRuntimeGraph) openLiveReview(ctx context.Context, catalog ports.ContractCatalog) error {
+	guide, err := reviewrun.LoadDefaultReviewerGuide(ctx, catalog)
+	if err != nil {
+		return err
 	}
-	family := reviewrun.Family("")
-	for _, candidate := range reviewrun.Families() {
-		legacyCurrent := string(candidate) + "-" + string(role)
-		current := legacyCurrent
-		if candidate == reviewrun.FamilyCodex {
-			profiles := configuredCodexCredentialProfiles(graph.policy.config)
-			if profile := profiles[role]; profile != "" {
-				current = string(candidate) + "-" + profile + "-" + string(role)
-			}
-		}
-		if providerInstance == current || providerInstance == legacyCurrent || legacyProviderInstanceFamily(providerInstance) == candidate {
-			family = candidate
-			break
-		}
+	operatorHome, err := ports.NewAnchoredRoot(graph.policy.config.NativeUser.Home)
+	if err != nil {
+		return err
 	}
-	if !family.Valid() || !graph.policy.config.Providers.HasFamily(string(family)) {
-		return nil, fmt.Errorf("production graph: source provider %q is not currently configured", providerInstance)
+	graph.reviewerHome, err = providercli.OpenReviewerHome(operatorHome, guide)
+	if err != nil {
+		return reviewCompositionFailure(domain.FailureSecurityPolicy, "neutral reviewer home unavailable", err)
 	}
-	policy := graph.policy.planner
-	policy.Assignments = nil
-	for _, configuredRole := range reviewrun.SupportedProductionRoles(family) {
-		profile := ""
-		if family == reviewrun.FamilyCodex {
-			profile = configuredCodexCredentialProfiles(graph.policy.config)[configuredRole]
-		}
-		assignment, err := reviewrun.NewRoleProviderAssignmentWithCredentialProfile(configuredRole, family, profile)
-		if err != nil {
-			return nil, err
-		}
-		policy.Assignments = append(policy.Assignments, assignment)
+	graph.liveSources, graph.credentialRoots, err = productionLiveSources(graph.policy.config, graph.root, graph.workspaceRoot, graph.namespaceRoot)
+	if err != nil {
+		return err
 	}
-	return reviewrun.NewRunAuthorityAdapter(graph.qualified, graph.candidates, policy, graph.build)
-}
-
-func legacyProviderInstanceFamily(instance string) reviewrun.Family {
-	switch instance {
-	case "zcode-default", "zcode-secondary", "zcode-third", "zcode-fourth":
-		return reviewrun.FamilyZCode
-	case "grok-default":
-		return reviewrun.FamilyGrok
-	case "codex-default":
-		return reviewrun.FamilyCodex
-	default:
-		return ""
-	}
+	graph.liveCommon, err = reviewrun.LoadLiveReviewCommon(ctx, catalog)
+	return err
 }

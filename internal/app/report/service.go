@@ -113,10 +113,10 @@ func (service *Service) Render(ctx context.Context, run ports.PublicationRun) (R
 	}
 
 	var final reportFinalDTO
-	if review.RunType() == domain.RunTypeComposite {
+	if review.RunType() == domain.RunTypeComposite || review.SourceIdentitySHA256() != "" {
 		final, err = reportFinalFromCommitted(review)
 		if err != nil {
-			return Report{}, reportFailure(domain.FailureArtifact, "committed composite report data is invalid", err)
+			return Report{}, reportFailure(domain.FailureArtifact, "committed verified report data is invalid", err)
 		}
 	} else {
 		final, err = decodeReportFinal(review.FinalBytes())

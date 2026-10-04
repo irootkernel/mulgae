@@ -1,11 +1,9 @@
-version: 4
+version: 5
 project:
   name: "my-project"
 providers:
   zcode:
     timeout: "30m"
-execution:
-  workspace_access: "none"
 roles:
   logic: {enabled: true, primary_provider: "zcode"}
   security: {enabled: true, primary_provider: "zcode"}

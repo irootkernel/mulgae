@@ -13,11 +13,9 @@ import (
 	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
-	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
-	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
-	"github.com/irootkernel/mulgae/internal/adapters/workspace"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
+	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/app/validation"
@@ -111,27 +109,27 @@ func composeReviewRuns(
 	ids review.IdentityGenerator,
 	writer ports.SecureFileWriter,
 	publicationStore ports.PublicationStore,
-	stdin ports.CapturedStdinStore,
 ) (mulgae.ReviewRunService, error) {
 	if !build.Valid() {
 		return nil, unavailableBuildMetadata(nil)
 	}
-	if ctx == nil || !root.Valid() || catalog == nil || validator == nil || projectReader == nil || clock == nil || ids == nil || writer == nil || publicationStore == nil || stdin == nil {
+	if ctx == nil || !root.Valid() || catalog == nil || validator == nil || projectReader == nil || clock == nil || ids == nil || writer == nil || publicationStore == nil {
 		return nil, fmt.Errorf("review composition: invalid dependencies")
 	}
 
-	graph, err := composeProductionRuntimeGraph(ctx, build, root, catalog, validator, projectReader, clock, ids, writer, publicationStore, stdin)
+	graph, err := composeProductionRuntimeGraph(ctx, build, root, catalog, validator, projectReader, clock, ids, writer, publicationStore)
 	if err != nil {
 		return nil, err
 	}
-	dependencies := reviewrun.Dependencies{
-		Clock: clock, IDs: ids, Build: build, RunAuthorityFactory: graph.authority, Validator: graph.reviewValidator, Publication: graph.publisher, Templates: graph.templates, Diagnostics: graph.diagnostics,
+	if err := graph.openLiveReview(ctx, catalog); err != nil {
+		return nil, errors.Join(err, graph.cleanupRoots())
 	}
-	if !graph.policy.bindingUnsupported {
-		dependencies.ProjectBindings = gittarget.ProjectBindingObserver{}
-		dependencies.Admission = productionRequestAdmission{policy: graph.policy, templates: graph.templates, catalog: catalog}
-	}
-	service, err := reviewrun.NewService(dependencies)
+	service, err := reviewrun.NewLiveService(reviewrun.LiveDependencies{
+		Sources: graph.liveSources, ReviewerHome: graph.reviewerHome, CredentialRoots: graph.credentialRoots,
+		Admission: productionLiveRequestAdmission{policy: graph.policy}, Clock: clock, IDs: ids, Build: build,
+		Authority: graph.authority, Validator: graph.reviewValidator, Publication: graph.publisher,
+		Templates: graph.templates, Common: graph.liveCommon, Diagnostics: graph.diagnostics, Detector: graph.detector, ProjectContext: []byte(graph.policy.config.Project.Context),
+	})
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("review composition: service: %w", err), graph.cleanupRoots())
 	}
@@ -141,9 +139,9 @@ func composeReviewRuns(
 		if inputErr != nil {
 			return nil, errors.Join(fmt.Errorf("review composition: artist inputs: %w", inputErr), graph.cleanupRoots())
 		}
-		reviewService = mulgae.NewPolicyReviewRunServiceWithArtistInputs(mulgae.NewReviewRunService(service, graph.inputs), graph.policy.requiredRoles, graph.policy.enabledRoles, artistInputs)
+		reviewService = mulgae.NewPolicyReviewRunServiceWithArtistInputs(mulgae.NewLiveReviewRunService(service), graph.policy.requiredRoles, graph.policy.enabledRoles, artistInputs)
 	} else {
-		reviewService = mulgae.NewPolicyReviewRunService(mulgae.NewReviewRunService(service, graph.inputs), graph.policy.requiredRoles, graph.policy.enabledRoles)
+		reviewService = mulgae.NewPolicyReviewRunService(mulgae.NewLiveReviewRunService(service), graph.policy.requiredRoles, graph.policy.enabledRoles)
 	}
 	return &rootCleaningReviewRunService{inner: reviewService, graph: graph}, nil
 }
@@ -171,203 +169,97 @@ func (service *rootCleaningReviewPreflightService) PreflightReview(ctx context.C
 }
 
 type productionReviewPreflightService struct {
-	admission    productionRequestAdmission
-	capturer     ports.ReviewTargetCapturer
-	detector     ports.ReviewInputContentDetector
-	materializer ports.WorkspaceSnapshotLeaseFactory
-	policy       productionRunPolicy
+	sources ports.LiveSourceOpener
+	policy  productionRunPolicy
 }
 
-func composeReviewPreflight(
-	ctx context.Context,
-	catalog ports.ContractCatalog,
-	root ports.AnchoredRoot,
-	projectReader ports.TrustedProjectReader,
-	stdin ports.CapturedStdinStore,
-) (_ mulgae.ReviewPreflightService, err error) {
-	if ctx == nil || !root.Valid() || projectReader == nil || stdin == nil {
+func composeReviewPreflight(ctx context.Context, catalog ports.ContractCatalog, root ports.AnchoredRoot, projectReader ports.TrustedProjectReader) (mulgae.ReviewPreflightService, error) {
+	if ctx == nil || !root.Valid() || projectReader == nil || catalog == nil {
 		return nil, fmt.Errorf("review preflight composition: invalid dependencies")
 	}
 	policy, err := resolveProductionRunPolicy(ctx, root, projectReader)
 	if err != nil {
 		return nil, err
 	}
-	tempRoot, err := startupTempRoot()
-	if err != nil {
-		return nil, fmt.Errorf("review preflight composition: startup temp root: %w", err)
-	}
-	workspaceRoot, err := privateReviewRoot(tempRoot, "mulgae-review-preflight-")
+	sources, _, err := productionLiveSources(policy.config, root)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if err != nil {
-			err = errors.Join(err, os.RemoveAll(workspaceRoot.String()))
-		}
-	}()
-	detector := filesystem.NewContentDetector()
-	capturer, err := gittarget.NewReviewTargetCapturer(gittarget.NewExecRunner(), stdin, detector)
-	if err != nil {
-		return nil, fmt.Errorf("review preflight composition: target capturer: %w", err)
-	}
-	materializer, err := workspace.NewMaterializer(workspaceRoot, detector)
-	if err != nil {
-		return nil, fmt.Errorf("review preflight composition: workspace materializer: %w", err)
-	}
-	templates, err := reviewrun.LoadDefaultTemplateSet(ctx, catalog)
-	if err != nil {
-		return nil, err
-	}
-	inner := &productionReviewPreflightService{capturer: capturer, detector: detector, materializer: materializer, policy: policy, admission: productionRequestAdmission{policy: policy, templates: templates, catalog: catalog}}
-	return &rootCleaningReviewPreflightService{inner: inner, workspaceRoot: workspaceRoot}, nil
+	return &productionReviewPreflightService{sources: sources, policy: policy}, nil
 }
 
 func (service *productionReviewPreflightService) PreflightReview(ctx context.Context, request mulgae.ReviewRequest, root ports.AnchoredRoot) (result mulgae.ReviewPreflightResult, err error) {
-	if service == nil || ctx == nil || !root.Valid() || service.capturer == nil || service.detector == nil || service.materializer == nil {
-		return mulgae.ReviewPreflightResult{}, fmt.Errorf("review preflight: invalid service")
+	if service == nil || ctx == nil || !root.Valid() || service.sources == nil {
+		return result, fmt.Errorf("review preflight: invalid service")
 	}
 	if err := ctx.Err(); err != nil {
-		return mulgae.ReviewPreflightResult{}, err
+		return result, err
 	}
-	var binding domain.ProjectBinding
-	var bindingLease ports.ProjectBindingLease
-	if service.admission.catalog != nil && !service.policy.bindingUnsupported {
-		bindingLease, err = (gittarget.ProjectBindingObserver{}).ObserveProjectBinding(ctx, root)
-		if err != nil {
-			return result, reviewCompositionFailure(domain.FailureSecurityPolicy, "project binding unavailable or changed", err)
+	roles, artistInputs, hasArtistInputs, err := resolvePreflightSelection(request, service.policy)
+	if err != nil {
+		return result, err
+	}
+	selection, err := reviewrun.NewRunSelection(roles, nil)
+	if err != nil {
+		return result, err
+	}
+	selector, err := ports.NewLiveSourceSelector(domain.LiveSourceScope(request.Target().Kind()), request.Target().Value())
+	if err != nil {
+		return result, err
+	}
+	if objective, present := request.Objective(); present {
+		if err := prompt.NewObjective([]byte(objective)).Lint().Err(); err != nil {
+			return result, err
 		}
-		defer func() {
-			if closeErr := bindingLease.Close(); closeErr != nil {
-				result = mulgae.ReviewPreflightResult{}
-				err = errors.Join(err, closeErr)
-			}
-		}()
-		observed := bindingLease.Observation()
-		binding, err = reviewrun.NewProjectBinding(observed.Root, observed.GitDirectory, observed.CommonDirectory, observed.RootIdentity, observed.GitIdentity, observed.CommonIdentity)
+	}
+	source, err := service.sources.OpenLiveSource(ctx, root, selector)
+	if err != nil {
+		return result, err
+	}
+	if source == nil {
+		return result, fmt.Errorf("review preflight: missing original source")
+	}
+	defer func() {
+		_, terminalErr := source.RevalidateExecution(context.WithoutCancel(ctx))
+		err = errors.Join(err, terminalErr, source.Close())
+		if err != nil {
+			result = mulgae.ReviewPreflightResult{}
+		}
+	}()
+	observed, err := source.RevalidateExecution(ctx)
+	if err != nil {
+		return result, err
+	}
+	var expected domain.ProjectBinding
+	if value := request.ExpectedProjectBinding(); value != "" {
+		expected, err = domain.ParseProjectBinding(value)
 		if err != nil {
 			return result, err
 		}
 	}
-	if expected := request.ExpectedProjectBinding(); expected != "" {
-		if bindingLease == nil {
-			return result, reviewCompositionFailure(domain.FailureConfiguration, "contract_unsupported", reviewrun.ErrContractUnsupported)
-		}
-		if expected != binding.String() {
-			return result, reviewCompositionFailure(domain.FailureConfiguration, "project_binding_mismatch", reviewrun.ErrProjectBindingMismatch)
-		}
-	}
-	roles, artistInputs, hasArtist, err := resolvePreflightSelection(request, service.policy)
+	binding, err := reviewrun.AdmitLiveProjectBinding(observed, selector, expected)
 	if err != nil {
-		return mulgae.ReviewPreflightResult{}, err
+		return result, err
 	}
-	selector, err := ports.NewReviewTargetSelector(ports.ReviewTargetSelectorKind(request.Target().Kind()), request.Target().Value())
+	admission := productionLiveRequestAdmission{policy: service.policy}
+	_, err = admission.AdmitLive(ctx, reviewrun.LiveRequest{ProjectRoot: root, Target: selector, Selection: selection}, source, binding)
 	if err != nil {
-		return mulgae.ReviewPreflightResult{}, err
+		return result, err
 	}
-	if err := revalidateProductionLocality(ctx, service.policy.source, service.policy.attestor, service.policy.localityRequest, service.policy.locality); err != nil {
-		return mulgae.ReviewPreflightResult{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "config locality drifted", err)
-	}
-	var material ports.CapturedReviewMaterial
-	if hasArtist {
-		artistCapturer, ok := service.capturer.(ports.ArtistReviewTargetCapturer)
-		if !ok {
-			return mulgae.ReviewPreflightResult{}, fmt.Errorf("review preflight: artist capture unavailable")
-		}
-		material, err = artistCapturer.CaptureReviewTargetWithArtistInputs(ctx, root, selector, artistInputs)
-	} else {
-		material, err = service.capturer.CaptureReviewTarget(ctx, root, selector)
-	}
-	if err != nil || !material.Valid() {
-		if err == nil {
-			err = fmt.Errorf("capturer returned invalid material")
-		}
-		return mulgae.ReviewPreflightResult{}, ports.WrapReviewCaptureFailure(err)
-	}
-	if objective, present := request.Objective(); present {
-		detection, detectErr := service.detector.DetectReviewInput(ctx, ports.ReviewInputObjective, "objective", []byte(objective))
-		if detectErr != nil || !detection.Valid() {
-			if detectErr == nil {
-				detectErr = fmt.Errorf("objective detector returned invalid result")
-			}
-			return mulgae.ReviewPreflightResult{}, ports.WrapReviewCaptureFailure(detectErr)
-		}
-		if detection.Verdict() == ports.ReviewInputBlocked {
-			identity := "unknown"
-			if identified, ok := service.detector.(ports.ReviewInputContentDetectorIdentity); ok {
-				identity = identified.ReviewInputDetectorIdentity()
-			}
-			failure, failureErr := ports.NewReviewCapturePolicyFailure("", "", detection.DetectorCode(), identity, fmt.Errorf("objective rejected by content policy"))
-			if failureErr != nil {
-				return mulgae.ReviewPreflightResult{}, ports.WrapReviewCaptureFailure(failureErr)
-			}
-			return mulgae.ReviewPreflightResult{}, failure
+	if hasArtistInputs && !source.Target().NoChange() {
+		if err := reviewrun.ValidateLiveArtistInputs(ctx, source, artistInputs); err != nil {
+			return result, reviewCompositionFailure(domain.FailureConfiguration, "artist inputs are unavailable", err)
 		}
 	}
-	if _, err := ports.NewCapturedReviewArchive(material); err != nil {
-		return mulgae.ReviewPreflightResult{}, ports.WrapReviewCaptureFailure(err)
-	}
-	providerWorkspace, err := material.ProviderWorkspace()
+	reads, err := ports.LiveSourceReadPlan(ctx, source)
 	if err != nil {
-		return mulgae.ReviewPreflightResult{}, fmt.Errorf("review preflight composition: workspace layout: %w", ports.WrapReviewCaptureFailure(err))
-	}
-	lease, err := service.materializer.MaterializeLease(ctx, providerWorkspace)
-	if err != nil {
-		if owner, ok := workspace.MaterializationCleanupRetryOwner(err); ok {
-			err = errors.Join(err, owner.Retry())
-		}
-		return mulgae.ReviewPreflightResult{}, ports.WrapReviewCaptureFailure(err)
-	}
-	defer func() {
-		terminal := ports.NewEmptyProviderRunTerminalReceipt()
-		evidence, evidenceErr := ports.NewWorkspaceAbortEvidence(lease.WorkspaceSnapshotIdentity(), ports.WorkspaceAbortPreflightComplete, terminal)
-		if evidenceErr == nil {
-			evidenceErr = lease.Abort(evidence)
-		}
-		if evidenceErr != nil {
-			result = mulgae.ReviewPreflightResult{}
-			err = errors.Join(err, fmt.Errorf("review preflight: cleanup snapshot: %w", evidenceErr))
-		}
-	}()
-	receipt := lease.Receipt()
-	if !material.Target().NoChange() {
-		targetBinding, bindErr := bindProductionTargetLocality(ctx, service.policy.source, service.policy.attestor, service.policy.localityRequest, service.policy.locality, service.policy.config, material.Target())
-		if bindErr != nil {
-			return mulgae.ReviewPreflightResult{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "target locality rejected", bindErr)
-		}
-		if localityErr := revalidateProductionLocality(ctx, targetBinding.source, targetBinding.attestor, targetBinding.request, targetBinding.expected); localityErr != nil {
-			return mulgae.ReviewPreflightResult{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "target locality drifted", localityErr)
-		}
+		return result, err
 	}
 	plan, budget, err := reviewrun.PreflightConfiguredPlan(service.policy.planner, service.policy.providerTimeouts, roles)
 	if err != nil {
-		return mulgae.ReviewPreflightResult{}, err
-	}
-	result, err = mulgae.NewReviewPreflightResult(material, receipt, request.Target().Kind(), plan, budget)
-	if err != nil || bindingLease == nil {
 		return result, err
 	}
-	objective, hasObjective := request.Objective()
-	captureRequest, err := reviewrun.NewInputCaptureRequest(root, selector, []byte(objective), hasObjective)
-	if hasArtist {
-		captureRequest, err = reviewrun.NewInputCaptureRequestWithArtistInputs(root, selector, []byte(objective), hasObjective, artistInputs)
-	}
-	if err != nil {
-		return mulgae.ReviewPreflightResult{}, err
-	}
-	policyInputs, err := service.admission.inputs(ctx, material, plan)
-	if err != nil {
-		return mulgae.ReviewPreflightResult{}, err
-	}
-	requestReceipt, err := reviewrun.NewPlannedRequestReceipt(binding, material, captureRequest, roles, request.RequestedRolesExplicit(), policyInputs, budget)
-	if err != nil {
-		return mulgae.ReviewPreflightResult{}, err
-	}
-	if err := bindingLease.Revalidate(ctx); err != nil {
-		return mulgae.ReviewPreflightResult{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "project binding unavailable or changed", err)
-	}
-	result.ProjectBinding, result.CaptureIdentity, result.RequestReceipt = binding.String(), requestReceipt.CaptureIdentity, &requestReceipt
-	result.Capabilities.ProjectBinding, result.Capabilities.ExecutionGuard = "v1", "v1"
-	return result, nil
+	return mulgae.NewLiveReviewPreflightResult(source.Target(), binding, service.policy.configurationSHA256, reads, plan, budget)
 }
 
 func resolvePreflightSelection(request mulgae.ReviewRequest, policy productionRunPolicy) ([]domain.Role, ports.ArtistReviewInputs, bool, error) {
@@ -409,7 +301,12 @@ func (service *rootCleaningReviewRunService) StartReviewRun(ctx context.Context,
 	if service == nil || service.inner == nil || service.graph == nil {
 		return mulgae.ReviewRunResult{}, fmt.Errorf("review composition: unavailable composed service")
 	}
-	defer func() { err = errors.Join(err, service.graph.cleanupRoots()) }()
+	defer func() {
+		if _, retained := reviewrun.LiveCleanupFromError(err); retained {
+			return
+		}
+		err = errors.Join(err, service.graph.cleanupRoots())
+	}()
 	return service.inner.StartReviewRun(ctx, request, root)
 }
 func cleanupReviewCompositionRoots(cleanup bool, namespaceRoot, workspaceRoot ports.AnchoredRoot) error {
@@ -572,19 +469,43 @@ func (source *configuredProductionCandidateSource) bindSyntheticQualifiedRunCont
 	return context.WithValue(ctx, reviewLocalityContextKey{}, binding), nil
 }
 
-func (source *configuredProductionCandidateSource) BindQualifiedRunContext(ctx context.Context, captured reviewrun.CapturedRunInput) (context.Context, error) {
-	if source == nil || ctx == nil || source.source == nil || source.attestor == nil || !captured.Input().Target().Valid() {
-		return nil, fmt.Errorf("configured provider locality: invalid request")
+func (source *configuredProductionCandidateSource) BindLiveQualifiedRunContext(ctx context.Context, execution ports.LiveReviewExecution) (context.Context, error) {
+	if source == nil || ctx == nil || !execution.Valid() {
+		return nil, fmt.Errorf("configured provider locality: invalid live request")
 	}
-	binding, err := bindProductionTargetLocality(ctx, source.source, source.attestor, source.staticRequest, source.staticContext, source.config, captured.Input().Target())
+	if err := execution.Revalidate(ctx); err != nil {
+		return nil, err
+	}
+	commits := make([]ports.GitObjectID, 0, 2)
+	if base := execution.Target().Base(); base.Valid() {
+		commits = append(commits, base)
+	}
+	if head := execution.Target().Head(); head.Valid() {
+		commits = append(commits, head)
+	}
+	bound, err := bindProductionLocality(ctx, source.source, source.attestor, source.staticRequest, source.staticContext, source.config, commits, nil)
 	if err != nil {
 		return nil, err
 	}
-	return context.WithValue(ctx, reviewLocalityContextKey{}, binding), nil
+	return context.WithValue(ctx, reviewLocalityContextKey{}, bound), nil
 }
 
 func bindProductionTargetLocality(ctx context.Context, source *adapterconfig.LocalConfigSource, attestor ports.ConfigLocalityAttestor, staticRequest ports.ConfigLocalityRequest, staticContext ports.ConfigLocalityContext, config adapterconfig.Config, target ports.CapturedReviewTarget) (reviewLocalityBinding, error) {
-	if ctx == nil || source == nil || attestor == nil || !target.Valid() {
+	if !target.Valid() {
+		return reviewLocalityBinding{}, fmt.Errorf("configured provider locality: invalid request")
+	}
+	commits := make([]ports.GitObjectID, 0, 2)
+	if base, ok := target.BaseObjectID(); ok {
+		commits = append(commits, base)
+	}
+	if head, ok := target.HeadObjectID(); ok {
+		commits = append(commits, head)
+	}
+	return bindProductionLocality(ctx, source, attestor, staticRequest, staticContext, config, commits, target.Bytes())
+}
+
+func bindProductionLocality(ctx context.Context, source *adapterconfig.LocalConfigSource, attestor ports.ConfigLocalityAttestor, staticRequest ports.ConfigLocalityRequest, staticContext ports.ConfigLocalityContext, config adapterconfig.Config, commits []ports.GitObjectID, target []byte) (reviewLocalityBinding, error) {
+	if ctx == nil || source == nil || attestor == nil {
 		return reviewLocalityBinding{}, fmt.Errorf("configured provider locality: invalid request")
 	}
 	if err := revalidateProductionLocality(ctx, source, attestor, staticRequest, staticContext); err != nil {
@@ -602,14 +523,7 @@ func bindProductionTargetLocality(ctx context.Context, source *adapterconfig.Loc
 	if err != nil {
 		return reviewLocalityBinding{}, fmt.Errorf("configured provider locality: config proof: %w", err)
 	}
-	commits := make([]ports.GitObjectID, 0, 2)
-	if base, ok := target.BaseObjectID(); ok {
-		commits = append(commits, base)
-	}
-	if head, ok := target.HeadObjectID(); ok {
-		commits = append(commits, head)
-	}
-	request, err := ports.NewConfigLocalityRequest(staticRequest.Root(), proof, commits, target.Bytes())
+	request, err := ports.NewConfigLocalityRequest(staticRequest.Root(), proof, commits, target)
 	if err != nil {
 		return reviewLocalityBinding{}, fmt.Errorf("configured provider locality: target request: %w", err)
 	}
@@ -636,21 +550,25 @@ func revalidateProductionLocality(ctx context.Context, source *adapterconfig.Loc
 	return source.Revalidate()
 }
 
-func (source *configuredProductionCandidateSource) NewQualifiedRunCandidates(ctx context.Context, captured reviewrun.CapturedRunInput, selection reviewrun.RunSelection) ([]reviewrun.QualifiedRunCandidate, error) {
+func (source *configuredProductionCandidateSource) NewLiveQualifiedRunCandidates(ctx context.Context, target ports.LiveSourceTarget, selection reviewrun.RunSelection) ([]reviewrun.QualifiedRunCandidate, error) {
 	if source == nil || source.inspector == nil || ctx == nil {
 		return nil, fmt.Errorf("configured provider discovery unavailable")
 	}
 	if _, ok := ctx.Value(reviewLocalityContextKey{}).(reviewLocalityBinding); !ok {
-		return nil, fmt.Errorf("configured provider target locality unavailable")
+		return nil, fmt.Errorf("configured provider live locality unavailable")
 	}
 	production, err := source.productionCandidateSource(ctx)
 	if err != nil {
 		return nil, err
 	}
-	candidates, err := production.NewQualifiedRunCandidates(ctx, captured, selection)
+	candidates, err := production.NewLiveQualifiedRunCandidates(target, selection)
 	if err != nil {
 		return nil, err
 	}
+	return source.filterAssignedCandidates(candidates, selection)
+}
+
+func (source *configuredProductionCandidateSource) filterAssignedCandidates(candidates []reviewrun.QualifiedRunCandidate, selection reviewrun.RunSelection) ([]reviewrun.QualifiedRunCandidate, error) {
 	filtered := make([]reviewrun.QualifiedRunCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		roles, base := configuredQualificationRoles(source.config.Roles, selection.Roles(), reviewrun.Family(candidate.Definition.Family()))

@@ -237,17 +237,13 @@ func newQualifiedPlanner(routes []QualifiedRoute, policy PlannerPolicy, qualific
 	}, nil
 }
 
-func (planner *qualifiedPlanner) Plan(ctx context.Context, request PlanningRequest) (ExecutionPlan, error) {
-	if planner == nil {
+func (planner *qualifiedPlanner) PlanSelectedRoles(ctx context.Context, roles []domain.Role) (ExecutionPlan, error) {
+	if planner == nil || ctx == nil {
 		return ExecutionPlan{}, fmt.Errorf("review run: qualified planner unavailable")
 	}
 	if err := ctx.Err(); err != nil {
 		return ExecutionPlan{}, err
 	}
-	if !request.Input().Target().Valid() {
-		return ExecutionPlan{}, fmt.Errorf("review run: invalid planning request")
-	}
-	roles := request.RequestedRoles()
 	if _, err := NewRunSelection(roles, nil); err != nil {
 		return ExecutionPlan{}, fmt.Errorf("review run: invalid planning request: %w", err)
 	}

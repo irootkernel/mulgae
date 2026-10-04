@@ -3,12 +3,14 @@
 package process
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -610,4 +612,52 @@ func liveBoundaryTestRequest(t *testing.T, neutral, source, gitCommon, credentia
 		t.Fatal(err)
 	}
 	return request
+}
+
+func TestLiveBoundaryProtectsMissingOptionalCredentialHomes(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, neutral, namespace := filepath.Join(base, "source"), filepath.Join(base, "neutral"), filepath.Join(base, "invocation")
+	for _, path := range []string{source, neutral, namespace} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	credentials := filepath.Join(base, "absent-provider", "credentials")
+	request := liveBoundaryTestRequest(t, neutral, source, source, credentials, namespace, []string{"/bin/sh", "-c", "printf MISSING_PROTECTED"})
+	child, launch, _, err := assembleDirectChild(context.Background(), request, nil, nil)
+	if launch != nil {
+		defer launch.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Create the optional home after policy assembly. The installed deny rule
+	// must apply even though no credential inode existed during admission.
+	if err := os.MkdirAll(credentials, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(credentials, "value"), []byte("CREDENTIAL_FIXTURE"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	child.Stdout, child.Stderr = nil, nil
+	child.Args[len(child.Args)-1] = "if cat " + strconv.Quote(filepath.Join(credentials, "value")) + "; then exit 21; fi; printf MISSING_PROTECTED"
+	output, err := child.CombinedOutput()
+	if err != nil || !bytes.Contains(output, []byte("MISSING_PROTECTED")) || bytes.Contains(output, []byte("CREDENTIAL_FIXTURE")) {
+		t.Fatalf("missing credential guard: %v, %s", err, output)
+	}
+	if err := os.Remove(filepath.Join(credentials, "value")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(credentials); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(namespace, credentials); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := assembleDirectChild(context.Background(), request, nil, nil); err == nil {
+		t.Fatal("credential symlink admitted")
+	}
 }

@@ -51,11 +51,9 @@ const (
 )
 
 // RequestResolver resolves CLI-only selectors before a schema request is frozen.
-// Implementations must return canonical IDs and a nonempty captured stdin target.
+// Implementations return canonical IDs for verified historical publications.
 type RequestResolver interface {
 	ResolveRun(context.Context, string) (string, error)
-	ResolveAttempt(context.Context, string, string, string) (string, error)
-	CaptureTarget(context.Context) (string, error)
 }
 
 // Invocation is the immutable result of parsing one Mulgae command line.
@@ -79,11 +77,7 @@ type Invocation struct {
 	findings       *FindingsRequest
 	verifiedRead   *VerifiedReadRequest
 	excerpt        *ExcerptRequest
-	followup       *FollowupRequest
 	review         *ReviewRequest
-	delta          *DeltaRequest
-	rerun          *RerunRequest
-	compose        *ComposeRequest
 	clean          *CleanRequest
 	export         *ExportRequest
 }
@@ -215,41 +209,6 @@ func (invocation Invocation) Review() (ReviewRequest, bool) {
 		return ReviewRequest{}, false
 	}
 	return cloneReviewRequest(*invocation.review), true
-}
-
-// Followup returns the parsed followup fields when this is a followup invocation.
-func (invocation Invocation) Followup() (FollowupRequest, bool) {
-	if invocation.followup == nil {
-		return FollowupRequest{}, false
-	}
-	return *invocation.followup, true
-}
-
-// Delta returns the parsed delta fields when this is a delta invocation.
-func (invocation Invocation) Delta() (DeltaRequest, bool) {
-	if invocation.delta == nil {
-		return DeltaRequest{}, false
-	}
-	return cloneDeltaRequest(*invocation.delta), true
-}
-
-// Rerun returns the parsed rerun fields when this is a rerun invocation.
-func (invocation Invocation) Rerun() (RerunRequest, bool) {
-	if invocation.rerun == nil {
-		return RerunRequest{}, false
-	}
-	return *invocation.rerun, true
-}
-
-// Compose returns the parsed exact composition selection.
-func (invocation Invocation) Compose() (ComposeRequest, bool) {
-	if invocation.compose == nil {
-		return ComposeRequest{}, false
-	}
-	return ComposeRequest{
-		rootRunID:    invocation.compose.rootRunID,
-		recoveryRuns: cloneStrings(invocation.compose.recoveryRuns),
-	}, true
 }
 
 // Clean returns the parsed clean fields when this is a clean invocation.
@@ -500,7 +459,6 @@ func (request TargetRequest) Value() string { return request.value }
 // ReviewRequest contains the immutable independent-review fields.
 type ReviewRequest struct {
 	expectedProjectBinding string
-	expectedRequestDigest  string
 	target                 TargetRequest
 	objective              string
 	hasObjective           bool
@@ -552,94 +510,11 @@ func (request ReviewRequest) SessionID() (string, bool) {
 	return request.sessionID, request.hasSessionID
 }
 
-// Preflight reports whether the review is an execution-free capture, routing,
+// Preflight reports whether the review is an provider-free live source, routing,
 // and budget projection.
 func (request ReviewRequest) Preflight() bool { return request.preflight }
 
 func (request ReviewRequest) ExpectedProjectBinding() string { return request.expectedProjectBinding }
-func (request ReviewRequest) ExpectedRequestDigest() string  { return request.expectedRequestDigest }
-
-// FollowupRequest contains the immutable source finding and target fields.
-type FollowupRequest struct {
-	sourceRunID  string
-	findingID    string
-	target       TargetRequest
-	objective    string
-	hasObjective bool
-	role         string
-	hasRole      bool
-}
-
-// SourceRunID returns the source run selected for the child workflow.
-func (request FollowupRequest) SourceRunID() string { return request.sourceRunID }
-
-// FindingID returns the source finding selected for followup.
-func (request FollowupRequest) FindingID() string { return request.findingID }
-
-// Target returns the literal target request.
-func (request FollowupRequest) Target() TargetRequest { return request.target }
-
-// Objective returns the optional followup objective.
-func (request FollowupRequest) Objective() (string, bool) {
-	return request.objective, request.hasObjective
-}
-
-// Role returns the optional followup role.
-func (request FollowupRequest) Role() (string, bool) { return request.role, request.hasRole }
-
-// DeltaRequest contains the immutable source run, target, and roles.
-type DeltaRequest struct {
-	sourceRunID string
-	target      TargetRequest
-	roles       []string
-}
-
-// SourceRunID returns the source run selected for the delta workflow.
-func (request DeltaRequest) SourceRunID() string { return request.sourceRunID }
-
-// Target returns the literal target request.
-func (request DeltaRequest) Target() TargetRequest { return request.target }
-
-// Roles returns a caller-owned copy of the requested roles.
-func (request DeltaRequest) Roles() []string { return cloneStrings(request.roles) }
-
-// ReplayMode identifies the rerun prompt construction mode.
-type ReplayMode string
-
-const (
-	// ReplayModeExact reuses the captured source invocation exactly.
-	ReplayModeExact ReplayMode = "exact"
-	// ReplayModeRecompose recompiles from current trusted templates.
-	ReplayModeRecompose ReplayMode = "recompose"
-)
-
-// RerunRequest contains the immutable source attempt and replay selection.
-type RerunRequest struct {
-	sourceRunID     string
-	sourceAttemptID string
-	replayMode      ReplayMode
-}
-
-// SourceRunID returns the source run selected for replay.
-func (request RerunRequest) SourceRunID() string { return request.sourceRunID }
-
-// SourceAttemptID returns the source attempt selected for replay.
-func (request RerunRequest) SourceAttemptID() string { return request.sourceAttemptID }
-
-// ReplayMode returns the selected replay construction mode.
-func (request RerunRequest) ReplayMode() ReplayMode { return request.replayMode }
-
-// ComposeRequest contains one exact incomplete root and every explicitly
-// selected recovery run.
-type ComposeRequest struct {
-	rootRunID    string
-	recoveryRuns []string
-}
-
-func (request ComposeRequest) RootRunID() string { return request.rootRunID }
-func (request ComposeRequest) RecoveryRunIDs() []string {
-	return cloneStrings(request.recoveryRuns)
-}
 
 // CleanRequest contains one immutable cleanup selection.
 type CleanRequest struct {
@@ -680,11 +555,6 @@ func cloneInitRequest(request InitRequest) InitRequest {
 }
 
 func cloneReviewRequest(request ReviewRequest) ReviewRequest {
-	request.roles = cloneStrings(request.roles)
-	return request
-}
-
-func cloneDeltaRequest(request DeltaRequest) DeltaRequest {
 	request.roles = cloneStrings(request.roles)
 	return request
 }

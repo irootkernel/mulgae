@@ -29,7 +29,6 @@ func main() {
 		{"schemas/mulgae-doctor-result.v4.schema.json", "schemas/mulgae-doctor-result.v5.schema.json", "examples/doctor-result.v4.valid.json", "examples/doctor-result.v5.valid.json", "mulgae-doctor-result.v4", "mulgae-doctor-result.v5"},
 		{"schemas/mulgae-provider-contract-evidence.v3.schema.json", "schemas/mulgae-provider-contract-evidence.v4.schema.json", "examples/provider-contract-evidence.v3.valid.json", "examples/provider-contract-evidence.v4.valid.json", "mulgae-provider-contract-evidence.v3", "mulgae-provider-contract-evidence.v4"},
 		{"schemas/mulgae-provider-heartbeat-result.v2.schema.json", "schemas/mulgae-provider-heartbeat-result.v3.schema.json", "examples/provider-heartbeat-result.v2.valid.json", "examples/provider-heartbeat-result.v3.valid.json", "mulgae-provider-heartbeat-result.v2", "mulgae-provider-heartbeat-result.v3"},
-		{"schemas/mulgae-review-preflight.v4.schema.json", "schemas/mulgae-review-preflight.v5.schema.json", "examples/review-preflight.v4.valid.json", "examples/review-preflight.v5.valid.json", "mulgae-review-preflight.v4", "mulgae-review-preflight.v5"},
 	}
 	for _, pair := range pairs {
 		if err := generatePair(assets, pair); err != nil {
@@ -44,8 +43,7 @@ func main() {
 		contractPair{"schemas/mulgae-command-result.v15.schema.json", "schemas/mulgae-command-result.v16.schema.json", "examples/command-result.v15.valid.json", "examples/command-result.v16.valid.json", "mulgae-command-result.v15", "mulgae-command-result.v16"},
 		contractPair{"schemas/mulgae-command-result.v16.schema.json", "schemas/mulgae-command-result.v17.schema.json", "examples/command-result.v16.valid.json", "examples/command-result.v17.valid.json", "mulgae-command-result.v16", "mulgae-command-result.v17"},
 		contractPair{"schemas/mulgae-command-result.v17.schema.json", "schemas/mulgae-command-result.v18.schema.json", "examples/command-result.v17.valid.json", "examples/command-result.v18.valid.json", "mulgae-command-result.v17", "mulgae-command-result.v18"},
-		contractPair{"schemas/mulgae-review-preflight.v6.schema.json", "schemas/mulgae-review-preflight.v7.schema.json", "examples/review-preflight.v6.valid.json", "examples/review-preflight.v7.valid.json", "mulgae-review-preflight.v6", "mulgae-review-preflight.v7"},
-		contractPair{"schemas/mulgae-review-preflight.v5.schema.json", "schemas/mulgae-review-preflight.v6.schema.json", "examples/review-preflight.v5.valid.json", "examples/review-preflight.v6.valid.json", "mulgae-review-preflight.v5", "mulgae-review-preflight.v6"},
+		contractPair{"schemas/mulgae-command-result.v18.schema.json", "schemas/mulgae-command-result.v19.schema.json", "examples/command-result.v18.valid.json", "examples/command-result.v19.valid.json", "mulgae-command-result.v18", "mulgae-command-result.v19"},
 		contractPair{"schemas/mulgae-provider-review-output.v1.schema.json", "schemas/mulgae-provider-review-output.v2.schema.json", "examples/provider-review-output.v1.valid.json", "examples/provider-review-output.v2.valid.json", "mulgae-provider-review-output.v1", "mulgae-provider-review-output.v2"},
 		contractPair{"schemas/mulgae-publication-receipt.v1.schema.json", "schemas/mulgae-publication-receipt.v2.schema.json", "examples/publication-receipt.v1.valid.json", "examples/publication-receipt.v2.valid.json", "mulgae-publication-receipt.v1", "mulgae-publication-receipt.v2"},
 		contractPair{"schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v2.schema.json", "examples/export-manifest.v1.valid.json", "examples/export-manifest.v2.valid.json", "mulgae-export-manifest.v1", "mulgae-export-manifest.v2"},
@@ -70,6 +68,14 @@ func updateFileCatalog(assets string, pairs []contractPair) error {
 	if err := json.Unmarshal(contents, &document); err != nil {
 		return err
 	}
+	retained := document.Files[:0]
+	for _, file := range document.Files {
+		if file["path"] == "sot/schemas/mulgae-request-receipt.v1.schema.json" || file["path"] == "sot/examples/request-receipt.v1.valid.json" {
+			continue
+		}
+		retained = append(retained, file)
+	}
+	document.Files = retained
 	byPath := make(map[string]map[string]any, len(document.Files))
 	for _, file := range document.Files {
 		if path, ok := file["path"].(string); ok {
@@ -103,7 +109,7 @@ func updateFileCatalog(assets string, pairs []contractPair) error {
 	}
 	// EPIC-007 value contracts are catalogued independently of runtime
 	// command versions. Their source schemas and examples are hand-authored.
-	for _, name := range []string{"capture-manifest", "request-receipt", "publication-receipt", "finding-cursor", "composite-support"} {
+	for _, name := range []string{"capture-manifest", "publication-receipt", "finding-cursor", "composite-support"} {
 		schema := "sot/schemas/mulgae-" + name + ".v1.schema.json"
 		example := "sot/examples/" + name + ".v1.valid.json"
 		for path, pair := range map[string]string{schema: example, example: schema} {
@@ -168,11 +174,6 @@ func generatePair(root string, pair contractPair) error {
 		if item.schema && pair.newVersion == "mulgae-provider-contract-evidence.v4" {
 			if err := admitCurrentProviderFamilies(document); err != nil {
 				return err
-			}
-		}
-		if item.schema && pair.newVersion == "mulgae-review-preflight.v5" {
-			if count := restrictPermissionModes(document); count != 1 {
-				return fmt.Errorf("portfolio contract generator: review-preflight permission mode count = %d, want 1", count)
 			}
 		}
 		if pair.newVersion == "mulgae-doctor-result.v5" {

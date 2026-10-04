@@ -9,12 +9,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -121,7 +123,7 @@ func TestIntegrationIndependentProcessesDoNotShareProviderLocks(t *testing.T) {
 
 					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 					defer cancel()
-					arguments := []string{"review", "--diff", "HEAD~1..HEAD", "--roles", "logic", "--objective", "Review the captured change.", "--output", "json"}
+					arguments := []string{"review", "--diff", "HEAD~1..HEAD", "--roles", "logic", "--objective", "Review the selected change.", "--output", "json"}
 					first := startMulgaeBinaryWithEnv(t, ctx, binary, firstProject, environment, arguments...)
 					second := startMulgaeBinaryWithEnv(t, ctx, binary, secondProject, environment, arguments...)
 					firstResult := waitMulgaeBinary(t, first)
@@ -164,7 +166,7 @@ func TestIntegrationPublicationLockCancellationPreservesTypedFailureAndArtifacts
 		t.Fatalf("initialize publication-lock config: exit=%d stdout=%q stderr=%q", initialized.exitCode, initialized.stdout, initialized.stderr)
 	}
 
-	arguments := []string{"review", "--diff", "HEAD~1..HEAD", "--roles", "logic", "--objective", "Review the captured change.", "--output", "json"}
+	arguments := []string{"review", "--diff", "HEAD~1..HEAD", "--roles", "logic", "--objective", "Review the selected change.", "--output", "json"}
 	baseline := assertSuccessfulConcurrentReview(t, project, runMulgaeBinaryWithEnv(t, binary, project, environment, arguments...))
 	baselineRoot := filepath.Join(project, ".mulgae", *baseline.Result.SessionID, *baseline.Result.RunID)
 	beforeBaseline := snapshotTestTreeMaterial(t, baselineRoot)
@@ -197,7 +199,7 @@ func TestIntegrationPublicationLockCancellationPreservesTypedFailureAndArtifacts
 				continue
 			}
 			data, readErr := os.ReadFile(path)
-			if readErr == nil && bytes.Contains(data, []byte(`"event":"workspace_cleanup_completed"`)) {
+			if readErr == nil && bytes.Contains(data, []byte(`"event":"coordinator_reduction_completed"`)) {
 				diagnosticLogPath = path
 				break
 			}
@@ -211,10 +213,9 @@ func TestIntegrationPublicationLockCancellationPreservesTypedFailureAndArtifacts
 		result := waitMulgaeBinary(t, running)
 		t.Fatalf("review did not reach publication lock: exit=%d stdout=%q stderr=%q", result.exitCode, result.stdout, result.stderr)
 	}
-	// Workspace cleanup is the final durable event before candidate preparation
-	// and publication. Give the process time to enter the held lock's bounded
-	// polling loop so this exercises lock-wait cancellation, not an earlier
-	// context checkpoint.
+	// Reduction precedes provider drain, source closure and publication. Give
+	// the process time to finish cleanup and enter the held lock's bounded
+	// polling loop; the typed failure below verifies lock-wait cancellation.
 	time.Sleep(100 * time.Millisecond)
 	if err := running.command.Process.Signal(syscall.Signal(0)); err != nil {
 		result := waitMulgaeBinary(t, running)
@@ -273,10 +274,6 @@ func TestIntegrationPublicationLockCancellationPreservesTypedFailureAndArtifacts
 	}
 }
 
-// ZCode roles deliver their report through the staged file Mulgae granted them.
-// The manifest records which transport carried each published report.
-// A staged file the provider never wrote is operationally missing output: the
-// role completes on its configured fallback and the run still publishes.
 func commandEnvelopeHasReason(envelope commandEnvelope, code string) bool {
 	for _, reason := range envelope.Reasons {
 		if reason.Code == code {
@@ -284,255 +281,6 @@ func commandEnvelopeHasReason(envelope commandEnvelope, code string) bool {
 		}
 	}
 	return false
-}
-
-// TestIntegrationStagedFileMissingIsAnOperationalRoleFailure proves a missing
-// staged output file is classified as an operational invalid-output failure
-// rather than a staging violation, and that the role simply fails: Mulgae does
-// not move it to the other configured provider.
-func TestIntegrationIsolatedReleaseFixtureComposesExactRecoveredReview(t *testing.T) {
-	for _, role := range []string{"logic", "maintainability"} {
-		t.Run(role, func(t *testing.T) { testReleaseBinaryComposesRecoveredRole(t, role) })
-	}
-}
-
-func testReleaseBinaryComposesRecoveredRole(t *testing.T, failedRole string) {
-	t.Helper()
-	reviewRoles := "logic"
-	if failedRole != "logic" {
-		reviewRoles += "," + failedRole
-	}
-	root := repositoryRoot(t)
-	binary := buildMulgaeBinary(t, root)
-	project := canonicalTestTempDir(t)
-	initializeReviewGitRepository(t, project)
-
-	nativeHome := integrationNativeHome(t, binary)
-	providerDirectory := canonicalTestTempDir(t)
-	logDirectory := canonicalTestTempDir(t)
-	zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
-	zcodeAppBundle, zcodeNode, zcodeLauncher := fakeZCodeAppPaths(providerDirectory)
-	buildFakeZCodeWithReport(t, root, zcodeNode, zcodeLauncher, zcodeLog, "fail_first_"+failedRole, "write", "", compositeEvidenceReport())
-	environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
-	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", reviewRoles, zcodeAppBundle)
-
-	incomplete := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"review", "--dirty", "--roles", reviewRoles, "--output", "json")
-	var rootEnvelope commandEnvelope
-	if err := json.Unmarshal(incomplete.stdout, &rootEnvelope); err != nil {
-		t.Fatalf("decode incomplete root: %v: %q", err, incomplete.stdout)
-	}
-	if incomplete.exitCode != int(domain.ExitIncompleteCoverage) || rootEnvelope.Result.RunID == nil ||
-		!commandEnvelopeHasReason(rootEnvelope, "required_role_incomplete") {
-		t.Fatalf("incomplete root = exit %d envelope %#v stderr %q", incomplete.exitCode, rootEnvelope, incomplete.stderr)
-	}
-
-	recovered := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"rerun", "--run", *rootEnvelope.Result.RunID, "--role", failedRole, "--provider", "zcode-"+failedRole, "--output", "json")
-	var recoveryEnvelope commandEnvelope
-	if err := json.Unmarshal(recovered.stdout, &recoveryEnvelope); err != nil {
-		t.Fatalf("decode exact recovery: %v: %q", err, recovered.stdout)
-	}
-	if recovered.exitCode != 0 || recoveryEnvelope.Result.RunID == nil {
-		dumpRuntimeDiagnostics(t, project, recoveryEnvelope)
-		t.Fatalf("exact recovery = exit %d envelope %#v stderr %q", recovered.exitCode, recoveryEnvelope, recovered.stderr)
-	}
-
-	composed := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"compose", "--root-run", *rootEnvelope.Result.RunID, "--recovery-run", *recoveryEnvelope.Result.RunID, "--output", "json")
-	var compositeEnvelope commandEnvelope
-	if err := json.Unmarshal(composed.stdout, &compositeEnvelope); err != nil {
-		t.Fatalf("decode composite: %v: %q", err, composed.stdout)
-	}
-	if composed.exitCode != 0 || compositeEnvelope.Result.Kind != "composite_published" || compositeEnvelope.Result.RunID == nil ||
-		compositeEnvelope.Result.RootRunID == nil || *compositeEnvelope.Result.RootRunID != *rootEnvelope.Result.RunID ||
-		!reflect.DeepEqual(compositeEnvelope.Result.RecoveryRunIDs, []string{*recoveryEnvelope.Result.RunID}) ||
-		compositeEnvelope.Result.ReconciliationState != "created" ||
-		compositeEnvelope.Result.PublicationStatus != string(domain.PublicationCommitted) ||
-		compositeEnvelope.Result.CoverageStatus != string(domain.CoverageComplete) ||
-		compositeEnvelope.Result.CIDecision != string(domain.CIPass) || !compositeEnvelope.Result.RetrySafe {
-		t.Fatalf("composite = exit %d envelope %#v stderr %q", composed.exitCode, compositeEnvelope, composed.stderr)
-	}
-	reconciled := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"compose", "--root-run", *rootEnvelope.Result.RunID, "--recovery-run", *recoveryEnvelope.Result.RunID, "--output", "json")
-	var reconciledEnvelope commandEnvelope
-	if err := json.Unmarshal(reconciled.stdout, &reconciledEnvelope); err != nil {
-		t.Fatalf("decode reconciled composite: %v: %q", err, reconciled.stdout)
-	}
-	if reconciled.exitCode != 0 || reconciledEnvelope.Result.RunID == nil || reconciledEnvelope.Result.ReviewID == nil ||
-		*reconciledEnvelope.Result.RunID != *compositeEnvelope.Result.RunID ||
-		*reconciledEnvelope.Result.ReviewID != *compositeEnvelope.Result.ReviewID ||
-		reconciledEnvelope.Result.ReconciliationState != "reconciled" || !reconciledEnvelope.Result.RetrySafe {
-		t.Fatalf("reconciled composite = exit %d envelope %#v stderr %q", reconciled.exitCode, reconciledEnvelope, reconciled.stderr)
-	}
-
-	status := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"status", "--run", *compositeEnvelope.Result.RunID, "--output", "json")
-	var statusEnvelope commandEnvelope
-	if err := json.Unmarshal(status.stdout, &statusEnvelope); err != nil {
-		t.Fatalf("decode composite status: %v: %q", err, status.stdout)
-	}
-	if status.exitCode != 0 || statusEnvelope.Result.RunID == nil || *statusEnvelope.Result.RunID != *compositeEnvelope.Result.RunID ||
-		statusEnvelope.Result.PublicationStatus != compositeEnvelope.Result.PublicationStatus ||
-		statusEnvelope.Result.CoverageStatus != compositeEnvelope.Result.CoverageStatus ||
-		statusEnvelope.Result.CIDecision != compositeEnvelope.Result.CIDecision {
-		t.Fatalf("composite status = exit %d envelope %#v stderr %q", status.exitCode, statusEnvelope, status.stderr)
-	}
-	findings := runMulgaeBinaryWithEnv(t, binary, project, environment,
-		"findings", "--run", *compositeEnvelope.Result.RunID, "--severity", "low", "--output", "json")
-	if findings.exitCode != 0 || len(findings.stderr) != 0 {
-		t.Fatalf("composite findings = exit %d stdout %q stderr %q", findings.exitCode, findings.stdout, findings.stderr)
-	}
-	assertCompositePortableContent(t, binary, project, environment, *compositeEnvelope.Result.RunID, len(strings.Split(reviewRoles, ",")), false)
-}
-
-// Staging Mulgae did not authorize is a boundary breach: the role publishes
-// nothing and the run fails closed as a security condition.
-func TestIntegrationStagedSymlinkFailsClosedAsSecurityViolation(t *testing.T) {
-	root := repositoryRoot(t)
-	binary := buildMulgaeBinary(t, root)
-	nativeHome := integrationNativeHome(t, binary)
-
-	for _, test := range []struct {
-		name     string
-		staged   string
-		smuggled bool
-	}{
-		{name: "symbolic link", staged: "symlink", smuggled: true},
-		{name: "extra staged entry", staged: "extra"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			project := canonicalTestTempDir(t)
-			initializeReviewGitRepository(t, project)
-			providerDirectory := canonicalTestTempDir(t)
-			logDirectory := canonicalTestTempDir(t)
-			zcodeLog := filepath.Join(logDirectory, "zcode.jsonl")
-			zcodeAppBundle, zcodeNode, zcodeLauncher := fakeZCodeAppPaths(providerDirectory)
-			buildFakeZCodeWithStagedOutput(t, root, zcodeNode, zcodeLauncher, zcodeLog, "success", test.staged)
-			environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
-			initializeOfflineProviders(t, binary, project, environment, "zcode", zcodeAppBundle)
-
-			review := runMulgaeBinaryWithEnv(t, binary, project, environment,
-				"review", "--dirty", "--roles", "security", "--output", "json")
-			var envelope commandEnvelope
-			if err := json.Unmarshal(review.stdout, &envelope); err != nil {
-				t.Fatalf("decode staging violation envelope: %v: %q", err, review.stdout)
-			}
-			if review.exitCode != int(app.ExitCodeSecurity) || envelope.Exit.Code != int(app.ExitCodeSecurity) ||
-				envelope.Exit.Kind != "security" || len(envelope.Reasons) != 1 ||
-				envelope.Reasons[0].Category != "security" || envelope.Reasons[0].Retryable ||
-				envelope.Reasons[0].ArtifactURI == nil {
-				dumpRuntimeDiagnostics(t, project, envelope)
-				t.Fatalf("staging violation review = exit %d envelope %#v stderr %q", review.exitCode, envelope, review.stderr)
-			}
-			if envelope.Result.RunManifestURI != nil || envelope.Result.ReviewArtifactURI != nil ||
-				len(envelope.Result.RoleReportURIs) != 0 {
-				t.Fatalf("staging violation published artifacts: %#v", envelope.Result)
-			}
-			entries, err := os.ReadDir(filepath.Join(project, ".mulgae"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(entries) != 3 || entries[0].Name() != "config.yaml" || entries[1].Name() != "diagnostics" || entries[2].Name() != "local.yaml" {
-				t.Fatalf("staging violation created publication artifacts: %v", entries)
-			}
-			diagnosticRoot := filepath.Join(project, filepath.FromSlash(*envelope.Reasons[0].ArtifactURI))
-			log, err := os.ReadFile(filepath.Join(diagnosticRoot, "mulgae-runtime.jsonl"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Contains(log, []byte(`"cause":"`+string(domain.DiagnosticCauseProviderOutputStagingViolation)+`"`)) {
-				t.Fatalf("staging violation diagnostics omitted the staging violation cause:\n%s", log)
-			}
-			if !bytes.Contains(log, []byte(`"event":"`+string(domain.DiagnosticRuntimeClosed)+`"`)) {
-				t.Fatalf("staging violation diagnostics were not finalized:\n%s", log)
-			}
-			statusBytes, err := os.ReadFile(filepath.Join(diagnosticRoot, "status.json"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var status struct {
-				State             domain.RunState `json:"state"`
-				RolePathCompleted int             `json:"role_path_completed"`
-				RolePathFailed    int             `json:"role_path_failed"`
-				P2URI             string          `json:"p2_uri"`
-			}
-			if err := json.Unmarshal(statusBytes, &status); err != nil {
-				t.Fatal(err)
-			}
-			if status.State == domain.RunCompleted || status.RolePathCompleted != 0 || status.RolePathFailed != 1 || status.P2URI != "" {
-				t.Fatalf("staging violation diagnostic status = %#v", status)
-			}
-			launches := fakeZCodeReviewObservations(t, zcodeLog)
-			if len(launches) != 1 || launches[0].Destination == "" {
-				t.Fatalf("staging violation launches = %#v, want one destination-bound launch", launches)
-			}
-			if _, err := os.Lstat(launches[0].Destination); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("violating staging %q survived the run: %v", launches[0].Destination, err)
-			}
-			if !test.smuggled {
-				return
-			}
-			smuggled := filepath.Join(logDirectory, "smuggled-role-report.md")
-			body, err := os.ReadFile(smuggled)
-			if err != nil || string(body) != fakeZCodeStagedReport("security") {
-				t.Fatalf("linked report outside staging = %q, %v", body, err)
-			}
-		})
-	}
-}
-
-func restoreTestCapturedReviewArchive(t *testing.T, project, sessionID, runID string) ports.CapturedReviewMaterial {
-	t.Helper()
-	targetRoot := filepath.Join(project, ".mulgae", sessionID, runID, "target")
-	manifest, err := os.ReadFile(filepath.Join(targetRoot, "captured-review.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	references, err := ports.CapturedReviewArchiveBlobReferences(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	blobs := make([]ports.CapturedReviewArchiveBlob, 0, len(references))
-	for _, reference := range references {
-		contents, readErr := os.ReadFile(filepath.Join(targetRoot, filepath.FromSlash(reference.Path().String())))
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		blob, blobErr := ports.NewCapturedReviewArchiveBlob(reference.Path(), contents)
-		if blobErr != nil || blob.SHA256() != reference.SHA256() {
-			t.Fatalf("captured review blob %q is invalid: %v", reference.Path().String(), blobErr)
-		}
-		blobs = append(blobs, blob)
-	}
-	material, err := ports.RestoreCapturedReviewArchive(manifest, blobs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return material
-}
-
-func snapshotTestTree(t *testing.T, root string) []string {
-	t.Helper()
-	var paths []string
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == root {
-			return nil
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		paths = append(paths, filepath.ToSlash(relative))
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return paths
 }
 
 func snapshotTestTreeMaterial(t *testing.T, root string) map[string]string {
@@ -807,7 +555,7 @@ func assertCommandRoleReportInventory(t *testing.T, project string, envelope com
 		outcome := outcomesByRole[role]
 		if report.Role != role || uri.Role != role || report.Path != "role-reports/"+role+".md" ||
 			report.ContentType != "text/markdown" || report.ByteLength <= 0 ||
-			(report.Transport != "staged_file" && report.Transport != "stdout") ||
+			report.Transport != "stdout" ||
 			outcome.AttemptID == nil || outcome.ProviderInstance == nil ||
 			report.AttemptID != *outcome.AttemptID || report.ProviderInstance != *outcome.ProviderInstance ||
 			uri.URI != prefix+role+".md" {
@@ -846,38 +594,17 @@ func initializeReviewGitRepository(t *testing.T, directory string) {
 	mustWriteTestFile(t, filepath.Join(directory, "review.go"), []byte("package review\n\nconst state = \"after\"\n"))
 }
 
-// stagedOutputDestinationMarker is the exact Mulgae-owned trusted layer line
-// that precedes the single absolute path a staged review launch may write. It
-// is duplicated here on purpose: the fake provider must recognize the shipped
-// contract text, not a constant it shares with the implementation.
-const stagedOutputDestinationMarker = "Write your complete final Markdown role report to this exact absolute file path, creating that one file only:"
-
-// fakeZCodeStagedReportTemplate is the exact Markdown body the fake ZCode
-// stages for one role. The generated fake substitutes __ROLE__ with the role
-// its launch prompt names, so a published role report can be compared byte for
-// byte against fakeZCodeStagedReport.
-const fakeZCodeStagedReportTemplate = "# __ROLE__ role report\n\n" +
-	"Staged file transport carried this __ROLE__ body.\n\n" +
+// The offline provider returns this complete body through native assistant text.
+const fakeZCodeReportTemplate = "# __ROLE__ role report\n\n" +
+	"Native assistant transport carried this __ROLE__ body.\n\n" +
 	"```json\n" +
 	"{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"No __ROLE__ findings.\"," +
 	"\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}\n" +
 	"```\n"
 
-// fakeZCodeIgnoredStdout is the session envelope the fake ZCode prints on
-// standard output for every review launch. The staged_file transport ignores
-// standard output for acceptance, so this text must never reach a published
-// role report.
-const fakeZCodeIgnoredStdout = "{\"schema_version\":\"mulgae-provider-review-output.v1\"," +
-	"\"summary\":\"Standard output is ignored under the staged file transport.\"," +
-	"\"completeness\":\"complete\",\"limitations\":[],\"findings\":[]}"
-
-func fakeZCodeStagedReport(role string) string {
-	return strings.ReplaceAll(fakeZCodeStagedReportTemplate, "__ROLE__", role)
-}
-
 func buildFakeZCode(t *testing.T, root, binary, launcher, logPath, mode string) {
 	t.Helper()
-	buildFakeZCodeWithStagedOutputAndBarrier(t, root, binary, launcher, logPath, mode, "write", "")
+	buildFakeZCodeWithReport(t, root, binary, launcher, logPath, mode, "", fakeZCodeReportTemplate)
 }
 
 func fakeZCodeAppPaths(root string) (string, string, string) {
@@ -889,27 +616,12 @@ func fakeZCodeAppPaths(root string) (string, string, string) {
 
 func buildFakeZCodeWithBarrier(t *testing.T, root, binary, launcher, logPath, barrier string) {
 	t.Helper()
-	buildFakeZCodeWithStagedOutputAndBarrier(t, root, binary, launcher, logPath, "success", "write", barrier)
+	buildFakeZCodeWithReport(t, root, binary, launcher, logPath, "success", barrier, fakeZCodeReportTemplate)
 }
 
-// buildFakeZCodeWithStagedOutput builds the offline ZCode fake. staged selects
-// how the fake honours the Mulgae-owned staged output destination its review
-// prompt states: "write" stages exactly the one role report Mulgae granted,
-// "none" stages nothing, "symlink" stages a symbolic link to a report the fake
-// also writes outside staging, and "extra" stages a second file beside the
-// report. Every variant still prints the ignored stdout session envelope.
-func buildFakeZCodeWithStagedOutput(t *testing.T, root, binary, launcher, logPath, mode, staged string) {
+func buildFakeZCodeWithReport(t *testing.T, root, binary, launcher, logPath, mode, barrier, reportBody string) {
 	t.Helper()
-	buildFakeZCodeWithStagedOutputAndBarrier(t, root, binary, launcher, logPath, mode, staged, "")
-}
-
-func buildFakeZCodeWithStagedOutputAndBarrier(t *testing.T, root, binary, launcher, logPath, mode, staged, barrier string) {
-	t.Helper()
-	buildFakeZCodeWithReport(t, root, binary, launcher, logPath, mode, staged, barrier, fakeZCodeStagedReportTemplate)
-}
-
-func buildFakeZCodeWithReport(t *testing.T, root, binary, launcher, logPath, mode, staged, barrier, reportBody string) {
-	t.Helper()
+	startFakeZCodeObserver(t, logPath, barrier)
 	mustWriteTestFile(t, launcher, []byte("// offline fake ZCode launcher\n"))
 	mustWriteTestFile(t, filepath.Join(filepath.Dir(launcher), "..", "config", "provider", "zcode-builtin.json"), []byte(`{"schemaVersion":1,"revision":30,"config":{"providerConfigRules":{"providerRules":[{"providerId":"account:zai-individual-coding-plan","config":{"builtinModelIds":["GLM-5.3","GLM-5.3-Flash"],"access":{"type":"zhipu-account","mode":"individual-coding-plan","accountType":"zai"}}}]}}}
 `))
@@ -923,8 +635,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -937,7 +649,6 @@ type observation struct {
 	Destination string   ` + "`json:\"destination,omitempty\"`" + `
 }
 
-const destinationMarker = "__FAKE_ZCODE_DESTINATION_MARKER__"
 const barrierDirectory = __FAKE_ZCODE_BARRIER__
 
 var roleGuide = regexp.MustCompile("Mulgae ROOT REVIEW ROLE GUIDE/[0-9]+: ([A-Z]+)")
@@ -955,11 +666,12 @@ func main() {
 }
 
 // serve speaks the ZCode app-server protocol on stdio: one session per
-// process, the packet as the single turn's content, and the staged report or
+// process, the packet as the single turn's content, and assistant text or
 // controlled qualification proof produced before turn completion.
 func serve(argv []string) {
 	sessionID := "sess_fake"
 	var prompt, mode, denylist, proof string
+	var allowlist []string
 	capability, accountConfigured, authAccepted, modelSelected := false, false, false, false
 	stdout := bufio.NewWriter(os.Stdout)
 	defer stdout.Flush()
@@ -1038,12 +750,14 @@ func serve(argv []string) {
 			var params struct {
 				Mode         string   ` + "`json:\"mode\"`" + `
 				ToolDenylist []string ` + "`json:\"toolDenylist\"`" + `
+				ToolAllowlist []string ` + "`json:\"toolAllowlist\"`" + `
 			}
 			if json.Unmarshal(message.Params, &params) != nil || params.Mode == "" || len(params.ToolDenylist) == 0 || !accountConfigured {
 				panic("non-canonical ZCode session create")
 			}
 			mode = params.Mode
 			denylist = strings.Join(params.ToolDenylist, ",")
+			allowlist = params.ToolAllowlist
 			modelSelected = true
 			serverRequest("server-1", "session/requestRuntimePreferences", map[string]any{
 				"sessionId": sessionID,
@@ -1093,45 +807,26 @@ func serve(argv []string) {
 				if mode != "plan" || denylist != "*" {
 					panic("non-canonical ZCode capability conversation")
 				}
-			} else if mode != "yolo" || !strings.Contains(denylist, "Bash") || strings.Contains(denylist, "Write") {
+			} else if mode != "plan" || !strings.Contains(denylist, "Write") || len(allowlist) != 4 {
 				panic("non-canonical ZCode review conversation")
 			}
-			destination := stagedDestination(prompt)
+			destination := ""
+			if strings.Contains(prompt, "Write your complete final Markdown role report to this exact absolute file path") { panic("live review granted report-file output") }
 			cwd, cwdErr := os.Getwd()
 			if cwdErr != nil {
 				panic(cwdErr)
 			}
-			log, logErr := os.OpenFile("__FAKE_ZCODE_LOG__", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-			if logErr != nil {
-				panic(logErr)
-			}
-			if encodeErr := json.NewEncoder(log).Encode(observation{Argv: argv, CWD: cwd, Prompt: prompt, Destination: destination}); encodeErr != nil {
-				panic(encodeErr)
-			}
-			if closeErr := log.Close(); closeErr != nil {
-				panic(closeErr)
-			}
+			observe(observation{Argv: argv, CWD: cwd, Prompt: prompt, Destination: destination}, false)
 			reply(message.ID, map[string]any{"accepted": true, "sessionId": sessionID, "stateRevision": 1})
 			if capability {
 				proof = capabilityProof(prompt)
 				notifyTurn("turn-completed")
 				continue
 			}
-			if destination == "" {
-				// The structured extraction trailer runs without a staged
-				// destination and returns exact JSON as the assistant text.
-				proof = __FAKE_ZCODE_STDOUT__
-				notifyTurn("turn-completed")
-				continue
-			}
-			if !reviewFailureVariant(prompt) {
-				if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
-					if writeErr := os.WriteFile("__FAKE_ZCODE_LOG__.reviewed", []byte("reviewed"), 0600); writeErr != nil {
-						panic(writeErr)
-					}
-				}
+			if destination != "" { panic("live review granted report-file output") }
+			if !reviewFailureVariant() {
 				waitForPeer()
-				stage(destination, report(prompt))
+				proof = report(prompt)
 			}
 			notifyTurn("turn-completed")
 		case "session/messages":
@@ -1152,11 +847,6 @@ func serve(argv []string) {
 // capabilityProof extracts the controlled qualification binding from the
 // packet and returns the JSON object a real provider would answer with.
 func capabilityProof(prompt string) string {
-	if "__FAKE_ZCODE_MODE__" == "reject_child_qualification" {
-		if _, err := os.Stat("__FAKE_ZCODE_LOG__.reviewed"); err == nil {
-			return "Qualification response omitted fixture bindings."
-		}
-	}
 	root := regexp.MustCompile("(?:root must be |root=)([0-9a-f]{64})").FindStringSubmatch(prompt)
 	link := regexp.MustCompile("(?:link must be |link=)([^\\s;]+)").FindStringSubmatch(prompt)
 	role := regexp.MustCompile("(?:role must be |role=)([a-z]+)").FindStringSubmatch(prompt)
@@ -1166,47 +856,11 @@ func capabilityProof(prompt string) string {
 	return fmt.Sprintf("{\"root\":%q,\"link\":%q,\"role\":%q}", root[1], link[1], role[1])
 }
 
-// reviewFailureVariant applies the configured simulated review failure and
-// reports whether the conversation failed instead of staging a report.
-func reviewFailureVariant(prompt string) bool {
- role := roleGuide.FindStringSubmatch(prompt)
- if len(role) == 2 && strings.Contains("__FAKE_ZCODE_MODE__", "wait_twice_documentation") && strings.ToLower(role[1]) == "documentation" {
-  // Finish the first wave with repairable output so the peer logic role is
-  // committed before documentation blocks in its repair invocation.
-  if "__FAKE_ZCODE_MODE__" == "repair_then_wait_twice_documentation" {
-   marker, err := os.OpenFile("__FAKE_ZCODE_LOG__.invalid-documentation", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-   if err == nil {
-    if err := marker.Close(); err != nil { panic(err) }
-    stage(stagedDestination(prompt), "# documentation role report\n\n"+"\x60\x60\x60json\n{\"schema_version\":\"mulgae-provider-review-output.v1\",\"summary\":\"Repair fixture\",\"completeness\":\"complete\",\"limitations\":[],\"findings\":[{\"severity\":\"low\"}]}\n\x60\x60\x60\n")
-    return true
-   }
-   if !os.IsExist(err) { panic(err) }
-  }
-  for index := 1; index <= 2; index++ {
-   marker, err := os.OpenFile(fmt.Sprintf("__FAKE_ZCODE_LOG__.waiting.%d", index), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-   if err == nil {
-    if err := marker.Close(); err != nil { panic(err) }
-    for { time.Sleep(time.Second) }
-   }
-   if !os.IsExist(err) { panic(err) }
-  }
- }
- if len(role) == 2 && "__FAKE_ZCODE_MODE__" == "fail_first_"+strings.ToLower(role[1]) {
-		for attempt := 1; attempt <= 2; attempt++ {
-			marker, err := os.OpenFile(fmt.Sprintf("__FAKE_ZCODE_LOG__.failed.%d", attempt), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-			if err == nil {
-				if err := marker.Close(); err != nil {
-					panic(err)
-				}
-				fmt.Fprintln(os.Stderr, "provider execution failed")
-				os.Exit(1)
-			}
-			if !os.IsExist(err) {
-				panic(err)
-			}
-		}
-	}
+// reviewFailureVariant simulates a terminal provider failure or cancellation wait.
+func reviewFailureVariant() bool {
 	switch "__FAKE_ZCODE_MODE__" {
+	case "wait_review":
+		for { time.Sleep(time.Second) }
 	case "rate_limit_review":
 		fmt.Fprintln(os.Stderr, "rate_limit")
 		os.Exit(1)
@@ -1220,101 +874,34 @@ func reviewFailureVariant(prompt string) bool {
 	return false
 }
 
+func observe(value observation, barrier bool) {
+	connection, err := net.Dial("unix", "__FAKE_ZCODE_SOCKET__")
+	if err != nil { panic(err) }
+	defer connection.Close()
+	if err := json.NewEncoder(connection).Encode(map[string]any{"observation": value, "barrier": barrier, "pid": os.Getpid()}); err != nil { panic(err) }
+	var acknowledged bool
+	if err := json.NewDecoder(connection).Decode(&acknowledged); err != nil || !acknowledged { panic("observer acknowledgement failed") }
+}
 func waitForPeer() {
-	if barrierDirectory == "" {
-		return
-	}
-	marker := filepath.Join(barrierDirectory, fmt.Sprintf("%d.ready", os.Getpid()))
-	if err := os.WriteFile(marker, []byte("ready\n"), 0600); err != nil {
-		panic(err)
-	}
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		entries, err := os.ReadDir(barrierDirectory)
-		if err != nil {
-			panic(err)
-		}
-		ready := 0
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".ready") {
-				ready++
-			}
-		}
-		if ready >= 2 {
-			return
-		}
-		if time.Now().After(deadline) {
-			panic("peer review provider did not start concurrently")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	if barrierDirectory != "" { observe(observation{}, true) }
 }
 
-// stagedDestination returns the one absolute path the last trusted layer of a
-// staged launch states. A prompt without that layer returns the empty string.
-func stagedDestination(prompt string) string {
-	index := strings.Index(prompt, destinationMarker)
-	if index < 0 {
-		return ""
-	}
-	line := strings.TrimPrefix(prompt[index+len(destinationMarker):], "\n")
-	if end := strings.IndexByte(line, '\n'); end >= 0 {
-		line = line[:end]
-	}
-	destination := strings.TrimSpace(line)
-	if !filepath.IsAbs(destination) || filepath.Clean(destination) != destination ||
-		filepath.Base(destination) != "role-report.md" {
-		panic("staged output destination is not a canonical absolute role report path")
-	}
-	return destination
-}
-
-// report is the Markdown body this fake stages for the role its launch prompt
-// names. Standard output never carries it.
+// report returns the complete assistant message for the requested role.
 func report(prompt string) string {
 	role := roleGuide.FindStringSubmatch(prompt)
 	if len(role) != 2 {
 		panic("ZCode review prompt omits the role guide")
 	}
-	return strings.ReplaceAll(__FAKE_ZCODE_STAGED_BODY__, "__ROLE__", strings.ToLower(role[1]))
+	return strings.ReplaceAll(__FAKE_ZCODE_REPORT_BODY__, "__ROLE__", strings.ToLower(role[1]))
 }
 
-// stage writes the report exactly as the configured staging behaviour requires.
-// Mulgae created the staging directory before this process started.
-func stage(destination, body string) {
-	switch "__FAKE_ZCODE_STAGED__" {
-	case "none":
-		return
-	case "symlink":
-		outside := filepath.Join(filepath.Dir("__FAKE_ZCODE_LOG__"), "smuggled-role-report.md")
-		if err := os.WriteFile(outside, []byte(body), 0600); err != nil {
-			panic(err)
-		}
-		if err := os.Symlink(outside, destination); err != nil {
-			panic(err)
-		}
-		return
-	case "extra":
-		if err := os.WriteFile(destination, []byte(body), 0600); err != nil {
-			panic(err)
-		}
-		if err := os.WriteFile(filepath.Join(filepath.Dir(destination), "extra-notes.md"), []byte(body), 0600); err != nil {
-			panic(err)
-		}
-		return
-	}
-	if err := os.WriteFile(destination, []byte(body), 0600); err != nil {
-		panic(err)
-	}
-}
+
 `
-	program = strings.ReplaceAll(program, "__FAKE_ZCODE_DESTINATION_MARKER__", stagedOutputDestinationMarker)
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_BARRIER__", strconv.Quote(barrier))
-	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STAGED_BODY__", strconv.Quote(reportBody))
-	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STDOUT__", strconv.Quote(fakeZCodeIgnoredStdout))
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_REPORT_BODY__", strconv.Quote(reportBody))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_SOCKET__", fakeZCodeObserverSocket(logPath))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_MODE__", mode)
-	program = strings.ReplaceAll(program, "__FAKE_ZCODE_STAGED__", staged)
 	mustWriteTestFile(t, source, []byte(program))
 	build := exec.Command("go", "build", "-o", binary, source)
 	build.Dir = root
@@ -1331,6 +918,9 @@ func readFakeZCodeObservations(t *testing.T, path string) []fakeZCodeObservation
 		t.Fatalf("read fake ZCode observations: %v", err)
 	}
 	var observations []fakeZCodeObservation
+	if len(data) == 0 {
+		return observations
+	}
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		var observation fakeZCodeObservation
 		if err := json.Unmarshal([]byte(line), &observation); err != nil {
@@ -1701,98 +1291,82 @@ func (reader *compositionProjectReader) ReadFileAtCommit(context.Context, ports.
 	return nil, reader.readErr
 }
 
-func TestIntegrationChildQualificationFailureRetainsPrivateDiagnostics(t *testing.T) {
-	repository := repositoryRoot(t)
-	binary := buildMulgaeBinary(t, repository)
-	project := canonicalTestTempDir(t)
-	initializeReviewGitRepository(t, project)
-	nativeHome := integrationNativeHome(t, binary)
-	providerDirectory := canonicalTestTempDir(t)
-	appBundle, node, launcher := fakeZCodeAppPaths(providerDirectory)
-	buildFakeZCode(t, repository, node, launcher, filepath.Join(canonicalTestTempDir(t), "zcode.jsonl"), "reject_child_qualification")
-	environment := isolatedMulgaeEnvWith(t, nativeHome, providerDirectory)
-	initialized := runMulgaeBinaryWithEnv(t, binary, project, environment, "init", "--providers", "zcode", "--roles", "logic", "--zcode-app-bundle", appBundle)
-	if initialized.exitCode != 0 {
-		t.Fatalf("init failed: exit=%d stdout=%s stderr=%s", initialized.exitCode, initialized.stdout, initialized.stderr)
-	}
-	root := runMulgaeBinaryWithEnv(t, binary, project, environment, "review", "--dirty", "--roles", "logic", "--output", "json")
-	var parent commandEnvelope
-	if err := json.Unmarshal(root.stdout, &parent); err != nil {
-		t.Fatal(err)
-	}
-	if root.exitCode != 0 || parent.Result.RunID == nil {
-		t.Fatalf("root failed: %s", root.stdout)
-	}
-	rootLog := readRuntimeDiagnosticLog(t, project, *parent.Result.SessionID, *parent.Result.RunID)
-	candidates := 0
-	for _, line := range bytes.Split(bytes.TrimSpace(rootLog), []byte("\n")) {
-		var event struct{ Event, Provider, Outcome string }
-		if err := json.Unmarshal(line, &event); err != nil {
-			t.Fatal(err)
-		}
-		if event.Event == "qualification_candidate_checked" {
-			candidates++
-			if event.Provider != "zcode-logic" || event.Outcome != "qualified" {
-				t.Fatalf("probe I/O misrepresented as admission: %+v", event)
-			}
-		}
-	}
-	if candidates != 1 {
-		t.Fatalf("qualification decisions = %d, want 1", candidates)
-	}
-	child := runMulgaeBinaryWithEnv(t, binary, project, environment, "delta", "--since-run", *parent.Result.RunID, "--dirty", "--roles", "logic", "--output", "json")
-	var rejected commandEnvelope
-	if err := json.Unmarshal(child.stdout, &rejected); err != nil {
-		t.Fatal(err)
-	}
-	if child.exitCode != 4 || !commandEnvelopeHasReason(rejected, "provider_qualification_failed") || rejected.Result.RunID != nil || rejected.Result.SessionID != nil || rejected.Result.RunManifestURI != nil || rejected.Result.ReviewArtifactURI != nil {
-		t.Fatalf("child qualification failure = %s stderr=%s", child.stdout, child.stderr)
-	}
-	var diagnosticURI string
-	for _, reason := range rejected.Reasons {
-		if reason.ArtifactURI != nil {
-			diagnosticURI = *reason.ArtifactURI
-		}
-	}
-	parts := strings.Split(diagnosticURI, "/")
-	if len(parts) != 3 || parts[0] != "diagnostics" {
-		t.Fatalf("missing diagnostic reference: %q", diagnosticURI)
-	}
-	sessionID, runID := parts[1], parts[2]
-	if runID == *parent.Result.RunID || sessionID != *parent.Result.SessionID {
-		t.Fatal("child diagnostic identity does not preserve lineage")
-	}
-	assertRuntimeDiagnosticStatus(t, project, sessionID, runID, domain.RunFailed, "")
-	log := readRuntimeDiagnosticLog(t, project, sessionID, runID)
-	if !bytes.Contains(log, []byte(`"operation":"capability"`)) || !bytes.Contains(log, []byte(`"exit_code":0`)) || !bytes.Contains(log, []byte(`"outcome":"rejected"`)) {
-		t.Fatalf("missing qualification process diagnostics: %s", log)
-	}
-	base := filepath.Join(project, ".mulgae", "diagnostics", sessionID, runID, "qualification")
-	files, err := filepath.Glob(filepath.Join(base, "*", "capability", "stdout.raw"))
-	if err != nil || len(files) != 1 {
-		t.Fatalf("retained capability streams = %v, err=%v", files, err)
-	}
-	body, err := os.ReadFile(files[0])
+func fakeZCodeObserverSocket(log string) string {
+	sum := sha256.Sum256([]byte(log))
+	return filepath.Join(os.TempDir(), "zcode-observer-"+hex.EncodeToString(sum[:8])+".sock")
+}
+
+func startFakeZCodeObserver(t *testing.T, logPath, barrierPath string) {
+	t.Helper()
+	listener, err := net.Listen("unix", fakeZCodeObserverSocket(logPath))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The capability stream is the protocol transcript; the qualification
-	// evidence is the assistant text it carries, which the fake deliberately
-	// omits fixture bindings from in this scenario.
-	if !bytes.Contains(body, []byte(`"text":"Qualification response omitted fixture bindings."`)) {
-		t.Fatalf("capability response was changed: %q", body)
-	}
-	info, err := os.Stat(files[0])
-	if err != nil || info.Mode().Perm() != 0600 {
-		t.Fatalf("private stream permissions: %v %v", info, err)
-	}
-	for _, phase := range []string{"request", "version"} {
-		files, err := filepath.Glob(filepath.Join(base, "*", phase, "stdout.raw"))
-		if err != nil || len(files) != 1 {
-			t.Fatalf("missing %s evidence: %v %v", phase, files, err)
+	var mu sync.Mutex
+	done := make(chan struct{})
+	t.Cleanup(func() { _ = listener.Close(); <-done })
+	go func() {
+		defer close(done)
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer connection.Close()
+				var err error
+				var request struct {
+					Observation fakeZCodeObservation
+					Barrier     bool
+					PID         int
+				}
+				if json.NewDecoder(connection).Decode(&request) != nil {
+					return
+				}
+				mu.Lock()
+				if request.Barrier {
+					err = os.WriteFile(filepath.Join(barrierPath, strconv.Itoa(request.PID)+".ready"), []byte("ready"), 0600)
+				} else {
+					var file *os.File
+					file, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+					if err == nil {
+						err = errors.Join(json.NewEncoder(file).Encode(request.Observation), file.Close())
+					}
+				}
+				mu.Unlock()
+				if err != nil {
+					return
+				}
+				if request.Barrier {
+					deadline := time.Now().Add(15 * time.Second)
+					for time.Now().Before(deadline) {
+						markers, readErr := filepath.Glob(filepath.Join(barrierPath, "*.ready"))
+						if readErr == nil && len(markers) >= 2 {
+							break
+						}
+						time.Sleep(10 * time.Millisecond)
+					}
+				}
+				_ = json.NewEncoder(connection).Encode(true)
+			}()
 		}
-	}
-	if bytes.Contains(child.stdout, []byte("Qualification response omitted")) {
-		t.Fatal("raw response leaked to public result")
-	}
+	}()
+}
+
+func logFakeProviderPanic(t *testing.T, project string) {
+	t.Helper()
+	_ = filepath.WalkDir(filepath.Join(project, ".mulgae", "diagnostics"), func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.Contains(entry.Name(), "stderr") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err == nil {
+			for _, line := range bytes.Split(data, []byte{'\n'}) {
+				if bytes.HasPrefix(line, []byte("panic:")) {
+					t.Logf("fake provider panic: %s", line)
+				}
+			}
+		}
+		return nil
+	})
 }

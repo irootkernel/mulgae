@@ -1,12 +1,8 @@
 package mulgae
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,107 +15,12 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestG008RequestResolverCapturedStdinTransfersOnceAndZerosOwnedBytes(t *testing.T) {
-	input := []byte("first line\nsecond line\n")
-	reader := &countingReader{Reader: bytes.NewReader(input)}
-	resolver := &G008RequestResolver{reader: reader}
-
-	token, err := resolver.CaptureTarget(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !validCapturedStdinToken(token) || strings.Contains(token, string(input)) || strings.Contains(token, fmtHex(input)) {
-		t.Fatalf("token is not opaque: %q", token)
-	}
-	readsAfterCapture := reader.reads
-	if repeated, err := resolver.CaptureTarget(context.Background()); err != nil || repeated != token || reader.reads != readsAfterCapture {
-		t.Fatalf("repeated capture = %q, %v; reads = %d, want %q and %d", repeated, err, reader.reads, token, readsAfterCapture)
-	}
-
-	owned := resolver.captured
-	transferred, err := resolver.TakeCapturedStdin(context.Background(), token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(transferred) != string(input) {
-		t.Fatalf("transferred stdin = %q, want %q", transferred, input)
-	}
-	transferred[0] = 'X'
-	if string(input) != "first line\nsecond line\n" {
-		t.Fatalf("transfer mutated input: %q", input)
-	}
-	if resolver.captured != nil || resolver.captureToken != "" {
-		t.Fatal("resolver retained captured stdin after transfer")
-	}
-	for _, byte := range owned {
-		if byte != 0 {
-			t.Fatal("resolver-owned stdin was not zeroed")
-		}
-	}
-	if _, err := resolver.TakeCapturedStdin(context.Background(), token); err == nil {
-		t.Fatal("reused token succeeded")
-	}
-	if _, err := resolver.TakeCapturedStdin(context.Background(), "stdin-capture-v1-"+strings.Repeat("0", 64)); err == nil {
-		t.Fatal("unknown token succeeded")
-	}
-}
-
-func TestG008RequestResolverCaptureTargetAcceptsBeyondLegacyMaximum(t *testing.T) {
-	resolver := &G008RequestResolver{reader: bytes.NewReader(bytes.Repeat([]byte("x"), 180001))}
-	token, err := resolver.CaptureTarget(context.Background())
-	if err != nil || !validCapturedStdinToken(token) {
-		t.Fatalf("CaptureTarget = %q, %v", token, err)
-	}
-}
-
-func TestG008RequestResolverCaptureTargetRejectsInvalidInput(t *testing.T) {
-	for name, reader := range map[string]io.Reader{
-		"empty":         bytes.NewReader(nil),
-		"NUL":           bytes.NewBufferString("one\x00two"),
-		"invalid UTF-8": bytes.NewReader([]byte{0xff}),
-		"read error":    errorReader{},
-	} {
-		t.Run(name, func(t *testing.T) {
-			resolver := &G008RequestResolver{reader: reader}
-			if _, err := resolver.CaptureTarget(context.Background()); err == nil {
-				t.Fatal("CaptureTarget succeeded")
-			}
-		})
-	}
-	resolver := &G008RequestResolver{reader: bytes.NewBufferString("input"), stdinLimit: 64}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := resolver.CaptureTarget(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("CaptureTarget error = %v, want cancellation", err)
-	}
-}
-
-func TestG008RequestResolverCapturedStdinTokensAreFreshPerResolver(t *testing.T) {
-	first := &G008RequestResolver{reader: strings.NewReader("same input"), stdinLimit: 64}
-	second := &G008RequestResolver{reader: strings.NewReader("same input"), stdinLimit: 64}
-	firstToken, err := first.CaptureTarget(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondToken, err := second.CaptureTarget(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstToken == secondToken {
-		t.Fatal("separate resolver instances reused a token")
-	}
-}
-
-func fmtHex(bytes []byte) string {
-	sum := sha256.Sum256(bytes)
-	return fmt.Sprintf("%x", sum)
-}
 func TestG008RequestResolverLatestUsesCommittedManifestSelection(t *testing.T) {
 	fixture := newG008RealE2EFixture(t)
 	first := publishG008ResolverRun(t, fixture, 2)
 	second := publishG008ResolverRun(t, fixture, 1)
 
-	resolver, err := NewG008RequestResolver(fixture.root, fixture.queries, filesystem.NewRunSelector(fixture.root), strings.NewReader("target"))
+	resolver, err := NewG008RequestResolver(fixture.root, fixture.queries, filesystem.NewRunSelector(fixture.root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,9 +57,6 @@ func TestG008RequestResolverLatestUsesCommittedManifestSelection(t *testing.T) {
 	}
 
 	for _, arguments := range [][]string{
-		{"followup", "--run", "latest", "--finding", "F001", "--dirty"},
-		{"delta", "--since-run", "latest", "--dirty", "--roles", "logic"},
-		{"rerun", "--run", "latest", "--attempt", second.AttemptID.String()},
 		{"export", "--run", "latest", "--output-path", "exports/review.zip"},
 	} {
 		invocation, parseErr := ParseResolved(context.Background(), arguments, testProjectRoot, testRequestID, resolver)
@@ -180,7 +78,7 @@ func TestG008RequestResolverMissingProjectArtifactsDoesNotCreateWorkspace(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver, err := NewG008RequestResolver(artifactRoot, fixture.queries, filesystem.NewRunSelector(artifactRoot), strings.NewReader("target"))
+	resolver, err := NewG008RequestResolver(artifactRoot, fixture.queries, filesystem.NewRunSelector(artifactRoot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,9 +88,7 @@ func TestG008RequestResolverMissingProjectArtifactsDoesNotCreateWorkspace(t *tes
 	if _, err := resolver.ResolveRun(context.Background(), testRunID); !errors.Is(err, ErrProjectRootMismatch) {
 		t.Fatalf("ResolveRun explicit error = %v, want project root mismatch", err)
 	}
-	if _, err := resolver.ResolveAttempt(context.Background(), testRunID, "logic", "zcode-logic"); !errors.Is(err, ErrProjectRootMismatch) {
-		t.Fatalf("ResolveAttempt explicit error = %v, want project root mismatch", err)
-	}
+
 	if _, err := os.Lstat(artifactPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing artifact root stat = %v, want not exist", err)
 	}
@@ -210,7 +106,7 @@ func TestG008RequestResolverLatestSkipsCorruptP2Manifest(t *testing.T) {
 	second := publishG008ResolverRun(t, fixture, 1)
 	corruptG008Manifest(t, fixture, second)
 
-	resolver, err := NewG008RequestResolver(fixture.root, fixture.queries, filesystem.NewRunSelector(fixture.root), strings.NewReader("target"))
+	resolver, err := NewG008RequestResolver(fixture.root, fixture.queries, filesystem.NewRunSelector(fixture.root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,17 +194,3 @@ func publishG008ResolverRun(t *testing.T, fixture *g008RealE2EFixture, epoch uin
 		Queries:   fixture.queries,
 	}
 }
-
-type countingReader struct {
-	io.Reader
-	reads int
-}
-
-func (reader *countingReader) Read(value []byte) (int, error) {
-	reader.reads++
-	return reader.Reader.Read(value)
-}
-
-type errorReader struct{}
-
-func (errorReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }

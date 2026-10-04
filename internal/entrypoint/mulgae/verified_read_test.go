@@ -68,6 +68,22 @@ func TestVerifiedReadParserSelectors(t *testing.T) {
 	}
 }
 
+func TestLiveEvidenceRequestPreservesZeroIndex(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("1", 64)
+	invocation, err := Parse([]string{"excerpt", "--run", testRunID, "--finding", "F001", "--source-identity-sha256", digest, "--evidence-index", "0"}, "/project", "i_01234567-89ab-7cde-8f01-23456789abcd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request map[string]any
+	if err := json.Unmarshal(invocation.requestJSON, &request); err != nil {
+		t.Fatal(err)
+	}
+	index, present := request["evidence_index"]
+	if !present || index != float64(0) || request["source_identity_sha256"] != digest {
+		t.Fatalf("first live evidence selector lost its canonical zero index: %s", invocation.requestJSON)
+	}
+}
+
 func TestVerifiedReadBindingAndContinuationRejectBeforeQuery(t *testing.T) {
 	fake := newG006QueryFake()
 	fixture := newG006Fixture(t, fake, newG006ReportFake())
@@ -168,6 +184,14 @@ func (fake *g006QueryFake) ReadReport(context.Context, ports.PublicationRun, dom
 }
 func (fake *g006QueryFake) ReadEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, query.ContentContinuation) (query.ContentChunk, error) {
 	return query.ContentChunk{}, errors.New("unexpected indexed evidence read")
+}
+
+func (fake *g006QueryFake) ReadSourceEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected source evidence read")
+}
+
+func (fake *g006QueryFake) ReadSourceImage(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, string, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected source image read")
 }
 
 func TestVerifiedContentParserPreservesSelectorsAndLegacyExcerpt(t *testing.T) {

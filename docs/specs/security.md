@@ -3,7 +3,7 @@
 ## Trust model
 
 Mulgae treats the project, target, project context, and provider output as
-untrusted. Trusted code owns configuration admission, target capture, execution
+untrusted. Trusted code owns configuration admission, source selection, execution
 policy, schema compilation, identity, evidence verification, state reduction,
 and publication.
 
@@ -14,28 +14,27 @@ stdout exclusively for newline-delimited JSON-RPC. Each nonempty input record
 must be LF-terminated; an unterminated record at EOF is rejected before parsing
 or dispatch. Client parameters remain untrusted and do not acquire provider,
 publication, configuration, approval, or path authority merely by crossing the
-MCP transport. Tool arguments are strictly decoded and bounded. `compose_review`
-admits one exact root and one to seven unique exact recovery IDs, invokes no
-provider, and grants authority only after shared publication reaches P2.
-`run_review` and `start_review` admit no stdin target, and query tools expose
-only verified, project-confined status, artifact identities, and bounded finding
-summaries. Native paths, provider transcripts, report bodies, and captured
-source are not part of these tool results. Report and evidence
-bodies are available only through project-confined `mulgae://` templates. Each
-read re-verifies the committed source, admits only canonical byte offsets, and
-returns at most 16 KiB with integrity and continuation metadata. Evidence URIs
-bind the finding to the current target SHA-256; stale, malformed, oversized, or
-relocated content fails closed without reflecting the requested URI or native
-path.
+MCP transport. Tool arguments are strictly decoded and bounded. Current review
+requests admit only `workspace`, `stage`, `head`, `commit` and `diff`. Stdin is
+transport-only. Capture-bound guards and child/replay/compose mutations are
+rejected before provider execution. Query tools expose verified, project-confined
+status, artifact identities and bounded finding summaries. Native paths, provider
+transcripts, report bodies and source bytes are absent from tool results.
+
+Report and evidence bodies are available through project-confined `mulgae://`
+templates. Each read re-verifies committed support, admits canonical byte offsets
+and returns at most 16 KiB with integrity and continuation metadata. Live evidence
+URIs bind the finding to its source identity; historical capture URIs retain their
+original target binding. Malformed, stale or damaged support fails closed without
+reflecting requested paths. Source-image resources preserve binary evidence.
 
 Failed tool results expose only bounded Mulgae-owned recovery identity. A failed
 `run_review` or terminal `await_review` includes both session and run IDs when
 allocation occurred and is never marked retryable; provider details, runtime
-diagnostics, and native paths remain private. An uncertain composite publication
-exposes only its deterministic session/run identity and requires exact status
-reconciliation; it never authorizes blind retry.
+diagnostics, and native paths remain private. Historical P0/P1 records can still be reconciled without a provider. Their
+verified identities never authorize replay or a new composite publication.
 
-The `failed_run_recovery` projection has exactly seven fields: `available`,
+Historical `failed_run_recovery` inspection retains exactly seven fields: `available`,
 nullable `source_kind`, nullable `run_id`, nullable `manifest_sha256`,
 `accepted_roles`, `retry_attempts` (each containing `role` and `attempt_id`),
 and nullable `unavailable_reason`. An available source sets `available` to true,
@@ -98,10 +97,14 @@ The requested root may be a canonical path alias. Its resolved location, device,
 inode, and birth time form the private input to the public binding digest.
 
 MCP retains the startup descriptors and rejects changed anchors on context
-lookup. The caller compares this digest with an independent CLI lookup from the
-requested root. The digest does not authenticate an untrusted host or grant
-permission to retarget the server. Execution guards are a separate contract;
-`context` advertises only implemented capabilities.
+lookup and before review dispatch. A non-Git workspace retains a root-only
+startup lease, without a Git binding, and rejects root replacement or newly
+introduced Git metadata. The caller compares this digest with an independent
+CLI lookup from the requested root. The digest does not authenticate an untrusted
+host or grant permission to retarget the server. Execution compares the
+independently observed `expected_project_binding` before qualification.
+Preflight is advisory and does
+not reserve source state; `context` advertises only implemented capabilities.
 
 ## Provider isolation
 
@@ -120,21 +123,18 @@ synthetic content and carries no repository source, diff, review prompt, or user
 content. Its result has no review, publication, or durable qualification
 authority.
 
-Providers do not receive live access to the project tree. Mulgae captures the
-target and materializes a controlled workspace. Subprocesses use adapter-owned
-commands against that immutable directory view, isolated output, explicit
-credential projection, execution bounds, process-local per-instance
-namespace ownership, cancellation, and terminal process-state checks. Each run
-owns its provider registry and namespace generations; no provider-key queue or
-lock coordinates independent runs. That independence is deliberate even when
-provider processes ultimately use one installed account: Mulgae does not turn
-shared credentials into a hidden scheduling authority. Provider rejection,
-quota, and rate-limit responses remain typed outcomes of the affected run.
-Prompt packets identify the
-generated `._mulgae_review_target.txt` file by path, digest, and size rather than
-re-embedding patch, stdin, or old/new target bytes for every role. Providers read
-that file and surrounding project content selectively from the sealed directory
-view.
+Providers read admitted original workspace, index and resolved Git sources.
+Their process and session cwd is the pinned neutral `~/.mulgae/home`, with a safe
+regular guide preserved and injected once. Project and ancestor instructions are
+not loaded as authority; selected project context is framed as untrusted data.
+No source tree, patch or full-source archive is copied for a new review.
+
+Each run owns its provider registry and disposable namespace generations. There
+is no provider-key queue across independent runs. Shared installed credentials
+do not become a hidden scheduling authority; provider rejection, quota and
+rate limits remain typed outcomes of the affected run. Subprocesses use fixed
+adapter commands, explicit credential projection, execution budgets,
+cancellation and verified terminal process drain.
 
 Provider-authored content documents are projected through Mulgae-owned nested
 allowlists after strict JSON parsing. Unknown additions and attempted Mulgae-owned
@@ -144,137 +144,59 @@ count. This tolerance does not apply to process, transport, lifecycle, workspace
 evidence, or publication receipts, and malformed JSON, duplicate keys,
 unverifiable evidence, and semantic contradictions remain fail-closed.
 
-The workspace is materialized as ordinary read-only files (`0444`) and
-directories (`0555`). A single tree appears under `current/`; Git comparisons
-appear under `before/` and `after/`. Mulgae revalidates the view through retained
-descriptors before and after every invocation. Post-execution drift overrides
-provider success, so a provider that mutates the view cannot produce a
-publishable result.
+Original workspace and index contents must remain unchanged for the duration of
+review. Root descriptor checks detect changed anchors, not all content drift or
+an atomic content snapshot. Committed scopes use resolved object IDs. Trusted
+Git reads disable hooks, fsmonitor, external diff, textconv and lazy fetch.
+Project configuration cannot introduce executable commands.
 
-Project configuration cannot introduce an executable command.
+### Provider read and write boundaries
 
-### Per-family write posture
+All live reports come from complete, correlated assistant turns. Review, repair
+and extraction receive no report-file write grant. Private namespaces and
+scratch are removed after verified provider drain.
 
-Write authority is not uniform across families, and it is no longer accurate to
-say that no provider ever holds it.
+- ZCode uses its app-owned Electron runtime and app-server launcher, fixed
+  protocol configuration and disabled write/plan tools. Review and extraction
+  require an outer Seatbelt guard; the adapter never falls back to an unguarded
+  launch. Fixed runtime preferences remain local-only. Unexpected interaction
+  requests, incomplete turns and protocol parse failures fail closed.
+- Grok uses ACP v1 without MCP servers or subagents and admits text roles only.
+  Its native sandbox is off only inside the mandatory outer Seatbelt guard.
+  Admitted file and Git reads remain correlated and bounded at the protocol
+  boundary. Optional model and reasoning policy comes only from shared project
+  configuration; exact acknowledgement is required before prompting.
+- Codex uses one app-server process and ephemeral thread per invocation, native
+  read-only permissions and approvals disabled. All configured credential roots
+  are denied to model tools. Only the selected authentication file enters its
+  disposable home; user config, rules, skills and plugins are not projected.
+  Loaded project instructions and unexpected server requests fail closed.
 
-- ZCode review and qualification invocations speak the app-server protocol:
-  the adapter launches the app-owned Electron runtime as
-  `[runtime, launcher, app-server, --stdio]` with `ELECTRON_RUN_AS_NODE=1` and conducts one
-  newline-delimited protocol conversation over the child's stdin and stdout,
-  replacing the former one-shot print invocation without a fallback. Review
-  conversations request `yolo` mode with the adapter-owned denylist
-  `Bash,Edit,NotebookEdit,WebSearch,WebFetch,EnterPlanMode,ExitPlanMode`.
-  `Write` is deliberately enabled so ZCode can place its role report at the one
-  absolute path Mulgae chose. The plan tools are denied because the protocol's
-  plan flow persists `plan-<session>.md` files inside the workspace, which the
-  sealed snapshot's drift detection must continue to reject. ZCode
-  qualification conversations use plan mode with all tools denied; their
-  capability evidence is the conversation's captured assistant text. The
-  server's runtime-preferences request is answered with a fixed local-only
-  object, and every other server-initiated interaction request is left
-  unanswered. A missing turn completion, a reported turn failure, or an
-  unparseable protocol message fails closed through typed classification, with
-  the stderr token classification retained as the fallback. The protocol
-  driver records bounded phase, terminal, correlation, and receipt facts before
-  process teardown. These facts allow a protocol failure followed by expected
-  SIGTERM teardown to keep its provider failure classification instead of
-  becoming an internal invariant failure. Because the
-  app-server binds a per-process unix socket under its temp directory, ZCode
-  namespaces redirect `TMPDIR`, `TMP`, and `TEMP` to the short shared
-  mode-`0700` runtime directory `/tmp/mulgae-zcode`; a namespace-rooted temp
-  path exceeds the kernel socket path limit. Socket names carry process-unique
-  random identifiers, and the directory is never used for review content.
-- Grok speaks ACP v1 with no MCP servers. Mulgae projects only the native
-  authentication file and an adapter-owned workspace policy into a disposable
-  Grok home. Review may approve one correlated `Write` request to the exact
-  staged report destination; shell, web, subagent, sibling, traversal, symlink,
-  repeated-write, and unrecognized requests fail closed. Qualification and
-  extraction receive no write authority. Grok is admitted only for text roles.
-  Optional model and reasoning-effort values are admitted only from shared
-  project policy, never from machine-local config or ambient provider config.
-  New initialization writes the Mulgae-owned `grok-4.7` and `high` defaults into
-  that shared authority instead of injecting them later at runtime.
-  The adapter requires exact ACP acknowledgement before prompting and does not
-  substitute a model or effort when Grok rejects or normalizes the request.
-- Codex launches one stdio app-server process and one ephemeral thread per
-  invocation. Mulgae disables approvals and applies its read-only permission
-  profile over the immutable workspace. The projected `~/.codex` directory is
-  denied to model tools. Only the selected authentication file enters the
-  disposable home; project instructions have a zero-byte allowance. Web,
-  apps, plugins, browser, hooks, image generation, and multi-agent features
-  are disabled. The driver rejects loaded instruction sources and unexpected
-  server requests, including approval requests. It accepts report text only
-  from a completed, correlated turn; protocol stdout remains private evidence.
-
-### Staging boundary
-
-A ZCode or Grok review launch receives exactly one write target: a fresh
-per-invocation directory Mulgae creates with `0700` under the provider's
-disposable namespace scratch area, holding the single Mulgae-chosen filename
-`role-report.md`. That directory is outside the sealed workspace view and
-outside `.mulgae`. The exact absolute path is stated only by the prompt's last trusted
-layer; a staged launch whose packet lacks that layer fails closed before the
-process starts, and a staging destination the adapter did not itself choose is
-refused.
-
-After the process has fully terminated, the adapter validates the staged file
-through the directory and parent descriptors it retained at creation, so no
-step re-resolves a path the provider could have replaced. It rejects symbolic
-links, files with more than one hard link, non-regular files, a file on another
-device, any extra directory entry, ownership or mode drift, staging-directory
-identity drift, content that changed while it was read,
-invalid UTF-8, embedded NUL, and empty or whitespace-only content. Accepted
-bytes remain untrusted provider output and enter the same acceptance pipeline
-as stdout bytes; they are then copied into the Mulgae-owned
-`role-reports/<role>.md`, and the provider-owned inode is never published.
-Staging is removed on every exit path, and a cleanup that cannot be proven
-overrides provider success as an artifact failure. Missing or unusable staged
-content is an operational invalid-provider-output outcome that may be repaired;
-a boundary violation is a security fail-closed outcome that never authorizes
-repair or publication.
-
-### ZCode residual risk (owner-accepted)
-
-ZCode exposes no path-scoped write permission, so the `Write` grant above is
-not confined to the staging directory by the provider itself. Its tool controls
-are name-based: local ZCode 0.16.1 rejects `--allowed-tools` at runtime, so
-Mulgae uses an explicit denylist, which can enable or deny `Write` wholesale
-but cannot bind it to one directory. Containment is therefore entirely
-Mulgae-side: the review workspace is a read-only `0444`/`0555` directory view whose
-post-execution drift check overrides provider success; the process runs in a
-disposable namespace with projected `HOME`, `TMPDIR`, and scratch; only the
-staging directory is ever read back as trusted-path input, and only after full
-process termination; and everything read back is validated and copied rather
-than published in place. Outside those layers, a stray absolute-path write is
-not blocked by Mulgae, and the live project tree is git-managed, so such a
-write remains user-detectable rather than silent. This residual risk is an
-explicit owner decision recorded against live capability evidence, not an
-oversight; it applies to ZCode review invocations only.
+The outer guard protects source, Git and neutral-guide roots from writes. It
+also denies reads, writes, links and Unix sockets at every configured credential
+root, including unselected profiles and aliases. These controls are not general
+process, IPC, network or read containment: ordinary network requests and reads
+outside protected credential roots remain possible. Ignore rules select scope;
+they do not restrict filesystem access. Historical staged-file receipts and
+snapshot metadata remain readable, but grant no current execution authority.
 
 ## Credentials and secrets
 
 Credentials remain owned by the installed provider. Mulgae projects only the
 provider-specific files and environment required by the adapter into a
-temporary namespace. That namespace also supplies the disposable `HOME`,
-`TMPDIR`, and scratch area holding any per-invocation staging directory, so
-staging is removed with the namespace it belongs to and never reaches a
-credential or project location. Commit only the machine-path-free project
+temporary namespace. The namespace supplies disposable provider homes, temp
+and scratch areas independently of the neutral reviewer cwd. Commit only the machine-path-free project
 policy at `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`,
 credentials, provider homes, any other `.mulgae/` artifacts, or exported review
 bundles.
 
-ZCode receives its descriptor-anchored legacy CLI config when present. Mulgae
-also converts that same source into ZCode's current personal-provider format
-inside the disposable home because app-server does not perform the standalone
-launcher's legacy import. Both projected files are mode `0600`, retain the
-source's identity and digest as spawn authority, and are zeroed and removed at
-terminal drain. A provider-created replacement is zeroed only when its opened
-descriptor proves that it is a single-link regular file on the namespace device
-with the namespace owner. Cleanup never writes through an unsafe replacement;
-it removes the namespace name and completes descriptor-anchored namespace
-teardown instead. Desktop credential stores, settings, history, logs, caches,
-and other ZCode runtime state are not projected.
+ZCode admission binds its app's v2 desktop state and current Z.AI Individual
+Coding Plan account. Legacy CLI config is not live authentication authority.
+Admitted provider state is projected only through the adapter-owned disposable
+namespace. Cleanup zeroes credential content only through a verified single-link
+regular descriptor on the namespace device with the expected owner. Unsafe
+replacement paths are removed without writing through them. User settings,
+history, logs and caches are not projected.
 
 Codex authentication is copied from a descriptor-anchored credential home into
 the invocation's disposable `CODEX_HOME`. Legacy configuration uses native
@@ -293,60 +215,26 @@ session and turn identifiers are private diagnostic data. Public status may
 expose only their domain-separated SHA-256 fingerprints, which bind the
 provider instance and identifier kind before hashing.
 
-Tracked `.gitignore`, `.mulgaeignore`, and the exact `.mulgae/config.yaml` file
-are trusted capture-policy inputs, not provider evidence. Their presence does
-not invalidate a repository, but their paths and contents are omitted from Git
-targets, patch/stdin targets, captured snapshots, evidence, manifests, and
-provider workspaces. Every other tracked `.mulgae/**` path remains forbidden. A
-patch or stdin target containing only excluded control content fails as
-`no_reviewable_content`; an equivalent Git target is a no-change capture.
-Reserved namespaces such as `.git/**` and `.mulgae/**` other than the exact
-project policy exception, malformed paths, path collisions, and selected
-symlinks remain fail-closed.
+Workspace discovery uses tracked and nonignored untracked paths according to
+Git's ignore rules. `.mulgaeignore` is neither processed nor generated, and an
+existing user file is preserved. Selection rejects unsafe paths, unsupported
+source kinds and unresolved index conflicts before provider work. Ignored paths
+are not a physical read restriction; keep sensitive material outside the
+admitted readable boundary. Source admission does not use credential-pattern
+matching as a substitute for operator scope policy.
 
-Review capture does not apply secret-pattern detection to source files,
-security fixtures, objectives, or provider packets. A configured provider is
-therefore authorized to receive every file in the captured workspace view, including
-credential-like placeholders and test data. Use `.mulgaeignore` to exclude
-`.env` files, credential files, generated data, or any other path that must not
-be transmitted. The immutable v3 `._mulgae_workspace_manifest.json` supplied
-in each provider workspace lists the exact transmitted paths, sizes, hashes,
-media types, and capture dispositions.
+New runs retain source selection metadata, verified excerpt bytes and selected
+PNG/JPEG/WebP evidence alongside findings and complete role reports. Raster
+extension and signature must agree; bodies remain binary. They do not retain
+full source archives. Historical capture readers verify stored manifests and
+blobs without consulting current source. Missing historical evidence remains
+distinct from corruption.
 
-All eligible regular files are preserved byte-for-byte. Supported PNG, JPEG,
-and WebP files receive image media types only after extension and signature
-validation; other non-text files use `application/octet-stream`. Added and
-modified hinted rasters are listed as primary artist metadata with explicit
-before/after sides. Line-based
-evidence readers omit their bodies instead of decoding them as UTF-8. Invalid
-raster signatures fail as `unsupported_content` with the affected path.
-The artist may inspect any other captured image for history or comparison; the
-primary manifest is not an access allowlist. Git's textual binary-diff marker for every non-text file is
-path-only; the reference-only captured archive manifest, its support-indexed
-SHA-256 blobs, and the workspace manifest bind the actual non-text bytes. Dirty
-capture revalidates those bytes before admission.
-
-Source capture has no fixed file-count or byte ceiling. Provider execution,
-output, diagnostics, structured publication members, and fixed-size storage
-reads remain independently bounded. Source-sized target material, capture
-manifests and blobs, artist inputs, prompt stdin, and the support index are
-persisted at their actual size. Provider-authored reports are streamed and have
-no fixed report-size ceiling.
-
-For example, a repository may start with:
-
-```gitignore
-.env
-.env.*
-*.pem
-*.key
-credentials/
-```
-
-These entries are examples, not a built-in policy: repository owners remain in
-control of the paths shared with their selected providers. Output redaction,
-configuration credential admission, immutable workspace isolation, and provider
-sandboxing remain enforced independently of capture admission.
+Source observations, prompt payloads, role reports and complete provider stdout
+and stderr have no product byte ceiling. Process lifetimes, protocol transport,
+structured artifacts, concurrency and diagnostic metadata remain independently
+bounded. Public diagnostics and redacted exports must not expose native paths,
+credentials or raw provider transcripts.
 
 A credential-like provider raw stream may be omitted from private diagnostics,
 but that diagnostic drop does not turn an otherwise valid review into a
@@ -358,7 +246,7 @@ to use their existing redaction and secret-rejection boundaries.
 Qualification diagnostics use the same private secure writer as review process
 streams. Probe packets and version/capability streams are persisted before
 fixture cleanup; scanner rejection drops the offending stream. Diagnostic run
-identity allocated before child qualification does not confer admission or P2
+identity allocated before qualification does not confer admission or P2
 publication authority. Public errors expose only the diagnostic artifact
 reference and typed failure, never the raw probe response.
 
@@ -377,7 +265,7 @@ When `validation.extraction.enabled` is set, an accepted role report re-enters
 one further prompt on the same provider as an untrusted `prior_report` payload,
 never as a trusted layer, and the extraction contract states that it is data to
 transcribe rather than instructions or authority. That invocation gets the same
-read-only immutable workspace view, no write grant, and always returns on
+read-only live source authority, no write grant, and always returns on
 stdout. It cannot emit identity, verification, coverage, or publication state,
 and Mulgae rather than the provider owns the resulting completeness and
 limitations. Only a bounded extraction failure is absorbed into the accepted report. A
@@ -393,9 +281,9 @@ failures never authorize repair or publication.
 
 Mulgae output remains advisory after every technical check passes.
 
-## Composite evidence isolation
+## Historical composite evidence isolation
 
-New composites bind copied source findings, available evidence, source receipts
+Retained composites bind copied source findings, available evidence, source receipts
 and per-role capture support through support-index v2 before publication.
 Committed reads verify the copies and their final/source mappings without
 reading source runs or the current working tree. Missing bound copies and digest
@@ -415,10 +303,12 @@ reused unchanged and gain no evidence through an implicit upgrade.
 
 ## Adopted extension security requirements
 
-The following requirements cover the implemented
-[verified review contracts](verified-review-contracts.md) and the planned
+The following requirements record the frozen pre-cutover
+[verified review contracts](verified-review-contracts.md) and deferred
 [review completeness and iteration](review-completeness-and-iteration.md).
-Brief, batch-followup, and comparison requirements remain future obligations.
+Current execution follows [live workspace and Git review](live-workspace-and-git-review.md).
+Capture, Brief, batch-followup and comparison requirements need redesign after
+EPIC-009 acceptance; they do not authorize retired execution.
 
 - Native binding must distinguish equal-content worktrees using independently
   established local identity. A server's own response is not its own proof of

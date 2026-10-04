@@ -34,20 +34,17 @@ root.
 | `internal/composition` | Executable bootstrap, build identity, and production graph |
 | `internal/entrypoint/mulgae` | CLI grammar, dispatch, output, selector resolution |
 | `internal/entrypoint/mcp` | Attached stdio MCP grammar, protocol admission, and tool projection |
-| `internal/app/reviewrun` | Target capture, planning, qualification, prompts, orchestration |
+| `internal/app/reviewrun` | Live source admission, planning, qualification, prompts, orchestration |
 | `internal/app/review` | Assignments, coordination, aggregation, results |
 | `internal/app/validation` | Wire parsing, trusted-field injection, checks, repair |
-| `internal/app/recovery` | Immutable failed-run inputs, accepted partial results, replay admission |
+| `internal/app/recovery` | Historical failed-run support validation and inspection |
 | `internal/app/publication` | Manifests, attempts, final artifacts, recovery, integrity |
-| `internal/app/reviewcompose` | Exact composite admission, lineage and target verification, recomputation |
 | `internal/app/compositesupport` | Portable copied source receipts, findings, evidence and per-role capture verification |
-| `internal/app/{followup,delta,rerun}` | Child-run lineage and specialized reviews |
-| `internal/app/childrun` | Child-run execution and publication engine |
 | `internal/app/{query,report,clean,export}` | Inspection and artifact lifecycle |
 | `internal/domain` | IDs, findings, failures, states, roles, immutable values |
 | `internal/ports` | Interfaces and safe values crossing application boundaries |
 | `internal/adapters/providercli` | Provider profiles, qualification, credentials, invocation |
-| `internal/adapters/workspace` | Isolated directory views and descriptor-bound workspaces |
+| `internal/adapters/workspace` | Neutral reviewer home, qualification fixtures and descriptor-bound roots |
 | `internal/adapters/filesystem` | Secure project-local storage and publication |
 | `internal/adapters/jsonschema` | Offline Draft 2020-12 validation |
 | `internal/builtin` | Embedded schemas, prompts, examples, and help |
@@ -75,48 +72,31 @@ the untracked `.mulgae/local.yaml` authority.
 
 ## Review flow
 
-1. The entrypoint parses one canonical command request.
-2. Project-local configuration is admitted against platform and locality rules.
-3. The requested target is captured immutably.
-4. The planner selects roles and each role's configured provider.
-5. Mulgae composes trusted prompt layers and one capture-owned immutable
-   directory view shared by every role in the run. A single tree is available
-   under `current/`; a Git comparison exposes both `before/` and `after/`.
-6. Provider executions run independently within the explicit
-   `max_active_lanes` process capacity, with adapter-owned tool boundaries and
-   per-invocation process isolation against that shared directory view.
-7. The provider result arrives on the transport declared for that route: a
-   Mulgae-owned staged file for ZCode and Grok reviews that the adapter validates
-   and reads back after the process terminates, or Codex's final assistant
-   message from a completed app-server turn.
-8. UTF-8 provider output becomes Mulgae-owned free-form role reports without a
-   fixed report-size ceiling; bounded previews remain private diagnostics;
-   optional exact JSON may be structured-extracted and normalized with
-   Mulgae-owned identity/state. Prose is not treated as a schema document.
-9. One constrained repair on the same provider occurs only when an explicit
-   transition authorizes it. A role never moves to another provider: a failed
-   role is reported with its typed reason while peer roles continue.
-   When `validation.extraction.enabled` is set and a role was accepted with a
-   free-form report only, Mulgae instead schedules one structured extraction
-   trailer as invocation 2 of the same attempt, provider, and role. It
-   transcribes the accepted report into the same wire contract and enters the
-   identical validation and evidence path. Repair and extraction compete for
-   that single second invocation, so a role path is never widened. The trailer
-   is isolated from wave verdict reduction only for bounded failures: an
-   ordinary provider or transcription failure fails the trailer alone, leaves
-   the accepted report untouched, and cannot stop a peer role. A protected
-   failure keeps its canonical precedence and reduces normally, because
-   security, configuration, artifact, cancellation, and internal failures never
-   authorize publication.
-10. Evidence for structured findings is checked against the captured target.
-11. Publication atomically commits the manifest, role reports, and at most one
-    final review, recording the transport that carried each accepted role
-    report. Captured content is retained as a reference-only manifest plus
-    deduplicated SHA-256 blobs for immutable child-run reconstruction.
+1. CLI/MCP admits one live selector against the canonical original root.
+2. Configuration, source/Git locality and optional independent binding are
+   checked before allocating a run or constructing provider authority.
+3. The planner preserves selected roles, configured providers and bounded lanes.
+4. A no-change selection closes its source and publishes zero attempts without
+   provider discovery, qualification or invocation.
+5. Nonempty execution retains a source lease and pinned neutral reviewer home.
+   The prompt contains trusted guidance, explicit native reads and selection
+   metadata, with framed untrusted context/objective and no copied source tree.
+6. Qualification uses Mulgae-owned synthetic fixtures. Each invocation owns its
+   isolated credentials/scratch and mandatory native source restrictions.
+7. The runtime collects a complete correlated protocol assistant report.
+   Optional same-provider repair or extraction shares the one second slot;
+   protected failures retain precedence and deny publication.
+8. Live evidence is checked against its declared source side, preserving selected
+   raster bytes and verified excerpts. Workspace/index stability is the caller's
+   responsibility; committed operands stay fixed.
+9. Every provider drains before source closure. Failed drain retains exact cleanup
+   ownership for a bounded retry and cannot create publication authority.
+10. Source closure precedes atomic P0/P1/P2 publication of v3 results and support.
+    Query verifies retained evidence without reading today's source.
 
-## Internal live reviewer execution
+## Live reviewer execution
 
-The EPIC-009 internal path separates `LiveSourceReader` from `ReviewerHome`
+The public execution path separates `LiveSourceReader` from `ReviewerHome`
 through `LiveReviewExecution`. The source adapter retains project and Git
 directory identity; the reviewer-home adapter pins the neutral directory and
 reads its safe regular guide once. `reviewrun` loads the common guidance and
@@ -147,9 +127,8 @@ denies links outside those writable roots. Source and Git trees retain ordinary
 hardlinks. Admission observes cancellation and the request timeout; the runner
 closes the consumed neutral descriptor on every return after request admission.
 
-This path remains unavailable from public composition until TASK-038. The
-snapshot review flow above remains the public runtime authority during that
-transition.
+TASK-038 connects this path to both public transports. Full provider/client
+certification remains TASK-039 work; no snapshot fallback is available.
 
 Live evidence verification reads the declared original source side through
 `LiveSourceReader`. A separate proof type binds verified excerpts and selected
@@ -185,22 +164,22 @@ failed transport uses exit 10, and invalid command grammar uses exit 2.
 
 Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,
-`start_review`, `await_review`, `cancel_review`, `compose_review`, `list_runs`,
+`start_review`, `await_review`, `cancel_review`, `list_runs`,
 `get_context`, `get_run`, `inspect_review`, and `list_findings`, plus bounded
-verified report, finding-detail and finding-evidence resource templates. The MCP
+verified report, finding-detail, finding-evidence and source-image templates. The MCP
 package owns strict tool and URI grammar, chunk limits, and the common result
 envelope; composition binds those
 surfaces to the same preflight, review, report, and verified publication-query
-services used by the CLI. `compose_review` and CLI `compose` call the same
-provider-free application mutation, so exact admission, deterministic identity,
-atomic publication, and retry reconciliation cannot drift between transports.
+services used by the CLI. Retired child and composition mutations have no
+current public or creation path. Historical query and provider-free publication
+reconciliation retain their existing ownership.
 `get_run` first resolves publication and uses the bounded runtime-diagnostic
 query as a fallback only for the typed publication-not-found case. For a
 resolved non-committed publication state, it also reads the session-bound
 diagnostic status to merge a safe diagnostic summary. Publication corruption,
 security failures, and other publication-query failures never enter the
 fallback. Diagnostic corruption and other non-not-found diagnostic failures
-remain fail-closed. It does not duplicate capture, execution, query, or
+remain fail-closed. It does not duplicate source admission, execution, query, or
 publication policy. `run_review` remains a request-owned foreground
 compatibility path. The
 process-local invocation registry separately gives each `start_review` identity
@@ -220,7 +199,7 @@ total, and a final completion or stopped message before returning the tool
 result. Notifications are best-effort observations and never change review
 state or failure precedence. The SDK maps `notifications/cancelled` for a
 foreground `run_review` directly onto the handler context, which reaches
-capture, provider subprocesses, and terminal publication. Cancellation or
+source admission, provider subprocesses, and terminal publication. Cancellation or
 timeout of `await_review` releases only that observer; explicit `cancel_review`
 reaches the server-owned execution and its provider processes exactly once. The
 persistent SDK transport separates its connection context from active handler
@@ -229,9 +208,10 @@ to the process-scoped `Serve` context. SIGINT, SIGTERM, or transport shutdown
 therefore cancels and drains provider and publication work instead of leaving a
 late child execution.
 
-Preflight omits the unbounded per-file inventory from its MCP result and returns
-only target identity, file-set counts and byte totals, generated paths,
-transmission routes, and execution budget. Committed report and evidence bytes
+Preflight v8 returns source selection identity, candidate counts, transmission
+routes, warnings and execution budget. MCP omits the native read plan. Preflight
+does not reserve state or supply a content fingerprint; execution separately
+compares the independently observed project binding before qualification. Committed report and evidence bytes
 are re-verified for every resource read and divided into canonical byte-offset
 chunks no larger than 16 KiB. UTF-8 report chunks never split a code point;
 text evidence uses UTF-8 and binary content uses the MCP blob form. Full-content digest,
@@ -278,12 +258,13 @@ instead of projecting the operation as cancellation.
 
 `.mulgae/config.yaml` contains Git-shareable policy. `.mulgae/local.yaml`
 contains private machine paths, while the remaining `.mulgae/` tree contains
-durable review state. Temporary provider workspaces and namespaces live outside
-the project and are removed after use. Grok model and reasoning-effort policy
+durable review state. Synthetic qualification workspaces and provider namespaces live outside the
+project and are removed after use. Live review reads original source from the
+neutral reviewer home. Grok model and reasoning-effort policy
 belongs only to the shared file; its executable belongs only to the local file.
 For a new project, init writes `grok-4.7` and `high` unless explicitly
 overridden. It never re-derives an existing shared policy, so an omitted field in
-an existing Config v4 file retains provider-default behavior.
+an existing Config v5 file retains provider-default behavior.
 Production composition resolves the shared values once into the Grok runtime
 template used by review, retry, repair, extraction, qualification, and
 heartbeat paths.
@@ -294,12 +275,10 @@ before the catalog serves any asset.
 
 ## Composite support ownership
 
-`query` collects verified published-source material under a stable P2 observation;
-`reviewcompose` also admits retained failed-run recovery sources through the
-existing recovery reader. It selects one source per role and remaps finding IDs.
-`compositesupport` binds source receipts, original findings, evidence indices,
-provider retirement provenance and complete per-source captures to the final.
-`publication` includes those artifacts in support-index v2 before committing.
+Composite creation and child/replay execution owners are retired. Historical
+`compositesupport`, capture archive decoders, recovery readers and publication
+reconciliation retain their existing integrity responsibilities. They verify
+stored source receipts, findings, evidence, provider provenance and captures.
 
 Committed composite reads verify these local copies. They require no source-run
 lookup, and expose a common capture only when every selected role has the same
@@ -308,6 +287,9 @@ P2 publication. Existing cleanup retention and export allowlists remain separate
 application policies; copied private content does not enter exports implicitly.
 
 ## Planned extension ownership
+
+EPIC-008 is held for redesign after EPIC-009. Its old capture/batch ownership
+map below records the earlier design, not current executable packages or APIs.
 
 The [accepted two-Epic design](../architecture-decision-records/verified-review-iteration.md)
 and [roadmap](../roadmap/README.md#adopted-execution-order) adopt the following

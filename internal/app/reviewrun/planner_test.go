@@ -191,7 +191,7 @@ func TestIntegrationQualifiedPlannerRoutesReachSixRoleCoordinatorUnchanged(t *te
 		t.Fatal(err)
 	}
 	request := plannerTestRequest(t, roles)
-	plan, err := planner.Plan(context.Background(), request)
+	plan, err := planner.PlanSelectedRoles(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestIntegrationQualifiedPlannerRoutesReachSixRoleCoordinatorUnchanged(t *te
 	}
 	done := make(chan execution, 1)
 	go func() {
-		result, executeErr := coordinator.Execute(context.Background(), request.Input().Target().Identity(), plan.Assignments, plan.Threshold, plan.Policy)
+		result, executeErr := coordinator.Execute(context.Background(), reviewRunPatchTarget(t).Identity(), plan.Assignments, plan.Threshold, plan.Policy)
 		done <- execution{result: result, err: executeErr}
 	}()
 	want := map[domain.Role]string{
@@ -254,7 +254,7 @@ func TestQualifiedPlannerFailsClosedWhenConfiguredFamilyIsNotQualified(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := planner.Plan(context.Background(), plannerTestRequest(t, roles)); err == nil {
+	if _, err := planner.PlanSelectedRoles(context.Background(), plannerTestRequest(t, roles)); err == nil {
 		t.Fatal("Plan() substituted an available family for the missing configured provider")
 	}
 }
@@ -281,7 +281,7 @@ func TestQualifiedPlannerAttributesRejectedConfiguredFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = planner.Plan(context.Background(), plannerTestRequest(t, []domain.Role{domain.RoleLogic}))
+	_, err = planner.PlanSelectedRoles(context.Background(), plannerTestRequest(t, []domain.Role{domain.RoleLogic}))
 	failures, ok := ProviderQualificationFailuresFromError(err)
 	if !ok || len(failures) != 1 || failures[0].ProviderInstance() != "zcode.one" ||
 		failures[0].ReasonCode() != string(domain.FailureInvalidOutput) {
@@ -318,7 +318,7 @@ func TestQualifiedPlannerAttributesAllSelectedProviderFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = planner.Plan(context.Background(), plannerTestRequest(t, []domain.Role{
+	_, err = planner.PlanSelectedRoles(context.Background(), plannerTestRequest(t, []domain.Role{
 		domain.RoleLogic,
 		domain.RoleSecurity,
 		domain.RoleDocumentation,
@@ -383,19 +383,8 @@ func TestQualifiedPlannerAcceptsRunSubsetWithoutProjectFloor(t *testing.T) {
 		t.Fatal(err)
 	}
 	requestRoles := roles[1:]
-	target, err := ports.NewCapturedReviewPatchTarget([]byte("diff --git a/a b/a\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, err := NewImmutableReviewInput(target, nil, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := NewPlanningRequest(input, requestRoles)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := planner.Plan(context.Background(), request); err != nil {
+	request := requestRoles
+	if _, err := planner.PlanSelectedRoles(context.Background(), request); err != nil {
 		t.Fatalf("Plan() rejected an explicit subset without logic: %v", err)
 	}
 }
@@ -510,28 +499,16 @@ func TestQualifiedRouteAcceptsYellowOnlyWithPassingReceipts(t *testing.T) {
 func plannerTestPlan(t *testing.T, planner ExecutionPlanner, roles []domain.Role) ExecutionPlan {
 	t.Helper()
 	request := plannerTestRequest(t, roles)
-	plan, err := planner.Plan(context.Background(), request)
+	plan, err := planner.PlanSelectedRoles(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return plan
 }
 
-func plannerTestRequest(t *testing.T, roles []domain.Role) PlanningRequest {
+func plannerTestRequest(t *testing.T, roles []domain.Role) []domain.Role {
 	t.Helper()
-	target, err := ports.NewCapturedReviewPatchTarget([]byte("diff --git a/a b/a\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, err := NewImmutableReviewInput(target, nil, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := NewPlanningRequest(input, roles)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return request
+	return append([]domain.Role(nil), roles...)
 }
 
 func plannerTestAssignments(plan ExecutionPlan) []string {

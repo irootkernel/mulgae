@@ -1,15 +1,16 @@
 # Mulgae
 
-![Six seal reviewers independently inspect an immutable code snapshot and file separate reports in a local archive.](docs/assets/mulgae-hero.webp)
+![Six seal reviewers independently inspect selected source and file separate local reports.](docs/assets/mulgae-hero.webp)
 
-Mulgae is a local, multi-provider AI code review CLI and attached MCP server. It captures an immutable
-review target, asks role-specific reviewers to inspect it, publishes their
-free-form role reports, transcribes those reports into structured findings whose
-evidence it verifies against the captured target, and commits durable artifacts
-under `.mulgae/`.
+Mulgae is a local, multi-provider AI code review CLI and attached MCP server.
+It reads the original workspace, actual index or resolved Git objects from a
+neutral reviewer directory, runs configured role-specific reviews, verifies
+finding evidence and publishes durable results under `.mulgae/`. Source files
+are not copied into snapshots, checkouts, worktrees or full-source replay archives.
 
-Mulgae is advisory. It reports findings and recommendations; it does not grant
-merge, release, waiver, or organizational approval.
+Roles are independent review lenses, not people, teams or approval authorities.
+Mulgae reports findings and recommendations; it never approves a merge,
+release, policy waiver or security exception.
 
 ## Platform and providers
 
@@ -54,7 +55,7 @@ mulgae init --providers codex \
 Mulgae starts one ephemeral Codex app-server thread and turn per invocation over
 stdio. It accepts the final assistant message as the role report after successful
 turn completion. Each invocation uses a disposable `CODEX_HOME`, a
-descriptor-anchored copy of `auth.json`, the immutable captured workspace, a
+descriptor-anchored copy of `auth.json`, the admitted original source, a
 read-only permission profile, and disabled web, app, plugin, browser, hook,
 image-generation, and multi-agent features. Project instructions and user
 configuration are ignored.
@@ -160,15 +161,15 @@ mulgae init --providers grok \
 The values are stored only in `.mulgae/config.yaml`; the executable remains in
 untracked `.mulgae/local.yaml`. Mulgae preserves their exact spelling and
 requires Grok to acknowledge the configured selection before it sends a prompt.
-Existing Config v4 projects that omit either field continue to use Grok's
+Existing Config v5 projects that omit either field continue to use Grok's
 provider default for that dimension; removing a generated field restores that
 behavior.
-Grok uses ACP v1. Mulgae copies
-only the native Grok authentication file into a disposable home, suppresses
-project and user configuration, disables MCP servers, and installs an
-adapter-owned workspace policy. A text-role review may authorize one correlated
-`Write` request to its exact staged `role-report.md`; assistant text is used only
-for qualification and structured extraction. Grok does not advertise image
+Grok uses ACP v1. Mulgae copies its native authentication file into a
+disposable home. It suppresses project and user configuration, disables MCP
+servers, and installs an adapter-owned read policy inside the mandatory macOS
+process boundary. Review,
+qualification, and extraction accept only correlated assistant-message text;
+providers receive no role-report file write grant. Grok does not advertise image
 prompt support, so assigning it to `artist` fails before provider execution with
 `provider_capability_unsupported` and exit 4.
 
@@ -204,7 +205,7 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
-`doctor --output json` returns `mulgae-doctor-result.v5`. It checks Config v4,
+`doctor --output json` returns `mulgae-doctor-result.v5`. It checks Config v5,
 project-local security, provider and role identities, exact executable/launcher
 availability, and adapter-owned local CLI version compatibility. The only
 provider process it may run is the fixed `--version` command; it does not
@@ -213,7 +214,7 @@ run, or start MCP. Versions above the latest verified version remain eligible
 but are reported as `newer_than_verified`. Static-admission evidence and review
 qualification do not gate this offline readiness.
 The v5 result retains the v4 JSON member name `config_v3` for compatibility;
-that member evaluates the currently supported Config v4 pair.
+that member evaluates the currently supported Config v5 pair.
 
 `providers --output json` reports `offline_ready_provider_count` separately
 from `static_evidence_ready_provider_count`. A missing static-evidence source
@@ -232,19 +233,18 @@ diffs, review prompts, or user content—and does not establish durable review
 qualification. Without `--authorize-live-request`, Mulgae returns
 `not_authorized` before composing or executing the provider.
 
-Before spending provider time, inspect the exact staged directory view and
+Before spending provider time, inspect the native index selection and
 configured routing envelope:
 
 ```bash
 mulgae review --stage --preflight --output json
 ```
 
-Preflight uses the complete immutable capture path but does not discover, qualify, or
-invoke providers and does not create a session, run, diagnostic, or publication.
-It reports `qualification: not_run`, the exact source files sent to each role,
-PNG/JPEG/WebP binary metadata, each role's provider route, effective timeouts,
-and enclosing role-path/run budgets. The generated workspace manifest is
-declared separately as `generated_at_execution`.
+Preflight lists native source reads and configured routes, validates selected
+artist inputs, and reports source selection identity, candidate count, timeouts
+and enclosing budgets. It discovers and invokes no provider and creates no
+session, run, diagnostic or publication. `qualification` remains `not_run`.
+The source identity hashes selection metadata; it is not a content snapshot.
 
 Automatic initialization configures ZCode and Grok, with ZCode as the reviewer
 for every enabled role.
@@ -257,27 +257,18 @@ that file and rebuilding changes what `mulgae init` writes. It never changes an
 existing `.mulgae/config.yaml`, which remains the shared project-policy
 authority once a project is initialized.
 
-Each role runs on exactly one provider, and Mulgae never switches providers on
-its own. An operator may explicitly recompose a failed, missing role on another
-configured provider; an accepted role cannot be replaced. A published review
-therefore reflects one reviewer per role rather than
-a mix of models chosen by whichever one happened to fail. When a provider fails,
-that role is reported as failed with its typed reason while every other role
-continues on its own provider; the report's "Provider issues" section names each
-failed role, the provider it ran on, why it stopped, and the `mulgae rerun`
-command to run it again on a provider you choose.
+Each role runs on exactly one configured provider. Failure leaves that role's
+typed reason visible while peer roles continue. Mulgae never changes providers
+or treats several opinions as consensus. There is no automatic recovery or
+substitution; an independently authorized new review uses current source state.
 
-Earlier config versions, including v1 fallback-provider files and Config v2,
-are rejected rather than partially interpreted. Back up the old private file and
-initialize Config v4 deliberately; Mulgae does not migrate it automatically.
-For a Config v3 ZCode setup, change the shared and local `version` fields to
-`4`, remove `providers.zcode.node_executable` and
-`providers.zcode.launcher` from `local.yaml`, and set
-`providers.zcode.app_bundle` to the app bundle that contains them. The standard
-value is `/Applications/ZCode.app`. Run `mulgae init --refresh-local` only after
-the shared file is already a valid Config v4 policy.
+Config v5 removes the snapshot-only `execution.workspace_access` block.
+To migrate a Config v4 pair deliberately, back up the private file, set both
+`version` fields to `5`, and remove that shared block. Older ZCode configurations
+must first adopt the app-bundle machine-path contract. Mulgae does not migrate,
+initialize over, or rewrite existing user configuration automatically.
 
-`mulgae init` creates Config v4 as two authorities: the shareable project policy
+`mulgae init` creates Config v5 as two authorities: the shareable project policy
 at `.mulgae/config.yaml` and machine-local paths at `.mulgae/local.yaml`. It
 never overwrites an existing complete configuration. On a clone that already
 contains the project policy, `mulgae init` discovers the configured provider
@@ -316,56 +307,50 @@ mulgae config --mode provenance
 `--refresh-local` preserves `.mulgae/config.yaml` and atomically replaces only
 the admitted local file. It accepts machine-path overrides but rejects project
 policy options. Earlier config versions are not migrated or read: back them up,
-remove the old private configuration, and initialize Config v4 deliberately.
+remove the old private configuration, and initialize Config v5 deliberately.
 
-Every review command requires exactly one target:
+Every review requires exactly one target:
 
-```text
---workspace              tracked files at the current workspace state
---stage                  staged changes
---dirty                  staged and unstaged changes
---diff REVISION_RANGE    a Git revision range, such as origin/main...HEAD
---patch RELATIVE_PATH    a patch file in the project
---stdin                  a patch read from standard input
-```
+| CLI selector | Source and scope |
+|---|---|
+| `--workspace` | Tracked and nonignored untracked files in the original workspace |
+| `--stage` | HEAD to the actual index; unborn HEAD uses an empty base |
+| `--head` | Whole resolved HEAD tree |
+| `--commit REVISION` | First-parent-to-commit transition; a root uses an empty base |
+| `--diff LEFT..RIGHT` | Direct comparison of resolved endpoints |
+| `--diff LEFT...RIGHT` | Merge-base-to-right comparison |
 
-Tracked `.gitignore`, `.mulgaeignore`, and exact `.mulgae/config.yaml` files
-remain trusted capture controls and are never sent to providers. Their presence
-does not invalidate `--dirty`; their paths and contents are removed from
-captured files and patch targets. Every other tracked `.mulgae/**` path is
-rejected.
-Patch/stdin input containing only excluded control changes fails with
-`no_reviewable_content`.
+Committed operands are resolved once. Conflicted index selections fail before
+provider execution. Keep workspace and index unchanged throughout the review;
+Mulgae has no atomic source view, full-tree fingerprint, lock or drift monitor.
+Git ignore rules select workspace candidates, while tracked files still
+participate. `.mulgaeignore` is neither generated nor processed, and existing
+user files are left alone. Ignoring a path does not physically deny provider
+access. Git internals and Mulgae/provider runtime and credential roots are
+excluded from candidate discovery and protected by the native execution boundary.
 
-Use `mulgae version --json` for the machine-readable name and version. Workflow
-commands use `--output json` when integrating Mulgae with another tool.
+`--dirty`, `--patch`, `--stdin`, `followup`, `delta`, `rerun`, `compose` and
+capture-bound request guards are retired and rejected before providers run.
+Historical artifacts remain supported by verified readers and exports.
 
-Run `mulgae context --output json` from the requested repository to obtain its
-local `project_binding`. Compare that value with MCP `get_context` before using
-an attached server. Both return only the binding digest and capability versions;
-they do not read configuration or credentials, invoke providers, or write files.
-The context advertises `v1` for project binding, execution guards, capture
-identity, inspection, finding pages and details, report content, indexed
-evidence, and composite evidence. An empty capability is unavailable; choose a
-supported transport before starting. A historical review can remain readable
-even when its capture or evidence is unavailable. The binding identifies this local worktree, so separate checkouts differ even
-when their files match. It is not portable authentication.
+Use `mulgae version --json` and workflow `--output json` for automation.
+From the intended root, obtain `mulgae context --output json` and compare its
+`project_binding` with attached MCP `get_context`. A binding identifies this
+local worktree, not portable authentication or matching file contents. Context
+advertises live/source evidence and verified-read capability versions; empty
+`execution_guard` and `capture_identity` fields are normal for the live path.
 
-Preflight returns a `request_receipt` for the selected target, objective, roles,
-and effective execution plan. Save its `request_digest` and the independently
-checked `project_binding`, then pass both to execution:
+Preflight and execution optionally accept the independently obtained binding:
 
 ```bash
 mulgae review --stage --preflight --expected-project-binding "$binding" --output json
-mulgae review --stage --expected-project-binding "$binding" --expected-request-digest "$request_digest" --output json
+mulgae review --stage --expected-project-binding "$binding" --output json
 ```
 
-Use the same target, objective, roles, and other selectors for both calls.
-Execution rejects a changed project or request before provider work. The
-`capture_identity` covers retained source material; request-only changes such as
-a different objective can change the request digest while preserving that
-capture identity. A target patch digest alone cannot establish either guarantee.
-Guards do not make a second accepted start idempotent.
+Use the same target, roles, objective and artist inputs. A different or replaced
+worktree fails with `project_binding_mismatch`. No request digest or content-drift
+guarantee applies. A repeated start creates a distinct run; the binding is not
+an idempotency key. A no-change selection invokes no provider.
 
 An MCP client can start one attached stdio server for the current canonical
 project root, or select another root explicitly:
@@ -381,14 +366,13 @@ flow prefers MCP protocol `2026-07-28`. Legacy `initialize` negotiates
 back to `2025-11-25`. Older versions fail with a structured unsupported-version
 error.
 Diagnostics use stderr. The process fixes the canonical project root at startup
-and exits when its client closes stdin. It exposes eleven bounded tools:
+and exits when its client closes stdin. It exposes ten bounded tools:
 
 - `get_context` returns the startup worktree binding and implemented capability versions.
-- `preflight_review` captures and summarizes the execution-free target,
+- `preflight_review` admits and summarizes the execution-free source selection,
   transmission plan, and budget without invoking providers or publishing a run.
-- `run_review` captures and completes one foreground review for `workspace`,
-  `stage`, `dirty`, `diff`, or `patch`; MCP stdin is transport-only and cannot
-  be a review target.
+- `run_review` completes one foreground review for `workspace`, `stage`, `head`,
+  `commit`, or `diff`; stdin carries only the MCP protocol.
 - `start_review` accepts the same review arguments, admits one process-local
   invocation, and returns its `i_...` identity before provider completion.
 - `await_review` waits on that exact invocation without polling or transferring
@@ -396,9 +380,6 @@ and exits when its client closes stdin. It exposes eleven bounded tools:
 - `cancel_review` records the first explicit cancellation request for an active
   invocation; its acknowledgement is not terminal, so the client must still
   call `await_review`.
-- `compose_review` atomically publishes one self-contained composite from an
-  exact incomplete root run and one to seven exact recovery run IDs. It never
-  selects `latest` or invokes a provider.
 - `list_runs` returns a newest-first page of safely admitted runs, with a limit
   from 1 through 100 and an opaque continuation cursor.
 - `get_run` returns verified publication state and public artifact identities,
@@ -423,17 +404,17 @@ same reads without writing a report file:
 mulgae inspect --run r_... --expected-project-binding "$binding" --output json
 mulgae read-finding --run r_... --finding F001 --expected-project-binding "$binding" --expected-publication-receipt "$receipt" --output json
 mulgae read-report --run r_... --role logic --expected-project-binding "$binding" --expected-publication-receipt "$receipt" --output json
-mulgae excerpt --run r_... --finding F001 --current-target-sha256 "$target" --evidence-index 0 --expected-project-binding "$binding" --expected-publication-receipt "$receipt" --output json
+mulgae excerpt --run r_... --finding F001 --source-identity-sha256 "$source_identity" --evidence-index 0 --expected-project-binding "$binding" --expected-publication-receipt "$receipt" --output json
 ```
 
-Obtain the exact finding ID, target digest, and publication receipt from
+Obtain the exact finding ID, source identity, and publication receipt from
 inspection. Omit `--role` to read the rendered report. Read every chunk until
 `next_offset` is null, carrying the returned offset and both
 `--expected-publication-receipt` and `--expected-content-sha256` to the next call.
 For finding pages, follow `next_cursor` with the same command, query selectors,
 and receipt until the cursor is empty. The default `low` severity excludes `info`.
 
-New composites retain original finding content, portable source provenance, and
+Historical composites retain original finding content, portable source provenance, and
 all copied evidence indices. These reads survive allowed source-run cleanup.
 Historical items can return `evidence_unavailable` or
 `capture_identity_unavailable`; corrupt bound support fails the read. Capability
@@ -570,7 +551,7 @@ Copy this minimal project-wide template into the reviewed project's
   without explicit user intent.
 - Derive each action from current machine-readable configuration, preflight,
   and run status. Select exactly one review target (`--diff BASE...HEAD`,
-  `--stage`, `--dirty`, `--workspace`, `--patch`, or `--stdin`) and use
+  `--stage`, `--workspace`, `--head`, or `--commit REVISION`) and use
   `--output json`.
 - Independently select the requested canonical Git worktree root. From that
   root, run `mulgae context --output json` and compare `result.project_binding`
@@ -582,14 +563,11 @@ Copy this minimal project-wide template into the reviewed project's
 - Keep the complete Review Brief on one objective line with explicit separators.
   Reject NUL, CR, or LF and count UTF-8 bytes. MCP admits at most 4096 bytes;
   use the CLI for 4097 through 12000 bytes, and stop above 12000 without truncating.
-- Preflight the selected target, objective, and roles with
-  `expected_project_binding`. Preserve `request_receipt.request_digest` and use
-  those same arguments with both `expected_project_binding` and
-  `expected_request_digest` on `start_review` or `run_review`. The CLI equivalents
-  are `--expected-project-binding` and `--expected-request-digest`. Stop on a
-  guard mismatch; never silently remove guards or treat them as idempotency keys.
-  A guarded native preflight/start does not require a second preflight on the
-  other transport.
+- Preflight the selected target, objective and roles with the independently
+  obtained `expected_project_binding`; use that same binding and selected
+  arguments on start. Keep workspace/index state unchanged until completion.
+  The CLI equivalent is `--expected-project-binding`. Stop on a mismatch.
+  Source identity is metadata, not a content/request drift guard or idempotency key.
 - Prefer attached Mulgae MCP tools after those checks: only when `start_review`,
   `await_review`, and `cancel_review` are all present,
   call `start_review` once and preserve its exact invocation ID. Call
@@ -615,7 +593,7 @@ Copy this minimal project-wide template into the reviewed project's
   preflight's `budget.run_deadline`, allowing transport overhead. If the timeout
   is insufficient or unverifiable, choose the CLI before starting: cancelling a
   foreground request cancels the review itself. Also use the CLI when MCP
-  execution is unavailable or for unsupported targets such as `stdin`. Await
+  execution is unavailable or the complete objective exceeds its input limit. Await
   the same host process handle; use nonblocking handle checks only when host
   completion waiting is unavailable, with 50 seconds between checks. If timed
   waiting is unavailable, stop automated polling and report the limitation.
@@ -641,8 +619,8 @@ Copy this minimal project-wide template into the reviewed project's
   CLI chunks continue with `next_offset`, the expected publication receipt, and
   the expected full-content digest until `next_offset` is null. Keep the expected
   project binding on every read. These commands need no output-file write.
-- Treat per-item historical unavailability separately from corruption. Newly
-  published composites expose copied evidence; legacy composites may not.
+- Treat per-item historical unavailability separately from corruption. Historical
+  composites expose copied evidence where retained; older ones may not.
   Stop an evidence-dependent judgment when its evidence is unavailable, and
   never replace a failed integrity check with a live-file or raw artifact read.
   Keep recovery and child workflows bound to the same root.
@@ -657,7 +635,7 @@ Copy this minimal project-wide template into the reviewed project's
   outcome, not an execution failure. Treat other non-zero exits per
   `mulgae help exit-codes`. Preserve returned run IDs and inspect runs with
   `mulgae status --run r_... --output json`.
-- Treat Mulgae as advisory. Verify findings against the captured target before
+- Treat Mulgae as advisory. Verify findings against retained source evidence before
   changing code, and record only claims supported by current evidence.
 - On explicit user cancellation, use `cancel_review` only for a preserved
   invocation returned by `start_review`, then await the terminal result; its
@@ -731,69 +709,40 @@ trap - EXIT
 
 ## Review results
 
-A successful publication creates a run beneath:
-
-```text
-.mulgae/{session_id}/{run_id}/
-```
-
-The directory contains a manifest, accepted free-form role reports, provider
-attempts, validation records, runtime diagnostics, a reference-only v2 capture
-manifest with deduplicated SHA-256 blobs, and at most one final `review_*.json`
-artifact. Provider stdout, stderr, and accepted reports are preserved without a
-product byte ceiling. Public diagnostic metadata and optional structured
-extraction retain their separate structural contracts. Mulgae
-alone normalizes, validates, and commits the top-level final artifact.
-
-Inspect a run with its exact ID:
+A successful publication creates `.mulgae/{session_id}/{run_id}/` with a v3
+manifest and final review, complete accepted role reports, attempt/validation
+records, private runtime diagnostics, `source/source.json`, verified excerpts
+and selected PNG/JPEG/WebP observations. It creates no source snapshot or
+full-source replay archive. Prompt payloads, reports and complete provider
+streams have no product byte ceiling. Source closure and provider drain are
+separate provenance; atomic publication retains at most one top-level final.
 
 ```bash
-mulgae status --run r_...
-mulgae findings --run r_... --severity high
-mulgae report --run r_... --output-path reports/review.md
-mulgae export --run r_...
+mulgae status --run r_... --output json
+mulgae inspect --run r_... --output json
+mulgae read-report --run r_... --output json
+mulgae findings --run r_... --severity low --output json
+mulgae export --run r_... --output json
 ```
 
-If a review failed without publishing a final result, inspect
-`status --run r_... --output json` or MCP `get_run` first. When
-`failed_run_recovery.available` is true, use each returned retry attempt with
-`mulgae rerun --run r_... --attempt a_... --replay exact --output json`.
-Accepted roles are retained. A missing recovery source requires a new review
-when authorized; old diagnostic-only runs cannot be recovered retrospectively.
+Read publication authority, coverage, extraction state and CI independently.
+Incomplete coverage, diagnostic-only status or reports-only extraction is not
+proof of a clean review. An allocated failed run may have no durable status;
+`run_status_unavailable` must not trigger a blind retry. Preserve the exact
+returned identity and verify complete reports and receipt-bound evidence.
 
-After every missing selected role has a committed rerun, combine the results:
+Historical ordinary, child, composite, failed and no-change records remain
+unchanged and readable/exportable. Their manifests, complete bound captures,
+blobs, lineage and retained composite support keep fail-closed integrity.
+Provider-free P0/P1/P2 reconciliation and cleanup ancestry protections remain.
+Retained recovery inventory grants no new rerun, compose or source replay
+operation. Any new review requires authority and uses current source state.
 
-```bash
-mulgae compose --root-run r_... --recovery-run r_... --output json
-```
-
-The same exact mapping is idempotent. If publication returns
-`reconciliation_state: status_required`, inspect the returned composite
-`run_id`; do not blindly retry an uncertain mutation. Use `inspect` to obtain
-composite finding IDs and availability, then `read-finding`, `read-report`, or
-indexed `excerpt` for receipt-bound content. Attached MCP exposes the equivalent
-inspection and resources. Newly published composites retain copied evidence;
-historical composites can report it unavailable. Existing `status`, `report`,
-and redacted `export` behavior remains supported.
-
-The MCP `compose_review` equivalent reports an uncertain publication as
-`composite_publication_incomplete` with deterministic non-null `session_id`
-and `run_id` values and `retryable: false`; inspect that exact run before
-repeating the mapping.
-
-Exports default to `.mulgae/exports/<run-id>.zip` with a neighboring
-`.manifest.json` sidecar. Use `--output-path <relative-path>` only when you
-intentionally want the export elsewhere beneath the project root. Mulgae does
-not edit Git ignore configuration. Use the allowlist rules shown in Quick start,
-commit only `.mulgae/config.yaml`, and keep every other `.mulgae/**` path
-private.
-
-Create a focused follow-up after changing the code:
-
-```bash
-mulgae followup --run latest --finding F001 --dirty \
-  --objective "Check whether the original finding is resolved."
-```
+Exports default to `.mulgae/exports/<run-id>.zip` with a `.manifest.json`
+sidecar. An explicit relative `--output-path` selects another project-local
+destination. Commit only `.mulgae/config.yaml`, and keep all other runtime
+artifacts, local paths, transcripts and exports private. Cleanup requires an
+explicit authorized native plan; never delete private artifacts manually.
 
 ## Help
 

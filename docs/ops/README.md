@@ -19,11 +19,12 @@ rollback, and escalation boundary.
 
 The [adopted review Epics](../roadmap/README.md#adopted-execution-order) add no
 independently operated service. Current local clients follow these requirements,
-including the EPIC-007 guards and verified reads:
+including independent project binding and verified reads:
 
 - Establish the requested root independently before trusting an attached server
-  binding. Reject project/request drift before provider calls; obtaining another
-  preflight is not permission to execute a changed request automatically.
+  binding. Reject wrong or replaced roots before provider calls. Hold workspace
+  and index state unchanged through completion; source identity is metadata, not
+  a content/request drift guarantee.
 - Read exact run identities through verified inspection and continuation
   receipts. Historical unsupported evidence, reports-only results, and
   diagnostic-only runs remain distinct. Do not compensate with raw private
@@ -34,7 +35,7 @@ including the EPIC-007 guards and verified reads:
 
 ## Planned local client behavior
 
-EPIC-008 requirements remain future behavior, not commands supported by the
+EPIC-008 is held for redesign; its earlier requirements remain future behavior, not commands supported by the
 current binary:
 
 - Batch followup does not introduce restart recovery or automatic failed-group
@@ -62,6 +63,6 @@ current binary:
   the owning implementation has verified the new path; retain safe legacy/CLI
   fallback where capabilities are unavailable.
 
-See [verified review contracts](../specs/verified-review-contracts.md) for current
-behavior and [review completeness and iteration](../specs/review-completeness-and-iteration.md)
+See [live workspace and Git review](../specs/live-workspace-and-git-review.md) for current
+execution and [verified review contracts](../specs/verified-review-contracts.md) for historical foundations and [review completeness and iteration](../specs/review-completeness-and-iteration.md)
 for planned behavior.

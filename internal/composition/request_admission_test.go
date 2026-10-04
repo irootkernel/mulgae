@@ -24,7 +24,48 @@ func (admissionNoStdin) TakeCapturedStdin(context.Context, string) ([]byte, erro
 	return nil, errors.New("unexpected stdin capture")
 }
 
-func TestProductionPreflightReceiptPreservesSelectionAndConfigIdentity(t *testing.T) {
+func TestProductionLivePreflightAllowsVerifiedUnbornWorkspaceAndStage(t *testing.T) {
+	rootPath := canonicalTestTempDir(t)
+	command := exec.Command("/usr/bin/git", "-C", rootPath, "init", "--quiet")
+	if raw, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git fixture: %v %s", err, raw)
+	}
+	if err := os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"config.yaml": compositionProjectConfig, "local.yaml": compositionLocalConfig} {
+		if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", name), []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	adapter, err := gittarget.New(gittarget.NewExecRunner())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"--workspace", "--stage"} {
+		t.Run(scope, func(t *testing.T) {
+			invocation, err := mulgaeentry.Parse([]string{"review", scope, "--preflight"}, rootPath, "i_019f596a-e201-7a4b-8d76-1cf503a1849e")
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, _ := invocation.Review()
+			service, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, adapter)
+			if err != nil {
+				t.Fatalf("unborn preflight composition: %v", err)
+			}
+			result, err := service.PreflightReview(context.Background(), request, root)
+			if err != nil {
+				t.Fatalf("unborn preflight: %v", err)
+			}
+			if result.Status != "no_change" || result.ProjectBinding == "" || result.CandidateCount != 0 {
+				t.Fatalf("unborn preflight = %+v", result)
+			}
+		})
+	}
+}
+
+func TestProductionLivePreflightPreservesIndependentBindingAndConfigIdentity(t *testing.T) {
 	rootPath := canonicalTestTempDir(t)
 	git := func(args ...string) {
 		t.Helper()
@@ -60,7 +101,7 @@ func TestProductionPreflightReceiptPreservesSelectionAndConfigIdentity(t *testin
 			return mulgaeentry.ReviewPreflightResult{}, err
 		}
 		request, _ := invocation.Review()
-		service, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, adapter, admissionNoStdin{})
+		service, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, adapter)
 		if err != nil {
 			return mulgaeentry.ReviewPreflightResult{}, err
 		}
@@ -73,21 +114,21 @@ func TestProductionPreflightReceiptPreservesSelectionAndConfigIdentity(t *testin
 	if err := baseline.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if baseline.Status != "no_change" || baseline.RequestReceipt == nil || baseline.ProjectBinding == "" {
+	if baseline.Status != "no_change" || baseline.SourceIdentitySHA256 == "" || baseline.ProjectBinding == "" {
 		t.Fatalf("incomplete preflight: %+v", baseline)
 	}
 	same, err := preflight("--expected-project-binding", baseline.ProjectBinding)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if same.RequestReceipt.RequestDigest != baseline.RequestReceipt.RequestDigest {
+	if same.SourceIdentitySHA256 != baseline.SourceIdentitySHA256 {
 		t.Fatal("stable preflight changed identity")
 	}
 	explicit, err := preflight("--roles", "logic")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if explicit.RequestReceipt.RequestDigest == baseline.RequestReceipt.RequestDigest || explicit.CaptureIdentity != baseline.CaptureIdentity {
+	if explicit.SourceIdentitySHA256 != baseline.SourceIdentitySHA256 || explicit.ProjectBinding != baseline.ProjectBinding {
 		t.Fatal("default/explicit selection not preserved")
 	}
 	if err := os.WriteFile(projectPath, []byte(compositionProjectConfig+"# admitted formatting change\n"), 0600); err != nil {
@@ -97,7 +138,7 @@ func TestProductionPreflightReceiptPreservesSelectionAndConfigIdentity(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed.RequestReceipt.Components.Policy == baseline.RequestReceipt.Components.Policy || changed.CaptureIdentity != baseline.CaptureIdentity {
+	if changed.ConfigurationSHA256 == baseline.ConfigurationSHA256 || changed.SourceIdentitySHA256 != baseline.SourceIdentitySHA256 {
 		t.Fatal("raw configuration identity lost")
 	}
 	if _, err := preflight("--expected-project-binding", "sha256:"+strings.Repeat("a", 64)); !errors.Is(err, reviewrun.ErrProjectBindingMismatch) {

@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
-	"strings"
 	"syscall"
 
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
@@ -20,10 +19,8 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
-	"github.com/irootkernel/mulgae/internal/app/publication"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
-	appreviewcompose "github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -131,37 +128,8 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		writeDiagnostic(stderr, "mulgae: artifact root is unavailable\n")
 		return 10
 	}
-	compositionReader, err := appreviewcompose.NewQueryReader(artifactRoot, queryService)
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: composite source reader is unavailable\n")
-		return 10
-	}
-	compositionService, err := appreviewcompose.NewService(compositionReader)
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: composite review service is unavailable\n")
-		return 10
-	}
-	publicationService, err := publication.NewService(publicationStore, validator, clock, ports.PublicationStructuredMemberMaxBytes)
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: composite publication service is unavailable\n")
-		return 10
-	}
-	compositionPublisher, err := appreviewcompose.NewPublisher(artifactRoot, publicationService)
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: composite publisher is unavailable\n")
-		return 10
-	}
-	compositionMutation, err := appreviewcompose.NewMutationService(compositionService, compositionPublisher)
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: composite mutation service is unavailable\n")
-		return 10
-	}
 	runSelector := filesystem.NewRunSelector(artifactRoot)
-	requestInput := stdin
-	if mcpMode {
-		requestInput = strings.NewReader("")
-	}
-	requestResolver, err := mulgae.NewG008RequestResolver(artifactRoot, queryService, runSelector, requestInput)
+	requestResolver, err := mulgae.NewG008RequestResolver(artifactRoot, queryService, runSelector)
 	if err != nil {
 		writeDiagnostic(stderr, "mulgae: G008 request resolver is unavailable\n")
 		return 10
@@ -187,29 +155,20 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		return 10
 	}
 	build, buildErr := buildIdentityFrom(info, overrides.Version, overrides.Revision)
-	childSources, err := mulgae.NewG008Sources(artifactRoot, productionChildRunResolver{queries: queryService}, queryService)
-	if err != nil {
-		writeDiagnostic(stderr, "mulgae: child workflow sources are unavailable\n")
-		return 10
-	}
-	childComposer := productionChildComposer{
-		build: build, root: root, artifactRoot: artifactRoot, catalog: catalog, validator: validator, projectReader: gitAdapter,
-		clock: clock, ids: ids, writer: writer, publicationStore: publicationStore, stdin: requestResolver, sources: childSources,
-	}
 	startupInspector := environment.NewStartupDiscoveryInspector(os.Getenv("PATH"), root)
 	reviewRuns := newDeferredReviewRunServiceWithPreflight(func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewRunService, error) {
 		if buildErr != nil {
 			return nil, unavailableBuildMetadata(buildErr)
 		}
-		return composeReviewRuns(reviewContext, build, reviewRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore, requestResolver)
+		return composeReviewRuns(reviewContext, build, reviewRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore)
 	}, func(reviewContext context.Context, reviewRoot ports.AnchoredRoot) (mulgae.ReviewPreflightService, error) {
-		return composeReviewPreflight(reviewContext, catalog, reviewRoot, gitAdapter, requestResolver)
+		return composeReviewPreflight(reviewContext, catalog, reviewRoot, gitAdapter)
 	})
 	heartbeats := deferredHeartbeatService{clock: clock, compose: func(heartbeatContext context.Context, heartbeatRoot ports.AnchoredRoot) (*productionRuntimeGraph, error) {
 		if buildErr != nil {
 			return nil, unavailableBuildMetadata(buildErr)
 		}
-		return composeProductionRuntimeGraph(heartbeatContext, build, heartbeatRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore, requestResolver)
+		return composeProductionRuntimeGraph(heartbeatContext, build, heartbeatRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore)
 	}}
 	publicationQueries := mulgae.NewPublicationQueryService(queryService)
 	publicationReports := mulgae.NewPublicationReportService(reportService)
@@ -236,10 +195,6 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		// performs its own fail-closed live qualification.
 		EvidenceReader:     nil,
 		ReviewRuns:         reviewRuns,
-		FollowupRuns:       deferredFollowupRunService{composer: childComposer},
-		DeltaRuns:          deferredDeltaRunService{composer: childComposer},
-		Reruns:             deferredRerunService{composer: childComposer},
-		CompositeReviews:   compositionMutation,
 		PublicationQueries: publicationQueries,
 		DiagnosticQueries:  diagnosticQueries,
 		PublicationReports: publicationReports,
@@ -258,6 +213,21 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		}
 		backend.projectContexts = projectContexts
 		backend.contextLease, backend.contextError = projectContexts.Open(ctx, root)
+		if backend.contextLease == nil {
+			// Git binding stays unavailable. Only an independently pinned non-Git
+			// directory may serve unguarded workspace reviews for this server.
+			if lease, err := gittarget.OpenUnboundWorkspaceRoot(ctx, root); err == nil {
+				backend.workspaceLease = lease
+				defer func() {
+					if err := lease.Close(); err != nil {
+						writeDiagnostic(stderr, "mulgae: workspace context cleanup failed\n")
+						if exitCode == 0 {
+							exitCode = 10
+						}
+					}
+				}()
+			}
+		}
 		if backend.contextLease != nil {
 			defer func() {
 				if err := backend.contextLease.Close(); err != nil {

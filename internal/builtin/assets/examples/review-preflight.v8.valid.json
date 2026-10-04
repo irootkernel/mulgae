@@ -1,0 +1,77 @@
+{
+  "schema_version": "mulgae-review-preflight.v8",
+  "capabilities": {
+    "capture_identity": "",
+    "composite_evidence": "",
+    "execution_guard": "",
+    "finding_details": "",
+    "finding_pages": "",
+    "indexed_evidence": "",
+    "inspection": "",
+    "project_binding": "v1",
+    "report_content": "",
+    "live_source": "v1",
+    "source_evidence": ""
+  },
+  "project_binding": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "configuration_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "source_identity_sha256": "sha256:c995cbc2f4d133ee89bab213456761a553e4ee7f0611956ab5c4d41ec33201d4",
+  "target": {
+    "schema_version": "mulgae-live-source.v1",
+    "scope": "stage",
+    "operand": "",
+    "base_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "head_oid": "",
+    "empty_base": false
+  },
+  "candidate_count": 1,
+  "status": "eligible",
+  "qualification": "not_run",
+  "warnings": [],
+  "read_plan": [
+    {
+      "side": "before",
+      "path": "src/main.go"
+    },
+    {
+      "side": "index",
+      "path": "src/main.go"
+    }
+  ],
+  "transmissions": [
+    {
+      "configured_timeout": "30m",
+      "permission_mode": "read_only",
+      "provider_family": "zcode",
+      "provider_instance": "zcode-logic",
+      "role": "logic",
+      "route_kind": "primary",
+      "target_channel": "native_source"
+    }
+  ],
+  "budget": {
+    "ceilings": {
+      "max_invocations_per_role": 2,
+      "max_invocations_per_run": 14,
+      "provider_timeout": "60m",
+      "role_path_deadline": "14h0m14s",
+      "run_deadline": "14h0m19s"
+    },
+    "critical_path_deadline": "1h0m2s",
+    "eligible": true,
+    "max_active_lanes": 2,
+    "reason_code": "eligible",
+    "role_paths": [
+      {
+        "deadline": "1h0m2s",
+        "invocation_count": 2,
+        "invocation_timeouts": "1h0m0s",
+        "provider_instance": "zcode-logic",
+        "role": "logic",
+        "transition_count": 1
+      }
+    ],
+    "run_deadline": "1h0m7s",
+    "total_invocations": 2
+  }
+}

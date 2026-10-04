@@ -21,6 +21,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -108,7 +109,7 @@ func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
 	for _, raw := range tools {
 		names = append(names, raw.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "await_review,cancel_review,compose_review,get_context,get_run,inspect_review,list_findings,list_runs,preflight_review,run_review,start_review" {
+	if strings.Join(names, ",") != "await_review,cancel_review,get_context,get_run,inspect_review,list_findings,list_runs,preflight_review,run_review,start_review" {
 		t.Fatalf("production MCP tools = %v", names)
 	}
 	response = request(3, "resources/templates/list")
@@ -119,8 +120,9 @@ func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
 	}
 	wantResourceURIs := []string{
 		"mulgae://runs/{run_id}/findings/{finding_id}/detail{?project_binding,publication_receipt,content_sha256,offset}",
-		"mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}",
+		"mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,source_identity_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}",
 		"mulgae://runs/{run_id}/report{?role,project_binding,publication_receipt,content_sha256,offset}",
+		"mulgae://runs/{run_id}/source-image{?source_identity_sha256,side,path,project_binding,publication_receipt,content_sha256,offset}",
 	}
 	if strings.Join(resourceURIs, "\n") != strings.Join(wantResourceURIs, "\n") {
 		t.Fatalf("production MCP resource templates = %#v", templates)
@@ -162,7 +164,7 @@ func TestProductionRunPolicyRejectsGrokArtistBeforeRuntimeConstruction(t *testin
 			ZCode: &adapterconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
 			Grok:  &adapterconfig.GrokProviderConfig{Executable: "/bin/grok"},
 		},
-		Execution: adapterconfig.ExecutionConfig{WorkspaceAccess: "readonly_snapshot"}, Roles: roles,
+		Roles:      roles,
 		Review:     adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security", "maintainability", "product", "documentation", "testing"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
 		Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}},
 		Resources:  adapterconfig.ResourcesConfig{MaxActiveLanes: 7, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 14},
@@ -176,32 +178,6 @@ func TestProductionRunPolicyRejectsGrokArtistBeforeRuntimeConstruction(t *testin
 	var failure *domain.Failure
 	if !errors.As(err, &failure) || failure.Class() != domain.FailureProviderUnavailable || failure.Reason() != "provider_capability_unsupported" {
 		t.Fatalf("Grok artist failure = %#v, %v", failure, err)
-	}
-}
-
-type childContextDetector struct{ err error }
-
-func (detector childContextDetector) DetectReviewInput(context.Context, ports.ReviewInputChannel, string, []byte) (ports.ReviewInputDetection, error) {
-	return ports.ReviewInputDetection{}, detector.err
-}
-
-type childObservedProvider struct{ calls int }
-
-func (provider *childObservedProvider) Observe(context.Context, ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
-	provider.calls++
-	return ports.ProviderExecutionObservation{}, nil
-}
-
-func TestChildPacketScreeningProviderPreservesContextTermination(t *testing.T) {
-	for _, detectorErr := range []error{context.Canceled, context.DeadlineExceeded} {
-		t.Run(detectorErr.Error(), func(t *testing.T) {
-			provider := &childObservedProvider{}
-			screened := newChildPacketScreeningProvider(provider, childContextDetector{err: detectorErr})
-			_, err := screened.Observe(context.Background(), ports.ProviderInvocation{})
-			if !errors.Is(err, detectorErr) || screened.blocked || provider.calls != 0 {
-				t.Fatal("context termination was converted into a packet-security rejection")
-			}
-		})
 	}
 }
 
@@ -392,10 +368,9 @@ func TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation(t *testing.T
 	}
 }
 
-const compositionProjectConfig = `version: 4
+const compositionProjectConfig = `version: 5
 project: {name: "project"}
 providers: {grok: {}}
-execution: {workspace_access: "none"}
 roles:
   logic: {enabled: true, primary_provider: "grok"}
   security: {enabled: false, primary_provider: "grok"}
@@ -411,7 +386,7 @@ resources: {max_active_lanes: 1, primary_repair_attempts: 1, role_max_invocation
 ci: {fail_on_severity: ["high", "critical", "blocker"], degraded_review_fails: true}
 `
 
-const compositionLocalConfig = `version: 4
+const compositionLocalConfig = `version: 5
 native_user: {home: "/Users/test"}
 providers:
   grok: {executable: "/bin/grok"}
@@ -442,6 +417,45 @@ type failingReviewRunService struct{ err error }
 
 func (service failingReviewRunService) StartReviewRun(context.Context, mulgaeentry.ReviewRequest, ports.AnchoredRoot) (mulgaeentry.ReviewRunResult, error) {
 	return mulgaeentry.ReviewRunResult{}, service.err
+}
+
+type retainedLiveCleanupFailure struct {
+	cause   error
+	cleanup *reviewrun.LiveRunCleanup
+}
+
+func (failure retainedLiveCleanupFailure) Error() string { return "live cleanup pending" }
+func (failure retainedLiveCleanupFailure) Unwrap() error { return failure.cause }
+func (failure retainedLiveCleanupFailure) LiveCleanup() *reviewrun.LiveRunCleanup {
+	return failure.cleanup
+}
+
+func TestReviewCompositionRetainsTemporaryRootsUntilLiveCleanupCompletes(t *testing.T) {
+	namespacePath, workspacePath := canonicalTestTempDir(t), canonicalTestTempDir(t)
+	namespace, _ := ports.NewAnchoredRoot(namespacePath)
+	workspace, _ := ports.NewAnchoredRoot(workspacePath)
+	cause := errors.New("provider drain remains unproven")
+	retained := &reviewrun.LiveRunCleanup{}
+	service := &rootCleaningReviewRunService{inner: failingReviewRunService{err: retainedLiveCleanupFailure{cause: cause, cleanup: retained}}, graph: &productionRuntimeGraph{namespaceRoot: namespace, workspaceRoot: workspace}}
+	_, err := service.StartReviewRun(context.Background(), mulgaeentry.ReviewRequest{}, ports.AnchoredRoot{})
+	if owner, ok := reviewrun.LiveCleanupFromError(err); !ok || owner != retained || !errors.Is(err, cause) {
+		t.Fatalf("composition lost live cleanup ownership: %v", err)
+	}
+	for _, root := range []string{namespacePath, workspacePath} {
+		if info, err := os.Lstat(root); err != nil || !info.IsDir() {
+			t.Fatalf("composition deleted a retained runtime root: %v", err)
+		}
+	}
+	service.inner = failingReviewRunService{err: cause}
+	_, err = service.StartReviewRun(context.Background(), mulgaeentry.ReviewRequest{}, ports.AnchoredRoot{})
+	if !errors.Is(err, cause) {
+		t.Fatal("terminal cleanup lost the original failure")
+	}
+	for _, root := range []string{namespacePath, workspacePath} {
+		if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("terminal composition retained a disposable root: %v", err)
+		}
+	}
 }
 
 type failingReviewPreflightService struct{ err error }

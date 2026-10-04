@@ -18,6 +18,7 @@ import (
 type verifiedConsumerResult struct {
 	ProjectBinding      string            `json:"project_binding"`
 	Capabilities        map[string]string `json:"capabilities"`
+	SourceIdentity      string            `json:"source_identity_sha256"`
 	CaptureIdentity     string            `json:"capture_identity"`
 	CaptureAvailability string            `json:"capture_availability"`
 	PublicationReceipt  string            `json:"publication_receipt"`
@@ -82,7 +83,7 @@ func decodeVerifiedConsumerEnvelope(raw []byte, transport, operation string, leg
 		return nil, err
 	}
 	if transport == "cli" {
-		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18") {
+		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19") {
 			return nil, fmt.Errorf("unsupported CLI contract")
 		}
 		if envelope.Exit == nil || envelope.Exit.Code == nil || *envelope.Exit.Code != 0 || envelope.Exit.Kind != "success" || envelope.Reasons == nil {
@@ -117,7 +118,7 @@ func decodeVerifiedConsumerResult(raw []byte) (verifiedConsumerResult, error) {
 	}
 	for name, version := range value.Capabilities {
 		switch name {
-		case "project_binding", "execution_guard", "capture_identity", "inspection", "finding_pages", "finding_details", "report_content", "indexed_evidence", "composite_evidence":
+		case "project_binding", "execution_guard", "capture_identity", "inspection", "finding_pages", "finding_details", "report_content", "indexed_evidence", "composite_evidence", "live_source", "source_evidence":
 		default:
 			return value, fmt.Errorf("unknown capability %s", name)
 		}
@@ -135,7 +136,7 @@ func decodeVerifiedConsumerResult(raw []byte) (verifiedConsumerResult, error) {
 		if !consumerDigest(value.CaptureIdentity) {
 			return value, fmt.Errorf("verified capture has no digest")
 		}
-	case "capture_identity_unavailable":
+	case "capture_identity_unavailable", "not_captured":
 		if value.CaptureIdentity != "" {
 			return value, fmt.Errorf("unavailable capture has a digest")
 		}

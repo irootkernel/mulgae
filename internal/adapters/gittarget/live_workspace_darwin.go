@@ -62,7 +62,7 @@ func (reader *liveSourceReader) workspacePaths(ctx context.Context) ([]ports.Saf
 				if reader.excluded(value) {
 					continue
 				}
-				ignored := workspaceIgnored(value, rules)
+				ignored := workspaceIgnored(value, entry.IsDir(), rules)
 				if entry.Type()&os.ModeSymlink != 0 {
 					if !ignored {
 						return sourceError(ports.LiveSourceUnsafe, fmt.Errorf("selected workspace symlink"))
@@ -70,6 +70,9 @@ func (reader *liveSourceReader) workspacePaths(ctx context.Context) ([]ports.Saf
 					continue
 				}
 				if entry.IsDir() {
+					if ignored {
+						continue
+					}
 					directories = append(directories, value)
 					continue
 				}

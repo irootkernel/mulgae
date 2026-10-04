@@ -903,14 +903,14 @@ func prepareTerminalCandidate(
 // PrepareCandidateWithRuntimeArtifacts binds one complete immutable runtime
 // inventory to every coordinator invocation and rejects missing source material
 // before P2 publication.
-func PrepareCandidateWithRuntimeArtifacts(
+func PrepareCandidateWithRuntimeArtifacts[T runtimeArtifactInventory](
 	result review.CoordinatorResult,
 	target domain.TargetIdentity,
 	severityThreshold domain.Severity,
 	mulgaeVersion string,
 	mulgaeCommit string,
 	context RunPublicationContext,
-	inputs []review.RuntimeArtifactInventory,
+	inputs []T,
 ) (PreparedCandidate, error) {
 	candidate, err := PrepareCandidateWithContext(
 		result, target, severityThreshold, mulgaeVersion, mulgaeCommit, context,

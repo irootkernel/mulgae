@@ -63,12 +63,12 @@ func TestE2EOptInCodexCredentialProfiles(t *testing.T) {
 		"documentation": "codex-secondary-documentation",
 	}
 	run := runLiveRecoverableWorkflowWithGate(t, validator, runtimeEnvironment, project, "opt-in-codex-credential-profiles", expected, validateOptInLiveGate,
-		"review", "--dirty",
+		"review", "--workspace",
 		"--objective", "This is a provider-route compatibility check. Do not report findings or evidence claims. Return exactly this single Markdown sentence and nothing else: Route compatibility completed with no findings.",
 		"--roles", "logic,security,documentation", "--output", "json",
 	)
 	assertLiveRecoverableAssignments(t, run, expected)
-	assertLiveRoleReportTransports(t, run, "opt-in Codex profile review", false)
+	assertLiveRoleReportTransports(t, run, "opt-in Codex profile review")
 	assertNoProjectProviderLocks(t, project)
 	scenario.status = "passed"
 }
@@ -80,7 +80,7 @@ func validateOptInLiveGate(project string, run livePublishedRun, expected map[st
 	if err := validateLivePrimaryProcessTerminals(project, run, expected); err != nil {
 		return err
 	}
-	return validateLiveRoleReportTransports(run, false)
+	return validateLiveRoleReportTransports(run)
 }
 
 func requireOptInLiveEnvironment(t *testing.T) optInLiveEnvironment {
@@ -137,7 +137,7 @@ func configureOptInCredentialProfiles(t *testing.T, project string, environment 
 	config.Roles.Documentation.CredentialProfile = optInCodexSecondaryProfile
 	projectConfig, localConfig, err := adapterconfig.EncodeSplit(config)
 	if err != nil {
-		t.Fatalf("encode opt-in Config v4 pair: %v", err)
+		t.Fatalf("encode opt-in Config v5 pair: %v", err)
 	}
 	writeExistingOptInConfig(t, filepath.Join(project, ".mulgae", "config.yaml"), projectConfig)
 	writeExistingOptInConfig(t, filepath.Join(project, ".mulgae", "local.yaml"), localConfig)

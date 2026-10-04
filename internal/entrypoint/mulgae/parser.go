@@ -17,16 +17,13 @@ import (
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/text/unicode/norm"
 )
 
 const (
 	maximumPathLength             = 4096
 	maximumSchemaIdentifierLength = 1024
-)
-const (
-	stdinCaptureTokenPrefix = "stdin-capture-v1-"
-	stdinCaptureTokenBytes  = 32
 )
 
 // ErrUsage marks an argument error that the CLI must render with exit code 2.
@@ -48,9 +45,7 @@ var ErrRunSelectorUnavailable = errors.New("mulgae run selector unavailable")
 var ErrAttemptSelectorUnavailable = errors.New("mulgae attempt selector unavailable")
 
 const (
-	resolvedSyntaxRunID     = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
-	resolvedSyntaxAttemptID = "a_019f596a-cf80-7c67-b265-f37053d51ccf"
-	resolvedSyntaxStdin     = "stdin-capture-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	resolvedSyntaxRunID = "r_019f596a-cf80-7c67-b265-f37053d51ccf"
 )
 
 // Parse converts command-line arguments into one immutable Mulgae invocation. The
@@ -107,14 +102,6 @@ func Parse(arguments []string, defaultProjectRoot, requestID string) (Invocation
 		return parseConfig(remaining, defaultProjectRoot, requestID)
 	case app.CommandSchema:
 		return parseSchema(remaining, defaultProjectRoot, requestID)
-	case app.CommandFollowup:
-		return parseFollowup(remaining, requestID)
-	case app.CommandDelta:
-		return parseDelta(remaining, requestID)
-	case app.CommandRerun:
-		return parseRerun(remaining, requestID)
-	case app.CommandCompose:
-		return parseCompose(remaining, requestID)
 	case app.CommandClean:
 		return parseClean(remaining, requestID)
 	case app.CommandExport:
@@ -147,35 +134,6 @@ func ParseResolved(ctx context.Context, arguments []string, defaultProjectRoot, 
 	}
 	normalized := cloneStrings(arguments)
 	switch normalized[0] {
-	case string(app.CommandReview):
-		normalized, err = resolveCapturedStdin(ctx, normalized, resolver)
-		if err != nil {
-			return Invocation{}, err
-		}
-	case string(app.CommandFollowup):
-		if err := resolveRunFlag(ctx, normalized, "--run", resolver); err != nil {
-			return Invocation{}, err
-		}
-		normalized, err = resolveCapturedStdin(ctx, normalized, resolver)
-		if err != nil {
-			return Invocation{}, err
-		}
-	case string(app.CommandDelta):
-		if err := resolveRunFlag(ctx, normalized, "--since-run", resolver); err != nil {
-			return Invocation{}, err
-		}
-		normalized, err = resolveCapturedStdin(ctx, normalized, resolver)
-		if err != nil {
-			return Invocation{}, err
-		}
-	case string(app.CommandRerun):
-		if err := resolveRunFlag(ctx, normalized, "--run", resolver); err != nil {
-			return Invocation{}, err
-		}
-		normalized, err = resolveRerunSelector(ctx, normalized, resolver)
-		if err != nil {
-			return Invocation{}, err
-		}
 	case string(app.CommandExport):
 		if err := resolveRunFlag(ctx, normalized, "--run", resolver); err != nil {
 			return Invocation{}, err
@@ -193,17 +151,6 @@ func resolvedSyntaxArguments(arguments []string) ([]string, error) {
 		return normalized, nil
 	}
 	switch normalized[0] {
-	case string(app.CommandReview):
-		return normalizeCapturedStdin(normalized, resolvedSyntaxStdin), nil
-	case string(app.CommandFollowup):
-		replaceSelectorValue(normalized, "--run", "latest", resolvedSyntaxRunID)
-		return normalizeCapturedStdin(normalized, resolvedSyntaxStdin), nil
-	case string(app.CommandDelta):
-		replaceSelectorValue(normalized, "--since-run", "latest", resolvedSyntaxRunID)
-		return normalizeCapturedStdin(normalized, resolvedSyntaxStdin), nil
-	case string(app.CommandRerun):
-		replaceSelectorValue(normalized, "--run", "latest", resolvedSyntaxRunID)
-		return normalizeRerunSelector(normalized, resolvedSyntaxAttemptID)
 	case string(app.CommandExport):
 		replaceSelectorValue(normalized, "--run", "latest", resolvedSyntaxRunID)
 	}
@@ -217,24 +164,6 @@ func replaceSelectorValue(arguments []string, flag, selector, replacement string
 			return
 		}
 	}
-}
-
-func normalizeCapturedStdin(arguments []string, value string) []string {
-	stdinCount := 0
-	stdinIndex := -1
-	for index := 1; index < len(arguments); index++ {
-		if arguments[index] == "--stdin" {
-			stdinCount++
-			stdinIndex = index
-		}
-	}
-	if stdinCount != 1 || stdinIndex == -1 || stdinIndex+1 < len(arguments) && !strings.HasPrefix(arguments[stdinIndex+1], "--") {
-		return arguments
-	}
-	normalized := make([]string, 0, len(arguments)+1)
-	normalized = append(normalized, arguments[:stdinIndex+1]...)
-	normalized = append(normalized, value)
-	return append(normalized, arguments[stdinIndex+1:]...)
 }
 
 func resolveRunFlag(ctx context.Context, arguments []string, flag string, resolver RequestResolver) error {
@@ -264,109 +193,6 @@ func resolveRunFlag(ctx context.Context, arguments []string, flag string, resolv
 	return nil
 }
 
-func resolveCapturedStdin(ctx context.Context, arguments []string, resolver RequestResolver) ([]string, error) {
-	stdinCount := 0
-	stdinIndex := -1
-	for index := 1; index < len(arguments); index++ {
-		switch arguments[index] {
-		case "--diff", "--patch", "--stdin":
-			if arguments[index] == "--stdin" {
-				stdinCount++
-				stdinIndex = index
-			}
-		}
-	}
-	if stdinCount != 1 || stdinIndex == -1 || stdinIndex+1 < len(arguments) && !strings.HasPrefix(arguments[stdinIndex+1], "--") {
-		return arguments, nil
-	}
-	if resolver == nil {
-		return nil, usageError("valueless --stdin requires a resolver")
-	}
-	value, err := resolver.CaptureTarget(ctx)
-	if err != nil {
-		if errors.Is(err, ErrSelectorUnavailable) {
-			return nil, usageError("capture stdin target: %v", err)
-		}
-		return nil, fmt.Errorf("capture stdin target: %w", err)
-	}
-	if !validCapturedStdinToken(value) {
-		return nil, usageError("captured stdin target is malformed")
-	}
-	return normalizeCapturedStdin(arguments, value), nil
-}
-
-func resolveRerunSelector(ctx context.Context, arguments []string, resolver RequestResolver) ([]string, error) {
-	role, provider, selected, err := rerunSelector(arguments)
-	if err != nil {
-		return nil, err
-	}
-	if !selected {
-		return arguments, nil
-	}
-	runID, present, err := selectorOption(arguments, "--run")
-	if err != nil {
-		return nil, err
-	}
-	if !present {
-		return arguments, nil
-	}
-	if resolver == nil {
-		return nil, usageError("rerun role/provider selector requires a resolver")
-	}
-	attemptID, err := resolver.ResolveAttempt(ctx, runID, role, provider)
-	if err != nil {
-		if errors.Is(err, ErrSelectorUnavailable) {
-			return nil, fmt.Errorf("%w: %v", ErrAttemptSelectorUnavailable, err)
-		}
-		return nil, fmt.Errorf("resolve rerun attempt: %w", err)
-	}
-	return normalizeRerunSelector(arguments, attemptID)
-}
-
-func normalizeRerunSelector(arguments []string, attemptID string) ([]string, error) {
-	_, _, selected, err := rerunSelector(arguments)
-	if err != nil {
-		return nil, err
-	}
-	if !selected {
-		return arguments, nil
-	}
-	normalized := make([]string, 0, len(arguments))
-	for index := 0; index < len(arguments); index++ {
-		if arguments[index] == "--role" || arguments[index] == "--provider" {
-			index++
-			continue
-		}
-		normalized = append(normalized, arguments[index])
-	}
-	return append(normalized, "--attempt", attemptID), nil
-}
-
-func rerunSelector(arguments []string) (string, string, bool, error) {
-	role, hasRole, err := selectorOption(arguments, "--role")
-	if err != nil {
-		return "", "", false, err
-	}
-	provider, hasProvider, err := selectorOption(arguments, "--provider")
-	if err != nil {
-		return "", "", false, err
-	}
-	_, hasAttempt, err := selectorOption(arguments, "--attempt")
-	if err != nil {
-		return "", "", false, err
-	}
-	if !hasRole && !hasProvider {
-		return "", "", false, nil
-	}
-	if hasAttempt || !hasRole || !hasProvider {
-		return "", "", false, usageError("rerun requires either --attempt or exactly one --role and --provider selector")
-	}
-	if !validRole(role) || !validRole(provider) {
-		return "", "", false, usageError("rerun role/provider selector is malformed")
-	}
-	return role, provider, true, nil
-}
-
 func selectorOption(arguments []string, flag string) (string, bool, error) {
 	var value string
 	present := false
@@ -391,10 +217,6 @@ func parseCommand(value string) (app.CommandName, error) {
 	case app.CommandInspect, app.CommandReadFinding, app.CommandReadReport, app.CommandContext, app.CommandInit,
 		app.CommandDoctor,
 		app.CommandReview,
-		app.CommandFollowup,
-		app.CommandDelta,
-		app.CommandRerun,
-		app.CommandCompose,
 		app.CommandStatus,
 		app.CommandReport,
 		app.CommandFindings,
@@ -872,11 +694,11 @@ func parseRoles(arguments []string, requestID string) (Invocation, error) {
 
 func parseReview(arguments []string, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--workspace": false, "--stage": false, "--dirty": false,
-		"--diff": true, "--patch": true, "--stdin": true, "--objective": true,
+		"--workspace": false, "--stage": false, "--head": false,
+		"--diff": true, "--commit": true, "--objective": true,
 		"--roles": true, "--artist-brief": true, "--artist-design-specs": true,
 		"--session": true, "--preflight": false, "--output": true,
-		"--expected-project-binding": true, "--expected-request-digest": true,
+		"--expected-project-binding": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -884,7 +706,7 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	if len(positionals) != 0 {
 		return Invocation{}, usageError("review accepts no positional arguments")
 	}
-	target, err := optionTarget(options)
+	target, err := optionLiveTarget(options)
 	if err != nil {
 		return Invocation{}, err
 	}
@@ -928,23 +750,11 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	}
 	_, request.preflight = options["--preflight"]
 	request.expectedProjectBinding = options["--expected-project-binding"]
-	request.expectedRequestDigest = options["--expected-request-digest"]
 	binding, hasBinding := options["--expected-project-binding"]
-	digest, hasDigest := options["--expected-request-digest"]
-	if hasBinding && binding == "" || hasDigest && digest == "" {
-		return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, reviewrun.ErrGuardInvalid)
-	}
-	if request.preflight {
-		if hasDigest {
-			return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, reviewrun.ErrGuardIncomplete)
+	if hasBinding {
+		if _, err := domain.ParseProjectBinding(binding); err != nil {
+			return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, reviewrun.ErrGuardInvalid)
 		}
-		if hasBinding {
-			if _, err := domain.ParseProjectBinding(binding); err != nil {
-				return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, reviewrun.ErrGuardInvalid)
-			}
-		}
-	} else if _, err := reviewrun.NewExecutionGuard(binding, digest); err != nil {
-		return Invocation{}, fmt.Errorf("%w: %w", ErrUsage, err)
 	}
 
 	if request.preflight && request.hasSessionID {
@@ -955,12 +765,9 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		return Invocation{}, err
 	}
 	var objective, artistBrief, sessionID *string
-	var expectedBinding, expectedDigest *string
+	var expectedBinding *string
 	if hasBinding {
 		expectedBinding = &request.expectedProjectBinding
-	}
-	if hasDigest {
-		expectedDigest = &request.expectedRequestDigest
 	}
 	if request.hasObjective {
 		objective = &request.objective
@@ -995,13 +802,12 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		SessionID       *string      `json:"session_id"`
 		Preflight       *bool        `json:"preflight,omitempty"`
 		ExpectedBinding *string      `json:"expected_project_binding,omitempty"`
-		ExpectedDigest  *string      `json:"expected_request_digest,omitempty"`
 		OutputFormat    OutputFormat `json:"output_format"`
 	}{
 		requestID, string(app.CommandReview), struct {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
-		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, preflight, expectedBinding, expectedDigest, outputFormat,
+		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, preflight, expectedBinding, outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -1173,7 +979,7 @@ func parseReport(arguments []string, requestID string) (Invocation, error) {
 func parseExcerpt(arguments []string, requestID string) (Invocation, error) {
 	for _, argument := range arguments {
 		switch strings.SplitN(argument, "=", 2)[0] {
-		case "--evidence-index", "--offset", "--expected-project-binding", "--expected-publication-receipt", "--expected-content-sha256":
+		case "--evidence-index", "--offset", "--expected-project-binding", "--expected-publication-receipt", "--expected-content-sha256", "--source-identity-sha256":
 			return parseVerifiedRead(app.CommandExcerpt, arguments, requestID)
 		}
 	}
@@ -1397,254 +1203,6 @@ func parseSchema(arguments []string, defaultProjectRoot, requestID string) (Invo
 		schema:         &request,
 	}, nil
 }
-func parseFollowup(arguments []string, requestID string) (Invocation, error) {
-	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--run": true, "--finding": true, "--workspace": false, "--stage": false, "--dirty": false,
-		"--diff": true, "--patch": true, "--stdin": true,
-		"--objective": true, "--role": true, "--output": true,
-	})
-	if err != nil {
-		return Invocation{}, err
-	}
-	if len(positionals) != 0 {
-		return Invocation{}, usageError("followup accepts no positional arguments")
-	}
-	sourceRunID, err := optionRunID(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	findingID, present := options["--finding"]
-	if !present || !validCommandFindingID(findingID) {
-		return Invocation{}, usageError("followup requires a canonical --finding")
-	}
-	target, err := optionTarget(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	request := FollowupRequest{sourceRunID: sourceRunID, findingID: findingID, target: target}
-	if objective, present := options["--objective"]; present {
-		if !validObjective(objective) {
-			return Invocation{}, usageError("followup objective is malformed")
-		}
-		request.objective, request.hasObjective = objective, true
-	}
-	if role, present := options["--role"]; present {
-		if !validRole(role) {
-			return Invocation{}, usageError("followup role is malformed")
-		}
-		request.role, request.hasRole = role, true
-	}
-	outputFormat, err := optionOutputFormat(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	var objective, role *string
-	if request.hasObjective {
-		objective = &request.objective
-	}
-	if request.hasRole {
-		role = &request.role
-	}
-	requestJSON, err := marshalRequest(struct {
-		RequestID   string `json:"request_id"`
-		Command     string `json:"command"`
-		SourceRunID string `json:"source_run_id"`
-		FindingID   string `json:"finding_id"`
-		Target      struct {
-			Kind  string `json:"kind"`
-			Value string `json:"value"`
-		} `json:"target"`
-		Objective    *string      `json:"objective"`
-		Role         *string      `json:"role"`
-		OutputFormat OutputFormat `json:"output_format"`
-	}{requestID, string(app.CommandFollowup), request.sourceRunID, request.findingID, struct {
-		Kind  string `json:"kind"`
-		Value string `json:"value"`
-	}{request.target.kind, request.target.value}, objective, role, outputFormat})
-	if err != nil {
-		return Invocation{}, err
-	}
-	return Invocation{command: app.CommandFollowup, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, followup: &request}, nil
-}
-
-func parseDelta(arguments []string, requestID string) (Invocation, error) {
-	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--since-run": true, "--workspace": false, "--stage": false, "--dirty": false,
-		"--diff": true, "--patch": true, "--stdin": true, "--roles": true, "--output": true,
-	})
-	if err != nil {
-		return Invocation{}, err
-	}
-	if len(positionals) != 0 {
-		return Invocation{}, usageError("delta accepts no positional arguments")
-	}
-	sourceRunID, err := optionRequiredRunID(options, "--since-run")
-	if err != nil {
-		return Invocation{}, err
-	}
-	target, err := optionTarget(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	rolesValue, present := options["--roles"]
-	if !present {
-		return Invocation{}, usageError("delta requires --roles")
-	}
-	roles, err := parseCanonicalRolesCSV(rolesValue)
-	if err != nil {
-		return Invocation{}, err
-	}
-	outputFormat, err := optionOutputFormat(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	request := DeltaRequest{sourceRunID: sourceRunID, target: target, roles: roles}
-	requestJSON, err := marshalRequest(struct {
-		RequestID   string `json:"request_id"`
-		Command     string `json:"command"`
-		SourceRunID string `json:"source_run_id"`
-		Target      struct {
-			Kind  string `json:"kind"`
-			Value string `json:"value"`
-		} `json:"target"`
-		Roles        []string     `json:"roles"`
-		OutputFormat OutputFormat `json:"output_format"`
-	}{requestID, string(app.CommandDelta), request.sourceRunID, struct {
-		Kind  string `json:"kind"`
-		Value string `json:"value"`
-	}{request.target.kind, request.target.value}, cloneStrings(request.roles), outputFormat})
-	if err != nil {
-		return Invocation{}, err
-	}
-	return Invocation{command: app.CommandDelta, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, delta: &request}, nil
-}
-
-func parseRerun(arguments []string, requestID string) (Invocation, error) {
-	positionals, options, err := parseOptions(arguments, map[string]bool{
-		"--run": true, "--attempt": true, "--replay": true, "--output": true,
-	})
-	if err != nil {
-		return Invocation{}, err
-	}
-	if len(positionals) != 0 {
-		return Invocation{}, usageError("rerun accepts no positional arguments")
-	}
-	sourceRunID, err := optionRunID(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	sourceAttemptID, present := options["--attempt"]
-	if !present {
-		return Invocation{}, usageError("rerun requires --attempt")
-	}
-	attemptID, err := domain.ParseAttemptID(sourceAttemptID)
-	if err != nil {
-		return Invocation{}, usageError("attempt ID is not a canonical UUIDv7")
-	}
-	replayMode := ReplayModeExact
-	if value, present := options["--replay"]; present {
-		replayMode = ReplayMode(value)
-		if replayMode != ReplayModeExact && replayMode != ReplayModeRecompose {
-			return Invocation{}, usageError("unsupported replay mode")
-		}
-	}
-	outputFormat, err := optionOutputFormat(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	request := RerunRequest{sourceRunID: sourceRunID, sourceAttemptID: attemptID.String(), replayMode: replayMode}
-	requestJSON, err := marshalRequest(struct {
-		RequestID       string       `json:"request_id"`
-		Command         string       `json:"command"`
-		SourceRunID     string       `json:"source_run_id"`
-		SourceAttemptID string       `json:"source_attempt_id"`
-		ReplayMode      ReplayMode   `json:"replay_mode"`
-		OutputFormat    OutputFormat `json:"output_format"`
-	}{requestID, string(app.CommandRerun), request.sourceRunID, request.sourceAttemptID, request.replayMode, outputFormat})
-	if err != nil {
-		return Invocation{}, err
-	}
-	return Invocation{command: app.CommandRerun, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, rerun: &request}, nil
-}
-
-func parseCompose(arguments []string, requestID string) (Invocation, error) {
-	positionals := make([]string, 0)
-	rootRunID := ""
-	rootSeen := false
-	recoveryRunIDs := make([]string, 0, len(domain.FixedRoleOrder()))
-	outputValue := ""
-	outputSeen := false
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		if !strings.HasPrefix(argument, "-") {
-			positionals = append(positionals, argument)
-			continue
-		}
-		if argument != "--root-run" && argument != "--recovery-run" && argument != "--output" {
-			return Invocation{}, usageError("unknown flag")
-		}
-		if index+1 == len(arguments) || strings.HasPrefix(arguments[index+1], "--") {
-			return Invocation{}, usageError("flag value is missing")
-		}
-		value := arguments[index+1]
-		index++
-		switch argument {
-		case "--root-run":
-			if rootSeen {
-				return Invocation{}, usageError("duplicate flag")
-			}
-			rootRunID = value
-			rootSeen = true
-		case "--recovery-run":
-			recoveryRunIDs = append(recoveryRunIDs, value)
-		case "--output":
-			if outputSeen {
-				return Invocation{}, usageError("duplicate flag")
-			}
-			outputValue = value
-			outputSeen = true
-		}
-	}
-	if len(positionals) != 0 || rootRunID == "" || len(recoveryRunIDs) == 0 || len(recoveryRunIDs) > len(domain.FixedRoleOrder()) {
-		return Invocation{}, usageError("compose requires one --root-run and between one and seven --recovery-run values")
-	}
-	root, err := domain.ParseRunID(rootRunID)
-	if err != nil {
-		return Invocation{}, usageError("root run ID is not a canonical UUIDv7")
-	}
-	seen := map[string]struct{}{root.String(): {}}
-	for index, value := range recoveryRunIDs {
-		runID, parseErr := domain.ParseRunID(value)
-		if parseErr != nil {
-			return Invocation{}, usageError("recovery run ID is not a canonical UUIDv7")
-		}
-		if _, duplicate := seen[runID.String()]; duplicate {
-			return Invocation{}, usageError("compose run selection contains a duplicate")
-		}
-		seen[runID.String()] = struct{}{}
-		recoveryRunIDs[index] = runID.String()
-	}
-	options := map[string]string{}
-	if outputSeen {
-		options["--output"] = outputValue
-	}
-	outputFormat, err := optionOutputFormat(options)
-	if err != nil {
-		return Invocation{}, err
-	}
-	request := ComposeRequest{rootRunID: root.String(), recoveryRuns: cloneStrings(recoveryRunIDs)}
-	requestJSON, err := marshalRequest(struct {
-		RequestID      string       `json:"request_id"`
-		Command        string       `json:"command"`
-		RootRunID      string       `json:"root_run_id"`
-		RecoveryRunIDs []string     `json:"recovery_run_ids"`
-		OutputFormat   OutputFormat `json:"output_format"`
-	}{requestID, string(app.CommandCompose), request.rootRunID, cloneStrings(request.recoveryRuns), outputFormat})
-	if err != nil {
-		return Invocation{}, err
-	}
-	return Invocation{command: app.CommandCompose, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, compose: &request}, nil
-}
 
 func parseClean(arguments []string, requestID string) (Invocation, error) {
 	positionals, options, err := parseOptions(arguments, map[string]bool{
@@ -1746,37 +1304,25 @@ func parseExport(arguments []string, requestID string) (Invocation, error) {
 	}
 	return Invocation{command: app.CommandExport, availability: AvailabilityFoundation, requestID: requestID, outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, export: &request}, nil
 }
-func optionTarget(options map[string]string) (TargetRequest, error) {
+func optionLiveTarget(options map[string]string) (TargetRequest, error) {
 	var target TargetRequest
-	for _, candidate := range []struct {
-		kind      string
-		flag      string
-		valueless bool
-	}{
-		{kind: "workspace", flag: "--workspace", valueless: true},
-		{kind: "stage", flag: "--stage", valueless: true},
-		{kind: "dirty", flag: "--dirty", valueless: true},
-		{kind: "diff", flag: "--diff"},
-		{kind: "patch", flag: "--patch"},
-		{kind: "stdin", flag: "--stdin"},
-	} {
-		value, present := options[candidate.flag]
+	count := 0
+	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage, domain.LiveSourceHead, domain.LiveSourceCommit, domain.LiveSourceDiff} {
+		value, present := options["--"+string(scope)]
 		if !present {
 			continue
 		}
-		if target.kind != "" {
-			return TargetRequest{}, usageError("target kind flags are mutually exclusive")
+		count++
+		if scope == domain.LiveSourceWorkspace || scope == domain.LiveSourceStage || scope == domain.LiveSourceHead {
+			value = ""
 		}
-		if candidate.valueless {
-			value = candidate.kind
+		if _, err := ports.NewLiveSourceSelector(scope, value); err != nil {
+			return TargetRequest{}, usageError("review source selector is malformed")
 		}
-		if !validTargetValue(value) || candidate.kind == "diff" && value == "git" {
-			return TargetRequest{}, usageError("target value is malformed")
-		}
-		target = TargetRequest{kind: candidate.kind, value: value}
+		target = TargetRequest{kind: string(scope), value: value}
 	}
-	if target.kind == "" {
-		return TargetRequest{}, usageError("command requires one target kind flag")
+	if count != 1 {
+		return TargetRequest{}, usageError("review requires exactly one source selector")
 	}
 	return target, nil
 }
@@ -1873,17 +1419,6 @@ func parseCanonicalRolesCSV(value string) ([]string, error) {
 
 func validTargetValue(value string) bool {
 	return value != "" && len(value) <= maximumPathLength && !strings.ContainsAny(value, "\x00\r\n")
-}
-func validCapturedStdinToken(value string) bool {
-	if len(value) != len(stdinCaptureTokenPrefix)+stdinCaptureTokenBytes*2 || !strings.HasPrefix(value, stdinCaptureTokenPrefix) {
-		return false
-	}
-	for _, character := range value[len(stdinCaptureTokenPrefix):] {
-		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
-			return false
-		}
-	}
-	return true
 }
 
 func validObjective(value string) bool {

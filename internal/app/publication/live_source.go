@@ -218,3 +218,10 @@ func (candidate PreparedCandidate) validateLiveNoChange() error {
 func (service *Service) PublishLiveNext(ctx context.Context, root ports.AnchoredRoot, candidate PreparedLiveCandidate) (PublicationResult, error) {
 	return service.publishNextCandidate(ctx, root, candidate, nil)
 }
+
+func (service *Service) PublishLiveNextObserved(ctx context.Context, root ports.AnchoredRoot, candidate PreparedLiveCandidate, observer LifecycleObserver) (PublicationResult, error) {
+	if observer == nil {
+		return PublicationResult{}, fmt.Errorf("live publication: lifecycle observer unavailable")
+	}
+	return service.publishNextCandidate(ctx, root, candidate, observer)
+}

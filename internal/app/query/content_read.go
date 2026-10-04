@@ -210,6 +210,10 @@ func SourceEvidenceContentURI(runID, findingID, source string, index int, bindin
 	return contentURI("mulgae://runs/"+runID+"/findings/"+findingID+"/evidence", [][2]string{{"source_identity_sha256", source}, {"evidence_index", indexText}, {"project_binding", binding}, {"publication_receipt", receipt}, {"content_sha256", digest}}, offset)
 }
 
+func SourceImageContentURI(runID, source, side, path, binding, receipt, digest string, offset int64) string {
+	return contentURI("mulgae://runs/"+runID+"/source-image", [][2]string{{"source_identity_sha256", source}, {"side", side}, {"path", path}, {"project_binding", binding}, {"publication_receipt", receipt}, {"content_sha256", digest}}, offset)
+}
+
 func contentURI(base string, fields [][2]string, offset int64) string {
 	parts := []string{}
 	for _, field := range fields {

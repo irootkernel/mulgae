@@ -18,7 +18,6 @@ func validConfig() Config {
 		Project:    ProjectConfig{Name: "project", Context: ".mulgae-context.md"},
 		NativeUser: NativeUserConfig{Home: "/Users/test"},
 		Providers:  ProvidersConfig{ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}},
-		Execution:  ExecutionConfig{WorkspaceAccess: "none"},
 		Roles:      roles,
 		Review:     ReviewConfig{RequiredRoles: []string{"logic", "security"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
 		Validation: ValidationConfig{Evidence: EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}},
@@ -63,7 +62,7 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 
 func TestDecodeRejectsRetiredProviderBlocks(t *testing.T) {
 	for _, family := range []string{"kimi", "agy"} {
-		document := []byte("version: 4\nproject:\n  name: project\nproviders:\n  " + family + ":\n    executable: /bin/provider\n")
+		document := []byte("version: 5\nproject:\n  name: project\nproviders:\n  " + family + ":\n    executable: /bin/provider\n")
 		_, err := Decode(document)
 		admission, ok := AsAdmissionError(err)
 		if !ok || admission.Reason() != ReasonProviderRetired {
@@ -355,7 +354,7 @@ func TestConfigV1RoleAssignmentsAndFutureVersionRejection(t *testing.T) {
 			t.Fatalf("canonical config omitted %q:\n%s", expected, encoded)
 		}
 	}
-	future := strings.Replace(string(encoded), "version: 4", "version: 5", 1)
+	future := strings.Replace(string(encoded), "version: 5", "version: 6", 1)
 	if _, err := Decode([]byte(future)); err == nil {
 		t.Fatal("future config version was accepted")
 	}
@@ -568,7 +567,7 @@ func TestDecodeRejectsBudgetAndPermissionContradictions(t *testing.T) {
 	}
 }
 
-func TestDecodeRejectsOmittedLegacyWorkspaceAndShellModes(t *testing.T) {
+func TestDecodeRejectsRetiredSnapshotAndShellConfiguration(t *testing.T) {
 	t.Parallel()
 
 	base, err := EncodeCanonical(validConfig())
@@ -576,9 +575,9 @@ func TestDecodeRejectsOmittedLegacyWorkspaceAndShellModes(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]string{
-		"omitted workspace access": strings.Replace(string(base), "execution:\n  workspace_access: \"none\"\n", "execution: {}\n", 1),
-		"legacy project workspace": strings.Replace(string(base), "workspace_access: \"none\"", "workspace_access: \"project\"", 1),
-		"shell mode":               strings.Replace(string(base), "workspace_access: \"none\"", "workspace_access: \"none\"\n  shell: true", 1),
+		"empty execution": string(base) + "execution: {}\n",
+		"snapshot policy": string(base) + "execution:\n  workspace_access: readonly_snapshot\n",
+		"shell mode":      string(base) + "execution:\n  shell: true\n",
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {

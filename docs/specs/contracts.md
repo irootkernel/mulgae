@@ -2,22 +2,21 @@
 
 ## Adopted extension status
 
-[Verified review contracts](verified-review-contracts.md) defines the EPIC-007
-project/preflight guard and verified-read contracts implemented below.
-[Review completeness and iteration](review-completeness-and-iteration.md)
-defines the planned EPIC-008 Brief, assessment, batch-followup, and comparison
-requirements. The sections below describe the implemented contract baseline,
-including EPIC-007. EPIC-008 does not imply current command support. Update each
-affected section and its source, tests, embedded schemas, examples, and help in
-the owning implementation Task. Do not rewrite historical artifacts from a plan.
+[Live workspace and Git review](live-workspace-and-git-review.md) owns current
+CLI/MCP execution. TASK-038 wires the public cutover; TASK-039 owns complete
+provider/client/release certification. The roadmap owns their lifecycle.
+[Verified review contracts](verified-review-contracts.md) preserves EPIC-007's
+pre-cutover capture/guard requirements and the verified-read foundations that
+remain supported. [Review completeness and iteration](review-completeness-and-iteration.md)
+is held for redesign and confers no current batch or comparison capability.
 
-EPIC-009 has internal source readers, neutral reviewer execution, and live-source
-publication/read support. Public CLI/MCP admission still uses the captured review
-flow until TASK-038. The internal formats below do not enable new public requests.
+Historical ordinary, child, composite, failed and no-change artifacts retain
+their schemas and integrity rules. Historical sections below describe retained
+wire/read contracts, not supported creation or source replay operations.
 
 ## Versioning
 
-The public contract surface starts at v1. Configuration uses `version: 4`;
+The public contract surface starts at v1. Configuration uses `version: 5`;
 machine documents use identifiers such as `mulgae-run-manifest.v1`; prompts and
 role definitions also carry v1 identities.
 
@@ -68,17 +67,15 @@ Live-source runtime-target and attempt reconstruction fail with
 `source_replay_unavailable`; stored reports, findings, and observations remain
 readable.
 
-Config `version: 4` is additive rather than frozen: a release may add an
+Config `version: 5` is additive rather than frozen: a release may add an
 optional project-policy field without changing the version, and an omitted
 field keeps its documented default. Compatibility therefore runs one way. A
-newer Mulgae reads a `config.yaml` written by an older Config v4 release, but
+newer Mulgae reads a `config.yaml` written by an older Config v5 release, but
 the YAML decoder rejects unknown fields, so an older Mulgae rejects a file that
 a newer one wrote with `config_yaml_invalid`. Because `config.yaml` is the Git-shareable
 authority, every collaborator on a project must run a Mulgae at least as new as
-the release that last wrote that file. Raising the config version instead would
-not help: an older binary still could not read the newer file, and every
-existing project would additionally have to re-initialize, since earlier
-versions are rejected rather than migrated.
+the release that last wrote that file. Earlier config versions are rejected
+rather than migrated automatically.
 
 ## Configuration
 
@@ -105,7 +102,7 @@ The matching local authority contains the exact, lexically ordered
 Mulgae projects `<home>/auth.json`, never the home's `config.toml`, rules,
 skills, plugins, or other contents. When the named fields are absent, the
 legacy singleton uses `<native_user.home>/.codex`. Named and legacy forms are
-both Config v4; partially named or unmatched pairs are rejected.
+both Config v5; partially named or unmatched pairs are rejected.
 
 For ZCode, the local authority records only the canonical app bundle. The
 project authority may independently declare `model` and `reasoning_effort`.
@@ -131,13 +128,15 @@ options. `init --refresh-local` atomically replaces only `local.yaml` and
 rejects project-policy options. Earlier config versions, including v2, are
 rejected and are never migrated automatically.
 
-Manual Config v3 migration changes both `version` fields to `4`. In the ZCode
-local entry, remove `node_executable` and `launcher`, then set `app_bundle` to
-their canonical containing app bundle. The standard value is
-`/Applications/ZCode.app`. The shared policy must be valid Config v4 before
+Manual Config v4 migration backs up the private file, changes both `version`
+fields to `5`, and removes the shared snapshot-only `execution.workspace_access`
+block. Native source restrictions are adapter-owned, with no replacement setting.
+For Config v3, also remove `node_executable` and `launcher` from the ZCode local
+entry and set `app_bundle` to their canonical containing app bundle, normally
+`/Applications/ZCode.app`. The shared policy must be valid Config v5 before
 `init --refresh-local` can rebuild the local authority.
 
-Each Config v4 pathname is installed atomically, but initial creation of the two
+Each Config v5 pathname is installed atomically, but initial creation of the two
 files is not one filesystem transaction. If `config.yaml` commits and the local
 install fails before commitment, init returns `committed: false`,
 `write_state: project_committed_local_missing`, `destination_state: present`,
@@ -163,7 +162,7 @@ is never re-derived from embedded bytes.
 For a new project that selects Grok, init writes `grok-4.7` and `high` as the
 project-owned model and reasoning-effort policy unless that dimension has an
 explicit init override. This generation-time default does not reinterpret an
-existing Config v4 file: an absent field there continues to select Grok's
+existing Config v5 file: an absent field there continues to select Grok's
 provider default independently.
 
 See the complete shared
@@ -235,7 +234,7 @@ including P0 and P1 observations, and for a verified retained failed/cancelled
 recovery. Only when publication is absent and a completed `failed` or `cancelled`
 diagnostic status survived a typed publication-not-found result does it return
 `kind: diagnostic_status_read` with `publication_authority: false`, no artifact
-or report URI, and `recovery_action: rerun_review`. When artifact failure wins
+or report URI, and `recovery_action: none`. When artifact failure wins
 the existing precedence while reading status, the query layer retains a safe
 `corrupt` status with the known identity and
 `failed_run_recovery.unavailable_reason: source_invalid` alongside the typed
@@ -290,33 +289,22 @@ identities, and terminal await also retains its invocation identity.
 A rate limit observed during provider execution rather than qualification
 completes the tool invocation with `outcome: success`, `terminal_exit_code: 4`,
 and a `rate_limit` reason. Its run may commit with incomplete coverage and must
-be inspected before recovering the failed role. Tool success in this case
-describes transport and run completion, not a successful review verdict.
+be inspected using its exact returned identity. Current execution has no role
+rerun or composition recovery. Tool success describes transport and run
+completion, not a successful review verdict.
 
-The tool grammar comprises `preflight_review`, `run_review`,
-`start_review`, `await_review`, `cancel_review`, `compose_review`, `list_runs`,
-`get_context`, `get_run`, `inspect_review`, and `list_findings`. An uncertain
-`compose_review` publication
-returns `composite_publication_incomplete`, the deterministic non-null
-`session_id` and `run_id`, and `retryable: false`; clients inspect that exact
-run before deciding whether to repeat the same mapping. An admission rejection
-before entering the publication boundary returns one of the stable composition
-reason codes other than `composite_publication_incomplete`, without a
-reconciliation identity, and remains safe to correct and retry. Once the
-mutation enters the publication boundary, any failure, including a lock or
-cancellation failure that wrote nothing, returns
-`composite_publication_incomplete` with the deterministic identity. If an exact
-reconciliation read reports that run as unavailable, nothing was committed and
-the same exact mapping may be repeated. Before journal creation, an exact
-composition replay validates and reuses the persisted candidate's review ID,
-creation time, and bytes, adopts matching durable support files, and writes only
-missing members. Conflicting or unsafe material fails closed; ordinary immutable
-writes still reject replacement. Review targets are workspace, stage,
-dirty, diff, or patch; stdio is reserved for JSON-RPC and is not a review
-target. Run pages admit a limit from 1 through 100, finding responses admit at
-most 1,000 summaries, and no tool result embeds report or source bodies.
-`request_changes` means the review completed with a policy rejection; it is not
-an MCP call failure.
+The ten tools are `preflight_review`, `run_review`, `start_review`,
+`await_review`, `cancel_review`, `list_runs`, `get_context`, `get_run`,
+`inspect_review`, and `list_findings`. Review targets are workspace, stage,
+head, commit, or diff. Stdio is reserved for JSON-RPC. Current tools do not
+create child or composite runs. Historical composite and failed-recovery
+artifacts remain available through their retained query, export, integrity,
+reconciliation, and cleanup readers.
+
+Run pages admit a limit from 1 through 100, finding responses admit at most
+1,000 summaries, and no tool result embeds report or source bodies.
+`request_changes` means the review completed with a policy rejection; it is
+not an MCP call failure.
 
 The attached transport prefers MCP `2026-07-28` through `server/discover` and
 admits only that version, `2025-11-25`, or `2025-06-18`. Discovery lists all
@@ -348,7 +336,12 @@ terminal await remains authoritative even when cancellation was requested.
 The `verified_review_report` template uses
 `mulgae://runs/{run_id}/report{?role,project_binding,publication_receipt,content_sha256,offset}`.
 The `verified_finding_evidence` template uses
-`mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}`.
+`mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,source_identity_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}`.
+The `verified_source_image` template uses
+`mulgae://runs/{run_id}/source-image{?source_identity_sha256,side,path,project_binding,publication_receipt,content_sha256,offset}`.
+Live finding reads bind `source_identity_sha256`; historical capture finding
+reads bind `target_sha256`. Image reads return retained binary observations,
+not a live filesystem handle.
 New selectors choose receipt-bound reads through the shared query service.
 Original role reports use `role`; evidence indices are zero-based. Every
 continuation carries the publication receipt, complete-content digest and
@@ -369,6 +362,9 @@ trusted field ownership, identity relationships, state transitions, path
 locality, evidence freshness, and publication cardinality.
 
 ## Self-contained composite support
+
+This section is the historical composite read contract. New composite execution
+is retired; verified copied support, exports and cleanup protections remain.
 
 New composites publish `mulgae-composite-support.v1` at `support/composite.json`
 under `mulgae-run-support-index.v2`. Composite final and manifest v1/v2 meanings
@@ -419,6 +415,15 @@ Mulgae injects or derives those fields after validation. A constrained repair
 may change only explicitly allowed provider-owned paths.
 
 ## Artifact layout
+
+Current live roots use artifact/manifest v3, support-index v3, receipt/export v2,
+`source/source.json`, verified excerpts and selected raster observations. They
+retain complete role reports and attempts without creating captured source
+manifests, copied execution trees or full-source replay archives. Source identity
+binds selection metadata; mutable workspace/index content has no atomic digest.
+Source closure and provider drain precede the existing P0/P1/P2 commit.
+The captured layouts below are historical and remain readable unchanged.
+
 
 The ordinary run layout below includes an optional retained recovery namespace
 for failed or cancelled runs. A top-level review file grants final-review
@@ -536,35 +541,24 @@ receipts, captures and evidence bodies, even though verified local reads can
 access them. Export remains available after source cleanup permitted by the
 native cleanup policy.
 
-`target/captured-review.json` is a reference-only v2 capture manifest. Exact
-target, workspace, project-context, and evidence bytes are stored once under
-`target/blobs/sha256-<hex>` and may be shared by any number of manifest entries.
-Every blob and the manifest itself is independently support-indexed and verified
-before rerun, followup, or delta reconstructs a captured workspace. Existing v1
-single-file archives remain readable, but new publications never embed source
-bytes as base64 in `captured-review.json`. The in-process handoff uses a
-deterministic bundle of the same reference manifest and deduplicated raw blobs;
-it does not recreate the v1 base64 JSON representation.
+Historical `target/captured-review.json` v2 manifests reference source blobs
+under `target/blobs/sha256-<hex>`. The retained query and export readers verify
+those support-indexed files; v1 single-file archives remain readable. Current
+reviews do not create capture manifests, source archives, copied provider trees,
+or replay workspaces. `.mulgaeignore` is neither generated nor processed by
+current source admission.
 
-Source capture has no fixed file-count, aggregate-byte, per-file, diff, patch,
-or stdin ceiling. Every eligible regular file is preserved byte-for-byte in the
-immutable snapshot; Git comparisons expose complete `before/` and `after/`
-trees, while single-tree reviews expose `current/`. `.mulgaeignore`, reserved
-namespaces, canonical-path checks, and special-file rejection remain the source
-admission boundaries. The exact tracked `.mulgae/config.yaml` path is an
-admitted capture control and is excluded from provider inputs; every other
-tracked `.mulgae/**` path is rejected. Operational execution, provider output,
-diagnostics, structured publication members, and fixed-size storage reads
-retain their separate limits.
+Current selection metadata, retained evidence observations, artist inputs,
+prompt payloads, role reports, and complete provider stdout and stderr have no
+product byte ceiling. Structured controls, process lifetime, transport frames,
+fixed-size storage reads, and diagnostics metadata retain their separate
+bounds. The support index and source-sized support artifacts are persisted at
+their actual size. Workspace admission uses Git tracking and ignore policy,
+reserved-namespace exclusion, canonical-path checks, and special-file rejection.
 
-Target material, capture manifests and blobs, artist inputs, prompt stdin, and
-the support index are source-sized support artifacts and are persisted at their
-actual size. They are not subjected to the structured control-member ceiling.
-
-A malformed source-side or provider-view capture is reported with its typed
-capture failure. Malformed preflight service projections return
-`preflight_result_validation_failed`. Preflight remains execution-free and does
-not create a diagnostic artifact for this failure.
+Source admission failures retain their typed cause. Malformed preflight service
+projections return `preflight_result_validation_failed`; preflight remains
+execution-free and creates no diagnostic artifact for this failure.
 
 Every human-readable command failure includes a stable code, public pipeline
 stage, and a safe next-action hint. Machine output retains its closed reason shape;
@@ -582,11 +576,11 @@ project-relative `role_report_uris` derived from the verified committed
 manifest inventory. Attempt `stdout.raw` remains private capture evidence and
 is never the primary report URI.
 
-`transport` is adapter-owned per provider family, not configurable. ZCode and
-Grok review invocations use `staged_file`; Codex uses `stdout`. For Codex,
-`stdout` carries the final assistant message extracted from correlated
-app-server stdout frames. The raw frame stream remains private process
-evidence and is never a report.
+`transport` is adapter-owned, not configurable. All current provider review
+invocations use `stdout`: the complete accepted assistant message comes from
+correlated native protocol frames. Raw frame streams remain private process
+evidence. Historical manifests retain their original `staged_file` or `stdout`
+transport value; neither implies a current staged-file write grant.
 For a failed review invocation, model-authored stdout remains private process
 evidence but never classifies a native provider condition; stderr has that
 authority. Qualification may classify native failures from both stdout and
@@ -609,15 +603,15 @@ evidence remain attached. Other rate-limit prose does not override the generic
 turn-failure classification.
 
 Grok review, extraction, qualification, and heartbeat invocations speak ACP v1
-over stdio. Review output is accepted only from the exact staged
-`role-report.md` after one correlated `allow_once` permission for the matching
-session, tool-call ID, edit kind, `Write` variant, and absolute destination.
-Qualification and extraction use only correlated assistant-message chunks.
+over stdio. Review, qualification, and extraction accept only complete,
+correlated assistant-message chunks. Tool requests that write a report file are
+denied, and Grok runs with its native sandbox disabled inside Mulgae's mandatory
+outer macOS process boundary.
 Protocol negotiation, authentication, session completion, permission denial,
 and teardown failures retain typed provider causes. Optional
 `providers.grok.model` and `providers.grok.reasoning_effort` values come only
 from Git-shareable project policy. Omitted dimensions preserve Grok's provider
-defaults independently in an existing Config v4 file. New initialization writes
+defaults independently in an existing Config v5 file. New initialization writes
 `grok-4.7` and `high` unless the corresponding dimension is explicitly
 overridden. Mulgae preserves configured spelling, binds both values to
 qualification identity, and requires exact ACP acknowledgement before any
@@ -633,42 +627,11 @@ missing final text, and failed or missing turn completion fail closed. Codex
 provider qualification requires 0.154.0 or newer; the separate Codex MCP
 client minimum remains 0.149.0.
 
-Exact replay (`rerun --replay exact`) preserves the source attempt's framed review
-input and provider route. On a `staged_file` route Mulgae replaces only the
-expired Mulgae-owned output-destination layer with a fresh per-launch grant;
-stdout routes preserve their complete stored stdin bytes.
-Followup, delta, recomposed rerun, and rerun record `transport` identically,
-read from the terminal observation of the selected attempt.
-
-New rerun publications also persist the exact `source_attempt_id` in their
-immutable lineage. The field is optional in the v1 schema so existing v1
-artifacts remain readable, but composite recovery admits only reruns that carry
-this binding. Followup and delta lineage must not carry it.
-
-On a `staged_file` route the provider writes exactly one untrusted file,
-`role-report.md`, into a fresh per-invocation staging directory Mulgae creates
-under the provider's disposable namespace scratch area, outside the sealed
-workspace view and outside `.mulgae`. The prompt's last trusted layer,
-`review:output-destination`, states that exact absolute path; a staged launch
-whose packet does not carry its own destination layer fails closed before the
-process starts. After the process has fully terminated, the adapter validates
-the staged file through the descriptors it retained at creation, reads those
-exact bytes, and runs the same acceptance pipeline as stdout bytes: free-form
-primary, optional structured extraction, one constrained repair. Accepted bytes
-are copied into the Mulgae-owned `role-reports/<role>.md`; the provider-owned
-inode is never published. Staging is always removed. Process stdout and stderr
-stay bounded private diagnostics for a staged launch, and standard output is
-ignored for acceptance.
-
-Staged-file failures are classified, not merged. A missing, empty,
-whitespace-only, non-UTF-8, or NUL-bearing staged file
-is an operational invalid-provider-output outcome, so the one constrained repair
-may still run. A staging boundary violation is a security fail-closed outcome
-that never authorizes repair or publication: a symbolic link, an extra hard link,
-a non-regular file, an extra directory entry, ownership, mode, or descriptor
-identity drift, content that changed while it was read, or a staging path this
-adapter did not itself choose. Staging that Mulgae cannot prove it removed is
-an artifact failure that overrides provider success.
+Historical child lineage may contain `source_attempt_id`, replay modes, and
+staged-file transport receipts. Retained readers validate these fields without
+reconstructing a provider workspace or invoking a provider. The current CLI and
+MCP grammar reject rerun, followup, delta, compose, and capture-bound guard
+fields before execution.
 
 Markdown/prose is normal success. Mulgae records
 `structured_extraction_status` as `structured`, `mixed`, or `reports_only`.
@@ -679,14 +642,13 @@ describe Mulgae's structured extraction coverage for that attempt, not whether
 the provider's stdout happened to be JSON. `manifest.role_reports[]` is
 unaffected: `path`, `sha256`, `byte_length`, `attempt_id`, `provider_instance`,
 and `transport` continue to describe the accepted free-form bytes and the
-invocation that carried them. Extraction itself is always `stdout` and receives
-no staged-file write grant. Extraction and repair share the one second
+invocation that carried them. Extraction is `stdout` and receives no file write grant. Extraction and repair share the one second
 invocation a role may use, so `budget.role_paths[].invocation_count` stays `2`
 and no preflight or command-result contract version changes.
 A transcribed finding is a provider claim, not a Mulgae assertion that the
 accepted report made it: Mulgae cannot verify that correspondence, so it admits
 a transcription only when every finding reached `evidence_state: verified`
-against the immutable target. Unlike the direct structured path, the configured
+against the admitted source and retained observations. Unlike the direct structured path, the configured
 `validation.evidence.require_verified_for` severities are a floor here rather
 than the rule — one unverified finding rejects the whole transcription and the
 role stays `reports_only`. A reader distinguishing transcribed findings from
@@ -694,18 +656,12 @@ provider-authored ones reads the attempt's invocation inventory: a transcription
 carries `002-extract`.
 Legacy exact provider-review JSON remains accepted: Mulgae preserves the exact
 adapter-extracted assistant bytes as the role report and, when structured
-validation succeeds, also retains validated findings. Findings listing and
-followup-by-finding admission remain structured-path only; prose-only roles do
-not invent findings. Followup output is free-form primary: a successfully
-published followup always exposes exactly one `role_report_uris` entry. Optional
-structured followup resolution is extracted only when schema, semantic, and
-evidence checks succeed (`resolution` enum +
-`structured_extraction_status=structured`). When structured extraction is
-absent or invalid, Mulgae still commits the role report with
-`resolution=null` and `structured_extraction_status=reports_only` and does not
-invent `unclear`. `content_verdict` may be `reports_only` when no structured
-findings were extracted. Severity thresholds and CI `request_changes` continue
-to use only validated structured findings and structured followup resolution.
+validation succeeds, also retains validated findings. Findings listing remains structured-path only; prose-only roles do
+not invent findings. `content_verdict` may be `reports_only` when no structured
+findings were extracted. Severity thresholds and CI `request_changes` use only
+validated structured findings. Historical followup resolution remains readable
+with its stored resolution and structured-extraction status; current reviews do
+not create followup results.
 
 Diagnostic-only failed runs have no publication authority. `mulgae status
 --run <id> --output json` first resolves the publication namespace and, only
@@ -716,7 +672,7 @@ through this degraded projection. A terminal protocol or
 observation-invariant event may contribute the bounded `diagnostic_summary`
 described above.
 
-Diagnostic-only status reports `recovery_action: rerun_review`. Runtime
+Current diagnostic-only status reports `recovery_action: none`. Runtime
 diagnostics and provider streams are not validated publication material, so an
 unpublished run cannot be resumed or queried through `findings`. Publication
 failures additionally report a stable `terminal_cause` and redacted
@@ -736,51 +692,33 @@ Run-status query and cleanup readers retain v2 compatibility but reject v1
 documents and old lane-named fields with the typed unsupported-contract error.
 Run-status resume and write paths require the current v3 contract.
 
-`review`, `followup`, `delta`, `rerun`, and `compose` create distinct runs. They
-respectively start a review, check one prior finding, review a delta, repeat a
-selected attempt, or construct one composite run from an exact incomplete root
-and exact recovery runs.
-
-Composition requires an accepted result for every role selected by the root,
-including roles whose persisted `required` flag is false. It preserves those
-flags and every accepted root result; a failed selected role cannot be omitted
-from a new complete composite. `composite_recovery_incomplete` rejects mappings
-that leave any selected role unrecovered. The retained compatibility code
-`composite_role_not_required` means the recovery role was not selected by the
-root, not that its configured `required` flag is false.
-
-Existing v1 composite artifacts remain readable without rewriting their stored
-coverage. New composition requests, including repeated mappings, must satisfy
-the selected-role coverage rule. A v0.1.19 mapping that omitted a failed optional
-role is therefore rejected until that role's exact recovery is included. Exact
-mappings that satisfy admission retain their deterministic identity and
-idempotent publication. Accepted degraded results retain the existing composite
-coverage and CI behavior.
+Current `review` invocations create distinct root runs. Historical child and
+composite artifacts retain their immutable lineage, selected-role assignments,
+required flags, coverage, and CI decisions. Query and cleanup preserve those
+stored semantics, including ancestry protection and explicit unavailable
+recovery evidence. No current command creates or replays these historical
+artifacts.
 
 ## Output and exits
 
-`mulgae version --json` returns exactly `name` and `version`. Once parsing has
-produced a contract-valid request, workflow commands use `--output json` and
-return a `mulgae-command-result.v18` envelope. Rejected JSON `init`, `followup`,
-`delta`, `rerun`, and `compose` requests also return that envelope.
-`request_state: invalid` means syntax was rejected before selector I/O and is
-available for all five commands. `request_state: unresolved` is available only
-for `followup`, `delta`, and `rerun`, whose project-root or selector resolution
-can fail before execution. Child selector failures preserve cancellation and
-typed artifact or security exits; only an unclassified resolver failure uses
-exit `10` and `selector_resolution_failed`.
+`mulgae version --json` returns exactly `name` and `version`. Contract-valid
+workflow requests emit command-result v19. Init's rejected-request envelope
+remains supported. Retired commands and capture-bound fields fail grammar before
+provider execution with usage exit 2 and human stderr, even when JSON was requested.
+No child selector resolution or compose mutation exists on the current surface.
+Frozen command schemas retain their versioned validation dependencies, including
+older preflight shapes, but are not current execution contracts.
 
-Command-result v5 through v17 remain readable but are never emitted by the
-current command surface. Other commands do not have rejected-request variants
-in v9.
-For the top-level `review` command, attributed provider execution details in v9
-preserve the assigned role and provider in the reason message. A rate-limited
-attempt adds the stable code `provider_rate_limited`, readiness exit `4`,
-`retryable: false`, and the `mulgae rerun` next-action hint. A committed
-incomplete review also retains the coordinator's `rate_limit` reason. The
-`retryable: false` flag describes the non-idempotent command mutation, not the
-duration of the provider-side rate limit. Qualification-stage rate limits
-instead use `provider_qualification_failed` with `retryable: true`.
+Each role preserves its configured provider. Typed execution and qualification
+failures retain their precedence and non-idempotent mutation semantics. A rate
+limit never authorizes another start, heartbeat, provider replacement or source
+replay. Inspect an allocated exact run once; a new review requires authority.
+
+Source admission uses safe closed reasons at `review.source`: `invalid_source`,
+`conflicted_index`, `revision_unavailable`, `merge_base_unavailable` and
+`unsupported_content` use configuration exit 2; `unsafe_source` uses security
+exit 8; `source_unavailable` uses artifact exit 7. Native paths and Git diagnostics
+stay private. Cancellation and independent protected failures retain precedence.
 
 Malformed provider frames and general output decoding failures retain the
 `provider_output_decode_failed` reason. If a ZCode frame is valid and names the
@@ -794,21 +732,8 @@ If one of the commands without a rejected-request variant fails before a
 contract-valid request can be frozen, it returns the typed exit and human stderr
 even when `--output json` was requested. For example, `export --run latest` with
 no committed run returns artifact exit `7` without fabricating an `export`
-request envelope. `compose` accepts only exact run IDs and returns the exact
-mapping, deterministic composite identity, outcome axes, and reconciliation
-state.
-`status_required` directs the caller to inspect that run ID instead of blindly
-retrying. `retry_safe` is the mutation-level signal: it is `true` when repeating
-the same exact mapping is known to be safe because it was not committed or its
-successful publication is idempotent, and `false` only for `status_required`.
-Reason-level `retryable` remains `false` for composite failures and is not a
-substitute for `retry_safe`. Command result v2/v3/v4 and review-preflight v2 are
-intentionally unsupported after this contract revision.
-Composition admission failures return artifact exit `7` with their stable
-composite reason code because Mulgae validates the caller's exact mapping
-against committed run artifacts.
-Process
-exits:
+request envelope. No rejected request fabricates an execution identity.
+Process exits remain:
 
 | Exit | Meaning |
 |---:|---|
@@ -854,7 +779,7 @@ each dimension uses exactly `verified`, `failed`, `unverifiable`, or
 IDs; executable paths, native homes, credentials, and local configuration values
 are not projected.
 `config_v3` is a frozen v4 result member name retained for compatibility; it
-evaluates the current Config v4 project and local authorities.
+evaluates the current Config v5 project and local authorities.
 
 Each configured `provider_inventory[]` row reports `binary_available`,
 `cli_compatible`, and `application_compatible`. The application dimension is
@@ -921,7 +846,7 @@ review is promoted into a durable qualification cache.
 
 ## Provider content normalization and bounded retry
 
-Provider-authored review and structured follow-up JSON is parsed with duplicate
+Provider-authored review JSON is parsed with duplicate
 key rejection before projection. Unknown additional fields and fields owned by
 Mulgae are removed from the provider-content projection; Mulgae then injects
 trusted identity and verification values. Removed values are never exposed.
@@ -934,7 +859,7 @@ evidence, and semantic contradictions remain fail-closed.
 
 A transient `provider_unavailable` or ZCode `provider_turn_failed` initial
 invocation receives exactly one automatic retry on the same configured provider,
-attempt, role, and immutable target. The retry has a fresh execution identity
+attempt, role, and admitted source selection. The retry has a fresh execution identity
 and separate runtime evidence. Timeout, rate-limit, quota, authentication,
 configuration, artifact, security, malformed-output, and semantic failures are
 not automatically retried. A rate limit does not cancel or serialize peer-role
@@ -967,7 +892,7 @@ provider default; an effort-only request reuses the current model reported by
 
 Grok CLI 1.0.40 also acknowledges the `grok-4.7` model with `high` reasoning
 effort exactly before prompting. Mulgae uses that pair only as the policy written
-for newly initialized projects; existing Config v4 omission retains the generic
+for newly initialized projects; existing Config v5 omission retains the generic
 provider-default behavior above.
 
 Mulgae does not send `session/prompt` until the `session/set_model` result and
@@ -1058,9 +983,13 @@ cache would weaken trust boundaries. Structured review JSON extraction remains
 optional: Mulgae may apply one constrained repair, then accept free-form primary
 role reports when structured validation does not succeed.
 
-## Failed-run recovery sources
+## Historical failed-run recovery sources
 
-`mulgae-run-recovery.v1` is a separate immutable replay authority at
+This is the historical failed-run read contract. New live runs retain no source
+replay authority. Query and cleanup continue to verify complete stored support
+and lineage; retained retry inventories do not enable retired execution commands.
+
+`mulgae-run-recovery.v1` is a separate immutable historical support document at
 `<session>/<run>/recovery/manifest.json`. Content-addressed blobs beneath
 `recovery/blobs/` retain the captured target/archive, complete initial prompts,
 and accepted reports without a provider-content byte ceiling. The structured
@@ -1080,7 +1009,8 @@ through at most 128 exact replay links. The stdin, source scope and invocation,
 template, role, provider, target, archive, and adapter parameters must agree.
 The execution invocation ID is fresh; staged-file replay may also replace only
 the canonical final output-destination layer and its matching manifest receipt.
-A missing, cyclic, foreign, mutated, or over-depth ancestor denies replay.
+A missing, cyclic, foreign, mutated, or over-depth ancestor invalidates the
+retained replay identity.
 An ordinary or recomposed origin ends this traversal after its own scope has
 been verified.
 
@@ -1105,11 +1035,11 @@ permission to launch a role. An available recovery may expose failed/cancelled
 run state while publication remains `not_published`, without final paths,
 role-report paths, content/coverage axes, or CI authority.
 
-Exact rerun accepts only a failed attempt from that source, retains its original
-provider and input, and records `source_kind: failed_run_recovery` with
+Historical exact rerun artifacts retain a failed attempt from that source, its
+original provider and input, and record `source_kind: failed_run_recovery` with
 `source_recovery_manifest_sha256` in v2 lineage. `source_review_id` is null.
-A failed rerun may itself become a recovery source after the same checks.
-Composition follows at most 128 same-role lineage links and requires one
+A historical failed rerun may also retain a recovery source. Historical
+composition follows at most 128 same-role lineage links and retains one
 committed recovery for every missing selected role. Its v2 provenance uses
 `root_source_kind` and `root_recovery_manifest_sha256`; it omits
 `root_review_id`. The root source entry and root-derived role/finding references
@@ -1125,24 +1055,25 @@ are unchanged.
 Recovery sources remain protected as uncommitted artifacts during cleanup.
 Their source edges retain required ancestors, including a published parent of
 a failed rerun. Cleanup validates bounded manifest metadata and confirms its
-identity without reading input or report blobs. Replay and status reads still
+identity without reading input or report blobs. Historical status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
-No new command, automatic provider substitution, crash recovery, or unlimited
-retry loop is introduced. CLI v5 through v17 schema examples remain available
-for explicit backward validation; current CLI envelopes use v18. MCP retains its v1
-common envelope, whose `data` object carries the extended status projection.
+These historical records grant no new provider execution. CLI v5 through v18
+schema examples remain available for explicit backward validation; current CLI
+envelopes use v19. MCP retains its v1 common envelope, whose `data` object
+carries the extended status projection.
 
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v18 `result` and MCP v1
+accepts an empty argument object. CLI command-result v19 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
-The `project_binding`, `execution_guard`, `capture_identity`, `inspection`,
+The `live_source`, `source_evidence`, `project_binding`, `inspection`,
 `finding_pages`, `finding_details`, `report_content`, `indexed_evidence`, and
-`composite_evidence` capabilities are `"v1"`. A failed CLI lookup returns
+`composite_evidence` capabilities are `"v1"`. `execution_guard` and
+`capture_identity` are empty on current execution. A failed CLI lookup returns
 null binding and capabilities with a typed security, cancellation, or internal exit. MCP uses
 its existing error envelope. No private paths or descriptor facts are returned.
 
@@ -1155,51 +1086,44 @@ without configuration, credentials, provider discovery, capture, or writes.
 
 ## Preflight-bound review admission
 
-Preflight v7 retains `project_binding`, `capture_identity`, `request_receipt`, and
-`capabilities`, and advertises `composite_evidence: "v1"`. The request receipt
-binds the exact admitted configuration bytes,
-selected roles and routes, prompts and schemas, budget, objective, and capture.
-Its component digests expose no credential values or native paths. Preflight v3
-through v6 remain available for historical validation.
+Preflight v8 reports project binding, configuration identity, source selection
+identity, candidate count, native read plan, warnings, configured routes and
+bounded execution budgets. It is provider-free and creates no run, diagnostics
+or publication. Ordinary admission lists native source reads; selected artist
+inputs also validate brief and raster content. CLI emits the full native read
+plan; MCP summarizes it with `read_count` and source-selection metadata. No
+source-content ceiling applies.
 
-`review` accepts `--expected-project-binding DIGEST` together with
-`--expected-request-digest DIGEST`. MCP `run_review` and `start_review` accept the
-corresponding `expected_project_binding` and `expected_request_digest` fields.
-Preflight accepts the expected binding alone. Missing halves fail with
-`guard_incomplete`; malformed digests fail with `guard_invalid`.
+CLI `--expected-project-binding` and MCP `expected_project_binding` are optional
+independent worktree guards. Compare the expectation before allocation or
+provider construction. Malformed bindings use `guard_invalid`, foreign/replaced
+roots use `project_binding_mismatch`, and unsupported roots use
+`contract_unsupported`. Attached MCP also revalidates its startup lease.
+An unguarded non-Git `workspace` remains supported through a descriptor-pinned
+startup root. Replacing that root or adding Git metadata makes review admission
+unavailable for the existing server; restart it to observe the new root. Its
+preflight and terminal result use an empty `project_binding`; preflight also
+advertises an empty project-binding capability. An expected Git binding and
+Git-only selectors fail closed on that root. No Git identity is fabricated.
+Capture-bound request-digest fields and old selectors are rejected. There is no
+request receipt, atomic content view or drift guarantee. The operator keeps
+workspace/index state unchanged; committed references resolve once.
 
-Admission compares the local binding before capture, then checks the request
-digest before allocating run IDs, opening diagnostics, qualifying providers, or
-invoking them. Execution uses that capture and admitted plan. A mismatch returns
-`project_binding_mismatch` or `request_digest_mismatch`. Existing spawn-time
-locality checks still apply. An attached MCP server also revalidates its startup
-lease before admission.
-
-Successful review results include `guarded`, `project_binding`,
-`capture_identity`, and `request_digest`. Unguarded requests remain accepted.
-Repeated accepted guards create distinct runs; a guard is not an idempotency key.
-A non-Git workspace keeps its existing unguarded path: preflight has an empty
-binding, a null request receipt, and no execution-guard capability. Supplying a
-guard there returns `contract_unsupported`.
-
-New ordinary and complete child captures use `mulgae-run-support-index.v2` with
-`target/capture-manifest.json`, `target/captured-review.json`, and the referenced
-raw blobs. A provider-free no-change run retains the complete capture, including
-both logical Git sides, with zero attempts and no provider identity. Publication
-and committed reads reconstruct the archive and verify its inventory under a
-stable P2 observation. Missing or corrupt bound support is an artifact failure.
-Historical support remains readable. An exact historical child replay that lacks
-complete capture sides retains unavailable identity rather than deriving it from
-patch bytes. Local project bindings and request receipts are not exported.
+Successful execution includes `guarded`, `project_binding` and
+`source_identity_sha256`. Repeated accepted starts create distinct runs; the
+binding is not an idempotency key. No-change roots retain source selection metadata and publish no attempts or
+provider identity. Current capture
+availability is `not_captured`; historical complete capture and corruption
+semantics remain unchanged. Source replay stays unavailable after reconciliation.
 
 ## Coherent inspection and finding content
 
 `inspect --run ID` and MCP `inspect_review` verify one P2 publication, its
-manifest-bound support and retained capture before returning a publication
-receipt. CLI `findings` and MCP `list_findings` use the same query owner. The
+manifest-bound support and retained source evidence or historical capture
+before returning a publication receipt. CLI `findings` and MCP `list_findings` use the same query owner. The
 receipt binds project, run, review, final, manifest, support, lineage and epoch.
-Every successful read reobserves the publication and revalidates the project
-lease before returning. Corruption or concurrent cleanup fails the read.
+Before returning, each successful read reobserves the publication and
+revalidates the project lease. Corruption or concurrent cleanup fails the read.
 
 Page selectors, cursor scope, finding summaries and continuation fields follow
 [verified review contracts](verified-review-contracts.md#transport-grammar-and-result-fields).
@@ -1240,13 +1164,14 @@ index before chunking.
 `excerpt` accepts `--evidence-index N` (zero-based, 0 through 19) and the native
 content selectors. Supplying any new selector chooses receipt-bound chunk
 output; a legacy invocation retains its existing excerpt result and human
-output. The target digest remains required. An unbound index is invalid; a
+output. Exactly one target digest or live source-identity digest is required.
+An unbound index is invalid; a
 historical item without retained support is `evidence_unavailable`, and missing
 or damaged bound support is an integrity failure. Composite reports label each
 explicitly unavailable historical item and still render the remaining content;
 they do not suppress integrity failures for bound copies. Current persisted excerpts
-are nonempty verified UTF-8 quotes. Raster capture support does not create a
-separate image resource selector.
+are nonempty verified UTF-8 quotes. Current retained rasters use the `source-image` resource with explicit source
+identity, side and path. Historical raster capture support retains its old reads.
 
 Both commands accept `--offset`, `--expected-project-binding`,
 `--expected-publication-receipt` and `--expected-content-sha256`. Nonzero offsets

@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"os/exec"
 	"path"
 	"regexp"
 	"sort"
@@ -55,11 +57,24 @@ func (attestor *GitLocalityAttestor) Attest(ctx context.Context, request ports.C
 	defer finalizeCanonicalCleanup(cleanup, "config locality", &attestErr, func() { result = ports.ConfigLocalityContext{} })
 	head, err := attestor.adapter.resolveCommit(ctx, repository, "HEAD")
 	if err != nil {
-		return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: HEAD: %w", err)
+		// Admit an absent HEAD only when its branch is verifiably unborn.
+		branch, branchErr := attestor.adapter.run(ctx, repository.command("symbolic-ref", "--quiet", "HEAD"))
+		ref := strings.TrimSpace(string(branch.Stdout))
+		if branchErr != nil || !strings.HasPrefix(ref, "refs/heads/") || strings.ContainsAny(ref, "\x00\r\n") {
+			return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: HEAD: %w", err)
+		}
+		_, missingErr := attestor.adapter.run(ctx, repository.command("show-ref", "--verify", "--quiet", "--", ref))
+		var exit *exec.ExitError
+		if !errors.As(missingErr, &exit) || exit.ExitCode() != 1 {
+			return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: HEAD: %w", err)
+		}
 	}
-	headTree, err := attestor.adapter.headTree(ctx, repository, head)
-	if err != nil {
-		return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: HEAD tree: %w", err)
+	var headTree ports.GitObjectID
+	if head.Valid() {
+		headTree, err = attestor.adapter.headTree(ctx, repository, head)
+		if err != nil {
+			return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: HEAD tree: %w", err)
+		}
 	}
 	indexResult, err := attestor.adapter.run(ctx, repository.sourceCommand("ls-files", "--stage", "-z"))
 	if err != nil {
@@ -75,8 +90,12 @@ func (attestor *GitLocalityAttestor) Attest(ctx context.Context, request ports.C
 	if privateInIndex {
 		return ports.ConfigLocalityContext{}, ports.NewConfigLocalityViolation(privateIndexReason(indexResult.Stdout), nil)
 	}
-	commits := []string{head.String()}
-	seen := map[string]struct{}{head.String(): {}}
+	var commits []string
+	seen := map[string]struct{}{}
+	if head.Valid() {
+		commits = append(commits, head.String())
+		seen[head.String()] = struct{}{}
+	}
 	for _, candidate := range request.ApplicableCommits() {
 		if _, ok := seen[candidate.String()]; ok {
 			continue

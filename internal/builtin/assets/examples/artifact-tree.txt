@@ -1,187 +1,86 @@
+Current live-source review (logical layout):
+
 .mulgae/
   config.yaml
-  cache/
-    provider-profiles/
-    target-copies/
-  probes/
-    providers/
-      kimi/
-        probe-manifest.json
-        capability-evidence.json
-        receipt.json
-      zcode/
-        probe-manifest.json
-        capability-evidence.json
-        receipt.json
-      agy/
-        probe-manifest.json
-        capability-evidence.json
-        receipt.json
-    platforms/
-      darwin-arm64/
-        probe-manifest.json
-        capability-evidence.json
-        receipt.json
-  evidence/
-    provider-contract/
-      provider-index.json
-    platform-contract/
-      platform-index.json
+  local.yaml
   diagnostics/
-    s_019f596a-cf80-7c67-b265-f37053d51ccf/
-      r_019f596a-cfe4-7c9c-b82e-7149158243ba/
+    <session_id>/<run_id>/
+      status.json
+      mulgae-runtime.jsonl
+      attempts/<attempt_id>/invocations/<invocation>/
         status.json
-        mulgae-runtime.jsonl
-        qualification/
-          a_019f596a-cfe5-79e7-b2b7-59822f012273/
-            request/
-              stdout.raw
-            version/
-              stdout.raw
-              stderr.raw
-            capability/
-              stdout.raw
-              stderr.raw
-        attempts/
-          a_019f596a-d048-79e7-b2b7-59822f012273/
-            status.json
-            invocations/
-              001-initial/
-                status.json
-                stdout.raw
-                stderr.raw
-  s_019f596a-cf80-7c67-b265-f37053d51ccf/
-    session.json
-    r_019f596a-cfe4-7c9c-b82e-7149158243ba/
-      manifest.json
+        stdout.raw
+        stderr.raw
+  <session_id>/<run_id>/
+    manifest.json
+    status.json
+    mulgae-runtime.jsonl
+    attempts/<attempt_id>/
       status.json
-      request.json
-      resolved-config.yaml
-      config-sources.json
-      inputs/
-        artist-brief.md
-        artist-visual-assets.json
-      target/
-        target-manifest.json
-        captured-review.json
-        blobs/
-          sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-        review-target.patch
-        untracked-manifest.json
-      prompts/
-        prompt-summary.json
-        pm_019f596a-d031-7b7f-a174-51f0ca0c2e51/
-          prompt-manifest.json
-          wire-identity.json
-          section-references.json
-      evidence/
-        source/
-          F001.json
-        current/
-          F001.json
-        verification/
-          evidence-validation.json
-      attempts/
-        a_019f596a-d048-79e7-b2b7-59822f012273/
-          status.json
-          candidate.initial.json
-          candidate.retry.001.json
-          candidate.repaired.001.json
-          candidate.extracted.001.json
-          invocations/
-            001-initial/
-              command.json
-              env.json
-              status.json
-              stdout.raw
-              stderr.raw
-              prompt/
-                prompt-manifest.json
-                wire-identity.json
-                project-context.ref.json
-                review-target.ref.json
-                output-schema.json
-            002-repair/
-              command.json
-              env.json
-              status.json
-              stdout.raw
-              stderr.raw
-              prompt/
-                prompt-manifest.json
-                wire-identity.json
-                repair-request.json
-                output-schema.json
-            002-extract/
-              command.json
-              env.json
-              status.json
-              stdout.raw
-              stderr.raw
-              prompt/
-                prompt-manifest.json
-                wire-identity.json
-                prior-report.ref.json
-                output-schema.json
-          validation/
-            validation.001.json
-            repair-request.001.json
-            repair-response.001.raw
-            repair-patch.001.json
-            validation.002.json
-      excerpts/
-        F001.md
-      validation/
-        final-validation.json
-        validation-receipt.json
-      publication/
-        journal.json
-        staged/
-          review-artifact.json.tmp
-      recovery/
-        observations.json
-        diagnostics/
-          publication-corrupt.json
-      review_019f596a-d174-7321-b920-c2d312c82cc2.json
-    r_019f596a-cfe5-7c9c-b82e-7149158243ba/
-      manifest.json
-      status.json
-      validation/
-        final-candidate.json
-      publication/
-        journal.json
-      role-reports/
-        logic.md
-        security.md
-      support/
-        index.json
-      target/
-        target.bytes
-        target-manifest.json
-        captured-review.json
-        blobs/
-          sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-      review_019f596a-d175-7321-b920-c2d312c82cc2.json
-    r_019f596a-cfe6-7c9c-b82e-7149158243ba/
-      recovery/
-        manifest.json
-        blobs/
-          sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      invocations/<invocation>/
+        stdout.raw
+        stderr.raw
+    validation/
+    publication/
+      journal.json
+      staged/
+    role-reports/<role>.md
+    source/source.json
+    support/index.json
+    excerpts/<finding_id>.md
+    evidence/images/sha256-<digest>.png
+    review_<review_id>.json
   store/
-    manifests/
-      m_019f596a-d174-7321-b920-c2d312c82cc2.json
-    lineage-edges/
-      e_019f596a-d174-7321-b920-c2d312c82cc2.json
-    epochs/
-      epoch_00000000000000000042.json
-    locks/
-      store.lock
+    manifests/m_<review_id>.json
+    lineage-edges/e_<review_id>.json
+    epochs/epoch_<number>.json
+    locks/store.lock
     clean/
-      plans/
-        <sha256>.json
-      tombstones/
-        <run-and-plan-sha256>.json
+      plans/<sha256>.json
+      tombstones/<run-and-plan-sha256>.json
+  exports/<run_id>.zip
 
-A committed publication is visible only when the epoch record references the matching immutable manifest and lineage-edge hashes. Recovery reads the journal plus staged, installed, manifest, edge, and epoch observations. Cleanup plans and tombstones are transient crash-recovery state and are removed after successful deletion.
+Optional evidence and invocation paths appear only when present. Source
+selection is metadata, not a copied tree or an atomic content fingerprint.
+Selected excerpts and raster observations are integrity-bound retained evidence.
+Native paths, credentials and raw provider streams remain private and are not
+included in redacted exports.
 
-A failed or cancelled run with retained recovery inputs has recovery/manifest.json and hash-bound blobs, but no final review or committed publication. Cleanup reads only bounded recovery metadata to retain its source ancestors; replay and status reads verify every blob and captured evidence.
+Historical reader-only layouts:
+
+.mulgae/<session_id>/
+  <ordinary_or_child_run_id>/
+    target/
+      target-manifest.json
+      captured-review.json
+      blobs/sha256-<digest>
+    attempts/
+    review_<review_id>.json
+  <composite_run_id>/
+    manifest.json
+    status.json
+    validation/final-candidate.json
+    publication/journal.json
+    role-reports/
+    support/index.json
+    target/
+      target.bytes
+      target-manifest.json
+      captured-review.json
+      blobs/sha256-<digest>
+    review_<review_id>.json
+  <failed_run_id>/
+    recovery/
+      manifest.json
+      blobs/sha256-<digest>
+
+Historical composite runs have no provider runtime stream or attempts.
+Historical failed-run recovery inputs do not grant replay, child or compose
+execution. Readers verify retained capture/blob identity and lineage; unavailable
+historical evidence cannot be reconstructed from current files.
+
+A committed publication is visible only when the epoch references its matching
+immutable manifest and lineage-edge hashes. Provider-free P0/P1/P2 reconciliation
+checks the journal and staged, installed, manifest, edge and epoch observations.
+Cleanup protects active, incomplete, corrupt and required-ancestor state. Plans
+and tombstones are removed after successful deletion.

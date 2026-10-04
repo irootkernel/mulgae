@@ -1,7 +1,6 @@
 package mulgae
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,9 +15,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/app"
-	appdelta "github.com/irootkernel/mulgae/internal/app/delta"
 	appexport "github.com/irootkernel/mulgae/internal/app/export"
-	appfollowup "github.com/irootkernel/mulgae/internal/app/followup"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
@@ -27,7 +24,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
+func TestIntegrationHistoricalChildResultsRemainReadableAndExportable(t *testing.T) {
 	fixture := newG008RealE2EFixture(t)
 	root := fixture.executeAndPublishRoot(t)
 	before := fixture.inventorySnapshot(t)
@@ -72,41 +69,16 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		rootTarget.Identity().SHA256() != g008RealTargetHash(rootTarget.Bytes()) {
 		t.Fatal("root committed source byte hashes do not bind the queried artifacts")
 	}
-	deltaSource, err := root.Sources.ReadSource(context.Background(), root.RunID)
-	if err != nil {
-		t.Fatal(err)
+	if rootFinding.Review().RunID() != root.RunID || rootFinding.Finding().ID() != "F001" || rootAttempt.RunID() != root.RunID || rootAttempt.AttemptID() != root.AttemptID || rootAttempt.Target().Identity() != rootTarget.Identity() || rootAttempt.Prompt().CompleteStdinSHA256() == "" {
+		t.Fatal("verified historical source reads lost persisted finding, target or prompt identity")
 	}
-	followupSource, err := root.Sources.ReadFollowupSource(context.Background(), root.RunID, "F001")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rerunSource, err := root.Sources.ReadRerunSource(context.Background(), root.RunID, root.AttemptID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if deltaSource.SessionID != root.SessionID || deltaSource.RunID != root.RunID || deltaSource.ReviewID != root.ReviewID ||
-		deltaSource.Target.Identity() != rootTarget.Identity() || string(deltaSource.Target.Bytes()) != string(rootTarget.Bytes()) ||
-		deltaSource.FinalSHA256 != strings.TrimPrefix(rootCommitted.FinalSHA256(), "sha256:") ||
-		deltaSource.ManifestSHA256 != strings.TrimPrefix(rootCommitted.ManifestSHA256(), "sha256:") ||
-		!followupSource.P2Verified || followupSource.SessionID != root.SessionID || followupSource.RunID != root.RunID ||
-		followupSource.ReviewID != root.ReviewID || followupSource.Finding.ID != "F001" ||
-		followupSource.Target != rootTarget.Identity() || rerunSource.RunID != root.RunID ||
-		rerunSource.ReviewID != root.ReviewID || rerunSource.AttemptID != root.AttemptID ||
-		rerunSource.Target.Identity != rootTarget.Identity() || string(rerunSource.Target.Bytes) != string(rootTarget.Bytes()) ||
-		rerunSource.Prompt.CompleteStdinSHA256 != rootAttempt.Prompt().CompleteStdinSHA256() {
-		t.Fatal("root P2 source projections do not retain exact lineage, target, and replay authority")
-	}
-	resolver, err := NewG008RequestResolver(fixture.root, fixture.queries, filesystem.NewRunSelector(fixture.root), bytes.NewBufferString("current.patch"))
+	resolver, err := NewG008RequestResolver(fixture.root, fixture.queries, filesystem.NewRunSelector(fixture.root))
 	if err != nil {
 		t.Fatal(err)
 	}
 	dependencies, err := NewG008Dependencies(G008Composition{
 		ArtifactRoot: fixture.root, Queries: fixture.queries, RequestResolver: resolver, Clock: fixture.clock, IDs: fixture.ids, PublicationAuthority: fixture.store,
 		ExportInstaller: mustG008RealExportInstaller(t, fixture),
-		Online: &G008OnlineAuthority{
-			FollowupTargetCapturer: g008RealFollowupCapturer{}, DeltaTargetCapturer: g008RealDeltaCapturer{target: fixture.deltaTarget}, DeltaComparator: g008RealComparator{},
-			ChildExecutor: fixture.childExecutor, FollowupExecutor: fixture.followupExecutor, RerunAssignments: fixture.assignments[:1],
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -120,32 +92,13 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		SecureWriter: fixture.writer, TrustedProjectReader: reader, EnvironmentInspector: environment.NewInspector(),
 		ProjectContexts:    mustVerifiedReadContexts(t),
 		PublicationQueries: NewPublicationQueryService(fixture.queries), PublicationReports: mustG008RealReportService(t, fixture),
-		ReviewRuns:   &reviewRunFake{result: NewReviewRunResult(root.SessionID.String(), root.RunID.String(), root.RunManifestURI, root.ReviewArtifactURI, root.TerminalExit)},
-		FollowupRuns: dependencies.FollowupRuns, DeltaRuns: dependencies.DeltaRuns, Reruns: dependencies.Reruns, Exports: dependencies.Exports,
+		ReviewRuns: &reviewRunFake{result: NewReviewRunResult(root.SessionID.String(), root.RunID.String(), root.RunManifestURI, root.ReviewArtifactURI, root.TerminalExit)},
+		Exports:    dependencies.Exports,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	projectRoot := filepath.Dir(fixture.root.String())
-	reviewResult := application.Run(context.Background(), []string{"review", "--dirty", "--output", "json"}, projectRoot)
-	if reviewResult.ExitCode() != app.ExitCodePolicy {
-		t.Fatalf("six-role review exit=%d, want policy; stdout=%q stderr=%q", reviewResult.ExitCode(), reviewResult.Stdout(), reviewResult.Stderr())
-	}
-	var reviewEnvelope struct {
-		Result struct {
-			SessionID         string `json:"session_id"`
-			RunID             string `json:"run_id"`
-			RunManifestURI    string `json:"run_manifest_uri"`
-			ReviewArtifactURI string `json:"review_artifact_uri"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(reviewResult.Stdout(), &reviewEnvelope); err != nil {
-		t.Fatal(err)
-	}
-	if reviewEnvelope.Result.SessionID != root.SessionID.String() || reviewEnvelope.Result.RunID != root.RunID.String() ||
-		reviewEnvelope.Result.RunManifestURI != root.RunManifestURI || reviewEnvelope.Result.ReviewArtifactURI != root.ReviewArtifactURI {
-		t.Fatalf("six-role review projection = %#v", reviewEnvelope.Result)
-	}
 	for _, query := range [][]string{
 		{"status", "--run", root.RunID.String(), "--output", "json"},
 		{"inspect", "--run", root.RunID.String(), "--limit", "1", "--output", "json"},
@@ -172,16 +125,16 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 		fixture.provider.mu.Lock()
 		fixture.provider.securityLowFinding = test.name == "delta"
 		fixture.provider.mu.Unlock()
-		result := application.Run(context.Background(), test.argv, projectRoot)
-		if result.ExitCode() != test.exit {
-			t.Fatalf("%v exit=%d, want %d; stdout=%q stderr=%q", test.argv, result.ExitCode(), test.exit, result.Stdout(), result.Stderr())
+		// Build typed historical publications with test-local authorities.
+		// Production exposes only their verified reads, never child execution.
+		archived, err := buildHistoricalChildFixture(t, fixture, root, test.name)
+		if err != nil {
+			t.Fatal(err)
 		}
-		firstLine := strings.SplitN(strings.TrimSpace(string(result.Stdout())), "\n", 2)[0]
-		separator := strings.LastIndex(firstLine, " ")
-		if separator < 0 {
-			t.Fatalf("%v omitted child run ID: %q", test.argv, firstLine)
+		if int(archived.TerminalExit.Code()) != int(test.exit) {
+			t.Fatalf("legacy fixture outcome differs: %s", test.name)
 		}
-		runID := firstLine[separator+1:]
+		runID := archived.RunID
 		if _, err := domain.ParseRunID(runID); err != nil {
 			t.Fatalf("%v returned invalid child run ID %q: %v", test.argv, runID, err)
 		}
@@ -212,35 +165,6 @@ func TestIntegrationG008RealCompositionApplicationChildWorkflows(t *testing.T) {
 			t.Fatalf("root inventory entry changed: %#v", entry)
 		}
 	}
-	transcript := fixture.provider.Transcript()
-	if len(transcript) != 12 {
-		t.Fatalf("provider calls=%d, want root(6), followup initial/repair(2), delta(2), exact rerun(1), recompose rerun(1)", len(transcript))
-	}
-	wantPurposes := []string{
-		"initial", "initial", "initial", "initial", "initial", "initial",
-		"initial", "repair",
-		"initial", "initial",
-		"initial", "initial",
-	}
-	for index, want := range wantPurposes {
-		if string(transcript[index].Purpose) != want || transcript[index].AttemptID.String() == "" || transcript[index].StdinSHA256 == "" {
-			t.Fatalf("transcript[%d]=%#v, want purpose %q with actual identity", index, transcript[index], want)
-		}
-	}
-	if transcript[1].AttemptID == root.AttemptID || transcript[6].AttemptID == root.AttemptID ||
-		transcript[10].AttemptID == root.AttemptID || transcript[11].AttemptID == root.AttemptID {
-		t.Fatal("security, followup, exact replay child, or recomposed replay child reused the root logic attempt identity")
-	}
-	if transcript[6].AttemptID != transcript[7].AttemptID {
-		t.Fatal("followup repair did not retain its initial attempt identity")
-	}
-	if transcript[10].StdinSHA256 != transcript[0].StdinSHA256 {
-		t.Fatal("exact replay child did not invoke the persisted source prompt exactly once")
-	}
-	if transcript[11].StdinSHA256 == transcript[0].StdinSHA256 {
-		t.Fatal("recomposed replay child reused the persisted source prompt")
-	}
-
 	// Every returned child is a new P2 publication. Resolve the IDs from their
 	// immutable run directories rather than relying on a scripted result value.
 	candidates, _, err := filesystem.NewRunSelector(fixture.root).Enumerate(context.Background(), fixture.root)
@@ -447,27 +371,6 @@ func mustG008RealExportInstaller(t *testing.T, fixture *g008RealE2EFixture) *fil
 	return installer
 }
 
-type g008RealFollowupCapturer struct{}
-
-func (g008RealFollowupCapturer) CaptureFollowupTarget(context.Context, appfollowup.Target) (appfollowup.CurrentTarget, error) {
-	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{Kind: domain.TargetPatch, SHA256: g008RealTargetHash([]byte("queueFallback(task)"))})
-	if err != nil {
-		return appfollowup.CurrentTarget{}, err
-	}
-	return appfollowup.CurrentTarget{Identity: identity, Bytes: []byte("queueFallback(task)")}, nil
-}
-
-type g008RealDeltaCapturer struct{ target appdelta.ImmutableTarget }
-
-func (capturer g008RealDeltaCapturer) CaptureTarget(context.Context, appdelta.TargetRequest) (appdelta.ImmutableTarget, error) {
-	return capturer.target, nil
-}
-
-type g008RealComparator struct{}
-
-func (g008RealComparator) Compare(context.Context, appdelta.ImmutableTarget, appdelta.ImmutableTarget) (appdelta.Delta, error) {
-	return appdelta.Delta{Bytes: []byte("A/B")}, nil
-}
 func g008RealTargetHash(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
@@ -544,3 +447,6 @@ func TestIntegrationCompositeExportRetainsFindingsWithoutSourceRuns(t *testing.T
 		t.Fatal(err)
 	}
 }
+
+// buildHistoricalChildFixture supplies immutable historical artifact fixtures;
+// it is not a supported public child-run or replay execution path.

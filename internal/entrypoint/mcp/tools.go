@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,6 +15,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
@@ -29,7 +29,6 @@ const (
 	toolGetRun        = "get_run"
 	toolListFindings  = "list_findings"
 	toolInspectReview = "inspect_review"
-	toolComposeReview = "compose_review"
 
 	maxToolArgumentsBytes     = 64 << 10
 	maxToolResultBytes        = 1 << 20
@@ -41,7 +40,6 @@ const (
 type Backend interface {
 	GetContext(context.Context) (map[string]any, error)
 	RunReview(context.Context, string, RunReviewInput) (BackendResult, error)
-	ComposeReview(context.Context, string, ComposeReviewInput) (BackendResult, error)
 	PreflightReview(context.Context, string, RunReviewInput) (BackendResult, error)
 	ListRuns(context.Context, ListRunsInput) (map[string]any, error)
 	GetRun(context.Context, GetRunInput) (map[string]any, error)
@@ -56,21 +54,12 @@ type BackendResult struct {
 	Data    map[string]any
 }
 
-// RunReviewInput selects one immutable review target and optional review
-// guidance. MCP transport stdin is never a review target.
+// RunReviewInput selects original source state and optional review guidance.
 type RunReviewInput struct {
 	ExpectedProjectBinding *string      `json:"expected_project_binding,omitempty"`
-	ExpectedRequestDigest  *string      `json:"expected_request_digest,omitempty"`
 	Target                 ReviewTarget `json:"target"`
 	Objective              string       `json:"objective,omitempty"`
 	Roles                  []string     `json:"roles,omitempty"`
-}
-
-// ComposeReviewInput selects one exact incomplete root and one to seven exact
-// recovery runs. Selectors such as latest are deliberately outside this API.
-type ComposeReviewInput struct {
-	RootRunID    string   `json:"root_run_id"`
-	RecoveryRuns []string `json:"recovery_run_ids"`
 }
 
 // ReviewTarget is one non-stdin Mulgae target selector.
@@ -119,7 +108,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 			data, err := backend.GetContext(ctx)
 			return "success", data, err
 		}, newRequestID)
-	addTool(server, toolRunReview, "Capture and run one foreground Mulgae review for this server's fixed project root.", json.RawMessage(runReviewInputSchema), outputSchema, false, false,
+	addTool(server, toolRunReview, "Run one foreground review of original sources for this server's fixed project root.", json.RawMessage(runReviewInputSchema), outputSchema, false, false,
 		func(ctx context.Context, requestID string, raw json.RawMessage, startProgress func()) (string, map[string]any, error) {
 			var input RunReviewInput
 			if err := decodeArguments(raw, &input); err != nil {
@@ -133,18 +122,6 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 			}
 			startProgress()
 			result, err := backend.RunReview(ctx, requestID, input)
-			return result.Outcome, result.Data, err
-		}, newRequestID)
-	addTool(server, toolComposeReview, "Compose one exact incomplete review with explicitly selected exact recovery runs.", json.RawMessage(composeReviewInputSchema), outputSchema, false, false,
-		func(ctx context.Context, requestID string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
-			var input ComposeReviewInput
-			if err := decodeArguments(raw, &input); err != nil {
-				return "", nil, err
-			}
-			if err := validateComposeReviewInput(input); err != nil {
-				return "", nil, err
-			}
-			result, err := backend.ComposeReview(ctx, requestID, input)
 			return result.Outcome, result.Data, err
 		}, newRequestID)
 	addTool(server, toolStartReview, "Start one session-local Mulgae review without waiting for provider completion.", json.RawMessage(runReviewInputSchema), outputSchema, false, false,
@@ -201,7 +178,7 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 			}
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
-	addTool(server, toolPreflight, "Capture and summarize an execution-free Mulgae review plan without invoking providers or publishing a run.", json.RawMessage(preflightReviewInputSchema), outputSchema, true, true,
+	addTool(server, toolPreflight, "Admit and summarize an original-source review plan without invoking providers or publishing a run.", json.RawMessage(preflightReviewInputSchema), outputSchema, true, true,
 		func(ctx context.Context, requestID string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
 			var input RunReviewInput
 			if err := decodeArguments(raw, &input); err != nil {
@@ -238,13 +215,17 @@ func registerTools(server *mcpsdk.Server, backend Backend, registry *invocationR
 			return toolOutcomeSuccess, data, err
 		}, newRequestID)
 	for _, name := range []string{toolInspectReview, toolListFindings} {
-		addTool(server, name, "Inspect one verified publication and a receipt-bound finding page.", json.RawMessage(listFindingsInputSchema), outputSchema, true, true,
+		description := "Inspect one verified publication and a receipt-bound finding page."
+		if name == toolListFindings {
+			description = "List a receipt-bound finding page from one verified publication."
+		}
+		addTool(server, name, description, json.RawMessage(listFindingsInputSchema), outputSchema, true, true,
 			func(ctx context.Context, _ string, raw json.RawMessage, _ func()) (string, map[string]any, error) {
-				input := ListFindingsInput{MinimumSeverity: "low"}
+				input := ListFindingsInput{MinimumSeverity: "low", Limit: query.DefaultFindingPageSize}
 				if err := decodeArguments(raw, &input); err != nil || !matches(runIDPattern, input.RunID) || !oneOf(input.MinimumSeverity, "low", "medium", "high", "critical", "blocker") {
 					return "", nil, errInvalidToolArguments
 				}
-				if input.Limit < 0 || input.Limit > query.MaxFindingPageSize || len(input.Cursor) > 4096 {
+				if input.Limit < 1 || input.Limit > query.MaxFindingPageSize || len(input.Cursor) > 4096 {
 					return "", nil, errInvalidToolArguments
 				}
 				if input.ExpectedProjectBinding != nil && !validSHA256(*input.ExpectedProjectBinding) || input.ExpectedPublicationReceipt != "" && !validSHA256(input.ExpectedPublicationReceipt) {
@@ -376,11 +357,10 @@ func consumeEOF(decoder *json.Decoder) error {
 }
 
 func validateRunReviewInput(input RunReviewInput) error {
-	if !oneOf(input.Target.Kind, "workspace", "stage", "dirty", "diff", "patch") {
+	if _, err := ports.NewLiveSourceSelector(domain.LiveSourceScope(input.Target.Kind), input.Target.Value); err != nil {
 		return errInvalidToolArguments
 	}
-	requiresValue := input.Target.Kind == "diff" || input.Target.Kind == "patch"
-	if requiresValue != (strings.TrimSpace(input.Target.Value) != "") || len(input.Target.Value) > 4096 || len(input.Objective) > 4096 {
+	if len(input.Objective) > 4096 {
 		return errInvalidToolArguments
 	}
 	if len(input.Roles) > 7 {
@@ -395,23 +375,6 @@ func validateRunReviewInput(input RunReviewInput) error {
 			return errInvalidToolArguments
 		}
 		seen[role] = struct{}{}
-	}
-	return nil
-}
-
-func validateComposeReviewInput(input ComposeReviewInput) error {
-	if !matches(runIDPattern, input.RootRunID) || len(input.RecoveryRuns) < 1 || len(input.RecoveryRuns) > 7 {
-		return errInvalidToolArguments
-	}
-	seen := map[string]struct{}{input.RootRunID: {}}
-	for _, runID := range input.RecoveryRuns {
-		if !matches(runIDPattern, runID) {
-			return errInvalidToolArguments
-		}
-		if _, duplicate := seen[runID]; duplicate {
-			return errInvalidToolArguments
-		}
-		seen[runID] = struct{}{}
 	}
 	return nil
 }
@@ -442,20 +405,6 @@ func publicToolError(err error, tool string) ToolError {
 		if !present || class == domain.FailureConfiguration {
 			return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: readError.Error(), Stage: "query", Message: "The verified read selectors no longer match the publication.", Retryable: false})
 		}
-	}
-	var composite interface{ ReasonCode() string }
-	if tool == toolComposeReview && errors.As(err, &composite) && domain.ValidCompositeReasonCode(composite.ReasonCode()) {
-		class := "artifact"
-		if reduced, available := reducedToolFailureClass(err); available {
-			class = publicToolFailureClass(reduced)
-		}
-		stage := "validation"
-		message := "The exact composite review request could not be completed."
-		if composite.ReasonCode() == string(domain.CompositePublicationIncomplete) {
-			stage = "publication"
-			message = "Inspect the returned composite run before repeating the same exact mapping."
-		}
-		return finalizePublicToolError(err, tool, ToolError{Class: class, Code: composite.ReasonCode(), Stage: stage, Message: message, Retryable: false})
 	}
 	if errors.Is(err, errInvocationNotFound) {
 		return ToolError{Class: "usage", Code: "invocation_not_found", Stage: "query", Message: "The invocation is not available in this MCP server session.", Retryable: false}
@@ -491,7 +440,7 @@ func publicToolError(err error, tool string) ToolError {
 		}
 	}
 	stage := "query"
-	if tool == toolRunReview || tool == toolAwaitReview || tool == toolComposeReview {
+	if tool == toolRunReview || tool == toolAwaitReview {
 		stage = "execution"
 	}
 	var terminal *invocationExecutionError
@@ -553,19 +502,6 @@ func publicToolFailureClass(class domain.FailureClass) string {
 }
 
 func finalizePublicToolError(err error, tool string, failure ToolError) ToolError {
-	if tool == toolComposeReview {
-		failure.Retryable = false
-		var identified interface {
-			CompositeIdentity() (domain.SessionID, domain.RunID, bool)
-		}
-		if errors.As(err, &identified) {
-			if sessionID, runID, ok := identified.CompositeIdentity(); ok {
-				session, run := sessionID.String(), runID.String()
-				failure.SessionID, failure.RunID = &session, &run
-			}
-		}
-		return failure
-	}
 	if tool != toolRunReview && tool != toolAwaitReview {
 		return failure
 	}
@@ -625,12 +561,11 @@ const (
 	runIDPattern     = `^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 	runCursorPattern = `^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 
-	runReviewInputSchema     = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","dirty"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["diff","patch"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expected_request_digest":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}},"dependentRequired":{"expected_project_binding":["expected_request_digest"],"expected_request_digest":["expected_project_binding"]}}`
-	composeReviewInputSchema = `{"type":"object","additionalProperties":false,"required":["root_run_id","recovery_run_ids"],"properties":{"root_run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"recovery_run_ids":{"type":"array","minItems":1,"maxItems":7,"uniqueItems":true,"items":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}}`
-	invocationInputSchema    = `{"type":"object","additionalProperties":false,"required":["invocation_id"],"properties":{"invocation_id":{"type":"string","pattern":"^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
-	listRunsInputSchema      = `{"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":100,"default":20},"cursor":{"type":"string","pattern":"^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
-	getRunInputSchema        = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
-	listFindingsInputSchema  = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"minimum_severity":{"enum":["low","medium","high","critical","blocker"],"default":"low"},"limit":{"type":"integer","minimum":1,"maximum":1000},"cursor":{"type":"string","maxLength":4096},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expected_publication_receipt":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
+	runReviewInputSchema    = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","head"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["commit","diff"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
+	invocationInputSchema   = `{"type":"object","additionalProperties":false,"required":["invocation_id"],"properties":{"invocation_id":{"type":"string","pattern":"^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
+	listRunsInputSchema     = `{"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":100,"default":20},"cursor":{"type":"string","pattern":"^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
+	getRunInputSchema       = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
+	listFindingsInputSchema = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"minimum_severity":{"enum":["low","medium","high","critical","blocker"],"default":"low"},"limit":{"type":"integer","minimum":1,"maximum":1000},"cursor":{"type":"string","maxLength":4096},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expected_publication_receipt":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
 )
 
-const preflightReviewInputSchema = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","dirty"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["diff","patch"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
+const preflightReviewInputSchema = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","head"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["commit","diff"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`

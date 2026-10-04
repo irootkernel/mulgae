@@ -1,13 +1,13 @@
 package reviewrun
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -112,19 +112,6 @@ func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderS
 	}, nil
 }
 
-// NewQualifiedRunCandidates creates candidate descriptions only. Current
-// version, capability, security, and role authorization remain admission work.
-func (source *ProductionQualifiedRunCandidateSource) NewQualifiedRunCandidates(_ context.Context, captured CapturedRunInput, selection RunSelection) ([]QualifiedRunCandidate, error) {
-	if source == nil || !selection.Valid() || captured.WorkspaceLease() == nil {
-		return nil, fmt.Errorf("review run: invalid production candidate request")
-	}
-	workspace := captured.WorkspaceLease().WorkspaceSnapshotIdentity()
-	if !workspace.Valid() {
-		return nil, fmt.Errorf("review run: invalid production candidate workspace")
-	}
-	return source.newQualifiedRunCandidatesForWorkspace(workspace, selection)
-}
-
 // NewSyntheticQualifiedRunCandidates creates candidates bound only to a
 // Mulgae-owned synthetic workspace. It is used by explicitly authorized live
 // diagnostics and carries no review input or publication authority.
@@ -136,6 +123,23 @@ func (source *ProductionQualifiedRunCandidateSource) NewSyntheticQualifiedRunCan
 }
 
 func (source *ProductionQualifiedRunCandidateSource) newQualifiedRunCandidatesForWorkspace(workspace ports.WorkspaceSnapshotIdentity, selection RunSelection) ([]QualifiedRunCandidate, error) {
+	return source.newQualifiedRunCandidatesForIdentity(workspace.ManifestSHA256(), selection)
+}
+
+// NewLiveQualifiedRunCandidates binds qualification to source selection metadata
+// without inventing a captured workspace or manifest.
+func (source *ProductionQualifiedRunCandidateSource) NewLiveQualifiedRunCandidates(target ports.LiveSourceTarget, selection RunSelection) ([]QualifiedRunCandidate, error) {
+	if source == nil || !selection.Valid() {
+		return nil, fmt.Errorf("review run: invalid live candidate request")
+	}
+	identity, err := evidence.NewLiveSourceIdentity(target)
+	if err != nil {
+		return nil, err
+	}
+	return source.newQualifiedRunCandidatesForIdentity(identity.SHA256(), selection)
+}
+
+func (source *ProductionQualifiedRunCandidateSource) newQualifiedRunCandidatesForIdentity(identity string, selection RunSelection) ([]QualifiedRunCandidate, error) {
 	if !reflect.DeepEqual(source.profiles, source.frozenProfiles) {
 		return nil, fmt.Errorf("review run: startup provider profile drift")
 	}
@@ -172,12 +176,12 @@ func (source *ProductionQualifiedRunCandidateSource) newQualifiedRunCandidatesFo
 			return nil, fmt.Errorf("review run: construct %s production candidate: %w", template.family, err)
 		}
 		candidates = append(candidates, QualifiedRunCandidate{
-			Profile:          cloneDiscoveredProviderProfile(profile),
-			Definition:       definition,
-			SnapshotManifest: workspace.ManifestSHA256(),
-			SupportedRoles:   supportedRoles,
-			BaseRole:         base,
-			Limits:           template.limits,
+			Profile:                 cloneDiscoveredProviderProfile(profile),
+			Definition:              definition,
+			ExecutionTargetIdentity: identity,
+			SupportedRoles:          supportedRoles,
+			BaseRole:                base,
+			Limits:                  template.limits,
 		})
 	}
 	if len(candidates) == 0 {

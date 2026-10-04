@@ -956,7 +956,7 @@ func (service *Service) RenderExcerptAt(
 		)
 	}
 	canonicalTarget, ok := canonicalSHA256(targetSHA256)
-	if !ok {
+	if !ok && targetSHA256 != "" {
 		return nil, typedFailure(
 			renderExcerptStage,
 			domain.FailureConfiguration,
@@ -1003,6 +1003,13 @@ func (service *Service) RenderExcerptAt(
 		)
 	}
 	current := claims[evidenceIndex-1]
+	if review.liveSource != nil {
+		index, err := service.readRuntimeSupportIndex(ctx, run, review)
+		if err != nil {
+			return nil, err
+		}
+		return service.readCommittedFindingExcerpt(ctx, run, review, findingID, evidenceIndex, current, index)
+	}
 	if current.TargetSHA256() != canonicalTarget || current.Verification() != evidence.ReceiptVerified {
 		return nil, typedFailure(
 			renderExcerptStage,

@@ -1,88 +1,16 @@
 package reviewrun
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"reflect"
 	"strings"
 
-	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/review"
-	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
-
-type InputCaptureRequest struct {
-	root            ports.AnchoredRoot
-	target          ports.ReviewTargetSelector
-	objective       []byte
-	hasObjective    bool
-	artistInputs    ports.ArtistReviewInputs
-	hasArtistInputs bool
-}
-
-func NewInputCaptureRequest(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool) (InputCaptureRequest, error) {
-	return newInputCaptureRequest(root, target, objective, hasObjective, ports.ArtistReviewInputs{}, false)
-}
-
-func NewInputCaptureRequestWithArtistInputs(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool, artistInputs ports.ArtistReviewInputs) (InputCaptureRequest, error) {
-	return newInputCaptureRequest(root, target, objective, hasObjective, artistInputs, true)
-}
-
-func NewInputCaptureRequestWithAutomaticArtistInputs(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool, artistInputs ports.ArtistReviewInputs) (InputCaptureRequest, error) {
-	if !artistInputs.Automatic() {
-		return InputCaptureRequest{}, fmt.Errorf("review run: automatic artist inputs are required")
-	}
-	return newInputCaptureRequest(root, target, objective, hasObjective, artistInputs, true)
-}
-
-func newInputCaptureRequest(root ports.AnchoredRoot, target ports.ReviewTargetSelector, objective []byte, hasObjective bool, artistInputs ports.ArtistReviewInputs, hasArtistInputs bool) (InputCaptureRequest, error) {
-	if !root.Valid() || !target.Valid() || !hasObjective && len(objective) != 0 || hasArtistInputs != artistInputs.Valid() {
-		return InputCaptureRequest{}, fmt.Errorf("review run: invalid input capture request")
-	}
-	return InputCaptureRequest{root: root, target: target, objective: append([]byte(nil), objective...), hasObjective: hasObjective, artistInputs: artistInputs, hasArtistInputs: hasArtistInputs}, nil
-}
-func (request InputCaptureRequest) Root() ports.AnchoredRoot           { return request.root }
-func (request InputCaptureRequest) Target() ports.ReviewTargetSelector { return request.target }
-func (request InputCaptureRequest) Objective() ([]byte, bool) {
-	return append([]byte(nil), request.objective...), request.hasObjective
-}
-func (request InputCaptureRequest) ArtistInputs() (ports.ArtistReviewInputs, bool) {
-	if !request.hasArtistInputs {
-		return ports.ArtistReviewInputs{}, false
-	}
-	var inputs ports.ArtistReviewInputs
-	if request.artistInputs.Automatic() {
-		inputs, _ = ports.NewAutomaticArtistReviewInputs(request.artistInputs.BriefPath(), request.artistInputs.DesignSpecGlobs())
-	} else {
-		inputs, _ = ports.NewArtistReviewInputs(request.artistInputs.BriefPath(), request.artistInputs.DesignSpecGlobs())
-	}
-	return inputs, true
-}
-func (request InputCaptureRequest) Valid() bool {
-	_, err := newInputCaptureRequest(request.root, request.target, request.objective, request.hasObjective, request.artistInputs, request.hasArtistInputs)
-	return err == nil
-}
-
-type ImmutableInputSourceFactory interface {
-	NewImmutableInputSource(context.Context, InputCaptureRequest) (ImmutableInputSource, error)
-}
-
-// Request identifies the one trusted root-review invocation. ProjectRoot binds
-// capture to the original repository while ArtifactRoot binds durable P2 output
-// to its private project-local namespace.
-type Request struct {
-	CaptureRequest InputCaptureRequest
-	RolesExplicit  bool
-	Guard          ExecutionGuard
-	InputSource    ImmutableInputSource
-	ProjectRoot    ports.AnchoredRoot
-	ArtifactRoot   ports.AnchoredRoot
-	Selection      RunSelection
-}
 
 // RunSelection is the trusted ordered role selection and optional existing
 // session identity for one root review invocation.
@@ -141,123 +69,6 @@ func (selection RunSelection) Valid() bool {
 	return err == nil
 }
 
-// ImmutableReviewInput is the single captured snapshot used throughout a run.
-type ImmutableReviewInput struct {
-	target            ports.CapturedReviewTarget
-	capturedArchive   []byte
-	objective         []byte
-	hasObjective      bool
-	projectContext    []byte
-	hasProjectContext bool
-}
-
-// NewImmutableReviewInputWithProjectContext validates a captured target and
-// takes defensive ownership of the exact objective and project-context bytes.
-func NewImmutableReviewInputWithProjectContext(target ports.CapturedReviewTarget, objective []byte, hasObjective bool, projectContext []byte, hasProjectContext bool) (ImmutableReviewInput, error) {
-	return NewImmutableReviewInputWithCapturedArchive(target, objective, hasObjective, projectContext, hasProjectContext, nil)
-}
-
-// NewImmutableReviewInputWithCapturedArchive additionally retains the exact
-// authority-free capture needed to reproduce this input after publication.
-func NewImmutableReviewInputWithCapturedArchive(target ports.CapturedReviewTarget, objective []byte, hasObjective bool, projectContext []byte, hasProjectContext bool, capturedArchive []byte) (ImmutableReviewInput, error) {
-	if !target.Valid() || (!hasObjective && len(objective) != 0) || (!hasProjectContext && len(projectContext) != 0) {
-		return ImmutableReviewInput{}, fmt.Errorf("review run: invalid captured review target")
-	}
-	if len(capturedArchive) > 0 {
-		material, err := ports.UnmarshalCapturedReviewMaterial(capturedArchive)
-		if err != nil || material.Target().Identity() != target.Identity() || !bytes.Equal(material.Target().Bytes(), target.Bytes()) {
-			return ImmutableReviewInput{}, fmt.Errorf("review run: captured archive does not bind target")
-		}
-	}
-	input := ImmutableReviewInput{
-		target: target, objective: append([]byte(nil), objective...), hasObjective: hasObjective,
-		hasProjectContext: hasProjectContext, capturedArchive: append([]byte(nil), capturedArchive...),
-	}
-	if hasProjectContext {
-		input.projectContext = append([]byte{}, projectContext...)
-	}
-	return input, nil
-}
-
-// NewImmutableReviewInput is the compatibility constructor for callers without
-// explicit project-context presence. A nil context is absent; a non-nil context
-// is present, including an empty slice.
-func NewImmutableReviewInput(target ports.CapturedReviewTarget, objective []byte, hasObjective bool, projectContext []byte) (ImmutableReviewInput, error) {
-	return NewImmutableReviewInputWithProjectContext(target, objective, hasObjective, projectContext, projectContext != nil)
-}
-
-func (input ImmutableReviewInput) Target() ports.CapturedReviewTarget { return input.target }
-func (input ImmutableReviewInput) CapturedArchive() []byte {
-	return append([]byte(nil), input.capturedArchive...)
-}
-func (input ImmutableReviewInput) Objective() []byte  { return append([]byte(nil), input.objective...) }
-func (input ImmutableReviewInput) HasObjective() bool { return input.hasObjective }
-func (input ImmutableReviewInput) ProjectContext() []byte {
-	if !input.hasProjectContext {
-		return nil
-	}
-	return append([]byte{}, input.projectContext...)
-}
-func (input ImmutableReviewInput) HasProjectContext() bool { return input.hasProjectContext }
-
-// CapturedRunInput transfers the immutable input, immutable evidence reader,
-// and sole workspace lease from capture into the review service.
-type CapturedRunInput struct {
-	exclusions     []ports.CaptureExclusion
-	input          ImmutableReviewInput
-	lease          ports.WorkspaceSnapshotLease
-	reader         evidence.ImmutableTargetReader
-	packetDetector ports.ReviewInputContentDetector
-}
-
-func NewCapturedRunInput(input ImmutableReviewInput, lease ports.WorkspaceSnapshotLease, reader evidence.ImmutableTargetReader, packetDetectors ...ports.ReviewInputContentDetector) (CapturedRunInput, error) {
-	if !input.Target().Valid() || nilInterface(lease) || !lease.WorkspaceSnapshotIdentity().Valid() || len(packetDetectors) > 1 {
-		return CapturedRunInput{}, fmt.Errorf("review run: invalid captured run input")
-	}
-	if !input.Target().NoChange() && nilInterface(reader) {
-		return CapturedRunInput{}, fmt.Errorf("review run: changed target requires immutable evidence reader")
-	}
-	var packetDetector ports.ReviewInputContentDetector
-	if len(packetDetectors) == 1 {
-		packetDetector = packetDetectors[0]
-		if nilInterface(packetDetector) {
-			return CapturedRunInput{}, fmt.Errorf("review run: invalid captured run input")
-		}
-	}
-	return CapturedRunInput{input: input, lease: lease, reader: reader, packetDetector: packetDetector}, nil
-}
-
-// WithCaptureExclusions transfers the capture-owned policy decisions without
-// persisting local request policy in the portable archive.
-func (captured CapturedRunInput) WithCaptureExclusions(material ports.CapturedReviewMaterial) CapturedRunInput {
-	captured.exclusions, _ = material.Exclusions()
-	return captured
-}
-
-func (captured CapturedRunInput) CaptureExclusions() ([]ports.CaptureExclusion, bool) {
-	if captured.exclusions == nil {
-		return nil, false
-	}
-	return append([]ports.CaptureExclusion{}, captured.exclusions...), true
-}
-
-func (captured CapturedRunInput) Input() ImmutableReviewInput { return captured.input }
-func (captured CapturedRunInput) WorkspaceLease() ports.WorkspaceSnapshotLease {
-	return captured.lease
-}
-func (captured CapturedRunInput) ImmutableTargetReader() evidence.ImmutableTargetReader {
-	return captured.reader
-}
-func (captured CapturedRunInput) PacketDetector() ports.ReviewInputContentDetector {
-	return captured.packetDetector
-}
-
-// ImmutableInputSource captures all user-controlled material and its sole
-// workspace lease exactly once.
-type ImmutableInputSource interface {
-	Capture(context.Context, Request) (CapturedRunInput, error)
-}
-
 // ExecutionPlan contains only already-qualified routing and trusted execution
 // limits. Planning has no provider invocation or publication authority.
 type ExecutionPlan struct {
@@ -281,35 +92,9 @@ func (plan ExecutionPlan) clone() ExecutionPlan {
 	return result
 }
 
-// PlanningRequest binds immutable input to the exact ordered role selection
-// that a planner is authorized to assign.
-type PlanningRequest struct {
-	input          ImmutableReviewInput
-	requestedRoles []domain.Role
-}
-
-// NewPlanningRequest validates and defensively retains requested role order.
-func NewPlanningRequest(input ImmutableReviewInput, requestedRoles []domain.Role) (PlanningRequest, error) {
-	if !input.Target().Valid() {
-		return PlanningRequest{}, fmt.Errorf("review run: invalid immutable input")
-	}
-	if _, err := NewRunSelection(requestedRoles, nil); err != nil {
-		return PlanningRequest{}, err
-	}
-	return PlanningRequest{input: input, requestedRoles: append([]domain.Role(nil), requestedRoles...)}, nil
-}
-
-// Input returns the immutable captured input.
-func (request PlanningRequest) Input() ImmutableReviewInput { return request.input }
-
-// RequestedRoles returns a caller-owned copy in requested order.
-func (request PlanningRequest) RequestedRoles() []domain.Role {
-	return append([]domain.Role(nil), request.requestedRoles...)
-}
-
 // ExecutionPlanner supplies already-qualified assignments and matching budgets.
 type ExecutionPlanner interface {
-	Plan(context.Context, PlanningRequest) (ExecutionPlan, error)
+	PlanSelectedRoles(context.Context, []domain.Role) (ExecutionPlan, error)
 }
 
 // BuildIdentity is immutable provenance attached to a qualified production run.
@@ -335,12 +120,6 @@ func (identity BuildIdentity) ImmutableReference() string {
 	return identity.ModuleSum
 }
 
-// RunAuthorityFactory is the sole production authority factory for a changed
-// run. It is deliberately invoked only after no-change admission.
-type RunAuthorityFactory interface {
-	NewQualifiedRun(context.Context, CapturedRunInput, RunSelection) (RunAuthority, error)
-}
-
 // RunAuthority owns provider credentials and routing authority for exactly one
 // changed run. DrainTerminal must be bounded and idempotent.
 type RunAuthority interface {
@@ -348,21 +127,6 @@ type RunAuthority interface {
 	Planner() ExecutionPlanner
 	BuildIdentity() BuildIdentity
 	DrainTerminal(context.Context) (QualifiedRunTerminalReceipt, error)
-}
-
-// Dependencies are injected application services and ports. They intentionally
-// exclude filesystem, process construction, and provider discovery.
-type Dependencies struct {
-	ProjectBindings     ports.ProjectBindingObserver
-	Admission           RequestAdmission
-	Clock               ports.Clock
-	IDs                 review.IdentityGenerator
-	Build               BuildIdentity
-	RunAuthorityFactory RunAuthorityFactory
-	Validator           *validation.ReviewValidator
-	Publication         publication.PublicationCommitter
-	Templates           review.TemplateSet
-	Diagnostics         ports.RuntimeDiagnosticSinkFactory
 }
 
 // RoleReportURI is one trusted project-relative role-report identity projected
@@ -376,17 +140,17 @@ type RoleReportURI struct {
 
 // Result exposes only the coherent P2 authority returned by publication.
 type Result struct {
-	captureIdentity string
-	admission       *AdmittedRequest
-	guarded         bool
-	sessionID       domain.SessionID
-	runID           domain.RunID
-	coordinator     review.CoordinatorResult
-	final           ports.FinalReviewIdentity
-	snapshot        ports.CommittedPublicationSnapshot
-	exit            domain.OperationalExitDecision
-	roleReportURIs  []RoleReportURI
-	diagnostic      ports.SafeRelativePath
+	projectBinding domain.ProjectBinding
+	sourceIdentity string
+	guarded        bool
+	sessionID      domain.SessionID
+	runID          domain.RunID
+	coordinator    review.CoordinatorResult
+	final          ports.FinalReviewIdentity
+	snapshot       ports.CommittedPublicationSnapshot
+	exit           domain.OperationalExitDecision
+	roleReportURIs []RoleReportURI
+	diagnostic     ports.SafeRelativePath
 }
 
 func newResult(sessionID domain.SessionID, runID domain.RunID, coordinator review.CoordinatorResult, final ports.FinalReviewIdentity, snapshot ports.CommittedPublicationSnapshot, roleReportURIs []RoleReportURI, exit domain.OperationalExitDecision) (Result, error) {
@@ -405,21 +169,11 @@ func newResult(sessionID domain.SessionID, runID domain.RunID, coordinator revie
 	}, nil
 }
 
-func (result Result) AdmissionReceipt() (RequestReceipt, bool) {
-	if result.admission == nil {
-		return RequestReceipt{}, false
-	}
-	return result.admission.Receipt, true
-}
 func (result Result) Guarded() bool { return result.guarded }
-func (result Result) CaptureIdentity() string {
-	if result.admission != nil {
-		return result.admission.Receipt.CaptureIdentity
-	}
-	return result.captureIdentity
-}
 
 func (result Result) SessionID() domain.SessionID                  { return result.sessionID }
+func (result Result) LiveProjectBinding() domain.ProjectBinding    { return result.projectBinding }
+func (result Result) SourceIdentitySHA256() string                 { return result.sourceIdentity }
 func (result Result) RunID() domain.RunID                          { return result.runID }
 func (result Result) Coordinator() review.CoordinatorResult        { return result.coordinator }
 func (result Result) Final() ports.FinalReviewIdentity             { return result.final }

@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	reportResourceTemplate   = "mulgae://runs/{run_id}/report{?role,project_binding,publication_receipt,content_sha256,offset}"
-	evidenceResourceTemplate = "mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}"
+	reportResourceTemplate      = "mulgae://runs/{run_id}/report{?role,project_binding,publication_receipt,content_sha256,offset}"
+	evidenceResourceTemplate    = "mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,source_identity_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}"
+	sourceImageResourceTemplate = "mulgae://runs/{run_id}/source-image{?source_identity_sha256,side,path,project_binding,publication_receipt,content_sha256,offset}"
 	// MaxResourceChunkBytes bounds every report and evidence resource read.
 	MaxResourceChunkBytes = 16 << 10
 )
@@ -35,6 +36,7 @@ const (
 	ResourceFindingDetail ResourceKind = "detail"
 	ResourceReport        ResourceKind = "report"
 	ResourceEvidence      ResourceKind = "evidence"
+	ResourceSourceImage   ResourceKind = "source_image"
 )
 
 // ResourceRequest is one canonical project-confined resource selector parsed by
@@ -50,6 +52,9 @@ type ResourceRequest struct {
 	runID          string
 	findingID      string
 	targetSHA256   string
+	sourceIdentity string
+	sourceSide     string
+	sourcePath     string
 	offset         int
 }
 
@@ -66,7 +71,10 @@ func (request ResourceRequest) RunID() string { return request.runID }
 func (request ResourceRequest) FindingID() string { return request.findingID }
 
 // TargetSHA256 returns the admitted target digest for evidence resources.
-func (request ResourceRequest) TargetSHA256() string { return request.targetSHA256 }
+func (request ResourceRequest) TargetSHA256() string         { return request.targetSHA256 }
+func (request ResourceRequest) SourceIdentitySHA256() string { return request.sourceIdentity }
+func (request ResourceRequest) SourceSide() string           { return request.sourceSide }
+func (request ResourceRequest) SourcePath() string           { return request.sourcePath }
 
 // Offset returns the canonical chunk boundary requested by the client.
 func (request ResourceRequest) Offset() int { return request.offset }
@@ -139,6 +147,7 @@ func registerResources(server *mcpsdk.Server, backend Backend) {
 		Description: "Read any supported committed evidence index with receipt-bound continuation; legacy URIs retain binary chunks.",
 		MIMEType:    "application/octet-stream", URITemplate: evidenceResourceTemplate, Annotations: annotations,
 	}, handler)
+	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{Name: "verified_source_image", Title: "Verified Mulgae source image", Description: "Read a retained PNG, JPEG, or WebP observation with source identity and receipt-bound continuation.", MIMEType: "application/octet-stream", URITemplate: sourceImageResourceTemplate, Annotations: annotations}, handler)
 }
 
 // NewReportResourceURI returns the canonical first report resource URI.
@@ -187,7 +196,7 @@ func ParseResourceURI(raw string) (ResourceRequest, error) {
 	if len(segments) == 4 && segments[1] == "findings" && segments[3] == "detail" {
 		return parseFindingDetailURI(raw, segments[0], segments[2], query)
 	}
-	for _, key := range []string{"role", "evidence_index", "project_binding", "publication_receipt", "content_sha256"} {
+	for _, key := range []string{"role", "evidence_index", "project_binding", "publication_receipt", "content_sha256", "source_identity_sha256"} {
 		if _, present := query[key]; present {
 			return parseVerifiedContentURI(raw, segments, query)
 		}

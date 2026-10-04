@@ -22,7 +22,7 @@ import (
 )
 
 // One binary and one attached server carry independent consumer expectations
-// from root lookup through a provider-free run and a recovered composite.
+// from root lookup through a provider-free run and verified live source evidence.
 func TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow(t *testing.T) {
 	source := repositoryRoot(t)
 	binary := buildMulgaeBinary(t, source)
@@ -31,7 +31,7 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow(t *testing.T) {
 	providers := canonicalTestTempDir(t)
 	logPath := filepath.Join(canonicalTestTempDir(t), "provider.jsonl")
 	bundle, node, launcher := fakeZCodeAppPaths(providers)
-	buildFakeZCodeWithReport(t, source, node, launcher, logPath, "fail_first_maintainability", "write", "", compositeEvidenceReport())
+	buildFakeZCodeWithReport(t, source, node, launcher, logPath, "success", "", liveEvidenceReport())
 	environment := isolatedMulgaeEnvWith(t, integrationNativeHome(t, binary), providers)
 	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic,maintainability", bundle)
 	decode := func(raw []byte) verifiedConsumerResult {
@@ -58,7 +58,7 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow(t *testing.T) {
 	if !consumerDigest(expectedContext.ProjectBinding) {
 		t.Fatal("CLI context did not establish an independent binding")
 	}
-	for _, capability := range []string{"project_binding", "execution_guard", "capture_identity", "inspection", "report_content", "indexed_evidence", "composite_evidence"} {
+	for _, capability := range []string{"project_binding", "live_source", "source_evidence", "inspection", "report_content", "indexed_evidence", "composite_evidence"} {
 		if expectedContext.Capabilities[capability] != "v1" {
 			t.Fatalf("required capability %s unavailable", capability)
 		}
@@ -152,67 +152,48 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow(t *testing.T) {
 			t.Fatal(err)
 		}
 		value := decode(result.Preflight)
-		if value.ProjectBinding != expectedContext.ProjectBinding || value.RequestReceipt.ProjectBinding != expectedContext.ProjectBinding || !consumerDigest(value.CaptureIdentity) || !consumerDigest(value.RequestReceipt.RequestDigest) || value.RequestReceipt.SchemaVersion != "mulgae-request-receipt.v1" || value.RequestReceipt.CaptureIdentity != value.CaptureIdentity {
+		if value.ProjectBinding != expectedContext.ProjectBinding || !consumerDigest(value.SourceIdentity) || value.CaptureIdentity != "" || value.RequestReceipt.RequestDigest != "" {
 			t.Fatal("preflight is not complete guarded authority")
 		}
 		return value
 	}
 	baselineLog, _ := os.ReadFile(logPath)
 	stage := preflight([]string{"--stage"}, "")
-	noChange := decode(cli(0, "review", "--stage", "--roles", "logic,maintainability", "--expected-project-binding", expectedContext.ProjectBinding, "--expected-request-digest", stage.RequestReceipt.RequestDigest))
-	if !noChange.Guarded || noChange.CaptureIdentity != stage.CaptureIdentity || noChange.RequestDigest != stage.RequestReceipt.RequestDigest {
+	noChange := decode(cli(0, "review", "--stage", "--roles", "logic,maintainability", "--expected-project-binding", expectedContext.ProjectBinding))
+	if !noChange.Guarded || noChange.SourceIdentity != stage.SourceIdentity || noChange.RequestDigest != "" {
 		t.Fatal("no-change lost request provenance")
 	}
 	noChangeInspection := decode(tool("inspect_review", map[string]any{"run_id": noChange.RunID, "expected_project_binding": expectedContext.ProjectBinding}))
-	if noChangeInspection.CaptureAvailability != "verified" || noChangeInspection.CaptureIdentity != stage.CaptureIdentity || !consumerDigest(noChangeInspection.PublicationReceipt) || noChangeInspection.FindingCount != 0 {
+	if noChangeInspection.CaptureAvailability != "not_captured" || noChangeInspection.SourceIdentity != stage.SourceIdentity || !consumerDigest(noChangeInspection.PublicationReceipt) || noChangeInspection.FindingCount != 0 {
 		t.Fatal("no-change lost retained capture provenance")
 	}
 	if after, _ := os.ReadFile(logPath); !bytes.Equal(after, baselineLog) {
 		t.Fatal("context, preflight, or no-change invoked provider")
 	}
 
-	// A request-only objective differs over identical capture bytes.
-	dirty := preflight([]string{"--dirty"}, "")
-	objective := preflight([]string{"--dirty"}, "Review immutable support.")
-	if dirty.CaptureIdentity != objective.CaptureIdentity || dirty.RequestReceipt.RequestDigest == objective.RequestReceipt.RequestDigest {
-		t.Fatal("consumer conflated capture and request identity")
+	live := preflight([]string{"--workspace"}, "")
+	objective := preflight([]string{"--workspace"}, "Review original source.")
+	if live.SourceIdentity != objective.SourceIdentity {
+		t.Fatal("objective changed source selection identity")
 	}
-	// The same dirty patch over changed committed support is a different capture.
-	// This also changes Git identity; isolated component proofs belong to unit tests.
-	beforeSupport := dirty
-	linkedPath := filepath.Join(project, "docs", "linked.md")
-	linked, err := os.ReadFile(linkedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustWriteTestFile(t, linkedPath, append(append([]byte{}, linked...), []byte("Additional captured support.\n")...))
-	runTestCommand(t, project, "git", "add", "docs/linked.md")
-	runTestCommand(t, project, "git", "-c", "user.name=Mulgae E2E", "-c", "user.email=mulgae-e2e@example.invalid", "commit", "-m", "change fixture support")
-	afterSupport := preflight([]string{"--dirty"}, "")
-	if beforeSupport.Target.SHA256 != afterSupport.Target.SHA256 || beforeSupport.CaptureIdentity == afterSupport.CaptureIdentity {
-		t.Fatal("consumer confused equal patch with equal complete capture")
-	}
-	dirty = afterSupport
-	arguments := map[string]any{"target": map[string]any{"kind": "dirty"}, "roles": []string{"logic", "maintainability"}, "expected_project_binding": expectedContext.ProjectBinding}
+	arguments := map[string]any{"target": map[string]any{"kind": "workspace"}, "roles": []string{"logic", "maintainability"}, "expected_project_binding": expectedContext.ProjectBinding}
 	mcpPreflight := decode(tool("preflight_review", arguments))
-	if mcpPreflight.RequestReceipt != dirty.RequestReceipt || mcpPreflight.CaptureIdentity != dirty.CaptureIdentity {
-		t.Fatal("CLI/MCP admitted plans differ")
+	if mcpPreflight.SourceIdentity != live.SourceIdentity {
+		t.Fatal("CLI/MCP source selection differs")
 	}
-	arguments["expected_request_digest"] = dirty.RequestReceipt.RequestDigest
 	started := decode(tool("start_review", arguments))
 	if started.InvocationID == "" {
 		t.Fatal("start returned no invocation identity")
 	}
 	terminal := decode(tool("await_review", map[string]any{"invocation_id": started.InvocationID}))
-	if terminal.ProjectBinding != expectedContext.ProjectBinding || !terminal.Guarded || terminal.RequestDigest != dirty.RequestReceipt.RequestDigest || terminal.CaptureIdentity != dirty.CaptureIdentity || terminal.TerminalExitCode != 4 {
+	if terminal.ProjectBinding != expectedContext.ProjectBinding || !terminal.Guarded || terminal.RequestDigest != "" || terminal.SourceIdentity != live.SourceIdentity || terminal.TerminalExitCode != 0 {
 		t.Fatalf("guarded incomplete root: %+v", terminal)
 	}
-	recovered := decode(cli(0, "rerun", "--run", terminal.RunID, "--role", "maintainability", "--provider", "zcode-maintainability"))
-	composite := decode(tool("compose_review", map[string]any{"root_run_id": terminal.RunID, "recovery_run_ids": []string{recovered.RunID}}))
-	cliInspection := decode(cli(0, "inspect", "--run", composite.RunID, "--expected-project-binding", expectedContext.ProjectBinding))
-	mcpInspection := decode(tool("inspect_review", map[string]any{"run_id": composite.RunID, "expected_project_binding": expectedContext.ProjectBinding, "expected_publication_receipt": cliInspection.PublicationReceipt}))
-	if !reflect.DeepEqual(cliInspection, mcpInspection) || cliInspection.CaptureIdentity != dirty.CaptureIdentity || !consumerDigest(cliInspection.PublicationReceipt) || cliInspection.FindingCount != 2 || cliInspection.ReturnedCount != 2 || len(cliInspection.Findings) != 2 || len(cliInspection.RoleReports) != 2 {
-		t.Fatal("composite inspection is not coherent across consumers")
+	completed := terminal
+	cliInspection := decode(cli(0, "inspect", "--run", completed.RunID, "--expected-project-binding", expectedContext.ProjectBinding))
+	mcpInspection := decode(tool("inspect_review", map[string]any{"run_id": completed.RunID, "expected_project_binding": expectedContext.ProjectBinding, "expected_publication_receipt": cliInspection.PublicationReceipt}))
+	if !reflect.DeepEqual(cliInspection, mcpInspection) || cliInspection.CaptureAvailability != "not_captured" || cliInspection.SourceIdentity != live.SourceIdentity || !consumerDigest(cliInspection.PublicationReceipt) || cliInspection.FindingCount != 2 || cliInspection.ReturnedCount != 2 || len(cliInspection.Findings) != 2 || len(cliInspection.RoleReports) != 2 {
+		t.Fatal("live inspection is not coherent across consumers")
 	}
 
 	readCLI := func(base ...string) []byte {
@@ -274,24 +255,24 @@ func TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow(t *testing.T) {
 		}
 	}
 	readLog, _ := os.ReadFile(logPath)
-	rendered := readCLI("read-report", "--run", composite.RunID)
-	uri := "mulgae://runs/" + composite.RunID + "/report?project_binding=" + url.QueryEscape(expectedContext.ProjectBinding) + "&publication_receipt=" + url.QueryEscape(cliInspection.PublicationReceipt)
+	rendered := readCLI("read-report", "--run", completed.RunID)
+	uri := "mulgae://runs/" + completed.RunID + "/report?project_binding=" + url.QueryEscape(expectedContext.ProjectBinding) + "&publication_receipt=" + url.QueryEscape(cliInspection.PublicationReceipt)
 	if len(rendered) == 0 || !bytes.Equal(rendered, readMCP(uri)) {
 		t.Fatal("complete rendered report differs between consumers")
 	}
 	for _, report := range cliInspection.RoleReports {
-		expected := []byte(strings.ReplaceAll(compositeEvidenceReport(), "__ROLE__", report.Role))
-		if !bytes.Equal(readCLI("read-report", "--run", composite.RunID, "--role", report.Role), expected) || !bytes.Equal(readMCP(report.URI), expected) {
+		expected := []byte(strings.ReplaceAll(liveEvidenceReport(), "__ROLE__", report.Role))
+		if !bytes.Equal(readCLI("read-report", "--run", completed.RunID, "--role", report.Role), expected) || !bytes.Equal(readMCP(report.URI), expected) {
 			t.Fatal("complete original role report changed")
 		}
 	}
 	for _, finding := range cliInspection.Findings {
-		if !bytes.Equal(readCLI("read-finding", "--run", composite.RunID, "--finding", finding.ID), readMCP(finding.DetailURI)) || len(finding.Evidence) != 2 {
-			t.Fatal("composite finding detail or evidence inventory differs")
+		if !bytes.Equal(readCLI("read-finding", "--run", completed.RunID, "--finding", finding.ID), readMCP(finding.DetailURI)) || len(finding.Evidence) != 2 {
+			t.Fatal("live finding detail or evidence inventory differs")
 		}
 		for i, item := range finding.Evidence {
-			if item.Index != i || !bytes.Equal(readCLI("excerpt", "--run", composite.RunID, "--finding", finding.ID, "--current-target-sha256", dirty.Target.SHA256, "--evidence-index", strconv.Itoa(i)), readMCP(item.URI)) {
-				t.Fatal("composite evidence index differs between consumers")
+			if item.Index != i || !bytes.Equal(readCLI("excerpt", "--run", completed.RunID, "--finding", finding.ID, "--source-identity-sha256", live.SourceIdentity, "--evidence-index", strconv.Itoa(i)), readMCP(item.URI)) {
+				t.Fatal("live evidence index differs between consumers")
 			}
 		}
 	}

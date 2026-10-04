@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -19,8 +20,8 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
+	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
-	"github.com/irootkernel/mulgae/internal/app/reviewcompose"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
@@ -45,108 +46,33 @@ func TestMCPReviewArgumentsReuseCanonicalCLIGrammar(t *testing.T) {
 	}
 }
 
-func TestMCPCompositeProjectionMatchesCanonicalCLIDataAndPolicyOutcome(t *testing.T) {
-	result := mcpCompositePublishedResult(t)
-	canonical, err := mulgaeentry.ProjectCompositeResult(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projected, err := projectMCPCompositeResult(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if projected.Outcome != "request_changes" {
-		t.Fatalf("MCP composite outcome = %q", projected.Outcome)
-	}
-	if state, ok := canonical["reconciliation_state"].(string); !ok || state != string(result.ReconciliationState()) {
-		t.Fatalf("canonical reconciliation state = %#v", canonical["reconciliation_state"])
-	}
-	reportURI := projected.Data["report_resource_uri"]
-	delete(projected.Data, "report_resource_uri")
-	if !reflect.DeepEqual(projected.Data, canonical) || reportURI != mustMCPReportResourceURI(t, result.RunID().String()) {
-		t.Fatalf("MCP composite data drifted: got=%#v canonical=%#v report=%#v", projected.Data, canonical, reportURI)
-	}
-}
-
-func TestMCPCompositeProjectionFailurePreservesReconciliationIdentity(t *testing.T) {
-	result := mcpCompositePublishedResult(t)
-	err := mcpCompositeProjectionFailure(result, "MCP composition result is invalid", errors.New("injected projection failure"))
-	var composite interface {
-		ReasonCode() string
-		CompositeIdentity() (domain.SessionID, domain.RunID, bool)
-	}
-	if !errors.As(err, &composite) || composite.ReasonCode() != domain.CompositePublicationIncomplete {
-		t.Fatalf("MCP composite projection failure = %v", err)
-	}
-	sessionID, runID, ok := composite.CompositeIdentity()
-	if !ok || sessionID != result.SessionID() || runID != result.RunID() {
-		t.Fatalf("MCP composite projection identity = %s, %s, %t", sessionID, runID, ok)
-	}
-	var failure *domain.Failure
-	if !errors.As(err, &failure) || failure.Class() != domain.FailureInternal {
-		t.Fatalf("MCP composite projection failure class = %v", err)
-	}
-}
-
-func TestMCPComposeReviewUsesCanonicalCLIGrammar(t *testing.T) {
-	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
-	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
-	if err := os.Mkdir(artifactRoot.String(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	result := mcpCompositePublishedResult(t)
-	service := &mcpCompositeReviewFake{result: result}
-	queries := &mcpMultiQueryFake{root: artifactRoot, sessionID: result.SessionID()}
-	application := newMCPTestApplication(t, queries, service)
-	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, application, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
-	if err != nil {
-		t.Fatal(err)
-	}
-	input := mcpentry.ComposeReviewInput{RootRunID: result.RootRunID().String(), RecoveryRuns: []string{result.RecoveryRunIDs()[0].String()}}
-	projected, err := backend.ComposeReview(context.Background(), "i_019f596a-cf80-7c67-b265-f37053d51ccf", input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if service.request.RootRunID != result.RootRunID() || !reflect.DeepEqual(service.request.RecoveryRuns, result.RecoveryRunIDs()) {
-		t.Fatalf("MCP composite request = %#v", service.request)
-	}
-	canonical, err := mulgaeentry.ProjectCompositeResult(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reportURI := projected.Data["report_resource_uri"]
-	delete(projected.Data, "report_resource_uri")
-	if projected.Outcome != "request_changes" || !reflect.DeepEqual(projected.Data, canonical) || reportURI != mustMCPReportResourceURI(t, result.RunID().String()) {
-		t.Fatalf("MCP composite result = %#v", projected)
-	}
-}
-
 func TestMCPCompositeStatusAndFindingsAgreeWithCLI(t *testing.T) {
 	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
 	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
 	if err := os.Mkdir(artifactRoot.String(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	result := mcpCompositePublishedResult(t)
-	runID := result.RunID()
-	prefix := ".mulgae/" + result.SessionID().String() + "/" + runID.String() + "/"
+	sessionID := mustMCPSessionID(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID := mustMCPRunID(t, "r_019f596a-cf83-7c67-b265-f37053d51ccf")
+	reviewID := "019f596a-d174-7321-b920-c2d312c82cc2"
+	prefix := ".mulgae/" + sessionID.String() + "/" + runID.String() + "/"
 	statusView := mulgaeentry.RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
-		SessionID: result.SessionID().String(), RunID: runID.String(), RunState: domain.RunCompleted, HasRunState: true,
+		SessionID: sessionID.String(), RunID: runID.String(), RunState: domain.RunCompleted, HasRunState: true,
 		PublicationState: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionReconstructCompletedStatus,
-		FinalArtifactURI: prefix + "review_" + result.ReviewID().String() + ".json", HasFinalArtifact: true,
-		ContentVerdict: result.ContentVerdict(), CoverageStatus: result.CoverageStatus(), CIDecision: result.CIDecision(), HasAxes: true,
+		FinalArtifactURI: prefix + "review_" + reviewID + ".json", HasFinalArtifact: true,
+		ContentVerdict: domain.ContentRequestChanges, CoverageStatus: domain.CoverageComplete, CIDecision: domain.CIFail, HasAxes: true,
 		RoleReportURIs: []mulgaeentry.RoleReportURI{{Role: string(domain.RoleLogic), URI: prefix + "role-reports/logic.md"}},
 	}
 	findingsView := mcpFixtureFindings{
-		RunID: runID.String(), ReviewArtifactURI: statusView.FinalArtifactURI, TargetSHA256: result.TargetSHA256(),
+		RunID: runID.String(), ReviewArtifactURI: statusView.FinalArtifactURI, TargetSHA256: "sha256:" + strings.Repeat("a", 64),
 		Findings: []mcpFixtureFinding{{ID: "F001", Severity: domain.SeverityHigh, Title: "Composite boundary", HasEvidence: false}},
 	}
 	queries := &mcpMultiQueryFake{
-		root: artifactRoot, sessionID: result.SessionID(),
+		root: artifactRoot, sessionID: sessionID,
 		statuses: map[domain.RunID]mulgaeentry.RunStatusView{runID: statusView},
 		findings: map[domain.RunID]mcpFixtureFindings{runID: findingsView},
 	}
-	application := newMCPTestApplication(t, queries, nil)
+	application := newMCPTestApplication(t, queries)
 	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, application, queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
@@ -201,16 +127,6 @@ func (mcpTestRequestIDs) NewRequestID(time.Time) (string, error) {
 	return "i_019f596a-cf80-7c67-b265-f37053d51ccf", nil
 }
 
-type mcpCompositeReviewFake struct {
-	request reviewcompose.Request
-	result  reviewcompose.PublishedResult
-}
-
-func (fake *mcpCompositeReviewFake) ComposeReview(_ context.Context, request reviewcompose.Request) (reviewcompose.PublishedResult, error) {
-	fake.request = request
-	return fake.result, nil
-}
-
 type mcpReviewRunFake struct {
 	result mulgaeentry.ReviewRunResult
 	calls  int
@@ -221,14 +137,13 @@ func (fake *mcpReviewRunFake) StartReviewRun(context.Context, mulgaeentry.Review
 	return fake.result, nil
 }
 
-func newMCPTestApplication(t *testing.T, queries mulgaeentry.PublicationQueryService, composite mulgaeentry.CompositeReviewService) *mulgaeentry.Application {
-	return newMCPTestApplicationWithReviewRuns(t, queries, composite, nil)
+func newMCPTestApplication(t *testing.T, queries mulgaeentry.PublicationQueryService) *mulgaeentry.Application {
+	return newMCPTestApplicationWithReviewRuns(t, queries, nil)
 }
 
 func newMCPTestApplicationWithReviewRuns(
 	t *testing.T,
 	queries mulgaeentry.PublicationQueryService,
-	composite mulgaeentry.CompositeReviewService,
 	reviewRuns mulgaeentry.ReviewRunService,
 ) *mulgaeentry.Application {
 	t.Helper()
@@ -245,7 +160,7 @@ func newMCPTestApplicationWithReviewRuns(
 		Clock: mcpTestClock{}, RequestIDGenerator: mcpTestRequestIDs{}, Catalog: catalog, JSONSchemaValidator: validator,
 		SecureWriter: filesystem.NewSecureWriter(), TrustedProjectReader: reader, EnvironmentInspector: environment.NewInspector(),
 		ReviewRuns: reviewRuns, ProjectContexts: inspectionContexts(),
-		PublicationQueries: queries, PublicationReports: &mcpReportFake{}, CompositeReviews: composite,
+		PublicationQueries: queries, PublicationReports: &mcpReportFake{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -253,46 +168,56 @@ func newMCPTestApplicationWithReviewRuns(
 	return application
 }
 
-func mcpCompositePublishedResult(t *testing.T) reviewcompose.PublishedResult {
-	t.Helper()
-	sessionID := mustMCPSessionID(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf")
-	rootRunID := mustMCPRunID(t, "r_019f596a-cf81-7c67-b265-f37053d51ccf")
-	recoveryRunID := mustMCPRunID(t, "r_019f596a-cf82-7c67-b265-f37053d51ccf")
-	runID := mustMCPRunID(t, "r_019f596a-cf83-7c67-b265-f37053d51ccf")
-	reviewID, err := domain.ParseReviewID("019f596a-d174-7321-b920-c2d312c82cc2")
+func TestMCPBackendRejectsReplacedStartupRootBeforeReviewDispatch(t *testing.T) {
+	fixture := canonicalTestTempDir(t)
+	projectPath := filepath.Join(fixture, "project")
+	if err := os.Mkdir(projectPath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("/usr/bin/git", "-C", projectPath, "init", "--quiet")
+	if raw, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git fixture: %v %s", err, raw)
+	}
+	projectRoot := mustMCPRoot(t, projectPath)
+	artifactRoot := mustMCPRoot(t, filepath.Join(projectPath, ".mulgae"))
+	reviewRuns := &mcpReviewRunFake{}
+	queries := &mcpQueryFake{}
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, newMCPTestApplicationWithReviewRuns(t, queries, reviewRuns), queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
 	if err != nil {
 		t.Fatal(err)
 	}
-	reason, err := domain.NewExitReason(domain.ExitCommittedCIRejected, "request_changes_threshold")
+	backend.projectContexts, err = query.NewProjectContextService(gittarget.ProjectBindingObserver{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	exitInput, err := domain.NewOperationalExitInput([]domain.ExitReason{reason})
+	backend.contextLease, err = backend.projectContexts.Open(context.Background(), projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	exit, err := domain.ReduceOperationalExit(exitInput)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prefix := ".mulgae/" + sessionID.String() + "/" + runID.String() + "/"
-	result, err := reviewcompose.NewPublishedResult(reviewcompose.PublishedResultInput{
-		SessionID: sessionID, RunID: runID, ReviewID: reviewID, RootRunID: rootRunID,
-		RecoveryRunIDs: []domain.RunID{recoveryRunID}, TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		RecoveredRoles: []domain.Role{domain.RoleSecurity}, RoleReportURIs: []reviewcompose.RoleReportURI{
-			{Role: domain.RoleLogic, URI: prefix + "role-reports/logic.md"},
-			{Role: domain.RoleSecurity, URI: prefix + "role-reports/security.md"},
-		},
-		Coverage: domain.CoverageComplete, Content: domain.ContentRequestChanges,
-		StructuredExtractionStatus: domain.StructuredExtractionStructured, CIDecision: domain.CIFail,
-		PublicationStatus: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionReconstructCompletedStatus,
-		TerminalExit: exit, ReconciliationState: "created", RunManifestURI: prefix + "manifest.json",
-		ReviewArtifactURI: prefix + "review_" + reviewID.String() + ".json",
+	t.Cleanup(func() {
+		if err := backend.contextLease.Close(); err != nil {
+			t.Error(err)
+		}
 	})
-	if err != nil {
+	if _, err := backend.GetContext(context.Background()); err != nil {
+		t.Fatalf("startup lease was not initially valid: %v", err)
+	}
+	if err := os.Rename(projectPath, filepath.Join(fixture, "original")); err != nil {
 		t.Fatal(err)
 	}
-	return result
+	if err := os.Mkdir(projectPath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, execute := range []func(context.Context, string, mcpentry.RunReviewInput) (mcpentry.BackendResult, error){backend.RunReview, backend.PreflightReview} {
+		result, err := execute(context.Background(), "i_019f596a-cf80-7c67-b265-f37053d51ccf", mcpentry.RunReviewInput{Target: mcpentry.ReviewTarget{Kind: "workspace"}})
+		var failure *domain.Failure
+		if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy || result.Data != nil {
+			t.Fatalf("replaced startup root admission: result=%#v err=%v", result, err)
+		}
+	}
+	if reviewRuns.calls != 0 {
+		t.Fatalf("stale startup lease dispatched %d reviews", reviewRuns.calls)
+	}
 }
 
 func TestMCPBackendClassifiesCanonicalReviewGrammarRejection(t *testing.T) {
@@ -343,7 +268,7 @@ func TestMCPBackendRunReviewPreservesCommittedProviderReasons(t *testing.T) {
 	reviewRuns := &mcpReviewRunFake{result: mulgaeentry.NewReviewRunResult(
 		sessionID, runID, prefix+"manifest.json", prefix+"review_test.json", decision,
 	)}
-	application := newMCPTestApplicationWithReviewRuns(t, &mcpQueryFake{}, nil, reviewRuns)
+	application := newMCPTestApplicationWithReviewRuns(t, &mcpQueryFake{}, reviewRuns)
 	backend, err := newMCPBoundTestBackend(
 		projectRoot, artifactRoot, application, &mcpQueryFake{}, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector(),
 	)
@@ -373,16 +298,11 @@ func TestMCPBackendRunReviewPreservesCommittedProviderReasons(t *testing.T) {
 }
 
 func TestMCPPreflightSummaryOmitsUnboundedFileInventory(t *testing.T) {
-	files := make([]mulgaeentry.ReviewPreflightFile, 10_000)
-	for index := range files {
-		files[index] = mulgaeentry.ReviewPreflightFile{Path: "private/source/path.go", Size: 4096}
+	reads := make([]mulgaeentry.ReviewPreflightRead, 10_000)
+	for index := range reads {
+		reads[index] = mulgaeentry.ReviewPreflightRead{Side: "index", Path: "private/source/path.go"}
 	}
-	data, err := summarizeMCPPreflight(mulgaeentry.ReviewPreflightResult{
-		Status: "eligible", FileSets: []mulgaeentry.ReviewPreflightFileSet{{
-			ID:             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			PolicyIdentity: "policy", Files: files,
-		}},
-	})
+	data, err := summarizeMCPPreflight(mulgaeentry.ReviewPreflightResult{Status: "eligible", ReadPlan: reads, Target: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,9 +310,7 @@ func TestMCPPreflightSummaryOmitsUnboundedFileInventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sets := data["file_sets"].([]any)
-	if len(encoded) > 4096 || bytes.Contains(encoded, []byte("private/source")) ||
-		sets[0].(map[string]any)["file_count"] != 10_000 || sets[0].(map[string]any)["total_bytes"] != int64(40_960_000) {
+	if len(encoded) > 4096 || bytes.Contains(encoded, []byte("private/source")) || data["read_count"] != 10_000 {
 		t.Fatalf("preflight summary = %s", encoded)
 	}
 }
@@ -845,4 +763,106 @@ func mustMCPRunID(t *testing.T, value string) domain.RunID {
 		t.Fatal(err)
 	}
 	return id
+}
+
+func TestMCPBackendRejectsGitAdoptionAfterFailedStartup(t *testing.T) {
+	projectPath := canonicalTestTempDir(t)
+	projectRoot := mustMCPRoot(t, projectPath)
+	artifactRoot := mustMCPRoot(t, filepath.Join(projectPath, ".mulgae"))
+	reviews := &mcpReviewRunFake{}
+	queries := &mcpQueryFake{}
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, newMCPTestApplicationWithReviewRuns(t, queries, reviews), queries, &mcpDiagnosticQueryFake{}, &mcpReportFake{}, filesystem.NewRunSelector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.projectContexts, err = query.NewProjectContextService(gittarget.ProjectBindingObserver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.contextLease, backend.contextError = backend.projectContexts.Open(context.Background(), projectRoot)
+	if backend.contextLease != nil || backend.contextError == nil {
+		t.Fatal("fixture unexpectedly acquired startup binding")
+	}
+	command := exec.Command("/usr/bin/git", "-C", projectPath, "init", "--quiet")
+	if raw, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git fixture: %v %s", err, raw)
+	}
+	if _, err := backend.GetContext(context.Background()); err == nil {
+		t.Fatal("failed startup context was retargeted")
+	}
+	for _, execute := range []func(context.Context, string, mcpentry.RunReviewInput) (mcpentry.BackendResult, error){backend.RunReview, backend.PreflightReview} {
+		result, err := execute(context.Background(), "i_019f596a-cf80-7c67-b265-f37053d51ccf", mcpentry.RunReviewInput{Target: mcpentry.ReviewTarget{Kind: "workspace"}})
+		var failure *domain.Failure
+		if !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy || result.Data != nil {
+			t.Errorf("failed startup admission: result=%#v err=%v", result, err)
+		}
+	}
+	if reviews.calls != 0 {
+		t.Fatalf("failed startup dispatched %d reviews", reviews.calls)
+	}
+}
+
+func TestMCPBackendNonGitStartupRootRemainsBound(t *testing.T) {
+	for _, change := range []string{"same", "new-file", "git-created", "root-replaced", "closed", "cancelled"} {
+		t.Run(change, func(t *testing.T) {
+			fixture := canonicalTestTempDir(t)
+			projectPath := filepath.Join(fixture, "project")
+			if err := os.Mkdir(projectPath, 0700); err != nil {
+				t.Fatal(err)
+			}
+			root := mustMCPRoot(t, projectPath)
+			lease, err := gittarget.OpenUnboundWorkspaceRoot(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := lease.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			backend := &mcpBackend{projectRoot: root, workspaceLease: lease, contextError: errors.New("startup Git context unavailable")}
+			ctx := context.Background()
+			switch change {
+			case "new-file":
+				if err := os.WriteFile(filepath.Join(projectPath, "source.txt"), []byte("current source"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "git-created":
+				command := exec.Command("/usr/bin/git", "-C", projectPath, "init", "--quiet")
+				if raw, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("git fixture: %v %s", err, raw)
+				}
+			case "root-replaced":
+				if err := os.Rename(projectPath, filepath.Join(fixture, "original")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(projectPath, 0700); err != nil {
+					t.Fatal(err)
+				}
+			case "closed":
+				if err := lease.Close(); err != nil {
+					t.Fatal(err)
+				}
+			case "cancelled":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			err = backend.checkReviewProject(ctx, nil)
+			if change == "same" || change == "new-file" {
+				if err != nil {
+					t.Fatalf("valid non-Git root rejected: %v", err)
+				}
+				return
+			}
+			var failure *domain.Failure
+			want := domain.FailureSecurityPolicy
+			if change == "cancelled" {
+				want = domain.FailureCancelled
+			}
+			if !errors.As(err, &failure) || failure.Class() != want {
+				t.Fatalf("changed non-Git startup root admitted: %v", err)
+			}
+		})
+	}
 }

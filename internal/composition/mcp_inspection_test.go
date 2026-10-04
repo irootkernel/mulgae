@@ -96,9 +96,25 @@ func (*mcpQueryFake) ReadEvidence(context.Context, ports.PublicationRun, domain.
 	return query.ContentChunk{}, errors.New("unexpected indexed evidence read")
 }
 
+func (*mcpQueryFake) ReadSourceEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected source evidence read")
+}
+
+func (*mcpQueryFake) ReadSourceImage(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, string, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected source image read")
+}
+
 func (*mcpMultiQueryFake) ReadReport(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
 	return query.ContentChunk{}, errors.New("unexpected report content read")
 }
 func (*mcpMultiQueryFake) ReadEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, query.ContentContinuation) (query.ContentChunk, error) {
 	return query.ContentChunk{}, errors.New("unexpected indexed evidence read")
+}
+
+func (*mcpMultiQueryFake) ReadSourceEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected source evidence read")
+}
+
+func (*mcpMultiQueryFake) ReadSourceImage(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, string, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected source image read")
 }

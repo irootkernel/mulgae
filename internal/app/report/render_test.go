@@ -893,7 +893,7 @@ func TestRenderRendersSkippedRoleProvenanceAsAbsent(t *testing.T) {
 
 // TestRenderReportsProviderIssuesForFailedRoles proves the report tells the
 // operator what to do about a role that produced no review: which provider it
-// ran on, why it stopped, and the command to run it again. Mulgae no
+// ran on, why it stopped, and guidance for a new review. Mulgae no
 // longer picks a replacement provider, so this section is the whole recovery
 // path and must never silently go missing.
 func TestRenderReportsProviderIssuesForFailedRoles(t *testing.T) {
@@ -930,13 +930,9 @@ func TestRenderReportsProviderIssuesForFailedRoles(t *testing.T) {
 		if !present {
 			t.Fatalf("failed role %q carries no provider instance", role.Name())
 		}
-		want := "mulgae rerun --run " + review.RunID().String() + " --role " + string(role.Name()) + " --provider " + provider
-		if !strings.Contains(output, want) {
-			t.Errorf("report omitted the rerun command %q:\n%s", want, output)
+		if !strings.Contains(output, "mulgae help workflows") || strings.Contains(output, "mulgae rerun") {
+			t.Errorf("report does not provide current review guidance for role %q:\n%s", role.Name(), output)
 		}
-		// A rerun alone cannot recover a provider that must be fixed first, so
-		// the report must say which case this is rather than leaving the
-		// operator to infer it from the reason code.
 		wantRemediation := providerIssueRemediation(reason)
 		if !strings.Contains(output, wantRemediation) {
 			t.Errorf("report omitted the remediation %q for role %q:\n%s", wantRemediation, role.Name(), output)
@@ -945,7 +941,7 @@ func TestRenderReportsProviderIssuesForFailedRoles(t *testing.T) {
 			t.Errorf("report omitted the failed role's provider %q", provider)
 		}
 	}
-	// Roles that produced a review must never be offered a rerun command.
+	// Current reports must never offer retired role-recovery selectors.
 	for _, role := range review.Roles() {
 		if role.Outcome() == "failed" {
 			continue

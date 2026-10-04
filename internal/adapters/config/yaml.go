@@ -525,9 +525,6 @@ func validate(config *Config) error {
 			}
 		}
 	}
-	if config.Execution.WorkspaceAccess != "none" && config.Execution.WorkspaceAccess != "readonly_snapshot" {
-		return fmt.Errorf("workspace")
-	}
 	configuredRoles := config.Roles.Ordered()
 	enabledRoleCount := 0
 	referencedCredentialProfiles := make(map[string]struct{})
@@ -770,7 +767,7 @@ func EncodeCanonical(config Config) ([]byte, error) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}
 	}
-	out.WriteString("execution:\n  workspace_access: " + q(config.Execution.WorkspaceAccess) + "\nroles:\n")
+	out.WriteString("roles:\n")
 	for index, role := range fixedRoles {
 		configured := config.Roles.Ordered()[index]
 		if role == "artist" && !configured.Enabled {

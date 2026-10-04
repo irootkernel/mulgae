@@ -26,7 +26,7 @@ access.
   commands in order:
 
   ```sh
-  go test -count=1 ./internal/app/reviewrun -run '^(TestReviewPreparationFailureClassificationIsClosedAndRedacted|TestReviewPreparationClassificationPreservesCausalTypedAndCancellationFailures|TestReviewPreparationClassificationDefersToDiagnosticPersistenceFailure|TestServiceExecuteClassifiesProviderRuntimePreparationFailure|TestCoordinatorAdmissionFailureIsClassifiedBeforeRunStart|TestServiceExecuteCoordinatorAdmissionDiagnosticFailureRemainsArtifact|TestServiceExecuteDiagnosticPersistenceOutranksPreparationFailure)$'
+  go test -count=1 ./internal/app/reviewrun -run '^(TestReviewPreparationFailureClassificationIsClosedAndRedacted|TestReviewPreparationClassificationPreservesCausalTypedAndCancellationFailures|TestReviewPreparationClassificationDefersToDiagnosticPersistenceFailure|TestCoordinatorAdmissionFailureIsClassifiedBeforeRunStart|TestCoordinatorAdmissionClassificationPreservesCancellation|TestLiveServiceDiagnosticAndLoginFailuresRetainSafeIdentity)$'
   go test -count=1 ./internal/entrypoint/mulgae -run '^(TestApplicationReviewPreparationFailureIsInternalAndActionable|TestApplicationIndependentCleanupFailureDoesNotSuppressReviewPreparationFailure)$'
   go test -count=1 ./internal/entrypoint/mcp -run '^(TestPublicToolErrorProjectsReviewPreparationFailure|TestServeRunReviewPreparationFailurePreservesEnvelopeAndIdentity|TestServeAwaitReviewPreparationFailurePreservesEnvelopeAndIdentity)$'
   ```
@@ -47,45 +47,46 @@ access.
   `internal/app/reviewrun/diagnostics.go`.
 - **Owner:** [Review flow architecture](architecture/README.md#review-flow).
 
-## GATE-002: Provider protocol and staged-output authority
+## GATE-002: Provider protocol and live-source boundaries
 
-- **Invariant:** Provider protocol drivers admit only correlated, purpose-bound
-  responses, credential projection uses only declared private sources, and
-  staged review output accepts exactly one descriptor-bound regular file while
-  rejecting path, identity, mode, and cleanup violations.
-- **Scope:** `internal/adapters/providercli` protocol, credential projection,
-  staged-output, and accepted-result observation boundaries.
-- **Positive scenarios:** Codex completes one ephemeral app-server turn, Grok
-  accepts one correlated write, ZCode completes its selected-model exchange,
-  declared credentials project into disposable homes, and a valid staged
-  Markdown report is accepted with its digest.
-- **Failure scenarios:** Codex write authority, uncorrelated or repeated Grok
-  writes, unsafe credential sources, symlink or hard-link output, extra staged
-  entries, missing staged output, security violations, and cleanup failures all
-  fail closed.
-- **Procedure:** From the repository root, create a fresh mode-`0700` directory
-  matching `/tmp/mulgae-gate-002.XXXXXX`. Set `HOME`, `TMPDIR`, and `GOCACHE`
-  to directories beneath it, set `GOMODCACHE` to the existing value from
-  `go env GOMODCACHE`, and set `GOPROXY=off` and `GOSUMDB=off`. Run:
+- **Invariant:** Protocol drivers accept only correlated, purpose-bound assistant
+  responses. Credential projection uses declared private sources, and live
+  execution preserves the neutral cwd and read-only source boundary.
+- **Scope:** `internal/adapters/providercli` native protocols and credentials;
+  `internal/adapters/process` descriptor, Seatbelt and terminal cleanup policy.
+- **Positive scenarios:** Codex completes an ephemeral turn, ZCode collects a
+  complete correlated report, Grok admits the declared read plan, and private
+  credential projection remains bound to its selected profile. Missing optional
+  credential homes remain protected if they appear after policy assembly.
+- **Failure scenarios:** Write authority, unexpected protocol requests, missing
+  own-turn completion, changed source or guide authority, descriptor replacement,
+  unsafe credential paths, hardlink aliases, and protected Unix sockets fail
+  closed. Cancellation and deadline failures retain their typed cause.
+- **Procedure:** Use a fresh mode-`0700` directory under the mounted writable
+  `/Volumes/RootKernel/tmp`, or the normal system temporary directory when that
+  volume is unavailable. Keep `HOME`, `TMPDIR`, and `GOCACHE` beneath it;
+  preserve the existing `GOMODCACHE` and set `GOPROXY=off` and `GOSUMDB=off`.
+  On native Apple Silicon macOS, run:
 
   ```sh
-  go test -v -count=1 ./internal/adapters/providercli -run '^(TestCodexProtocolCompletesOneEphemeralTurn|TestCodexProtocolRejectsActualWriteAuthority|TestGrokACPDriveAllowsOneExactlyCorrelatedWrite|TestGrokACPDriveRejectsUncorrelatedAndRepeatedWrites|TestZCodeProtocolDriveCompletesAndPreservesEvidence|TestZCodeProtocolDriveClassifiesFailureBranches|TestCredentialSourceProjectsOnlyDeclaredFamilyFiles|TestGrokCredentialProjectionRejectsNonPrivateAuth|TestCodexCredentialProjectionUsesConfiguredCodexHome|TestStagedOutputAcceptsBoundedMarkdownWithDigest|TestStagedOutputRejectsSymlinkTarget|TestStagedOutputRejectsHardLinkSubstitution|TestStagedOutputRejectsExtraStagedEntries|TestRegistryObserveAcceptsStagedFileOutputAsPrimaryResult|TestRegistryObserveFailsClosedWhenStagedFileIsMissing|TestRegistryObserveClassifiesStagedSecurityViolation|TestRegistryObserveStagingCleanupFailureOverridesProviderSuccess)$'
+  go test -v -count=1 ./internal/adapters/providercli -run '^(TestCodexProtocolCompletesOneEphemeralTurn|TestCodexProtocolRejectsActualWriteAuthority|TestZCodeLiveProtocolCorrelatesOwnTurnAndCollectsCompleteReport|TestZCodeLiveExtractionKeepsToolsDisabled|TestZCodeLiveProtocolRejectsMissingOwnCompletionAndReport|TestLiveExecutionGuidePlanAndClosedGrokPermissions|TestLiveNeutralProtocolAdmissionClosesUnconsumedDescriptor|TestLiveRuntimeTempRejectsReplacementAndUnsafeDirectory|TestLiveTerminalRevalidationDiscardsChangedSourceAndGuide|TestCredentialSourceProjectsOnlyDeclaredFamilyFiles|TestGrokCredentialProjectionRejectsNonPrivateAuth|TestCodexCredentialProjectionUsesConfiguredCodexHome)$'
+  go test -v -count=1 ./internal/adapters/process -run '^(TestLiveBoundaryDeniesWritesReadsAndAncestorRename|TestLiveBoundaryDeniesCredentialSymlinksToOutsideTargets|TestLiveBoundaryProtectsExoticCredentialPaths|TestLiveBoundaryRejectsSymlinkAndMissingRootsBeforeLaunch|TestLiveBoundaryRejectsPreexistingCredentialHardlink|TestLiveBoundaryDeniesProtectedUnixSockets|TestLiveBoundaryCredentialAdmissionHonorsCancellation|TestLiveBoundaryCredentialAdmissionHonorsDeadline|TestLiveBoundaryRejectsPreexistingWritableHardlink|TestLiveBoundaryRuntimeTempKeepsOverlappingRootsProtected|TestLiveNeutralLaunchRejectsWrongAndReplacedDescriptor|TestLiveBoundaryProtectsMissingOptionalCredentialHomes)$'
   ```
 
-  Remove the disposable directory after recording command output and confirm
-  that `git status --porcelain --untracked-files=all` is unchanged.
-- **Disposable outputs:** The gate directory, Go build cache, test binary,
-  temporary protocol state, credentials containing fixture-only bytes, staged
-  output, and captured stdout and stderr remain under the declared `/tmp` root.
-- **Pass condition:** The command exits zero, every named test runs, no external
-  access or ambient credential read occurs, and the source repository status is
-  unchanged.
-- **Revalidation triggers:** Changes to provider protocol frames, credential
-  sources or projection, staged-output leases and validation, accepted result
-  transport, or provider cleanup precedence.
-- **Sources:** [`docs/specs/contracts.md`](specs/contracts.md),
-  [`docs/specs/security.md`](specs/security.md),
-  `internal/adapters/providercli/codex_protocol.go`,
-  `internal/adapters/providercli/grok_acp_protocol.go`, and
-  `internal/adapters/providercli/output_staging_darwin.go`.
+  Remove only the task-owned directory after recording results and confirm that
+  `git status --porcelain --untracked-files=all` is unchanged.
+- **Disposable outputs:** Go caches, test binaries, fixture credentials,
+  protocol state and captured streams remain under the declared temporary root.
+- **Pass condition:** Both commands exit zero and every named test runs without
+  external provider access, ambient credential reads, or source mutations.
+- **Revalidation triggers:** Protocol frames, live invocation authority,
+  credential projection, protected-root policy, accepted report transport, or
+  cleanup precedence changes.
+- **Sources:** [Contracts](specs/contracts.md), [Security](specs/security.md),
+  `internal/adapters/providercli/live_execution.go`,
+  `internal/adapters/providercli/zcode_protocol.go`, and
+  `internal/adapters/process/live_boundary_darwin.go`.
 - **Owner:** [Provider adapter package map](architecture/README.md#package-map).
+
+Historical staged-file protocol fixtures remain internal regression checks.
+Their presence grants no staged-file write authority to current live reviews.

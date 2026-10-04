@@ -80,63 +80,15 @@ rejected; there is no automatic migration.
 
 ## Start or associate a review
 
-A normal `review` creates a new session and run. `followup`, `delta`, and
-`rerun` create new runs with explicit lineage; they do not resume or replace a
-prior run:
+A normal `review` creates a new session/run. Use one of the five live selectors
+and the independently checked project binding. An optional `--session` groups
+a new run; it does not resume provider execution. Attached lifecycle is one
+`start_review`, repeated waiting on the same exact `await_review`, and explicit
+`cancel_review` followed by terminal await. No invocation survives server restart.
 
-```bash
-mulgae delta --since-run latest --dirty --roles logic,testing --output json
-mulgae rerun --run r_... --attempt a_... --output json
-mulgae rerun --run r_... --role logic --provider zcode-logic --output json
-```
-
-`delta` requires `--since-run`, `--roles`, and one target; `rerun` selects one
-committed attempt with `--attempt` or with `--role` plus `--provider`. Prefer
-the exact attempt ID when it is available. In the alternate selector,
-`--provider` is the persisted `provider_instance`, such as `zcode-logic`, not a
-provider family such as `zcode`.
-
-Run child workflows from the canonical Git worktree root. They do not discover
-an enclosing root automatically and have no common `--repo` override. A
-rejected child command with `--output json` still returns a
-versioned command-result envelope (v18 in current source). Interpret its
-pre-execution failures as follows:
-
-| Reason code | Exit | `request_state` | Next action |
-|---|---:|---|---|
-| `invalid_command_usage` | 2 | `invalid` | Read `mulgae help workflows`; do not resolve selectors. |
-| `project_root_mismatch` | 2 | `unresolved` | Confirm the canonical root. If it is uninitialized, obtain explicit authority before `mulgae init`; never initialize a subdirectory. |
-| `run_selector_unavailable` | 7 | `unresolved` | Verify the source run from the project root. |
-| `attempt_selector_unavailable` | 7 | `unresolved` | Use an exact attempt ID or verify the persisted provider instance. |
-| `selector_resolution_failed` | 10 | `unresolved` | Preserve the request ID and bounded reason, stop, and report the failure. |
-
-Operational selector failures retain their normal typed projection rather than
-becoming `selector_resolution_failed`: cancellation uses `request_cancelled`
-and exit `9`, while artifact and security failures retain exit `7` or `8` and
-their bounded reason code. Retry only cancellation; follow the typed artifact
-or security remediation for the others.
-
-Do not use `mulgae doctor` merely because selector resolution failed. Doctor is
-for reported configuration or readiness prerequisites.
-
-Use an imported session only when the user supplied and authorized the
-canonical session ID (not combinable with `--preflight`):
-
-```bash
-mulgae review --dirty --session s_... --output json
-```
-
-Mulgae has no task start, task replacement, or session replacement command.
-Do not delete or rewrite state to simulate one.
-
-For a committed incomplete review or an available failed-run recovery, follow
-[partial-failure recovery](recovery.md#recover-a-partially-failed-review) to rerun
-failed roles and compose their results with the exact original root. A rerun
-alone does not complete the original multi-role review. Use native inspection
-for publication and capture state, and `status` or MCP `get_run` for recovery
-attempt inventory. `failed_run_recovery.retry_attempts` is the exact retry inventory,
-and `accepted_roles` must be preserved. A failed rerun may return its allocated
-run identity with no prompt manifest; inspect that exact run before retrying.
+Historical child, replay and composite artifacts remain readable, but their
+creation commands are retired. Retained recovery inventories confer no execution
+authority. Obtain explicit intent for any new source review.
 
 ## Cancel foreground work
 

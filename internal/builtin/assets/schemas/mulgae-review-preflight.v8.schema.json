@@ -1,0 +1,522 @@
+{
+  "$defs": {
+    "duration": {
+      "pattern": "^(?:0s|[1-9][0-9]*(?:\\.[0-9]+)?(?:ns|us|\u00b5s|ms|s|m|h)(?:[0-9]+(?:\\.[0-9]+)?(?:ns|us|\u00b5s|ms|s|m))*)$",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "pattern": "^[^\\u0000\\r\\n]+$",
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "logic",
+        "security",
+        "maintainability",
+        "product",
+        "documentation",
+        "testing",
+        "artist"
+      ]
+    },
+    "sha256": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://mulgae.local/schemas/mulgae-review-preflight.v8.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "else": {
+        "properties": {
+          "capabilities": {
+            "properties": {
+              "project_binding": {
+                "const": "v1"
+              }
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "project_binding": {
+            "const": ""
+          }
+        },
+        "required": [
+          "project_binding"
+        ]
+      },
+      "then": {
+        "properties": {
+          "capabilities": {
+            "properties": {
+              "project_binding": {
+                "const": ""
+              }
+            }
+          },
+          "target": {
+            "properties": {
+              "scope": {
+                "const": "workspace"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "budget": {
+      "additionalProperties": false,
+      "properties": {
+        "ceilings": {
+          "additionalProperties": false,
+          "properties": {
+            "max_invocations_per_role": {
+              "maximum": 2,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_invocations_per_run": {
+              "maximum": 14,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "provider_timeout": {
+              "$ref": "#/$defs/duration"
+            },
+            "role_path_deadline": {
+              "$ref": "#/$defs/duration"
+            },
+            "run_deadline": {
+              "$ref": "#/$defs/duration"
+            }
+          },
+          "required": [
+            "provider_timeout",
+            "role_path_deadline",
+            "run_deadline",
+            "max_invocations_per_role",
+            "max_invocations_per_run"
+          ],
+          "type": "object"
+        },
+        "critical_path_deadline": {
+          "$ref": "#/$defs/duration"
+        },
+        "eligible": {
+          "const": true
+        },
+        "max_active_lanes": {
+          "maximum": 64,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason_code": {
+          "enum": [
+            "eligible",
+            "no_change"
+          ]
+        },
+        "role_paths": {
+          "allOf": [
+            {
+              "contains": {
+                "properties": {
+                  "role": {
+                    "const": "logic"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 0
+            },
+            {
+              "contains": {
+                "properties": {
+                  "role": {
+                    "const": "security"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 0
+            },
+            {
+              "contains": {
+                "properties": {
+                  "role": {
+                    "const": "maintainability"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 0
+            },
+            {
+              "contains": {
+                "properties": {
+                  "role": {
+                    "const": "product"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 0
+            },
+            {
+              "contains": {
+                "properties": {
+                  "role": {
+                    "const": "documentation"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 0
+            },
+            {
+              "contains": {
+                "properties": {
+                  "role": {
+                    "const": "testing"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 0
+            },
+            {
+              "contains": {
+                "properties": {
+                  "role": {
+                    "const": "artist"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              },
+              "maxContains": 1,
+              "minContains": 0
+            }
+          ],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "deadline": {
+                "$ref": "#/$defs/duration"
+              },
+              "invocation_count": {
+                "maximum": 2,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "invocation_timeouts": {
+                "$ref": "#/$defs/duration"
+              },
+              "provider_instance": {
+                "pattern": "^[a-z][a-z0-9_-]{0,127}$",
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/$defs/role"
+              },
+              "transition_count": {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "role",
+              "provider_instance",
+              "invocation_count",
+              "transition_count",
+              "invocation_timeouts",
+              "deadline"
+            ],
+            "type": "object"
+          },
+          "maxItems": 7,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "run_deadline": {
+          "$ref": "#/$defs/duration"
+        },
+        "total_invocations": {
+          "maximum": 14,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "eligible",
+        "reason_code",
+        "max_active_lanes",
+        "total_invocations",
+        "critical_path_deadline",
+        "run_deadline",
+        "ceilings",
+        "role_paths"
+      ],
+      "type": "object"
+    },
+    "candidate_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "capabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "capture_identity": {
+          "const": ""
+        },
+        "composite_evidence": {
+          "const": ""
+        },
+        "execution_guard": {
+          "const": ""
+        },
+        "finding_details": {
+          "const": ""
+        },
+        "finding_pages": {
+          "const": ""
+        },
+        "indexed_evidence": {
+          "const": ""
+        },
+        "inspection": {
+          "const": ""
+        },
+        "live_source": {
+          "const": "v1"
+        },
+        "project_binding": {
+          "enum": [
+            "",
+            "v1"
+          ]
+        },
+        "report_content": {
+          "const": ""
+        },
+        "source_evidence": {
+          "const": ""
+        }
+      },
+      "required": [
+        "capture_identity",
+        "composite_evidence",
+        "execution_guard",
+        "finding_details",
+        "finding_pages",
+        "indexed_evidence",
+        "inspection",
+        "project_binding",
+        "report_content",
+        "live_source",
+        "source_evidence"
+      ],
+      "type": "object"
+    },
+    "configuration_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "project_binding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "const": ""
+        }
+      ]
+    },
+    "qualification": {
+      "const": "not_run"
+    },
+    "read_plan": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/path"
+          },
+          "side": {
+            "enum": [
+              "before",
+              "after",
+              "worktree",
+              "index"
+            ]
+          }
+        },
+        "required": [
+          "side",
+          "path"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "mulgae-review-preflight.v8"
+    },
+    "source_identity_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "status": {
+      "enum": [
+        "eligible",
+        "no_change"
+      ]
+    },
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "base_oid": {
+          "pattern": "^(?:|[0-9a-f]{40}|[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "empty_base": {
+          "type": "boolean"
+        },
+        "head_oid": {
+          "pattern": "^(?:|[0-9a-f]{40}|[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "operand": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "mulgae-live-source.v1"
+        },
+        "scope": {
+          "enum": [
+            "workspace",
+            "stage",
+            "head",
+            "commit",
+            "diff"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "operand",
+        "base_oid",
+        "head_oid",
+        "empty_base"
+      ],
+      "type": "object"
+    },
+    "transmissions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "configured_timeout": {
+            "$ref": "#/$defs/duration"
+          },
+          "permission_mode": {
+            "const": "read_only"
+          },
+          "provider_family": {
+            "enum": [
+              "zcode",
+              "grok",
+              "codex"
+            ]
+          },
+          "provider_instance": {
+            "pattern": "^[a-z][a-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/$defs/role"
+          },
+          "route_kind": {
+            "const": "primary"
+          },
+          "target_channel": {
+            "const": "native_source"
+          }
+        },
+        "required": [
+          "role",
+          "route_kind",
+          "provider_instance",
+          "provider_family",
+          "configured_timeout",
+          "permission_mode",
+          "target_channel"
+        ],
+        "type": "object"
+      },
+      "maxItems": 7,
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "capabilities",
+    "project_binding",
+    "configuration_sha256",
+    "source_identity_sha256",
+    "target",
+    "candidate_count",
+    "status",
+    "qualification",
+    "warnings",
+    "read_plan",
+    "transmissions",
+    "budget"
+  ],
+  "title": "Mulgae Review Preflight v8",
+  "type": "object"
+}
