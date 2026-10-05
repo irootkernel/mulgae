@@ -14,6 +14,26 @@ This supersedes the future execution order and capture-dependent EPIC-008
 assumptions below. It preserves the accepted EPIC-007 implementation and historical
 rationale. See [live workspace and Git review](../specs/live-workspace-and-git-review.md).
 
+### Live provider protection decision
+
+EPIC-009's native boundary probes showed that planning modes and permission
+responses alone did not establish the required filesystem denials. Grok's
+custom `read_only` entries permitted source, Git and shared-guide writes in a
+kernel fixture while its credential denial remained active. ZCode's plan-mode
+Bash tool also read protected credential text. These observations ruled out
+native-only enforcement for those two providers.
+
+ZCode and Grok therefore require Mulgae's outer Seatbelt launch guard for live
+review and extraction. Grok uses `--sandbox off` inside that guard because
+nested sandbox initialization fails before a session starts. ZCode retains its
+private short socket directory as a bounded writable exception. Codex keeps
+its native read-only policy and explicit credential-root denials. The guard's
+containment claim covers the declared protected roots; ordinary network access,
+reads outside credential roots and unrelated same-user processes remain outside
+that claim. Current behavior and limits are owned by the
+[security specification](../specs/security.md) and
+[live execution specification](../specs/live-workspace-and-git-review.md).
+
 ## Context
 
 The adopted work combines four improvements: verified public inspection,

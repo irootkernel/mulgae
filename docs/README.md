@@ -40,8 +40,9 @@ evidence. Its canonical outcomes are linked from
 [EPIC-007](roadmap/README.md#epic-007-verified-review-contracts).
 
 Current public execution follows [live workspace and Git review](specs/live-workspace-and-git-review.md)
-for EPIC-009. Its [dossier](todo/EPIC-009-live-workspace-and-git-review.md) develops
-snapshot-free source access, neutral reviewer execution, compatibility, and verification.
+for EPIC-009. [Contracts](specs/contracts.md), [security](specs/security.md),
+[architecture](architecture/README.md), and [verification guidance](implementation-tips/README.md)
+describe the implemented model and its limits.
 
 [Review completeness and iteration](specs/review-completeness-and-iteration.md)
 and its [EPIC-008 dossier](todo/EPIC-008-review-completeness-and-iteration.md)

@@ -43,8 +43,8 @@ root.
 | `internal/app/{query,report,clean,export}` | Inspection and artifact lifecycle |
 | `internal/domain` | IDs, findings, failures, states, roles, immutable values |
 | `internal/ports` | Interfaces and safe values crossing application boundaries |
-| `internal/adapters/providercli` | Provider profiles, qualification, credentials, invocation |
-| `internal/adapters/workspace` | Neutral reviewer home, qualification fixtures and descriptor-bound roots |
+| `internal/adapters/providercli` | Provider profiles, qualification, credentials, invocation, neutral reviewer home |
+| `internal/adapters/workspace` | Qualification fixtures and descriptor-bound roots |
 | `internal/adapters/filesystem` | Secure project-local storage and publication |
 | `internal/adapters/jsonschema` | Offline Draft 2020-12 validation |
 | `internal/builtin` | Embedded schemas, prompts, examples, and help |
@@ -132,8 +132,9 @@ denies links outside those writable roots. Source and Git trees retain ordinary
 hardlinks. Admission observes cancellation and the request timeout; the runner
 closes the consumed neutral descriptor on every return after request admission.
 
-TASK-038 connects this path to both public transports. Full provider/client
-certification remains TASK-039 work; no snapshot fallback is available.
+CLI and MCP share this execution path. Provider, client, and integrated-gate
+verification follows the [implementation guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics);
+no snapshot fallback is available.
 
 Live evidence verification reads the declared original source side through
 `LiveSourceReader`. A separate proof type binds verified excerpts and selected

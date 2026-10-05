@@ -1,11 +1,10 @@
 # Live workspace and Git review
 
 This specification owns [EPIC-009](../roadmap/README.md#epic-009-live-workspace-and-git-review).
-TASK-038 connects original-source execution to CLI and MCP. TASK-034 through
-TASK-037 own provider feasibility, source access, native restrictions and evidence.
-Complete provider/client/release certification remains TASK-039 work. The
-[execution dossier](../todo/EPIC-009-live-workspace-and-git-review.md) retains
-temporary delivery detail; the roadmap owns lifecycle and acceptance.
+[Contracts](contracts.md), [security](security.md), and [architecture](../architecture/README.md)
+define the implemented public formats and execution boundaries. The
+[verification guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics)
+defines the provider and integrated checks; the roadmap owns lifecycle and acceptance.
 
 ## Review targets
 
@@ -94,12 +93,12 @@ Keep existing artifacts unchanged. Read and export ordinary, child, failed, no-c
 
 ## Requirements and acceptance
 
-- [ ] LWR-001: all five source scopes have the specified candidate semantics without source snapshots.
-- [ ] LWR-002: neutral process/session cwd, explicit shared-guide injection, and isolated credential/scratch homes work together.
-- [ ] LWR-003: all three providers read exact targets, return protocol reports, and cannot mutate source or Git state under the supported review policy.
-- [ ] LWR-004: live evidence limits, project binding, typed failures, result integrity, and attached lifecycle remain honest and usable.
-- [ ] LWR-005: removed execution surfaces fail explicitly; historical inspection, export, and cleanup remain compatible.
-- [ ] LWR-006: capture/replay machinery and its affected assets, configuration, docs, and guidance are removed together at cutover.
-- [ ] LWR-007: exact-binary, client, and real ZCode/Grok/Codex evidence certify the integrated change.
+- [x] LWR-001: all five source scopes have the specified candidate semantics without source snapshots.
+- [x] LWR-002: neutral process/session cwd, explicit shared-guide injection, and isolated credential/scratch homes work together.
+- [x] LWR-003: all three providers read exact targets, return protocol reports, and cannot mutate source or Git state under the supported review policy.
+- [x] LWR-004: live evidence limits, project binding, typed failures, result integrity, and attached lifecycle remain honest and usable.
+- [x] LWR-005: removed execution surfaces fail explicitly; historical inspection, export, and cleanup remain compatible.
+- [x] LWR-006: capture/replay machinery and its affected assets, configuration, docs, and guidance are removed together at cutover.
+- [x] LWR-007: exact-binary, client, and real ZCode/Grok/Codex evidence certify the integrated change.
 
 EPIC-008 is held for redesign against this execution model. This epic adds no requirements-assessment engine, finding tracker, automatic remediation, alternative provider, or platform. Adoption authorizes planning; implementation, installation, configuration, and release retain their separate authorization boundaries.

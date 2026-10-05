@@ -28,13 +28,12 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 | [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
 | [EPIC-008](#epic-008-review-completeness-and-iteration) | Deferred | Redesign requirements assessment, selected-finding rechecks, and comparison after the live-review model is accepted. |
-| [EPIC-009](#epic-009-live-workspace-and-git-review) | In Progress | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
+| [EPIC-009](#epic-009-live-workspace-and-git-review) | Completed | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
 
 ## Adopted execution order
 
-EPIC-007 is complete. Execute **EPIC-009 next** after its separate implementation
-authorization. EPIC-008 and TASK-026 through TASK-033 are Deferred until EPIC-009
-is explicitly accepted and their capture-dependent contracts are redesigned and
+EPIC-007 and EPIC-009 are complete. EPIC-008 and TASK-026 through TASK-033
+remain Deferred until their capture-dependent contracts are redesigned and
 reapproved. Preserve their identities; this hold does not reopen EPIC-007.
 
 Within an executable Epic, run Tasks in table order as independent sequential
@@ -454,14 +453,13 @@ these clarifications do not add Epics, Tasks, or extra live retry campaigns.
 
 ## EPIC-009: Live workspace and Git review
 
-Status: In Progress
+Status: Completed
 
 Depends on: completed EPIC-007; no EPIC-008 dependency.
 
-Detailed SOT: [EPIC-009 development dossier](../todo/EPIC-009-live-workspace-and-git-review.md)
-
-Required Outcomes: [live workspace and Git review](../specs/live-workspace-and-git-review.md).
-These are adopted requirements, not implemented runtime claims.
+Canonical Outcomes: [live workspace and Git review](../specs/live-workspace-and-git-review.md),
+[public contracts](../specs/contracts.md), [security boundaries](../specs/security.md),
+[architecture](../architecture/README.md), and [verification guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics).
 
 Goal: review the original workspace or exact Git target without source snapshots,
 copied checkouts, created worktrees, or full-source replay archives. Keep neutral
@@ -491,14 +489,14 @@ later tasks must not restore snapshots or substitute another provider.
 
 ### Epic acceptance
 
-- [ ] All five selectors use their declared live/index/resolved-Git source semantics.
-- [ ] ZCode, Grok, and Codex use neutral process/session cwd, isolated credential
+- [x] All five selectors use their declared live/index/resolved-Git source semantics.
+- [x] ZCode, Grok, and Codex use neutral process/session cwd, isolated credential
       and scratch homes, explicit guide injection, and proven read-only restrictions.
-- [ ] New reviews create no source snapshots, copied checkouts, worktrees, or
+- [x] New reviews create no source snapshots, copied checkouts, worktrees, or
       full-source replay archives. Source consistency limits are explicit.
-- [ ] Removed requests fail before provider execution. Old artifacts remain
+- [x] Removed requests fail before provider execution. Old artifacts remain
       unchanged and readable/exportable; cleanup and atomic integrity protections remain.
-- [ ] Exact-binary/client verification, complete make test, and explicit Codex
+- [x] Exact-binary/client verification, complete make test, and explicit Codex
       opt-in certification pass; missing evidence is not acceptance.
-- [ ] Promote durable outcomes, retire the dossier and its index entry, repair
+- [x] Promote durable outcomes, retire the dossier and its index entry, repair
       links, and explicitly accept the epic before recording Completed.

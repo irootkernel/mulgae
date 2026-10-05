@@ -13,9 +13,6 @@ None.
 - [EPIC-008: Review completeness and iteration](EPIC-008-review-completeness-and-iteration.md)
   develops structured requirements review, bounded batch followup, and exact-run
   comparison as a preserved design held for redesign after EPIC-009 acceptance.
-- [EPIC-009: Live workspace and Git review](EPIC-009-live-workspace-and-git-review.md)
-  develops live source access, neutral reviewers, result compatibility, and
-  integrated provider certification.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply

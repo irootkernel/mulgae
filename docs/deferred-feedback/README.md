@@ -80,6 +80,9 @@ work.
   deterministic rejection cases; any production synchronization seam needs
   its own bounded scope. Cover an ignore-matched symlink present before non-
   Git admission and a synchronized successful read round before racing Close.
+  Empty non-Git workspace classification is already directly tested. Re-
+  entry also covers a truly empty HEAD and an end-to-end whole-tree no-change
+  fixture that asserts zero provider calls and the resulting publication.
 
 - `DF-012` MCP startup configuration: production composition supplies all
   tool fields and startup rejects incomplete configuration. Re-entry: before
@@ -165,6 +168,28 @@ work.
   malformed await/cancel IDs with no execution or cancellation, and both tool
   output limits with under/over-boundary controls. Assert the SDK and public
   error contracts actually reached by each case.
+
+- `DF-025` Historical capture facade: `internal/app/reviewrun/capture_identity.go`
+  has no production callers; its manifest wrappers are used only by their own
+  tests. This leaves historical contract tests under orchestration ownership.
+  Re-entry: before changing retained capture manifests, move those assertions
+  to `internal/app/capture`, remove the unused facade and helper, and verify
+  the historical encoding and integrity contracts with focused tests.
+
+- `DF-026` Git hardening maintenance: source and provider adapters duplicate
+  Git denial settings. No unsafe setting or policy divergence was found;
+  each environment deliberately has its own HOME and process defaults. Re-
+  entry: when changing Git hardening policy, check both
+  `internal/adapters/gittarget/runner.go` and
+  `internal/adapters/providercli/live_execution.go` together and verify the
+  effective denial settings without merging context-specific environments.
+
+- `DF-027` Unsupported configuration diagnostics: incompatible configuration
+  versions fail closed with a generic invalid-YAML reason. The documented
+  manual version migration remains valid, but the diagnostic gives little
+  help. Re-entry: at the next configuration-version or Doctor-diagnostic
+  change, distinguish unsupported versions and point to `mulgae help config`.
+  Review compatibility of machine reasons and retain fail-closed admission.
 
 Promote an epic-sized finding to a TODO candidate or an adopted roadmap work
 unit. Do not use this index as a second roadmap or status authority.

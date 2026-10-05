@@ -21,9 +21,9 @@ behavior and durable product contracts.
   snapshot-free targets, neutral reviewer execution, and historical compatibility
   for EPIC-009.
 
-The EPIC-007 checkboxes mark requirements verified by behavior and compatibility
-evidence. The roadmap places EPIC-008 under a redesign hold and EPIC-009 next.
-Unchecked requirements in either specification do not claim implemented behavior.
+Checked requirements in the EPIC-007 and EPIC-009 specifications denote verified
+behavior and compatibility. EPIC-008 remains under a redesign hold; its unchecked
+requirements do not claim implemented behavior.
 The [roadmap](../roadmap/README.md) alone owns Task/Epic lifecycle and execution
 order.
 
