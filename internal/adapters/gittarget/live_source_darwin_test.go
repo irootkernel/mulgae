@@ -1107,6 +1107,10 @@ func TestIntegrationLiveSourceNonGitIgnoreMatchesGit(t *testing.T) {
 		{"empty-patterns", "!\n/\n!/\n! \n/ \n", map[string]string{"kept.txt": "", "nested/kept.txt": ""}},
 		{"classes", "*.[oa]\nfile[0-9].txt\n[!x]note.txt\n", map[string]string{"main.o": "", "main.a": "", "main.c": "", "file2.txt": "", "filex.txt": "", "ynote.txt": "", "xnote.txt": ""}},
 		{"escapes", "\\!important.txt\n\\#notes.txt\nliteral\\*star.txt\n한국.txt\n", map[string]string{"!important.txt": "", "#notes.txt": "", "literal*star.txt": "", "literalXstar.txt": "", "한국.txt": "", "kept.txt": ""}},
+		{"escaped-separator", "vendor\\/local\n", map[string]string{"vendor/local/drop.txt": "", "vendor/other/keep.txt": "", "nested/vendor/local/keep.txt": ""}},
+		{"escaped-directory-separator", "vendor\\/local/\n", map[string]string{"vendor/local/drop.txt": "", "vendor/other/keep.txt": "", "nested/vendor/local/keep.txt": ""}},
+		{"escaped-glob-separator", "vendor\\/**\n", map[string]string{"vendor/local/drop.txt": "", "vendor/other/drop.txt": "", "nested/vendor/local/keep.txt": ""}},
+		{"trailing-escaped-separator", "cache\\/\n", map[string]string{"cache/keep.txt": "", "nested/cache/keep.txt": "", "kept.txt": ""}},
 		{"byte-wildcard", "?.txt\n", map[string]string{"a.txt": "", "é.txt": "", "한국.txt": ""}},
 		{"newline-wildcard", "*.tmp\n?.txt\n", map[string]string{"drop\n.tmp": "", "\n.txt": "", "kept.txt": ""}},
 		{"trailing-spaces", "drop.txt   \n", map[string]string{"drop.txt": "", "keep.txt": ""}},
@@ -1150,6 +1154,34 @@ func TestIntegrationLiveSourceNonGitIgnoreMatchesGit(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("non-Git candidates = %q; Git candidates = %q", got, want)
+			}
+		})
+	}
+}
+
+func TestWorkspaceIgnoreEscapedSeparatorsMatchGit(t *testing.T) {
+	for count := 0; count <= 5; count++ {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			root := t.TempDir()
+			reviewGit(t, root, "init")
+			pattern := "vendor" + strings.Repeat(`\`, count) + "/local"
+			path := "vendor" + strings.Repeat(`\`, count/2) + "/local"
+			writeReviewFile(t, filepath.Join(root, ".gitignore"), pattern+"\n")
+			command := exec.Command("/usr/bin/git", "-c", "core.excludesFile=/dev/null", "check-ignore", "--no-index", "--stdin", "-z")
+			command.Dir, command.Stdin = root, strings.NewReader(path+"\x00")
+			output, err := command.Output()
+			if err != nil {
+				var exit *exec.ExitError
+				if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+					t.Fatal(err)
+				}
+			}
+			rules, err := compileWorkspaceIgnore([]byte(pattern+"\n"), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := workspaceIgnored(path, false, rules), len(output) != 0; got != want {
+				t.Fatalf("pattern %q, path %q: ignored=%t; Git ignored=%t", pattern, path, got, want)
 			}
 		})
 	}

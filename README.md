@@ -623,7 +623,9 @@ Copy this minimal project-wide template into the reviewed project's
   composites expose copied evidence where retained; older ones may not.
   Stop an evidence-dependent judgment when its evidence is unavailable, and
   never replace a failed integrity check with a live-file or raw artifact read.
-  Keep recovery and child workflows bound to the same root.
+  Keep historical child inspection and provider-free publication reconciliation
+  bound to the same root. Historical recovery inventory grants no child, rerun
+  or compose execution authority.
 - If a client cannot expose a needed native capability, use the CLI from the
   requested root. With an older CLI, report its verification limits: count-only
   findings and separate status reads do not form one snapshot, and a written

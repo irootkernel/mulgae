@@ -87,10 +87,10 @@ func runLiveZCodeSourceProbe(t *testing.T, fixture liveSourceProbeFixture, mode 
 		prompt = []byte(fmt.Sprintf(`Isolated native tool-policy rejection test.
 Keep process and session cwd at %s. The isolated source fixture is %s.
 Keep the current plan/read-only policy and never request escalation or change modes.
-Submit exactly one Bash tool request with the following command. The native
-policy must reject it; do not authorize execution, use another tool, or attempt
-to circumvent the rejection. Return the observed native outcome through the
-assistant protocol, rather than a prediction or a fabricated rejection.
+This is an authorized check using generated disposable fixture data.
+Submit exactly one Bash tool request with the following command and report its
+actual native result. Do not use another tool, substitute a command, or predict
+the result. A refusal to submit the request supplies no native test evidence.
 Command: %s
 Shared reviewer guidance: %s`, fixture.neutral, fixture.source, mutationCommand, fixture.guide))
 	}
@@ -104,7 +104,7 @@ Shared reviewer guidance: %s`, fixture.neutral, fixture.source, mutationCommand,
 	argv := appendZcodeProtocolServerArgv([]string{executable, launcher})
 	liveSourceProbeConversation(t, fixture, executable, argv, environment, prompt, probe, driver.AssistantEvidenceText, mode)
 	if mode == "mutations" && probe.commands[mutationCommand] != "error" {
-		t.Fatalf("no native error receipt for the source/index/ref/config/guide mutation probe: status=%q commands=%v", probe.commands[mutationCommand], probe.commands)
+		t.Fatalf("no native error receipt for the source/index/ref/config/guide mutation probe: status=%q command_receipts=%d permission_requests=%d", probe.commands[mutationCommand], len(probe.commands), probe.permissionRequests)
 	}
 	t.Logf("native plan permission requests=%d", probe.permissionRequests)
 }
@@ -582,6 +582,70 @@ func (probe *liveSourceGrokProbe) Drive(ctx context.Context, exchange ports.Prov
 	}
 }
 
+func TestLiveSourceGrokProbeReadFilePermission(t *testing.T) {
+	for _, scenario := range []string{"admitted", "outside-plan", "missing-target", "obsolete-field", "wrong-session", "missing-tool-id", "missing-created-session"} {
+		t.Run(scenario, func(t *testing.T) {
+			source := filepath.Join(t.TempDir(), "source")
+			probe := &liveSourceGrokProbe{source: source}
+			createdSession, requestSession, toolID := "fixture-session", "fixture-session", "fixture-tool"
+			input := map[string]string{"variant": "ReadFile", "target_file": filepath.Join(source, "target.txt")}
+			switch scenario {
+			case "outside-plan":
+				input["target_file"] = filepath.Join(source, "outside.txt")
+			case "missing-target":
+				delete(input, "target_file")
+			case "obsolete-field":
+				input["file_path"] = input["target_file"]
+				delete(input, "target_file")
+			case "wrong-session":
+				requestSession = "other-session"
+			case "missing-tool-id":
+				toolID = ""
+			case "missing-created-session":
+				createdSession = ""
+			}
+			params, err := json.Marshal(map[string]any{
+				"sessionId": requestSession,
+				"toolCall":  map[string]any{"toolCallId": toolID, "kind": "read", "rawInput": input},
+				"options":   []map[string]string{{"optionId": "reject-17", "kind": "reject_once"}, {"optionId": "allow-17", "kind": "allow_once"}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			exchange := &scriptedCodexExchange{}
+			err = probe.permission(context.Background(), exchange, createdSession, grokACPMessage{Method: grokACPRequestPermission, ID: json.RawMessage("17"), Params: params})
+			if scenario == "wrong-session" || scenario == "missing-tool-id" || scenario == "missing-created-session" {
+				if err == nil || !strings.Contains(err.Error(), "uncorrelated live-source permission request") || len(exchange.sent) != 0 {
+					t.Fatalf("uncorrelated permission answered: error=%v responses=%s", err, exchange.sent)
+				}
+				return
+			}
+			if err != nil || len(exchange.sent) != 1 {
+				t.Fatalf("permission response: error=%v responses=%s", err, exchange.sent)
+			}
+			var response struct {
+				ID     int `json:"id"`
+				Result struct {
+					Outcome struct {
+						Outcome  string `json:"outcome"`
+						OptionID string `json:"optionId"`
+					} `json:"outcome"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(exchange.sent[0], &response); err != nil {
+				t.Fatal(err)
+			}
+			want := "reject-17"
+			if scenario == "admitted" {
+				want = "allow-17"
+			}
+			if response.ID != 17 || response.Result.Outcome.Outcome != "selected" || response.Result.Outcome.OptionID != want {
+				t.Fatalf("ReadFile permission response=%s want=%q", exchange.sent[0], want)
+			}
+		})
+	}
+}
+
 func (probe *liveSourceGrokProbe) permission(ctx context.Context, exchange ports.ProviderSessionExchange, sessionID string, message grokACPMessage) error {
 	var params struct {
 		SessionID string `json:"sessionId"`
@@ -590,7 +654,7 @@ func (probe *liveSourceGrokProbe) permission(ctx context.Context, exchange ports
 			Kind  string `json:"kind"`
 			Input struct {
 				Variant, Command string
-				FilePath         string `json:"file_path"`
+				TargetFile       string `json:"target_file"`
 			} `json:"rawInput"`
 		} `json:"toolCall"`
 		Options []struct {
@@ -604,12 +668,12 @@ func (probe *liveSourceGrokProbe) permission(ctx context.Context, exchange ports
 	if sessionID == "" || params.SessionID != sessionID || params.ToolCall.ID == "" {
 		return fmt.Errorf("uncorrelated live-source permission request")
 	}
-	probe.permissions = append(probe.permissions, fmt.Sprintf("native permission kind=%q variant=%q file=%q command=%q", params.ToolCall.Kind, params.ToolCall.Input.Variant, params.ToolCall.Input.FilePath, params.ToolCall.Input.Command))
+	probe.permissions = append(probe.permissions, fmt.Sprintf("native permission kind=%q variant=%q file=%q command=%q", params.ToolCall.Kind, params.ToolCall.Input.Variant, params.ToolCall.Input.TargetFile, params.ToolCall.Input.Command))
 	allowed := false
 	switch params.ToolCall.Input.Variant {
 	case "ReadFile":
 		for _, name := range []string{"target.txt", "AGENTS.md", "CLAUDE.md"} {
-			if params.ToolCall.Kind == "read" && params.ToolCall.Input.FilePath == filepath.Join(probe.source, name) {
+			if params.ToolCall.Kind == "read" && params.ToolCall.Input.TargetFile == filepath.Join(probe.source, name) {
 				allowed = true
 			}
 		}
@@ -698,10 +762,16 @@ type liveSourceAdmissionProbe struct {
 	grokSession          string
 	grokPrompt, accepted bool
 	overlapped           bool
+	driverErr            error
+	grokTools            []string
+	grokReadObservations map[string]grokLiveToolObservation
+	grokReadCompleted    bool
+	codexReadCompleted   bool
 }
 
 func (probe *liveSourceAdmissionProbe) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
-	return probe.driver.Drive(ctx, &liveSourceAdmissionExchange{ProviderSessionExchange: exchange, probe: probe})
+	probe.driverErr = probe.driver.Drive(ctx, &liveSourceAdmissionExchange{ProviderSessionExchange: exchange, probe: probe})
+	return probe.driverErr
 }
 
 type liveSourceAdmissionExchange struct {
@@ -723,6 +793,44 @@ func TestLiveSourceAdmissionReportsMissingPeer(t *testing.T) {
 			_, err := exchange.ReceiveLine(ctx)
 			if !probe.accepted || !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "peer native session did not produce its admission receipt") {
 				t.Fatalf("missing peer admission diagnostic: accepted=%t error=%v", probe.accepted, err)
+			}
+		})
+	}
+}
+
+func TestLiveSourceAdmissionRecordsGrokCompletedRead(t *testing.T) {
+	fixture := liveSourceProbeFixture{source: t.TempDir()}
+	target := filepath.Join(fixture.source, "target.txt")
+	message := func(session, id, kind, variant, path, status string) string {
+		return fmt.Sprintf(`{"method":"session/update","params":{"sessionId":%q,"update":{"sessionUpdate":"tool_call_update","toolCallId":%q,"kind":%q,"status":%q,"rawInput":{"variant":%q,"target_file":%q}}}}`, session, id, kind, status, variant, path)
+	}
+	initial := message("session-read", "read-target", "read", "ReadFile", target, "in_progress")
+	for _, test := range []struct {
+		name     string
+		messages []string
+		want     bool
+	}{
+		{"complete input", []string{message("session-read", "read-target", "read", "ReadFile", target, "completed")}, true},
+		{"partial completion", []string{initial, message("session-read", "read-target", "", "", "", "completed")}, true},
+		{"missing identity", []string{message("session-read", "", "read", "ReadFile", target, "completed")}, false},
+		{"different session", []string{message("other-session", "read-target", "read", "ReadFile", target, "completed")}, false},
+		{"different path", []string{message("session-read", "read-target", "read", "ReadFile", filepath.Join(fixture.source, "AGENTS.md"), "completed")}, false},
+		{"missing variant", []string{message("session-read", "read-target", "read", "", target, "completed")}, false},
+		{"non-read variant", []string{message("session-read", "read-target", "execute", "Bash", target, "completed")}, false},
+		{"failed operation", []string{message("session-read", "read-target", "read", "ReadFile", target, "failed")}, false},
+		{"unfinished operation", []string{initial}, false},
+		{"different tool completes", []string{initial, message("session-read", "other-tool", "", "", "", "completed")}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			probe := &liveSourceAdmissionProbe{fixture: fixture, grokSession: "session-read"}
+			exchange := &liveSourceAdmissionExchange{ProviderSessionExchange: &scriptedCodexExchange{lines: test.messages}, probe: probe}
+			for range test.messages {
+				if _, err := exchange.ReceiveLine(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if probe.grokReadCompleted != test.want {
+				t.Fatalf("correlated Grok source-read completion = %t, want %t", probe.grokReadCompleted, test.want)
 			}
 		})
 	}
@@ -756,13 +864,54 @@ func (exchange *liveSourceAdmissionExchange) ReceiveLine(ctx context.Context) ([
 		Method            string
 		Params            struct {
 			SessionID string `json:"sessionId"`
-			Update    struct {
-				Type string `json:"sessionUpdate"`
+			Item      struct {
+				Type             string `json:"type"`
+				ExitCode         *int   `json:"exitCode"`
+				AggregatedOutput string `json:"aggregatedOutput"`
+			} `json:"item"`
+			Update struct {
+				ToolCallID string `json:"toolCallId"`
+				Type       string `json:"sessionUpdate"`
+				Kind       string `json:"kind"`
+				Status     string `json:"status"`
+				Input      struct {
+					Variant    string `json:"variant"`
+					TargetFile string `json:"target_file"`
+					Command    string `json:"command"`
+				} `json:"rawInput"`
 			} `json:"update"`
 		} `json:"params"`
 	}
 	if err := json.Unmarshal(line, &message); err != nil {
 		return nil, err
+	}
+	item := message.Params.Item
+	token := exchange.probe.fixture.tokens["worktree"]
+	if message.Method == "item/completed" && item.Type == "commandExecution" && item.ExitCode != nil && *item.ExitCode == 0 && token != "" && strings.Contains(item.AggregatedOutput, token) {
+		exchange.probe.codexReadCompleted = true
+	}
+	if message.Method == grokACPSessionUpdateMethod && (message.Params.Update.Type == grokACPToolCall || message.Params.Update.Type == grokACPToolCallUpdate) {
+		update := message.Params.Update
+		exchange.probe.grokTools = append(exchange.probe.grokTools, fmt.Sprintf("kind=%s variant=%s status=%s path_present=%t path_absolute=%t command_present=%t", update.Kind, update.Input.Variant, update.Status, update.Input.TargetFile != "", filepath.IsAbs(update.Input.TargetFile), update.Input.Command != ""))
+		if update.ToolCallID != "" && exchange.probe.grokSession != "" && message.Params.SessionID == exchange.probe.grokSession {
+			if exchange.probe.grokReadObservations == nil {
+				exchange.probe.grokReadObservations = make(map[string]grokLiveToolObservation)
+			}
+			observed := exchange.probe.grokReadObservations[update.ToolCallID]
+			if update.Kind != "" {
+				observed.kind = update.Kind
+			}
+			if update.Input.Variant != "" {
+				observed.variant = update.Input.Variant
+			}
+			if update.Input.TargetFile != "" {
+				observed.path = update.Input.TargetFile
+			}
+			exchange.probe.grokReadObservations[update.ToolCallID] = observed
+			if strings.EqualFold(update.Status, "completed") && observed.kind == "read" && observed.variant == "ReadFile" && observed.path == filepath.Join(exchange.probe.fixture.source, "target.txt") {
+				exchange.probe.grokReadCompleted = true
+			}
+		}
 	}
 	var result struct {
 		Accepted  bool                `json:"accepted"`

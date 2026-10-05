@@ -190,6 +190,9 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 		if err != nil {
 			return Result{}, projectAdmissionFailure(err)
 		}
+		if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationStarted, "qualification", "admit", ""); err != nil {
+			return Result{}, err
+		}
 		qualified, err = service.dependencies.Authority.NewQualifiedLiveRun(ctx, execution, request.Selection)
 		if nilInterface(qualified) {
 			if owner, ok := CleanupOwnerFromError(err); ok {
@@ -199,18 +202,47 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 			}
 		}
 		if err != nil {
+			for _, observation := range qualificationObservationsFromError(err) {
+				if diagnosticErr := diagnostics.observeQualificationCandidate(ctx, observation); diagnosticErr != nil {
+					return Result{}, diagnosticErr
+				}
+			}
+			if diagnosticErr := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationRejected, "qualification", "admit", ""); diagnosticErr != nil {
+				return Result{}, diagnosticErr
+			}
 			return Result{}, err
 		}
 		if nilInterface(qualified) || nilInterface(qualified.Provider()) || qualified.BuildIdentity() != service.dependencies.Build {
+			if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationRejected, "qualification", "admit", ""); err != nil {
+				return Result{}, err
+			}
 			return Result{}, fmt.Errorf("live review: malformed qualified authority")
+		}
+		if source, ok := qualified.(interface {
+			QualificationObservations() []ProviderQualificationObservation
+		}); ok {
+			for _, observation := range source.QualificationObservations() {
+				if err := diagnostics.observeQualificationCandidate(ctx, observation); err != nil {
+					return Result{}, err
+				}
+			}
 		}
 		planner := qualified.Planner()
 		if nilInterface(planner) {
+			if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationRejected, "qualification", "admit", ""); err != nil {
+				return Result{}, err
+			}
 			return Result{}, fmt.Errorf("live review: qualified role planner unavailable")
 		}
 		qualifiedPlan, err := planner.PlanSelectedRoles(ctx, request.Selection.Roles())
 		if err != nil || !reflect.DeepEqual(qualifiedPlan, plan) {
+			if diagnosticErr := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationRejected, "qualification", "admit", ""); diagnosticErr != nil {
+				return Result{}, diagnosticErr
+			}
 			return Result{}, errors.Join(fmt.Errorf("live review: qualified plan differs from admitted plan"), err)
+		}
+		if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationSucceeded, "qualification", "admit", ""); err != nil {
+			return Result{}, err
 		}
 		runIDs, err := newRunIdentityAuthority(service.dependencies.Clock, service.dependencies.IDs)
 		if err != nil {

@@ -5,6 +5,7 @@ package providercli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,7 +75,11 @@ func TestLiveNeutralCredentialBoundary(t *testing.T) {
 			observation, err := registry.Observe(ctx, invocation)
 			fixture.assertUnchanged(t)
 			if observation.Invocation().ProviderInstance() != instance {
-				t.Fatal("credential failure lost provider identity")
+				var invariant *ports.ProviderObservationInvariantError
+				if errors.As(err, &invariant) {
+					t.Fatalf("credential failure lost provider identity: attempted=%t invariant_status=%s invariant_cause=%s termination=%s error=%v", receipt.attempted, invariant.Status(), invariant.Cause(), invariant.ProcessObservation().Termination(), invariant)
+				}
+				t.Fatalf("credential failure lost provider identity: attempted=%t error_type=%T", receipt.attempted, err)
 			}
 			result, hasResult := observation.Result()
 			if hasResult && strings.Contains(string(result.Stdout()), secret) {
@@ -82,7 +87,7 @@ func TestLiveNeutralCredentialBoundary(t *testing.T) {
 			}
 			if family == FamilyGrok {
 				if !receipt.attempted || observation.Status() != ports.ProviderExecutionStatusAuthentication || observation.DiagnosticCode() != "provider_permission_denied" {
-					t.Fatalf("closed live permission gate did not deny fixture credential command: status=%s error=%v", observation.Status(), err)
+					t.Fatalf("closed live permission gate did not deny fixture credential command: status=%s attempted=%t permission_requests=%d tool_notifications=%d diagnostic=%s error=%v", observation.Status(), receipt.attempted, receipt.permissionRequests, receipt.toolNotifications, observation.DiagnosticCode(), err)
 				}
 				return
 			}
@@ -100,6 +105,8 @@ type liveCredentialReceipt struct {
 	family, command, secret string
 	attempted, denied       bool
 	detail                  string
+	permissionRequests      int
+	toolNotifications       int
 }
 
 type liveCredentialRunner struct {
@@ -150,7 +157,10 @@ func (exchange *liveCredentialExchange) ReceiveLine(ctx context.Context) ([]byte
 		Method string
 		Params struct {
 			ToolCall struct{ RawInput struct{ Command string } }
-			Update   struct{ RawInput struct{ Command string } }
+			Update   struct {
+				SessionUpdate string
+				RawInput      struct{ Command string }
+			}
 		}
 		Result struct {
 			Messages []struct {
@@ -169,6 +179,14 @@ func (exchange *liveCredentialExchange) ReceiveLine(ctx context.Context) ([]byte
 		return line, err
 	}
 	receipt := exchange.receipt
+	if receipt.family == FamilyGrok {
+		if message.Method == grokACPRequestPermission && len(message.ID) != 0 {
+			receipt.permissionRequests++
+		}
+		if message.Method == grokACPSessionUpdateMethod && (message.Params.Update.SessionUpdate == grokACPToolCall || message.Params.Update.SessionUpdate == grokACPToolCallUpdate) {
+			receipt.toolNotifications++
+		}
+	}
 	if receipt.family == FamilyCodex && string(message.ID) == "2" {
 		if err := exchange.probeCodexKernel(ctx); err != nil {
 			return nil, err

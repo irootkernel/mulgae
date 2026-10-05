@@ -173,10 +173,10 @@ examples.
 
 ## Execution budgets and failure reduction
 
-Configuration v2 retains `resources.max_active_lanes` as the explicit number of
+Config v5 retains `resources.max_active_lanes` as the explicit number of
 provider invocations one Mulgae process may run at once. It is not a provider
-identity and does not coordinate another process or project. Machine command
-and review-preflight v2 documents describe execution as
+identity and does not coordinate another process or project. Current
+command-result v19 and review-preflight v8 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
@@ -906,17 +906,23 @@ the mismatch and fails before prompting. The verified ACP contract does not
 publish a model/effort compatibility catalog, so an unsupported-combination
 case is not separately defined.
 
-Review and child-run qualification preserve private request packets and nonempty
+Review qualification preserves private request packets and nonempty
 version/capability stdout and stderr under the diagnostic run before fixture
 cleanup. Runtime events retain process exit/termination facts and typed rejection
 causes, including empty responses. The existing secure writer screens these
 streams; rejected content is dropped with metadata, never copied into public
 command output or exports. Each retry has its own qualification attempt directory.
-A child command allocates its diagnostic run identity before qualification and
-hands the same sink to execution on success. Qualification failure leaves a
-terminal diagnostic-only run referenced by the reason's `artifact_uri`; child
-result identities and publication artifact URIs remain null. No manifest or P2
-publication authority is created by that diagnostic identity.
+Nonempty live reviews record qualification start, ordered candidate outcomes and
+one success event after the qualified plan matches the admitted plan. Rejected
+qualification records its safe candidate outcomes and rejection event. Failure
+to persist these events stops execution and publication. No-change reviews do
+not qualify providers or record qualification events.
+
+Historical child-command diagnostics retain the identity allocated before
+qualification and the sink shared with execution on success. A failed historical
+qualification has a terminal diagnostic-only run referenced by the reason's
+`artifact_uri`; child result identities and publication artifact URIs are null.
+That diagnostic identity grants no manifest or P2 publication authority.
 
 Current qualification is family/runtime-profile scoped within one command:
 Mulgae performs one version-plus-capability probe per distinct provider family
@@ -1163,8 +1169,11 @@ index before chunking.
 
 `excerpt` accepts `--evidence-index N` (zero-based, 0 through 19) and the native
 content selectors. Supplying any new selector chooses receipt-bound chunk
-output; a legacy invocation retains its existing excerpt result and human
-output. Exactly one target digest or live source-identity digest is required.
+output; a legacy invocation retains its existing excerpt result and ordinary
+human formatting. Human CLI views render C0 controls other than line feed and
+tab, DEL and C1 controls as visible hexadecimal escapes. JSON content and base64
+excerpt projections preserve exact evidence bytes. Exactly one target digest or
+live source-identity digest is required.
 An unbound index is invalid; a
 historical item without retained support is `evidence_unavailable`, and missing
 or damaged bound support is an integrity failure. Composite reports label each

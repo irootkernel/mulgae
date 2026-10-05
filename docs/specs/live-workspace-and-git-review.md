@@ -58,6 +58,14 @@ required outer guard because nested initialization fails. Codex keeps its
 native read-only profile and explicit credential-root denials. These public
 routes have no unguarded fallback or provider substitution.
 
+For live review conversations, Grok correlates streamed tool inputs by native
+tool identity and validates completed and failed operations against the exact
+read plan before accepting a report. This check also applies when the provider
+omits a permission request.
+Partial inputs grant no authority; missing identity, complete input or terminal
+operation evidence fails closed. Structured extraction receives no review
+read plan; its filesystem access remains subject to the outer guard.
+
 The outer guard permits reads outside the declared credential roots and
 network access outside protected Unix socket paths. It is not a global read or
 network allowlist. ZCode's native Bash tool does not have Grok's exact-command

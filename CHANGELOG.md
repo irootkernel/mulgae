@@ -9,6 +9,14 @@ This file records concise shipped outcomes and the planned next stable release.
 - Review original workspace, index and Git sources through CLI/MCP with neutral read-only execution and independent project binding,
   requiring manual Config v5 migration and retiring capture-bound selectors and child/replay/compose execution while preserving historical reads, exports and publication reconciliation.
 
+### Fixed
+
+- Preserve provider qualification lifecycle events and safe candidate outcomes in live review diagnostics, and stop execution when those records cannot be saved.
+- Reject Grok live reports when a completed native tool operation falls outside the read plan or its correlated input or completion is missing.
+- Honor escaped interior separators in non-Git workspace `.gitignore` rules so candidate selection matches Git.
+- Report verified Git checkouts without a first commit correctly in doctor.
+- Escape terminal controls in human CLI output and reject bare GitHub, Slack and secret-key tokens before redacted export packaging.
+
 ## v0.1.24 - 2026-09-29
 
 ### Added

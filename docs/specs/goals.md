@@ -83,15 +83,18 @@ compatibility shim.
 
 ## Adopted extensions
 
-The adopted delivery sequence has two Epics, with status owned by the
+The adopted delivery sequence is owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order):
 
-- [Verified review contracts](verified-review-contracts.md) provides native project
-  identity, guarded preflight, coherent result inspection, and self-contained
-  composite evidence without private artifact parsing.
+- [Verified review contracts](verified-review-contracts.md) records EPIC-007's
+  project binding, capture-bound admission, coherent inspection, and
+  self-contained composite evidence. Current readers preserve its historical
+  support and integrity rules.
+- [Live workspace and Git review](live-workspace-and-git-review.md) owns current
+  original-source execution through CLI and MCP.
 - [Review completeness and iteration](review-completeness-and-iteration.md)
-  will add explicit requirement assessments, selected-finding batch followup, and
-  provider-free comparison on top of the accepted first Epic.
+  is deferred until EPIC-009 acceptance and a separately approved redesign of
+  its capture-dependent requirements.
 
 EPIC-007 is implemented; EPIC-008 requirements do not describe current binary
 capabilities. Normal review remains usable without a structured Brief. A future

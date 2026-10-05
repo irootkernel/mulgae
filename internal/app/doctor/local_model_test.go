@@ -72,3 +72,25 @@ func validLocalDoctorResult() LocalDoctorResult {
 		Readiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, ConfiguredReadiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, RoleRouteReadiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, Diagnostics: []LocalDiagnostic{},
 	}
 }
+
+func TestLocalDoctorResultValidatesEmptyCheckoutIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name, head string
+		commits    []string
+		valid      bool
+	}{
+		{"committed", "head", []string{"head"}, true},
+		{"verified unborn", "", []string{}, true},
+		{"nil commits", "", nil, false},
+		{"unborn with fabricated commit", "", []string{"head"}, false},
+		{"committed without applicable commit", "head", []string{}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := validLocalDoctorResult()
+			result.Config.CheckoutHeadOID, result.Config.TargetCommitOIDs = test.head, test.commits
+			if err := result.Validate(); (err == nil) != test.valid {
+				t.Fatalf("valid = %t, want %t; error = %v", err == nil, test.valid, err)
+			}
+		})
+	}
+}

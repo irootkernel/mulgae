@@ -111,6 +111,11 @@ outer Seatbelt policy for both live review and extraction. It denies source,
 Git and guide writes and credential reads, writes and links. It also denies
 Unix socket access at all protected roots and permits writes to `/dev/null`.
 Grok runs with its own sandbox off inside this mandatory guard.
+For live review conversations, its ACP adapter retains partial tool inputs by
+native identity and validates completed operations and final turn acceptance
+against the read plan, including operations that failed or bypassed the
+permission-request handshake.
+Structured extraction uses the outer guard without review read-plan correlation.
 ZCode also admits its existing private short socket directory by canonical
 identity; protected denials override writable-root overlap. Codex retains its
 native read-only profile with explicit credential-root denial. These controls

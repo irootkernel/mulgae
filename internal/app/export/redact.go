@@ -25,7 +25,7 @@ var (
 	canonicalPathPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$`)
 	findingIDPattern     = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,63}$`)
 	absolutePathPattern  = regexp.MustCompile(`(?m)(^|[\s("'])/(?:[^\s"')]+)`)
-	secretPattern        = regexp.MustCompile(`(?i)(?:api[_-]?key|access[_-]?key|secret|token|password|authorization|cookie|x-api-key|client_secret)\s*[:=]\s*[^\s,;]+|\bbearer\s+[a-z0-9._~+/-]+=*|AKIA[0-9A-Z]{16}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----`)
+	secretPattern        = regexp.MustCompile(`(?i)(?:api[_-]?key|access[_-]?key|secret|token|password|authorization|cookie|x-api-key|client_secret)\s*[:=]\s*[^\s,;]+|\bbearer\s+[a-z0-9._~+/-]+=*|AKIA[0-9A-Z]{16}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?-i:(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}|sk_(?:live|test)_[A-Za-z0-9]{20,}))`)
 )
 
 func validateProjection(source VerifiedSourceProjection, options BuildOptions) error {

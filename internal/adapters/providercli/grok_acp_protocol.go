@@ -153,7 +153,7 @@ func (session *grokACPProtocolSession) Drive(ctx context.Context, exchange ports
 			CreateAccepted:    state.sessionCreated,
 			SendAccepted:      state.promptSent,
 			TurnObserved:      state.promptCompleted,
-			MessagesReceived:  state.messageReceived,
+			MessagesReceived:  state.promptCompleted && state.messageReceived,
 			CloseSent:         state.closeSent,
 			CloseAccepted:     state.closeAccepted,
 			ProviderErrorCode: state.providerErrorCode, HasProviderErrorCode: state.hasProviderErrorCode,
@@ -204,6 +204,7 @@ type grokACPConversation struct {
 	workspacePath  string
 	writeAuthority protocolWriteAuthority
 	liveReads      *grokLiveReadAuthority
+	liveTools      map[string]grokLiveToolObservation
 	settings       grokInvocationSettings
 	phase          ports.ProviderSessionPhase
 
@@ -283,6 +284,11 @@ func (state *grokACPConversation) handle(ctx context.Context, exchange ports.Pro
 		if err := state.acceptPrompt(message.Result); err != nil {
 			return true, grokACPFailure(domain.DiagnosticCauseProviderTurnFailed, err)
 		}
+		if state.purpose == protocolPurposeLiveReview {
+			if err := state.finishLiveTools(ctx); err != nil {
+				return true, err
+			}
+		}
 		state.promptCompleted = true
 		if state.purpose != protocolPurposeReview && !state.messageReceived {
 			return true, grokACPFailure(domain.DiagnosticCauseOutputMissing, errors.New("matching assistant message is missing"))
@@ -293,6 +299,11 @@ func (state *grokACPConversation) handle(ctx context.Context, exchange ports.Pro
 	case message.isResponseID(grokACPCloseID):
 		if !state.closeSent || !state.promptCompleted {
 			return true, grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("unexpected close response"))
+		}
+		if state.purpose == protocolPurposeLiveReview {
+			if err := state.finishLiveTools(ctx); err != nil {
+				return true, err
+			}
 		}
 		state.closeAccepted = true
 		return true, nil
@@ -508,9 +519,9 @@ func (state *grokACPConversation) handleNotification(ctx context.Context, exchan
 		}
 	case grokACPToolCall, grokACPToolCallUpdate:
 		var input struct {
-			Variant  string `json:"variant"`
-			FilePath string `json:"file_path"`
-			Command  string `json:"command"`
+			Variant    string `json:"variant"`
+			TargetFile string `json:"target_file"`
+			Command    string `json:"command"`
 		}
 		if len(params.Update.RawInput) != 0 && string(params.Update.RawInput) != "null" {
 			if err := json.Unmarshal(params.Update.RawInput, &input); err != nil {
@@ -523,9 +534,9 @@ func (state *grokACPConversation) handleNotification(ctx context.Context, exchan
 					default:
 						return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("unexpected live ACP tool variant"))
 					}
-					// ACP streams partial tool inputs before the complete permission
-					// request. Notifications grant no execution authority; validate
-					// complete operands only in handleLiveReadPermission.
+					// Partial notifications grant no execution authority. Complete
+					// native operations also require read-plan validation when the
+					// provider omits a permission request.
 				}
 				switch input.Variant {
 				case "ReadFile", "Grep", "ListDir", "Write":
@@ -538,6 +549,11 @@ func (state *grokACPConversation) handleNotification(ctx context.Context, exchan
 				default:
 					return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("unexpected ACP tool variant"))
 				}
+			}
+		}
+		if state.purpose == protocolPurposeLiveReview {
+			if err := state.observeLiveTool(ctx, params.Update.ToolCallID, params.Update.Kind, input.Variant, input.TargetFile, input.Command, params.Update.Status); err != nil {
+				return err
 			}
 		}
 		if params.Update.ToolCallID != "" && len(params.Update.Locations) == 1 {

@@ -23,7 +23,7 @@ import (
 )
 
 func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
-	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage} {
+	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage, domain.LiveSourceHead, domain.LiveSourceCommit, domain.LiveSourceDiff} {
 		t.Run(string(scope), func(t *testing.T) {
 			ctx := context.Background()
 			root := reviewerHomeTestRoot(t)
@@ -52,6 +52,7 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 				}
 			}
 			git("init", "--quiet")
+			git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "Initial")
 			git("add", "target 'quoted'.txt")
 			git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Baseline")
 			write(filepath.Join(project, "target 'quoted'.txt"), "index")
@@ -70,7 +71,13 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 				t.Fatal(err)
 			}
 			projectRoot, _ := ports.NewAnchoredRoot(project)
-			selector, _ := ports.NewLiveSourceSelector(scope, "")
+			operand := ""
+			if scope == domain.LiveSourceCommit {
+				operand = "HEAD"
+			} else if scope == domain.LiveSourceDiff {
+				operand = "HEAD~1..HEAD"
+			}
+			selector, _ := ports.NewLiveSourceSelector(scope, operand)
 			source, err := adapter.OpenLiveSource(ctx, projectRoot, selector)
 			if err != nil {
 				t.Fatal(err)
@@ -84,9 +91,42 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Run("partial-message-failure", func(t *testing.T) {
+				for _, partial := range []bool{false, true} {
+					name := "before-message"
+					if partial {
+						name = "after-partial-message"
+					}
+					t.Run(name, func(t *testing.T) {
+						session := mustGrokSession(t, protocolPurposeLiveReview)
+						session.liveReads = authority
+						lines := []string{grokInitializeResult, grokAuthResult, grokNewResult}
+						if partial {
+							lines = append(lines, `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"partial assistant report"}}}}`)
+						}
+						lines = append(lines, `{"jsonrpc":"2.0","id":"denied-tool","method":"session/request_permission","params":{"sessionId":"session-script","toolCall":{"toolCallId":"denied-tool","kind":"execute","rawInput":{"variant":"Bash","command":"cat /not-in-plan"}},"options":[{"kind":"allow_once","optionId":"allow"}]}}`)
+						driveErr, _ := driveGrokScripted(t, session, lines...)
+						if driveErr == nil || grokCause(t, driveErr) != domain.DiagnosticCausePermissionDenied {
+							t.Fatalf("permission failure = %v", driveErr)
+						}
+						receipt, ok := session.SessionObservation()
+						if !ok || receipt.Terminal() != ports.ProviderSessionFailed || !receipt.Input().CreateAccepted || !receipt.Input().SendAccepted || receipt.Input().TurnObserved || receipt.Input().MessagesReceived {
+							t.Fatalf("incomplete failed session receipt: present=%t receipt=%#v", ok, receipt.Input())
+						}
+						invocation := testInvocation(t, "grok-failed-read")
+						observed, err := ports.NewFailedProtocolProviderExecutionObservationWithCause(ports.ProviderExecutionStatusAuthentication, invocation, protocolTeardownObservation(t, []byte("protocol transcript")), receipt, "provider_permission_denied", domain.DiagnosticCausePermissionDenied, "")
+						if err != nil || observed.Invocation().InputIdentity() != invocation.InputIdentity() || observed.Status() != ports.ProviderExecutionStatusAuthentication || observed.PrimaryCause() != domain.DiagnosticCausePermissionDenied {
+							t.Fatalf("permission failure lost invocation or cause: status=%s cause=%s error=%v", observed.Status(), observed.PrimaryCause(), err)
+						}
+						if _, ok := observed.Result(); ok {
+							t.Fatal("partial failed assistant message became a successful result")
+						}
+					})
+				}
+			})
 			for _, variant := range []string{"ReadFile", "Bash"} {
 				state := grokACPConversation{purpose: protocolPurposeLiveReview, liveReads: authority, sessionID: "fixture-session", sessionCreated: true, toolVariants: make(map[string]bool)}
-				params, err := json.Marshal(map[string]any{"sessionId": state.sessionID, "update": map[string]any{"sessionUpdate": grokACPToolCall, "toolCallId": "fixture-tool", "rawInput": map[string]string{"variant": variant, "file_path": "/partial", "command": "git --no"}}})
+				params, err := json.Marshal(map[string]any{"sessionId": state.sessionID, "update": map[string]any{"sessionUpdate": grokACPToolCall, "toolCallId": "fixture-tool", "rawInput": map[string]string{"variant": variant, "target_file": "/partial", "command": "git --no"}}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -113,10 +153,119 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 			}
 			// Only a complete, correlated permission request may grant one read.
 			variant, kind, path, command := "ReadFile", "read", filepath.Join(project, "target 'quoted'.txt"), ""
-			if scope == domain.LiveSourceStage {
+			if scope != domain.LiveSourceWorkspace {
 				variant, kind, path, command = "Bash", "execute", "", execution.Reads()[0].GitCommand()
 			}
-			for _, scenario := range []string{"admitted", "wrong-session", "missing-tool-id", "missing-allow-once", "outside-plan", "unexpected-method"} {
+			for _, scenario := range []string{"completed", "failed", "outside-plan", "outside-plan-completed", "missing-input", "missing-tool-id", "unfinished", "reopened", "variant-change", "worktree-substitute"} {
+				t.Run("terminal-"+scenario, func(t *testing.T) {
+					state := grokACPConversation{purpose: protocolPurposeLiveReview, liveReads: authority, sessionID: "fixture-session", sessionCreated: true, promptSent: true, toolVariants: make(map[string]bool), messageReceived: true}
+					toolID, file, operand := "fixture-tool", path, command
+					if scenario == "missing-tool-id" {
+						toolID = ""
+					}
+					if strings.HasPrefix(scenario, "outside-plan") {
+						file, operand = filepath.Join(credentials, "auth.txt"), command+"; cat secret"
+					}
+					if scenario == "missing-input" {
+						file, operand = "", ""
+					}
+					inputVariant, inputKind := variant, kind
+					if scenario == "worktree-substitute" {
+						inputVariant, inputKind, file = "ReadFile", "read", filepath.Join(project, "target 'quoted'.txt")
+					}
+					update := func(status string, input bool) error {
+						values := map[string]any{"sessionUpdate": grokACPToolCallUpdate, "toolCallId": toolID, "status": status}
+						if input {
+							values["kind"] = inputKind
+							values["rawInput"] = map[string]string{"variant": inputVariant, "target_file": file, "command": operand}
+						}
+						params, err := json.Marshal(map[string]any{"sessionId": state.sessionID, "update": values})
+						if err != nil {
+							t.Fatal(err)
+						}
+						return state.handleNotification(ctx, nil, grokACPMessage{Method: grokACPSessionUpdateMethod, Params: params})
+					}
+					partial := map[string]string{"target_file": file}
+					if scope != domain.LiveSourceWorkspace {
+						partial = map[string]string{"command": operand}
+					}
+					params, err := json.Marshal(map[string]any{"sessionId": state.sessionID, "update": map[string]any{"sessionUpdate": grokACPToolCall, "toolCallId": toolID, "rawInput": partial}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					err = state.handleNotification(ctx, nil, grokACPMessage{Method: grokACPSessionUpdateMethod, Params: params})
+					if err == nil {
+						err = update("pending", true)
+					}
+					if err == nil {
+						if scenario == "unfinished" {
+							_, err = state.handle(ctx, &scriptedCodexExchange{}, grokACPMessage{ID: json.RawMessage(`"mulgae-session-prompt"`), Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
+						} else {
+							status := "completed"
+							if scenario == "failed" || scenario == "outside-plan" {
+								status = "failed"
+							}
+							if scenario == "variant-change" {
+								inputVariant = "Bash"
+								if variant == "Bash" {
+									inputVariant = "ReadFile"
+								}
+							}
+							err = update(status, scenario == "variant-change")
+							if err == nil && scenario == "reopened" {
+								err = update("pending", false)
+							}
+						}
+					}
+					if scenario == "completed" || scenario == "failed" || (scenario == "worktree-substitute" && scope == domain.LiveSourceWorkspace) {
+						if err == nil {
+							exchange := &scriptedCodexExchange{}
+							_, err = state.handle(ctx, exchange, grokACPMessage{ID: json.RawMessage(`"mulgae-session-prompt"`), Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
+							if err == nil && len(exchange.sent) != 1 {
+								t.Fatal("complete planned read did not reach native close")
+							}
+						}
+						if err != nil {
+							t.Fatalf("exact planned native read rejected: %v", err)
+						}
+					} else if err == nil || grokCause(t, err) != domain.DiagnosticCausePermissionDenied {
+						t.Fatalf("unverified terminal tool admitted: %v", err)
+					}
+					if scenario == "variant-change" && !strings.Contains(err.Error(), "live ACP tool variant changed") {
+						t.Fatalf("variant change lost its correlated rejection: %v", err)
+					}
+				})
+			}
+			for _, status := range []string{"pending", "in_progress", "", "completed", "failed"} {
+				name := status
+				if name == "" {
+					name = "statusless"
+				}
+				t.Run("post-prompt-"+name, func(t *testing.T) {
+					state := grokACPConversation{purpose: protocolPurposeLiveReview, liveReads: authority, sessionID: "fixture-session", sessionCreated: true, promptSent: true, messageReceived: true, toolVariants: make(map[string]bool)}
+					exchange := &scriptedCodexExchange{}
+					done, err := state.handle(ctx, exchange, grokACPMessage{ID: json.RawMessage(`"mulgae-session-prompt"`), Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
+					if err != nil || done || !state.closeSent || len(exchange.sent) != 1 {
+						t.Fatalf("prompt did not request native close: done=%t, error=%v", done, err)
+					}
+					params, err := json.Marshal(map[string]any{"sessionId": state.sessionID, "update": map[string]any{"sessionUpdate": grokACPToolCallUpdate, "toolCallId": "late-tool", "status": status, "kind": kind, "rawInput": map[string]string{"variant": variant, "target_file": path, "command": command}}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := state.handleNotification(ctx, exchange, grokACPMessage{Method: grokACPSessionUpdateMethod, Params: params}); err != nil {
+						t.Fatalf("correlated late tool update rejected: %v", err)
+					}
+					done, err = state.handle(ctx, exchange, grokACPMessage{ID: json.RawMessage(`"mulgae-session-close"`), Result: json.RawMessage(`{}`)})
+					if status == "completed" || status == "failed" {
+						if err != nil || !done || !state.closeAccepted {
+							t.Fatalf("complete late planned read rejected: done=%t, error=%v", done, err)
+						}
+					} else if err == nil || !done || state.closeAccepted || grokCause(t, err) != domain.DiagnosticCausePermissionDenied || !strings.Contains(err.Error(), "live ACP tool completion is missing") {
+						t.Fatalf("incomplete post-prompt tool retained report acceptance: done=%t, accepted=%t, error=%v", done, state.closeAccepted, err)
+					}
+				})
+			}
+			for _, scenario := range []string{"admitted", "wrong-session", "missing-tool-id", "missing-allow-once", "outside-plan", "unexpected-method", "obsolete-field"} {
 				session, toolID, optionKind, operand, method := "fixture-session", "fixture-tool", "allow_once", command, grokACPRequestPermission
 				file := path
 				switch scenario {
@@ -131,7 +280,13 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 				case "unexpected-method":
 					method = "session/arbitrary"
 				}
-				params, err := json.Marshal(map[string]any{"sessionId": session, "toolCall": map[string]any{"toolCallId": toolID, "kind": kind, "rawInput": map[string]string{"variant": variant, "file_path": file, "command": operand}}, "options": []map[string]string{{"optionId": "once-17", "kind": optionKind}}})
+				inputKind := kind
+				rawInput := map[string]string{"variant": variant, "target_file": file, "command": operand}
+				if scenario == "obsolete-field" {
+					inputKind = "read"
+					rawInput = map[string]string{"variant": "ReadFile", "file_path": filepath.Join(project, "target 'quoted'.txt")}
+				}
+				params, err := json.Marshal(map[string]any{"sessionId": session, "toolCall": map[string]any{"toolCallId": toolID, "kind": inputKind, "rawInput": rawInput}, "options": []map[string]string{{"optionId": "once-17", "kind": optionKind}}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -141,6 +296,9 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 				if scenario != "admitted" {
 					if err == nil || len(exchange.sent) != 0 {
 						t.Fatalf("%s permission granted: %v, %s", scenario, err, exchange.sent)
+					}
+					if scenario == "obsolete-field" && grokCause(t, err) != domain.DiagnosticCausePermissionDenied {
+						t.Fatalf("obsolete ReadFile field lost typed denial: %v", err)
 					}
 					continue
 				}
@@ -174,7 +332,7 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 					}
 				}
 				if err := authority.allow(ctx, "read", "ReadFile", filepath.Join(project, "target 'quoted'.txt"), ""); err == nil {
-					t.Fatal("stage admitted worktree substitute")
+					t.Fatal("Git selector admitted worktree substitute")
 				}
 			}
 			for _, test := range []struct{ kind, variant, path, command string }{

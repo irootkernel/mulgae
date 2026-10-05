@@ -172,7 +172,7 @@ func validateConfigProjection(config LocalConfigProjection) error {
 			return fmt.Errorf("local doctor result: invalid drifted config")
 		}
 	case "ready":
-		if config.Locality != "verified" || config.SHA256 == "" || config.CheckoutHeadOID == "" || config.IndexEntriesSHA256 == "" || len(config.TargetCommitOIDs) == 0 || config.NativeHomeIdentity != "verified" || config.ProvenanceState != "accepted" || len(config.ReasonCodes) != 0 {
+		if config.Locality != "verified" || config.SHA256 == "" || config.IndexEntriesSHA256 == "" || config.TargetCommitOIDs == nil || (config.CheckoutHeadOID == "") != (len(config.TargetCommitOIDs) == 0) || config.NativeHomeIdentity != "verified" || config.ProvenanceState != "accepted" || len(config.ReasonCodes) != 0 {
 			return fmt.Errorf("local doctor result: invalid ready config")
 		}
 	default:

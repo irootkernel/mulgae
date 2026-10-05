@@ -19,6 +19,61 @@ type grokLiveReadAuthority struct {
 	gitCommands map[string]bool
 }
 
+type grokLiveToolObservation struct {
+	kind, variant, path, command string
+	terminal                     bool
+}
+
+func (state *grokACPConversation) observeLiveTool(ctx context.Context, id, kind, variant, path, command, status string) error {
+	if id == "" || state.liveReads == nil {
+		return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("uncorrelated live ACP tool operation"))
+	}
+	if state.liveTools == nil {
+		state.liveTools = make(map[string]grokLiveToolObservation)
+	}
+	observed := state.liveTools[id]
+	if observed.terminal && status != "" && !strings.EqualFold(status, "completed") && !strings.EqualFold(status, "failed") {
+		return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("live ACP completed tool was reopened"))
+	}
+	if variant != "" && observed.variant != "" && observed.variant != variant {
+		return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("live ACP tool variant changed"))
+	}
+	if kind != "" {
+		observed.kind = kind
+	}
+	if variant != "" {
+		observed.variant = variant
+	}
+	if path != "" {
+		observed.path = path
+	}
+	if command != "" {
+		observed.command = command
+	}
+	if strings.EqualFold(status, "completed") || strings.EqualFold(status, "failed") {
+		observed.terminal = true
+	}
+	if observed.terminal {
+		if err := state.liveReads.allow(ctx, observed.kind, observed.variant, observed.path, observed.command); err != nil {
+			return grokACPFailure(domain.DiagnosticCausePermissionDenied, fmt.Errorf("live ACP tool operation rejected: %w", err))
+		}
+	}
+	state.liveTools[id] = observed
+	return nil
+}
+
+func (state *grokACPConversation) finishLiveTools(ctx context.Context) error {
+	for _, observed := range state.liveTools {
+		if !observed.terminal {
+			return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("live ACP tool completion is missing"))
+		}
+		if err := state.liveReads.allow(ctx, observed.kind, observed.variant, observed.path, observed.command); err != nil {
+			return grokACPFailure(domain.DiagnosticCausePermissionDenied, fmt.Errorf("live ACP completed tool rejected: %w", err))
+		}
+	}
+	return nil
+}
+
 func newGrokLiveReadAuthority(ctx context.Context, execution ports.LiveReviewExecution) (*grokLiveReadAuthority, error) {
 	if err := execution.Revalidate(ctx); err != nil {
 		return nil, err
@@ -69,9 +124,9 @@ func (state *grokACPConversation) handleLiveReadPermission(ctx context.Context, 
 			ToolCallID string `json:"toolCallId"`
 			Kind       string `json:"kind"`
 			RawInput   struct {
-				Variant  string `json:"variant"`
-				FilePath string `json:"file_path"`
-				Command  string `json:"command"`
+				Variant    string `json:"variant"`
+				TargetFile string `json:"target_file"`
+				Command    string `json:"command"`
 			} `json:"rawInput"`
 		} `json:"toolCall"`
 		Options []struct {
@@ -83,7 +138,7 @@ func (state *grokACPConversation) handleLiveReadPermission(ctx context.Context, 
 		return grokACPFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("uncorrelated live ACP permission request"))
 	}
 	input := params.ToolCall.RawInput
-	if err := state.liveReads.allow(ctx, params.ToolCall.Kind, input.Variant, input.FilePath, input.Command); err != nil {
+	if err := state.liveReads.allow(ctx, params.ToolCall.Kind, input.Variant, input.TargetFile, input.Command); err != nil {
 		return grokACPFailure(domain.DiagnosticCausePermissionDenied, fmt.Errorf("live ACP read permission rejected: %w", err))
 	}
 	for _, option := range params.Options {

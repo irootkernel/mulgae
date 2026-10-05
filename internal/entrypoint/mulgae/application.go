@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/adapters/cli"
 	"github.com/irootkernel/mulgae/internal/app"
@@ -1126,7 +1127,7 @@ type executionFailure struct {
 func (application *Application) renderSuccess(ctx context.Context, invocation Invocation, run execution) Result {
 	if invocation.OutputFormat() == OutputFormatHuman {
 		if run.verbatim {
-			return newResult(run.human, nil, run.exit)
+			return newResult(escapeTerminalControls(run.human), nil, run.exit)
 		}
 		return newResult(terminalOutput(run.human), nil, run.exit)
 	}
@@ -1898,9 +1899,26 @@ func errorResult(exit app.ExitCode, message string) Result {
 }
 
 func terminalOutput(value []byte) []byte {
-	trimmed := bytes.TrimRight(cloneApplicationBytes(value), "\n")
+	trimmed := bytes.TrimRight(escapeTerminalControls(value), "\n")
 	return append(trimmed, '\n')
 }
+
+// escapeTerminalControls changes only human presentation; stored content and
+// machine projections retain their original bytes.
+func escapeTerminalControls(value []byte) []byte {
+	var output bytes.Buffer
+	for len(value) > 0 {
+		character, size := utf8.DecodeRune(value)
+		if character < 0x20 && character != '\n' && character != '\t' || character >= 0x7f && character <= 0x9f {
+			fmt.Fprintf(&output, "\\x%02x", character)
+		} else {
+			output.Write(value[:size])
+		}
+		value = value[size:]
+	}
+	return output.Bytes()
+}
+
 func envelopeContext(ctx context.Context) context.Context {
 	if ctx != nil && ctx.Err() != nil {
 		return context.WithoutCancel(ctx)

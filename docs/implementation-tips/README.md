@@ -288,8 +288,10 @@ in Electron-as-Node mode under the exact boundary, environment and neutral
 directory from production admission. Native child-process receipts verify the
 five write denials and positive source/Git/guide reads and owned scratch writes;
 the normal plan-mode app-server report remains a separate conversation.
-Grok requires its correlated permission rejection plus the
-separate kernel-boundary test. Codex's kernel probe sends sandboxed
+Grok requires a correlated read-plan rejection through its permission handler
+or completed native operation, plus the separate kernel-boundary test. A native
+operation outside the plan must fail report admission even when the kernel
+denies its file access. Codex's kernel probe sends sandboxed
 `command/exec` through the same native server and its unchanged default
 `mulgae` profile before the independently correlated assistant turn. It checks
 real exit codes and direct/alias denials. Model refusal or reported denial alone

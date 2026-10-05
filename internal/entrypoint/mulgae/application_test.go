@@ -5047,3 +5047,41 @@ func assertApplicationRecoveryErrorRedacted(t *testing.T, output []byte) {
 		}
 	}
 }
+
+func TestApplicationDoctorAcceptsVerifiedUnbornCheckout(t *testing.T) {
+	fixture := newFoundationFixture(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runFoundationGit(t, root, "init", "-q")
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
+	result := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
+	assertFoundationEnvelope(t, fixture, result, app.ExitCodeSuccess)
+	var envelope struct {
+		Result struct {
+			Doctor *doctor.LocalDoctorResult `json:"doctor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	diagnosis := envelope.Result.Doctor
+	if diagnosis == nil || diagnosis.Config.Status != "ready" || diagnosis.Config.Locality != "verified" || diagnosis.Config.CheckoutHeadOID != "" || diagnosis.Config.TargetCommitOIDs == nil || len(diagnosis.Config.TargetCommitOIDs) != 0 || diagnosis.Config.IndexEntriesSHA256 == "" {
+		t.Fatal("doctor did not preserve verified unborn locality with an empty JSON array")
+	}
+	raw, err := json.Marshal(diagnosis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.validator.Validate(context.Background(), mustFoundationAssetID(t, doctorResultSchema), raw); err != nil {
+		t.Fatalf("doctor schema: %v", err)
+	}
+	if err := diagnosis.Validate(); err != nil {
+		t.Fatalf("doctor semantics: %v", err)
+	}
+}

@@ -1078,7 +1078,7 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	}
 	head, _ := locality.Checkout()
 	indexDigest, _, _ := locality.Index()
-	base.Config = doctor.LocalConfigProjection{Status: "ready", URI: adapterconfig.ConfigRelativePath, SHA256: identity.SHA256(), Authority: "project_local", Locality: "verified", CheckoutHeadOID: head, IndexEntriesSHA256: indexDigest, TargetCommitOIDs: locality.ApplicableCommitOIDs(), ProvenanceState: "accepted", ReasonCodes: []string{}}
+	base.Config = doctor.LocalConfigProjection{Status: "ready", URI: adapterconfig.ConfigRelativePath, SHA256: identity.SHA256(), Authority: "project_local", Locality: "verified", CheckoutHeadOID: head, IndexEntriesSHA256: indexDigest, TargetCommitOIDs: append([]string{}, locality.ApplicableCommitOIDs()...), ProvenanceState: "accepted", ReasonCodes: []string{}}
 	installed, userErr := adapterenvironment.InstalledUser()
 	installedUID := uint64(0)
 	var installedUIDErr error

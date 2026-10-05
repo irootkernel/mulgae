@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,13 @@ func (authority *integratedLiveAuthority) Planner() ExecutionPlanner {
 	return integratedLivePlanner{authority.plan}
 }
 func (authority *integratedLiveAuthority) BuildIdentity() BuildIdentity { return authority.build }
+func (authority *integratedLiveAuthority) QualificationObservations() []ProviderQualificationObservation {
+	observations := make([]ProviderQualificationObservation, 0, len(authority.plan.Assignments))
+	for _, assignment := range authority.plan.Assignments {
+		observations = append(observations, ProviderQualificationObservation{providerInstance: assignment.ProviderInstance(), outcome: qualificationOutcomeQualified})
+	}
+	return observations
+}
 func (authority *integratedLiveAuthority) DrainTerminal(ctx context.Context) (QualifiedRunTerminalReceipt, error) {
 	if ctx.Err() != nil {
 		return QualifiedRunTerminalReceipt{}, ctx.Err()
@@ -154,11 +162,12 @@ func (publisher *integratedLivePublisher) PublishLiveNextObserved(ctx context.Co
 }
 
 func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *testing.T) {
-	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage, domain.LiveSourceHead, domain.LiveSourceCommit, domain.LiveSourceDiff, "empty-stage", "extraction", "repair", "non-git-workspace"} {
+	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage, domain.LiveSourceHead, domain.LiveSourceCommit, domain.LiveSourceDiff, "empty-stage", "extraction", "repair", "non-git-workspace", "qualification-sink-failure"} {
 		t.Run(string(scope), func(t *testing.T) {
 			mode := ""
 			nonGit := scope == "non-git-workspace"
-			if nonGit {
+			qualificationSinkFailure := scope == "qualification-sink-failure"
+			if nonGit || qualificationSinkFailure {
 				scope = domain.LiveSourceWorkspace
 			}
 			if scope == "extraction" || scope == "repair" {
@@ -253,12 +262,23 @@ func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *tes
 			wire, _ := ports.ParseAssetID(validation.ProviderReviewSchemaID)
 			validator, _ := validation.NewReviewValidator(schema, wire)
 			common, _ := LoadLiveReviewCommon(ctx, catalog)
-			service, err := NewLiveService(LiveDependencies{Sources: integratedLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: clock, IDs: ids, Build: build, Authority: factory, Validator: validator, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: ports.NewInMemoryRuntimeDiagnosticSinkFactory(), Detector: filesystem.NewContentDetector()})
+			calls := []string{}
+			diagnostics := &serviceDiagnosticFactory{calls: &calls}
+			if qualificationSinkFailure {
+				diagnostics.refuseEvent, diagnostics.refusal = domain.DiagnosticQualificationSucceeded, errors.New("private diagnostic storage failure")
+			}
+			service, err := NewLiveService(LiveDependencies{Sources: integratedLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: clock, IDs: ids, Build: build, Authority: factory, Validator: validator, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: filesystem.NewContentDetector()})
 			if err != nil {
 				t.Fatal(err)
 			}
 			selection, _ := NewRunSelection([]domain.Role{domain.RoleLogic}, nil)
 			result, err := service.Execute(ctx, LiveRequest{ProjectRoot: root, ArtifactRoot: artifacts, Target: selector, Selection: selection})
+			if qualificationSinkFailure {
+				if !runtimeDiagnosticPersistenceFailure(err) || !source.closed || !authority.drained || publisher.calls != 0 || provider.calls != 0 || source.reads != 0 || result.Final().Valid() || diagnostics.refusals != 1 {
+					t.Fatalf("qualification persistence failure granted review/publication or lost cleanup: %v", err)
+				}
+				return
+			}
 			if err != nil {
 				for cause := err; cause != nil; cause = errors.Unwrap(cause) {
 					t.Logf("%T: %v", cause, cause)
@@ -267,6 +287,25 @@ func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *tes
 			}
 			if !source.closed || publisher.calls != 1 || !result.Final().Valid() || result.SourceIdentitySHA256() == "" {
 				t.Fatal("missing terminal P2/source authority")
+			}
+			qualificationEvents := []domain.RuntimeDiagnosticEventCode{}
+			for _, input := range diagnostics.inputs {
+				switch input.Event {
+				case domain.DiagnosticQualificationStarted, domain.DiagnosticQualificationSucceeded, domain.DiagnosticQualificationRejected:
+					qualificationEvents = append(qualificationEvents, input.Event)
+				case domain.DiagnosticQualificationCandidateChecked:
+					qualificationEvents = append(qualificationEvents, input.Event)
+					if input.Provider != plan.Assignments[0].ProviderInstance() || input.Outcome != qualificationOutcomeQualified {
+						t.Fatalf("qualification observation lost provider outcome: %+v", input)
+					}
+				}
+			}
+			wantQualification := []domain.RuntimeDiagnosticEventCode{}
+			if !source.Target().NoChange() {
+				wantQualification = []domain.RuntimeDiagnosticEventCode{domain.DiagnosticQualificationStarted, domain.DiagnosticQualificationCandidateChecked, domain.DiagnosticQualificationSucceeded}
+			}
+			if !slices.Equal(qualificationEvents, wantQualification) {
+				t.Fatalf("qualification lifecycle = %v, want %v", qualificationEvents, wantQualification)
 			}
 			if nonGit && result.LiveProjectBinding().String() != "" {
 				t.Fatal("non-Git workspace fabricated a Git binding")

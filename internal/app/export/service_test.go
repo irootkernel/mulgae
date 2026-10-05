@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -637,5 +639,52 @@ func TestExportRedactedRunCancellationAndNoReplaceConflict(t *testing.T) {
 	}
 	if _, err := conflicting.ExportRedactedRun(context.Background(), exportRequestFor(t, conflict)); !errors.Is(err, ErrSecureInstall) {
 		t.Fatalf("no-replace conflict error = %v", err)
+	}
+}
+
+func TestExportRejectsBareFixedPrefixTokens(t *testing.T) {
+	tokens := []struct{ name, value string }{
+		{"github-pat", "ghp_" + strings.Repeat("A", 36)},
+		{"github-oauth", "gho_" + strings.Repeat("A", 36)},
+		{"github-fine-grained", "github_pat_" + strings.Repeat("A", 82)},
+		{"slack-bot", "xoxb-111111111111-222222222222-" + strings.Repeat("A", 24)},
+		{"slack-user", "xoxp-111-222-333-" + strings.Repeat("a", 32)},
+		{"openai", "sk-" + strings.Repeat("A", 48)},
+		{"openai-project", "sk-proj-" + strings.Repeat("A", 100)},
+		{"stripe-live", "sk_live_" + strings.Repeat("A", 24)},
+	}
+	for _, token := range tokens {
+		for _, prefix := range []string{"", "prefix_"} {
+			for _, field := range []string{"title", "description", "recommendation"} {
+				for _, live := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/attached=%t/%s/live=%t", token.name, prefix != "", field, live), func(t *testing.T) {
+						source := validProjection()
+						if live {
+							source = liveExportProjection(t, nil, "", "")
+						}
+						prose := "Observed synthetic credential-shaped text " + prefix + token.value
+						switch field {
+						case "title":
+							source.Findings[0].Title = prose
+						case "description":
+							source.Findings[0].Description = prose
+						case "recommendation":
+							source.Findings[0].Recommendation = prose
+						}
+						bundle, _, err := BuildRedactedBundle(source, validOptions())
+						if !errors.Is(err, ErrSecretDetected) || len(bundle.Bytes) != 0 {
+							t.Fatal("export accepted synthetic fixed-prefix credential-shaped finding text")
+						}
+					})
+				}
+			}
+		}
+	}
+	for _, value := range []string{"Discuss ghp_ and xoxb- token prefixes", "github_pat_EXAMPLE", "sk-project-description", strings.Repeat("a", 64)} {
+		source := validProjection()
+		source.Findings[0].Description = value
+		if _, _, err := BuildRedactedBundle(source, validOptions()); err != nil {
+			t.Fatal("export rejected non-secret prose or ordinary digest")
+		}
 	}
 }

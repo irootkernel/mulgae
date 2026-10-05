@@ -48,7 +48,14 @@ func compileWorkspaceIgnore(data []byte, base string) ([]workspaceIgnoreRule, er
 		}
 		rule := workspaceIgnoreRule{base: filepath.ToSlash(base), anchored: anchored || strings.Contains(line, "/"), directoryOnly: directoryOnly, negate: negate}
 		valid := true
-		for _, component := range strings.Split(line, "/") {
+		components := strings.Split(line, "/")
+		for index, component := range components {
+			// An escaped interior separator still separates Git pattern components.
+			// Preserve paired backslashes and the final component's escape semantics.
+			backslashes := len(component) - len(strings.TrimRight(component, `\`))
+			if index < len(components)-1 && backslashes%2 == 1 {
+				component = component[:len(component)-1]
+			}
 			if len(component) >= 2 && strings.Trim(component, "*") == "" {
 				// A complete ** component crosses zero or more directories.
 				rule.components = append(rule.components, nil)

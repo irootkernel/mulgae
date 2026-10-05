@@ -163,8 +163,14 @@ scratch are removed after verified provider drain.
   requests, incomplete turns and protocol parse failures fail closed.
 - Grok uses ACP v1 without MCP servers or subagents and admits text roles only.
   Its native sandbox is off only inside the mandatory outer Seatbelt guard.
-  Admitted file and Git reads remain correlated and bounded at the protocol
-  boundary. Optional model and reasoning policy comes only from shared project
+  In live review conversations, admitted file and Git reads remain correlated
+  and bounded at the protocol boundary. Completed and failed native tool
+  operations must match the read plan even when Grok omits a permission request.
+  Missing tool identity, inputs or completion prevents report acceptance;
+  partial input grants no authority.
+  Structured extraction receives no review read plan; its filesystem access
+  remains subject to the outer guard.
+  Optional model and reasoning policy comes only from shared project
   configuration; exact acknowledgement is required before prompting.
 - Codex uses one app-server process and ephemeral thread per invocation, native
   read-only permissions and approvals disabled. All configured credential roots
@@ -209,11 +215,18 @@ directory. Only `auth.json` is copied; user config, rules, skills, and plugins a
 not projected. The copy is mode `0600`, remains bound to its namespace
 generation, and is removed during terminal namespace cleanup.
 
-Runtime diagnostics and exports must not disclose secrets or native paths. A
+Runtime diagnostics and exports must not disclose secrets or native paths.
+Exports reject credential-shaped fixed-prefix GitHub, Slack and secret-key tokens
+before packaging, including bare tokens without assignment or bearer labels. A
 new diagnostic field is a data-release boundary and requires review. Provider
 session and turn identifiers are private diagnostic data. Public status may
 expose only their domain-separated SHA-256 fingerprints, which bind the
 provider instance and identifier kind before hashing.
+
+Human CLI output renders terminal control characters as visible escapes, keeping
+line feeds and tabs for formatting. This includes provider prose, report content
+and legacy excerpt output. Stored artifacts and machine-readable content retain
+their original bytes; presentation escaping does not change evidence identities.
 
 Workspace discovery uses tracked and nonignored untracked paths according to
 Git's ignore rules. `.mulgaeignore` is neither processed nor generated, and an

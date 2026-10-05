@@ -3,6 +3,7 @@ package mulgae
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"github.com/irootkernel/mulgae/internal/app"
@@ -257,5 +258,81 @@ func TestVerifiedContentEnvelopeRejectsInvalidSelectorsAndFields(t *testing.T) {
 				t.Fatal("invalid content contract accepted")
 			}
 		})
+	}
+}
+
+func TestHumanOutputEscapesTerminalControlsPreservesJSON(t *testing.T) {
+	title := "Finding \x1b[31mspoof\x1b[0m \x1b]8;;https://example.invalid\x07link\x1b]8;;\x07 \u009b31m"
+	fake := newG006QueryFake()
+	fake.findings.Findings[0].Title = title
+	fixture := newG006Fixture(t, fake, newG006ReportFake())
+	root := testAnchoredRoot(t)
+	human := fixture.application.Run(context.Background(), []string{"inspect", "--run", testRunID}, root)
+	if human.ExitCode() != app.ExitCodeSuccess {
+		t.Fatalf("synthetic fixture did not reach human output: exit=%d", human.ExitCode())
+	}
+	var stdout, stderr bytes.Buffer
+	if err := human.WriteTo(&stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.ContainsAny(stdout.Bytes(), "\x1b\x07\u009b") {
+		t.Fatal("human inspection delivers executable terminal control characters")
+	}
+	for _, expected := range []string{`\x1b[31m`, `\x07`, `\x9b31m`} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatal("human output did not visibly escape terminal controls")
+		}
+	}
+	machine := fixture.application.Run(context.Background(), []string{"inspect", "--run", testRunID, "--output", "json"}, root)
+	if machine.ExitCode() != app.ExitCodeSuccess {
+		t.Fatal("machine fixture failed")
+	}
+	var envelope struct {
+		Result struct {
+			Findings []struct {
+				Title string `json:"title"`
+			} `json:"findings"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Result.Findings) == 0 || envelope.Result.Findings[0].Title != title {
+		t.Fatal("machine finding text changed")
+	}
+}
+
+func TestHumanExcerptEscapesControlsPreservesExactMachineBytes(t *testing.T) {
+	fake := newG006QueryFake()
+	fake.excerpt = []byte("plain\ttext\n\x1b[2J\x00\r\x7f\u009d title\n\n")
+	fixture := newG006Fixture(t, fake, newG006ReportFake())
+	root := testAnchoredRoot(t)
+	argv := []string{"excerpt", "--run", testRunID, "--finding", "F001", "--current-target-sha256", testCurrentTargetSHA256}
+	human := fixture.application.Run(context.Background(), argv, root)
+	if human.ExitCode() != app.ExitCodeSuccess {
+		t.Fatal("excerpt fixture failed")
+	}
+	for _, value := range []byte{0x1b, 0, 0x0d, 0x7f} {
+		if bytes.Contains(human.Stdout(), []byte{value}) {
+			t.Fatal("human excerpt delivers executable terminal controls")
+		}
+	}
+	if !bytes.HasPrefix(human.Stdout(), []byte("plain\ttext\n")) || !bytes.HasSuffix(human.Stdout(), []byte("\n\n")) {
+		t.Fatal("human excerpt changed ordinary whitespace")
+	}
+	machine := fixture.application.Run(context.Background(), append(argv, "--output", "json"), root)
+	var envelope struct {
+		Result struct {
+			ExcerptBase64 string `json:"excerpt_base64"`
+		} `json:"result"`
+	}
+	if machine.ExitCode() != app.ExitCodeSuccess {
+		t.Fatal("machine excerpt fixture failed")
+	}
+	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Result.ExcerptBase64 != base64.StdEncoding.EncodeToString(fake.excerpt) {
+		t.Fatal("machine excerpt did not retain exact evidence bytes")
 	}
 }

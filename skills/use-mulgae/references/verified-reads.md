@@ -99,12 +99,14 @@ mulgae read-report --run "$run_id" --role logic \
   --expected-project-binding "$project_binding" \
   --expected-publication-receipt "$publication_receipt" --output json
 mulgae excerpt --run "$run_id" --finding "$finding_id" \
-  --current-target-sha256 "$target_sha256" --evidence-index 0 \
+  --source-identity-sha256 "$source_identity_sha256" --evidence-index 0 \
   --expected-project-binding "$project_binding" \
   --expected-publication-receipt "$publication_receipt" --output json
 ```
 
-Use the inspected target digest, not a hash of today's working tree. Select every
+For a live result, use the inspected source identity. Historical results instead
+use `--current-target-sha256` with the inspected target digest. Neither value is
+a hash of today's working tree. Select every
 relevant verified evidence index from the summary; zero-based indices range from
 0 through 19. Index zero is not the complete evidence inventory. Keep unavailable
 items explicit and stop any judgment that requires their missing evidence.
