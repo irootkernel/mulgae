@@ -34,6 +34,22 @@ Use each provider's supported planning/review policy and read-only restrictions,
 
 Require external source access and exact read-only Git inspection for all three providers. Keep Git execution free of optional locks, external diff/textconv commands, hooks, and project-selected executables. Scope native tools to the review and reject mutations. If a provider cannot satisfy these requirements, stop the cutover; do not substitute a provider, broaden permissions silently, or restore snapshots.
 
+Before preflight or provider execution, admit local `config` and `config.worktree`
+through a closed set of data-only Git settings. Supported settings are repository
+format, file mode, bare/worktree location, reflog, case/Unicode handling, symlinks,
+HFS/NTFS protection, sparse checkout/index, object format, worktree configuration,
+user name/email, remote URL/fetch and branch remote/merge. Hooks and fsmonitor
+settings are also admitted because the trusted provider environment overrides
+them. Other settings, including aliases, includes, external diff/textconv,
+filters, pagers and credential helpers, fail with `unsafe_source`. Parse only
+descriptor-verified configuration bytes through trusted Git, with includes off;
+recheck this policy at execution revalidation. No Git configuration is rewritten.
+Configuration admission excludes external diff and textconv commands. The
+provider environment disables external attributes/excludes, Git transport
+protocols, hooks, fsmonitor and lazy fetch, and pins pagers to
+trusted `cat`. Coordinator source reads retain their independently hardened
+fixed commands.
+
 Collect complete role reports from correlated native assistant responses. Review providers no longer write a report into a copied source tree. Retain bounded process lifetimes, cancellation, diagnostics redaction, image handling, and existing content-size policy.
 
 The public execution path uses a neutral reviewer home that admits current-user-owned directories without group

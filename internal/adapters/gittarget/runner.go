@@ -29,6 +29,7 @@ type Command struct {
 	Dir               string
 	Args              []string
 	sourceSizedStdout bool
+	metadataInput     []byte
 }
 
 // Clone returns a caller-owned command copy suitable for transcripts.
@@ -37,6 +38,7 @@ func (command Command) Clone() Command {
 		Dir:               command.Dir,
 		Args:              cloneStrings(command.Args),
 		sourceSizedStdout: command.sourceSizedStdout,
+		metadataInput:     cloneBytes(command.metadataInput),
 	}
 }
 
@@ -215,6 +217,9 @@ func (runner ExecRunner) Run(ctx context.Context, command Command) (Result, erro
 	child := exec.CommandContext(ctx, gitExecutable, command.Args...)
 	child.Dir = command.Dir
 	child.Env = DeterministicEnvironment()
+	if command.metadataInput != nil {
+		child.Stdin = bytes.NewReader(command.metadataInput)
+	}
 	if command.sourceSizedStdout {
 		child.Stdout = &sourceStdout
 	} else {
@@ -266,6 +271,9 @@ func (runner ExecRunner) limits() (int, int, int, error) {
 }
 
 func validateCommand(command Command) error {
+	if len(command.metadataInput) > maxCanonicalGitMetadataBytes {
+		return &CommandInputError{Reason: "Git metadata input exceeds its limit"}
+	}
 	if command.Dir == "" || !filepath.IsAbs(command.Dir) || filepath.Clean(command.Dir) != command.Dir {
 		return &CommandInputError{Reason: "directory must be an absolute canonical path"}
 	}

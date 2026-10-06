@@ -150,6 +150,14 @@ an atomic content snapshot. Committed scopes use resolved object IDs. Trusted
 Git reads disable hooks, fsmonitor, external diff, textconv and lazy fetch.
 Project configuration cannot introduce executable commands.
 
+Preflight and provider execution reject local Git configuration outside the
+closed data-only set in [live review](live-workspace-and-git-review.md#reviewer-execution).
+Both main and worktree configuration are read through verified descriptors and
+parsed without includes. Unknown settings fail closed with `unsafe_source`;
+execution revalidation checks the policy again. Trusted provider Git variables
+override hooks/fsmonitor, external attributes/excludes and pagers, and disable
+Git transport protocols. This does not rewrite caller configuration.
+
 ### Provider read and write boundaries
 
 All live reports come from complete, correlated assistant turns. Review, repair

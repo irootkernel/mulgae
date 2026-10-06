@@ -18,8 +18,12 @@ func liveGitEnvironment(binding ports.ProjectBindingObservation) ([]ports.Enviro
 	values := map[string]string{
 		"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
 		"GIT_ATTR_NOSYSTEM": "1", "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1",
-		"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "core.fsmonitor", "GIT_CONFIG_VALUE_0": "false",
+		"GIT_CONFIG_COUNT": "5", "GIT_CONFIG_KEY_0": "core.fsmonitor", "GIT_CONFIG_VALUE_0": "false",
 		"GIT_CONFIG_KEY_1": "core.hooksPath", "GIT_CONFIG_VALUE_1": "/dev/null",
+		"GIT_CONFIG_KEY_2": "core.attributesFile", "GIT_CONFIG_VALUE_2": "/dev/null",
+		"GIT_CONFIG_KEY_3": "core.excludesFile", "GIT_CONFIG_VALUE_3": "/dev/null",
+		"GIT_CONFIG_KEY_4": "protocol.allow", "GIT_CONFIG_VALUE_4": "never",
+		"GIT_PAGER": "cat", "PAGER": "cat", "GIT_TERMINAL_PROMPT": "0",
 	}
 	if binding.GitDirectory.Valid() {
 		values["GIT_DIR"] = binding.GitDirectory.String()
@@ -109,7 +113,7 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 	}
 	configured := make([]ports.EnvironmentVariable, 0, len(definition.environment)+len(gitEnvironment))
 	for _, variable := range definition.environment {
-		if variable.Name() != "PATH" && variable.Name() != "PWD" && !strings.HasPrefix(variable.Name(), "GIT_") {
+		if variable.Name() != "PATH" && variable.Name() != "PWD" && variable.Name() != "PAGER" && !strings.HasPrefix(variable.Name(), "GIT_") {
 			configured = append(configured, variable)
 		}
 	}

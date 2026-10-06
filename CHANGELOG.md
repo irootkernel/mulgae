@@ -11,6 +11,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Reject executable-bearing and unsupported local Git settings before live provider execution, and disable provider Git transport protocols.
 - Preserve provider qualification lifecycle events and safe candidate outcomes in live review diagnostics, and stop execution when those records cannot be saved.
 - Reject Grok live reports when a completed native tool operation falls outside the read plan or its correlated input or completion is missing.
 - Honor escaped interior separators in non-Git workspace `.gitignore` rules so candidate selection matches Git.

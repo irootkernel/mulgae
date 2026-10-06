@@ -426,6 +426,62 @@ func TestIntegrationLiveSourceDisablesExecutableGitPolicies(t *testing.T) {
 	}
 }
 
+func TestIntegrationLiveSourceExecutionRejectsUnsafeGitConfig(t *testing.T) {
+	for _, key := range []string{
+		"diff.external", "diff.hostile.textconv", "diff.hostile.command",
+		"alias.inspect", "filter.hostile.process", "credential.helper",
+		"core.pager", "pager.show", "core.sshCommand", "remote.origin.vcs",
+		"include.path", "includeIf.gitdir:/never/.path", "unknown.setting",
+	} {
+		t.Run(key, func(t *testing.T) {
+			root := reviewCaptureRepository(t)
+			marker := filepath.Join(root, "executed.txt")
+			hook := filepath.Join(root, "hostile.sh")
+			if err := os.WriteFile(hook, []byte("#!/bin/sh\nprintf called > '"+marker+"'\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			reader := openTestLiveSource(t, root, domain.LiveSourceHead, "")
+			if _, err := reader.RevalidateExecution(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			value := hook
+			if key == "include.path" {
+				value = "/not-admitted"
+			}
+			reviewGit(t, root, "config", key, value)
+			_, err := reader.RevalidateExecution(context.Background())
+			assertLiveError(t, err, ports.LiveSourceUnsafe)
+			readTestLiveSource(t, reader, domain.LiveSourceAfter, "tracked.txt", "second\n")
+			if _, err := os.Lstat(marker); !os.IsNotExist(err) {
+				t.Fatal("configuration admission executed a project-selected command")
+			}
+		})
+	}
+	t.Run("worktree-config", func(t *testing.T) {
+		root := reviewCaptureRepository(t)
+		reader := openTestLiveSource(t, root, domain.LiveSourceStage, "")
+		reviewGit(t, root, "config", "extensions.worktreeConfig", "true")
+		reviewGit(t, root, "config", "--worktree", "diff.hostile.textconv", "/not-admitted")
+		_, err := reader.RevalidateExecution(context.Background())
+		assertLiveError(t, err, ports.LiveSourceUnsafe)
+	})
+	t.Run("safe-data", func(t *testing.T) {
+		root := reviewCaptureRepository(t)
+		for key, value := range map[string]string{
+			"remote.origin.url":   "https://example.invalid/source.git",
+			"remote.origin.fetch": "+refs/heads/*:refs/remotes/origin/*",
+			"branch.main.remote":  "origin", "branch.main.merge": "refs/heads/main",
+			"core.hooksPath": "/not-used", "core.fsmonitor": "/not-used",
+		} {
+			reviewGit(t, root, "config", key, value)
+		}
+		reader := openTestLiveSource(t, root, domain.LiveSourceHead, "")
+		if _, err := reader.RevalidateExecution(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
 func TestIntegrationLiveSourceRejectsRootAndConfigReplacement(t *testing.T) {
 	t.Run("support-symlink", func(t *testing.T) {
 		root := t.TempDir()

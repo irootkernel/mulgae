@@ -30,6 +30,14 @@ all content drift. Committed scopes use fixed object IDs. Trusted Git reads use
 fixed argv and environment with hooks, fsmonitor, external diff, textconv and
 lazy fetch disabled.
 
+Preflight and provider execution reject local Git settings outside the supported
+data-only set with `unsafe_source`. Repository metadata, sparse checkout/index,
+user name/email, remote URL/fetch and branch remote/merge are supported. Hooks
+and fsmonitor settings are overridden. Aliases, includes, external diff/textconv,
+filters, pagers, credential helpers and unknown settings are rejected. Both main
+and worktree configuration are checked again during execution; caller Git
+configuration is not rewritten. Provider Git transport protocols are disabled.
+
 Every provider returns a complete correlated protocol assistant report. There
 is no live-review report-file write grant. Reports, prompt payloads and complete
 provider streams have no product byte ceiling. Optional repair and extraction

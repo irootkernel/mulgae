@@ -22,6 +22,55 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+func TestLiveGitEnvironmentBlocksNativeRepositoryHelpers(t *testing.T) {
+	root := t.TempDir()
+	marker := filepath.Join(root, "executed.txt")
+	helper := filepath.Join(root, "helper.sh")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf called > '"+marker+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	run := func(environment []string, args ...string) error {
+		t.Helper()
+		command := exec.Command("/usr/bin/git", append([]string{"-C", root}, args...)...)
+		command.Env = environment
+		return command.Run()
+	}
+	fixtureEnvironment := []string{"PATH=/usr/bin:/bin", "HOME=/var/empty", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}
+	for _, args := range [][]string{{"init", "--quiet"}, {"config", "core.fsmonitor", helper}, {"config", "core.hooksPath", root}} {
+		if err := run(fixtureEnvironment, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project, _ := ports.NewAnchoredRoot(root)
+	gitDirectory, _ := ports.NewAnchoredRoot(filepath.Join(root, ".git"))
+	variables, err := liveGitEnvironment(ports.ProjectBindingObservation{Root: project, GitDirectory: gitDirectory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := []string{"HOME=/var/empty"}
+	for _, variable := range variables {
+		environment = append(environment, variable.Name()+"="+variable.Value())
+	}
+	if err := os.WriteFile(filepath.Join(root, "target.txt"), []byte("before\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(environment, "add", "target.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "target.txt"), []byte("after\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(environment, "--no-pager", "diff"); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(environment, "ls-remote", "ext::"+helper); err == nil {
+		t.Fatal("provider Git admitted an external transport helper")
+	}
+	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
+		t.Fatal("provider Git executed a repository-selected helper")
+	}
+}
+
 func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage, domain.LiveSourceHead, domain.LiveSourceCommit, domain.LiveSourceDiff} {
 		t.Run(string(scope), func(t *testing.T) {

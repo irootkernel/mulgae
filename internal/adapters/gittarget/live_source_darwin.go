@@ -158,6 +158,9 @@ func (reader *liveSourceReader) RevalidateExecution(ctx context.Context) (ports.
 		if err := reader.checkGitMetadata(); err != nil {
 			return ports.ProjectBindingObservation{}, err
 		}
+		if err := reader.admitExecutionGitConfig(ctx); err != nil {
+			return ports.ProjectBindingObservation{}, err
+		}
 		return reader.lease.Observation(), nil
 	}
 	var stat unix.Stat_t
@@ -219,6 +222,58 @@ func (reader *liveSourceReader) checkGitMetadata() error {
 		return sourceError(ports.LiveSourceUnsafe, err)
 	}
 	return nil
+}
+
+func (reader *liveSourceReader) admitExecutionGitConfig(ctx context.Context) error {
+	for _, path := range []string{
+		filepath.Join(reader.lease.Observation().CommonDirectory.String(), "config"),
+		filepath.Join(reader.gitDir.String(), "config.worktree"),
+	} {
+		data, err := readCanonicalGitMetadata(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return sourceError(ports.LiveSourceUnsafe, err)
+		}
+		// Parse descriptor-verified bytes through stdin, without discovering a
+		// repository or loading includes. Never reopen an untrusted config path
+		// in the Git child or interpret its contents as a shell command.
+		result, err := reader.runner.Run(ctx, Command{Dir: "/", Args: []string{
+			"config", "--file", "-", "--no-includes", "--null", "--name-only", "--list",
+		}, metadataInput: data})
+		if err != nil {
+			return sourceError(ports.LiveSourceUnsafe, err)
+		}
+		for _, key := range strings.Split(string(result.Stdout), "\x00") {
+			if key != "" && !safeExecutionGitConfigKey(strings.ToLower(key)) {
+				return sourceError(ports.LiveSourceUnsafe, fmt.Errorf("unsupported provider Git configuration"))
+			}
+		}
+	}
+	return nil
+}
+
+func safeExecutionGitConfigKey(key string) bool {
+	switch key {
+	case "core.repositoryformatversion", "core.filemode", "core.bare", "core.worktree", "core.logallrefupdates",
+		"core.ignorecase", "core.precomposeunicode", "core.symlinks", "core.protecthfs", "core.protectntfs",
+		"core.sparsecheckout", "core.sparsecheckoutcone", "index.sparse",
+		"extensions.objectformat", "extensions.worktreeconfig", "user.name", "user.email",
+		"core.fsmonitor", "core.hookspath":
+		return true
+	}
+	section, rest, ok := strings.Cut(key, ".")
+	if !ok {
+		return false
+	}
+	last := strings.LastIndex(rest, ".")
+	if last <= 0 {
+		return false
+	}
+	field := rest[last+1:]
+	return section == "remote" && (field == "url" || field == "fetch") ||
+		section == "branch" && (field == "remote" || field == "merge")
 }
 
 func (reader *liveSourceReader) run(ctx context.Context, args ...string) (Result, error) {

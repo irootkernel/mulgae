@@ -241,13 +241,17 @@ func liveSourceProbeHashes(t *testing.T, root string) map[string][32]byte {
 	return hashes
 }
 
-func liveSourceGitEnvironment() map[string]string {
-	return map[string]string{
-		"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
-		"GIT_ATTR_NOSYSTEM": "1", "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1",
-		"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "core.fsmonitor", "GIT_CONFIG_VALUE_0": "false",
-		"GIT_CONFIG_KEY_1": "core.hooksPath", "GIT_CONFIG_VALUE_1": "/dev/null",
+func liveSourceGitEnvironment(t *testing.T) map[string]string {
+	t.Helper()
+	variables, err := liveGitEnvironment(ports.ProjectBindingObservation{})
+	if err != nil {
+		t.Fatal(err)
 	}
+	values := make(map[string]string, len(variables))
+	for _, variable := range variables {
+		values[variable.Name()] = variable.Value()
+	}
+	return values
 }
 
 func TestLiveCodexLiveSourceFeasibility(t *testing.T) {
@@ -409,7 +413,7 @@ Shared reviewer guidance: %s`, fixture.neutral, fixture.source, fixture.mutation
 
 func liveSourceProbeEnvironment(t *testing.T, fixture liveSourceProbeFixture) []ports.EnvironmentVariable {
 	t.Helper()
-	values := liveSourceGitEnvironment()
+	values := liveSourceGitEnvironment(t)
 	values["GIT_DIR"] = filepath.Join(fixture.source, ".git")
 	values["GIT_WORK_TREE"] = fixture.source
 	var environment []ports.EnvironmentVariable
