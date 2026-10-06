@@ -83,6 +83,12 @@ work.
   Empty non-Git workspace classification is already directly tested. Re-
   entry also covers a truly empty HEAD and an end-to-end whole-tree no-change
   fixture that asserts zero provider calls and the resulting publication.
+  For descriptor-read changes, distinguish path unlink/rename or namespace
+  replacement after open from in-place content modification, and assert the
+  returned body or typed rejection against the held descriptor. Before
+  changing Git inventory filtering, cover object paths whose spelling differs
+  only by case from built-in protected names on the supported case-insensitive
+  filesystem.
 
 - `DF-012` MCP startup configuration: production composition supplies all
   tool fields and startup rejects incomplete configuration. Re-entry: before
