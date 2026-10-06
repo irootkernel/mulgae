@@ -4,7 +4,6 @@ package gittarget
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -20,12 +19,11 @@ import (
 )
 
 const (
-	captureFormatVersion                   uint16 = 1
-	maxCanonicalGitMetadataBytes                  = 16 << 20
-	maxCanonicalGitMetadataEntries                = 4096
-	maxCanonicalGitMetadataDepth                  = 64
-	maxCanonicalGitMetadataPathBytes              = 4096
-	canonicalGitMetadataDirectoryBatchSize        = 128
+	maxCanonicalGitMetadataBytes           = 16 << 20
+	maxCanonicalGitMetadataEntries         = 4096
+	maxCanonicalGitMetadataDepth           = 64
+	maxCanonicalGitMetadataPathBytes       = 4096
+	canonicalGitMetadataDirectoryBatchSize = 128
 )
 
 type canonicalRepository struct {
@@ -1370,66 +1368,4 @@ func writeCanonicalGitFile(path string, data []byte) error {
 		resultErr = fmt.Errorf("short write")
 	}
 	return joinCanonicalConstructionCleanup(resultErr, "close Git canonical file", file.Close)
-}
-
-var captureFormatMagic = []byte("mulgae.git-target\x00")
-
-// canonicalCapturedBytes frames every captured field in a fixed order. Field
-// names and values are independently length-prefixed so no two field bindings
-// can share a byte representation.
-func canonicalCapturedBytes(
-	repositoryID string,
-	baseObjectID ports.GitObjectID,
-	headObjectID ports.GitObjectID,
-	headTreeID ports.GitObjectID,
-	indexTreeID *ports.GitObjectID,
-	includeUntracked bool,
-	diff []byte,
-	inventory []byte,
-) []byte {
-	data := make([]byte, 0, len(captureFormatMagic)+2+256+len(repositoryID)+len(diff)+len(inventory))
-	data = append(data, captureFormatMagic...)
-	data = appendUint16(data, captureFormatVersion)
-	data = appendFrameField(data, "repository-id", []byte(repositoryID))
-	data = appendFrameField(data, "base-object-id", []byte(baseObjectID.String()))
-	data = appendFrameField(data, "head-object-id", []byte(headObjectID.String()))
-	data = appendFrameField(data, "head-tree-id", []byte(headTreeID.String()))
-	if indexTreeID == nil {
-		data = appendFrameField(data, "index-tree-id", nil)
-	} else {
-		data = appendFrameField(data, "index-tree-id", []byte(indexTreeID.String()))
-	}
-	if includeUntracked {
-		data = appendFrameField(data, "include-untracked", []byte{1})
-	} else {
-		data = appendFrameField(data, "include-untracked", []byte{0})
-	}
-	data = appendFrameField(data, "diff", diff)
-	data = appendFrameField(data, "untracked-inventory", inventory)
-	return data
-}
-
-func appendFrameField(data []byte, name string, value []byte) []byte {
-	data = appendUint32(data, uint32(len(name)))
-	data = append(data, name...)
-	data = appendUint64(data, uint64(len(value)))
-	return append(data, value...)
-}
-
-func appendUint16(data []byte, value uint16) []byte {
-	var encoded [2]byte
-	binary.BigEndian.PutUint16(encoded[:], value)
-	return append(data, encoded[:]...)
-}
-
-func appendUint32(data []byte, value uint32) []byte {
-	var encoded [4]byte
-	binary.BigEndian.PutUint32(encoded[:], value)
-	return append(data, encoded[:]...)
-}
-
-func appendUint64(data []byte, value uint64) []byte {
-	var encoded [8]byte
-	binary.BigEndian.PutUint64(encoded[:], value)
-	return append(data, encoded[:]...)
 }

@@ -490,20 +490,6 @@ func (source *configuredProductionCandidateSource) BindLiveQualifiedRunContext(c
 	return context.WithValue(ctx, reviewLocalityContextKey{}, bound), nil
 }
 
-func bindProductionTargetLocality(ctx context.Context, source *adapterconfig.LocalConfigSource, attestor ports.ConfigLocalityAttestor, staticRequest ports.ConfigLocalityRequest, staticContext ports.ConfigLocalityContext, config adapterconfig.Config, target ports.CapturedReviewTarget) (reviewLocalityBinding, error) {
-	if !target.Valid() {
-		return reviewLocalityBinding{}, fmt.Errorf("configured provider locality: invalid request")
-	}
-	commits := make([]ports.GitObjectID, 0, 2)
-	if base, ok := target.BaseObjectID(); ok {
-		commits = append(commits, base)
-	}
-	if head, ok := target.HeadObjectID(); ok {
-		commits = append(commits, head)
-	}
-	return bindProductionLocality(ctx, source, attestor, staticRequest, staticContext, config, commits, target.Bytes())
-}
-
 func bindProductionLocality(ctx context.Context, source *adapterconfig.LocalConfigSource, attestor ports.ConfigLocalityAttestor, staticRequest ports.ConfigLocalityRequest, staticContext ports.ConfigLocalityContext, config adapterconfig.Config, commits []ports.GitObjectID, target []byte) (reviewLocalityBinding, error) {
 	if ctx == nil || source == nil || attestor == nil {
 		return reviewLocalityBinding{}, fmt.Errorf("configured provider locality: invalid request")

@@ -11,6 +11,18 @@ Every review requires exactly one original-source selector:
 | `--diff LEFT..RIGHT` | Direct comparison of the resolved endpoints |
 | `--diff LEFT...RIGHT` | Merge-base comparison against the resolved right endpoint |
 
+Sources must be regular files. An eligible workspace symlink or other
+non-regular file rejects the selection with `unsafe_source` before providers.
+For Git scopes, a symlink or unsupported non-regular blob anywhere in either
+selected tree or the index rejects the whole selection, including unchanged
+paths. Submodules are skipped. Preflight applies the same rules.
+
+CLI and MCP preserve the typed source-admission codes: `invalid_source`,
+`unsafe_source`, `conflicted_index`, `revision_unavailable`,
+`merge_base_unavailable`, `source_unavailable` and `unsupported_content`.
+They retain their failure classes; native paths and Git diagnostics remain
+private. A stronger joined failure keeps its own public classification.
+
 Workspace and index state must remain unchanged while the review runs. Mulgae
 retains root identities and resolves committed operands once; it does not create
 a source snapshot, checkout, worktree, full-source archive, content fingerprint,

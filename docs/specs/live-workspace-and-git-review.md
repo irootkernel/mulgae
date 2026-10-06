@@ -22,6 +22,14 @@ Keep explicit target selection and existing role routing. Resolve mutable commit
 
 Git ignore rules select workspace candidates; tracked files participate even when an ignore pattern matches. Exclude Git internals and Mulgae/provider runtime or credential directories from review candidates. Remove `.mulgaeignore` processing and generation without automatically deleting user-owned ignore files. Ignore rules do not physically deny provider access to ignored files.
 
+Source admission accepts regular files only. An eligible workspace symlink or
+other non-regular file rejects the selection with `unsafe_source` before
+providers. For Git scopes, a symlink or other unsupported non-regular blob in
+either selected tree or the index rejects the entire selection, even when that
+path is unchanged. Gitlinks (submodules) are skipped, and workspace directories
+are not file candidates. Preflight applies the same admission rules. Mulgae
+does not follow source symlinks or silently skip them.
+
 Workspace and index remain live. The caller keeps them unchanged during review. Mulgae adds no full-tree fingerprint, lock, or drift monitor and does not claim atomic source consistency. Missing required content or failed source reads remain failures. Fixed Git objects supply committed evidence while available.
 
 ## Reviewer execution

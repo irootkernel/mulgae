@@ -430,6 +430,21 @@ func publicToolError(err error, tool string) ToolError {
 	if errors.Is(err, errInvalidToolArguments) {
 		return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "invalid_arguments", Stage: "admission", Message: "The tool arguments are invalid.", Retryable: false})
 	}
+	var source *ports.LiveSourceError
+	if errors.As(err, &source) && source != nil {
+		if sourceClass, known := reviewrun.LiveSourceFailureClass(source.Code()); known {
+			class, present := reducedToolFailureClass(err)
+			if !present || class == sourceClass {
+				publicClass := "usage"
+				if sourceClass == domain.FailureSecurityPolicy {
+					publicClass = "security"
+				} else if sourceClass == domain.FailureArtifact {
+					publicClass = "artifact"
+				}
+				return finalizePublicToolError(err, tool, ToolError{Class: publicClass, Code: string(source.Code()), Stage: "admission", Message: "Review source admission failed; run mulgae help workflows for source requirements.", Retryable: false})
+			}
+		}
+	}
 	if preparationStage, _, preparationFailed := reviewrun.ReviewPreparationFailureFromError(err); preparationFailed &&
 		(tool == toolRunReview || tool == toolAwaitReview) {
 		if _, _, hasIdentity := reviewrun.RuntimeDiagnosticIdentityFromError(err); hasIdentity {

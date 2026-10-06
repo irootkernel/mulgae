@@ -67,6 +67,15 @@ Live-source runtime-target and attempt reconstruction fail with
 `source_replay_unavailable`; stored reports, findings, and observations remain
 readable.
 
+CLI and MCP source admission preserve the closed reasons `invalid_source`,
+`unsafe_source`, `conflicted_index`, `revision_unavailable`,
+`merge_base_unavailable`, `source_unavailable` and `unsupported_content`.
+MCP uses stage `admission` and the corresponding `usage`, `security` or
+`artifact` class. The reason never exposes native paths or Git diagnostics.
+A joined failure of another class retains the existing failure precedence.
+See [source eligibility](live-workspace-and-git-review.md#review-targets) for
+whole-selection rejection of source symlinks and other unsafe file types.
+
 Config `version: 5` is additive rather than frozen: a release may add an
 optional project-policy field without changing the version, and an omitted
 field keeps its documented default. Compatibility therefore runs one way. A

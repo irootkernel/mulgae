@@ -79,6 +79,6 @@ validation.
 Breaking changes require a new schema version. Current commands emit v19 and
 review preflight emits v8. Earlier command and preflight schemas remain frozen
 for historical validation dependencies. Current live publications use review
-artifact v3, run manifest v3 and source support v3; receipt and export v2 bind
+artifact v3, run manifest v3 and `mulgae-run-support-index.v3`; receipt and export v2 bind
 verified source observations. Historical ordinary, child and composite contracts
 remain readable with their original identity and integrity rules.

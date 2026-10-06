@@ -311,7 +311,7 @@ producer. Cursor payloads require the compact encoding exactly.
 |---|---|
 | Project binding, `reviewrun.NewProjectBinding` | Version `mulgae-project-binding.v1`; `root`, `git_directory`, `common_directory`, `root_identity`, `git_identity`, `common_identity`. Each private directory identity contains `device`, `inode`, `birth_seconds`, `birth_nanoseconds`. |
 | Capture, `reviewrun.CaptureManifest` | Version `mulgae-capture-manifest.v1`; `schema_version`, `target`, `policy_identity`, `sides`, `files`, `context`. |
-| Request, `reviewrun.RequestReceipt` | Version `mulgae-request-receipt.v1`; `schema_version`, `project_binding`, `capture_identity`, `components`. The serialized `request_digest` is excluded from its own hash. |
+| Request (historical encoding; producer retired) | Version `mulgae-request-receipt.v1`; `schema_version`, `project_binding`, `capture_identity`, `components`. The serialized `request_digest` is excluded from its own hash. |
 | Publication, `query.InspectionReceipt` | Version `mulgae-publication-receipt.v1`; `schema_version`, `project_binding`, `session_id`, `run_id`, `review_id`, `run_type`, `target_sha256`, `final_sha256`, `manifest_sha256`, `support_sha256`, `lineage_sha256`, `epoch`, `capture_identity`, `capture_availability`. |
 
 `ports.ProjectBindingObserver` returns a descriptor lease and private observation;

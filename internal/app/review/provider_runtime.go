@@ -262,22 +262,19 @@ func (capture AttemptCapture) Artifacts() []ports.CapturedAttemptArtifact {
 // provider, validation, repair, and evidence verification. It has no scheduler,
 // transition or publication authority.
 type ProviderInvocationRuntime struct {
-	provider          ports.ReviewProvider
-	observed          ports.ObservedReviewProvider
-	source            InvocationPromptSource
-	validator         *validation.ReviewValidator
-	verifier          *evidence.Verifier
-	workspace         ports.WorkspaceExecutionAuthority
-	workspaceIdentity ports.WorkspaceSnapshotIdentity
-	hasWorkspace      bool
-	liveExecution     ports.LiveReviewExecution
-	liveIdentity      evidence.LiveSourceIdentity
-	liveVisuals       map[string]string
-	liveArtist        bool
-	liveArtistReady   bool
-	policy            EvidencePolicy
-	diagnostics       RuntimeDiagnosticSinkResolver
-	staging           ports.ProviderOutputStagingLocator
+	provider        ports.ReviewProvider
+	observed        ports.ObservedReviewProvider
+	source          InvocationPromptSource
+	validator       *validation.ReviewValidator
+	verifier        *evidence.Verifier
+	liveExecution   ports.LiveReviewExecution
+	liveIdentity    evidence.LiveSourceIdentity
+	liveVisuals     map[string]string
+	liveArtist      bool
+	liveArtistReady bool
+	policy          EvidencePolicy
+	diagnostics     RuntimeDiagnosticSinkResolver
+	staging         ports.ProviderOutputStagingLocator
 
 	mu                sync.Mutex
 	pending           map[domain.AttemptID]InvocationRepairInput
@@ -392,47 +389,6 @@ func NewObservedProviderInvocationRuntimeInLiveSource(provider ports.ObservedRev
 		return nil, err
 	}
 	runtime.liveExecution, runtime.liveIdentity = execution, identity
-	return runtime, nil
-}
-
-// NewObservedProviderInvocationRuntimeWithWorkspace constructs an observed
-// runtime bound to one capture-owned workspace authority for every invocation.
-func NewObservedProviderInvocationRuntimeWithWorkspace(provider ports.ObservedReviewProvider, source InvocationPromptSource, workspace ports.WorkspaceExecutionAuthority, validator *validation.ReviewValidator, verifier *evidence.Verifier) (*ProviderInvocationRuntime, error) {
-	if nilInterface(workspace) {
-		return nil, fmt.Errorf("provider invocation runtime: nil workspace authority")
-	}
-	identity := workspace.WorkspaceSnapshotIdentity()
-	if !identity.Valid() {
-		return nil, fmt.Errorf("provider invocation runtime: invalid workspace identity")
-	}
-	runtime, err := NewObservedProviderInvocationRuntime(provider, source, validator, verifier)
-	if err != nil {
-		return nil, err
-	}
-	runtime.workspace = workspace
-	runtime.workspaceIdentity = identity
-	runtime.hasWorkspace = true
-	return runtime, nil
-}
-
-// NewObservedProviderInvocationRuntimeWithWorkspaceAndDiagnostics combines a
-// capture-owned workspace with an already-opened per-run diagnostic sink.
-func NewObservedProviderInvocationRuntimeWithWorkspaceAndDiagnostics(
-	provider ports.ObservedReviewProvider,
-	source InvocationPromptSource,
-	workspace ports.WorkspaceExecutionAuthority,
-	validator *validation.ReviewValidator,
-	verifier *evidence.Verifier,
-	diagnostics RuntimeDiagnosticSinkResolver,
-) (*ProviderInvocationRuntime, error) {
-	if nilInterface(diagnostics) {
-		return nil, fmt.Errorf("provider invocation runtime: nil diagnostic sink resolver")
-	}
-	runtime, err := NewObservedProviderInvocationRuntimeWithWorkspace(provider, source, workspace, validator, verifier)
-	if err != nil {
-		return nil, err
-	}
-	runtime.diagnostics = diagnostics
 	return runtime, nil
 }
 
@@ -1463,22 +1419,10 @@ func (runtime *ProviderInvocationRuntime) providerInvocation(job InvocationJob, 
 	if err != nil {
 		return ports.ProviderInvocation{}, err
 	}
-	var invocation ports.ProviderInvocation
-	if runtime.hasWorkspace {
-		if !sameWorkspaceSnapshotIdentity(runtime.workspace.WorkspaceSnapshotIdentity(), runtime.workspaceIdentity) {
-			return ports.ProviderInvocation{}, fmt.Errorf("%w: workspace identity changed", ports.ErrWorkspaceSnapshotDrift)
-		}
-		invocation, err = ports.NewProviderInvocationWithPacketInWorkspace(
-			job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), packet,
-			material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(),
-			runtime.workspace,
-		)
-	} else {
-		invocation, err = ports.NewProviderInvocationWithPacket(
-			job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), packet,
-			material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(),
-		)
-	}
+	invocation, err := ports.NewProviderInvocationWithPacket(
+		job.Role(), job.Route().ProviderInstance(), job.AttemptID(), runtimePurpose(job.Purpose()), packet,
+		material.Prompt.Scope().SourceInvocationID().String(), material.Prompt.Scope().ExecutionInvocationID().String(),
+	)
 	if err != nil {
 		return ports.ProviderInvocation{}, err
 	}

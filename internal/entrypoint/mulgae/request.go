@@ -450,7 +450,7 @@ type TargetRequest struct {
 	value string
 }
 
-// Kind returns the selected project or external-input target kind.
+// Kind returns the selected live source scope: workspace, stage, head, commit, or diff.
 func (request TargetRequest) Kind() string { return request.kind }
 
 // Value returns the target value.
