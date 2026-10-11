@@ -8,6 +8,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 - Review original workspace, index and Git sources through CLI/MCP with neutral read-only execution and independent project binding,
   requiring manual Config v5 migration and retiring capture-bound selectors and child/replay/compose execution while preserving historical reads, exports and publication reconciliation.
+- Stop applying `.mulgaeignore` exclusions. Reassess previously excluded files before
+  review: Git ignore rules do not exclude tracked files or restrict provider reads.
 
 ### Fixed
 
