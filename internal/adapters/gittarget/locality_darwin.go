@@ -84,9 +84,6 @@ func (attestor *GitLocalityAttestor) Attest(ctx context.Context, request ports.C
 	if err != nil {
 		return ports.ConfigLocalityContext{}, err
 	}
-	if hasUnmerged {
-		return ports.ConfigLocalityContext{}, fmt.Errorf("config locality: unmerged index")
-	}
 	if privateInIndex {
 		return ports.ConfigLocalityContext{}, ports.NewConfigLocalityViolation(privateIndexReason(indexResult.Stdout), nil)
 	}

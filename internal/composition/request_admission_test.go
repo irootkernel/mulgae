@@ -152,3 +152,67 @@ func TestProductionLivePreflightPreservesIndependentBindingAndConfigIdentity(t *
 		t.Fatal("preflight created runtime state")
 	}
 }
+
+func TestProductionLivePreflightScopesIndexConflicts(t *testing.T) {
+	rootPath := canonicalTestTempDir(t)
+	git := func(args ...string) string {
+		t.Helper()
+		command := exec.Command("/usr/bin/git", append([]string{"-C", rootPath}, args...)...)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git fixture: %v %s", err, output)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	git("init", "--quiet")
+	if err := os.WriteFile(filepath.Join(rootPath, "source.txt"), []byte("committed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "source.txt")
+	git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "Fixture")
+	if err := os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"config.yaml": compositionProjectConfig, "local.yaml": compositionLocalConfig} {
+		if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", name), []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	blob := git("rev-parse", "HEAD:source.txt")
+	command := exec.Command("/usr/bin/git", "-C", rootPath, "update-index", "--index-info")
+	command.Stdin = strings.NewReader("0 " + blob + "\tsource.txt\n100644 " + blob + " 1\tsource.txt\n100644 " + blob + " 2\tsource.txt\n100644 " + blob + " 3\tsource.txt\n")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("seed unmerged index: %v: %s", err, output)
+	}
+	before := git("ls-files", "--stage")
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	adapter, err := gittarget.New(gittarget.NewExecRunner())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"--head", "--stage"} {
+		t.Run(scope, func(t *testing.T) {
+			invocation, err := mulgaeentry.Parse([]string{"review", scope, "--preflight"}, rootPath, "i_019f596a-e201-7a4b-8d76-1cf503a1849e")
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, _ := invocation.Review()
+			service, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, adapter)
+			if err != nil {
+				t.Fatalf("conflicted index prevented composition: %v", err)
+			}
+			result, err := service.PreflightReview(context.Background(), request, root)
+			if scope == "--stage" {
+				var sourceError *ports.LiveSourceError
+				if !errors.As(err, &sourceError) || sourceError.Code() != ports.LiveSourceConflict {
+					t.Fatalf("stage conflict lost typed reason: %v", err)
+				}
+			} else if err != nil || result.CandidateCount != 1 {
+				t.Fatalf("HEAD preflight with unrelated index conflict: %+v, %v", result, err)
+			}
+		})
+	}
+	if after := git("ls-files", "--stage"); after != before {
+		t.Fatal("preflight changed the conflicted index")
+	}
+}

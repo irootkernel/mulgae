@@ -11,6 +11,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Allow committed Git targets during unrelated index conflicts and preserve
+  `conflicted_index` for stage admission.
 - Preserve structured ZCode findings by excluding intermediate tool-call narration
   from extraction responses while retaining complete role reports.
 - Preserve typed live-source admission reasons in MCP errors and document whole-selection rejection of source symlinks.

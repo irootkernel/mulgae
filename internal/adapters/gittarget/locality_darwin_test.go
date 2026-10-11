@@ -137,6 +137,36 @@ func TestGitLocalityAttestorRejectsLiveConfigAndRepositoryDrift(t *testing.T) {
 	}
 }
 
+func TestGitLocalityAttestorRetainsOrdinaryIndexConflictsAndDetectsDrift(t *testing.T) {
+	root, attestor, request, _ := localityFixture(t)
+	blob := reviewGitOutput(t, root, "rev-parse", "HEAD:tracked.txt")
+	command := exec.Command("/usr/bin/git", "update-index", "--index-info")
+	command.Dir = root
+	command.Stdin = strings.NewReader("0 " + blob + "\ttracked.txt\n100644 " + blob + " 1\ttracked.txt\n100644 " + blob + " 2\ttracked.txt\n100644 " + blob + " 3\ttracked.txt\n")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("seed ordinary unmerged index: %v: %s", err, output)
+	}
+	before := reviewGitOutput(t, root, "ls-files", "--stage")
+	observed, err := attestor.Attest(context.Background(), request)
+	if err != nil {
+		t.Fatalf("ordinary index conflict rejected by locality: %v", err)
+	}
+	_, count, unmerged := observed.Index()
+	if count != 3 || !unmerged {
+		t.Fatalf("conflict identity lost: count %d, unmerged %t", count, unmerged)
+	}
+	if err := attestor.Revalidate(context.Background(), request, observed); err != nil {
+		t.Fatalf("unchanged conflicted index rejected: %v", err)
+	}
+	if after := reviewGitOutput(t, root, "ls-files", "--stage"); after != before {
+		t.Fatal("locality admission changed the index")
+	}
+	reviewGit(t, root, "add", "tracked.txt")
+	if err := attestor.Revalidate(context.Background(), request, observed); !errors.Is(err, ports.ErrProviderSpawnEnvironmentDrift) {
+		t.Fatalf("resolved index did not invalidate locality: %v", err)
+	}
+}
+
 func TestGitLocalityAttestorRejectsPrivateIndexStagesAndApplicableCommit(t *testing.T) {
 	t.Run("private index stage zero", func(t *testing.T) {
 		root, attestor, request, _ := localityFixture(t)
@@ -175,9 +205,8 @@ func TestGitLocalityAttestorRejectsPrivateIndexStagesAndApplicableCommit(t *test
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("seed unmerged index: %v: %s", err, output)
 		}
-		if _, err := attestor.Attest(context.Background(), request); err == nil {
-			t.Fatal("unmerged index stages were accepted")
-		}
+		_, err := attestor.Attest(context.Background(), request)
+		requireLocalityReason(t, err, ports.ConfigLocalityTargetPrivateNamespaceForbidden)
 	})
 
 	t.Run("applicable private commit", func(t *testing.T) {

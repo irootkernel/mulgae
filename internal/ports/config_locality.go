@@ -161,7 +161,7 @@ func NewConfigLocalityContext(repositoryID string, rootDevice, rootInode uint64,
 	if repositoryID == "" || rootDevice == 0 || rootInode == 0 || (headCommit == "") != (headTree == "") || (headCommit == "" && len(applicable) != 0) || indexSHA256 == "" || indexEntryCount < 0 || target.SHA256 == "" {
 		return ConfigLocalityContext{}, fmt.Errorf("config locality context: incomplete")
 	}
-	if hasUnmerged || !target.PrivatePathFree {
+	if !target.PrivatePathFree {
 		return ConfigLocalityContext{}, fmt.Errorf("config locality context: unsafe")
 	}
 	return ConfigLocalityContext{kind: "git", repositoryID: repositoryID, rootDevice: rootDevice, rootInode: rootInode, rootUID: rootUID, rootMode: rootMode, headCommit: headCommit, headTree: headTree, indexSHA256: indexSHA256, indexEntryCount: indexEntryCount, hasUnmerged: hasUnmerged, applicable: append([]string(nil), applicable...), config: config, target: target}, nil

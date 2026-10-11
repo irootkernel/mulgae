@@ -238,9 +238,9 @@ their original bytes; presentation escaping does not change evidence identities.
 
 Workspace discovery uses tracked and nonignored untracked paths according to
 Git's ignore rules. `.mulgaeignore` is neither processed nor generated, and an
-existing user file is preserved. Selection rejects unsafe paths, unsupported
-source kinds and unresolved index conflicts before provider work. Ignored paths
-are not a physical read restriction; keep sensitive material outside the
+existing user file is preserved. Selection rejects unsafe paths and unsupported
+source kinds before provider work. Index targets also reject unresolved conflicts.
+Ignored paths are not a physical read restriction; keep sensitive material outside the
 admitted readable boundary. Source admission does not use credential-pattern
 matching as a substitute for operator scope policy.
 

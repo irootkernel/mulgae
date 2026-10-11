@@ -300,7 +300,8 @@ func TestLiveBoundaryDeniesProtectedUnixSockets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := os.MkdirTemp("/private/tmp", "mulgae-socket-")
+	// Keep native socket paths short while honoring the gate's TMPDIR.
+	base, err := os.MkdirTemp("", "s")
 	if err != nil {
 		t.Fatal(err)
 	}
