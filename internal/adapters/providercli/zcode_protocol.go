@@ -126,6 +126,7 @@ type zcodeProtocolSession struct {
 	// captureAssistantText enables the post-turn message read that collects
 	// the assistant text parts into assistantEvidence.
 	captureAssistantText bool
+	extraction           bool
 	liveSource           bool
 	liveReadTools        bool
 	assistantEvidence    []string
@@ -157,6 +158,7 @@ func newZcodeExtractionProtocolSession(workspacePath string, prompt []byte, sele
 		return nil, err
 	}
 	session.captureAssistantText = true
+	session.extraction = true
 	return session, nil
 }
 
@@ -197,7 +199,7 @@ func (session *zcodeProtocolSession) AssistantEvidenceText() []byte {
 }
 
 func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) (driveErr error) {
-	state := &zcodeProtocolConversation{prompt: session.prompt, workspacePath: session.workspacePath, mode: session.mode, toolDenylist: append([]string(nil), session.toolDenylist...), captureAssistantText: session.captureAssistantText, liveSource: session.liveSource, liveReadTools: session.liveReadTools, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection), reasoningEffort: session.reasoningEffort, account: session.account}
+	state := &zcodeProtocolConversation{prompt: session.prompt, workspacePath: session.workspacePath, mode: session.mode, toolDenylist: append([]string(nil), session.toolDenylist...), captureAssistantText: session.captureAssistantText, extraction: session.extraction, liveSource: session.liveSource, liveReadTools: session.liveReadTools, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection), reasoningEffort: session.reasoningEffort, account: session.account}
 	defer func() {
 		terminal := ports.ProviderSessionCompleted
 		if driveErr != nil {
@@ -296,6 +298,7 @@ type zcodeProtocolConversation struct {
 	providerErrorCode     int
 	hasProviderErrorCode  bool
 	captureAssistantText  bool
+	extraction            bool
 	liveSource            bool
 	liveReadTools         bool
 	assistantEvidence     []string
@@ -748,8 +751,8 @@ func (state *zcodeProtocolConversation) acceptSend(result json.RawMessage) error
 }
 
 // acceptMessages collects the assistant text parts of the completed turn. The
-// controlled qualification evidence travels in these parts; message metadata
-// is deliberately ignored.
+// extraction trailer omits tool-call narration; other purposes retain every
+// assistant text part, including controlled qualification evidence.
 func (state *zcodeProtocolConversation) acceptMessages(result json.RawMessage) error {
 	if !state.messagesRequested || state.messagesReceived {
 		return errors.New("unexpected session messages response")
@@ -757,7 +760,8 @@ func (state *zcodeProtocolConversation) acceptMessages(result json.RawMessage) e
 	var payload struct {
 		Messages []struct {
 			Info struct {
-				Role string `json:"role"`
+				Role   string          `json:"role"`
+				Finish json.RawMessage `json:"finish"`
 			} `json:"info"`
 			Parts []struct {
 				Type string `json:"type"`
@@ -771,6 +775,15 @@ func (state *zcodeProtocolConversation) acceptMessages(result json.RawMessage) e
 	for _, message := range payload.Messages {
 		if message.Info.Role != "assistant" {
 			continue
+		}
+		if state.extraction && len(message.Info.Finish) != 0 {
+			var finish string
+			if err := json.Unmarshal(message.Info.Finish, &finish); err != nil {
+				return fmt.Errorf("unreadable assistant finish value: %w", err)
+			}
+			if finish == "tool-calls" {
+				continue
+			}
 		}
 		for _, part := range message.Parts {
 			if part.Type == "text" && part.Text != "" {

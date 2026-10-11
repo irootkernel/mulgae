@@ -99,6 +99,92 @@ func TestZCodeLiveExtractionKeepsToolsDisabled(t *testing.T) {
 	t.Fatal("missing extraction create request")
 }
 
+func TestZCodeExtractionOmitsToolCallNarration(t *testing.T) {
+	message := func(finish string, texts ...string) any {
+		parts := make([]any, 0, len(texts))
+		for _, text := range texts {
+			parts = append(parts, map[string]string{"type": "text", "text": text})
+		}
+		info := map[string]string{"role": "assistant"}
+		if finish != "" {
+			info["finish"] = finish
+		}
+		return map[string]any{"info": info, "parts": parts}
+	}
+	const candidate = `{"schema_version":"mulgae-provider-review-output.v1","findings":[]}`
+	for _, purpose := range []protocolInvocationPurpose{protocolPurposeExtraction, protocolPurposeLiveExtraction} {
+		t.Run(string(purpose), func(t *testing.T) {
+			for _, test := range []struct {
+				name     string
+				messages []any
+				want     string
+			}{
+				{"narration-then-json", []any{message("tool-calls", "I will transcribe the report."), message("stop", candidate)}, candidate},
+				{"multiple-final-parts", []any{message("tool-calls", "Working."), message("stop", "{", `"findings":[]}`)}, "{\n\"findings\":[]}"},
+				{"missing-finish", []any{message("", candidate)}, candidate},
+				{"unknown-finish", []any{message("future-value", candidate)}, candidate},
+				{"only-narration", []any{message("tool-calls", candidate)}, ""},
+				{"malformed-final", []any{message("tool-calls", "Working."), message("stop", "{broken")}, "{broken"},
+				{"multiple-candidates", []any{message("stop", candidate), message("stop", candidate)}, candidate + "\n" + candidate},
+				{"unmarked-prefix", []any{message("", "Unmarked narration."), message("stop", candidate)}, "Unmarked narration.\n" + candidate},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					session, err := (zcodeProtocolDriverConstructor{}).NewSession("/neutral", []byte("extract"), purpose, nil, protocolSessionConfiguration{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					encoded, err := json.Marshal(map[string]any{"id": zcodeProtocolMessagesID, "result": map[string]any{"messages": test.messages}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					err, _ = driveScripted(t, session.(*zcodeProtocolSession), protocolCreateResult, protocolSendAck, protocolTurnDone, string(encoded), protocolCloseResult)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if got := string(session.AssistantEvidenceText()); got != test.want {
+						t.Fatalf("extraction text = %q, want %q", got, test.want)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestZCodeNonExtractionPreservesToolCallNarration(t *testing.T) {
+	for _, purpose := range []protocolInvocationPurpose{protocolPurposeQualification, protocolPurposeLiveReview} {
+		t.Run(string(purpose), func(t *testing.T) {
+			session, err := (zcodeProtocolDriverConstructor{}).NewSession("/neutral", []byte("report"), purpose, nil, protocolSessionConfiguration{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			messages := `{"id":"mulgae-messages","result":{"messages":[{"info":{"role":"assistant","finish":"tool-calls"},"parts":[{"type":"text","text":"Intermediate observation."}]},{"info":{"role":"assistant","finish":"stop"},"parts":[{"type":"text","text":"Final report."}]}]}}`
+			err, _ = driveScripted(t, session.(*zcodeProtocolSession), protocolCreateResult, protocolSendAck, protocolTurnDone, messages, protocolCloseResult)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(session.AssistantEvidenceText()); got != "Intermediate observation.\nFinal report." {
+				t.Fatalf("complete report text = %q", got)
+			}
+		})
+	}
+}
+
+func TestZCodeExtractionRejectsMalformedFinish(t *testing.T) {
+	for _, purpose := range []protocolInvocationPurpose{protocolPurposeExtraction, protocolPurposeLiveExtraction} {
+		t.Run(string(purpose), func(t *testing.T) {
+			session, err := (zcodeProtocolDriverConstructor{}).NewSession("/neutral", []byte("extract"), purpose, nil, protocolSessionConfiguration{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			messages := `{"id":"mulgae-messages","result":{"messages":[{"info":{"role":"assistant","finish":{}},"parts":[{"type":"text","text":"{}"}]}]}}`
+			err, _ = driveScripted(t, session.(*zcodeProtocolSession), protocolCreateResult, protocolSendAck, protocolTurnDone, messages)
+			if err == nil || protocolCause(t, err) != domain.DiagnosticCauseOutputEnvelopeInvalid || session.AssistantEvidenceText() != nil {
+				t.Fatalf("malformed extraction finish: error=%v text=%q", err, session.AssistantEvidenceText())
+			}
+		})
+	}
+}
+
 func TestZCodeLiveProtocolRejectsMissingOwnCompletionAndReport(t *testing.T) {
 	for _, test := range []struct {
 		name  string

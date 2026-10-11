@@ -102,6 +102,7 @@ func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 		session, err = newZcodeCapabilityProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 		if err == nil {
 			session.liveSource = true
+			session.extraction = true
 		}
 	default:
 		return nil, fmt.Errorf("zcode protocol: unsupported invocation purpose")

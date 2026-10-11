@@ -89,6 +89,11 @@ following facts, verified end to end including one real model turn:
   returns the conversation's messages; the assistant text parts carry the
   qualification probe's controlled evidence, which never appears in the
   protocol transcript itself.
+- Structured extraction excludes assistant messages marked with
+  `info.finish: "tool-calls"` from the candidate text. Other assistant text
+  parts remain joined in full and must pass the existing structured-output
+  and evidence validation. Review and qualification retain all assistant text,
+  and complete raw protocol streams remain available for diagnostics.
 - `session/close` returns `{"closed":true}`, and the server exits 0 after its
   stdin closes. In the 0.16.5 spike, no `--stdio` flag was required;
   `app-server` used its standard pipes by default.

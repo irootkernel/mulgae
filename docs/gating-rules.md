@@ -55,8 +55,9 @@ access.
 - **Scope:** `internal/adapters/providercli` native protocols and credentials;
   `internal/adapters/process` descriptor, Seatbelt and terminal cleanup policy.
 - **Positive scenarios:** Codex completes an ephemeral turn, ZCode collects a
-  complete correlated report, Grok admits the declared read plan, and private
-  credential projection remains bound to its selected profile. Missing optional
+  complete correlated report and omits tool-call narration only during structured
+  extraction, Grok admits the declared read plan, and private credential projection
+  remains bound to its selected profile. Missing optional
   credential homes remain protected if they appear after policy assembly.
 - **Failure scenarios:** Write authority, unexpected protocol requests, missing
   own-turn completion, changed source or guide authority, descriptor replacement,
@@ -69,7 +70,7 @@ access.
   On native Apple Silicon macOS, run:
 
   ```sh
-  go test -v -count=1 ./internal/adapters/providercli -run '^(TestCodexProtocolCompletesOneEphemeralTurn|TestCodexProtocolRejectsActualWriteAuthority|TestZCodeLiveProtocolCorrelatesOwnTurnAndCollectsCompleteReport|TestZCodeLiveExtractionKeepsToolsDisabled|TestZCodeLiveProtocolRejectsMissingOwnCompletionAndReport|TestLiveExecutionGuidePlanAndClosedGrokPermissions|TestLiveNeutralProtocolAdmissionClosesUnconsumedDescriptor|TestLiveRuntimeTempRejectsReplacementAndUnsafeDirectory|TestLiveTerminalRevalidationDiscardsChangedSourceAndGuide|TestCredentialSourceProjectsOnlyDeclaredFamilyFiles|TestGrokCredentialProjectionRejectsNonPrivateAuth|TestCodexCredentialProjectionUsesConfiguredCodexHome)$'
+  go test -v -count=1 ./internal/adapters/providercli -run '^(TestCodexProtocolCompletesOneEphemeralTurn|TestCodexProtocolRejectsActualWriteAuthority|TestZCodeLiveProtocolCorrelatesOwnTurnAndCollectsCompleteReport|TestZCodeLiveExtractionKeepsToolsDisabled|TestZCodeExtractionOmitsToolCallNarration|TestZCodeNonExtractionPreservesToolCallNarration|TestZCodeExtractionRejectsMalformedFinish|TestZCodeLiveProtocolRejectsMissingOwnCompletionAndReport|TestLiveExecutionGuidePlanAndClosedGrokPermissions|TestLiveNeutralProtocolAdmissionClosesUnconsumedDescriptor|TestLiveRuntimeTempRejectsReplacementAndUnsafeDirectory|TestLiveTerminalRevalidationDiscardsChangedSourceAndGuide|TestCredentialSourceProjectsOnlyDeclaredFamilyFiles|TestGrokCredentialProjectionRejectsNonPrivateAuth|TestCodexCredentialProjectionUsesConfiguredCodexHome)$'
   go test -v -count=1 ./internal/adapters/process -run '^(TestLiveBoundaryDeniesWritesReadsAndAncestorRename|TestLiveBoundaryDeniesCredentialSymlinksToOutsideTargets|TestLiveBoundaryProtectsExoticCredentialPaths|TestLiveBoundaryRejectsSymlinkAndMissingRootsBeforeLaunch|TestLiveBoundaryRejectsPreexistingCredentialHardlink|TestLiveBoundaryDeniesProtectedUnixSockets|TestLiveBoundaryCredentialAdmissionHonorsCancellation|TestLiveBoundaryCredentialAdmissionHonorsDeadline|TestLiveBoundaryRejectsPreexistingWritableHardlink|TestLiveBoundaryRuntimeTempKeepsOverlappingRootsProtected|TestLiveNeutralLaunchRejectsWrongAndReplacedDescriptor|TestLiveBoundaryProtectsMissingOptionalCredentialHomes)$'
   ```
 
