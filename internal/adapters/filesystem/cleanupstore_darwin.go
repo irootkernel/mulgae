@@ -366,6 +366,7 @@ func (store *CleanupStore) observeLocked(ctx context.Context) ([]clean.RunObserv
 							if !completed {
 								observation.Corrupt = true
 							} else {
+								observation.Corrupt = store.verifyLiveCleanupSupport(ctx, run, manifest.Bytes()) != nil
 								material = append(material, final.Bytes()...)
 								material = append(material, manifest.Bytes()...)
 								material = append(material, lineage.Bytes()...)
@@ -398,6 +399,94 @@ func (store *CleanupStore) observeLocked(ctx context.Context) ([]clean.RunObserv
 	sort.Slice(runs, func(i, j int) bool { return runs[i].RunID < runs[j].RunID })
 	sort.Slice(edges, func(i, j int) bool { return edges[i].ChildRunID < edges[j].ChildRunID })
 	return runs, edges, protectedBytes, hashInput, nil
+}
+
+func (store *CleanupStore) verifyLiveCleanupSupport(ctx context.Context, run ports.PublicationRun, manifestBytes []byte) error {
+	var manifest struct {
+		SchemaVersion     string `json:"schema_version"`
+		CompositeIdentity struct {
+			SupportIndex struct {
+				Path   string `json:"path"`
+				SHA256 string `json:"sha256"`
+			} `json:"support_index"`
+		} `json:"composite_identity"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return err
+	}
+	if manifest.SchemaVersion != "mulgae-run-manifest.v3" {
+		return nil
+	}
+	ref := manifest.CompositeIdentity.SupportIndex
+	indexPath, err := ports.NewSafeRelativePath(ref.Path)
+	if err != nil || !cleanupSHA256(ref.SHA256) {
+		return errors.New("cleanup store: invalid live support index identity")
+	}
+	indexKind, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), indexPath)
+	if err != nil || indexKind != ports.RunSupportArtifactSupportIndex {
+		return errors.New("cleanup store: invalid live support index path")
+	}
+	indexFile, err := readPublicationFile(run.Root(), indexPath, math.MaxInt64-1)
+	if err != nil || indexFile.sha256 != ref.SHA256 {
+		return errors.New("cleanup store: live support index is absent or changed")
+	}
+	var index struct {
+		SchemaVersion string `json:"schema_version"`
+		Artifacts     []struct {
+			Path   string `json:"path"`
+			SHA256 string `json:"sha256"`
+		} `json:"artifacts"`
+	}
+	if err := strictDecodePublicationJSON(indexFile.bytes, &index); err != nil {
+		return err
+	}
+	if index.SchemaVersion != "mulgae-run-support-index.v3" || index.Artifacts == nil {
+		return errors.New("cleanup store: invalid live support index")
+	}
+	seen := map[string]bool{indexPath.String(): true}
+	for _, item := range index.Artifacts {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		path, err := ports.NewSafeRelativePath(item.Path)
+		if err != nil || seen[item.Path] || !cleanupSHA256(item.SHA256) {
+			return errors.New("cleanup store: invalid live support identity")
+		}
+		if _, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path); err != nil {
+			return err
+		}
+		seen[item.Path] = true
+		if err := verifyCleanupSupportHash(run.Root(), path, item.SHA256); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifyCleanupSupportHash(root ports.AnchoredRoot, path ports.SafeRelativePath, expected string) error {
+	parts, name, err := splitDestination(path)
+	if err != nil {
+		return err
+	}
+	directory, err := walkPrivateDirectory(root, parts, false)
+	if err != nil {
+		return err
+	}
+	defer closeFD(directory)
+	identity, err := privateDirectoryIdentityForFD(directory)
+	if err != nil {
+		return err
+	}
+	// Provider reports and observations have no byte ceiling. Hash them with a
+	// fixed buffer instead of loading the retained content into memory.
+	file, exists, err := observePublicationFileHash(directory, name, math.MaxInt64-1)
+	if err != nil {
+		return err
+	}
+	if !exists || file.sha256 != expected {
+		return errors.New("cleanup store: indexed support is absent or changed")
+	}
+	return revalidatePrivateDirectory(root, parts, identity, defaultSecureWriterOperations())
 }
 
 func (store *CleanupStore) observeDiagnosticRuns(ctx context.Context, runs *[]clean.RunObservation) (int64, []byte, error) {

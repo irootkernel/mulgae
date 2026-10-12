@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -495,6 +496,33 @@ func TestRunnerConverseEscalatesOrphanedGroupThatIgnoresTermination(t *testing.T
 		requests[1].Signal().Name() != "SIGKILL" {
 		t.Fatalf("signal requests = %#v", requests)
 	}
+}
+
+func TestRunnerConverseEscalatesDetachedOrphanAfterStreamsClose(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ready")
+	t.Cleanup(func() {
+		if data, err := os.ReadFile(marker); err == nil {
+			if group, err := strconv.Atoi(string(data)); err == nil && group > 0 {
+				_ = syscall.Kill(-group, syscall.SIGKILL)
+			}
+		}
+	})
+	request, _ := newConversationRequest(t, "conversation-orphan-detached-resistant", []string{marker}, processTestExecutionTimeout)
+	driver := &conversationSingleResponseDriver{}
+	observation, err := newTestRunner(t).Converse(context.Background(), request, driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(driver.received) == 0 || !observation.ProcessGroupAbsent() {
+		t.Fatal("detached descendant escaped conversation teardown")
+	}
+	requests := observation.SignalRequests()
+	if len(requests) != 2 || requests[0].Reason() != ports.ProcessGroupSignalRequestConversationTeardown ||
+		requests[0].Signal().Name() != "SIGTERM" || requests[1].Reason() != ports.ProcessGroupSignalRequestConversationTeardownEscalation ||
+		requests[1].Signal().Name() != "SIGKILL" {
+		t.Fatalf("signal requests = %#v", requests)
+	}
+	assertNoLiveProcessGroup(t, readHelperPID(t, marker))
 }
 
 func TestRunnerConverseSurfacesDriverErrorWithCoherentTeardown(t *testing.T) {

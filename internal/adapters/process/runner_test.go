@@ -2166,6 +2166,33 @@ func TestRunnerHelperProcess(t *testing.T) {
 	case "conversation-ignore-term-child":
 		signal.Ignore(syscall.SIGTERM)
 		time.Sleep(10 * time.Second)
+	case "conversation-ignore-term-ready":
+		if len(arguments) != 2 {
+			os.Exit(2)
+		}
+		signal.Ignore(syscall.SIGTERM)
+		if !helperWriteMarker(arguments[1], strconv.Itoa(syscall.Getpgrp())) {
+			os.Exit(2)
+		}
+		time.Sleep(10 * time.Second)
+	case "conversation-orphan-detached-resistant":
+		if len(arguments) != 2 {
+			os.Exit(2)
+		}
+		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+			os.Exit(3)
+		}
+		child := exec.Command(os.Args[0], "-test.run=^TestRunnerHelperProcess$", "--", "conversation-ignore-term-ready", arguments[1])
+		child.Env = os.Environ()
+		// The descendant closes protocol streams but remains in the owned group.
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		if _, err := waitForFile(arguments[1], processTestExecutionTimeout); err != nil {
+			os.Exit(2)
+		}
+		fmt.Fprintln(os.Stdout, `{"id":1,"result":{"sessionId":"session"}}`)
+		os.Exit(0)
 	case "conversation-orphan-holder", "conversation-orphan-resistant":
 		resistant := arguments[0] == "conversation-orphan-resistant"
 		if len(arguments) != 1 {

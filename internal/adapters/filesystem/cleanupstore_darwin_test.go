@@ -3,6 +3,7 @@
 package filesystem
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -53,6 +54,37 @@ func TestCleanupStoreObserveDoesNotCreatePrivateState(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("read-only cleanup observation created state: %#v", entries)
+	}
+}
+
+func TestCleanupSupportHashStreamsLargeArtifacts(t *testing.T) {
+	root, _ := ports.NewAnchoredRoot(t.TempDir())
+	path, _ := ports.NewSafeRelativePath("report.md")
+	file, err := os.OpenFile(filepath.Join(root.String(), path.String()), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	chunk := bytes.Repeat([]byte("a"), 1<<20)
+	hash := sha256.New()
+	for written := int64(0); written <= cleanupMaximumBytes; written += int64(len(chunk)) {
+		if _, err := file.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = hash.Write(chunk)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	if err := verifyCleanupSupportHash(root, path, digest); err != nil {
+		t.Fatalf("large retained content rejected: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root.String(), path.String()), []byte("changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyCleanupSupportHash(root, path, digest); err == nil {
+		t.Fatal("changed large artifact accepted")
 	}
 }
 

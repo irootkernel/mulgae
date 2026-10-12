@@ -2600,6 +2600,10 @@ type publicationMutableFile struct {
 }
 
 func observePublicationMutableFile(directory int, name string) (publicationMutableFile, bool, error) {
+	return observePublicationFileHash(directory, name, publicationMaximumReadBytes)
+}
+
+func observePublicationFileHash(directory int, name string, maximum int64) (publicationMutableFile, bool, error) {
 	fd, err := unix.Openat(directory, name, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if errors.Is(err, unix.ENOENT) {
 		return publicationMutableFile{}, false, nil
@@ -2617,7 +2621,7 @@ func observePublicationMutableFile(directory int, name string) (publicationMutab
 		closeFD(fd)
 		return publicationMutableFile{}, false, fmt.Errorf("replace mutable: stat prior file: %w", err)
 	}
-	if stat.Size < 0 || stat.Size > publicationMaximumReadBytes {
+	if stat.Size < 0 || stat.Size > maximum {
 		closeFD(fd)
 		return publicationMutableFile{}, false, errPublicationCap
 	}
@@ -2625,11 +2629,11 @@ func observePublicationMutableFile(directory int, name string) (publicationMutab
 	hash := sha256.New()
 	read, copyErr := io.CopyBuffer(
 		hash,
-		io.LimitReader(file, publicationMaximumReadBytes+1),
+		io.LimitReader(file, maximum+1),
 		make([]byte, publicationReadBuffer),
 	)
 	closeErr := file.Close()
-	if read > publicationMaximumReadBytes {
+	if read > maximum {
 		return publicationMutableFile{}, false, errPublicationCap
 	}
 	if copyErr != nil {

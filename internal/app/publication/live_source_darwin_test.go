@@ -18,6 +18,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
+	"github.com/irootkernel/mulgae/internal/app/clean"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/review"
@@ -384,6 +385,105 @@ func TestIntegrationLivePublicationRetainsEvidenceAndRecoversExactP1(t *testing.
 			}
 			if _, err := queries.ReadCommitted(ctx, run); err != nil {
 				t.Fatalf("restored support is unreadable: %v", err)
+			}
+		})
+	}
+}
+
+func TestIntegrationLiveCleanupRetainsCorruptIndexedSupport(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		kind   ports.RunSupportArtifactKind
+		remove bool
+	}{
+		{name: "healthy"},
+		{name: "modified excerpt", kind: ports.RunSupportArtifactExcerpt},
+		{name: "missing excerpt", kind: ports.RunSupportArtifactExcerpt, remove: true},
+		{name: "modified index", kind: ports.RunSupportArtifactSupportIndex},
+		{name: "missing index", kind: ports.RunSupportArtifactSupportIndex, remove: true},
+		{name: "modified image", kind: ports.RunSupportArtifactSourceImage},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			sourcePath := t.TempDir()
+			for name, data := range map[string][]byte{"source.go": []byte("observed\n"), "diagram.png": {137, 80, 78, 71, 13, 10, 26, 10, 0}} {
+				if err := os.WriteFile(filepath.Join(sourcePath, name), data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sourceRoot, _ := ports.NewAnchoredRoot(sourcePath)
+			opener, _ := gittarget.NewLiveSourceAdapter(gittarget.ExecRunner{}, nil)
+			selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
+			source, err := opener.OpenLiveSource(ctx, sourceRoot, selector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer source.Close()
+			schema, err := jsonschema.New(ctx, builtin.NewCatalog())
+			if err != nil {
+				t.Fatal(err)
+			}
+			input, _ := livePublicationChangedInput(t, source, schema)
+			candidate, err := PrepareLiveCandidate(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := source.Close(); err != nil {
+				t.Fatal(err)
+			}
+			root, _ := ports.NewAnchoredRoot(t.TempDir())
+			clock := publicationServiceClock{now: publicationTestTime()}
+			store, err := filesystem.NewPublicationStore(schema, clock, compositeTestIDs{publicationTestReviewID(t)}, filesystem.NewSecureWriter())
+			if err != nil {
+				t.Fatal(err)
+			}
+			publisher, _ := NewService(store, schema, clock, 8<<20)
+			published, err := publisher.PublishLiveNext(ctx, root, candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cleanupClock := publicationServiceClock{now: clock.now.Add(24 * time.Hour)}
+			cleanup, _ := filesystem.NewCleanupStore(root, store, cleanupClock)
+			cleaner, _ := clean.NewService(cleanupClock, schema, cleanup)
+			before, err := cleaner.Run(ctx, clean.Request{All: true, DryRun: true})
+			if err != nil || before.AffectedRunCount != 1 {
+				t.Fatalf("healthy cleanup eligibility = %d: %v", before.AffectedRunCount, err)
+			}
+			corrupt := test.kind != ""
+			if corrupt {
+				found := false
+				for _, artifact := range published.PersistedRunSupportArtifacts() {
+					kind, _ := ports.ClassifyRunSupportArtifactPath(candidate.SessionID(), candidate.RunID(), artifact.Path())
+					if kind != test.kind {
+						continue
+					}
+					path := filepath.Join(root.String(), artifact.Path().String())
+					if test.remove {
+						err = os.Remove(path)
+					} else {
+						err = os.WriteFile(path, []byte("ADVERSARIAL TAMPER\n"), 0600)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					found = true
+					break
+				}
+				if !found {
+					t.Fatalf("published support kind %s absent", test.kind)
+				}
+			}
+			snapshot, err := cleanup.Observe(ctx)
+			if err != nil || len(snapshot.Runs) != 1 || snapshot.Runs[0].Corrupt != corrupt {
+				t.Fatalf("cleanup observation = %#v: %v", snapshot.Runs, err)
+			}
+			result, err := cleaner.Run(ctx, clean.Request{All: true})
+			if err != nil || (result.AffectedRunCount == 0) != corrupt {
+				t.Fatalf("destructive cleanup = %d: %v", result.AffectedRunCount, err)
+			}
+			_, err = os.Stat(filepath.Join(root.String(), candidate.SessionID().String(), candidate.RunID().String()))
+			if corrupt && err != nil || !corrupt && !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("run retention after cleanup: %v", err)
 			}
 		})
 	}

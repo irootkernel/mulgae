@@ -13,6 +13,10 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Terminate detached provider descendants before completing namespace cleanup,
+  even after the direct process and protocol streams have ended.
+- Preserve live review runs with missing or corrupted indexed support during
+  cleanup, hashing large retained content without a byte ceiling.
 - Allow committed Git targets during unrelated index conflicts and preserve
   `conflicted_index` for stage admission.
 - Preserve structured ZCode findings by excluding intermediate tool-call narration

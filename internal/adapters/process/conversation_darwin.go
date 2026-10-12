@@ -263,7 +263,15 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 			}
 		}
 		if tearingDown && stdoutEnded && stderrDone && spoolDone && waited && driverFinished {
-			break
+			// Closed streams do not prove that detached descendants have exited.
+			// Keep the teardown timers reachable until absence or escalation.
+			if !groupAbsent && !escalated {
+				membership, err := probeProcessGroup(processGroupID)
+				groupAbsent = err == nil && membership.absent()
+			}
+			if groupAbsent || escalated {
+				break
+			}
 		}
 		if !tearingDown {
 			select {
