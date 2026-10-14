@@ -13,6 +13,14 @@ None.
 - [EPIC-008: Review completeness and iteration](EPIC-008-review-completeness-and-iteration.md)
   develops structured requirements review, bounded batch followup, and exact-run
   comparison as a preserved design held for redesign after EPIC-009 acceptance.
+- [EPIC-010: Cursor ACP review provider](EPIC-010-cursor-acp-provider.md)
+  records the planned ACP adapter, read-only session boundary, and TASK-040
+  stop conditions. Adoption grants no current execution capability.
+- [EPIC-011: AGY stream-json review provider](EPIC-011-agy-stream-json-provider.md)
+  records the planned `stream-json` stdio adapter, Live-Source Seatbelt read-only
+  boundary, multi-account `--gemini_dir` credential isolation, `documentation`
+  default routing, and TASK-043 stop conditions. Adoption grants no current
+  execution capability.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply
