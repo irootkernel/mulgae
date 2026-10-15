@@ -137,6 +137,24 @@ Later tasks must not weaken a failed check or switch to print mode.
 | Credential boundary | The process cannot read a configured credential root. |
 | Report correlation | Accepted text comes from the completed assistant turn for that prompt. Missing completion, an unknown `stopReason`, or uncorrelated text fails closed. |
 
+## TASK-040 probe record
+
+`cursor-agent --version` printed `2026.10.14-0f9edde`. The cycle launched `cursor-agent acp` under the Seatbelt profile from `liveBoundaryArgv`. Process cwd and `session/new` `cwd` were a neutral directory, and `mcpServers` was empty.
+
+Startup auth was one read-only Keychain lookup for account `cursor-user` and service `cursor-access-token`. The secret was projected only as `CURSOR_AUTH_TOKEN`, with `AGENT_CLI_CREDENTIAL_STORE=memory`. `authenticate` was not called, and `session/new` succeeded. `BROWSER` was `/usr/bin/false`. The operator `~/.cursor` directory was a Seatbelt credential deny root. `~/.config/cursor` was absent.
+
+`session/set_mode` with `modeId` `ask` was confirmed by `session/update` `current_mode_update` `currentModeId` `ask` before `session/prompt`. The `session/set_mode` result was an empty object. `session/new` had reported `currentModeId` `agent`.
+
+A direct child of that same Seatbelt profile could not read the synthetic credential file. `/bin/cat` exited 1 and its stderr was `Operation not permitted`. The nonce did not appear. `/usr/bin/touch` under the admitted source root and under the neutral directory also exited 1, with the same stderr.
+
+The admitted absolute source read came back in the correlated assistant turn with `stopReason` `end_turn`. Project `.cursor/rules`, `AGENTS.md`, `CLAUDE.md`, and `mcp.json` were not applied as execution instructions.
+
+Forbidden `tool_call` updates were visible for `kind` `edit`, `kind` `execute`, and `kind` `other` with `rawInput._toolName` `task`, including the task update that arrived without `session/request_permission`. Requests that advertised `reject_once` were answered on their own ids with `optionId` `reject-once`. No reply selected `allow-once` or `allow-always`. After those tools were visible, the probe sent `session/cancel` and tore the process down. That negative review did not depend on `stopReason` `end_turn`.
+
+The qualification assistant text was one JSON object with `root`, `link`, and `role`, taken from the correlated `agent_message_chunk` updates, with `stopReason` `end_turn`.
+
+All six stop conditions passed. TASK-040 is complete. TASK-041 has not started.
+
 ## Intended owners
 
 | Owner | Responsibility |

@@ -29,7 +29,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
 | [EPIC-008](#epic-008-review-completeness-and-iteration) | Deferred | Redesign requirements assessment, selected-finding rechecks, and comparison after the live-review model is accepted. |
 | [EPIC-009](#epic-009-live-workspace-and-git-review) | Completed | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
-| [EPIC-010](#epic-010-cursor-acp-review-provider) | Planned | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
+| [EPIC-010](#epic-010-cursor-acp-review-provider) | In Progress | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Planned | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol, make AGY the default `documentation` provider, and support multi-account credential homes. |
 
 ## Adopted execution order
@@ -508,7 +508,7 @@ later tasks must not restore snapshots or substitute another provider.
 
 ## EPIC-010: Cursor ACP review provider
 
-Status: Planned
+Status: In Progress
 
 Depends on: completed EPIC-009. No EPIC-008 dependency.
 
@@ -534,7 +534,7 @@ remains ZCode, Grok, and Codex until TASK-042 publishes the route.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-040 | Planned | Pin the installed `agent acp` wire and prove neutral-cwd reads, absent project-instruction injection, visible tool identity, ask-mode acknowledgement before prompting, credential denial, and a correlated completed assistant turn. Stop the epic if any check fails. | Isolated live handshake and one read-only turn. Record the binary version and each stop condition in the dossier. |
+| TASK-040 | Completed | Pin the installed `agent acp` wire and prove neutral-cwd reads, absent project-instruction injection, visible tool identity, ask-mode acknowledgement before prompting, credential denial, and a correlated completed assistant turn. Stop the epic if any check fails. | Isolated live handshake and one read-only turn. Record the binary version and each stop condition in the dossier. |
 | TASK-041 | Planned | Add the Cursor family ACP driver, disposable namespace, Seatbelt launch, and qualification behind the existing protocol runner. Leave public configuration and default role assignment unchanged. | Scripted ACP success and failure, permission rejection, credential isolation, and unchanged ZCode, Grok, and Codex regressions. |
 | TASK-042 | Planned | Publish explicit Cursor selection across init, CLI, MCP, schemas, help, contracts, security, and one transport ADR. Keep live certification opt-in. | Generator idempotence, one exact-binary Cursor review, the complete `make test` gate, and a separate opt-in Cursor live check. |
 
@@ -547,7 +547,7 @@ from the pinned wire. TASK-042 is the first task that updates
 
 ### Epic acceptance
 
-- [ ] TASK-040 records a passing installed-CLI probe, or the epic stops with a concrete blocker.
+- [x] TASK-040 records a passing installed-CLI probe, or the epic stops with a concrete blocker.
 - [ ] Cursor text roles run through `agent acp` with neutral cwd, Seatbelt, isolated credentials, and fail-closed tool policy.
 - [ ] ZCode defaults, Grok recovery, and Codex selection remain unchanged, and provider failure causes no substitution.
 - [ ] Public contracts, security, help, and schemas describe Cursor only after TASK-042, and historical readers remain valid.
