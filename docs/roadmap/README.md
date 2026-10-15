@@ -34,8 +34,8 @@ not complete an epic without explicit epic acceptance.
 
 ## Adopted execution order
 
-EPIC-007 and EPIC-009 are complete. EPIC-010 and EPIC-011 are Planned, depend
-on completed EPIC-009, and do not depend on each other. EPIC-008 and TASK-026
+EPIC-007 and EPIC-009 are complete. EPIC-010 is In Progress. EPIC-011 is Planned. Both depend
+on completed EPIC-009 and do not depend on each other. EPIC-008 and TASK-026
 through TASK-033 remain Deferred until their capture-dependent contracts are
 redesigned and reapproved. Preserve their identities; this hold does not reopen
 EPIC-007 or block EPIC-010 or EPIC-011.
@@ -535,7 +535,7 @@ remains ZCode, Grok, and Codex until TASK-042 publishes the route.
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
 | TASK-040 | Completed | Pin the installed `agent acp` wire and prove neutral-cwd reads, absent project-instruction injection, visible tool identity, ask-mode acknowledgement before prompting, credential denial, and a correlated completed assistant turn. Stop the epic if any check fails. | Isolated live handshake and one read-only turn. Record the binary version and each stop condition in the dossier. |
-| TASK-041 | Planned | Add the Cursor family ACP driver, disposable namespace, Seatbelt launch, and qualification behind the existing protocol runner. Leave public configuration and default role assignment unchanged. | Scripted ACP success and failure, permission rejection, credential isolation, and unchanged ZCode, Grok, and Codex regressions. |
+| TASK-041 | Completed | Add the Cursor family ACP driver, disposable namespace, Seatbelt launch, and qualification behind the existing protocol runner. Leave public configuration and default role assignment unchanged. | Scripted ACP success and failure, permission rejection, credential isolation, unchanged ZCode, Grok, and Codex behavior, and one native stage fixture: separate index and commit GitCommand calls, each allow_once and completed, with both byte strings in the assistant turn and the neutral home as GIT_WORK_TREE. |
 | TASK-042 | Planned | Publish explicit Cursor selection across init, CLI, MCP, schemas, help, contracts, security, and one transport ADR. Keep live certification opt-in. | Generator idempotence, one exact-binary Cursor review, the complete `make test` gate, and a separate opt-in Cursor live check. |
 
 TASK-040 is the provider feasibility prerequisite. A failed probe blocks

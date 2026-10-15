@@ -44,7 +44,7 @@ var _ ports.ProviderNamespaceFactory = (*NamespaceFactory)(nil)
 // family-specific namespace environment shaping.
 func validNamespaceFamily(family string) bool {
 	switch family {
-	case FamilyZcode, FamilyGrok, FamilyCodex:
+	case FamilyZcode, FamilyGrok, FamilyCodex, FamilyCursor:
 		return true
 	default:
 		return false
@@ -166,8 +166,14 @@ func (factory *NamespaceFactory) acquireProviderNamespace(ctx context.Context, i
 			err = fmt.Errorf("provider namespace factory: root drift after construction: %w", err)
 		}
 	}
+	if err == nil && family == FamilyCursor {
+		err = lease.createCursorDataChild(generation)
+	}
 	if err != nil {
-		cleanupErr := lease.removeNamespaceRoot()
+		cleanupErr := lease.removeCursorDataChild()
+		if cleanupErr == nil {
+			cleanupErr = lease.removeNamespaceRoot()
+		}
 		if cleanupErr == nil {
 			cleanupErr = lease.closeNamespaceDescriptors()
 		}
@@ -265,6 +271,11 @@ type namespaceLease struct {
 	zcodeNativeHomeInfo           os.FileInfo
 	zcodeRuntimeTemp              string
 	zcodeRuntimeTempInfo          os.FileInfo
+	cursorDataDir                 string
+	cursorDataInfo                os.FileInfo
+	cursorRuntimeHome             string
+	cursorProjectRoot             string
+	cursorConfiguredRoots         []string
 	seedMu                        sync.RWMutex
 	nativeHomeLaunchAuthority     ports.NativeHomeLaunchAuthority
 	seeds                         map[ports.CredentialProjectionDestination]credentialSeed
@@ -312,6 +323,118 @@ func (lease *namespaceLease) zcodeAccountRuntime(builtinPath, configuredModel st
 // os.tmpdir(), and a namespace-rooted temp path exceeds the kernel socket
 // path limit, so ZCode namespaces redirect their temp variables here instead.
 const zcodeRuntimeTempDirectory = "/tmp/mulgae-zcode"
+
+// cursorDataParentDirectory is only the short parent. CURSOR_DATA_DIR is a
+// new child under it, never this shared directory and never the ZCode temp.
+const cursorDataParentDirectory = "/tmp/mgc"
+
+func validCursorDataChildName(name string) bool {
+	if len(name) != 32 {
+		return false
+	}
+	for _, character := range name {
+		if character < '0' || (character > '9' && character < 'a') || character > 'f' {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalCursorDataParent() (string, error) {
+	if err := os.MkdirAll(cursorDataParentDirectory, 0700); err != nil {
+		return "", fmt.Errorf("provider namespace: cursor data parent: %w", err)
+	}
+	canonical, err := filepath.EvalSymlinks(cursorDataParentDirectory)
+	if err != nil {
+		return "", fmt.Errorf("provider namespace: cursor data parent resolution: %w", err)
+	}
+	info, err := os.Lstat(canonical)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 {
+		return "", fmt.Errorf("provider namespace: cursor data parent is not private")
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Getuid() {
+		return "", fmt.Errorf("provider namespace: cursor data parent is not owned by the current user")
+	}
+	return canonical, nil
+}
+
+func (lease *namespaceLease) createCursorDataChild(generation string) error {
+	if lease == nil || lease.cursorDataDir != "" || !validCursorDataChildName(generation) {
+		return fmt.Errorf("provider namespace: invalid cursor data child")
+	}
+	parent, err := canonicalCursorDataParent()
+	if err != nil {
+		return err
+	}
+	child := filepath.Join(parent, generation)
+	if err := os.Mkdir(child, 0700); err != nil {
+		return fmt.Errorf("provider namespace: cursor data child: %w", err)
+	}
+	info, err := os.Lstat(child)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 {
+		_ = os.Remove(child)
+		return fmt.Errorf("provider namespace: cursor data child is not private")
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Getuid() {
+		_ = os.Remove(child)
+		return fmt.Errorf("provider namespace: cursor data child is not owned by the current user")
+	}
+	canonical, err := filepath.EvalSymlinks(child)
+	if err != nil || canonical != child {
+		_ = os.Remove(child)
+		return fmt.Errorf("provider namespace: cursor data child resolution: %w", err)
+	}
+	lease.cursorDataDir, lease.cursorDataInfo = canonical, info
+	return nil
+}
+
+func (lease *namespaceLease) removeCursorDataChild() error {
+	if lease == nil || lease.cursorDataDir == "" {
+		return nil
+	}
+	child := lease.cursorDataDir
+	parent, parentErr := canonicalCursorDataParent()
+	if parentErr != nil {
+		return parentErr
+	}
+	if filepath.Dir(child) != parent || !validCursorDataChildName(filepath.Base(child)) || child == parent || child == zcodeRuntimeTempDirectory {
+		return fmt.Errorf("provider namespace: cursor data child is outside its parent")
+	}
+	info, err := os.Lstat(child)
+	if err != nil {
+		if os.IsNotExist(err) {
+			lease.cursorDataDir, lease.cursorDataInfo = "", nil
+			return nil
+		}
+		return err
+	}
+	if lease.cursorDataInfo == nil || !os.SameFile(lease.cursorDataInfo, info) {
+		return fmt.Errorf("provider namespace: cursor data child identity drift")
+	}
+	if err := os.RemoveAll(child); err != nil {
+		return fmt.Errorf("provider namespace: remove cursor data child: %w", err)
+	}
+	if _, err := os.Lstat(parent); err != nil {
+		return fmt.Errorf("provider namespace: cursor data parent removed")
+	}
+	lease.cursorDataDir, lease.cursorDataInfo = "", nil
+	return nil
+}
+
+func (lease *namespaceLease) cursorDataDirectory() (string, error) {
+	root, err := lease.cursorDataRoot()
+	if err != nil {
+		return "", err
+	}
+	return root.String(), nil
+}
+
+func (lease *namespaceLease) cursorDataRoot() (ports.AnchoredRoot, error) {
+	if lease == nil || lease.cursorDataDir == "" || lease.cursorDataInfo == nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("missing cursor data directory")
+	}
+	return revalidateLiveRuntimeTempRoot(lease.cursorDataDir, lease.cursorDataDir, lease.cursorDataInfo)
+}
 
 func newNamespaceLease(instance, generation, root, rootName string, parentDirectory, rootDirectory *os.File, binding ports.ProviderNamespaceTerminalBinding, sharedRuntimeTemp bool) (*namespaceLease, error) {
 	if !validProviderInstanceID(instance) || generation == "" || !validCanonicalAbsolute(root) || rootName == "" ||
@@ -582,6 +705,9 @@ func (lease *namespaceLease) drainTerminalEffects(ctx context.Context) error {
 	}
 	if err := lease.zeroAndUnlinkSeeds(); err != nil {
 		lease.terminalErr = errors.Join(lease.terminalErr, err)
+	}
+	if err := lease.removeCursorDataChild(); err != nil {
+		return errors.Join(lease.terminalErr, err)
 	}
 	if err := lease.removeNamespaceRoot(); err != nil {
 		return errors.Join(lease.terminalErr, err)

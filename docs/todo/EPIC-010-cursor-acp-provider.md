@@ -34,8 +34,8 @@ per line. Logs may appear on stderr and are not report text.
 The planning-time session order is:
 
 1. `initialize` with `protocolVersion` 1.
-2. `authenticate` with `methodId` `cursor_login`, unless TASK-040 pins a
-   smaller pre-started credential.
+2. No `authenticate` call. TASK-040 pinned the prestarted sequence:
+   `CURSOR_AUTH_TOKEN` plus `AGENT_CLI_CREDENTIAL_STORE=memory`.
 3. `session/new` with the neutral reviewer home as `cwd` and `mcpServers` set
    to an empty list.
 4. Ask-mode acknowledgement.
@@ -69,20 +69,42 @@ is withheld until that acknowledgement names `ask`.
 
 Read tools are admitted only when their identity, path, and completion match
 the review read plan. A missing permission request does not waive that check.
-The same rule already applies to Grok live review.
+Grok live review uses the same check.
+
+Git is the execute exception. Grok and Codex keep the exact `GitCommand` from
+the app-owned `LiveSourceReadPlan`. Cursor admits those same strings. Every
+Cursor launch sets `GIT_WORK_TREE` to the neutral directory, including a
+workspace with no Git directory and qualification. `GIT_DIR` is set only when
+an admitted Git directory exists. The prompt keeps the plan strings. A grant
+still needs the session created by `session/new`, and `session/prompt` must
+already have been sent for that session. It selects the advertised
+`allow_once` option for that request and does not select `allow_always`. A
+later request for the same exact command is a separate request and can receive
+`allow_once` again. When the permission omits `rawInput.command`, the command
+is the one already stored for the same `toolCallId`. A request with an empty
+`sessionId`, a request before `session/new`, or a request for another session
+is answered with `reject_once` when that option is advertised and with
+`cancelled` otherwise. An exact planned command that arrives before the prompt
+gets the same answer, and the turn keeps running. A read permission is never
+granted. An unplanned or mismatched read gets that non-authorizing answer and
+then fails the turn. A planned workspace read may be cancelled, and that
+cancellation leaves the turn running. Any other command, including
+a changed argument or an unplanned shell, gets that non-authorizing answer and
+then fails the turn. Workspace bytes do not satisfy a stage, head, or commit
+read.
 
 These observations reject the turn:
 
-- a shell, write, web, or MCP tool, whether it arrives as
-  `session/request_permission` or as a tool update
-- `cursor/task`, because that notification can report a subagent that already
-  ran
+- a write, web, or MCP tool, whether it arrives as `session/request_permission`
+  or as a tool update
+- `cursor/task`, including a notification that carries no request id
+- a completed tool whose kind is empty
 - any other server request whose effect TASK-040 has not explicitly allowed
+- every `session/request_permission` during qualification or extraction, including a request with no separate tool update; the driver sends the non-authorizing answer and then fails the turn, so a later assistant `end_turn` does not qualify
 
 `cursor/ask_question` and `cursor/create_plan` are blocking. The driver
-answers each with a rejection or cancellation outcome that grants no
-authority, so an unanswered request cannot leave the turn blocked.
-`allow-once` and `allow-always` are not valid answers for a review turn.
+answers each with a cancellation outcome that grants no authority, so an
+unanswered request cannot leave the turn blocked.
 
 ## Working directory, instructions, and credentials
 
@@ -100,9 +122,11 @@ material. User rules, skills, CLI permissions, and MCP configuration from
 `~/.cursor` are not projected.
 
 The public authentication methods are `agent login`, `--api-key` or
-`CURSOR_API_KEY`, and `--auth-token` or `CURSOR_AUTH_TOKEN`. TASK-040 chooses
-the smallest material that authenticates an isolated process. The adapter
-then admits only that material.
+`CURSOR_API_KEY`, and `--auth-token` or `CURSOR_AUTH_TOKEN`. TASK-040 pinned
+the smaller sequence: project `CURSOR_AUTH_TOKEN` and set
+`AGENT_CLI_CREDENTIAL_STORE=memory`. The driver does not send `authenticate`
+when that projection is enough. The disposable namespace does not receive user
+rules, skills, or MCP configuration.
 
 Live review and extraction launch inside the same app-owned Seatbelt guard
 used for ZCode and Grok. The guard keeps source, Git, and the neutral guide
@@ -153,7 +177,61 @@ Forbidden `tool_call` updates were visible for `kind` `edit`, `kind` `execute`, 
 
 The qualification assistant text was one JSON object with `root`, `link`, and `role`, taken from the correlated `agent_message_chunk` updates, with `stopReason` `end_turn`.
 
-All six stop conditions passed. TASK-040 is complete. TASK-041 has not started.
+All six stop conditions passed. TASK-040 is complete.
+
+## TASK-041 trial
+
+The selected read was the index side of an isolated stage fixture. The plan
+command was `git --no-pager show ':target.txt'`. The prompt named that command
+and did not contain the commit, index, or worktree byte strings. Process cwd
+was the neutral reviewer home. Both launches used the app Git environment and
+the Seatbelt profile. The first credential list held only the synthetic
+credential directory. The second added the operator Cursor directories that
+were present. A sterile `HOME` was not treated as that denial.
+
+Both processes stopped before a report. Cursor tried to create a directory
+under `/tmp/.cursor`, and the Seatbelt profile returned `EPERM: operation not
+permitted`. The status was `unavailable` and the cause was
+`provider_turn_failed`. The index bytes were not returned, and the worktree
+bytes did not appear in a report.
+
+`c()` is the Cursor data root. `CURSOR_DATA_DIR` is a new child under a short
+app-owned parent, one child for each namespace lease. The lease removes that
+child and leaves the parent. `XDG_CONFIG_HOME` stays the namespace settings
+path used by `a()`. A later native launch of the same helper returned status
+`auth` and diagnostic `provider_permission_denied`. Process stderr was empty,
+and the report contained none of the index, commit, or worktree byte strings.
+
+One scratch diagnostic launch used the same plan command and recorded the
+protocol frames. Process stderr was empty again. The driver error was
+`cursor ACP unplanned execute is rejected`. The first execute command was
+exactly `git --no-pager show ':target.txt'`. Its permission content was
+`Not in allowlist: git --no-pager`, and the driver selected `allow-once`.
+That tool completed with exit code 0. Its stdout was one 32-character
+hexadecimal line. Its stderr reported `Operation not permitted` for a cache
+file and for a here-document temp file. The next execute command was
+`git --no-pager show ':target.txt' 2>/dev/null; echo "EXIT:$?"`. Its permission
+content was `Not in allowlist: echo, git --no-pager`. The driver selected
+`reject-once` and failed the turn. The published report contained none of the
+index, commit, or worktree byte strings.
+
+One later prompt asked for the index read and the committed-object read as two
+separate tool calls. Each call was one literal `GitCommand`. Neither call
+grouped the commands, added a separator, ran `echo`, or redirected output.
+Both incoming executes matched those commands. Each reply was `allow_once`,
+and each tool completed. The assistant turn contained the index bytes and the
+committed bytes. The worktree bytes and the `.cursorrules` canary were absent.
+`GIT_WORK_TREE` was the neutral reviewer home. `TMPPREFIX` was a prefix inside
+the Cursor data child, and isolated `/bin/zsh -f` printed that value. Tool
+stderr still reported a denied write under `/var/folders`. That prefix stays
+denied. A quiet stderr is not required for the read to count. Qualification
+denies the namespace auth directory, the bound project, every configured
+source root the namespace factory already holds, and existing `.codex`,
+`.grok`, `.zcode`, `.cursor`, and `.config/cursor` directories under the
+factory runtime home. The runtime home itself is not one of those deny roots.
+The fixture is the only permitted qualification source. G3 composition still
+has to forward any configured profile home that is not already one of those
+factory source roots. TASK-041 is complete. Public configuration, schemas, help, and default role assignment stay unchanged until TASK-042.
 
 ## Intended owners
 

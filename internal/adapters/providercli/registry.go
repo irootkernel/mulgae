@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	FamilyZcode = "zcode"
-	FamilyGrok  = "grok"
-	FamilyCodex = "codex"
+	FamilyZcode  = "zcode"
+	FamilyGrok   = "grok"
+	FamilyCodex  = "codex"
+	FamilyCursor = "cursor"
 )
 
 var errProviderOutputFrameMissing = errors.New("provider output frame missing")
@@ -515,6 +516,57 @@ func (namespace retainedQualificationNamespace) NativeHomeLaunchAuthority() (por
 
 func (namespace retainedQualificationNamespace) ValidateForSpawn() error {
 	return namespace.lease.ValidateForSpawn()
+}
+
+func (namespace retainedQualificationNamespace) cursorDataDirectory() (string, error) {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil {
+		return "", fmt.Errorf("missing cursor data directory")
+	}
+	return lease.cursorDataDirectory()
+}
+
+func (namespace retainedQualificationNamespace) cursorLaunchBoundary(source ports.AnchoredRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, error) {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil || !source.Valid() {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("cursor qualification: missing namespace")
+	}
+	neutral, err := ports.NewAnchoredRoot(filepath.Join(lease.root, "home"))
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	writable, err := ports.NewAnchoredRoot(lease.root)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	credential, err := ports.NewAnchoredRoot(filepath.Join(lease.root, "auth"))
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	runtimeTemp, err := lease.cursorDataRoot()
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	dataDir, err := lease.cursorDataDirectory()
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	if err := cursorRejectContainedLaunch(source.String(), neutral.String(), writable.String(), dataDir, lease.cursorProjectRoot); err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	extras, err := cursorQualificationExtras(lease.cursorRuntimeHome, lease.cursorProjectRoot, source.String(), lease.cursorConfiguredRoots)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	credentials, err := cursorBoundaryCredentials([]ports.AnchoredRoot{credential}, credential.String(), extras)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	boundary, err := ports.NewLiveReadOnlyBoundaryWithRuntimeTemp([]ports.AnchoredRoot{source, neutral}, credentials, writable, runtimeTemp)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	return boundary, neutral, nil
 }
 
 // Registry is an immutable, concurrent-safe opt-in set of provider capability profiles.
@@ -1393,7 +1445,11 @@ func (r *Registry) executeProtocolProviderProcess(ctx context.Context, definitio
 func (r *Registry) runLegacy(
 	ctx context.Context, definition definition, packet ports.ProviderPacket, environment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose, staging *stagedOutputLease,
 ) (ports.ProcessObservation, []byte, error) {
-	request, err := processRequest(definition, packet, definition.workingDirectory, environment, purpose)
+	dataDir, err := cursorDataDirFromLease(definition.family, r.namespaces[definition.instance])
+	if err != nil {
+		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", err))
+	}
+	request, err := processRequest(definition, packet, definition.workingDirectory, environment, purpose, dataDir)
 	if err != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", err))
 	}
@@ -1438,7 +1494,11 @@ func (r *Registry) runInWorkspace(
 	if guard.WorkspaceSnapshotIdentity() != expected || !root.Valid() || root.SnapshotIdentity() != expected {
 		return ports.ProcessObservation{}, nil, workspaceGuardError("guard workspace identity mismatch", nil)
 	}
-	request, requestErr := processRequest(definition, packet, root.Path(), environment, invocation.Purpose())
+	dataDir, dataErr := cursorDataDirFromLease(definition.family, namespace)
+	if dataErr != nil {
+		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", dataErr))
+	}
+	request, requestErr := processRequest(definition, packet, root.Path(), environment, invocation.Purpose(), dataDir)
 	if requestErr != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", requestErr))
 	}
@@ -1478,14 +1538,25 @@ func (r *Registry) runInWorkspace(
 	return observation, conversationEvidence, nil
 }
 
+func cursorDataDirFromLease(family string, namespace ports.ProviderNamespaceLease) (string, error) {
+	if family != FamilyCursor {
+		return "", nil
+	}
+	lease, ok := namespace.(*namespaceLease)
+	if !ok || lease == nil {
+		return "", fmt.Errorf("missing cursor data directory")
+	}
+	return lease.cursorDataDirectory()
+}
+
 func processRequest(
-	definition definition, packet ports.ProviderPacket, workingDirectory string, namespaceEnvironment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose,
+	definition definition, packet ports.ProviderPacket, workingDirectory string, namespaceEnvironment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose, cursorDataDir string,
 ) (ports.ProcessRequest, error) {
 	argv, binding, err := providerProcessRequestForPurpose(definition, packet, workingDirectory, purpose)
 	if err != nil {
 		return ports.ProcessRequest{}, fmt.Errorf("construct packet transport: %w", err)
 	}
-	environment, err := isolatedProcessEnvironment(definition.family, definition.environment, namespaceEnvironment)
+	environment, err := isolatedProcessEnvironmentWithCursorData(definition.family, definition.environment, namespaceEnvironment, cursorDataDir)
 	if err != nil {
 		return ports.ProcessRequest{}, err
 	}
@@ -1630,6 +1701,12 @@ func nilProviderNamespaceLease(lease ports.ProviderNamespaceLease) bool {
 func isolatedProcessEnvironment(
 	family string, configured, namespace []ports.EnvironmentVariable,
 ) ([]ports.EnvironmentVariable, error) {
+	return isolatedProcessEnvironmentWithCursorData(family, configured, namespace, "")
+}
+
+func isolatedProcessEnvironmentWithCursorData(
+	family string, configured, namespace []ports.EnvironmentVariable, cursorDataDir string,
+) ([]ports.EnvironmentVariable, error) {
 	if len(namespace) == 0 {
 		return nil, fmt.Errorf("provider registry: empty namespace environment")
 	}
@@ -1656,6 +1733,9 @@ func isolatedProcessEnvironment(
 			return nil, fmt.Errorf("provider registry: invalid configured environment")
 		}
 		if _, reserved := owned[variable.Name()]; reserved || unsafeNamespaceEnvironmentName(variable.Name()) {
+			continue
+		}
+		if family == FamilyCursor && !cursorLaunchEnvironmentName(variable.Name()) {
 			continue
 		}
 		environment = append(environment, variable)
@@ -1688,7 +1768,40 @@ func isolatedProcessEnvironment(
 		}
 		environment = append(environment, grokHome)
 	}
+	if family == FamilyCursor {
+		store, err := ports.NewEnvironmentVariable("AGENT_CLI_CREDENTIAL_STORE", "memory")
+		if err != nil {
+			return nil, fmt.Errorf("provider registry: invalid Cursor credential store")
+		}
+		if err := validateCursorDataChildPath(cursorDataDir); err != nil {
+			return nil, err
+		}
+		dataDir, err := ports.NewEnvironmentVariable("CURSOR_DATA_DIR", cursorDataDir)
+		if err != nil {
+			return nil, fmt.Errorf("provider registry: invalid Cursor data directory")
+		}
+		environment = append(environment, store, dataDir)
+	} else if cursorDataDir != "" {
+		return nil, fmt.Errorf("provider registry: cursor data directory is bound to another family")
+	}
 	return environment, nil
+}
+
+func validateCursorDataChildPath(path string) error {
+	parent, err := canonicalCursorDataParent()
+	if err != nil || !validCanonicalAbsolute(path) || filepath.Dir(path) != parent || !validCursorDataChildName(filepath.Base(path)) || path == parent || path == zcodeRuntimeTempDirectory {
+		return fmt.Errorf("provider registry: invalid Cursor data directory")
+	}
+	return nil
+}
+
+func cursorLaunchEnvironmentName(name string) bool {
+	switch name {
+	case "CURSOR_AUTH_TOKEN", "PATH", "PAGER":
+		return true
+	default:
+		return strings.HasPrefix(name, "GIT_")
+	}
 }
 
 func namespaceEnvironmentName(name string) bool {
@@ -1855,6 +1968,8 @@ func buildArgvForPurpose(definition definition, workingDirectory string, packet 
 		return grokACPArgv(definition.executable, protocolPurposeForReview(purpose))
 	case FamilyCodex:
 		return appendCodexProtocolServerArgv(argv, definition.codexModel, definition.codexReasoningEffort), nil
+	case FamilyCursor:
+		return []string{definition.executable, "acp"}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider family")
 	}
@@ -1875,6 +1990,8 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("grok protocol transport delivers no report on stdout"))
 	case FamilyCodex:
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("codex protocol transport delivers no report on raw stdout"))
+	case FamilyCursor:
+		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("cursor protocol transport delivers no report on stdout"))
 	default:
 		return nil, false, newProviderOutputFailure(domain.DiagnosticCauseResultBindingFailed, fmt.Errorf("unknown provider family"))
 	}
@@ -2177,7 +2294,7 @@ func validPromptFileReference(value string) bool {
 }
 
 func validFamily(value string) bool {
-	return value == FamilyZcode || value == FamilyGrok || value == FamilyCodex
+	return value == FamilyZcode || value == FamilyGrok || value == FamilyCodex || value == FamilyCursor
 }
 
 func nilSpawnVerifier(verifier SpawnVerifier) bool {
@@ -2241,6 +2358,8 @@ func supportedFamilyOrder(family string) int {
 		return 1
 	case FamilyCodex:
 		return 2
+	case FamilyCursor:
+		return 3
 	default:
 		return -1
 	}

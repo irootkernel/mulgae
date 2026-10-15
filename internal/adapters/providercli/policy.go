@@ -23,9 +23,10 @@ type RuntimeSafetyPolicy struct {
 
 var runtimeSafetyPolicies = func() map[CredentialSourceFamily]RuntimeSafetyPolicy {
 	values := map[CredentialSourceFamily]RuntimeSafetyPolicy{
-		CredentialSourceZCode: {family: CredentialSourceZCode, bytes: []byte("{\"family\":\"zcode\",\"permissions\":{\"allow\":[],\"ask\":[],\"deny\":[\"*\"]}}\n")},
-		CredentialSourceGrok:  {family: CredentialSourceGrok, bytes: []byte("{\"family\":\"grok\",\"protocol\":\"acp-v1\",\"policy_scope\":\"isolated_namespace\"}\n")},
-		CredentialSourceCodex: {family: CredentialSourceCodex, bytes: []byte("{\"family\":\"codex\",\"permissions\":{\"workspace\":\"read_only\",\"namespace\":\"deny\"}}\n")},
+		CredentialSourceZCode:  {family: CredentialSourceZCode, bytes: []byte("{\"family\":\"zcode\",\"permissions\":{\"allow\":[],\"ask\":[],\"deny\":[\"*\"]}}\n")},
+		CredentialSourceGrok:   {family: CredentialSourceGrok, bytes: []byte("{\"family\":\"grok\",\"protocol\":\"acp-v1\",\"policy_scope\":\"isolated_namespace\"}\n")},
+		CredentialSourceCodex:  {family: CredentialSourceCodex, bytes: []byte("{\"family\":\"codex\",\"permissions\":{\"workspace\":\"read_only\",\"namespace\":\"deny\"}}\n")},
+		CredentialSourceCursor: {family: CredentialSourceCursor, bytes: []byte("{\"family\":\"cursor\",\"credential\":\"CURSOR_AUTH_TOKEN\",\"store\":\"memory\",\"rules\":false,\"skills\":false,\"mcp\":false}\n")},
 	}
 	for family, policy := range values {
 		values[family] = runtimeSafetyPolicyWithIdentity(policy)
@@ -221,7 +222,7 @@ func containsNamespaceEnvironment(environment, namespace []ports.EnvironmentVari
 
 func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, observedVersion, namespaceGeneration string, namespace QualificationNamespace, namespaceEnvironment, environment []ports.EnvironmentVariable, fixture ProbeFixtureLease, argv []string, observation ports.ProcessObservation) (currentProbeDirectExecutionRoleProof, error) {
 	if safeProbeDefinition(definition) != nil || namespace == nil || fixture == nil || validateProbeFixtureLease(fixture) != nil ||
-		namespaceGeneration == "" || !semverOutput.MatchString(observedVersion) || !fixture.Role().Valid() || !observation.Valid() ||
+		namespaceGeneration == "" || !acceptedObservedVersion(definition.Family(), observedVersion) || !fixture.Role().Valid() || !observation.Valid() ||
 		// A protocol conversation succeeds through its driver; the shared
 		// process-level completion predicate replaces the one-shot Succeeded()
 		// frame contract for it.
@@ -304,7 +305,7 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 	canonical := append([]currentProbeDirectExecutionRoleProof(nil), proofs...)
 	sort.Slice(canonical, func(i, j int) bool { return canonical[i].Role < canonical[j].Role })
 	for index, proof := range canonical {
-		if !validFamily(proof.Family) || proof.ProviderInstance == "" || !semverOutput.MatchString(proof.ObservedVersion) ||
+		if !validFamily(proof.Family) || proof.ProviderInstance == "" || !acceptedObservedVersion(proof.Family, proof.ObservedVersion) ||
 			!validCanonicalAbsolute(proof.Executable) || proof.ExecutableSHA256 == "" || !validCanonicalAbsolute(proof.Launcher) || proof.LauncherSHA256 == "" ||
 			!domain.Role(proof.Role).Valid() || proof.NamespaceGeneration == "" || proof.SnapshotManifestSHA256 == "" ||
 			proof.SnapshotName == "" || proof.SnapshotPath == "" || proof.SnapshotPolicyIdentity == "" || proof.ArgvSHA256 == "" ||

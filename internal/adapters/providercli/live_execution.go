@@ -45,6 +45,66 @@ func liveGitEnvironment(binding ports.ProjectBindingObservation) ([]ports.Enviro
 	return variables, nil
 }
 
+func cursorNeutralWorkTree(base []ports.EnvironmentVariable, neutral ports.AnchoredRoot) ([]ports.EnvironmentVariable, error) {
+	if !neutral.Valid() {
+		return nil, fmt.Errorf("cursor git environment: missing neutral home")
+	}
+	replacement, err := ports.NewEnvironmentVariable("GIT_WORK_TREE", neutral.String())
+	if err != nil {
+		return nil, err
+	}
+	environment := make([]ports.EnvironmentVariable, 0, len(base)+1)
+	replaced := false
+	for _, variable := range base {
+		if variable.Name() != "GIT_WORK_TREE" {
+			environment = append(environment, variable)
+			continue
+		}
+		environment = append(environment, replacement)
+		replaced = true
+	}
+	if !replaced {
+		environment = append(environment, replacement)
+	}
+	return environment, nil
+}
+
+func cursorDiagnosticTemp(environment []ports.EnvironmentVariable, dataDir string) ([]ports.EnvironmentVariable, error) {
+	if err := validateCursorDataChildPath(dataDir); err != nil {
+		return nil, err
+	}
+	if dataDir == "/tmp" || dataDir == "/private/tmp" || strings.HasPrefix(dataDir, "/var/folders/") {
+		return nil, fmt.Errorf("cursor diagnostic temp: refused outside the data child")
+	}
+	replaced := map[string]bool{}
+	redirected := make([]ports.EnvironmentVariable, 0, len(environment))
+	for _, variable := range environment {
+		if variable.Name() == "TMPDIR" || variable.Name() == "TMP" || variable.Name() == "TEMP" {
+			next, err := ports.NewEnvironmentVariable(variable.Name(), dataDir)
+			if err != nil {
+				return nil, err
+			}
+			variable = next
+			replaced[variable.Name()] = true
+		}
+		redirected = append(redirected, variable)
+	}
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if !replaced[name] {
+			return nil, fmt.Errorf("cursor diagnostic temp: missing %s", name)
+		}
+	}
+	prefix := dataDir + "/zsh"
+	if prefix == "/tmp/zsh" || strings.HasPrefix(prefix, "/var/folders/") {
+		return nil, fmt.Errorf("cursor diagnostic temp: refused TMPPREFIX")
+	}
+	variable, err := ports.NewEnvironmentVariable("TMPPREFIX", prefix)
+	if err != nil {
+		return nil, err
+	}
+	return append(redirected, variable), nil
+}
+
 func liveReviewArgv(definition definition, execution ports.LiveReviewExecution, gitEnvironment []ports.EnvironmentVariable, extraction bool) ([]string, error) {
 	if definition.transport.channel != ports.ProviderPacketChannelProtocol {
 		return nil, fmt.Errorf("live execution requires a native protocol")
@@ -61,6 +121,8 @@ func liveReviewArgv(definition definition, execution ports.LiveReviewExecution, 
 		// This argv is consumed only by runInLiveSource, which must attach the
 		// app-owned Seatbelt boundary before launching. There is no fallback.
 		return []string{definition.executable, "--no-auto-update", "--sandbox", "off", "--disable-web-search", "--no-subagents", "--permission-mode", "plan", "--tools", tools, "--deny", "MCPTool", "agent", "--no-leader", "stdio"}, nil
+	case FamilyCursor:
+		return []string{definition.executable, "acp"}, nil
 	case FamilyCodex:
 		argv := appendCodexProtocolServerArgv(base, definition.codexModel, definition.codexReasoningEffort)
 		filesystem := []string{`"~/.codex"="deny"`}
@@ -117,8 +179,32 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 			configured = append(configured, variable)
 		}
 	}
-	configured = append(configured, gitEnvironment...)
-	environment, err := isolatedProcessEnvironment(definition.family, configured, namespace.Environment())
+	processGit := gitEnvironment
+	if definition.family == FamilyCursor {
+		processGit, err = cursorNeutralWorkTree(gitEnvironment, execution.ReviewerHome().Root())
+		if err != nil {
+			return observation, nil, fail(err)
+		}
+	}
+	configured = append(configured, processGit...)
+	var environment []ports.EnvironmentVariable
+	if definition.family == FamilyCursor {
+		concrete, ok := namespace.(*namespaceLease)
+		if !ok {
+			return observation, nil, fail(fmt.Errorf("missing native namespace authority"))
+		}
+		dataDir, dataErr := concrete.cursorDataDirectory()
+		if dataErr != nil {
+			return observation, nil, fail(dataErr)
+		}
+		environment, err = isolatedProcessEnvironmentWithCursorData(definition.family, configured, namespace.Environment(), dataDir)
+		if err != nil {
+			return observation, nil, fail(err)
+		}
+		environment, err = cursorDiagnosticTemp(environment, dataDir)
+	} else {
+		environment, err = isolatedProcessEnvironment(definition.family, configured, namespace.Environment())
+	}
 	if err != nil {
 		return observation, nil, fail(err)
 	}
@@ -143,7 +229,7 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 	if extraction {
 		purpose = protocolPurposeLiveExtraction
 	}
-	if definition.family == FamilyGrok || definition.family == FamilyZcode {
+	if definition.family == FamilyGrok || definition.family == FamilyZcode || definition.family == FamilyCursor {
 		concrete, ok := namespace.(*namespaceLease)
 		if !ok {
 			return observation, nil, fail(fmt.Errorf("missing native namespace authority"))
@@ -153,6 +239,12 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 		}
 		if definition.family == FamilyGrok && !extraction {
 			configuration.grokLiveReads, err = newGrokLiveReadAuthority(ctx, execution)
+			if err != nil {
+				return observation, nil, fail(err)
+			}
+		}
+		if definition.family == FamilyCursor && !extraction {
+			configuration.cursorLiveReads, err = newCursorLiveReadAuthority(ctx, execution)
 			if err != nil {
 				return observation, nil, fail(err)
 			}
@@ -170,6 +262,39 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 		boundary, err := ports.NewLiveReadOnlyBoundary(roots, execution.CredentialRoots(), writable)
 		if err != nil {
 			return observation, nil, fail(err)
+		}
+		if definition.family == FamilyCursor {
+			runtimeTemp, runtimeErr := concrete.cursorDataRoot()
+			if runtimeErr != nil {
+				return observation, nil, fail(runtimeErr)
+			}
+			dataDir, dataErr := concrete.cursorDataDirectory()
+			if dataErr != nil {
+				return observation, nil, fail(dataErr)
+			}
+			operatorHome := filepath.Dir(filepath.Dir(execution.ReviewerHome().Root().String()))
+			if err := cursorRejectRuntimeHomeExposure(operatorHome, execution.Binding().Root.String()); err != nil {
+				return observation, nil, fail(err)
+			}
+			for _, root := range execution.CredentialRoots() {
+				if err := cursorRejectRuntimeHomeExposure(operatorHome, root.String()); err != nil {
+					return observation, nil, fail(err)
+				}
+			}
+			if err := cursorRejectContainedLaunch(execution.Binding().Root.String(), execution.ReviewerHome().Root().String(), concrete.root, dataDir); err != nil {
+				return observation, nil, fail(err)
+			}
+			credentials, credErr := cursorBoundaryCredentials(execution.CredentialRoots(), filepath.Join(concrete.root, "auth"), []string{
+				filepath.Join(operatorHome, ".cursor"),
+				filepath.Join(operatorHome, ".config", "cursor"),
+			})
+			if credErr != nil {
+				return observation, nil, fail(credErr)
+			}
+			boundary, err = ports.NewLiveReadOnlyBoundaryWithRuntimeTemp(roots, credentials, writable, runtimeTemp)
+			if err != nil {
+				return observation, nil, fail(err)
+			}
 		}
 		if definition.family == FamilyZcode {
 			runtimeTemp, runtimeErr := concrete.liveRuntimeTempRoot()

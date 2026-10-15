@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -95,7 +96,7 @@ func (receipt CurrentProbeDirectExecutionAuthorityReceipt) Matches(candidate por
 	}
 	runtimeDefinitionIdentity, identityErr := currentProbeRuntimeDefinitionIdentity(definition)
 	if !receipt.Valid() || identityErr != nil || receipt.runtimeDefinitionIdentity != runtimeDefinitionIdentity ||
-		!semverOutput.MatchString(observedVersion) || namespaceGeneration == "" || len(roles) != len(receipt.proofs) {
+		!acceptedObservedVersion(definition.Family(), observedVersion) || namespaceGeneration == "" || len(roles) != len(receipt.proofs) {
 		return false
 	}
 	wantRoles := make(map[domain.Role]struct{}, len(roles))
@@ -368,7 +369,19 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		}
 	}()
 	namespaceEnvironment := namespace.Environment()
-	environment, err := isolatedProcessEnvironment(definition.Family(), definition.Environment(), namespaceEnvironment)
+	cursorDataDir := ""
+	var err error
+	if definition.Family() == FamilyCursor {
+		source, ok := namespace.(interface{ cursorDataDirectory() (string, error) })
+		if !ok {
+			return CurrentProbeResult{}, securityProbeFailure("namespace", "cursor data directory unavailable", nil)
+		}
+		cursorDataDir, err = source.cursorDataDirectory()
+		if err != nil {
+			return CurrentProbeResult{}, securityProbeFailure("namespace", "cursor data directory unavailable", err)
+		}
+	}
+	environment, err := isolatedProcessEnvironmentWithCursorData(definition.Family(), definition.Environment(), namespaceEnvironment, cursorDataDir)
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("environment", "isolated environment rejected", err)
 	}
@@ -493,36 +506,79 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	if authorityErr != nil {
 		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "protocol authority unavailable", authorityErr)
 	}
-	if packet == nil {
-		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, root.Path(), nil, timeout)
+	workingDirectory := root.Path()
+	var cursorBoundary ports.LiveReadOnlyBoundary
+	var cursorNeutral ports.AnchoredRoot
+	if definition.Family() == FamilyCursor {
+		cursorBoundary, cursorNeutral, requestErr = cursorQualificationRoots(namespace, root)
+		if requestErr != nil {
+			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "cursor qualification boundary rejected", requestErr)
+		}
+		environment, requestErr = withLiveGitEnvironment(environment)
+		if requestErr != nil {
+			return ports.ProcessObservation{}, nil, securityProbeFailure("environment", "cursor git environment rejected", requestErr)
+		}
+		environment, requestErr = cursorNeutralWorkTree(environment, cursorNeutral)
+		if requestErr != nil {
+			return ports.ProcessObservation{}, nil, securityProbeFailure("environment", "cursor git environment rejected", requestErr)
+		}
+		workingDirectory = cursorNeutral.String()
+	}
+	if definition.Family() == FamilyCursor && packet == nil {
+		marker, markerErr := ports.NewProviderPacketFromBytes([]byte("cursor-qualification-version"))
+		if markerErr != nil {
+			requestErr = markerErr
+		} else if binding, bindingErr := ports.NewProtocolProviderPacketBinding(marker); bindingErr != nil {
+			requestErr = bindingErr
+		} else {
+			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, workingDirectory, binding, timeout)
+		}
+	} else if packet == nil {
+		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, workingDirectory, nil, timeout)
 	} else if authority.qualificationChannel == ports.ProviderPacketChannelProtocol && authority.protocolDriver != nil {
 		binding, bindingErr := ports.NewProtocolProviderPacketBinding(*packet)
 		if bindingErr != nil {
 			requestErr = bindingErr
 		} else {
-			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, root.Path(), binding, timeout)
+			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, workingDirectory, binding, timeout)
 		}
 		if requestErr == nil {
 			configuration, configurationErr := protocolConfigurationForNamespace(definition, namespace)
 			if configurationErr != nil {
 				return ports.ProcessObservation{}, nil, configurationErr
 			}
-			protocolSession, requestErr = authority.protocolDriver.NewSession(root.Path(), packet.Bytes(), protocolPurposeQualification, nil, configuration)
+			protocolSession, requestErr = authority.protocolDriver.NewSession(workingDirectory, packet.Bytes(), protocolPurposeQualification, nil, configuration)
 		}
 	} else {
-		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, root.Path(), timeout)
+		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, workingDirectory, timeout)
 	}
 	if requestErr != nil {
 		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "bound process request rejected", requestErr)
 	}
-	launchDirectory, duplicateErr := guard.DuplicateLaunchDirectory()
-	if duplicateErr != nil {
-		return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "launch descriptor unavailable", duplicateErr)
-	}
-	request, requestErr = ports.NewBoundProcessRequest(request, root, launchDirectory)
-	if requestErr != nil {
-		_ = launchDirectory.Close()
-		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "bound process descriptor rejected", requestErr)
+	if definition.Family() == FamilyCursor {
+		request, requestErr = ports.NewLiveReadOnlyProcessRequest(request, cursorBoundary)
+		if requestErr != nil {
+			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "cursor qualification boundary rejected", requestErr)
+		}
+		launchDirectory, openErr := os.Open(cursorNeutral.String())
+		if openErr != nil {
+			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "cursor neutral directory unavailable", openErr)
+		}
+		request, requestErr = ports.NewNeutralBoundProcessRequest(request, cursorNeutral, launchDirectory)
+		if requestErr != nil {
+			_ = launchDirectory.Close()
+			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "cursor neutral directory rejected", requestErr)
+		}
+	} else {
+		launchDirectory, duplicateErr := guard.DuplicateLaunchDirectory()
+		if duplicateErr != nil {
+			return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "launch descriptor unavailable", duplicateErr)
+		}
+		request, requestErr = ports.NewBoundProcessRequest(request, root, launchDirectory)
+		if requestErr != nil {
+			_ = launchDirectory.Close()
+			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "bound process descriptor rejected", requestErr)
+		}
 	}
 	if err := probe.verifier.VerifyProviderSpawn(ctx, definition); err != nil {
 		launchDirectory, _, _ := request.BoundLaunchDirectory()
@@ -611,6 +667,14 @@ func providerDiagnosticCause(err error) (domain.RuntimeDiagnosticCause, bool) {
 
 var semverOutput = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 var grokVersionOutput = regexp.MustCompile(`^grok ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?) \([0-9a-f]+\)$`)
+var cursorVersionOutput = regexp.MustCompile(`^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]+$`)
+
+func acceptedObservedVersion(family, version string) bool {
+	if family == FamilyCursor {
+		return cursorVersionOutput.MatchString(version)
+	}
+	return semverOutput.MatchString(version)
+}
 
 func currentProbeValidatedReceipts(
 	definition RuntimeDefinition,
@@ -624,7 +688,7 @@ func currentProbeValidatedReceipts(
 ) ([]CurrentProbeReceipt, error) {
 	runtimeDefinitionIdentity, err := currentProbeRuntimeDefinitionIdentity(definition)
 	if err != nil || len(fixtures) == 0 || len(proofs) != len(fixtures) || len(transportEvidence) != len(fixtures) ||
-		len(effectiveEnvironment) == 0 || namespaceGeneration == "" || !semverOutput.MatchString(version) {
+		len(effectiveEnvironment) == 0 || namespaceGeneration == "" || !acceptedObservedVersion(definition.Family(), version) {
 		return nil, fmt.Errorf("incomplete validated qualification evidence")
 	}
 	snapshots := make([]string, 0, len(fixtures))
@@ -1005,7 +1069,7 @@ func plainSemver(family string, observation ports.ProcessObservation) (string, e
 		}
 		version = match[1]
 	}
-	if !observation.Succeeded() || !semverOutput.MatchString(version) {
+	if !observation.Succeeded() || !acceptedObservedVersion(family, version) {
 		return "", fmt.Errorf("invalid plain semver version output")
 	}
 	return version, nil
@@ -1305,4 +1369,36 @@ func probeFailure(stage string, class domain.FailureClass, reason string, cause 
 }
 func securityProbeFailure(stage, reason string, cause error) error {
 	return probeFailure(stage, domain.FailureSecurityPolicy, reason, cause)
+}
+
+func cursorQualificationRoots(namespace QualificationNamespace, source ports.ValidatedWorkspaceRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, error) {
+	anchored, err := ports.NewAnchoredRoot(source.Path())
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	authority, ok := namespace.(interface {
+		cursorLaunchBoundary(ports.AnchoredRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, error)
+	})
+	if !ok {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("cursor qualification: missing namespace authority")
+	}
+	return authority.cursorLaunchBoundary(anchored)
+}
+
+func withLiveGitEnvironment(environment []ports.EnvironmentVariable) ([]ports.EnvironmentVariable, error) {
+	gitEnvironment, err := liveGitEnvironment(ports.ProjectBindingObservation{})
+	if err != nil {
+		return nil, err
+	}
+	present := make(map[string]struct{}, len(environment))
+	for _, variable := range environment {
+		present[variable.Name()] = struct{}{}
+	}
+	for _, variable := range gitEnvironment {
+		if _, exists := present[variable.Name()]; exists {
+			continue
+		}
+		environment = append(environment, variable)
+	}
+	return environment, nil
 }

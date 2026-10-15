@@ -13,9 +13,10 @@ import (
 type CredentialSourceFamily string
 
 const (
-	CredentialSourceZCode CredentialSourceFamily = "zcode"
-	CredentialSourceGrok  CredentialSourceFamily = "grok"
-	CredentialSourceCodex CredentialSourceFamily = "codex"
+	CredentialSourceZCode  CredentialSourceFamily = "zcode"
+	CredentialSourceGrok   CredentialSourceFamily = "grok"
+	CredentialSourceCodex  CredentialSourceFamily = "codex"
+	CredentialSourceCursor CredentialSourceFamily = "cursor"
 )
 
 // NewCredentialProjectingNamespaceFactory fails closed where descriptor-based

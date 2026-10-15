@@ -40,11 +40,12 @@ type providerProtocolDriverConstructor interface {
 }
 
 type protocolSessionConfiguration struct {
-	zcodeSelection *zcodeModelSelection
-	zcodeEffort    string
-	zcodeAccount   *zcodeAccountRuntime
-	grokSettings   grokInvocationSettings
-	grokLiveReads  *grokLiveReadAuthority
+	zcodeSelection  *zcodeModelSelection
+	zcodeEffort     string
+	zcodeAccount    *zcodeAccountRuntime
+	grokSettings    grokInvocationSettings
+	grokLiveReads   *grokLiveReadAuthority
+	cursorLiveReads *cursorLiveReadAuthority
 }
 
 type zcodeAccountRuntimeAuthority interface {
@@ -131,6 +132,12 @@ func (grokACPProtocolDriverConstructor) NewSession(workspacePath string, prompt 
 	return session, nil
 }
 
+type cursorACPProtocolDriverConstructor struct{}
+
+func (cursorACPProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, _ protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
+	return newCursorACPProtocolSession(workspacePath, prompt, purpose, configuration.cursorLiveReads)
+}
+
 type codexProtocolDriverConstructor struct{}
 
 func (codexProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, _ protocolSessionConfiguration) (providerProtocolSession, error) {
@@ -154,6 +161,8 @@ func adapterAuthorityForFamily(family string) (providerAdapterAuthority, error) 
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: grokACPProtocolDriverConstructor{}}, nil
 	case FamilyCodex:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: codexProtocolDriverConstructor{}}, nil
+	case FamilyCursor:
+		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: cursorACPProtocolDriverConstructor{}}, nil
 	default:
 		return providerAdapterAuthority{}, fmt.Errorf("unsupported family")
 	}
