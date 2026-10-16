@@ -165,14 +165,17 @@ func TestCursorAdmissionKeepsPublicFamiliesClosed(t *testing.T) {
 		}
 	}
 	public := reviewrun.Families()
-	if len(public) != 3 || public[0] != reviewrun.FamilyZCode || public[1] != reviewrun.FamilyGrok || public[2] != reviewrun.FamilyCodex {
+	if len(public) != 4 || public[0] != reviewrun.FamilyZCode || public[1] != reviewrun.FamilyGrok || public[2] != reviewrun.FamilyCodex || public[3] != reviewrun.FamilyCursor {
 		t.Fatalf("public families = %v", public)
 	}
-	if reviewrun.Family(FamilyCursor).Valid() {
-		t.Fatal("cursor became a public family")
+	if !reviewrun.Family(FamilyCursor).Valid() {
+		t.Fatal("cursor is not a valid family")
 	}
-	if _, err := reviewrun.NewRoleProviderAssignment(domain.RoleLogic, reviewrun.Family(FamilyCursor)); err == nil {
-		t.Fatal("public role assignment admitted cursor")
+	if _, err := reviewrun.NewRoleProviderAssignment(domain.RoleLogic, reviewrun.FamilyCursor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reviewrun.NewRoleProviderAssignment(domain.RoleArtist, reviewrun.FamilyCursor); err == nil {
+		t.Fatal("cursor artist was admitted")
 	}
 	executable, err := filepath.EvalSymlinks("/bin/echo")
 	if err != nil {
@@ -404,4 +407,66 @@ func environmentText(environment []ports.EnvironmentVariable) []string {
 		values = append(values, variable.Name()+"="+variable.Value())
 	}
 	return values
+}
+
+func TestCursorSelectedTokenProjectsIntoSterileNamespace(t *testing.T) {
+	home := credentialSourceTempDir(t)
+	base, err := NewNamespaceFactory(credentialSourceTempDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory, err := NewCredentialProjectingNamespaceFactory(base, home, map[string]CredentialSourceFamily{
+		"cursor_logic": CredentialSourceCursor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "cursor_logic", FamilyCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = lease.DrainTerminal(context.Background()) })
+	concrete := lease.(*namespaceLease)
+	if len(concrete.seeds) != 0 {
+		t.Fatalf("cursor projected %d credential files", len(concrete.seeds))
+	}
+	token, err := ports.NewEnvironmentVariable("CURSOR_AUTH_TOKEN", "selected-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := filepath.EvalSymlinks("/bin/echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := NewRuntimeDefinition(FamilyCursor, "cursor_logic", "", executable, "", "cursor_logic", []string{executable}, []ports.EnvironmentVariable{token}, concrete.root, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataDir, err := concrete.cursorDataDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := isolatedProcessEnvironmentWithCursorData(definition.family, definition.environment, lease.Environment(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := credentialSourceEnvironment(environment)
+	if values["CURSOR_AUTH_TOKEN"] != "selected-token" || values["AGENT_CLI_CREDENTIAL_STORE"] != "memory" {
+		t.Fatalf("auth projection = %#v", values)
+	}
+	if strings.Count(strings.Join(environmentText(environment), "\n"), "AGENT_CLI_CREDENTIAL_STORE=") != 1 {
+		t.Fatalf("credential store = %#v", values)
+	}
+	err = filepath.WalkDir(concrete.root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Name() == "auth.json" || entry.Name() == "CURSOR_AUTH_TOKEN" {
+			t.Errorf("token written into namespace: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

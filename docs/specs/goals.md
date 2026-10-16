@@ -73,7 +73,7 @@ The first public release is intentionally narrow:
 - Config v5 split between tracked `.mulgae/config.yaml` project policy and
   untracked mode-`0600` `.mulgae/local.yaml` machine paths;
 - independently versioned machine contracts;
-- ZCode, Grok, and Codex provider families;
+- ZCode, Grok, and Codex provider families, plus explicit Cursor selection;
 - macOS on Apple silicon;
 - manual Git tagging after the complete local release gate passes.
 

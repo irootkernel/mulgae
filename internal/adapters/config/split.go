@@ -22,9 +22,10 @@ type projectConfig struct {
 }
 
 type projectProvidersConfig struct {
-	ZCode *projectZCodeConfig `yaml:"zcode,omitempty"`
-	Grok  *projectGrokConfig  `yaml:"grok,omitempty"`
-	Codex *projectCodexConfig `yaml:"codex,omitempty"`
+	ZCode  *projectZCodeConfig  `yaml:"zcode,omitempty"`
+	Grok   *projectGrokConfig   `yaml:"grok,omitempty"`
+	Codex  *projectCodexConfig  `yaml:"codex,omitempty"`
+	Cursor *projectCursorConfig `yaml:"cursor,omitempty"`
 }
 
 type projectZCodeConfig struct {
@@ -46,6 +47,10 @@ type projectCodexConfig struct {
 	Timeout                  string `yaml:"timeout,omitempty"`
 }
 
+type projectCursorConfig struct {
+	Timeout string `yaml:"timeout,omitempty"`
+}
+
 type machineConfig struct {
 	Version    int                    `yaml:"version"`
 	NativeUser NativeUserConfig       `yaml:"native_user"`
@@ -53,9 +58,10 @@ type machineConfig struct {
 }
 
 type machineProvidersConfig struct {
-	ZCode *machineZCodeConfig `yaml:"zcode,omitempty"`
-	Grok  *machineGrokConfig  `yaml:"grok,omitempty"`
-	Codex *machineCodexConfig `yaml:"codex,omitempty"`
+	ZCode  *machineZCodeConfig  `yaml:"zcode,omitempty"`
+	Grok   *machineGrokConfig   `yaml:"grok,omitempty"`
+	Codex  *machineCodexConfig  `yaml:"codex,omitempty"`
+	Cursor *machineCursorConfig `yaml:"cursor,omitempty"`
 }
 
 type machineZCodeConfig struct {
@@ -63,6 +69,10 @@ type machineZCodeConfig struct {
 }
 
 type machineGrokConfig struct {
+	Executable string `yaml:"executable"`
+}
+
+type machineCursorConfig struct {
 	Executable string `yaml:"executable"`
 }
 
@@ -130,6 +140,9 @@ func ProjectProviderIDs(projectData []byte) ([]string, error) {
 	if project.Providers.Codex != nil {
 		families = append(families, "codex")
 	}
+	if project.Providers.Cursor != nil {
+		families = append(families, "cursor")
+	}
 	if len(families) == 0 {
 		return nil, reject(ReasonYAMLInvalid)
 	}
@@ -180,7 +193,8 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 	}
 	if (project.Providers.ZCode == nil) != (local.Providers.ZCode == nil) ||
 		(project.Providers.Grok == nil) != (local.Providers.Grok == nil) ||
-		(project.Providers.Codex == nil) != (local.Providers.Codex == nil) {
+		(project.Providers.Codex == nil) != (local.Providers.Codex == nil) ||
+		(project.Providers.Cursor == nil) != (local.Providers.Cursor == nil) {
 		return Config{}, fmt.Errorf("provider sets differ")
 	}
 	if project.Providers.ZCode != nil {
@@ -207,6 +221,9 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 			CredentialHomes: credentialHomes, Model: project.Providers.Codex.Model,
 			ReasoningEffort: project.Providers.Codex.ReasoningEffort, Timeout: project.Providers.Codex.Timeout,
 		}
+	}
+	if project.Providers.Cursor != nil {
+		config.Providers.Cursor = &CursorProviderConfig{Executable: local.Providers.Cursor.Executable, Timeout: project.Providers.Cursor.Timeout}
 	}
 	return config, nil
 }
@@ -288,6 +305,14 @@ func encodeProjectConfig(config Config) []byte {
 			}
 		}
 	}
+	if provider := config.Providers.Cursor; provider != nil {
+		out.WriteString("  cursor:")
+		if provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString(" {}\n")
+		} else {
+			out.WriteString("\n    timeout: " + q(provider.Timeout) + "\n")
+		}
+	}
 	appendPolicyYAML(&out, config)
 	return []byte(out.String())
 }
@@ -341,6 +366,9 @@ func encodeMachineConfig(config Config) []byte {
 				out.WriteString("      - profile: " + q(entry.Profile) + "\n        home: " + q(entry.Home) + "\n")
 			}
 		}
+	}
+	if provider := config.Providers.Cursor; provider != nil {
+		out.WriteString("  cursor:\n    executable: " + q(provider.Executable) + "\n")
 	}
 	return []byte(out.String())
 }

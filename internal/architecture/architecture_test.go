@@ -211,7 +211,7 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-grok:"} {
+	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-grok:", "test-cursor:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
 		}
@@ -270,8 +270,11 @@ func TestMakefileContract(t *testing.T) {
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
-	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 5 {
-		t.Fatal("release, mandatory E2E, opt-in E2E, Grok, and MCP client binaries do not share RELEASE_VERSION")
+	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 6 {
+		t.Fatal("release, mandatory E2E, opt-in E2E, Grok, Cursor, and MCP client binaries do not share RELEASE_VERSION")
+	}
+	if strings.Contains(text, "$(MAKE) test-cursor") {
+		t.Fatal("the default test gate includes the standalone Cursor review")
 	}
 	optInStart := strings.Index(text, "\ntest-e2e-opt-in:")
 	grokStart := strings.Index(text, "\ntest-grok:")
@@ -328,6 +331,23 @@ func TestMakefileContract(t *testing.T) {
 	reviewStart := strings.Index(grokTarget, "MULGAE_E2E_BINARY=")
 	if capabilityEnd < 0 || reviewStart <= capabilityEnd {
 		t.Fatal("test-grok does not stop before the exact-binary review when capability certification fails")
+	}
+	cursorStart := strings.Index(text, "\ntest-cursor:")
+	if cursorStart <= grokStart || mcpClientStart <= cursorStart {
+		t.Fatal("Makefile does not define the Cursor gate between Grok and the MCP client gate")
+	}
+	cursorTarget := text[cursorStart:mcpClientStart]
+	for _, required := range []string{
+		"MULGAE_E2E_CURSOR_EXECUTABLE", "CURSOR_AUTH_TOKEN", "main.buildVersion=$(RELEASE_VERSION)",
+		"-tags='live_e2e live_cursor'", "-run '^TestE2ECursorReleaseBinaryReview$$'",
+		"Cursor version and family preflight failed",
+	} {
+		if !strings.Contains(cursorTarget, required) {
+			t.Errorf("test-cursor missing exact-binary review token %q", required)
+		}
+	}
+	if strings.Contains(cursorTarget, "command -v") || strings.Contains(cursorTarget, "LookPath") {
+		t.Fatal("test-cursor resolves Cursor through PATH")
 	}
 	capability := strings.Index(e2eTarget, "-tags=liveprovider")
 	workflow := strings.Index(e2eTarget, "-tags=live_e2e")

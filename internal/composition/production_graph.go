@@ -123,7 +123,7 @@ func composeProductionRuntimeGraph(
 	for _, item := range []struct {
 		family     reviewrun.Family
 		credential providercli.CredentialSourceFamily
-	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}} {
+	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}, {reviewrun.FamilyCursor, providercli.CredentialSourceCursor}} {
 		value, policyErr := providercli.RuntimeSafetyPolicyForFamily(item.credential)
 		if policyErr != nil {
 			return nil, fmt.Errorf("production graph: %s runtime safety policy: %w", item.family, policyErr)
@@ -183,8 +183,27 @@ func composeProductionRuntimeGraph(
 			if credentialProfile != "" {
 				sourceRoots[instance], _ = policy.config.Providers.Codex.CredentialHome(credentialProfile)
 			}
+		case reviewrun.FamilyCursor:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCursor, policies[family]
 		default:
 			return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
+		}
+	}
+	candidates.cursorAuthToken = os.Getenv("CURSOR_AUTH_TOKEN")
+	if codex := policy.config.Providers.Codex; codex != nil {
+		seen := make(map[string]struct{}, len(sourceRoots))
+		for _, home := range sourceRoots {
+			seen[home] = struct{}{}
+		}
+		for _, entry := range codex.CredentialHomes {
+			if entry.Home == "" {
+				continue
+			}
+			if _, exists := seen[entry.Home]; exists {
+				continue
+			}
+			sourceRoots["profile-home-"+entry.Profile] = entry.Home
+			seen[entry.Home] = struct{}{}
 		}
 	}
 	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithProjectRoot(namespaces, nativeHome, root.String(), instanceFamilies, instancePolicies, nativeHomes, sourceRoots)

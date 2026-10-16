@@ -264,6 +264,7 @@ type InitRequest struct {
 	codexExecutable         string
 	codexModel              string
 	codexReasoningEffort    string
+	cursorExecutable        string
 	refreshLocal            bool
 	projectPolicyOptions    bool
 }
@@ -307,6 +308,7 @@ func (request InitRequest) GrokOverrides() (string, string, string, bool, bool) 
 func (request InitRequest) CodexOverrides() (string, string, string) {
 	return request.codexExecutable, request.codexModel, request.codexReasoningEffort
 }
+func (request InitRequest) CursorExecutable() string   { return request.cursorExecutable }
 func (request InitRequest) Overwrite() bool            { return false }
 func (request InitRequest) RefreshLocal() bool         { return request.refreshLocal }
 func (request InitRequest) ProjectPolicyOptions() bool { return request.projectPolicyOptions }

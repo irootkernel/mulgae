@@ -8,9 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/adapters/environment"
+	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
+	"github.com/irootkernel/mulgae/internal/adapters/workspace"
+	appheartbeat "github.com/irootkernel/mulgae/internal/app/heartbeat"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -129,5 +135,83 @@ func TestHeartbeatAttemptedRemainsFalseForPreRequestVersionRejection(t *testing.
 	}
 	if !heartbeatLiveAttempted(capabilityFailure) {
 		t.Fatal("capability failure omitted the live request attempt")
+	}
+}
+
+func TestHeartbeatCursorWithoutTokenFailsBeforeQualifiedRun(t *testing.T) {
+	t.Setenv("CURSOR_AUTH_TOKEN", "")
+	executable, err := filepath.EvalSymlinks("/bin/echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootPath := canonicalTestTempDir(t)
+	if err := os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", "config.yaml"), []byte(compositionProjectConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootPath, ".mulgae", "local.yaml"), []byte(compositionLocalConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ports.NewAnchoredRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := adapterconfig.NewLocalConfigSource(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := local.Observation().Proof()
+	if err != nil {
+		t.Fatal(err)
+	}
+	localityRequest, err := ports.NewConfigLocalityRequest(root, proof, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identities := make(map[reviewrun.Family]string, len(reviewrun.Families()))
+	timeouts := make(map[reviewrun.Family]time.Duration, len(reviewrun.Families()))
+	for _, family := range reviewrun.Families() {
+		identity, identityErr := (providercli.RuntimeBuilder{}).RuntimeSafetyPolicyIdentity(string(family))
+		if identityErr != nil {
+			t.Fatal(identityErr)
+		}
+		identities[family] = identity
+		timeouts[family] = time.Minute
+	}
+	workspaceRoot := canonicalTestTempDir(t)
+	anchoredWorkspace, err := ports.NewAnchoredRoot(workspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materializer, err := workspace.NewMaterializer(anchoredWorkspace, filesystem.NewContentDetector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtures, err := providercli.NewProbeFixtureLeaseFactory(materializer, providercli.SecureProbeNonceGenerator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := &productionRuntimeGraph{
+		clock:     mcpTestClock{},
+		fixtures:  fixtures,
+		qualified: &reviewrun.QualifiedRunFactory{},
+		candidates: &configuredProductionCandidateSource{
+			inspector: environment.NewInspector(),
+			config: adapterconfig.Config{Providers: adapterconfig.ProvidersConfig{
+				Grok:   &adapterconfig.GrokProviderConfig{Executable: executable},
+				Cursor: &adapterconfig.CursorProviderConfig{Executable: executable},
+			}},
+			policyIdentities: identities,
+			providerTimeouts: timeouts,
+			source:           local,
+			attestor:         stableHeartbeatLocalityAttestor{},
+			staticRequest:    localityRequest,
+		},
+	}
+	result, err := graph.probeHeartbeat(context.Background(), appheartbeat.Request{ProviderID: "cursor"})
+	if err != nil || result.Attempted || result.ProviderID != "cursor" || result.Status != "execution_failure" || result.ReasonCode != "cursor_auth_token_required" {
+		t.Fatalf("heartbeat result status=%s reason=%s attempted=%t err=%v", result.Status, result.ReasonCode, result.Attempted, err)
 	}
 }

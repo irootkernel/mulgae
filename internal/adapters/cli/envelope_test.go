@@ -26,7 +26,7 @@ func TestEnvelopeRendererRendersCanonicalEnvelopeInContractOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	want := []byte("{\"schema_version\":\"mulgae-command-result.v19\",\"command\":\"review\",\"request\":{\"command\":\"review\",\"objective\":\"Review the selected original source.\",\"output_format\":\"json\",\"request_id\":\"i_019f596a-e201-7a4b-8d76-1cf503a1849e\",\"role\":\"logic\",\"source\":{\"kind\":\"diff\",\"value\":\"origin/main...HEAD\"}},\"completed_at\":\"2026-07-13T03:10:00.123Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"kind\":\"review_started\",\"run_id\":\"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e\",\"session_id\":\"s_019f596a-cf80-7c67-b265-f37053d51ccf\"}}\n")
+	want := []byte("{\"schema_version\":\"mulgae-command-result.v20\",\"command\":\"review\",\"request\":{\"command\":\"review\",\"objective\":\"Review the selected original source.\",\"output_format\":\"json\",\"request_id\":\"i_019f596a-e201-7a4b-8d76-1cf503a1849e\",\"role\":\"logic\",\"source\":{\"kind\":\"diff\",\"value\":\"origin/main...HEAD\"}},\"completed_at\":\"2026-07-13T03:10:00.123Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"kind\":\"review_started\",\"run_id\":\"r_019f596a-e254-7b6f-93cd-4c67cf3d4b2e\",\"session_id\":\"s_019f596a-cf80-7c67-b265-f37053d51ccf\"}}\n")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("Render() = %s\nwant     = %s", got, want)
 	}
@@ -371,7 +371,7 @@ func TestEnvelopeRendererKeepsAttributedCommittedReasonInsideClosedShape(t *test
 	if err := json.Unmarshal(output, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v19" || len(envelope.Reasons) != 1 ||
+	if envelope.SchemaVersion != "mulgae-command-result.v20" || len(envelope.Reasons) != 1 ||
 		envelope.Reasons[0].Code != reason.Code() || envelope.Reasons[0].Message != reason.Message() {
 		t.Fatalf("committed envelope = %#v", envelope)
 	}

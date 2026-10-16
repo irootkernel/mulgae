@@ -36,6 +36,10 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if err := publishCursorSelection(assets); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	commandPair := contractPair{"schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v13.schema.json", "examples/command-result.v12.valid.json", "examples/command-result.v13.valid.json", "mulgae-command-result.v12", "mulgae-command-result.v13"}
 	if err := updateFileCatalog(assets, append(pairs, commandPair,
 		contractPair{"schemas/mulgae-command-result.v13.schema.json", "schemas/mulgae-command-result.v14.schema.json", "examples/command-result.v13.valid.json", "examples/command-result.v14.valid.json", "mulgae-command-result.v13", "mulgae-command-result.v14"},
@@ -44,6 +48,8 @@ func main() {
 		contractPair{"schemas/mulgae-command-result.v16.schema.json", "schemas/mulgae-command-result.v17.schema.json", "examples/command-result.v16.valid.json", "examples/command-result.v17.valid.json", "mulgae-command-result.v16", "mulgae-command-result.v17"},
 		contractPair{"schemas/mulgae-command-result.v17.schema.json", "schemas/mulgae-command-result.v18.schema.json", "examples/command-result.v17.valid.json", "examples/command-result.v18.valid.json", "mulgae-command-result.v17", "mulgae-command-result.v18"},
 		contractPair{"schemas/mulgae-command-result.v18.schema.json", "schemas/mulgae-command-result.v19.schema.json", "examples/command-result.v18.valid.json", "examples/command-result.v19.valid.json", "mulgae-command-result.v18", "mulgae-command-result.v19"},
+		contractPair{"schemas/mulgae-command-result.v19.schema.json", "schemas/mulgae-command-result.v20.schema.json", "examples/command-result.v19.valid.json", "examples/command-result.v20.valid.json", "mulgae-command-result.v19", "mulgae-command-result.v20"},
+		contractPair{"schemas/mulgae-doctor-result.v5.schema.json", "schemas/mulgae-doctor-result.v6.schema.json", "examples/doctor-result.v5.valid.json", "examples/doctor-result.v6.valid.json", "mulgae-doctor-result.v5", "mulgae-doctor-result.v6"},
 		contractPair{"schemas/mulgae-provider-review-output.v1.schema.json", "schemas/mulgae-provider-review-output.v2.schema.json", "examples/provider-review-output.v1.valid.json", "examples/provider-review-output.v2.valid.json", "mulgae-provider-review-output.v1", "mulgae-provider-review-output.v2"},
 		contractPair{"schemas/mulgae-publication-receipt.v1.schema.json", "schemas/mulgae-publication-receipt.v2.schema.json", "examples/publication-receipt.v1.valid.json", "examples/publication-receipt.v2.valid.json", "mulgae-publication-receipt.v1", "mulgae-publication-receipt.v2"},
 		contractPair{"schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v2.schema.json", "examples/export-manifest.v1.valid.json", "examples/export-manifest.v2.valid.json", "mulgae-export-manifest.v1", "mulgae-export-manifest.v2"},
@@ -200,7 +206,7 @@ func admitCurrentProviderFamilies(document any) error {
 	providerBase := definitions["provider_base"].(map[string]any)
 	properties := providerBase["properties"].(map[string]any)
 	family := properties["family"].(map[string]any)
-	family["enum"] = []any{"zcode", "grok", "codex"}
+	family["enum"] = []any{"zcode", "grok", "codex", "cursor"}
 	return nil
 }
 
@@ -437,4 +443,401 @@ func writeGenerated(filename string, contents []byte) error {
 		return err
 	}
 	return os.Rename(name, filename)
+}
+
+func publishCursorSelection(assets string) error {
+	for _, name := range []string{
+		"schemas/mulgae-provider-heartbeat-result.v3.schema.json",
+		"schemas/mulgae-review-preflight.v8.schema.json",
+	} {
+		if err := addCursorFamilyEnum(filepath.Join(assets, name)); err != nil {
+			return err
+		}
+	}
+	if err := publishCursorCommandResult(assets); err != nil {
+		return err
+	}
+	return publishCursorDoctorResult(assets)
+}
+
+func publishCursorDoctorResult(assets string) error {
+	for _, item := range []struct{ source, target string }{
+		{"schemas/mulgae-doctor-result.v5.schema.json", "schemas/mulgae-doctor-result.v6.schema.json"},
+		{"examples/doctor-result.v5.valid.json", "examples/doctor-result.v6.valid.json"},
+	} {
+		contents, err := os.ReadFile(filepath.Join(assets, item.source))
+		if err != nil {
+			return err
+		}
+		var document any
+		if err := json.Unmarshal(contents, &document); err != nil {
+			return err
+		}
+		rewriteDoctorVersion(document)
+		widenDoctorInventory(document)
+		encoded, err := json.MarshalIndent(document, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := writeGenerated(filepath.Join(assets, item.target), append(encoded, '\n')); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rewriteDoctorVersion(document any) {
+	switch typed := document.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if text, ok := child.(string); ok {
+				text = strings.ReplaceAll(text, "mulgae-doctor-result.v5", "mulgae-doctor-result.v6")
+				text = strings.ReplaceAll(text, "Doctor Result v5", "Doctor Result v6")
+				typed[key] = text
+				continue
+			}
+			rewriteDoctorVersion(child)
+		}
+	case []any:
+		for index, child := range typed {
+			if text, ok := child.(string); ok {
+				typed[index] = strings.ReplaceAll(text, "mulgae-doctor-result.v5", "mulgae-doctor-result.v6")
+				continue
+			}
+			rewriteDoctorVersion(child)
+		}
+	}
+}
+
+func widenDoctorInventory(document any) {
+	switch typed := document.(type) {
+	case map[string]any:
+		if definitions, ok := typed["$defs"].(map[string]any); ok {
+			ensureCursorProviderDefinition(definitions)
+			if inventory, ok := definitions["not_observed_inventory"].(map[string]any); ok {
+				appendCursorNotObserved(inventory)
+			}
+		}
+		extendProviderIDBranches(typed)
+		if inventory, ok := typed["provider_inventory"].(map[string]any); ok {
+			appendCursorProviderPrefix(inventory)
+		}
+		if rows, ok := typed["provider_inventory"].([]any); ok && len(rows) == 3 {
+			encoded, err := json.Marshal(rows[1])
+			if err == nil {
+				var cursor map[string]any
+				if json.Unmarshal(encoded, &cursor) == nil {
+					cursor["family"] = "cursor"
+					typed["provider_inventory"] = append(rows, cursor)
+				}
+			}
+		}
+		for _, child := range typed {
+			widenDoctorInventory(child)
+		}
+	case []any:
+		for _, child := range typed {
+			widenDoctorInventory(child)
+		}
+	}
+}
+
+func ensureCursorProviderDefinition(definitions map[string]any) {
+	if _, exists := definitions["provider_cursor"]; exists {
+		return
+	}
+	grok, ok := definitions["provider_grok"]
+	if !ok {
+		return
+	}
+	encoded, err := json.Marshal(grok)
+	if err != nil {
+		return
+	}
+	var cursor map[string]any
+	if json.Unmarshal(encoded, &cursor) != nil {
+		return
+	}
+	renameProviderFamily(cursor, "cursor")
+	definitions["provider_cursor"] = cursor
+}
+
+func renameProviderFamily(document map[string]any, family string) {
+	allOf, _ := document["allOf"].([]any)
+	for _, item := range allOf {
+		branch, _ := item.(map[string]any)
+		properties, _ := branch["properties"].(map[string]any)
+		familyProperty, _ := properties["family"].(map[string]any)
+		if familyProperty != nil && familyProperty["const"] != nil {
+			familyProperty["const"] = family
+		}
+	}
+}
+
+func appendCursorNotObserved(inventory map[string]any) {
+	prefix, ok := inventory["prefixItems"].([]any)
+	if !ok || len(prefix) != 3 || inventoryFamily(prefix[0]) != "zcode" || inventoryFamily(prefix[1]) != "grok" || inventoryFamily(prefix[2]) != "codex" {
+		return
+	}
+	encoded, err := json.Marshal(prefix[2])
+	if err != nil {
+		return
+	}
+	var cursor map[string]any
+	if json.Unmarshal(encoded, &cursor) != nil {
+		return
+	}
+	properties, _ := cursor["properties"].(map[string]any)
+	family, _ := properties["family"].(map[string]any)
+	if family == nil {
+		return
+	}
+	family["const"] = "cursor"
+	inventory["prefixItems"] = append(prefix, cursor)
+	inventory["minItems"] = 4
+	inventory["maxItems"] = 4
+}
+
+func inventoryFamily(item any) string {
+	object, _ := item.(map[string]any)
+	properties, _ := object["properties"].(map[string]any)
+	family, _ := properties["family"].(map[string]any)
+	value, _ := family["const"].(string)
+	return value
+}
+
+func appendCursorProviderPrefix(inventory map[string]any) {
+	prefix, ok := inventory["prefixItems"].([]any)
+	if !ok || len(prefix) != 3 {
+		return
+	}
+	refs := make([]string, 3)
+	for index, item := range prefix {
+		object, _ := item.(map[string]any)
+		refs[index], _ = object["$ref"].(string)
+	}
+	if refs[0] != "#/$defs/provider_zcode" || refs[1] != "#/$defs/provider_grok" || refs[2] != "#/$defs/provider_codex" {
+		return
+	}
+	inventory["prefixItems"] = append(prefix, map[string]any{"$ref": "#/$defs/provider_cursor"})
+	inventory["minItems"] = 4
+	inventory["maxItems"] = 4
+}
+
+func publishCursorCommandResult(assets string) error {
+	for _, item := range []struct{ source, target string }{
+		{"schemas/mulgae-command-result.v19.schema.json", "schemas/mulgae-command-result.v20.schema.json"},
+		{"examples/command-result.v19.valid.json", "examples/command-result.v20.valid.json"},
+	} {
+		contents, err := os.ReadFile(filepath.Join(assets, item.source))
+		if err != nil {
+			return err
+		}
+		var document any
+		if err := json.Unmarshal(contents, &document); err != nil {
+			return err
+		}
+		rewriteCursorVersionStrings(document)
+		admitCursorCommandResult(document)
+		encoded, err := json.MarshalIndent(document, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := writeGenerated(filepath.Join(assets, item.target), append(encoded, '\n')); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func admitCursorCommandResult(document any) {
+	switch typed := document.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if key == "enum" {
+				if values, ok := child.([]any); ok && stringList(values, "zcode", "grok", "codex") {
+					typed[key] = []any{"zcode", "grok", "codex", "cursor"}
+					continue
+				}
+			}
+			admitCursorCommandResult(child)
+		}
+		if properties, ok := typed["properties"].(map[string]any); ok {
+			if grok, exists := properties["grok_executable"]; exists {
+				if _, present := properties["cursor_executable"]; !present {
+					encoded, err := json.Marshal(grok)
+					if err == nil {
+						var cursor any
+						if json.Unmarshal(encoded, &cursor) == nil {
+							properties["cursor_executable"] = cursor
+						}
+					}
+				}
+			}
+		}
+		if definitions, ok := typed["$defs"].(map[string]any); ok {
+			if _, exists := definitions["init_discovery_cursor"]; !exists {
+				if codex, ok := definitions["init_discovery_codex"]; ok {
+					encoded, _ := json.Marshal(codex)
+					var cursor any
+					if json.Unmarshal(encoded, &cursor) == nil {
+						renameDiscoveryFamily(cursor, "cursor")
+						definitions["init_discovery_cursor"] = cursor
+					}
+				}
+			}
+		}
+		extendProviderIDBranches(typed)
+		extendDiscoveryBranches(typed)
+	case []any:
+		for _, child := range typed {
+			admitCursorCommandResult(child)
+		}
+	case string:
+		return
+	}
+	rewriteCursorVersionStrings(document)
+}
+
+func rewriteCursorVersionStrings(document any) {
+	switch typed := document.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if text, ok := child.(string); ok {
+				text = strings.ReplaceAll(text, "mulgae-command-result.v19", "mulgae-command-result.v20")
+				text = strings.ReplaceAll(text, "Mulgae Command Result v19", "Mulgae Command Result v20")
+				text = strings.ReplaceAll(text, "mulgae-doctor-result.v5", "mulgae-doctor-result.v6")
+				typed[key] = text
+				continue
+			}
+			rewriteCursorVersionStrings(child)
+		}
+	case []any:
+		for index, child := range typed {
+			if text, ok := child.(string); ok {
+				text = strings.ReplaceAll(text, "mulgae-command-result.v19", "mulgae-command-result.v20")
+				text = strings.ReplaceAll(text, "mulgae-doctor-result.v5", "mulgae-doctor-result.v6")
+				typed[index] = text
+				continue
+			}
+			rewriteCursorVersionStrings(child)
+		}
+	}
+}
+
+func renameDiscoveryFamily(document any, family string) {
+	object, ok := document.(map[string]any)
+	if !ok {
+		return
+	}
+	properties, _ := object["properties"].(map[string]any)
+	familyProperty, _ := properties["family"].(map[string]any)
+	if familyProperty != nil {
+		familyProperty["const"] = family
+	}
+}
+
+func extendProviderIDBranches(document any) {
+	object, ok := document.(map[string]any)
+	if !ok {
+		return
+	}
+	definitions, _ := object["$defs"].(map[string]any)
+	if definitions == nil {
+		return
+	}
+	providerIDs, _ := definitions["canonical_provider_ids"].(map[string]any)
+	if providerIDs == nil {
+		return
+	}
+	families := []string{"zcode", "grok", "codex", "cursor"}
+	branches := make([]any, 0, 1<<len(families))
+	for mask := 0; mask < 1<<len(families); mask++ {
+		selected := make([]any, 0, len(families))
+		for index, family := range families {
+			if mask&(1<<index) != 0 {
+				selected = append(selected, map[string]any{"const": family})
+			}
+		}
+		if len(selected) == 0 {
+			branches = append(branches, map[string]any{"maxItems": 0})
+			continue
+		}
+		branches = append(branches, map[string]any{"minItems": len(selected), "maxItems": len(selected), "prefixItems": selected, "items": false})
+	}
+	providerIDs["oneOf"] = branches
+	providerIDs["type"] = "array"
+}
+
+func extendDiscoveryBranches(document any) {
+	object, ok := document.(map[string]any)
+	if !ok {
+		return
+	}
+	definitions, _ := object["$defs"].(map[string]any)
+	results, _ := definitions["results"].(map[string]any)
+	initResult, _ := results["init"].(map[string]any)
+	properties, _ := initResult["properties"].(map[string]any)
+	discovery, _ := properties["discovery"].(map[string]any)
+	if discovery == nil {
+		return
+	}
+	discovery["oneOf"] = []any{
+		map[string]any{"maxItems": 0},
+		map[string]any{"minItems": 4, "maxItems": 4, "items": false, "prefixItems": []any{
+			map[string]any{"$ref": "#/$defs/init_discovery_zcode"},
+			map[string]any{"$ref": "#/$defs/init_discovery_grok"},
+			map[string]any{"$ref": "#/$defs/init_discovery_codex"},
+			map[string]any{"$ref": "#/$defs/init_discovery_cursor"},
+		}},
+	}
+	discovery["type"] = "array"
+}
+
+func addCursorFamilyEnum(filename string) error {
+	contents, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	var document any
+	if err := json.Unmarshal(contents, &document); err != nil {
+		return err
+	}
+	admitCursorEnum(document)
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeGenerated(filename, append(encoded, '\n'))
+}
+
+func admitCursorEnum(document any) {
+	switch typed := document.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if key == "enum" {
+				if values, ok := child.([]any); ok && stringList(values, "zcode", "grok", "codex") {
+					typed[key] = []any{"zcode", "grok", "codex", "cursor"}
+				}
+			}
+			admitCursorEnum(child)
+		}
+	case []any:
+		for _, child := range typed {
+			admitCursorEnum(child)
+		}
+	}
+}
+
+func stringList(values []any, expected ...string) bool {
+	if len(values) != len(expected) {
+		return false
+	}
+	for index, value := range values {
+		text, ok := value.(string)
+		if !ok || text != expected[index] {
+			return false
+		}
+	}
+	return true
 }

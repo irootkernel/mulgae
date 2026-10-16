@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v5.schema.json"
+	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v6.schema.json"
 	heartbeatResultSchema = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v3.schema.json"
 )
 
@@ -639,6 +639,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	zcodeAppBundle, zcodeModel, zcodeReasoningEffort, zcodeModelSet, zcodeReasoningEffortSet := request.ZCodeOverrides()
 	grokExecutable, grokModel, grokReasoningEffort, grokModelSet, grokReasoningEffortSet := request.GrokOverrides()
 	codexExecutable, codexModel, codexReasoningEffort := request.CodexOverrides()
+	cursorExecutable := request.CursorExecutable()
 
 	// Destination proof precedes native-account inspection so create-once init
 	// detects an existing pair deterministically and native failures can
@@ -751,6 +752,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 			GrokModel: grokModel, GrokReasoningEffort: grokReasoningEffort,
 			GrokModelSet: grokModelSet, GrokReasoningEffortSet: grokReasoningEffortSet,
 			CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort,
+			CursorExecutable: cursorExecutable,
 		},
 		RefreshLocal:         request.RefreshLocal(),
 		ProjectPolicyOptions: request.ProjectPolicyOptions(),
@@ -1120,6 +1122,9 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	if provider := config.Providers.Codex; provider != nil {
 		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
 	}
+	if provider := config.Providers.Cursor; provider != nil {
+		configured[reviewrun.FamilyCursor] = []string{provider.Executable}
+	}
 	profiles, discoveryErr := reviewrun.DiscoverConfiguredProviderProfiles(ctx, application.inspector, configured)
 	securityDiscoveryFamilies := make(map[reviewrun.Family]struct{})
 	for _, family := range reviewrun.ConfiguredProviderSecurityFamilies(discoveryErr) {
@@ -1132,10 +1137,10 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	for _, profile := range profiles {
 		profileByFamily[string(profile.Family())] = profile
 	}
-	base.ProviderInventory = make([]doctor.LocalProviderInventoryRow, 0, 3)
+	base.ProviderInventory = make([]doctor.LocalProviderInventoryRow, 0, 4)
 	eligible := 0
 	unsafeAdmission := len(securityDiscoveryFamilies) > 0
-	for _, family := range []string{"zcode", "grok", "codex"} {
+	for _, family := range []string{"zcode", "grok", "codex", "cursor"} {
 		if _, configuredFamily := configured[reviewrun.Family(family)]; !configuredFamily {
 			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{
 				Family: family, ReferencedByRoles: []string{}, State: "not_configured", Reason: "not_configured",
@@ -1324,7 +1329,7 @@ func localZCodeApplicationCompatibility(profile reviewrun.DiscoveredProviderProf
 
 func localUnobservedProviderInventory() []doctor.LocalProviderInventoryRow {
 	rows := make([]doctor.LocalProviderInventoryRow, 0, 3)
-	for _, family := range []string{"zcode", "grok", "codex"} {
+	for _, family := range []string{"zcode", "grok", "codex", "cursor"} {
 		rows = append(rows, doctor.LocalProviderInventoryRow{
 			Family: family, ReferencedByRoles: []string{}, State: "not_observed", Reason: "config_not_ready",
 			BinaryAvailable:       doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
@@ -1336,7 +1341,7 @@ func localUnobservedProviderInventory() []doctor.LocalProviderInventoryRow {
 }
 
 func localConfiguredRoleReferences(config adapterconfig.Config) map[string][]string {
-	references := map[string][]string{"zcode": {}, "grok": {}, "codex": {}}
+	references := map[string][]string{"zcode": {}, "grok": {}, "codex": {}, "cursor": {}}
 	roles := []struct {
 		name string
 		role adapterconfig.RoleConfig

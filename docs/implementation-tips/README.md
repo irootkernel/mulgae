@@ -64,6 +64,7 @@ make test-release
 make test-e2e
 make test-e2e-opt-in
 make test-grok
+make test-cursor
 make test-mcp-clients
 ```
 
@@ -90,6 +91,13 @@ otherwise discovers `grok` on `PATH`. The target requires an already
 authenticated installation, does not modify native Grok configuration, and is
 an optional standalone provider diagnostic; the mandatory `make test-e2e` gate
 already exercises Grok through the mixed-provider review.
+
+`make test-cursor` builds the exact current release binary and runs one Cursor
+review. It requires `darwin/arm64`, `CURSOR_AUTH_TOKEN`, and an absolute
+executable in `MULGAE_E2E_CURSOR_EXECUTABLE`. The executable's version line
+must match `YYYY.MM.DD` followed by a hyphen and
+lowercase hexadecimal, with a padded month and day. The target is not part of
+`make test`. A missing or unsafe prerequisite fails the target.
 
 `make test-e2e-opt-in` is called after `make test-e2e`, but performs no provider
 discovery or execution unless `MULGAE_E2E_OPT_IN=1`. When enabled it runs one
@@ -145,7 +153,7 @@ coherent inspection and complete report/evidence reads. It checks no-change
 provenance, source selection identity and absence of source archives. Frozen
 historical projections preserve their original envelopes; the owning query
 tests establish historical artifact integrity. Current envelopes pass through
-an independently updated consumer, including command-result v19, preflight v8
+an independently updated consumer, including command-result v20, preflight v8
 and live-source/source-evidence capabilities.
 
 For actual client checks, use invocation-only MCP configuration and existing

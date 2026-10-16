@@ -19,9 +19,10 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	}
 	policy.Assignments = []RoleProviderAssignment{logic, documentation}
 	timeouts := map[Family]time.Duration{
-		FamilyZCode: 30 * time.Minute,
-		FamilyGrok:  25 * time.Minute,
-		FamilyCodex: 20 * time.Minute,
+		FamilyZCode:  30 * time.Minute,
+		FamilyGrok:   25 * time.Minute,
+		FamilyCodex:  20 * time.Minute,
+		FamilyCursor: 15 * time.Minute,
 	}
 	plan, receipt, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic, domain.RoleDocumentation})
 	if err != nil {
@@ -52,7 +53,7 @@ func TestPreflightConfiguredPlanBindsCodexCredentialProfileToInstance(t *testing
 		t.Fatal(err)
 	}
 	policy.Assignments = []RoleProviderAssignment{logic}
-	timeouts := map[Family]time.Duration{FamilyZCode: 15 * time.Minute, FamilyGrok: 15 * time.Minute, FamilyCodex: 20 * time.Minute}
+	timeouts := map[Family]time.Duration{FamilyZCode: 15 * time.Minute, FamilyGrok: 15 * time.Minute, FamilyCodex: 20 * time.Minute, FamilyCursor: 15 * time.Minute}
 	plan, _, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic})
 	if err != nil {
 		t.Fatal(err)
@@ -75,6 +76,7 @@ func TestRoleProviderInstanceMatchesConfiguredAssignment(t *testing.T) {
 		{name: "profile codex", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-work-logic", want: true},
 		{name: "profile on non codex", family: FamilyGrok, role: domain.RoleLogic, instance: "grok-work-logic"},
 		{name: "unsupported grok artist", family: FamilyGrok, role: domain.RoleArtist, instance: "grok-artist"},
+		{name: "unsupported cursor artist", family: FamilyCursor, role: domain.RoleArtist, instance: "cursor-artist"},
 		{name: "wrong role", family: FamilyCodex, role: domain.RoleSecurity, instance: "codex-work-logic"},
 		{name: "invalid profile", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-WORK-logic"},
 	} {

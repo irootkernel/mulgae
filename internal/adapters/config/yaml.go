@@ -90,7 +90,7 @@ func knownProviderIdentities(root *yaml.Node) bool {
 	if providers == nil || providers.Kind != yaml.MappingNode {
 		return true
 	}
-	known := map[string]struct{}{"zcode": {}, "grok": {}, "codex": {}}
+	known := map[string]struct{}{"zcode": {}, "grok": {}, "codex": {}, "cursor": {}}
 	for index := 0; index < len(providers.Content); index += 2 {
 		if _, ok := known[providers.Content[index].Value]; !ok {
 			return false
@@ -525,6 +525,16 @@ func validate(config *Config) error {
 			}
 		}
 	}
+	if config.Providers.Cursor != nil {
+		if !canonicalAbsolute(config.Providers.Cursor.Executable) {
+			return fmt.Errorf("cursor executable")
+		}
+		timeout, err := ParseProviderTimeout(config.Providers.Cursor.Timeout)
+		if err != nil {
+			return fmt.Errorf("cursor timeout: %w: %v", errProviderTimeoutInvalid, err)
+		}
+		config.Providers.Cursor.Timeout = ProviderTimeoutText(timeout)
+	}
 	configuredRoles := config.Roles.Ordered()
 	enabledRoleCount := 0
 	referencedCredentialProfiles := make(map[string]struct{})
@@ -763,6 +773,12 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		if provider.ReasoningEffort != "" {
 			out.WriteString("    reasoning_effort: " + q(provider.ReasoningEffort) + "\n")
 		}
+		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
+			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
+		}
+	}
+	if provider := config.Providers.Cursor; provider != nil {
+		out.WriteString("  cursor:\n    executable: " + q(provider.Executable) + "\n")
 		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}

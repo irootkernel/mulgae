@@ -32,7 +32,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := len(profiles), 3; got != want {
+	if got, want := len(profiles), 4; got != want {
 		t.Fatalf("profiles length = %d, want %d", got, want)
 	}
 	want := []struct {
@@ -45,6 +45,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		{FamilyZCode, "zcode-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnsupported},
 		{FamilyGrok, "grok-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnverified},
 		{FamilyCodex, "codex-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
+		{FamilyCursor, "cursor-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
 	}
 	for index, expected := range want {
 		profile := profiles[index]
@@ -65,7 +66,7 @@ func TestListProviderProfilesEvidenceProjectionAndFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("all profiles error = %v", err)
 	}
-	if got, want := profileSupports(all.Profiles()), []SupportState{SupportUnsupported, SupportSupported, SupportSupported}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(all.Profiles()), []SupportState{SupportUnsupported, SupportSupported, SupportSupported, SupportUnverified}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	filtered, err := service.ListProviderProfiles(context.Background(), false)
@@ -93,7 +94,7 @@ func TestListProviderProfilesAbsentEvidenceIsUnverified(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	if got := profiles[1].AssignmentState(); got != doctor.AssignmentIntendedButUnverified {

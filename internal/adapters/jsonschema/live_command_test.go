@@ -9,7 +9,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/builtin"
 )
 
-func TestCommandResultV19BindsLiveReviewAndRejectsRetiredAdmission(t *testing.T) {
+func TestCommandResultV20BindsLiveReviewAndRejectsRetiredAdmission(t *testing.T) {
 	validator := newBuiltinValidator(t)
 	catalog := builtin.NewCatalog()
 	_, raw, err := catalog.Read(context.Background(), mustAssetID(t, "example:review-preflight.v8.valid.json"))
@@ -29,12 +29,12 @@ func TestCommandResultV19BindsLiveReviewAndRejectsRetiredAdmission(t *testing.T)
 		"expected_project_binding": preflight["project_binding"],
 	}
 	envelope := map[string]any{
-		"schema_version": "mulgae-command-result.v19", "command": "review",
+		"schema_version": "mulgae-command-result.v20", "command": "review",
 		"request": request, "completed_at": "2026-10-04T00:00:00Z",
 		"exit": map[string]any{"code": 0, "kind": "success"}, "reasons": []any{},
 		"result": map[string]any{"kind": "review_preflight", "preflight": preflight},
 	}
-	schema := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v19.schema.json")
+	schema := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v20.schema.json")
 	validate := func() error {
 		data, err := json.Marshal(envelope)
 		if err != nil {

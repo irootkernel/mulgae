@@ -314,3 +314,98 @@ func launchCursor(t *testing.T, runner *cursorLaunchRecorder, execution ports.Li
 	_, err = registry.Observe(context.Background(), invocation)
 	return err
 }
+
+func TestCursorDeniesProfileHomeAbsentFromConfiguredRoots(t *testing.T) {
+	base := credentialSourceTempDir(t)
+	runtime := filepath.Join(base, "runtime")
+	project := filepath.Join(base, "project")
+	fixture := filepath.Join(base, "fixture")
+	mapped := filepath.Join(base, "mapped-profile")
+	absent := filepath.Join(base, "unmapped-profile")
+	for _, path := range []string{runtime, project, fixture, mapped, absent} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cursorPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceCodex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespaces, err := NewNamespaceFactory(filepath.Join(base, "namespaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory, err := NewCredentialProjectingNamespaceFactoryWithProjectRoot(
+		namespaces, runtime, project,
+		map[string]CredentialSourceFamily{
+			"cursor_qualify": CredentialSourceCursor,
+			"cursor_review":  CredentialSourceCursor,
+			"codex_primary":  CredentialSourceCodex,
+		},
+		map[string]RuntimeSafetyPolicy{
+			"cursor_qualify": cursorPolicy,
+			"cursor_review":  cursorPolicy,
+			"codex_primary":  codexPolicy,
+		},
+		nil,
+		map[string]string{"codex_primary": mapped, "profile-home-other": absent},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := factory.AcquireProviderNamespace(context.Background(), "cursor_qualify", FamilyCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = lease.DrainTerminal(context.Background()) })
+	source, err := ports.NewAnchoredRoot(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary, _, err := retainedQualificationNamespace{lease: lease}.cursorLaunchBoundary(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !anchoredContains(boundary.CredentialRoots(), absent) {
+		t.Fatalf("qualification credentials = %v", boundary.CredentialRoots())
+	}
+	execution, _ := cursorMatrixExecution(t, domain.LiveSourceWorkspace)
+	executable, err := filepath.EvalSymlinks("/bin/echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := NewRuntimeDefinition(FamilyCursor, "cursor_review", "", executable, "", "cursor_review", []string{executable}, nil, execution.ReviewerHome().Root().String(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &cursorLaunchRecorder{}
+	registry, err := NewRegistryWithNamespaceFactory(runner, factory, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = registry.Close(context.Background()) })
+	attempt, err := domain.ParseAttemptID("a_019f596a-cf80-7c67-b265-f37053d51ccf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin := []byte("review bytes")
+	invocation, err := ports.NewProviderInvocation(domain.RoleSecurity, "cursor_review", attempt, ports.ProviderInvocationInitial, stdin, "i_019f596a-cf80-7c67-b265-f37053d51ccd", "019f596a-cf80-7c67-b265-f37053d51cce", testStdinDigest(stdin))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err = ports.NewProviderInvocationInLiveSource(invocation, execution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Observe(context.Background(), invocation); len(runner.requests) != 1 {
+		t.Fatalf("live launch was not recorded: %v requests=%d", err, len(runner.requests))
+	}
+	liveBoundary, guarded := runner.requests[0].LiveReadOnlyBoundary()
+	if !guarded || !anchoredContains(liveBoundary.CredentialRoots(), absent) {
+		t.Fatalf("live credentials = %v", liveBoundary.CredentialRoots())
+	}
+}

@@ -107,6 +107,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 		"providers.zcode.configured", "providers.zcode.app_bundle", "providers.zcode.model", "providers.zcode.reasoning_effort", "providers.zcode.timeout",
 		"providers.grok.configured", "providers.grok.executable", "providers.grok.timeout",
 		"providers.codex.configured", "providers.codex.executable", "providers.codex.default_credential_profile", "providers.codex.credential_homes", "providers.codex.model", "providers.codex.reasoning_effort", "providers.codex.timeout",
+		"providers.cursor.configured", "providers.cursor.executable", "providers.cursor.timeout",
 		"roles.logic.enabled", "roles.logic.primary_provider", "roles.logic.credential_profile",
 		"roles.security.enabled", "roles.security.primary_provider", "roles.security.credential_profile",
 		"roles.maintainability.enabled", "roles.maintainability.primary_provider", "roles.maintainability.credential_profile",
@@ -126,13 +127,13 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "project.root" || len(field) >= 10 && field[:10] == "execution." || len(field) >= 8 && field[:8] == "runtime." || len(field) >= 9 && field[:9] == "provider." || len(field) >= 10 && field[:10] == "artifacts." || len(field) >= 7 && field[:7] == "safety." {
 			source, disposition, class = "code", "fixed", "invariant"
 		}
-		if field == "project.context" && config.Project.Context == "" || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.grok.configured" && config.Providers.Grok == nil || field == "providers.codex.configured" && config.Providers.Codex == nil {
+		if field == "project.context" && config.Project.Context == "" || field == "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.grok.configured" && config.Providers.Grok == nil || field == "providers.codex.configured" && config.Providers.Codex == nil || field == "providers.cursor.configured" && config.Providers.Cursor == nil {
 			disposition = "absent"
 		}
-		if strings.HasPrefix(field, "providers.zcode.") && field != "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.grok.timeout" && config.Providers.Grok == nil || strings.HasPrefix(field, "providers.codex.") && field != "providers.codex.configured" && config.Providers.Codex == nil {
+		if strings.HasPrefix(field, "providers.zcode.") && field != "providers.zcode.configured" && config.Providers.ZCode == nil || field == "providers.grok.timeout" && config.Providers.Grok == nil || strings.HasPrefix(field, "providers.codex.") && field != "providers.codex.configured" && config.Providers.Codex == nil || strings.HasPrefix(field, "providers.cursor.") && field != "providers.cursor.configured" && config.Providers.Cursor == nil {
 			disposition = "absent"
 		}
-		if field == "providers.zcode.app_bundle" && config.Providers.ZCode == nil || field == "providers.grok.executable" && config.Providers.Grok == nil {
+		if field == "providers.zcode.app_bundle" && config.Providers.ZCode == nil || field == "providers.grok.executable" && config.Providers.Grok == nil || field == "providers.cursor.executable" && config.Providers.Cursor == nil {
 			disposition = "absent"
 		}
 		if config.Providers.Codex != nil && (field == "providers.codex.model" && config.Providers.Codex.Model == "" || field == "providers.codex.reasoning_effort" && config.Providers.Codex.ReasoningEffort == "") {
@@ -150,7 +151,7 @@ func provenanceRows(config Config) []ProvenanceRow {
 		if field == "validation.extraction.enabled" && !config.Validation.Extraction.EnabledExplicit {
 			source, disposition = "default", "defaulted"
 		}
-		if field == "providers.zcode.timeout" && config.Providers.ZCode != nil && config.Providers.ZCode.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.grok.timeout" && config.Providers.Grok != nil && config.Providers.Grok.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.codex.timeout" && config.Providers.Codex != nil && config.Providers.Codex.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
+		if field == "providers.zcode.timeout" && config.Providers.ZCode != nil && config.Providers.ZCode.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.grok.timeout" && config.Providers.Grok != nil && config.Providers.Grok.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.codex.timeout" && config.Providers.Codex != nil && config.Providers.Codex.Timeout == ProviderTimeoutText(DefaultProviderTimeout) || field == "providers.cursor.timeout" && config.Providers.Cursor != nil && config.Providers.Cursor.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
 			source, disposition = "default", "defaulted"
 		}
 		rows = append(rows, ProvenanceRow{Field: field, Source: source, Disposition: disposition, ValueClass: class})

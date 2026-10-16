@@ -171,6 +171,33 @@ func newCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 		families[instance] = family
 		policies[instance] = cloneRuntimeSafetyPolicy(policy)
 	}
+	for key, rootPath := range sourceRoots {
+		if _, exists := configuredRoots[key]; exists {
+			continue
+		}
+		if _, isInstance := instanceFamilies[key]; isInstance {
+			continue
+		}
+		if !canonicalAbsolutePath(rootPath) {
+			return nil, fmt.Errorf("credential source factory: invalid configured source root")
+		}
+		root, openErr := openAbsoluteDirectory(rootPath)
+		if openErr != nil {
+			if os.IsNotExist(openErr) {
+				continue
+			}
+			return nil, fmt.Errorf("credential source factory: unsafe configured source root")
+		}
+		rootIdentity, identityErr := identityOf(root)
+		rootInfo, infoErr := root.Stat()
+		var rootStat unix.Stat_t
+		statErr := unix.Fstat(int(root.Fd()), &rootStat)
+		_ = root.Close()
+		if identityErr != nil || infoErr != nil || statErr != nil || !rootInfo.IsDir() || rootStat.Uid != uint32(unix.Geteuid()) {
+			return nil, fmt.Errorf("credential source factory: unsafe configured source root")
+		}
+		configuredRoots[key] = projectionRootAuthority{path: rootPath, identity: rootIdentity, info: rootInfo, uid: rootStat.Uid}
+	}
 	if len(nativeHomes) != 0 {
 		return nil, fmt.Errorf("credential source factory: native home mappings are unsupported")
 	}

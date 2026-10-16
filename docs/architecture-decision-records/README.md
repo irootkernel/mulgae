@@ -18,6 +18,8 @@ explain why durable choices were made.
   its live spike pinned.
 - [Codex app-server transport](codex-app-server-transport.md) records the
   ephemeral Codex protocol route and its report and isolation boundaries.
+- [Cursor ACP transport](cursor-acp-transport.md) records explicit Cursor
+  selection and the ACP session, permission, and credential boundaries.
 
 ## Accepted design for planned implementation
 

@@ -556,7 +556,8 @@
           "enum": [
             "zcode",
             "grok",
-            "codex"
+            "codex",
+            "cursor"
           ],
           "type": "string"
         },

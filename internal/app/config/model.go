@@ -39,9 +39,10 @@ type NativeUserConfig struct {
 	Home string `yaml:"home" json:"home"`
 }
 type ProvidersConfig struct {
-	ZCode *ZCodeProviderConfig `yaml:"zcode,omitempty" json:"zcode,omitempty"`
-	Grok  *GrokProviderConfig  `yaml:"grok,omitempty" json:"grok,omitempty"`
-	Codex *CodexProviderConfig `yaml:"codex,omitempty" json:"codex,omitempty"`
+	ZCode  *ZCodeProviderConfig  `yaml:"zcode,omitempty" json:"zcode,omitempty"`
+	Grok   *GrokProviderConfig   `yaml:"grok,omitempty" json:"grok,omitempty"`
+	Codex  *CodexProviderConfig  `yaml:"codex,omitempty" json:"codex,omitempty"`
+	Cursor *CursorProviderConfig `yaml:"cursor,omitempty" json:"cursor,omitempty"`
 }
 type ZCodeProviderConfig struct {
 	AppBundle       string `yaml:"app_bundle" json:"app_bundle"`
@@ -66,6 +67,10 @@ type CodexProviderConfig struct {
 type CodexCredentialHomeConfig struct {
 	Profile string `yaml:"profile" json:"profile"`
 	Home    string `yaml:"home" json:"home"`
+}
+type CursorProviderConfig struct {
+	Executable string `yaml:"executable" json:"executable"`
+	Timeout    string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
 func (provider CodexProviderConfig) CredentialHome(profile string) (string, bool) {
@@ -276,7 +281,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 	lastOrdinal := -1
 	for _, family := range families {
 		ordinal := -1
-		for index, candidate := range []string{"zcode", "grok", "codex"} {
+		for index, candidate := range []string{"zcode", "grok", "codex", "cursor"} {
 			if family == candidate {
 				ordinal = index
 				break
@@ -325,6 +330,9 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 				return RoleConfig{PrimaryProvider: family}, preference, nil
 			}
 		}
+		if role != domain.RoleArtist && len(families) == 1 {
+			return RoleConfig{PrimaryProvider: families[0]}, preference, nil
+		}
 		return RoleConfig{}, preference, nil
 	}
 	core := make(map[domain.Role]RoleConfig, len(domain.CoreRoleOrder()))
@@ -367,7 +375,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 }
 
 func (providers ProvidersConfig) Families() []string {
-	result := make([]string, 0, 3)
+	result := make([]string, 0, 4)
 	if providers.ZCode != nil {
 		result = append(result, "zcode")
 	}
@@ -376,6 +384,9 @@ func (providers ProvidersConfig) Families() []string {
 	}
 	if providers.Codex != nil {
 		result = append(result, "codex")
+	}
+	if providers.Cursor != nil {
+		result = append(result, "cursor")
 	}
 	return result
 }

@@ -230,3 +230,52 @@ func TestCanonicalRolesConfigClassifiesUnsupportedArtistProvider(t *testing.T) {
 		t.Fatalf("canonical UI roles error = %v, want ErrRoleProviderUnsupported", err)
 	}
 }
+
+func TestCursorOnlyAssignmentUsesTheSelectedFamily(t *testing.T) {
+	t.Parallel()
+	defaults := syntheticDefaults(t, nil)
+	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"cursor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{
+		roles.Logic.PrimaryProvider, roles.Security.PrimaryProvider, roles.Maintainability.PrimaryProvider,
+		roles.Product.PrimaryProvider, roles.Documentation.PrimaryProvider, roles.Testing.PrimaryProvider,
+	} {
+		if provider != "cursor" {
+			t.Fatalf("text provider = %s, want cursor", provider)
+		}
+	}
+	families := (appconfig.ProvidersConfig{Cursor: &appconfig.CursorProviderConfig{Executable: "/bin/cursor-agent"}}).Families()
+	if len(families) != 1 || families[0] != "cursor" {
+		t.Fatalf("families = %v", families)
+	}
+}
+
+func TestCursorMixedRoutingKeepsThePreferenceRoute(t *testing.T) {
+	t.Parallel()
+	defaults := syntheticDefaults(t, nil)
+	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok", "codex", "cursor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roles.Logic.PrimaryProvider != "zcode" {
+		t.Fatalf("logic = %s, want zcode", roles.Logic.PrimaryProvider)
+	}
+	mixed, err := appconfig.CanonicalRolesConfig(defaults, []string{"grok", "cursor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mixed.Logic.PrimaryProvider != "grok" {
+		t.Fatalf("logic = %s, want grok", mixed.Logic.PrimaryProvider)
+	}
+}
+
+func TestCursorArtistRejectionSkipsTheSingleFamilyFallback(t *testing.T) {
+	t.Parallel()
+	defaults := syntheticDefaults(t, nil)
+	roles, err := appconfig.CanonicalRolesConfigForSelection(defaults, []string{"cursor"}, []string{"logic", "artist"})
+	if !errors.Is(err, appconfig.ErrRoleProviderUnsupported) {
+		t.Fatalf("artist fallback err = %v roles=%#v", err, roles)
+	}
+}

@@ -97,3 +97,60 @@ func TestAbsentProviderMachineFieldsRemainAbsent(t *testing.T) {
 		}
 	}
 }
+
+func TestCursorProvenanceCoversPresenceAndTimeoutOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		config Config
+		want   map[string]ProvenanceRow
+	}{
+		{
+			name: "absent",
+			want: map[string]ProvenanceRow{
+				"providers.cursor.configured": {Field: "providers.cursor.configured", Source: "project", Disposition: "absent", ValueClass: "policy"},
+				"providers.cursor.executable": {Field: "providers.cursor.executable", Source: "local", Disposition: "absent", ValueClass: "machine"},
+				"providers.cursor.timeout":    {Field: "providers.cursor.timeout", Source: "project", Disposition: "absent", ValueClass: "policy"},
+			},
+		},
+		{
+			name: "present default timeout",
+			config: Config{Providers: ProvidersConfig{Cursor: &CursorProviderConfig{
+				Executable: "/opt/cursor/bin/cursor-agent",
+				Timeout:    ProviderTimeoutText(DefaultProviderTimeout),
+			}}},
+			want: map[string]ProvenanceRow{
+				"providers.cursor.configured": {Field: "providers.cursor.configured", Source: "project", Disposition: "configured", ValueClass: "policy"},
+				"providers.cursor.executable": {Field: "providers.cursor.executable", Source: "local", Disposition: "configured", ValueClass: "machine"},
+				"providers.cursor.timeout":    {Field: "providers.cursor.timeout", Source: "default", Disposition: "defaulted", ValueClass: "policy"},
+			},
+		},
+		{
+			name: "present custom timeout",
+			config: Config{Providers: ProvidersConfig{Cursor: &CursorProviderConfig{
+				Executable: "/opt/cursor/bin/cursor-agent",
+				Timeout:    "25m",
+			}}},
+			want: map[string]ProvenanceRow{
+				"providers.cursor.configured": {Field: "providers.cursor.configured", Source: "project", Disposition: "configured", ValueClass: "policy"},
+				"providers.cursor.executable": {Field: "providers.cursor.executable", Source: "local", Disposition: "configured", ValueClass: "machine"},
+				"providers.cursor.timeout":    {Field: "providers.cursor.timeout", Source: "project", Disposition: "configured", ValueClass: "policy"},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rows := provenanceRows(test.config)
+			found := map[string]ProvenanceRow{}
+			for _, row := range rows {
+				if _, ok := test.want[row.Field]; ok {
+					found[row.Field] = row
+				}
+			}
+			for field, want := range test.want {
+				got, ok := found[field]
+				if !ok || got != want {
+					t.Fatalf("%s provenance = %#v, want %#v", field, got, want)
+				}
+			}
+		})
+	}
+}

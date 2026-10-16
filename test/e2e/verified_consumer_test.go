@@ -83,7 +83,7 @@ func decodeVerifiedConsumerEnvelope(raw []byte, transport, operation string, leg
 		return nil, err
 	}
 	if transport == "cli" {
-		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19") {
+		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19" && envelope.SchemaVersion != "mulgae-command-result.v20") {
 			return nil, fmt.Errorf("unsupported CLI contract")
 		}
 		if envelope.Exit == nil || envelope.Exit.Code == nil || *envelope.Exit.Code != 0 || envelope.Exit.Kind != "success" || envelope.Reasons == nil {

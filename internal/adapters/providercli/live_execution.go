@@ -281,13 +281,18 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 					return observation, nil, fail(err)
 				}
 			}
+			for _, root := range concrete.cursorConfiguredRoots {
+				if err := cursorRejectRuntimeHomeExposure(operatorHome, root); err != nil {
+					return observation, nil, fail(err)
+				}
+			}
 			if err := cursorRejectContainedLaunch(execution.Binding().Root.String(), execution.ReviewerHome().Root().String(), concrete.root, dataDir); err != nil {
 				return observation, nil, fail(err)
 			}
-			credentials, credErr := cursorBoundaryCredentials(execution.CredentialRoots(), filepath.Join(concrete.root, "auth"), []string{
+			credentials, credErr := cursorBoundaryCredentials(execution.CredentialRoots(), filepath.Join(concrete.root, "auth"), append([]string{
 				filepath.Join(operatorHome, ".cursor"),
 				filepath.Join(operatorHome, ".config", "cursor"),
-			})
+			}, concrete.cursorConfiguredRoots...))
 			if credErr != nil {
 				return observation, nil, fail(credErr)
 			}

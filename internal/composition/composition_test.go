@@ -18,6 +18,7 @@ import (
 	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
@@ -179,6 +180,212 @@ func TestProductionRunPolicyRejectsGrokArtistBeforeRuntimeConstruction(t *testin
 	if !errors.As(err, &failure) || failure.Class() != domain.FailureProviderUnavailable || failure.Reason() != "provider_capability_unsupported" {
 		t.Fatalf("Grok artist failure = %#v, %v", failure, err)
 	}
+}
+
+func TestProductionRunPolicyRejectsCursorArtistBeforeRuntimeConstruction(t *testing.T) {
+	roles, err := adapterconfig.CanonicalRolesConfigForUI(testRoleDefaults(), []string{"zcode", "cursor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles.Artist.PrimaryProvider = "cursor"
+	raw := adapterconfig.Config{
+		Version: adapterconfig.ConfigVersion, Project: adapterconfig.ProjectConfig{Name: "cursor-artist", Kind: adapterconfig.ProjectKindUI},
+		NativeUser: adapterconfig.NativeUserConfig{Home: "/Users/test"},
+		Providers: adapterconfig.ProvidersConfig{
+			ZCode:  &adapterconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
+			Cursor: &adapterconfig.CursorProviderConfig{Executable: "/bin/cursor-agent"},
+		},
+		Roles:      roles,
+		Review:     adapterconfig.ReviewConfig{RequiredRoles: []string{"logic", "security", "maintainability", "product", "documentation", "testing"}, RequestChangesOn: []string{"high", "critical", "blocker"}},
+		Validation: adapterconfig.ValidationConfig{Evidence: adapterconfig.EvidenceConfig{RequireVerifiedFor: []string{"high", "critical", "blocker"}}, Repair: adapterconfig.RepairConfig{Enabled: true, MaxAttempts: 1, SameProvider: true}},
+		Resources:  adapterconfig.ResourcesConfig{MaxActiveLanes: 7, PrimaryRepairAttempts: 1, RoleMaxInvocations: 2, RunMaxInvocations: 14},
+		CI:         adapterconfig.CIConfig{FailOnSeverity: []string{"high", "critical", "blocker"}, DegradedReviewFails: true},
+	}
+	resolved, err := appconfig.ResolveConfiguration(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = deriveProductionRunPolicy(resolved)
+	var failure *domain.Failure
+	if !errors.As(err, &failure) || failure.Class() != domain.FailureProviderUnavailable || failure.Reason() != "provider_capability_unsupported" {
+		t.Fatalf("Cursor artist failure = %#v, %v", failure, err)
+	}
+}
+
+func TestProductionCursorAuthTokenProjectsOnlyOntoCursorDefinition(t *testing.T) {
+	executable, err := filepath.EvalSymlinks("/bin/echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identities := make(map[reviewrun.Family]string, len(reviewrun.Families()))
+	timeouts := make(map[reviewrun.Family]time.Duration, len(reviewrun.Families()))
+	for _, family := range reviewrun.Families() {
+		identity, identityErr := (providercli.RuntimeBuilder{}).RuntimeSafetyPolicyIdentity(string(family))
+		if identityErr != nil {
+			t.Fatal(identityErr)
+		}
+		identities[family] = identity
+		timeouts[family] = appconfig.DefaultProviderTimeout
+	}
+	config := adapterconfig.Config{Providers: adapterconfig.ProvidersConfig{
+		Grok:   &adapterconfig.GrokProviderConfig{Executable: executable},
+		Cursor: &adapterconfig.CursorProviderConfig{Executable: executable},
+	}}
+	base := configuredProductionCandidateSource{
+		inspector: environment.NewInspector(), config: config, policyIdentities: identities, providerTimeouts: timeouts,
+	}
+	const token = "synthetic-cursor-auth"
+	t.Setenv("CURSOR_AUTH_TOKEN", token)
+	present := base
+	present.cursorAuthToken = os.Getenv("CURSOR_AUTH_TOKEN")
+	presentSource, err := present.productionCandidateSource(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := ports.NewWorkspaceSnapshotIdentity("/private/tmp/auth-snapshot", "snapshot-"+strings.Repeat("ab", 16), "sha256:"+strings.Repeat("cd", 32), "policy", 1, 1, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := reviewrun.NewRunSelection([]domain.Role{domain.RoleLogic}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := presentSource.NewSyntheticQualifiedRunCandidates(workspace, selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawCursor := false
+	sawOther := false
+	for _, candidate := range candidates {
+		environment := candidate.Definition.Environment()
+		if candidate.Definition.Family() == string(reviewrun.FamilyCursor) {
+			sawCursor = true
+			if !cursorDefinitionHasSelectedToken(environment, token) {
+				t.Fatal("cursor runtime definition did not receive the selected token")
+			}
+			continue
+		}
+		sawOther = true
+		if cursorDefinitionHasAuthName(environment) {
+			t.Fatalf("%s runtime definition received cursor auth", candidate.Definition.Family())
+		}
+	}
+	if !sawCursor || !sawOther {
+		t.Fatal("production seam did not build a cursor runtime and another family")
+	}
+}
+
+func cursorAuthRequired(err error) bool {
+	var failure *domain.Failure
+	return errors.As(err, &failure) && failure.Reason() == "cursor_auth_token_required"
+}
+
+func cursorDefinitionHasSelectedToken(environment []ports.EnvironmentVariable, token string) bool {
+	for _, variable := range environment {
+		if variable.Name() == "CURSOR_AUTH_TOKEN" && variable.Value() == token {
+			return true
+		}
+	}
+	return false
+}
+
+func cursorDefinitionHasAuthName(environment []ports.EnvironmentVariable) bool {
+	for _, variable := range environment {
+		if variable.Name() == "CURSOR_AUTH_TOKEN" {
+			return true
+		}
+	}
+	return false
+}
+
+func TestProductionLogicRequestComposesWhenDocumentationUsesCursor(t *testing.T) {
+	source := mixedCursorProductionSource(t)
+	t.Setenv("CURSOR_AUTH_TOKEN", "")
+	source.cursorAuthToken = os.Getenv("CURSOR_AUTH_TOKEN")
+	selection, err := reviewrun.NewRunSelection([]domain.Role{domain.RoleLogic}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := assignedProductionCandidates(t, source, selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].Definition.Family() != string(reviewrun.FamilyGrok) {
+		t.Fatal("logic-only run did not stay on the assigned non-Cursor provider")
+	}
+	if cursorDefinitionHasAuthName(candidates[0].Definition.Environment()) {
+		t.Fatal("non-Cursor runtime received cursor auth")
+	}
+}
+
+func TestProductionSelectedCursorRunRequiresAuthToken(t *testing.T) {
+	source := mixedCursorProductionSource(t)
+	source.config.Roles.Logic.PrimaryProvider = "cursor"
+	source.config.Roles.Documentation.PrimaryProvider = "grok"
+	t.Setenv("CURSOR_AUTH_TOKEN", "")
+	source.cursorAuthToken = os.Getenv("CURSOR_AUTH_TOKEN")
+	selection, err := reviewrun.NewRunSelection([]domain.Role{domain.RoleLogic}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := assignedProductionCandidates(t, source, selection)
+	if !cursorAuthRequired(err) || len(candidates) != 0 {
+		t.Fatal("selected cursor run substituted another provider or skipped the auth failure")
+	}
+}
+
+func mixedCursorProductionSource(t *testing.T) configuredProductionCandidateSource {
+	t.Helper()
+	executable, err := filepath.EvalSymlinks("/bin/echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	identities := make(map[reviewrun.Family]string, len(reviewrun.Families()))
+	timeouts := make(map[reviewrun.Family]time.Duration, len(reviewrun.Families()))
+	for _, family := range reviewrun.Families() {
+		identity, identityErr := (providercli.RuntimeBuilder{}).RuntimeSafetyPolicyIdentity(string(family))
+		if identityErr != nil {
+			t.Fatal(identityErr)
+		}
+		identities[family] = identity
+		timeouts[family] = appconfig.DefaultProviderTimeout
+	}
+	return configuredProductionCandidateSource{
+		inspector: environment.NewInspector(),
+		config: adapterconfig.Config{
+			Providers: adapterconfig.ProvidersConfig{
+				Grok:   &adapterconfig.GrokProviderConfig{Executable: executable},
+				Cursor: &adapterconfig.CursorProviderConfig{Executable: executable},
+			},
+			Roles: adapterconfig.RolesConfig{
+				Logic:         adapterconfig.RoleConfig{Enabled: true, PrimaryProvider: "grok"},
+				Documentation: adapterconfig.RoleConfig{Enabled: true, PrimaryProvider: "cursor"},
+			},
+		},
+		policyIdentities: identities,
+		providerTimeouts: timeouts,
+	}
+}
+
+func assignedProductionCandidates(t *testing.T, source configuredProductionCandidateSource, selection reviewrun.RunSelection) ([]reviewrun.QualifiedRunCandidate, error) {
+	t.Helper()
+	production, err := source.productionCandidateSource(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	workspace, err := ports.NewWorkspaceSnapshotIdentity("/private/tmp/auth-snapshot", "snapshot-"+strings.Repeat("ab", 16), "sha256:"+strings.Repeat("cd", 32), "policy", 1, 1, 1, 1)
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := production.NewSyntheticQualifiedRunCandidates(workspace, selection)
+	if err != nil {
+		return nil, err
+	}
+	filtered, err := source.filterAssignedCandidates(candidates, selection)
+	if err != nil {
+		return nil, err
+	}
+	return requireAssignedCursorAuth(filtered)
 }
 
 type reviewConfigMutatingAttestor struct {

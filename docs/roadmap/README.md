@@ -530,13 +530,13 @@ reasoning effort are outside this epic. Live Cursor certification is opt-in and
 stays out of the mandatory ZCode/Grok release gate.
 
 This registration does not change runtime behavior. Current provider behavior
-remains ZCode, Grok, and Codex until TASK-042 publishes the route.
+includes explicit Cursor selection. Default role preferences stay unchanged.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
 | TASK-040 | Completed | Pin the installed `agent acp` wire and prove neutral-cwd reads, absent project-instruction injection, visible tool identity, ask-mode acknowledgement before prompting, credential denial, and a correlated completed assistant turn. Stop the epic if any check fails. | Isolated live handshake and one read-only turn. Record the binary version and each stop condition in the dossier. |
 | TASK-041 | Completed | Add the Cursor family ACP driver, disposable namespace, Seatbelt launch, and qualification behind the existing protocol runner. Leave public configuration and default role assignment unchanged. | Scripted ACP success and failure, permission rejection, credential isolation, unchanged ZCode, Grok, and Codex behavior, and one native stage fixture: separate index and commit GitCommand calls, each allow_once and completed, with both byte strings in the assistant turn and the neutral home as GIT_WORK_TREE. |
-| TASK-042 | Planned | Publish explicit Cursor selection across init, CLI, MCP, schemas, help, contracts, security, and one transport ADR. Keep live certification opt-in. | Generator idempotence, one exact-binary Cursor review, the complete `make test` gate, and a separate opt-in Cursor live check. |
+| TASK-042 | Completed | Publish explicit Cursor selection across init, CLI, MCP, schemas, help, contracts, security, and one transport ADR. Keep live certification opt-in. | Generator idempotence, one exact-binary Cursor review, the complete `make test` gate, and a separate opt-in Cursor live check. |
 
 TASK-040 is the provider feasibility prerequisite. A failed probe blocks
 TASK-041 and TASK-042. TASK-041 must not expose a public route that diverges

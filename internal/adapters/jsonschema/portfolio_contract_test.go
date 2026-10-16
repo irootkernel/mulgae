@@ -16,7 +16,7 @@ func TestCurrentProviderEvidenceBaseAdmitsEveryPublishedFamily(t *testing.T) {
 	properties := providerBase["properties"].(map[string]any)
 	family := properties["family"].(map[string]any)
 	got := family["enum"].([]any)
-	want := []any{"zcode", "grok", "codex"}
+	want := []any{"zcode", "grok", "codex", "cursor"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("provider base families = %v, want %v", got, want)
 	}

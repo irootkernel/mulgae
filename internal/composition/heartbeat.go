@@ -72,6 +72,11 @@ func (graph *productionRuntimeGraph) probeHeartbeat(ctx context.Context, request
 	}()
 	candidate, err := graph.candidates.newHeartbeatCandidate(ctx, seed.WorkspaceSnapshotIdentity(), family, request.CredentialProfile)
 	if err != nil {
+		var failure *domain.Failure
+		if errors.As(err, &failure) && failure.Reason() == "cursor_auth_token_required" {
+			result.Status, result.ReasonCode = "execution_failure", "cursor_auth_token_required"
+			return result, nil
+		}
 		return result, nil
 	}
 	qualifiedContext, err := graph.candidates.bindSyntheticQualifiedRunContext(ctx)

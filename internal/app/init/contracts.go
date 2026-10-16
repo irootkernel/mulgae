@@ -44,6 +44,11 @@ func DiscoverySourceSpecs() []DiscoverySourceSpec {
 			{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},
 			{JSONName: "reasoning_effort_source", Values: []string{"override", "provider_default", "not_selected"}},
 		}},
+		{Family: "cursor", Fields: []DiscoverySourceFieldSpec{
+			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
+			{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},
+			{JSONName: "reasoning_effort_source", Values: []string{"override", "provider_default", "not_selected"}},
+		}},
 	}
 	for index := range specs {
 		specs[index].Fields = append([]DiscoverySourceFieldSpec(nil), specs[index].Fields...)

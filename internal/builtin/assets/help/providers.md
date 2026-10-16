@@ -1,9 +1,10 @@
 # Providers
 
-Mulgae supports ZCode, Grok and Codex on native Apple Silicon macOS. Each role
-runs on exactly one configured provider. Failed providers are reported with
-typed reasons; Mulgae does not substitute another provider or combine opinions
-as consensus. Independent runs own separate registries and namespace generations.
+Mulgae supports ZCode, Grok, Codex and Cursor on native Apple Silicon macOS.
+Each role runs on exactly one configured provider. Failed providers are
+reported with typed reasons; Mulgae does not substitute another provider or
+combine opinions as consensus. Independent runs own separate registries and
+namespace generations.
 Only process-local lanes and publication locks serialize their respective work.
 
 `assets/roles.yaml` supplies init's generation-time role routing defaults.
@@ -32,6 +33,16 @@ Live review and extraction use original source reads from a neutral cwd:
   read-only restrictions and a disposable `CODEX_HOME` containing only admitted
   `auth.json`. User config, rules, skills and plugins are not projected. Named
   profiles retain separate identity and qualification authority.
+- Cursor is an explicit text-only selection. Default role preferences do not
+  name it. A Cursor-only selection assigns the text roles to Cursor. A mixed
+  selection keeps each role on the first configured family from its existing
+  preference list. It uses ACP ask mode from the neutral cwd inside the outer
+  Seatbelt guard. Planned reads stay admitted, and each exact Git command is a
+  separate `allow_once`. The process receives the selected `CURSOR_AUTH_TOKEN`
+  and forces `AGENT_CLI_CREDENTIAL_STORE=memory`. User rules, skills and MCP
+  configuration are not projected. There is no model, reasoning-effort,
+  credential-profile or credential-home flag. Artist assignment fails capability
+  admission. A failed Cursor role stays on Cursor.
 
 No live review uses staged-file role report output. Historical transport
 receipts remain unchanged. Process lifetime, protocol inputs and diagnostics

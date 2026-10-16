@@ -55,8 +55,10 @@ Detailed SOT for planned
 [AGY stream-json review provider](todo/EPIC-011-agy-stream-json-provider.md) is
 the Detailed SOT for planned
 [EPIC-011](roadmap/README.md#epic-011-agy-stream-json-review-provider).
-The implemented provider portfolio remains ZCode, Grok, and Codex. Adoption of
-EPIC-010 or EPIC-011 grants no current execution capability.
+The implemented provider portfolio remains ZCode, Grok, and Codex, with Cursor
+available by explicit selection. Live Cursor certification stays with
+[EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider). Adoption of
+EPIC-011 grants no current execution capability.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The

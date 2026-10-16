@@ -36,7 +36,12 @@ mulgae init [--project-root PATH] [--name NAME]
   [--output human|json]
 ```
 
-`FAMILY := zcode | grok | codex`
+`FAMILY := zcode | grok | codex | cursor`
+
+Cursor is an explicit selection. `--providers cursor` admits it beside the
+existing families. The machine-local override is `--cursor-executable`. It has
+no model, reasoning-effort, credential-profile, or credential-home flags.
+Default role preferences are unchanged and do not assign Cursor.
 
 `--providers auto` discovers ZCode and Grok and fails closed unless both are
 available. It assigns every default role to ZCode. Select any supported family

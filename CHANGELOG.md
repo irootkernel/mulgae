@@ -4,6 +4,10 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.26 - Unreleased
 
+### Added
+
+- Select Cursor explicitly for a text role through init, CLI, and MCP. Schemas, help, and contracts name that route. Default role preferences stay unchanged, and live Cursor certification remains opt-in.
+
 ## v0.1.25 - 2026-10-12
 
 ### Changed

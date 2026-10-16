@@ -66,6 +66,8 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		return grokACPArgv(definition.Executable(), protocolPurposeQualification)
 	case FamilyCodex:
 		return appendCodexProtocolServerArgv(baseArgv, definition.CodexModel(), definition.CodexReasoningEffort()), nil
+	case FamilyCursor:
+		return []string{definition.Executable(), "acp"}, nil
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}
@@ -108,7 +110,7 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	baseArgv := definition.BaseArgv()
 	executable := definition.Executable()
 	switch definition.Family() {
-	case FamilyGrok, FamilyCodex:
+	case FamilyGrok, FamilyCodex, FamilyCursor:
 		if !reflect.DeepEqual(baseArgv, []string{executable}) {
 			return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
 		}

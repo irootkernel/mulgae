@@ -753,7 +753,7 @@ func TestInitializeProjectDoesNotAdmitIneligibleZCodeApplication(t *testing.T) {
 	if err == nil {
 		t.Fatal("ineligible selected ZCode application was accepted")
 	}
-	if found.zcode != nil || len(rows) != 3 || rows[0].Candidate || rows[0].Status != "unavailable" {
+	if found.zcode != nil || len(rows) != len(familyOrder) || rows[0].Candidate || rows[0].Status != "unavailable" {
 		t.Fatalf("ineligible ZCode discovery = found %#v rows %#v", found.zcode, rows)
 	}
 }
@@ -771,7 +771,7 @@ func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
 	if err == nil {
 		t.Fatal("selected provider discovery failure accepted")
 	}
-	if len(result.Discovery) != 3 || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "unavailable" || result.Discovery[2].Status != "not_selected" {
+	if len(result.Discovery) != len(familyOrder) || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "unavailable" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
@@ -873,6 +873,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default"},
 		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "override", ReasoningEffortSource: "override"},
 		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
+		{Family: "cursor", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}
 	if !reflect.DeepEqual(result.Discovery, want) {
 		t.Fatalf("discovery=%#v, want %#v", result.Discovery, want)
@@ -1123,7 +1124,7 @@ func admittedGrokDiscoveryRows() []DiscoveryRow {
 		Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate",
 		ExecutableSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default",
 	}
-	return []DiscoveryRow{notSelectedDiscoveryRow("zcode"), grok, notSelectedDiscoveryRow("codex")}
+	return []DiscoveryRow{notSelectedDiscoveryRow("zcode"), grok, notSelectedDiscoveryRow("codex"), notSelectedDiscoveryRow("cursor")}
 }
 
 func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {

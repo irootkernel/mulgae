@@ -185,6 +185,19 @@ scratch are removed after verified provider drain.
   are denied to model tools. Only the selected authentication file enters its
   disposable home; user config, rules, skills and plugins are not projected.
   Loaded project instructions and unexpected server requests fail closed.
+- Cursor uses ACP over stdio. Review and extraction
+  require an outer Seatbelt guard; the adapter never falls back to an unguarded
+  launch. `session/prompt` waits until the matching session acknowledges ask.
+  Planned app-mediated workspace reads stay allowed. Each exact admitted Git
+  command is a separate `allow_once`. An unplanned, forbidden, or mismatched
+  live tool receives the non-authorizing answer and then fails the turn. A
+  later `end_turn` does not accept that turn. Exceptions that leave the turn
+  running are in
+  [Cursor ACP transport](../architecture-decision-records/cursor-acp-transport.md).
+  A general read permission is not granted. The process receives
+  only the selected `CURSOR_AUTH_TOKEN` and an in-memory credential store. User
+  rules, skills, and MCP configuration are not projected. Explicit selection
+  does not assign Cursor to a role by default.
 
 The outer guard protects source, Git and neutral-guide roots from writes. It
 also denies reads, writes, links and Unix sockets at every configured credential

@@ -242,6 +242,28 @@ func TestParseHeartbeatRequiresExplicitProviderAndPreservesAuthorization(t *test
 	}
 }
 
+func TestParseHeartbeatAdmitsCursorWithoutCredentialProfile(t *testing.T) {
+	unauthorized := mustParse(t, []string{"heartbeat", "--provider", "cursor"})
+	request, ok := unauthorized.Heartbeat()
+	if !ok || request.ProviderID() != "cursor" || request.CredentialProfile() != "" || request.Authorized() {
+		t.Fatalf("unauthorized cursor heartbeat = %#v, %t", request, ok)
+	}
+	authorized := mustParse(t, []string{"heartbeat", "--provider", "cursor", "--authorize-live-request", "--output", "json"})
+	request, ok = authorized.Heartbeat()
+	if !ok || request.ProviderID() != "cursor" || request.CredentialProfile() != "" || !request.Authorized() {
+		t.Fatalf("authorized cursor heartbeat = %#v, %t", request, ok)
+	}
+	assertRequestJSON(t, authorized, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"heartbeat","project_root":"/work/project","provider_id":"cursor","credential_profile":"","authorize_live_request":true,"output_format":"json"}`)
+	for _, arguments := range [][]string{
+		{"heartbeat", "--provider", "cursor", "--credential-profile", "primary"},
+		{"heartbeat", "--provider", "cursor", "--credential-profile", "primary", "--authorize-live-request"},
+	} {
+		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)
+		}
+	}
+}
+
 func TestParseSchemaForms(t *testing.T) {
 	list := mustParse(t, []string{"schema", "list", "--output", "json"})
 	request, ok := list.Schema()
@@ -871,5 +893,20 @@ func assertRequestJSON(t *testing.T, invocation Invocation, want string) {
 	}
 	if string(got) != want {
 		t.Fatalf("request JSON = %s, want %s", got, want)
+	}
+}
+
+func TestParseInitCursorExecutable(t *testing.T) {
+	cursor := mustParse(t, []string{"init", "--providers", "cursor", "--cursor-executable", "/opt/cursor/bin/cursor-agent"})
+	request, ok := cursor.Init()
+	if !ok || request.CursorExecutable() != "/opt/cursor/bin/cursor-agent" {
+		t.Fatalf("cursor init request = %#v, %t", request, ok)
+	}
+	assertRequestJSON(t, cursor, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["cursor"]},"roles":["logic"],"overrides":{"cursor_executable":"/opt/cursor/bin/cursor-agent"},"overwrite":false,"output_format":"human"}`)
+	if _, err := Parse([]string{"init", "--providers", "auto", "--cursor-executable", "/opt/cursor/bin/cursor-agent"}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+		t.Fatalf("automatic cursor executable error = %v, want usage", err)
+	}
+	if _, err := Parse([]string{"init", "--providers", "grok", "--cursor-executable", "/opt/cursor/bin/cursor-agent"}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+		t.Fatalf("unselected cursor executable error = %v, want usage", err)
 	}
 }

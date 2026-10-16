@@ -70,7 +70,8 @@
       "enum": [
         "zcode",
         "grok",
-        "codex"
+        "codex",
+        "cursor"
       ]
     },
     "reason_code": {

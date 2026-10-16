@@ -104,6 +104,10 @@ merged value through `config --mode effective` and field ownership through
 `config --mode provenance`. Provider stdout and stderr have no configurable or
 fixed product byte ceiling.
 
+Cursor joins the selectable families without a model, reasoning-effort,
+credential-profile, or credential-home field. `--providers cursor` is explicit.
+Default role preferences stay on the families they already name.
+
 Codex may additionally declare a Git-shareable
 `default_credential_profile` and role-level `credential_profile` overrides.
 The matching local authority contains the exact, lexically ordered
@@ -185,7 +189,7 @@ examples.
 Config v5 retains `resources.max_active_lanes` as the explicit number of
 provider invocations one Mulgae process may run at once. It is not a provider
 identity and does not coordinate another process or project. Current
-command-result v19 and review-preflight v8 documents describe execution as
+command-result v20 and review-preflight v8 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
@@ -636,6 +640,19 @@ missing final text, and failed or missing turn completion fail closed. Codex
 provider qualification requires 0.154.0 or newer; the separate Codex MCP
 client minimum remains 0.149.0.
 
+Cursor review, extraction, and qualification speak ACP over stdio. The adapter
+launches the selected executable with `acp`, sends `initialize` at protocol
+version 1, and opens `session/new` with the neutral reviewer directory as `cwd`
+and `mcpServers` set to an empty list. It sends `session/set_mode` with
+`modeId` `ask` and withholds `session/prompt` until that session acknowledges
+ask. A `current_mode_update` may arrive before an empty `set_mode` result. The
+empty result does not acknowledge ask, and the update and the response may
+arrive in either order. Accepted text is the correlated assistant turn whose
+`stopReason` is `end_turn`. Qualification and extraction, including live
+extraction, fail closed on a tool call. The pinned wire and fail-closed
+rules are in
+[Cursor ACP transport](../architecture-decision-records/cursor-acp-transport.md).
+
 Historical child lineage may contain `source_attempt_id`, replay modes, and
 staged-file transport receipts. Retained readers validate these fields without
 reconstructing a provider workspace or invoking a provider. The current CLI and
@@ -711,7 +728,7 @@ artifacts.
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Contract-valid
-workflow requests emit command-result v19. Init's rejected-request envelope
+workflow requests emit command-result v20. Init's rejected-request envelope
 remains supported. Retired commands and capture-bound fields fail grammar before
 provider execution with usage exit 2 and human stderr, even when JSON was requested.
 No child selector resolution or compose mutation exists on the current surface.
@@ -779,7 +796,7 @@ this internal failure.
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 
-`mulgae doctor --output json` returns `mulgae-doctor-result.v5`. Capability
+`mulgae doctor --output json` returns `mulgae-doctor-result.v6`. Capability
 detection starts with `schema_version`; consumers of an older result must treat
 an absent v2 dimension as unsupported, never as failed. The result reports
 `config_v3`, `local_configuration`, and `provider_identity` independently, and
@@ -1073,16 +1090,16 @@ a failed rerun. Cleanup validates bounded manifest metadata and confirms its
 identity without reading input or report blobs. Historical status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
-These historical records grant no new provider execution. CLI v5 through v18
+These historical records grant no new provider execution. CLI v5 through v19
 schema examples remain available for explicit backward validation; current CLI
-envelopes use v19. MCP retains its v1 common envelope, whose `data` object
+envelopes use v20. MCP retains its v1 common envelope, whose `data` object
 carries the extended status projection.
 
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v19 `result` and MCP v1
+accepts an empty argument object. CLI command-result v20 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `live_source`, `source_evidence`, `project_binding`, `inspection`,

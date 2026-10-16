@@ -6,7 +6,8 @@ Roadmap: [EPIC-004](../roadmap/README.md#epic-004-zcode-first-review-with-grok-r
 
 ## Decision
 
-Mulgae supports ZCode, Grok, and Codex in that canonical order. Automatic
+Mulgae supports ZCode, Grok, and Codex in that canonical order. Cursor is an
+additional explicit selection and does not change those defaults. Automatic
 initialization requires ZCode and Grok, configures both, and assigns every
 default role to ZCode. Grok is an operator-selected recovery route for text
 roles. Codex remains available through explicit configuration and can use

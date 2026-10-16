@@ -24,13 +24,24 @@ func main() {
 	}
 }
 
+func historicalDiscoverySpecs(specs []appinit.DiscoverySourceSpec) []appinit.DiscoverySourceSpec {
+	historical := make([]appinit.DiscoverySourceSpec, 0, 3)
+	for _, spec := range specs {
+		switch spec.Family {
+		case "zcode", "grok", "codex":
+			historical = append(historical, spec)
+		}
+	}
+	return historical
+}
+
 func generate() error {
 	root, err := repositoryRoot()
 	if err != nil {
 		return err
 	}
 	specs := appinit.MutationOutcomeSpecs()
-	discoverySpecs := appinit.DiscoverySourceSpecs()
+	discoverySpecs := historicalDiscoverySpecs(appinit.DiscoverySourceSpecs())
 	if err := validateSpecs(specs); err != nil {
 		return err
 	}

@@ -13,9 +13,15 @@ instruction files as authority. Project context remains framed untrusted data.
 ZCode and Grok require an outer Seatbelt policy for review and extraction.
 It denies source, Git and guide writes; credential-root reads, writes and links;
 and Unix sockets at protected roots. Grok's native sandbox is off only inside
-this mandatory guard. Codex uses its native read-only profile, approvals never,
-and explicit credential-root denial. All configured credential homes are
-protected, including unselected profiles and aliases. Provider namespaces and
+this mandatory guard. Cursor review and extraction require that same outer
+Seatbelt policy. The adapter does not launch Cursor without it. Cursor uses
+ACP ask mode from the neutral cwd. Planned reads stay admitted, and each exact
+Git command is a separate `allow_once`. The process receives the selected
+`CURSOR_AUTH_TOKEN` and forces an in-memory credential store. User rules,
+skills and MCP configuration are not projected. Codex uses its native
+read-only profile, approvals never, and explicit credential-root denial. All
+configured credential homes are protected, including unselected profiles and
+aliases. Provider namespaces and
 scratch are private and are removed after verified process drain.
 
 These controls are not general process, IPC, read or network containment.

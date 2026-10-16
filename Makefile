@@ -3,7 +3,7 @@ TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.26
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-mcp-clients
+.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-mcp-clients
 
 test:
 	@$(MAKE) test-prepare
@@ -189,6 +189,25 @@ test-grok:
 		$(GO) test -v -tags='live_e2e live_grok' -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestE2EGrokReleaseBinaryReview$$' ./test/e2e
 	@printf '%s\n' '[test-grok] completed'
+
+test-cursor:
+	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-cursor requires darwin/arm64" >&2; exit 1; }
+	@test -n "$${CURSOR_AUTH_TOKEN:-}" || { echo "test-cursor requires CURSOR_AUTH_TOKEN" >&2; exit 1; }; \
+	cursor_tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$cursor_tmp"' EXIT; \
+	cursor_binary="$$cursor_tmp/mulgae"; \
+	cursor_commit="$$(git rev-parse HEAD)"; \
+	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$cursor_commit" -o "$$cursor_binary" . && \
+	cursor_candidate="$${MULGAE_E2E_CURSOR_EXECUTABLE:-}"; \
+	test -n "$$cursor_candidate" && test -x "$$cursor_candidate" || { echo "test-cursor requires an absolute MULGAE_E2E_CURSOR_EXECUTABLE" >&2; exit 1; }; \
+	cursor_bin="$$(realpath "$$cursor_candidate")"; \
+	case "$$cursor_bin" in /*) ;; *) echo "test-cursor requires an absolute Cursor executable" >&2; exit 1;; esac; \
+	cursor_version="$$("$$cursor_bin" --version 2>/dev/null | head -n 1 | tr -d '\r')"; \
+	printf '%s\n' "$$cursor_version" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]+$$' || { echo "test-cursor Cursor version and family preflight failed" >&2; exit 1; }; \
+	MULGAE_E2E_BINARY="$$cursor_binary" MULGAE_E2E_CURSOR_EXECUTABLE="$$cursor_bin" \
+		$(GO) test -v -tags='live_e2e live_cursor' -timeout $(TEST_TIMEOUT) -count=1 \
+		-run '^TestE2ECursorReleaseBinaryReview$$' ./test/e2e
+	@printf '%s\n' '[test-cursor] completed'
 
 test-mcp-clients:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-mcp-clients requires darwin/arm64" >&2; exit 1; }

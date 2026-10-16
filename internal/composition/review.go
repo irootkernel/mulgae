@@ -453,6 +453,7 @@ type configuredProductionCandidateSource struct {
 	attestor         ports.ConfigLocalityAttestor
 	staticRequest    ports.ConfigLocalityRequest
 	staticContext    ports.ConfigLocalityContext
+	cursorAuthToken  string
 }
 
 func (source *configuredProductionCandidateSource) bindSyntheticQualifiedRunContext(ctx context.Context) (context.Context, error) {
@@ -551,7 +552,11 @@ func (source *configuredProductionCandidateSource) NewLiveQualifiedRunCandidates
 	if err != nil {
 		return nil, err
 	}
-	return source.filterAssignedCandidates(candidates, selection)
+	filtered, err := source.filterAssignedCandidates(candidates, selection)
+	if err != nil {
+		return nil, err
+	}
+	return requireAssignedCursorAuth(filtered)
 }
 
 func (source *configuredProductionCandidateSource) filterAssignedCandidates(candidates []reviewrun.QualifiedRunCandidate, selection reviewrun.RunSelection) ([]reviewrun.QualifiedRunCandidate, error) {
@@ -575,6 +580,28 @@ func (source *configuredProductionCandidateSource) filterAssignedCandidates(cand
 	return filtered, nil
 }
 
+func requireAssignedCursorAuth(candidates []reviewrun.QualifiedRunCandidate) ([]reviewrun.QualifiedRunCandidate, error) {
+	for _, candidate := range candidates {
+		if reviewrun.Family(candidate.Definition.Family()) != reviewrun.FamilyCursor {
+			continue
+		}
+		if cursorAuthOnDefinition(candidate.Definition.Environment()) {
+			continue
+		}
+		return nil, reviewCompositionFailure(domain.FailureConfiguration, "cursor_auth_token_required", nil)
+	}
+	return candidates, nil
+}
+
+func cursorAuthOnDefinition(environment []ports.EnvironmentVariable) bool {
+	for _, variable := range environment {
+		if variable.Name() == "CURSOR_AUTH_TOKEN" && variable.Value() != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (source *configuredProductionCandidateSource) productionCandidateSource(ctx context.Context) (*reviewrun.ProductionQualifiedRunCandidateSource, error) {
 	configured := make(map[reviewrun.Family][]string, source.config.Providers.Count())
 	if provider := source.config.Providers.ZCode; provider != nil {
@@ -585,6 +612,9 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 	}
 	if provider := source.config.Providers.Codex; provider != nil {
 		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
+	}
+	if provider := source.config.Providers.Cursor; provider != nil {
+		configured[reviewrun.FamilyCursor] = []string{provider.Executable}
 	}
 	profiles, err := reviewrun.DiscoverConfiguredProviderProfiles(ctx, source.inspector, configured)
 	if err != nil {
@@ -598,6 +628,7 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 		codexModel, codexReasoningEffort,
 		configuredCodexCredentialProfiles(source.config),
 		cloneProviderTimeouts(source.providerTimeouts),
+		source.cursorAuthToken,
 	)
 }
 
@@ -650,6 +681,9 @@ func (source *configuredProductionCandidateSource) newHeartbeatCandidate(ctx con
 		}
 		if family == reviewrun.FamilyCodex && credentialProfile != "" && !strings.HasPrefix(candidate.Definition.Instance(), wantCodexPrefix) {
 			continue
+		}
+		if family == reviewrun.FamilyCursor && !cursorAuthOnDefinition(candidate.Definition.Environment()) {
+			return reviewrun.QualifiedRunCandidate{}, reviewCompositionFailure(domain.FailureConfiguration, "cursor_auth_token_required", nil)
 		}
 		candidate.SupportedRoles = []domain.Role{candidate.BaseRole}
 		return candidate, nil
@@ -754,7 +788,7 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		if !definition.Enabled() {
 			continue
 		}
-		if role == domain.RoleArtist && reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyGrok {
+		if role == domain.RoleArtist && (reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyGrok || reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyCursor) {
 			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureProviderUnavailable, "provider_capability_unsupported", nil)
 		}
 		assignment, err := reviewrun.NewRoleProviderAssignmentWithCredentialProfile(role, reviewrun.Family(definition.PrimaryProvider()), definition.CredentialProfile())
