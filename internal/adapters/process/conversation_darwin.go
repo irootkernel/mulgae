@@ -231,7 +231,10 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 		}
 		tearingDown = true
 		exchange.close()
-		_ = closeStdin(stdinWriter)
+		// Teardown shares the input close with an explicit driver half-close,
+		// so it cannot create a duplicate-close failure and still unblocks a
+		// send stuck on the pipe.
+		_ = exchange.closeInput()
 		teardownDeadline = time.Now().Add(processGroupTeardownTimeout)
 		// The teardown budget bounds the stream waits themselves: a descendant
 		// that outlives the child can keep the pipe write ends open past every
@@ -576,12 +579,20 @@ func splitConversationLines(pending []byte) ([][]byte, []byte) {
 type conversationExchange struct {
 	lines  chan []byte
 	closed chan struct{}
-	stdin  io.Writer
+	stdin  io.WriteCloser
 
 	closeOnce sync.Once
 	endMu     sync.Mutex
 	endErr    error
 	endRecord bool
+
+	// inputMu guards only the shared stdin close state. It is deliberately
+	// independent of counterMu: the runner must be able to close a pipe on
+	// which a send is blocked, and closing a pollable pipe evicts the pending
+	// write instead of waiting for it.
+	inputMu     sync.Mutex
+	inputClosed bool
+	inputErr    error
 
 	counterMu  sync.Mutex
 	intended   int64
@@ -590,7 +601,7 @@ type conversationExchange struct {
 	digest     hash.Hash
 }
 
-func newConversationExchange(stdin io.Writer) *conversationExchange {
+func newConversationExchange(stdin io.WriteCloser) *conversationExchange {
 	digest := sha256.New()
 	_, _ = digest.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = digest.Write([]byte{0})
@@ -604,6 +615,21 @@ func newConversationExchange(stdin io.Writer) *conversationExchange {
 
 func (exchange *conversationExchange) close() {
 	exchange.closeOnce.Do(func() { close(exchange.closed) })
+}
+
+// closeInput performs the one shared stdin close used by both the explicit
+// input half-close and runner teardown, so cleanup can never produce a
+// duplicate-close failure. It is idempotent and preserves the first close
+// error.
+func (exchange *conversationExchange) closeInput() error {
+	exchange.inputMu.Lock()
+	defer exchange.inputMu.Unlock()
+	if exchange.inputClosed {
+		return exchange.inputErr
+	}
+	exchange.inputClosed = true
+	exchange.inputErr = closeStdin(exchange.stdin)
+	return exchange.inputErr
 }
 
 // recordStreamEnd publishes the terminal stream error to ReceiveLine callers
@@ -664,6 +690,14 @@ func (exchange *conversationExchange) SendLine(ctx context.Context, line []byte)
 	}
 	exchange.counterMu.Lock()
 	defer exchange.counterMu.Unlock()
+	// Recheck the input closure after acquiring the serialization lock: a
+	// concurrent half-close or teardown must not let a frame race past it.
+	exchange.inputMu.Lock()
+	inputClosed := exchange.inputClosed
+	exchange.inputMu.Unlock()
+	if inputClosed {
+		return fmt.Errorf("provider session exchange: send line: %w", ports.ErrProviderSessionExchangeClosed)
+	}
 	if exchange.incomplete {
 		return fmt.Errorf("provider session exchange: send line after incomplete write: %w", io.ErrClosedPipe)
 	}
@@ -684,6 +718,22 @@ func (exchange *conversationExchange) SendLine(ctx context.Context, line []byte)
 		return fmt.Errorf("provider session exchange: send line: %w", err)
 	}
 	return nil
+}
+
+// CloseInput half-closes child stdin only; ReceiveLine stays usable. It is
+// idempotent, preserves the first close error, and later sends fail closed
+// with the exchange closure sentinel. A done context fails the call before
+// anything is closed; the conversation runner's own teardown close shares the
+// same single close operation, ignores driver cancellation, and still unblocks
+// a send blocked on the pipe.
+func (exchange *conversationExchange) CloseInput(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("provider session exchange: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("provider session exchange: close input: %w", err)
+	}
+	return exchange.closeInput()
 }
 
 func (exchange *conversationExchange) stdinSnapshot() (int64, int64, bool) {

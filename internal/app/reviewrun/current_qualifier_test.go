@@ -938,6 +938,10 @@ func (exchange *authorityProbeProtocolExchange) SendLine(_ context.Context, _ []
 	return nil
 }
 
+func (exchange *authorityProbeProtocolExchange) CloseInput(context.Context) error {
+	return nil
+}
+
 func authorityProbeObservation(t *testing.T, output []byte, channel ports.ProviderPacketChannel, packet ports.ProviderPacketIdentity, reference, cwd string, stdinBytes []byte, lifecycle *ports.ProcessLifecycleReceipt) ports.ProcessObservation {
 	t.Helper()
 	var written int64

@@ -2223,6 +2223,92 @@ func TestRunnerHelperProcess(t *testing.T) {
 		}
 		fmt.Fprint(os.Stdout, `{"partial":`)
 		os.Exit(0)
+	case "conversation-eof-exit":
+		if len(arguments) != 1 {
+			os.Exit(2)
+		}
+		reader := bufio.NewReader(os.Stdin)
+		if _, err := reader.ReadString('\n'); err != nil {
+			os.Exit(3)
+		}
+		fmt.Fprintln(os.Stdout, `{"id":1,"result":{"sessionId":"session"}}`)
+		// The child cannot finish until stdin reaches EOF, then stays alive
+		// well beyond the runner's natural-exit grace before its last line.
+		if _, err := io.Copy(io.Discard, reader); err != nil {
+			os.Exit(4)
+		}
+		time.Sleep(400 * time.Millisecond)
+		fmt.Fprintln(os.Stdout, `{"method":"turn-completed","params":{"sessionId":"session"}}`)
+		os.Exit(0)
+	case "inherited-canary":
+		// Prove the caller's canary objects are absent from this process by
+		// descriptor identity, not fd number: a fresh target runtime may
+		// legitimately reuse an old number for an unrelated object.
+		if len(arguments) != 5 && len(arguments) != 7 {
+			os.Exit(2)
+		}
+		var input *bufio.Reader
+		if len(arguments) == 7 {
+			cwd, err := os.Getwd()
+			if err != nil || cwd != arguments[5] || arguments[6] != "literal argument with spaces" || os.Getenv("MULGAE_DESCRIPTOR_ENV") != "preserved" {
+				os.Exit(64)
+			}
+			input = bufio.NewReader(os.Stdin)
+			line, err := input.ReadString('\n')
+			if err != nil || line != descriptorConversationFrame+"\n" {
+				os.Exit(65)
+			}
+		}
+		pairs := make([]struct {
+			device, inode uint64
+		}, 0, 2)
+		for index := 0; index < 2; index++ {
+			device, deviceErr := strconv.ParseUint(arguments[1+index*2], 10, 64)
+			inode, inodeErr := strconv.ParseUint(arguments[2+index*2], 10, 64)
+			if deviceErr != nil || inodeErr != nil {
+				os.Exit(2)
+			}
+			pairs = append(pairs, struct {
+				device, inode uint64
+			}{device, inode})
+		}
+		entries, err := os.ReadDir("/dev/fd")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "enumerate /dev/fd", err)
+			os.Exit(63)
+		}
+		leakCode := 0
+		for _, entry := range entries {
+			number, err := strconv.Atoi(entry.Name())
+			if err != nil || number < 3 {
+				continue
+			}
+			var stat syscall.Stat_t
+			if err := syscall.Fstat(number, &stat); err != nil {
+				continue
+			}
+			for index, pair := range pairs {
+				if pair.device == 0 && pair.inode == 0 {
+					continue
+				}
+				if uint64(stat.Dev) == pair.device && uint64(stat.Ino) == pair.inode {
+					fmt.Fprintf(os.Stderr, "canary %d leaked as fd %d\n", index, number)
+					if leakCode == 0 {
+						leakCode = 61 + index
+					}
+				}
+			}
+		}
+		if leakCode != 0 {
+			os.Exit(leakCode)
+		}
+		fmt.Fprintln(os.Stdout, "CANARY_ABSENT")
+		if input != nil {
+			if _, err := io.Copy(io.Discard, input); err != nil {
+				os.Exit(66)
+			}
+		}
+		os.Exit(0)
 	case "native-home-provider":
 		if len(arguments) != 2 || !helperWriteMarker(arguments[1], "executed") {
 			os.Exit(2)

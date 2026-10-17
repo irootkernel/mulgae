@@ -8,6 +8,10 @@ This file records concise shipped outcomes and the planned next stable release.
 
 - Select Cursor explicitly for a text role through init, CLI, and MCP. Schemas, help, and contracts name that route. Default role preferences stay unchanged, and live Cursor certification remains opt-in.
 
+### Fixed
+
+- Prevent inherited file descriptors from reaching provider processes, and let protocol sessions close stdin while draining the final output.
+
 ## v0.1.25 - 2026-10-12
 
 ### Changed

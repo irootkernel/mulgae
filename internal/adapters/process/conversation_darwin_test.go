@@ -3,6 +3,7 @@
 package process
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -170,6 +172,172 @@ func TestConversationExchangeHonorsDoneContext(t *testing.T) {
 	<-results
 }
 
+func TestConversationExchangeHalfClosesInputAndKeepsReceiving(t *testing.T) {
+	exchange, _, results, stdinReader := newFedConversationExchange(t, "first\nsecond\n")
+	ctx := context.Background()
+
+	if err := exchange.SendLine(ctx, []byte(`{"id":1,"method":"session/create"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := exchange.CloseInput(ctx); err != nil {
+		t.Fatalf("CloseInput() = %v", err)
+	}
+	if err := exchange.CloseInput(ctx); err != nil {
+		t.Fatalf("idempotent CloseInput() = %v", err)
+	}
+	// ReceiveLine must stay usable after the input half-close.
+	line, err := exchange.ReceiveLine(ctx)
+	if err != nil || string(line) != "first" {
+		t.Fatalf("ReceiveLine() after half-close = (%q, %v)", line, err)
+	}
+	if err := exchange.SendLine(ctx, []byte(`{"id":2}`)); !errors.Is(err, ports.ErrProviderSessionExchangeClosed) {
+		t.Fatalf("SendLine() after half-close = %v, want exchange closure", err)
+	}
+
+	// The half-close reached the pipe: the sent frame is readable, then the
+	// read side reports EOF because the write end is gone.
+	frame := "{\"id\":1,\"method\":\"session/create\"}\n"
+	written := make([]byte, len(frame))
+	if _, err := io.ReadFull(stdinReader, written); err != nil || string(written) != frame {
+		t.Fatalf("child stdin = (%q, %v), want %q", written, err, frame)
+	}
+	if _, err := stdinReader.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("stdin read after half-close = %v, want io.EOF", err)
+	}
+
+	receipt, err := exchange.stdinWriteReceipt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.IntendedByteLength() != int64(len(frame)) || receipt.WrittenByteCount() != int64(len(frame)) ||
+		!receipt.Complete() || receipt.SHA256() != runnerTestStdinDigest([]byte(frame)) {
+		t.Fatalf("stdin receipt after half-close = %#v", receipt)
+	}
+	if line, err = exchange.ReceiveLine(ctx); err != nil || string(line) != "second" {
+		t.Fatalf("second ReceiveLine() = (%q, %v)", line, err)
+	}
+	if _, err := exchange.ReceiveLine(ctx); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal ReceiveLine() = %v, want io.EOF", err)
+	}
+	exchange.close()
+	<-results
+}
+
+func TestConversationExchangeCloseInputPreservesFirstError(t *testing.T) {
+	closeErr := errors.New("synthetic stdin close failure")
+	stdin := &failingCloseStdin{err: closeErr}
+	exchange := newConversationExchange(stdin)
+	ctx := context.Background()
+
+	first := exchange.CloseInput(ctx)
+	second := exchange.CloseInput(ctx)
+	if !errors.Is(first, closeErr) || !errors.Is(second, closeErr) || first != second {
+		t.Fatalf("CloseInput() = (%v, %v), want the preserved first close error", first, second)
+	}
+	if stdin.closes != 1 {
+		t.Fatalf("stdin closed %d times, want exactly one", stdin.closes)
+	}
+	if err := exchange.SendLine(ctx, []byte("line")); !errors.Is(err, ports.ErrProviderSessionExchangeClosed) {
+		t.Fatalf("SendLine() after failed close = %v, want exchange closure", err)
+	}
+}
+
+func TestConversationExchangeCloseInputHonorsDoneContext(t *testing.T) {
+	exchange, _, results, stdinReader := newFedConversationExchange(t, "line\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := exchange.CloseInput(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("CloseInput() with done context = %v, want context.Canceled", err)
+	}
+	// The refused close must leave the input usable and the pipe open.
+	if err := exchange.SendLine(context.Background(), []byte("still-open")); err != nil {
+		t.Fatalf("SendLine() after refused close = %v", err)
+	}
+	if _, err := stdinReader.Read(make([]byte, 1)); errors.Is(err, io.EOF) {
+		t.Fatal("refused close leaked an EOF to the child stdin pipe")
+	}
+	if err := exchange.CloseInput(context.Background()); err != nil {
+		t.Fatalf("CloseInput() after refused close = %v", err)
+	}
+	exchange.close()
+	<-results
+}
+
+// blockingEvictedStdin emulates a pollable pipe writer whose pending write is
+// evicted, not queued, when the write end closes.
+type blockingEvictedStdin struct {
+	entered  chan struct{}
+	closed   chan struct{}
+	closeOne sync.Once
+}
+
+func newBlockingEvictedStdin() *blockingEvictedStdin {
+	return &blockingEvictedStdin{entered: make(chan struct{}, 1), closed: make(chan struct{})}
+}
+
+func (stdin *blockingEvictedStdin) Write(frame []byte) (int, error) {
+	stdin.entered <- struct{}{}
+	<-stdin.closed
+	return 0, os.ErrClosed
+}
+
+func (stdin *blockingEvictedStdin) Close() error {
+	stdin.closeOne.Do(func() { close(stdin.closed) })
+	return nil
+}
+
+func TestConversationExchangeTeardownCloseUnblocksSendAndKeepsReceiptsTruthful(t *testing.T) {
+	stdin := newBlockingEvictedStdin()
+	exchange := newConversationExchange(stdin)
+	frame := "blocked-frame\n"
+
+	sendDone := make(chan error, 1)
+	go func() { sendDone <- exchange.SendLine(context.Background(), []byte("blocked-frame")) }()
+	<-stdin.entered
+
+	// The shared teardown close must complete without waiting for the send.
+	closed := make(chan error, 1)
+	go func() { closed <- exchange.closeInput() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("closeInput() behind a blocked send = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("closeInput() waited for the blocked send")
+	}
+
+	if err := <-sendDone; !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("blocked SendLine() = %v, want os.ErrClosed", err)
+	}
+	if _, written, incomplete := exchange.stdinSnapshot(); !incomplete || written != 0 {
+		t.Fatalf("stdin snapshot = written %d, incomplete %t, want 0 and true", written, incomplete)
+	}
+	receipt, err := exchange.stdinWriteReceipt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.IntendedByteLength() != int64(len(frame)) || receipt.WrittenByteCount() != 0 || receipt.Complete() {
+		t.Fatalf("partial-write receipt = %#v, want intended %d, written 0, incomplete", receipt, len(frame))
+	}
+}
+
+// failingCloseStdin counts Close calls and fails every one of them.
+type failingCloseStdin struct {
+	err    error
+	closes int
+}
+
+func (stdin *failingCloseStdin) Write(frame []byte) (int, error) {
+	return len(frame), nil
+}
+
+func (stdin *failingCloseStdin) Close() error {
+	stdin.closes++
+	return stdin.err
+}
+
 func newConversationRequest(t *testing.T, scenario string, arguments []string, timeout time.Duration) (ports.ProcessRequest, ports.ProviderPacketIdentity) {
 	t.Helper()
 	packet := runnerTestProviderPacket(t, []byte(`{"packet":"protocol-prompt"}`))
@@ -263,6 +431,53 @@ func (driver *conversationSingleResponseDriver) Drive(ctx context.Context, excha
 	}
 	driver.received = line
 	return nil
+}
+
+// conversationHalfCloseDriver completes one exchange, half-closes child
+// stdin, and drains the stream through its clean end before returning. This
+// is the shutdown contract a child that exits on stdin EOF requires: the
+// driver must not return before the child's own output has ended.
+type conversationHalfCloseDriver struct {
+	received [][]byte
+	drained  bool
+}
+
+func (driver *conversationHalfCloseDriver) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	if err := exchange.SendLine(ctx, []byte(`{"id":1,"method":"session/create"}`)); err != nil {
+		return err
+	}
+	line, err := exchange.ReceiveLine(ctx)
+	if err != nil {
+		return err
+	}
+	driver.received = append(driver.received, line)
+	if err := exchange.CloseInput(ctx); err != nil {
+		return err
+	}
+	// ReceiveLine stays usable after the half-close and delivers the child's
+	// post-EOF-exit line.
+	line, err = exchange.ReceiveLine(ctx)
+	if err != nil {
+		return err
+	}
+	driver.received = append(driver.received, line)
+	_, err = exchange.ReceiveLine(ctx)
+	driver.drained = errors.Is(err, io.EOF)
+	if !driver.drained {
+		return fmt.Errorf("provider session exchange: drain to stream end: %w", err)
+	}
+	return nil
+}
+
+// conversationBlockingSendDriver issues one frame far larger than the pipe
+// buffer while the child never reads, so its send blocks until teardown.
+type conversationBlockingSendDriver struct {
+	sendErr error
+}
+
+func (driver *conversationBlockingSendDriver) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	driver.sendErr = exchange.SendLine(ctx, bytes.Repeat([]byte("a"), 512*1024))
+	return driver.sendErr
 }
 
 // conversationFailingDriver completes one exchange and then reports its
@@ -412,6 +627,70 @@ func TestRunnerConverseCompletesScriptedProtocolExchange(t *testing.T) {
 	}
 	if string(artifactBytes) != transcript {
 		t.Fatalf("spooled transcript = %q, want %q", artifactBytes, transcript)
+	}
+}
+
+func TestRunnerConverseHalfCloseAndDrainYieldsNaturalExit(t *testing.T) {
+	request, _ := newConversationRequest(t, "conversation-eof-exit", nil, processTestExecutionTimeout)
+	runner := newTestRunner(t)
+	driver := &conversationHalfCloseDriver{}
+
+	observation, err := runner.Converse(context.Background(), request, driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The child stays alive well beyond the natural-exit grace after stdin
+	// reaches EOF; only a driver that half-closes and drains through the
+	// clean stream end returns after the natural exit, so the teardown ends
+	// without any signal request.
+	if len(driver.received) != 2 || !driver.drained {
+		t.Fatalf("driver received = %q, drained = %t", driver.received, driver.drained)
+	}
+	assertTermination(t, observation, ports.ProcessTerminationExited)
+	assertExitCode(t, observation, 0)
+	if !observation.Succeeded() {
+		t.Fatal("naturally exited conversation claims process failure")
+	}
+	if requests := observation.SignalRequests(); len(requests) != 0 {
+		t.Fatalf("signal requests = %#v, want none for a natural exit", requests)
+	}
+	if !observation.ProcessGroupAbsent() {
+		t.Fatal("naturally exited conversation left its process group live")
+	}
+	frames := "{\"id\":1,\"method\":\"session/create\"}\n"
+	receipt := observation.StdinWriteReceipt()
+	if receipt.IntendedByteLength() != int64(len(frames)) || receipt.WrittenByteCount() != int64(len(frames)) ||
+		!receipt.Complete() || receipt.SHA256() != runnerTestStdinDigest([]byte(frames)) {
+		t.Fatalf("stdin receipt = %#v", receipt)
+	}
+	transcript := "{\"id\":1,\"result\":{\"sessionId\":\"session\"}}\n" +
+		"{\"method\":\"turn-completed\",\"params\":{\"sessionId\":\"session\"}}\n"
+	if got := string(observation.Stdout()); got != transcript {
+		t.Fatalf("transcript = %q, want %q", got, transcript)
+	}
+}
+
+func TestRunnerConverseTeardownCloseUnblocksBlockedSend(t *testing.T) {
+	// The quiet child never reads stdin, so the oversized frame blocks inside
+	// the pipe write; only the teardown's shared stdin close can evict it.
+	request, _ := newConversationRequest(t, "conversation-quiet", nil, 600*time.Millisecond)
+	runner := newTestRunner(t)
+	driver := &conversationBlockingSendDriver{}
+
+	result := waitForConversationResult(t, converseAsync(runner, context.Background(), request, driver))
+	if result.err == nil {
+		t.Fatal("blocked-send conversation hid the driver error")
+	}
+	if !errors.Is(driver.sendErr, os.ErrClosed) && !errors.Is(driver.sendErr, ports.ErrProviderSessionExchangeClosed) {
+		t.Fatalf("blocked send error = %v, want pipe closure", driver.sendErr)
+	}
+	assertTermination(t, result.observation, ports.ProcessTerminationTimedOut)
+	if !result.observation.ProcessGroupAbsent() {
+		t.Fatal("blocked-send conversation left its process group live")
+	}
+	receipt := result.observation.StdinWriteReceipt()
+	if receipt.Complete() || receipt.WrittenByteCount() >= receipt.IntendedByteLength() {
+		t.Fatalf("blocked-send receipt = %#v, want a truthful partial write", receipt)
 	}
 }
 

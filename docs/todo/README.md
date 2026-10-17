@@ -6,7 +6,9 @@ task identity, ordering, dependencies, and status.
 
 ## Future candidates
 
-None.
+- [AGY multiple-account support](agy-multiple-accounts.md) follows the
+  single-account EPIC-011 delivery. Named profiles and verification with distinct
+  accounts are deferred; they do not block EPIC-011.
 
 ## Adopted active dossiers
 
@@ -18,7 +20,7 @@ None.
   stop conditions. Adoption grants no current execution capability.
 - [EPIC-011: AGY stream-json review provider](EPIC-011-agy-stream-json-provider.md)
   records the planned `stream-json` stdio adapter, Live-Source Seatbelt read-only
-  boundary, multi-account `--gemini_dir` credential isolation, `documentation`
+  boundary, single-account `--gemini_dir` credential isolation, `documentation`
   default routing, and TASK-043 stop conditions. Adoption grants no current
   execution capability.
 

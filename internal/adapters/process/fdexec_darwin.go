@@ -3,7 +3,9 @@
 package process
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,12 +17,20 @@ import (
 const (
 	fdExecHiddenArgument           = "__mulgae_fdexec_v1"
 	fdExecNativeHomeHiddenArgument = "__mulgae_fdexec_native_home_v1"
+	cleanExecHiddenArgument        = "__mulgae_cleanexec_v1"
 )
 
-// ExecInheritedDirectory recognizes Mulgae's private descriptor-bound launch
-// mode. A recognized request never returns successfully: it changes to the
-// inherited directory and immediately replaces itself with the provider.
+// ExecInheritedDirectory recognizes Mulgae's private provider-launch modes.
+// A recognized request never returns successfully. Directory-bound modes
+// validate and enter their inherited directory; every mode removes inherited
+// descriptor capabilities before replacing itself with the guarded target.
 func ExecInheritedDirectory(argv []string) (bool, error) {
+	if len(argv) >= 2 && argv[1] == cleanExecHiddenArgument {
+		if len(argv) < 3 || !filepath.IsAbs(argv[2]) || filepath.Clean(argv[2]) != argv[2] {
+			return true, fmt.Errorf("clean exec: invalid provider executable")
+		}
+		return true, execWithSanitizedDescriptors(argv[2], argv[2:])
+	}
 	if len(argv) < 4 || (argv[1] != fdExecHiddenArgument && argv[1] != fdExecNativeHomeHiddenArgument) {
 		return false, nil
 	}
@@ -56,7 +66,6 @@ func ExecInheritedDirectory(argv []string) (bool, error) {
 	if statErr != nil || closeErr != nil || cwdStat.Dev != directoryStat.Dev || cwdStat.Ino != directoryStat.Ino {
 		return true, fmt.Errorf("fd exec: current directory identity mismatch")
 	}
-	unix.CloseOnExec(fd)
 	providerOffset := 4
 	if protectedNativeHome {
 		providerOffset = 8
@@ -67,7 +76,55 @@ func ExecInheritedDirectory(argv []string) (bool, error) {
 			return true, err
 		}
 	}
-	return true, syscall.Exec(executable, providerArgv, os.Environ())
+	return true, execWithSanitizedDescriptors(executable, providerArgv)
+}
+
+func execWithSanitizedDescriptors(executable string, argv []string) error {
+	if err := markInheritedDescriptorsCloseOnExec(); err != nil {
+		return err
+	}
+	return syscall.Exec(executable, argv, os.Environ())
+}
+
+// Run only in the dedicated launch child. Changing descriptor flags here
+// leaves the caller's flags untouched. Marking rather than closing also keeps
+// the Go runtime's own descriptors usable until exec replaces the image.
+func markInheritedDescriptorsCloseOnExec() error {
+	directory, err := os.Open("/dev/fd")
+	if err != nil {
+		return fmt.Errorf("provider exec: enumerate inherited descriptors: %w", err)
+	}
+	defer directory.Close()
+	for {
+		names, readErr := directory.Readdirnames(128)
+		for _, name := range names {
+			fd, err := strconv.Atoi(name)
+			if err != nil || fd < 0 || strconv.Itoa(fd) != name {
+				return fmt.Errorf("provider exec: invalid inherited descriptor entry")
+			}
+			if fd < 3 {
+				continue
+			}
+			flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+			if errors.Is(err, unix.EBADF) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("provider exec: inspect inherited descriptor: %w", err)
+			}
+			if flags&unix.FD_CLOEXEC == 0 {
+				if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC); err != nil && !errors.Is(err, unix.EBADF) {
+					return fmt.Errorf("provider exec: protect inherited descriptor: %w", err)
+				}
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("provider exec: read inherited descriptors: %w", readErr)
+		}
+	}
 }
 
 func verifyNativeHome(argv []string) error {

@@ -30,6 +30,10 @@ func (exchange *scriptedCodexExchange) SendLine(_ context.Context, line []byte) 
 	return nil
 }
 
+func (exchange *scriptedCodexExchange) CloseInput(context.Context) error {
+	return nil
+}
+
 func codexSuccessFrames() []string {
 	return []string{
 		`{"id":1,"result":{"userAgent":"mulgae"}}`,

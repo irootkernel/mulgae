@@ -1,22 +1,28 @@
 # EPIC-011 development dossier: AGY stream-json review provider
 
-This is an adopted temporary development dossier, not implementation evidence.
+This adopted temporary dossier records the design and bounded feasibility
+findings. Production AGY integration remains owned by TASK-044 and TASK-045.
 [Roadmap](../roadmap/README.md#epic-011-agy-stream-json-review-provider) owns
 status and dependencies. TASK-043 re-verifies every wire, sandbox, and
 credential-isolation fact below against the installed `agy` binary before later
 tasks start. A failed check stops the epic.
 
-The planning baseline is the installed Antigravity CLI (`agy` `1.2.9`) binary
-and its embedded `printmode` and `steps` stream-JSON contracts.
+The original planning baseline was Antigravity CLI (`agy` `1.2.9`) and its
+embedded `printmode` and `steps` stream-JSON contracts. TASK-043 preflight
+observes installed version `1.4.0`. The final single-account native profile demonstrates workspace/Git reads,
+natural exit, tested credential denials and instruction/plugin isolation.
+The Judge and two independent Workers passed the final Task result review;
+Main accepted TASK-043 under Master's delegation. The declared minimum version remains `1.2.9`.
 
 ## Goal and scope
 
 Re-admit AGY (`FamilyAgy`, `"agy"`) as a protocol-driven provider over its
 bidirectional `stream-json` stdio wire protocol, make AGY the first default
 provider preference for the `documentation` role in `assets/roles.yaml`
-(`[agy, zcode, grok, codex]`), and support multi-account Gemini credentials
-through the same `default_credential_profile`, per-role `credential_profile`,
-and machine-local `credential_homes` contract used by Codex.
+(`[agy, zcode, grok, codex]`), using one existing Gemini account. Multiple-account
+configuration and validation are deferred to the
+[AGY multiple-account candidate](agy-multiple-accounts.md). A second account is
+not required to implement, verify, or accept EPIC-011.
 
 ZCode remains the first default preference for `logic`, `security`,
 `maintainability`, `product`, `testing`, and `artist`. Grok and Codex retain
@@ -47,17 +53,20 @@ The single-turn session order is:
    - Write one `{"event":"user","message":{"content":"<prompt>"}}` line to
      stdin and mark `SendAccepted`.
 3. **In-turn updates (`step_update`)**:
-   - `agy` emits `{"event":"step_update","conversation_id":"<uuid>","step_update":{...}}`
+   - Installed `1.4.0` emits `{"event":"step_update","step_update":{"conversation_id":"<uuid>",...}}`
      frames as the turn progresses.
-   - Require every frame to match `conversation_id`, record `step_index` as
-     `ProviderTurnID`, and mark `TurnObserved` and `MessagesReceived`.
+   - Require `step_update.conversation_id` to match the `init` session, record
+     `step_index` as `ProviderTurnID`, and mark `TurnObserved` and `MessagesReceived`.
 4. **Completion (`result`)**:
    - `agy` emits `{"event":"result","result":{"conversation_id":"<uuid>","status":"SUCCESS","response":"...","structured_output":...,"denied_actions":[...]}}`.
    - Accept assistant evidence text only when `result.conversation_id` matches
      `conversation_id`, `result.status` is `"SUCCESS"`, `result.error` is empty,
      `result.denied_actions` is empty, and `result.response` (or
      `result.structured_output` for schema-bound probes) is non-empty.
-   - Close child stdin so `agy` exits `0` cleanly.
+   - Close child stdin and verify that `agy` exits `0` cleanly.
+   - Native denial-terminated turns can report `SUCCESS` with an empty response
+     and nonempty `denied_actions`. Reject them as reviews; they are usable only
+     as explicitly expected negative-test evidence.
 
 One process and one new `conversation_id` serve one invocation; conversation
 state never carries across roles, retries, repairs, or runs.
@@ -68,29 +77,44 @@ Process `cwd` is pinned to the neutral reviewer home under `~/.mulgae/home/`.
 The canonical project root is passed via `--add-dir <workspaceRoot>` and named
 in the typed review prompt.
 
-Live review, extraction, and qualification run inside Mulgae's app-owned macOS
-Seatbelt read-only boundary (`ports.NewLiveReadOnlyBoundary(workspaceRoot,
-gitAccessRoot, reviewerHomeRoot, protectedRoots)`), which kernel-enforces
-read-only access to the workspace, Git directory, and neutral guide while
-denying writes and unchosen credential roots.
+Live review, extraction, and qualification must run inside Mulgae's app-owned
+macOS Seatbelt boundary. `ports.NewLiveReadOnlyBoundary` receives the
+workspace, Git directory, and neutral home as read-only roots; all original
+credential homes as denied credential roots; and the disposable namespace as
+its writable root. TASK-043 must prove these restrictions with the actual
+process adapter before a live AGY route is implemented.
 
-Inside that outer Seatbelt boundary, `agy` launches with:
+The verified `1.4.0` feasibility profile uses `--mode plan`,
+`--disable-slash-commands`, `--add-dir <workspaceRoot>`,
+`--gemini_dir <projectedGeminiHome>` and `--agent <appOwnedName>` with the
+stream formats above. Before sending `user`, require native `init.agent` to
+match the authored name and `init.permission_mode` to be `request-review`.
+These are provider configuration acknowledgements, not Mulgae-owned identity.
 
-- `--mode plan`
-- `--disable-slash-commands`
-- `--dangerously-skip-permissions`
-- `--add-dir <workspaceRoot>`
+Create app-owned mode-`0600` settings under the projected home, with
+`toolPermission: request-review`, `allowNonWorkspaceAccess: false`, exact
+`read_file(...)` and `command(...)` grants for the trusted read plan, and
+denies for the projected credential directory, token and protected canary.
+Native `strict` discards selective allows; headless approval requests cannot
+replace the tested selective policy. No skip-permissions or nested-sandbox
+flag is part of this profile. The external CLI rejects
+`--include-default-customizations=false` despite its internal compiled binding.
 
-Why `--mode plan` is paired with `--dangerously-skip-permissions` inside the
-Seatbelt boundary:
+The app-owned Markdown agent lives at
+`<projectedGeminiHome>/config/agents/<appOwnedName>.md`. Its tested frontmatter
+sets `mainAgent: true`, `subagent: false`, `inheritCustomizations: false`,
+`inheritMcp: false`, and `tools: [view_file, run_command]`. Its body is trusted
+application policy; import no user agent files. Omitting `tools` from a
+selected custom agent chooses native defaults that omit `run_command`, even
+when the broad startup inventory includes it. Workspace instructions and
+plugin configuration remain untrusted source data.
 
-- `--mode plan --add-dir <workspaceRoot>` restricts `agy` to planning/read tools
-  for workspace files, but `agy`'s headless `request-review` policy soft-denies
-  `run_command` (`result.denied_actions`) when a review of `--staged`, `--base`,
-  or `--commit` targets needs read-only `git` inspection commands.
-- Pairing `--mode plan --dangerously-skip-permissions` with the mandatory outer
-  `NewLiveReadOnlyBoundary` Seatbelt sandbox allows read-only `git` commands to
-  execute while the kernel blocks any filesystem mutation.
+The outer `NewLiveReadOnlyBoundary` owns filesystem restrictions; native tool
+permissions protect the writable projected token from model tools. The plan
+flag is not read-only enforcement when slash-command expansion is disabled.
+This boundary claims no general network or IPC containment. The tested native
+profile must be preserved by TASK-044; the runtime AGY adapter is not yet
+implemented.
 
 In addition to Seatbelt enforcement, the protocol driver fails the turn closed
 if any `step_update` frame reports a disallowed tool (`write_to_file`,
@@ -98,33 +122,45 @@ if any `step_update` frame reports a disallowed tool (`write_to_file`,
 `manage_subagents`, `schedule`, browser/web tools, or any MCP mutation tool) or
 if `result.denied_actions` is non-empty.
 
-## Multi-account credentials and home isolation
+## Single-account credentials and home isolation
 
 By default on macOS, `agy`'s `CompositeTokenStorage` consults the shared macOS
 Keychain service (`antigravity`) before falling back to
-`<gemini_dir>/antigravity-cli/antigravity-oauth-token`. Without bypassing the
-Keychain, multiple Gemini accounts on one machine collide on the single
-Keychain item.
+`<gemini_dir>/antigravity-cli/antigravity-oauth-token`. TASK-043 must verify
+file-only authentication for the one account used by this epic.
 
-`agy`'s `shouldBypassKeyring` switches `CompositeTokenStorage` to pure
-file-based token storage whenever `SSH_TTY` is set in the process environment:
+The adopted design requires `shouldBypassKeyring` to select file-based
+`CompositeTokenStorage` whenever `SSH_TTY` is set in the process environment.
 
-- Mulgae always sets `SSH_TTY=/dev/null` for `agy` invocations and passes
-  `--gemini_dir <resolvedHome>`, where `<resolvedHome>` is either the default
-  `<operatorHome>/.gemini` or the canonical absolute `home` selected from
-  `providers.agy.credential_homes`.
-- Each account profile therefore reads and refreshes only its own mode-`0600`
-  `<resolvedHome>/antigravity-cli/antigravity-oauth-token` file while `HOME`
-  remains the operator home.
-- Unchosen credential homes are added to `protectedRoots` so Seatbelt denies
-  cross-profile credential reads during live review.
+The approved execution plan protects original credential homes and projects
+only the selected token into a disposable Gemini home:
+
+- Resolve the source home from the default `<operatorHome>/.gemini`.
+  Admit only its `antigravity-cli/antigravity-oauth-token` regular, single-link,
+  mode-`0600` file through the existing descriptor-anchored projection pattern.
+  Missing or unsafe files stop admission; do not scan for alternative tokens.
+- Set `SSH_TTY=/dev/null` and pass `--gemini_dir <projectedGeminiHome>`.
+  The projected home stays inside the invocation's writable namespace, while
+  `HOME` remains the disposable namespace home. Import only the selected token;
+  copy no native settings, instructions, plugins, history or logs. The settings
+  and agent descriptor above are authored by Mulgae rather than imported.
+- Protect the original default Gemini home. Only the trusted projector reads its
+  token; the provider child cannot read or modify that original home.
+- Confine token refresh to the disposable copy. Never write it back to the
+  original home. A need for original-home writes stops the epic.
+
+TASK-043 must verify the installed binary's file-token authentication and
+Keychain bypass. Projection alone does not prove that model tools cannot read
+the disposable token. Observed model-tool access to that token stops execution
+for a security/design decision; event auditing must not be described as
+preventing an operation that already ran.
 
 ### Configuration contract
 
 | Surface | Required behavior |
 |---|---|
-| Project policy (`.mulgae/config.yaml`) | Optional `providers.agy.default_credential_profile`, `providers.agy.model`, `providers.agy.reasoning_effort` (`low`, `medium`, `high`, `xhigh`, `max`), `providers.agy.timeout`, and per-role `credential_profile`. |
-| Machine-local authority (`.mulgae/local.yaml`) | `providers.agy.executable` and optional lexical `providers.agy.credential_homes` (`profile` and canonical absolute `home`). |
+| Project policy (`.mulgae/config.yaml`) | Optional `providers.agy.model`, `providers.agy.reasoning_effort` (`low`, `medium`, `high`, `xhigh`, `max`), and `providers.agy.timeout`. No AGY `default_credential_profile` or per-role `credential_profile`. |
+| Machine-local authority (`.mulgae/local.yaml`) | `providers.agy.executable`. No AGY `credential_homes`; credentials come from the default Gemini home. |
 | Default role preferences (`assets/roles.yaml`) | `documentation` uses `[agy, zcode, grok, codex]`; remaining text roles append `agy` after existing preferences (`[zcode, grok, codex, agy]`). |
 | `--providers auto` | Discovers ZCode, Grok, and AGY (or preserves explicit portfolio selection per TASK-045 contract); when AGY is configured, `documentation` defaults to `agy`. |
 
@@ -132,13 +168,14 @@ file-based token storage whenever `SSH_TTY` is set in the process environment:
 
 Version and capability probes use the protocol runner:
 
-- Version check runs `<executable> --version` and parses `antigravity-cli
-  version <semver>`, with minimum floor `1.2.9`.
+- Version check runs `<executable> --version`. Installed `1.4.0` emits plain
+  semver; the parser must admit that observed form with minimum floor `1.2.9`.
+  This preflight does not establish wire compatibility for an untested binary.
 - Capability check runs a single-turn `stream-json` probe with `--json-schema`
   (or structured JSON response validation) under the same neutral-cwd,
   `--gemini_dir`, and `SSH_TTY=/dev/null` isolation as review.
-- Qualification identity binds the `agy` family, executable identity, resolved
-  credential profile/home, and optional `model` and `reasoning_effort`
+- Qualification identity binds the `agy` family, executable identity, default
+  credential-source identity, and optional `model` and `reasoning_effort`
   (preserving omitted-versus-explicit distinction).
 
 ## Stop conditions
@@ -148,20 +185,152 @@ binary. Later tasks must not weaken a failed check or fall back to `-p`.
 
 | Check | Required evidence |
 |---|---|
-| `stream-json` handshake & correlation | `init` emits `conversation_id`, stdin `user` starts one turn, `step_update` and `result` carry the same `conversation_id`, and closing stdin exits `0`. |
+| `stream-json` handshake & correlation | Receive authenticated `init` before sending `user`; correlate `step_update` and nested `result.conversation_id`; close stdin after the result and require natural exit `0`, complete stdin delivery, no signal requests, and process-group absence. |
 | Neutral-cwd workspace & Git reads | From `~/.mulgae/home/`, `agy` reads admitted workspace files and runs read-only `git` diff/show commands under `NewLiveReadOnlyBoundary` without `denied_actions`. |
-| Seatbelt write & credential denial | Any attempt to write inside the workspace/Git root or read a protected credential root is denied by Seatbelt and visible in `step_update`. |
+| Seatbelt write & credential denial | Separate workspace and Git-metadata mutation attempts and protected credential-root reads are denied by Seatbelt and visible in `step_update`. Verify workspace, Git metadata, and credential-canary integrity before and after. |
 | Tool visibility | Tool invocations appear in `step_update.tool_info` / `step_update.tool_name` so disallowed tools fail closed on the wire. |
-| Multi-account file-token isolation | With `SSH_TTY=/dev/null` and distinct `--gemini_dir` homes, `agy` bypasses macOS Keychain and authenticates strictly from `<gemini_dir>/antigravity-cli/antigravity-oauth-token`. |
+| Single-account file-token isolation | Project the default account token into a disposable `--gemini_dir`; prove file-token authentication with `SSH_TTY=/dev/null`, no Keychain fallback, no provider access to the original home, and refresh confined to the copy. Use an empty-token negative control. Multiple-account isolation is deferred. |
+
+Positive probes use `process.Runner.Converse` through the actual live-source
+boundary. The reviewed recovery amendment adds opt-in kernel-owned PTY access
+and an explicit exchange stdin half-close. After a correlated result, the
+scratch driver must close stdin and drain clean stdout EOF before returning.
+A generic protocol-success result after SIGTERM or SIGKILL does not satisfy
+the natural-exit check. The existing natural-exit grace remains `150ms`.
+This bounded TASK-043 prerequisite supersedes the earlier prohibition on
+runner changes; it does not weaken the feasibility criteria.
+
+Authentication-negative probes have separate acceptance conditions. An empty
+or malformed projection must produce a bounded, explicit authentication
+rejection without successful `init` or a user message. A natural nonzero exit
+may be expected. Silence, timeout, forced teardown, or generic launch failure
+alone does not prove isolation. Authenticated deliberate-denial probes may
+return an expected error or `denied_actions`; they never count as successful
+reviews.
+
+## TASK-043 feasibility findings
+
+Installed AGY is `1.4.0`, with SHA-256
+`a4502aaf310b2fd6eb657fcfec2fcc31a690fbbd0c2d14c8eefbb556409024ce`.
+Observations below are bounded to that binary and the single default account.
+They do not establish compatibility for every binary above the declared
+`1.2.9` floor. TASK-044 owns production protocol and qualification work;
+TASK-045 owns public integration and the exact-binary full review.
+
+### Shared process prerequisites
+
+The production guard initially denied AGY's PTY creation. Its reviewed opt-in
+capability uses the kernel-owned PTY extension rather than a general device
+exception. Default PTY denial, foreign terminal path and mutating-ioctl denial,
+`/dev/tty` denial, source/Git read access, write denial and protected credential
+reads are covered. Filesystem denial does not revoke access to a descriptor
+that was already open.
+
+An inherited-descriptor experiment exposed that distinction. The correction
+uses atomic close-on-exec duplication in the parent and sanitizes inherited
+non-stdio descriptors in the trusted launch child, without changing parent
+flags or imposing a numeric cutoff. Ordinary and high descriptor canaries fail
+to reach providers after the correction. Bound and unbound launches preserve
+cwd, arguments, environment and stdin receipts. A real-runner/registry/app
+regression verifies that trusted launch failure yields no accepted output,
+repair or extraction authority. Existing bounded same-provider retry remains;
+exit code `10` is not trusted spawn classification.
+
+A correlated AGY result must be followed by stdin half-close and stdout EOF
+draining. The exchange supports explicit `CloseInput`; the shared `150ms`
+teardown grace is unchanged. Native positive comparisons exit `0` without
+signals and leave no process group. Cancellation and blocked-send tests cover
+bounded cleanup.
+
+### Native configuration and account boundary
+
+Default native file and command tools could read the projected synthetic
+token. The outer filesystem guard alone is insufficient because the namespace
+must remain writable for native authentication. Native `--sandbox` did not
+prove denial: nested Seatbelt application returned `Operation not permitted`.
+Native permission-reply events are recognized but unsupported in this version.
+
+The final selective `request-review` policy uses exact `command(...)` grants;
+`unsandboxed(...)` grants are invalid configuration. Sparse serialization omits
+the known defaults `request-review` and `false`; the comparison accepts only
+those two absent defaults and rejects explicit unsafe values. Native
+credential-canary reads and compound command near-misses produce
+operation-specific permission errors before execution, not successful tools.
+
+Root `GEMINI.md` and `AGENTS.md` at source and neutral cwd influenced default
+responses. A controlled native agent with inheritance disabled keeps all six
+tested instruction tokens absent while preserving actual file/Git reads, unknown
+marker values and its body-only selection token. This verifies the tested
+route, without attributing the result exclusively to an individual setting.
+Four source/neutral tokens appeared on the default route; the two passive parent
+tokens did not. This does not establish a general parent-discovery guarantee.
+
+File-only authentication uses `SSH_TTY=/dev/null` and the one projected token.
+The empty-token control explicitly rejects authentication before `init` or
+`user`, exits naturally nonzero and leaves no group. Original-token integrity
+holds. Native logs and compiled file-storage/refresh branches support Keychain
+bypass and disposable-file refresh confinement, with original roots denied by
+the outer boundary. No live or forced refresh, process-wide Keychain trace,
+writeback or second account is claimed.
+
+### Plugin MCP controls and negative-turn interpretation
+
+Native plugin discovery can load source `.agents/plugins/<name>/plugin.json`.
+The tested plugin carries both native `mcp.json` and documented
+`mcp_config.json` with the same harmless stdio sentinel. A default normal read
+turn affirmatively launches it, completes MCP initialize/tool discovery and
+EOF, and leaves no matching process. All three plugin files remain intact.
+An exact zero-byte global `mcp_config.json` means no global servers; it does
+not itself prove source-plugin isolation.
+
+The selected-profile denial turn preserves the complete plugin fixture and
+reports no sentinel launch or remaining process. It separately denies both
+synthetic credential operations before execution. Its final response is empty,
+matching the earlier accepted denial control. The originally required response
+nonce therefore fails and that failed run stays failed. Independent assessment
+separates native configuration applicability and denial evidence from any
+unavailable model response; empty or denied results never become valid reviews.
+A matched normal read turn under the selected profile also completes all three
+operations, reports both unknown Git marker values and its body-only nonce,
+keeps all six instruction tokens absent, and leaves no sentinel journal or
+matching process. Its complete source-plugin fixture remains intact, and native
+logs show no plugin/MCP discovery errors. This compares the same positive prompt
+class with the default control, resolving the denial-turn confound for this
+tested profile. The final independent Task assessment passed.
+
+Two credential-free inventory attempts failed before discovery because the
+scratch harness placed a global log option after the native subcommand.
+The argument order was corrected and regression-tested without replaying those
+attempts. Authenticated control calls used no subcommand and were unaffected.
+No discovery or suppression claim comes from those failed inventories.
+
+### Verification and remaining delivery boundary
+
+The Judge and two nonauthoring Workers independently reviewed plans and scoped
+results, including the matched positive plugin comparison. Main accepted
+TASK-043 under Master's delegation. This accepts the bounded feasibility and
+shared prerequisites; production integration remains TASK-044 and TASK-045.
+Multiple-account configuration and checks remain outside this epic.
+
+Focused process/ports race checks, architecture checks, lint and vet pass.
+`make test-unit`, `make test-int` and `make test-release` pass for the shared
+candidate. `make test` fails during preparation because `govulncheck` reports
+eight installed Go `1.27.1` standard-library vulnerabilities. Master directed
+this workflow to retain that toolchain and reserved upgrades for Master. No
+upgrade or waiver was made. Mandatory live ZCode/Grok and opt-in Codex targets
+were not reached by that full gate; supplementary passes do not replace it.
+Non-`EBADF` descriptor-error injection remains untested; inspection confirms
+that such errors stop execution. No whole-Epic, release-ready or installed
+AGY capability claim follows from these Task-scoped results.
 
 ## Intended owners
 
 | Owner | Responsibility |
 |---|---|
 | `internal/adapters/providercli/agy_protocol.go` | `stream-json` session order (`init`, `user`, `step_update`, `result`), tool-audit rejection, and report extraction. |
-| `internal/adapters/providercli/protocol_dispatch.go` | Register `ports.FamilyAgy` across all protocol purposes. |
+| `internal/adapters/providercli/protocol_dispatch.go` | Register the adapter-owned `FamilyAgy` across all protocol purposes. |
 | `internal/adapters/providercli/live_execution.go` & `qualifier.go` | Seatbelt launch, neutral-cwd execution, `--gemini_dir` + `SSH_TTY=/dev/null` binding, and qualification probes. |
-| `internal/app/config` & `internal/adapters/yamlconfig` | `AgyProviderConfig` (`executable`, `default_credential_profile`, `credential_homes`, `model`, `reasoning_effort`, `timeout`). |
+| `internal/app/config` & `internal/adapters/yamlconfig` | Single-account `AgyProviderConfig` (`executable`, `model`, `reasoning_effort`, `timeout`). |
 | `assets/roles.yaml`, schemas, help, and contributor specs | TASK-045 only. TASK-044 leaves public schemas and default role routing unchanged. |
 
 ## Non-goals
@@ -170,11 +339,13 @@ binary. Later tasks must not weaken a failed check or fall back to `-p`.
 - No loopback TCP `--hub` or internal gRPC/Connect transport.
 - No automatic provider or profile substitution when AGY fails.
 - No persistent multi-turn sessions across review roles or attempts.
+- No AGY named credential profiles, multiple-account selection, or
+  multiple-account validation in EPIC-011.
 
 ## Closeout
 
 After TASK-045, promote the pinned `stream-json` wire, Seatbelt permission
-rules, multi-account `--gemini_dir` credential boundary, and `documentation`
+rules, single-account `--gemini_dir` credential boundary, and `documentation`
 default routing into the provider contracts, security requirements,
 `final-provider-portfolio.md`, and one transport ADR. Remove this dossier and
 its TODO index entry, replace the roadmap's `Detailed SOT` with `Canonical

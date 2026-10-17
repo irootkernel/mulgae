@@ -677,6 +677,10 @@ func (exchange *failingSendExchange) SendLine(ctx context.Context, line []byte) 
 	return exchange.failWith
 }
 
+func (exchange *failingSendExchange) CloseInput(ctx context.Context) error {
+	return exchange.inner.CloseInput(ctx)
+}
+
 // TestZCodeProtocolDriveClassifiesSendFailures pins the typed classification
 // of client-side send failures inside the driver.
 func TestZCodeProtocolDriveClassifiesSendFailures(t *testing.T) {

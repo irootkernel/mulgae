@@ -132,6 +132,18 @@ denies links outside those writable roots. Source and Git trees retain ordinary
 hardlinks. Admission observes cancellation and the request timeout; the runner
 closes the consumed neutral descriptor on every return after request admission.
 
+Guarded launches pass through a trusted child before starting `sandbox-exec`.
+The child marks all inherited descriptors above stderr close-on-exec, including
+the pinned directory handle. The parent duplicates that handle atomically with
+close-on-exec; its existing descriptors and flags remain unchanged. This barrier
+also applies to guarded requests without a pinned directory. A child-side launch
+failure remains an ordinary failed invocation under the existing retry policy.
+
+Conversation drivers may half-close stdin with `ProviderSessionExchange.CloseInput`
+and continue receiving through stdout EOF. A driver that needs the provider's
+natural shutdown must drain that stream before returning; returning starts the
+existing bounded teardown. Half-close is idempotent and preserves stdin receipts.
+
 CLI and MCP share this execution path. Provider, client, and integrated-gate
 verification follows the [implementation guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics);
 no snapshot fallback is available.

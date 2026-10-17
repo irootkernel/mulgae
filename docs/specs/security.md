@@ -207,6 +207,18 @@ outside protected credential roots remain possible. Ignore rules select scope;
 they do not restrict filesystem access. Historical staged-file receipts and
 snapshot metadata remain readable, but grant no current execution authority.
 
+Filesystem path denial does not revoke access through an already-open inherited
+descriptor. Before either bound or unbound guarded execution, a trusted launch
+child marks every descriptor above stderr close-on-exec and then replaces itself
+with `sandbox-exec`. Failure to enumerate or protect a descriptor stops that
+launch; only a descriptor that has already vanished may be ignored. Parent
+descriptor flags are not changed.
+
+The default outer guard denies pseudo-terminal creation. An explicit typed
+owned-PTY capability permits `/dev/ptmx` and kernel-owned `/dev/ttys*` slaves.
+Foreign slave path opens and mutating ioctls remain denied, as does `/dev/tty`.
+This capability does not relax source, Git, guide, or credential-root policy.
+
 ## Credentials and secrets
 
 Credentials remain owned by the installed provider. Mulgae projects only the

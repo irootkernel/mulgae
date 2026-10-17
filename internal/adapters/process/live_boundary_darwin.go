@@ -19,6 +19,11 @@ import (
 
 const seatbeltExecutable = "/usr/bin/sandbox-exec"
 
+// liveOwnedPTYSlavePattern matches the kernel's numbered terminal slave
+// device paths. It is deliberately anchored and never widened to /dev or all
+// terminals.
+const liveOwnedPTYSlavePattern = `^/dev/ttys[0-9]+$`
+
 // liveBoundaryArgv adds the fixed platform launcher without changing provider
 // identity or introducing a shell. The kernel policy is independent of the
 // provider's planning mode and protocol permission gate.
@@ -40,10 +45,25 @@ func liveBoundaryArgv(ctx context.Context, request ports.ProcessRequest) (string
 			return "", nil, fmt.Errorf("process runner: live runtime directory admission: %w", err)
 		}
 		profile.WriteString(" (require-not (subpath " + strconv.Quote(root.String()) + "))")
-		profile.WriteString(" (require-not (literal \"/dev/null\"))))\n")
+	}
+	profile.WriteString(" (require-not (literal \"/dev/null\"))")
+	if boundary.OwnedPTY() {
+		// The owned-terminal carve-out lives inside the global deny predicate
+		// itself: a later allow rule can never override an explicit deny. Only
+		// the master device and slaves the kernel binds to this process
+		// through com.apple.sandbox.pty leave the write denial; foreign
+		// terminals are denied explicitly below.
+		profile.WriteString(` (require-not (literal "/dev/ptmx"))`)
+		profile.WriteString(` (require-not (require-all (regex #"` + liveOwnedPTYSlavePattern + `") (extension "com.apple.sandbox.pty")))`)
+	}
+	profile.WriteString("))\n")
+	if root, present := boundary.RuntimeTempRoot(); present {
 		profile.WriteString("(deny file-write-unlink (literal " + strconv.Quote(root.String()) + "))\n")
-	} else {
-		profile.WriteString(" (require-not (literal \"/dev/null\"))))\n")
+	}
+	if boundary.OwnedPTY() {
+		profile.WriteString("(allow pseudo-tty)\n")
+		profile.WriteString("(deny file-read* file-write* (literal \"/dev/tty\"))\n")
+		profile.WriteString(`(deny file-read* file-write* file-ioctl (require-all (regex #"` + liveOwnedPTYSlavePattern + `") (require-not (extension "com.apple.sandbox.pty"))))` + "\n")
 	}
 	ancestors := map[string]bool{}
 	missingCredentials := map[string]bool{}

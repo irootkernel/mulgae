@@ -55,7 +55,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	}
 	handled, err := processadapter.ExecInheritedDirectory(argv)
 	if handled {
-		writeDiagnostic(stderr, "mulgae: descriptor-bound provider launch failed\n")
+		writeDiagnostic(stderr, "mulgae: provider launch boundary failed\n")
 		if err != nil {
 			return 10
 		}

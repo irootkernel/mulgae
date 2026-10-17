@@ -165,6 +165,10 @@ func (exchange *protocolTestExchange) SendLine(ctx context.Context, line []byte)
 	return nil
 }
 
+func (exchange *protocolTestExchange) CloseInput(ctx context.Context) error {
+	return nil
+}
+
 type protocolTestDriver struct{}
 
 func (driver protocolTestDriver) Drive(ctx context.Context, exchange ProviderSessionExchange) error {

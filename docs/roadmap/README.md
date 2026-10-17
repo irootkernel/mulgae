@@ -30,11 +30,12 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-008](#epic-008-review-completeness-and-iteration) | Deferred | Redesign requirements assessment, selected-finding rechecks, and comparison after the live-review model is accepted. |
 | [EPIC-009](#epic-009-live-workspace-and-git-review) | Completed | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
 | [EPIC-010](#epic-010-cursor-acp-review-provider) | In Progress | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
-| [EPIC-011](#epic-011-agy-stream-json-review-provider) | Planned | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol, make AGY the default `documentation` provider, and support multi-account credential homes. |
+| [EPIC-011](#epic-011-agy-stream-json-review-provider) | In Progress | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
 
 ## Adopted execution order
 
-EPIC-007 and EPIC-009 are complete. EPIC-010 is In Progress. EPIC-011 is Planned. Both depend
+EPIC-007 and EPIC-009 are complete. EPIC-010 and EPIC-011 are In Progress.
+TASK-043 is completed after its installed-CLI feasibility corrections. Both depend
 on completed EPIC-009 and do not depend on each other. EPIC-008 and TASK-026
 through TASK-033 remain Deferred until their capture-dependent contracts are
 redesigned and reapproved. Preserve their identities; this hold does not reopen
@@ -556,39 +557,73 @@ from the pinned wire. TASK-042 is the first task that updates
 
 ## EPIC-011: AGY stream-json review provider
 
-Status: Planned
+Status: In Progress
 
 Depends on: completed EPIC-009. No EPIC-008 or EPIC-010 dependency.
+
+Execution scope: implement and verify one AGY account first. Multiple-account
+configuration and validation are deferred to the
+[AGY multiple-account candidate](../todo/agy-multiple-accounts.md). TASK-043 is
+completed under Main's delegated acceptance. TASK-044 and TASK-045 remain planned.
+
+Installed AGY `1.4.0` passes neutral-cwd workspace/Git reads, complete stdin,
+natural exit `0`, no signals and process-group absence. Separate native
+workspace/Git writes and protected credential reads are denied. Empty file-token
+authentication rejects before `init` or a user frame; original credentials and
+fixtures remain unchanged.
+
+The final tested native profile combines selective `request-review` permissions
+with an app-owned agent (`view_file` / `run_command`, instruction and MCP
+inheritance disabled). Actual positive turns report unknown source/Git markers
+and the agent body nonce while all six instruction tokens stay absent. A source
+plugin launches a harmless MCP sentinel on the default positive route; the
+matched selected-profile positive completes without launching it. The complete
+plugin fixtures, policy and protected source/token integrity remain intact.
+Selected-profile synthetic credential requests are denied before execution.
+Those denial-terminated turns have empty responses and remain invalid reviews;
+their failed response-nonce criterion is preserved separately from assessment
+of configuration and native denial evidence.
+
+The shared recovery adds opt-in owned PTYs, stdin half-close/drain and child-only
+inherited-descriptor sanitization. Existing teardown grace stays `150ms`.
+Focused race, unit, integration, release-binary and static checks pass. The full
+`make test` gate stops at eight reported Go `1.27.1` standard-library
+vulnerabilities; Master reserved toolchain upgrades and no waiver was made.
+That gate still blocks whole-Epic readiness. The Judge and two independent
+Workers passed TASK-043; Main accepted its bounded result under Master's delegation.
+Workers are `opencode / GLM 5.3 / max`; the Judge is
+`codex / GPT-6.1-SOL / high`.
 
 Detailed SOT: [EPIC-011 development dossier](../todo/EPIC-011-agy-stream-json-provider.md)
 
 Goal: re-admit AGY (`FamilyAgy`, `"agy"`) over its bidirectional `stream-json`
 stdio wire protocol, make AGY the first default provider preference for the
-`documentation` role, and support multi-account Gemini credentials through
-`default_credential_profile`, per-role `credential_profile`, and machine-local
-`credential_homes`. Keep ZCode as the first default preference for the remaining
-roles and preserve Grok and Codex routes. An AGY failure stays on AGY; Mulgae
-does not substitute another provider.
+`documentation` role, using the operator's existing default Gemini account.
+AGY does not gain `default_credential_profile`, per-role `credential_profile`,
+or machine-local `credential_homes` in this epic. Keep ZCode as the first default
+preference for the remaining roles and preserve Grok and Codex routes. An AGY
+failure stays on AGY; Mulgae does not substitute another provider.
 
-Design decisions accepted at planning time: launch `agy --input-format
-stream-json --output-format stream-json` only, with no `-p` / `--print`
-fallback, no `BoundedPostOutputLifecycle`, and no loopback `--hub` server.
-Process `cwd` stays at the neutral reviewer home (`~/.mulgae/home/`), and live
-source access runs inside Mulgae's macOS Seatbelt read-only boundary
-(`NewLiveReadOnlyBoundary`) with `--mode plan --disable-slash-commands --add-dir
-<workspaceRoot> --dangerously-skip-permissions` plus fail-closed `step_update`
-tool auditing. Multi-account isolation passes `--gemini_dir <resolvedHome>` and
-`SSH_TTY=/dev/null` so `agy` bypasses the shared macOS Keychain and uses only
-`<resolvedHome>/antigravity-cli/antigravity-oauth-token`.
+The native invocation uses `--input-format stream-json --output-format
+stream-json`, with no `-p` / `--print` fallback, post-output lifecycle workaround
+or loopback hub. Cwd stays at the neutral reviewer home and source access uses
+Mulgae's Seatbelt boundary. The verified profile uses `--mode plan`,
+`--disable-slash-commands`, `--add-dir <workspaceRoot>` and an app-owned
+`--agent`, selective native permissions and fail-closed tool auditing. The skip-
+permissions flag from the original plan is superseded by that tested policy.
+Only the selected token is imported into a disposable Gemini home, alongside
+Mulgae-authored settings and agent files. `--gemini_dir` and `SSH_TTY=/dev/null`
+select file authentication; original credential roots stay protected and refresh
+writes remain confined to the copy. No live or forced refresh is claimed.
 
 This registration does not change runtime behavior. Current provider behavior
 remains ZCode, Grok, and Codex until TASK-045 publishes the route.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-043 | Planned | Pin the installed `agy` (`1.2.9+`) `stream-json` wire and prove neutral-cwd workspace/Git reads, Seatbelt write and credential denial, visible `step_update` tool identity, and `--gemini_dir` + `SSH_TTY` multi-account file-token isolation. Stop the epic if any check fails. | Isolated live handshake, one read-only workspace/Git turn, and a two-home token isolation probe. Record the binary version and each stop condition in the dossier. |
-| TASK-044 | Planned | Add the `FamilyAgy` `stream-json` protocol driver (`agy_protocol.go`), Seatbelt live execution, `--gemini_dir` credential-home binding, model/effort flags, and qualification behind the existing protocol runner. Leave public schemas and default role routing unchanged. | Scripted `stream-json` success and failure (`init`, `step_update`, `result`, `denied_actions`, disallowed tools), qualification partitioning across model/effort/profile, and unchanged ZCode, Grok, and Codex regressions. |
-| TASK-045 | Planned | Publish `agy` across `init`, `config` (`default_credential_profile`, `credential_homes`, `model`, `reasoning_effort`), `assets/roles.yaml` (`documentation` primary default = `agy`), CLI, MCP, versioned schemas, help, contracts, security, portfolio ADR, and transport ADR. | Generator idempotence, configuration and role-assignment tests, one exact-binary `agy` review, and the complete `make test` gate. |
+| TASK-043 | Completed | Add the reviewed opt-in owned-PTY and exchange half-close prerequisites; pin the installed `agy` (`1.2.9+`) `stream-json` wire and prove neutral-cwd workspace/Git reads, Seatbelt write and credential denial, visible `step_update` tool identity, and `--gemini_dir` + `SSH_TTY` file-token isolation for one account. Stop the epic if any in-scope check fails. | Installed `1.4.0` passes the tested wire/read/lifecycle, write/credential-denial, instruction and source-plugin MCP checks under one-account file authentication. The bounded refresh-confinement evidence is accepted; no live refresh is claimed. The Judge and two independent Workers passed the final result; Main accepted it under Master's delegation. |
+| TASK-044 | Planned | Add the `FamilyAgy` `stream-json` protocol driver (`agy_protocol.go`), Seatbelt live execution, disposable `--gemini_dir` binding for the default account, model/effort flags, and qualification behind the existing protocol runner. Leave public schemas and default role routing unchanged. | Scripted `stream-json` success and failure (`init`, `step_update`, `result`, `denied_actions`, disallowed tools), qualification partitioning across model/effort and source identity, and unchanged ZCode, Grok, and Codex regressions. |
+| TASK-045 | Planned | Publish single-account `agy` across `init`, `config` (`model`, `reasoning_effort`, `timeout`, local `executable`), `assets/roles.yaml` (`documentation` primary default = `agy`), CLI, MCP, versioned schemas, help, contracts, security, portfolio ADR, and transport ADR. | Generator idempotence, configuration and role-assignment tests, one exact-binary single-account `agy` review, and the complete `make test` gate. |
 
 TASK-043 is the provider feasibility prerequisite. A failed probe blocks
 TASK-044 and TASK-045. TASK-044 must not expose a public route that diverges
@@ -599,9 +634,10 @@ from the pinned wire. TASK-045 is the first task that updates
 
 ### Epic acceptance
 
-- [ ] TASK-043 records a passing installed-CLI probe, or the epic stops with a concrete blocker.
+- [x] TASK-043 records a passing installed-CLI probe, or the epic stops with a concrete blocker.
 - [ ] AGY roles run through `agy --input-format stream-json --output-format stream-json` with neutral cwd, Seatbelt read-only confinement, `--gemini_dir` + `SSH_TTY` file-token isolation, and fail-closed `step_update` tool policy.
 - [ ] `documentation` defaults to `agy` when configured, ZCode remains the first default for other roles, and provider failure causes no substitution.
 - [ ] Public contracts, security, help, and schemas describe AGY only after TASK-045, and historical readers remain valid.
 - [ ] The complete `make test` gate passes and one exact-binary AGY review is recorded.
+- [ ] Verify the single-account route; multiple-account fields and tests remain outside this epic.
 - [ ] Promote durable outcomes, remove the dossier and its TODO entry, repair links, replace Detailed SOT with Canonical Outcomes, and explicitly accept the epic.

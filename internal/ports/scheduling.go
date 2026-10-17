@@ -1654,14 +1654,20 @@ var ErrProviderSessionExchangeClosed = errors.New("provider session exchange clo
 // driver and its provider child process. ReceiveLine returns the next complete
 // child stdout line without its terminating newline. SendLine writes exactly
 // one newline-terminated frame to child stdin; the line itself must not
-// contain a newline or NUL byte. Both operations fail closed once the
-// conversation is tearing down or the supplied context is done. A child stdout
-// stream that ends returns an error wrapping io.EOF from ReceiveLine; a final
-// partial line without its newline returns an error wrapping
+// contain a newline or NUL byte. ReceiveLine and SendLine fail closed once
+// the conversation is tearing down or the supplied context is done. CloseInput
+// half-closes child stdin while the exchange stays usable for ReceiveLine; a
+// done context fails it before anything is closed, it is idempotent, it
+// preserves the first close error, and later sends fail closed. The
+// conversation runner's teardown shares that one close operation, ignores
+// driver cancellation, and still closes a pipe a send is blocked on. A child
+// stdout stream that ends returns an error wrapping io.EOF from ReceiveLine;
+// a final partial line without its newline returns an error wrapping
 // io.ErrUnexpectedEOF.
 type ProviderSessionExchange interface {
 	ReceiveLine(ctx context.Context) ([]byte, error)
 	SendLine(ctx context.Context, line []byte) error
+	CloseInput(ctx context.Context) error
 }
 
 // ProviderSessionPhase identifies the last protocol operation reached by one

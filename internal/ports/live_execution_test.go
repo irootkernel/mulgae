@@ -197,3 +197,47 @@ func TestLiveReadOnlyBoundaryRuntimeRootPreservesProtectedAuthority(t *testing.T
 		}
 	}
 }
+
+func TestLiveReadOnlyBoundaryOwnedPTYCapabilityComposesWithExistingAuthority(t *testing.T) {
+	source, _ := NewAnchoredRoot("/source")
+	credential, _ := NewAnchoredRoot("/credentials")
+	writable, _ := NewAnchoredRoot("/invocation")
+	runtimeTemp, _ := NewAnchoredRoot("/runtime")
+
+	boundary, err := NewLiveReadOnlyBoundary([]AnchoredRoot{source}, []AnchoredRoot{credential}, writable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boundary.OwnedPTY() {
+		t.Fatal("default boundary claims the owned-terminal capability")
+	}
+	owned, err := NewLiveReadOnlyBoundaryWithOwnedPTY(boundary)
+	if err != nil || !owned.Valid() || !owned.OwnedPTY() {
+		t.Fatalf("owned boundary = (%t, %v), want valid and capable", owned.OwnedPTY(), err)
+	}
+	if owned.WritableRoot() != writable || owned.ReadOnlyRoots()[0] != source || owned.CredentialRoots()[0] != credential {
+		t.Fatal("capability changed protected or invocation authority")
+	}
+	if _, present := owned.RuntimeTempRoot(); present {
+		t.Fatal("capability invented a runtime root")
+	}
+	if boundary.OwnedPTY() {
+		t.Fatal("capability constructor mutated the original boundary")
+	}
+
+	withRuntime, err := NewLiveReadOnlyBoundaryWithRuntimeTemp([]AnchoredRoot{source}, []AnchoredRoot{credential}, writable, runtimeTemp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownedWithRuntime, err := NewLiveReadOnlyBoundaryWithOwnedPTY(withRuntime)
+	if err != nil || !ownedWithRuntime.OwnedPTY() {
+		t.Fatalf("runtime-owning boundary = (%t, %v), want capable", ownedWithRuntime.OwnedPTY(), err)
+	}
+	if root, present := ownedWithRuntime.RuntimeTempRoot(); !present || root != runtimeTemp {
+		t.Fatal("capability dropped the composed runtime root")
+	}
+
+	if _, err := NewLiveReadOnlyBoundaryWithOwnedPTY(LiveReadOnlyBoundary{}); err == nil {
+		t.Fatal("invalid boundary admitted for the owned-terminal capability")
+	}
+}

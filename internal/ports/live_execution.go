@@ -14,6 +14,7 @@ type LiveReadOnlyBoundary struct {
 	credentials []AnchoredRoot
 	writable    AnchoredRoot
 	runtimeTemp AnchoredRoot
+	ownedPTY    bool
 	present     bool
 }
 
@@ -41,6 +42,20 @@ func NewLiveReadOnlyBoundary(readOnly, credentials []AnchoredRoot, writable Anch
 	if !boundary.Valid() {
 		return LiveReadOnlyBoundary{}, fmt.Errorf("live read-only boundary: invalid protected roots")
 	}
+	return boundary, nil
+}
+
+// NewLiveReadOnlyBoundaryWithOwnedPTY adds the narrowly scoped owned-terminal
+// capability to an already valid boundary, with or without a runtime
+// directory. The capability admits only the master device and slaves the
+// kernel binds to this process through the com.apple.sandbox.pty extension;
+// every protected root, hardlink, and ancestor guarantee is unchanged. The
+// default constructors never grant it.
+func NewLiveReadOnlyBoundaryWithOwnedPTY(boundary LiveReadOnlyBoundary) (LiveReadOnlyBoundary, error) {
+	if !boundary.Valid() {
+		return LiveReadOnlyBoundary{}, fmt.Errorf("live read-only boundary: invalid protected roots")
+	}
+	boundary.ownedPTY = true
 	return boundary, nil
 }
 
@@ -90,6 +105,12 @@ func (boundary LiveReadOnlyBoundary) WritableRoot() AnchoredRoot { return bounda
 
 func (boundary LiveReadOnlyBoundary) RuntimeTempRoot() (AnchoredRoot, bool) {
 	return boundary.runtimeTemp, boundary.runtimeTemp.Valid()
+}
+
+// OwnedPTY reports whether this boundary opts in to the owned-terminal
+// capability. It stays false for every default-constructed boundary.
+func (boundary LiveReadOnlyBoundary) OwnedPTY() bool {
+	return boundary.present && boundary.ownedPTY
 }
 
 // NewLiveReadOnlyProcessRequest preserves the provider executable and packet

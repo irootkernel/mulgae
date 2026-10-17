@@ -237,6 +237,10 @@ func (exchange *scriptedProtocolExchange) SendLine(_ context.Context, line []byt
 	return nil
 }
 
+func (exchange *scriptedProtocolExchange) CloseInput(context.Context) error {
+	return nil
+}
+
 // sentLines returns a caller-owned copy of every recorded client line.
 func (exchange *scriptedProtocolExchange) sentLines(t *testing.T) [][]byte {
 	t.Helper()

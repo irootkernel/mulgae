@@ -30,6 +30,10 @@ func (exchange *cursorScriptExchange) SendLine(_ context.Context, line []byte) e
 	return nil
 }
 
+func (exchange *cursorScriptExchange) CloseInput(context.Context) error {
+	return nil
+}
+
 func cursorFrame(value any) []byte {
 	payload, err := json.Marshal(value)
 	if err != nil {

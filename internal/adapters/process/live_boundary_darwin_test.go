@@ -9,13 +9,16 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/irootkernel/mulgae/internal/ports"
+	"golang.org/x/sys/unix"
 )
 
 func TestLiveNeutralDescriptorConsumedOnEarlyReturn(t *testing.T) {
@@ -660,5 +663,627 @@ func TestLiveBoundaryProtectsMissingOptionalCredentialHomes(t *testing.T) {
 	}
 	if _, _, _, err := assembleDirectChild(context.Background(), request, nil, nil); err == nil {
 		t.Fatal("credential symlink admitted")
+	}
+}
+
+// openSyntheticPTY allocates one fresh terminal pair through the kernel
+// master device, mirroring the diagnostic probe: grant, unlock, name, then a
+// nonblocking slave open. It is used outside the sandbox and by the sandboxed
+// helper child; the slave belongs to whoever allocated the pair.
+func openSyntheticPTY() (int, int, string, error) {
+	master, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY, 0)
+	if err != nil {
+		return -1, -1, "", err
+	}
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(master), uintptr(unix.TIOCPTYGRANT), 0); errno != 0 {
+		_ = unix.Close(master)
+		return -1, -1, "", errno
+	}
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(master), uintptr(unix.TIOCPTYUNLK), 0); errno != 0 {
+		_ = unix.Close(master)
+		return -1, -1, "", errno
+	}
+	var name [128]byte
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(master), uintptr(unix.TIOCPTYGNAME), uintptr(unsafe.Pointer(&name[0]))); errno != 0 {
+		_ = unix.Close(master)
+		return -1, -1, "", errno
+	}
+	end := bytes.IndexByte(name[:], 0)
+	if end <= 0 {
+		_ = unix.Close(master)
+		return -1, -1, "", errors.New("synthetic pty has no slave name")
+	}
+	path := string(name[:end])
+	slave, err := unix.Open(path, unix.O_RDWR|unix.O_NOCTTY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		_ = unix.Close(master)
+		return -1, -1, "", err
+	}
+	return master, slave, path, nil
+}
+
+// readSyntheticPTYUntil polls a nonblocking master descriptor until marker
+// appears or the bounded deadline passes.
+func readSyntheticPTYUntil(master int, marker []byte) ([]byte, bool) {
+	_ = unix.SetNonblock(master, true)
+	deadline := time.Now().Add(3 * time.Second)
+	var collected []byte
+	for time.Now().Before(deadline) {
+		chunk := make([]byte, 1024)
+		count, err := unix.Read(master, chunk)
+		if count > 0 {
+			collected = append(collected, chunk[:count]...)
+			if bytes.Contains(collected, marker) {
+				return collected, true
+			}
+		}
+		if err != nil && err != unix.EAGAIN {
+			return collected, false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return collected, false
+}
+
+// TestLiveBoundaryPtyChild is the sandboxed helper process for the owned
+// terminal capability tests. It only ever touches terminals it allocated
+// itself or the explicitly passed synthetic foreign pair.
+func TestLiveBoundaryPtyChild(t *testing.T) {
+	arguments := helperArguments()
+	if len(arguments) < 2 || arguments[0] != "pty" {
+		return
+	}
+	switch arguments[1] {
+	case "controlling-alias":
+		if _, err := unix.Setsid(); err != nil {
+			fmt.Fprintln(os.Stderr, "synthetic session", err)
+			os.Exit(67)
+		}
+		master, slave, _, err := openSyntheticPTY()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "synthetic controlling terminal", err)
+			os.Exit(68)
+		}
+		if err := unix.IoctlSetInt(slave, unix.TIOCSCTTY, 0); err != nil {
+			fmt.Fprintln(os.Stderr, "assign synthetic controlling terminal", err)
+			os.Exit(69)
+		}
+		if descriptor, err := unix.Open("/dev/tty", unix.O_RDONLY|unix.O_NONBLOCK, 0); err != unix.EPERM {
+			if err == nil {
+				_ = unix.Close(descriptor)
+			}
+			fmt.Fprintln(os.Stderr, "controlling terminal alias", err)
+			os.Exit(70)
+		}
+		if _, err := unix.Write(slave, []byte("OWN_TERMINAL_STILL_USABLE\n")); err != nil {
+			os.Exit(71)
+		}
+		if _, ok := readSyntheticPTYUntil(master, []byte("OWN_TERMINAL_STILL_USABLE")); !ok {
+			os.Exit(72)
+		}
+		fmt.Fprintln(os.Stdout, "CONTROLLING_ALIAS_DENIED")
+		os.Exit(0)
+	case "deny":
+		if len(arguments) != 2 {
+			os.Exit(2)
+		}
+		if _, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY, 0); err == nil || err != unix.EPERM {
+			fmt.Fprintln(os.Stderr, "ptmx open", err)
+			os.Exit(41)
+		}
+		fmt.Fprintln(os.Stdout, "PTMX_DENIED")
+		os.Exit(0)
+	case "own":
+		if len(arguments) != 5 {
+			os.Exit(2)
+		}
+		master, slave, _, err := openSyntheticPTY()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "own pty", err)
+			os.Exit(43)
+		}
+		if _, err := unix.Write(slave, []byte("PTY_OWN_WRITE\n")); err != nil {
+			fmt.Fprintln(os.Stderr, "own slave write", err)
+			os.Exit(44)
+		}
+		if _, err := unix.IoctlGetWinsize(slave, unix.TIOCGWINSZ); err != nil {
+			fmt.Fprintln(os.Stderr, "own slave ioctl", err)
+			os.Exit(45)
+		}
+		if _, ok := readSyntheticPTYUntil(master, []byte("PTY_OWN_WRITE")); !ok {
+			fmt.Fprintln(os.Stderr, "own pty readback missing")
+			os.Exit(46)
+		}
+		// A real read-only Git command runs with the owned slave as its
+		// terminal, matching the provider tool pattern the capability exists
+		// for.
+		terminal := os.NewFile(uintptr(slave), "owned-pty-slave")
+		git := exec.Command("/usr/bin/git", "hash-object", "--no-filters", "--", arguments[2])
+		git.Stdin, git.Stdout, git.Stderr = terminal, terminal, terminal
+		if err := git.Run(); err != nil {
+			fmt.Fprintln(os.Stderr, "git", err)
+			os.Exit(47)
+		}
+		// Git's SHA-1 object identity for the fixture's exact ORIGINAL bytes.
+		if _, ok := readSyntheticPTYUntil(master, []byte("0ee48e9dd23abe6953a9877eaa1ccf44519a2c8b")); !ok {
+			fmt.Fprintln(os.Stderr, "git output missing on owned pty")
+			os.Exit(48)
+		}
+		// The capability must not weaken any neighboring guarantee.
+		if _, err := unix.Open(arguments[2], unix.O_WRONLY|unix.O_APPEND, 0); err == nil || err != unix.EPERM {
+			fmt.Fprintln(os.Stderr, "source write", err)
+			os.Exit(49)
+		}
+		if _, err := unix.Open(arguments[3], unix.O_WRONLY|unix.O_APPEND, 0); err == nil || err != unix.EPERM {
+			fmt.Fprintln(os.Stderr, "git metadata write", err)
+			os.Exit(56)
+		}
+		if _, err := unix.Open(arguments[4], unix.O_RDONLY, 0); err == nil || err != unix.EPERM {
+			fmt.Fprintln(os.Stderr, "credential read", err)
+			os.Exit(50)
+		}
+		fmt.Fprintln(os.Stdout, "PTY_OWN_OK")
+		os.Exit(0)
+	case "foreign":
+		if len(arguments) != 3 {
+			os.Exit(2)
+		}
+		var winsize unix.Winsize
+		// Darwin mediates terminal mutations such as TIOCSWINSZ through
+		// file-ioctl on the explicitly passed synthetic descriptor. Data
+		// reads and writes on an already-open descriptor are not revoked by
+		// path policy, so this probe makes no inherited data-operation claim;
+		// denial is proven through separate path opens below.
+		if _, _, errno := unix.Syscall(unix.SYS_IOCTL, 3, uintptr(unix.TIOCSWINSZ), uintptr(unsafe.Pointer(&winsize))); errno == 0 || errno != unix.EPERM {
+			fmt.Fprintln(os.Stderr, "foreign slave ioctl", errno)
+			os.Exit(51)
+		}
+		if descriptor, err := unix.Open(arguments[2], unix.O_RDONLY|unix.O_NOCTTY|unix.O_NONBLOCK, 0); err == nil || err != unix.EPERM {
+			if err == nil {
+				_ = unix.Close(descriptor)
+			}
+			fmt.Fprintln(os.Stderr, "foreign slave read open", err)
+			os.Exit(53)
+		}
+		if descriptor, err := unix.Open(arguments[2], unix.O_WRONLY|unix.O_NOCTTY|unix.O_NONBLOCK, 0); err == nil || err != unix.EPERM {
+			if err == nil {
+				_ = unix.Close(descriptor)
+			}
+			fmt.Fprintln(os.Stderr, "foreign slave write open", err)
+			os.Exit(54)
+		}
+		fmt.Fprintln(os.Stdout, "PTY_FOREIGN_DENIED")
+		os.Exit(0)
+	}
+	os.Exit(2)
+}
+
+// liveBoundaryPTYTestRequest mirrors liveBoundaryTestRequest with the owned
+// terminal capability applied through its typed constructor.
+func liveBoundaryPTYTestRequest(t *testing.T, neutral, source, credentials, namespace string, argv []string, ownedPTY bool) ports.ProcessRequest {
+	t.Helper()
+	root := func(path string) ports.AnchoredRoot {
+		value, err := ports.NewAnchoredRoot(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	packet, err := ports.NewProviderPacketFromBytes([]byte("pty boundary fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := ports.NewProtocolProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := ports.NewEnvironmentVariable("PATH", "/usr/bin:/bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ports.NewProviderProtocolProcessRequest("/bin/sh", argv, []ports.EnvironmentVariable{environment}, neutral, binding, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary, err := ports.NewLiveReadOnlyBoundary([]ports.AnchoredRoot{root(source), root(filepath.Join(source, ".git")), root(neutral)}, []ports.AnchoredRoot{root(credentials)}, root(namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownedPTY {
+		boundary, err = ports.NewLiveReadOnlyBoundaryWithOwnedPTY(boundary)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	request, err = ports.NewLiveReadOnlyProcessRequest(request, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
+}
+
+func TestLiveBoundaryOwnedPTYCapability(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, credentials := filepath.Join(base, "source"), filepath.Join(base, "credentials")
+	neutral, namespace := filepath.Join(base, "neutral"), filepath.Join(base, "invocation")
+	for _, path := range []string{source, credentials, neutral, namespace} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sourceFile := filepath.Join(source, "value")
+	gitDirectory := filepath.Join(source, ".git")
+	if err := os.Mkdir(gitDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	gitFile := filepath.Join(gitDirectory, "value")
+	credentialFile := filepath.Join(credentials, "value")
+	if err := os.WriteFile(sourceFile, []byte("ORIGINAL"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(credentialFile, []byte("PRIVATE_PTY_FIXTURE"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gitFile, []byte("GIT_ORIGINAL"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runChild := func(t *testing.T, ownedPTY bool, argv []string) string {
+		t.Helper()
+		request := liveBoundaryPTYTestRequest(t, neutral, source, credentials, namespace, argv, ownedPTY)
+		child, launch, _, err := assembleDirectChild(context.Background(), request, nil, nil)
+		if launch != nil {
+			defer launch.Close()
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		child.Stdout, child.Stderr = nil, nil
+		output, err := child.CombinedOutput()
+		if err != nil {
+			t.Fatalf("pty boundary fixture: %v, %s", err, output)
+		}
+		return string(output)
+	}
+
+	t.Run("default boundary denies the master device", func(t *testing.T) {
+		output := runChild(t, false, []string{"/bin/sh", "-c", `exec "$1" -test.run=^TestLiveBoundaryPtyChild$ -- pty deny`, "fixture", binary})
+		if !strings.Contains(output, "PTMX_DENIED") {
+			t.Fatalf("default boundary output = %q, want master denial", output)
+		}
+	})
+
+	t.Run("owned capability admits own terminal and read-only git", func(t *testing.T) {
+		output := runChild(t, true, []string{"/bin/sh", "-c", `exec "$1" -test.run=^TestLiveBoundaryPtyChild$ -- pty own "$2" "$3" "$4"`, "fixture", binary, sourceFile, gitFile, credentialFile})
+		if !strings.Contains(output, "PTY_OWN_OK") {
+			t.Fatalf("owned capability output = %q, want own terminal success", output)
+		}
+		data, err := os.ReadFile(sourceFile)
+		if err != nil || string(data) != "ORIGINAL" {
+			t.Fatalf("protected source bytes: %v, %q", err, data)
+		}
+		if data, err = os.ReadFile(credentialFile); err != nil || string(data) != "PRIVATE_PTY_FIXTURE" {
+			t.Fatalf("protected credential bytes: %v, %q", err, data)
+		}
+		if data, err = os.ReadFile(gitFile); err != nil || string(data) != "GIT_ORIGINAL" {
+			t.Fatalf("protected Git bytes: %v, %q", err, data)
+		}
+	})
+
+	t.Run("owned capability denies the controlling terminal alias", func(t *testing.T) {
+		request := liveBoundaryPTYTestRequest(t, neutral, source, credentials, namespace,
+			[]string{"/bin/sh", "-c", `exec "$1" -test.run=^TestLiveBoundaryPtyChild$ -- pty controlling-alias`, "fixture", binary}, true)
+		executable, argv, err := liveBoundaryArgv(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// This separate child creates its own session and controlling terminal.
+		// It never uses the caller's terminal or changes the caller's session.
+		child := &exec.Cmd{Path: executable, Args: argv, Dir: neutral, Env: explicitEnvironment(request.Environment())}
+		output, err := child.CombinedOutput()
+		if err != nil || !strings.Contains(string(output), "CONTROLLING_ALIAS_DENIED") {
+			t.Fatalf("controlling terminal alias fixture: %v, %s", err, output)
+		}
+	})
+
+	t.Run("owned capability denies a foreign synthetic terminal", func(t *testing.T) {
+		master, slave, slavePath, err := openSyntheticPTY()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = unix.Close(master) })
+		foreignSlave := os.NewFile(uintptr(slave), slavePath)
+		t.Cleanup(func() { _ = foreignSlave.Close() })
+		// Deliberately bypass assembleDirectChild and its descriptor
+		// handling: this raw sandbox-exec invocation of the generated
+		// profile keeps the synthetic inherited descriptor, so the policy
+		// itself is what denies foreign terminal use. Launch sanitization is
+		// proven separately by the guarded bound/unbound launch regressions.
+		request := liveBoundaryPTYTestRequest(t, neutral, source, credentials, namespace,
+			[]string{"/bin/sh", "-c", `exec "$1" -test.run=^TestLiveBoundaryPtyChild$ -- pty foreign "$2"`, "fixture", binary, slavePath}, true)
+		executable, argv, err := liveBoundaryArgv(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		child := &exec.Cmd{
+			Path:       executable,
+			Args:       argv,
+			Dir:        request.WorkingDirectory(),
+			Env:        explicitEnvironment(request.Environment()),
+			ExtraFiles: []*os.File{foreignSlave},
+		}
+		output, err := child.CombinedOutput()
+		if err != nil {
+			t.Fatalf("foreign terminal policy fixture: %v, %s", err, output)
+		}
+		if !strings.Contains(string(output), "PTY_FOREIGN_DENIED") {
+			t.Fatalf("owned capability output = %q, want foreign terminal denial", output)
+		}
+	})
+}
+
+// inheritedCanaryFixture is the canary object a sanitized launch must never
+// expose to the provider child.
+var inheritedCanaryFixture = []byte("PRIVATE_INHERITANCE_CANARY")
+
+// inheritedCanaryDescriptors holds parent-owned canary descriptors opened
+// deliberately without close-on-exec, including one forced far past the
+// former sweep caps when the platform's resource limit permits it.
+type inheritedCanaryDescriptors struct {
+	fd     int
+	highFD int
+	device uint64
+	inode  uint64
+}
+
+func openInheritedCanary(t *testing.T, directory string) inheritedCanaryDescriptors {
+	t.Helper()
+	path := filepath.Join(directory, "inherited-canary")
+	if err := os.WriteFile(path, inheritedCanaryFixture, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately opened without O_CLOEXEC: this is exactly the ambient
+	// descriptor shape a guarded launch must not pass through.
+	fd, err := unix.Open(path, unix.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canary := inheritedCanaryDescriptors{fd: fd, highFD: -1}
+	t.Cleanup(func() {
+		_ = unix.Close(canary.fd)
+		if canary.highFD >= 0 {
+			_ = unix.Close(canary.highFD)
+		}
+	})
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		t.Fatal(err)
+	}
+	canary.device, canary.inode = uint64(stat.Dev), stat.Ino
+	// F_DUPFD clears close-on-exec on the duplicate; never adjust the host
+	// resource limit to force a high number.
+	if high, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD, 5000); err == nil {
+		canary.highFD = high
+	} else {
+		t.Logf("high-number descriptor unavailable under the current limit (%v); skipping high coverage", err)
+	}
+	return canary
+}
+
+// arguments names the canary objects by descriptor identity so the child
+// proves absence through fstat dev+ino, tolerating legitimate fd reuse.
+func (canary inheritedCanaryDescriptors) arguments() []string {
+	highDevice, highInode := uint64(0), uint64(0)
+	if canary.highFD >= 0 {
+		highDevice, highInode = canary.device, canary.inode
+	}
+	return []string{
+		strconv.FormatUint(canary.device, 10), strconv.FormatUint(canary.inode, 10),
+		strconv.FormatUint(highDevice, 10), strconv.FormatUint(highInode, 10),
+	}
+}
+
+// assertParentPreserved proves the launch boundary left the caller's own
+// descriptor flags and readability untouched.
+func (canary inheritedCanaryDescriptors) assertParentPreserved(t *testing.T) {
+	t.Helper()
+	descriptors := []int{canary.fd}
+	if canary.highFD >= 0 {
+		descriptors = append(descriptors, canary.highFD)
+	}
+	for _, fd := range descriptors {
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+		if err != nil {
+			t.Fatalf("parent canary fd %d flags: %v", fd, err)
+		}
+		if flags&unix.FD_CLOEXEC != 0 {
+			t.Fatalf("parent canary fd %d was marked close-on-exec", fd)
+		}
+		buffer := make([]byte, len(inheritedCanaryFixture))
+		read, err := unix.Pread(fd, buffer, 0)
+		if err != nil || read != len(buffer) || !bytes.Equal(buffer, inheritedCanaryFixture) {
+			t.Fatalf("parent canary fd %d unreadable: (%d, %v)", fd, read, err)
+		}
+	}
+}
+
+// guardedCanaryLaunchRequest builds one guarded protocol request whose
+// provider is the helper scenario proving canary absence by identity.
+func guardedCanaryLaunchRequest(t *testing.T, binary, neutral, source, credentials, namespace string, canaryArguments []string) ports.ProcessRequest {
+	t.Helper()
+	root := func(path string) ports.AnchoredRoot {
+		value, err := ports.NewAnchoredRoot(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	packet, err := ports.NewProviderPacketFromBytes([]byte("descriptor boundary fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := ports.NewProtocolProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := append([]string{binary, "-test.run=^TestRunnerHelperProcess$", "--", "inherited-canary"}, canaryArguments...)
+	request, err := ports.NewProviderProtocolProcessRequest(
+		binary, argv,
+		[]ports.EnvironmentVariable{
+			mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"),
+			mustEnvironment(t, "GOCOVERDIR", t.TempDir()),
+			mustEnvironment(t, "MULGAE_DESCRIPTOR_ENV", "preserved"),
+		},
+		neutral, binding, time.Minute,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary, err := ports.NewLiveReadOnlyBoundary([]ports.AnchoredRoot{root(source), root(neutral)}, []ports.AnchoredRoot{root(credentials)}, root(namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err = ports.NewLiveReadOnlyProcessRequest(request, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
+}
+
+func TestGuardedUnboundLaunchSanitizesInheritedDescriptors(t *testing.T) {
+	binary := helperBinary(t)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	neutral, source := filepath.Join(base, "neutral"), filepath.Join(base, "source")
+	credentials, namespace := filepath.Join(base, "credentials"), filepath.Join(base, "invocation")
+	for _, path := range []string{neutral, source, credentials, namespace} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canary := openInheritedCanary(t, base)
+	request := guardedCanaryLaunchRequest(t, binary, neutral, source, credentials, namespace, canary.arguments())
+	child, launch, _, err := assembleDirectChild(context.Background(), request, nil, nil)
+	if launch != nil {
+		defer launch.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Stdout, child.Stderr = nil, nil
+	output, err := child.CombinedOutput()
+	if err != nil {
+		t.Fatalf("guarded unbound launch leaked an inherited descriptor: %v, %s", err, output)
+	}
+	if !strings.Contains(string(output), "CANARY_ABSENT") {
+		t.Fatalf("guarded unbound launch output = %q, want canary absence", output)
+	}
+	canary.assertParentPreserved(t)
+}
+
+func TestGuardedBoundLaunchSanitizesInheritedDescriptors(t *testing.T) {
+	binary := helperBinary(t)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	neutral, source := filepath.Join(base, "neutral"), filepath.Join(base, "source")
+	credentials, namespace := filepath.Join(base, "credentials"), filepath.Join(base, "invocation")
+	for _, path := range []string{neutral, source, credentials, namespace} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canary := openInheritedCanary(t, base)
+	request := guardedCanaryLaunchRequest(t, binary, neutral, source, credentials, namespace, canary.arguments())
+	neutralRoot, err := ports.NewAnchoredRoot(neutral)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.Open(neutral)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	request, err = ports.NewNeutralBoundProcessRequest(request, neutralRoot, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, launch, _, err := assembleDirectChild(context.Background(), request, nil, nil)
+	if launch != nil {
+		defer launch.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Stdout, child.Stderr = nil, nil
+	output, err := child.CombinedOutput()
+	if err != nil {
+		t.Fatalf("guarded bound launch leaked an inherited descriptor: %v, %s", err, output)
+	}
+	if !strings.Contains(string(output), "CANARY_ABSENT") {
+		t.Fatalf("guarded bound launch output = %q, want canary absence", output)
+	}
+	canary.assertParentPreserved(t)
+}
+
+func TestGuardedBoundLaunchDuplicateIsCloseOnExec(t *testing.T) {
+	binary := helperBinary(t)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	neutral, source := filepath.Join(base, "neutral"), filepath.Join(base, "source")
+	credentials, namespace := filepath.Join(base, "credentials"), filepath.Join(base, "invocation")
+	for _, path := range []string{neutral, source, credentials, namespace} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	request := guardedCanaryLaunchRequest(t, binary, neutral, source, credentials, namespace,
+		[]string{"0", "0", "0", "0"})
+	neutralRoot, err := ports.NewAnchoredRoot(neutral)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.Open(neutral)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	originalFlags, err := unix.FcntlInt(directory.Fd(), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err = ports.NewNeutralBoundProcessRequest(request, neutralRoot, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, launch, _, err := assembleDirectChild(context.Background(), request, nil, nil)
+	if err != nil || child == nil {
+		t.Fatalf("bound child assembly: %v", err)
+	}
+	t.Cleanup(func() { _ = launch.Close() })
+	duplicateFlags, err := unix.FcntlInt(launch.Fd(), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatalf("inspect bound duplicate: %v", err)
+	}
+	if duplicateFlags&unix.FD_CLOEXEC == 0 {
+		t.Fatal("bound launch duplicate is not close-on-exec: a parent-side leak window remains")
+	}
+	flags, err := unix.FcntlInt(directory.Fd(), unix.F_GETFD, 0)
+	if err != nil || flags != originalFlags {
+		t.Fatalf("original neutral descriptor flags = (%d, %v), want %d unchanged", flags, err, originalFlags)
+	}
+	if _, err := directory.Stat(); err != nil {
+		t.Fatalf("original neutral descriptor unusable: %v", err)
 	}
 }

@@ -1012,9 +1012,26 @@ func assembleDirectChild(ctx context.Context, request ports.ProcessRequest, stdo
 		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
 	}
 	boundDirectory, root, bound := request.LaunchDirectory()
-	if !bound {
+	_, guarded := request.LiveReadOnlyBoundary()
+	if !bound && !guarded {
 		child.Path = executable
 		child.Args = argv
+		child.Dir = request.WorkingDirectory()
+		return child, nil, "", nil
+	}
+	mulgaeExecutable, err := os.Executable()
+	if err != nil {
+		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
+			fmt.Errorf("process runner: resolve trusted Mulgae executable: %w", err)
+	}
+	mulgaeExecutable, err = filepath.Abs(mulgaeExecutable)
+	if err != nil {
+		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
+			fmt.Errorf("process runner: canonicalize trusted Mulgae executable: %w", err)
+	}
+	if !bound {
+		child.Path = mulgaeExecutable
+		child.Args = append([]string{mulgaeExecutable, cleanExecHiddenArgument}, argv...)
 		child.Dir = request.WorkingDirectory()
 		return child, nil, "", nil
 	}
@@ -1022,7 +1039,7 @@ func assembleDirectChild(ctx context.Context, request ports.ProcessRequest, stdo
 		return nil, nil, domain.DiagnosticCauseWorkspaceRevalidationFailed,
 			fmt.Errorf("process runner: bound directory does not match diagnostic working directory")
 	}
-	duplicate, err := unix.Dup(int(boundDirectory.Fd()))
+	duplicate, err := unix.FcntlInt(boundDirectory.Fd(), unix.F_DUPFD_CLOEXEC, 3)
 	if err != nil {
 		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("process runner: duplicate bound launch directory: %w", err)
@@ -1033,18 +1050,6 @@ func assembleDirectChild(ctx context.Context, request ports.ProcessRequest, stdo
 			_ = launchDirectory.Close()
 			return nil, nil, domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("process runner: neutral directory revalidation: %w", err)
 		}
-	}
-	mulgaeExecutable, err := os.Executable()
-	if err != nil {
-		_ = launchDirectory.Close()
-		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
-			fmt.Errorf("process runner: resolve trusted Mulgae executable: %w", err)
-	}
-	mulgaeExecutable, err = filepath.Abs(mulgaeExecutable)
-	if err != nil {
-		_ = launchDirectory.Close()
-		return nil, nil, domain.DiagnosticCauseProviderSpawnFailed,
-			fmt.Errorf("process runner: canonicalize trusted Mulgae executable: %w", err)
 	}
 	if authority, protected := request.NativeHomeLaunchAuthority(); protected {
 		child.Path = mulgaeExecutable
