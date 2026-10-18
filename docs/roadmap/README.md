@@ -29,16 +29,16 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
 | [EPIC-008](#epic-008-review-completeness-and-iteration) | Deferred | Redesign requirements assessment, selected-finding rechecks, and comparison after the live-review model is accepted. |
 | [EPIC-009](#epic-009-live-workspace-and-git-review) | Completed | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
-| [EPIC-010](#epic-010-cursor-acp-review-provider) | In Progress | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
-| [EPIC-011](#epic-011-agy-stream-json-review-provider) | In Progress | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
+| [EPIC-010](#epic-010-cursor-acp-review-provider) | Completed | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
+| [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
 
 ## Adopted execution order
 
-EPIC-007 and EPIC-009 are complete. EPIC-010 and EPIC-011 are In Progress.
-TASK-043 is completed after its installed-CLI feasibility corrections. Both depend
-on completed EPIC-009 and do not depend on each other. EPIC-008 and TASK-026
-through TASK-033 remain Deferred until their capture-dependent contracts are
-redesigned and reapproved. Preserve their identities; this hold does not reopen
+EPIC-007, EPIC-009, EPIC-010 and EPIC-011 are complete.
+EPIC-010 and EPIC-011 both depend on completed EPIC-009 and do not depend on
+each other. EPIC-008 and TASK-026 through TASK-033 remain Deferred until their
+capture-dependent contracts are redesigned and reapproved. Preserve their
+identities; this hold does not reopen
 EPIC-007 or block EPIC-010 or EPIC-011.
 
 Within an executable Epic, run Tasks in table order as independent sequential
@@ -509,11 +509,23 @@ later tasks must not restore snapshots or substitute another provider.
 
 ## EPIC-010: Cursor ACP review provider
 
-Status: In Progress
+Status: Completed
 
 Depends on: completed EPIC-009. No EPIC-008 dependency.
 
-Detailed SOT: [EPIC-010 development dossier](../todo/EPIC-010-cursor-acp-provider.md)
+Canonical Outcomes: [provider contracts](../specs/contracts.md),
+[security boundaries](../specs/security.md),
+[Cursor ACP transport](../architecture-decision-records/cursor-acp-transport.md),
+[final provider portfolio](../architecture-decision-records/final-provider-portfolio.md),
+and [verification guidance](../implementation-tips/README.md).
+
+Master accepted EPIC-010 closeout on 2026-10-19. TASK-040 verified all six
+installed-CLI stop conditions with Cursor `2026.10.14-0f9edde`. TASK-041
+verified separate exact index and committed-object Git reads under the neutral
+Git binding. TASK-042 recorded the complete `make test` gate and an exact-binary
+Cursor review; live Cursor certification remains separate from the mandatory
+ZCode/Grok gate. This closeout changes documentation only and does not repeat
+those executable checks.
 
 Goal: add Cursor as an explicitly selected text-role provider through one ACP
 stdio adapter. Keep ZCode as the default review provider and Grok as the
@@ -535,7 +547,7 @@ includes explicit Cursor selection. Default role preferences stay unchanged.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-040 | Completed | Pin the installed `agent acp` wire and prove neutral-cwd reads, absent project-instruction injection, visible tool identity, ask-mode acknowledgement before prompting, credential denial, and a correlated completed assistant turn. Stop the epic if any check fails. | Isolated live handshake and one read-only turn. Record the binary version and each stop condition in the dossier. |
+| TASK-040 | Completed | Pin the installed `agent acp` wire and prove neutral-cwd reads, absent project-instruction injection, visible tool identity, ask-mode acknowledgement before prompting, credential denial, and a correlated completed assistant turn. Stop the epic if any check fails. | Cursor `2026.10.14-0f9edde` passed all six stop conditions through isolated native handshake, read, tool-policy and boundary checks. The pinned behavior is retained in the canonical outcomes. |
 | TASK-041 | Completed | Add the Cursor family ACP driver, disposable namespace, Seatbelt launch, and qualification behind the existing protocol runner. Leave public configuration and default role assignment unchanged. | Scripted ACP success and failure, permission rejection, credential isolation, unchanged ZCode, Grok, and Codex behavior, and one native stage fixture: separate index and commit GitCommand calls, each allow_once and completed, with both byte strings in the assistant turn and the neutral home as GIT_WORK_TREE. |
 | TASK-042 | Completed | Publish explicit Cursor selection across init, CLI, MCP, schemas, help, contracts, security, and one transport ADR. Keep live certification opt-in. | Generator idempotence, one exact-binary Cursor review, the complete `make test` gate, and a separate opt-in Cursor live check. |
 
@@ -549,15 +561,15 @@ from the pinned wire. TASK-042 is the first task that updates
 ### Epic acceptance
 
 - [x] TASK-040 records a passing installed-CLI probe, or the epic stops with a concrete blocker.
-- [ ] Cursor text roles run through `agent acp` with neutral cwd, Seatbelt, isolated credentials, and fail-closed tool policy.
-- [ ] ZCode defaults, Grok recovery, and Codex selection remain unchanged, and provider failure causes no substitution.
-- [ ] Public contracts, security, help, and schemas describe Cursor only after TASK-042, and historical readers remain valid.
-- [ ] The complete `make test` gate passes. Cursor live certification stays opt-in and is reported separately.
-- [ ] Promote durable outcomes, remove the dossier and its TODO entry, repair links, replace Detailed SOT with Canonical Outcomes, and explicitly accept the epic.
+- [x] Cursor text roles run through `agent acp` with neutral cwd, Seatbelt, isolated credentials, and fail-closed tool policy.
+- [x] ZCode defaults, Grok recovery, and Codex selection remain unchanged, and provider failure causes no substitution.
+- [x] Public contracts, security, help, and schemas describe Cursor only after TASK-042, and historical readers remain valid.
+- [x] The complete `make test` gate passes. Cursor live certification stays opt-in and is reported separately.
+- [x] Promote durable outcomes, remove the dossier and its TODO entry, repair links, replace Detailed SOT with Canonical Outcomes, and explicitly accept the epic.
 
 ## EPIC-011: AGY stream-json review provider
 
-Status: In Progress
+Status: Completed
 
 Depends on: completed EPIC-009. No EPIC-008 or EPIC-010 dependency.
 
@@ -570,9 +582,21 @@ Main accepted the internal adapter under Master's delegation. TASK-045's plan
 passed independent review. Public integration and the exact-candidate native
 single-account gate pass. Unit, integration, release-binary, static and mandatory
 ZCode/Grok live checks pass. The Judge and two nonauthor Workers found no new
-implementation defect. Main accepted TASK-045 under Master's delegation; Epic
-integration review remains pending. The complete gate still fails on the fixed
-Go 1.27.1 standard-library vulnerability check, with no waiver.
+implementation defect. Main accepted TASK-045 under Master's delegation.
+Independent Epic integration review is complete; Master accepted the complete
+Epic result on 2026-10-19. At Master's request, vulnerability scanning is now a
+separate manual check. Go 1.27.1 remains unchanged, and Master owns the later toolchain
+update. The revised gate first passed with a short canonical `TMPDIR`.
+Subsequent default-path unit and integration runs exposed four fixture-path
+admission defects. Their owned roots are now canonicalized, preserving the
+production denial and identity checks. Focused regressions pass under the
+inherited, physical and custom symlinked temporary parents. The complete
+`make test` gate now passes with the inherited macOS `TMPDIR`, including
+mandatory ZCode/Grok live certification and the default opt-in Codex skip.
+A native single-account `make test-agy` also passes from the default temporary
+location; its existing Make-owned runtime child remains canonical. Earlier
+failed invocations remain failed. Separating the manual scan did not remediate
+its findings.
 
 TASK-043 verified AGY `1.4.0` neutral-cwd workspace/Git reads, complete stdin,
 natural exit `0`, no signals and process-group absence. Separate native
@@ -604,14 +628,18 @@ separate from these six passing controls. All use the one default account.
 The shared recovery adds opt-in owned PTYs, stdin half-close/drain and child-only
 inherited-descriptor sanitization. Existing teardown grace stays `150ms`.
 TASK-043 focused race, unit, integration, release-binary and static checks
-passed. Its full `make test` gate stopped at eight Go `1.27.1` standard-library
-vulnerability findings; Master reserved toolchain upgrades and no waiver was made.
-That gate still blocks whole-Epic readiness. The Judge and two independent
-Workers passed TASK-043; Main accepted its bounded result under Master's delegation.
+passed. Its original full `make test` attempt stopped at vulnerability scanning.
+The revised complete gate now passes in the default environment described
+above. The Judge and two independent Workers passed TASK-043; Main accepted its
+bounded result under Master's delegation.
 Workers are `opencode / GLM 5.3 / max`; the Judge is
 `codex / GPT-6.1-SOL / high`.
 
-Detailed SOT: [EPIC-011 development dossier](../todo/EPIC-011-agy-stream-json-provider.md)
+Canonical Outcomes:
+
+- [Provider contracts](../specs/contracts.md) and [security boundaries](../specs/security.md).
+- [Architecture](../architecture/README.md) and [AGY stream-JSON transport](../architecture-decision-records/agy-stream-json-transport.md).
+- [Final provider portfolio](../architecture-decision-records/final-provider-portfolio.md) and [verification guidance](../implementation-tips/README.md).
 
 Goal: re-admit AGY (`FamilyAgy`, `"agy"`) over its bidirectional `stream-json`
 stdio wire protocol, make AGY the first default provider preference for the
@@ -634,8 +662,9 @@ select file authentication; original credential roots stay protected and refresh
 writes remain confined to the copy. No live or forced refresh is claimed.
 
 The working implementation supports ZCode, Grok, Codex, Cursor and AGY.
-TASK-045's completion and Epic acceptance remain pending; implemented behavior
-alone does not close either delivery boundary.
+Main accepted all three Tasks under Master's delegation. Independent Epic
+integration review completed without a new integration defect. Master accepted
+the complete Epic result on 2026-10-19.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
@@ -653,9 +682,10 @@ from the pinned wire. TASK-045 is the first task that updates
 ### Epic acceptance
 
 - [x] TASK-043 records a passing installed-CLI probe, or the epic stops with a concrete blocker.
-- [ ] AGY roles run through `agy --input-format stream-json --output-format stream-json` with neutral cwd, Seatbelt read-only confinement, `--gemini_dir` + `SSH_TTY` file-token isolation, and fail-closed `step_update` tool policy.
-- [ ] `documentation` defaults to `agy` when configured, ZCode remains the first default for other roles, and provider failure causes no substitution.
-- [ ] Public contracts, security, help, and schemas describe AGY only after TASK-045, and historical readers remain valid.
-- [ ] The complete `make test` gate passes and one exact-binary AGY review is recorded.
-- [ ] Verify the single-account route; multiple-account fields and tests remain outside this epic.
-- [ ] Promote durable outcomes, remove the dossier and its TODO entry, repair links, replace Detailed SOT with Canonical Outcomes, and explicitly accept the epic.
+- [x] AGY roles run through `agy --input-format stream-json --output-format stream-json` with neutral cwd, Seatbelt read-only confinement, `--gemini_dir` + `SSH_TTY` file-token isolation, and fail-closed `step_update` tool policy.
+- [x] `documentation` defaults to `agy` when configured, ZCode remains the first default for other roles, and provider failure causes no substitution.
+- [x] Public contracts, security, help, and schemas describe AGY only after TASK-045, and historical readers remain valid.
+- [x] The complete `make test` gate passes and one exact-binary AGY review is recorded.
+- [x] Verify the single-account route; multiple-account fields and tests remain outside this epic.
+- [x] Promote durable outcomes, remove the dossier and its TODO entry, repair links, and replace Detailed SOT with Canonical Outcomes.
+- [x] Master explicitly accepts the complete Epic result.

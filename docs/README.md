@@ -49,19 +49,18 @@ and its [EPIC-008 dossier](todo/EPIC-008-review-completeness-and-iteration.md)
 are held for redesign after EPIC-009 acceptance. Their earlier planned interfaces
 remain unimplemented. Their adoption grants no current execution capability.
 
-[Cursor ACP review provider](todo/EPIC-010-cursor-acp-provider.md) is the
-Detailed SOT for planned
+[Cursor ACP transport](architecture-decision-records/cursor-acp-transport.md)
+records the implemented explicit-selection route for
 [EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider).
-[AGY stream-json review provider](todo/EPIC-011-agy-stream-json-provider.md) is
-the temporary Detailed SOT for active
+[AGY stream-JSON transport](architecture-decision-records/agy-stream-json-transport.md)
+records the implemented single-account route for
 [EPIC-011](roadmap/README.md#epic-011-agy-stream-json-review-provider).
 The implemented provider portfolio is ZCode, Grok, Codex, Cursor and AGY. Cursor
 is explicit; new policy prefers AGY for documentation when available. AGY uses
 one default Gemini account. Its durable design is in the
 [transport decision](architecture-decision-records/agy-stream-json-transport.md).
-Live Cursor certification stays with
-[EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider). The roadmap
-tracks EPIC-011's remaining certification and Epic acceptance.
+Live Cursor certification remains a separate opt-in gate. The roadmap records
+the final acceptance of EPIC-010 and EPIC-011.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The
