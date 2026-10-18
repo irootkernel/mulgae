@@ -378,6 +378,7 @@ type testRuntimeMutation struct {
 	workingDirectory            string
 	hasLifecycle                bool
 	lifecycle                   ports.BoundedPostOutputLifecycle
+	agySettingsIdentity         string
 }
 
 func (d testRuntimeMutation) Family() string                    { return d.family }
@@ -399,6 +400,7 @@ func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 func (d testRuntimeMutation) ZCodeModel() string           { return "" }
 func (d testRuntimeMutation) ZCodeReasoningEffort() string { return "" }
 func (d testRuntimeMutation) GrokSettingsIdentity() string { return d.grokSettingsIdentity }
+func (d testRuntimeMutation) AgySettingsIdentity() string  { return d.agySettingsIdentity }
 func (d testRuntimeMutation) ProfileID() string {
 	if d.profileID != "" {
 		return d.profileID
@@ -432,6 +434,7 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 		applicationVersion: definition.ApplicationVersion(), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 		profileGeneration: definition.ProfileGeneration(), profileID: definition.ProfileID(), runtimeSafetyPolicyIdentity: definition.RuntimeSafetyPolicyIdentity(),
 		grokSettingsIdentity: definition.GrokSettingsIdentity(),
+		agySettingsIdentity:  definition.AgySettingsIdentity(),
 		baseArgv:             append([]string(nil), definition.BaseArgv()...),
 		transportChannel:     definition.TransportChannel(), transportArgvIndex: definition.TransportArgvIndex(),
 		transportReference: definition.TransportReference(), environment: append([]ports.EnvironmentVariable(nil), definition.Environment()...),

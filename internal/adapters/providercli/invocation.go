@@ -68,6 +68,12 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		return appendCodexProtocolServerArgv(baseArgv, definition.CodexModel(), definition.CodexReasoningEffort()), nil
 	case FamilyCursor:
 		return []string{definition.Executable(), "acp"}, nil
+	case FamilyAgy:
+		argv, err := agyProtocolArgv(definition, fixture.WorkspaceSnapshotIdentity().SnapshotPath())
+		if err != nil {
+			return nil, err
+		}
+		return append(argv, "--json-schema", agyCapabilitySchema), nil
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}
@@ -110,7 +116,7 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	baseArgv := definition.BaseArgv()
 	executable := definition.Executable()
 	switch definition.Family() {
-	case FamilyGrok, FamilyCodex, FamilyCursor:
+	case FamilyGrok, FamilyCodex, FamilyCursor, FamilyAgy:
 		if !reflect.DeepEqual(baseArgv, []string{executable}) {
 			return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
 		}

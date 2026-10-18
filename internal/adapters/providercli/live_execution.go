@@ -2,6 +2,7 @@ package providercli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -113,6 +114,8 @@ func liveReviewArgv(definition definition, execution ports.LiveReviewExecution, 
 	switch definition.family {
 	case FamilyZcode:
 		return appendZcodeProtocolServerArgv(base), nil
+	case FamilyAgy:
+		return agyProtocolArgv(RuntimeDefinition(definition), execution.Binding().Root.String())
 	case FamilyGrok:
 		tools := "read_file,Bash"
 		if extraction {
@@ -213,6 +216,40 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 	if err != nil {
 		return observation, nil, fail(err)
 	}
+	var agyProfile *agyInvocationProfile
+	agyAttempted := false
+	if definition.family == FamilyAgy {
+		concrete, ok := namespace.(*namespaceLease)
+		if !ok {
+			return observation, nil, fail(fmt.Errorf("missing AGY namespace authority"))
+		}
+		gemini, homeErr := concrete.agyProjectedGeminiHome()
+		if homeErr != nil {
+			return observation, nil, fail(homeErr)
+		}
+		plan, planErr := agyLiveReadPlan(ctx, execution, extraction)
+		if planErr != nil {
+			return observation, nil, fail(planErr)
+		}
+		codecVersion, codecErr := concrete.agyQualifiedCodec(RuntimeDefinition(definition))
+		if codecErr != nil {
+			return observation, nil, fail(codecErr)
+		}
+		agyProfile, err = installAgyInvocationProfile(gemini, plan, codecVersion)
+		if err != nil {
+			return observation, nil, fail(err)
+		}
+		defer func() {
+			if profileErr := concrete.finishAgyInvocation(agyProfile, observation, agyAttempted); profileErr != nil {
+				report = nil
+				err = errors.Join(err, fail(profileErr))
+			}
+		}()
+		argv, err = agyBindInvocationArgv(argv, gemini, agyProfile.agentName)
+		if err != nil {
+			return observation, nil, fail(err)
+		}
+	}
 	binding, err := ports.NewProtocolProviderPacketBinding(packet)
 	if err != nil {
 		return observation, nil, fail(err)
@@ -225,11 +262,20 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 	if err != nil {
 		return observation, nil, fail(err)
 	}
+	if agyProfile != nil {
+		configuration.agyAgentName = agyProfile.agentName
+		if !extraction {
+			configuration.agyLiveReads, err = newAgyLiveReadAuthority(ctx, execution)
+			if err != nil {
+				return observation, nil, fail(err)
+			}
+		}
+	}
 	purpose := protocolPurposeLiveReview
 	if extraction {
 		purpose = protocolPurposeLiveExtraction
 	}
-	if definition.family == FamilyGrok || definition.family == FamilyZcode || definition.family == FamilyCursor {
+	if definition.family == FamilyGrok || definition.family == FamilyZcode || definition.family == FamilyCursor || definition.family == FamilyAgy {
 		concrete, ok := namespace.(*namespaceLease)
 		if !ok {
 			return observation, nil, fail(fmt.Errorf("missing native namespace authority"))
@@ -301,6 +347,23 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 				return observation, nil, fail(err)
 			}
 		}
+		if definition.family == FamilyAgy {
+			sourceRoot, sourceErr := concrete.agyCredentialSourceRoot()
+			if sourceErr != nil {
+				return observation, nil, fail(sourceErr)
+			}
+			if err := cursorRejectContainedLaunch(execution.Binding().Root.String(), execution.ReviewerHome().Root().String(), concrete.root); err != nil {
+				return observation, nil, fail(err)
+			}
+			credentials := append(append([]ports.AnchoredRoot(nil), execution.CredentialRoots()...), sourceRoot)
+			boundary, err = ports.NewLiveReadOnlyBoundary(roots, credentials, writable)
+			if err == nil {
+				boundary, err = ports.NewLiveReadOnlyBoundaryWithOwnedPTY(boundary)
+			}
+			if err != nil {
+				return observation, nil, fail(err)
+			}
+		}
 		if definition.family == FamilyZcode {
 			runtimeTemp, runtimeErr := concrete.liveRuntimeTempRoot()
 			if runtimeErr != nil {
@@ -336,6 +399,7 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 		_ = launch.Close()
 		return observation, nil, fail(err)
 	}
+	agyAttempted = definition.family == FamilyAgy
 	return r.executeProtocolProviderProcess(ctx, definition, packet, request, purpose, nil, configuration)
 }
 

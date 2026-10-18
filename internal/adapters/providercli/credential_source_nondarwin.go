@@ -17,6 +17,7 @@ const (
 	CredentialSourceGrok   CredentialSourceFamily = "grok"
 	CredentialSourceCodex  CredentialSourceFamily = "codex"
 	CredentialSourceCursor CredentialSourceFamily = "cursor"
+	CredentialSourceAgy    CredentialSourceFamily = "agy"
 )
 
 // NewCredentialProjectingNamespaceFactory fails closed where descriptor-based

@@ -27,6 +27,7 @@ var runtimeSafetyPolicies = func() map[CredentialSourceFamily]RuntimeSafetyPolic
 		CredentialSourceGrok:   {family: CredentialSourceGrok, bytes: []byte("{\"family\":\"grok\",\"protocol\":\"acp-v1\",\"policy_scope\":\"isolated_namespace\"}\n")},
 		CredentialSourceCodex:  {family: CredentialSourceCodex, bytes: []byte("{\"family\":\"codex\",\"permissions\":{\"workspace\":\"read_only\",\"namespace\":\"deny\"}}\n")},
 		CredentialSourceCursor: {family: CredentialSourceCursor, bytes: []byte("{\"family\":\"cursor\",\"credential\":\"CURSOR_AUTH_TOKEN\",\"store\":\"memory\",\"rules\":false,\"skills\":false,\"mcp\":false}\n")},
+		CredentialSourceAgy:    {family: CredentialSourceAgy, bytes: []byte("{\"family\":\"agy\",\"protocol\":\"stream-json\",\"credential\":\"disposable-file-token\",\"permissions\":\"request-review\",\"agent_inheritance\":false,\"command_admission\":\"indexed-read-guard-with-fallback-deny-v1\"}\n")},
 	}
 	for family, policy := range values {
 		values[family] = runtimeSafetyPolicyWithIdentity(policy)
@@ -54,50 +55,51 @@ func RuntimeSafetyPolicyForFamilyAndWorkspaceRoot(family CredentialSourceFamily,
 }
 
 type currentProbeDirectExecutionRoleProof struct {
-	Family                     string `json:"family"`
-	ProviderInstance           string `json:"provider_instance"`
-	ProviderVersion            string `json:"provider_version"`
-	ObservedVersion            string `json:"observed_version"`
-	Executable                 string `json:"executable"`
-	ExecutableSHA256           string `json:"executable_sha256"`
-	Launcher                   string `json:"launcher"`
-	LauncherSHA256             string `json:"launcher_sha256"`
-	ApplicationVersion         string `json:"application_version,omitempty"`
-	ApplicationMetadata        string `json:"application_metadata,omitempty"`
-	ApplicationMetadataSHA256  string `json:"application_metadata_sha256,omitempty"`
-	ZCodeProviderConfig        string `json:"zcode_provider_config,omitempty"`
-	ZCodeProviderConfigSHA256  string `json:"zcode_provider_config_sha256,omitempty"`
-	ProfileID                  string `json:"profile_id"`
-	ProfileGeneration          string `json:"profile_generation"`
-	NamespaceGeneration        string `json:"namespace_generation"`
-	Role                       string `json:"role"`
-	SnapshotManifestSHA256     string `json:"snapshot_manifest_sha256"`
-	SnapshotName               string `json:"snapshot_name"`
-	SnapshotPath               string `json:"snapshot_path"`
-	SnapshotPolicyIdentity     string `json:"snapshot_policy_identity"`
-	SnapshotDevice             uint64 `json:"snapshot_device"`
-	SnapshotInode              uint64 `json:"snapshot_inode"`
-	RootDevice                 uint64 `json:"root_device"`
-	RootInode                  uint64 `json:"root_inode"`
-	ArgvSHA256                 string `json:"argv_sha256"`
-	NativeReference            string `json:"native_reference"`
-	OutputSHA256               string `json:"output_sha256"`
-	Termination                string `json:"termination"`
-	HasExitCode                bool   `json:"has_exit_code"`
-	ExitCode                   int    `json:"exit_code"`
-	HasSignal                  bool   `json:"has_signal"`
-	SignalNumber               int    `json:"signal_number"`
-	SignalName                 string `json:"signal_name"`
-	TransportChannel           string `json:"transport_channel"`
-	TransportPacketSHA256      string `json:"transport_packet_sha256"`
-	TransportPacketLength      int    `json:"transport_packet_length"`
-	TransportPreStartSHA256    string `json:"transport_pre_start_sha256"`
-	TransportPreStartLength    int    `json:"transport_pre_start_length"`
-	TransportPostEndSHA256     string `json:"transport_post_end_sha256"`
-	TransportPostEndLength     int    `json:"transport_post_end_length"`
-	TransportReference         string `json:"transport_reference"`
-	TransportSnapshotCWD       string `json:"transport_snapshot_cwd"`
-	EffectiveEnvironmentSHA256 string `json:"effective_environment_sha256"`
+	AgyCredentialSourceIdentity string `json:"agy_credential_source_identity,omitempty"`
+	Family                      string `json:"family"`
+	ProviderInstance            string `json:"provider_instance"`
+	ProviderVersion             string `json:"provider_version"`
+	ObservedVersion             string `json:"observed_version"`
+	Executable                  string `json:"executable"`
+	ExecutableSHA256            string `json:"executable_sha256"`
+	Launcher                    string `json:"launcher"`
+	LauncherSHA256              string `json:"launcher_sha256"`
+	ApplicationVersion          string `json:"application_version,omitempty"`
+	ApplicationMetadata         string `json:"application_metadata,omitempty"`
+	ApplicationMetadataSHA256   string `json:"application_metadata_sha256,omitempty"`
+	ZCodeProviderConfig         string `json:"zcode_provider_config,omitempty"`
+	ZCodeProviderConfigSHA256   string `json:"zcode_provider_config_sha256,omitempty"`
+	ProfileID                   string `json:"profile_id"`
+	ProfileGeneration           string `json:"profile_generation"`
+	NamespaceGeneration         string `json:"namespace_generation"`
+	Role                        string `json:"role"`
+	SnapshotManifestSHA256      string `json:"snapshot_manifest_sha256"`
+	SnapshotName                string `json:"snapshot_name"`
+	SnapshotPath                string `json:"snapshot_path"`
+	SnapshotPolicyIdentity      string `json:"snapshot_policy_identity"`
+	SnapshotDevice              uint64 `json:"snapshot_device"`
+	SnapshotInode               uint64 `json:"snapshot_inode"`
+	RootDevice                  uint64 `json:"root_device"`
+	RootInode                   uint64 `json:"root_inode"`
+	ArgvSHA256                  string `json:"argv_sha256"`
+	NativeReference             string `json:"native_reference"`
+	OutputSHA256                string `json:"output_sha256"`
+	Termination                 string `json:"termination"`
+	HasExitCode                 bool   `json:"has_exit_code"`
+	ExitCode                    int    `json:"exit_code"`
+	HasSignal                   bool   `json:"has_signal"`
+	SignalNumber                int    `json:"signal_number"`
+	SignalName                  string `json:"signal_name"`
+	TransportChannel            string `json:"transport_channel"`
+	TransportPacketSHA256       string `json:"transport_packet_sha256"`
+	TransportPacketLength       int    `json:"transport_packet_length"`
+	TransportPreStartSHA256     string `json:"transport_pre_start_sha256"`
+	TransportPreStartLength     int    `json:"transport_pre_start_length"`
+	TransportPostEndSHA256      string `json:"transport_post_end_sha256"`
+	TransportPostEndLength      int    `json:"transport_post_end_length"`
+	TransportReference          string `json:"transport_reference"`
+	TransportSnapshotCWD        string `json:"transport_snapshot_cwd"`
+	EffectiveEnvironmentSHA256  string `json:"effective_environment_sha256"`
 }
 
 type currentProbeDirectExecutionAuthorityContract struct {
@@ -230,6 +232,21 @@ func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, obser
 		!validRelativeNativeReference(fixture.Reference()) {
 		return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: invalid direct execution")
 	}
+	sourceIdentity := ""
+	if definition.Family() == FamilyAgy {
+		if !agyNaturalExitObservation(observation) {
+			return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("AGY capability did not exit naturally")
+		}
+		authority, ok := namespace.(interface{ agyCredentialIdentity() (string, error) })
+		if !ok {
+			return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("missing AGY credential identity")
+		}
+		var sourceErr error
+		sourceIdentity, sourceErr = authority.agyCredentialIdentity()
+		if sourceErr != nil {
+			return currentProbeDirectExecutionRoleProof{}, sourceErr
+		}
+	}
 	argvBytes, err := json.Marshal(argv)
 	if err != nil {
 		return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: argv")
@@ -239,7 +256,8 @@ func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, obser
 	rootDevice, rootInode := snapshot.RootIdentity()
 	snapshotDevice, snapshotInode := snapshot.SnapshotFSIdentity()
 	proof := currentProbeDirectExecutionRoleProof{
-		Family: definition.Family(), ProviderInstance: definition.Instance(), ProviderVersion: definition.Version(), ObservedVersion: observedVersion,
+		AgyCredentialSourceIdentity: sourceIdentity,
+		Family:                      definition.Family(), ProviderInstance: definition.Instance(), ProviderVersion: definition.Version(), ObservedVersion: observedVersion,
 		Executable: definition.Executable(), ExecutableSHA256: definition.ExecutableSHA256(), Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
 		ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 		ZCodeProviderConfig: definition.ZCodeProviderConfig(), ZCodeProviderConfigSHA256: definition.ZCodeProviderConfigSHA256(),
@@ -312,6 +330,9 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 			proof.OutputSHA256 == "" || proof.EffectiveEnvironmentSHA256 == "" || proof.Termination == "" ||
 			(index > 0 && proof.Role == canonical[index-1].Role) {
 			return "", fmt.Errorf("current probe direct-execution authority: invalid or replayed role proof")
+		}
+		if proof.Family == FamilyAgy && !validSHA256Identity(proof.AgyCredentialSourceIdentity) {
+			return "", fmt.Errorf("missing AGY source identity")
 		}
 		if proof.Family == FamilyZcode {
 			if !validCanonicalAbsolute(proof.ZCodeProviderConfig) || !validSHA256Identity(proof.ZCodeProviderConfigSHA256) ||

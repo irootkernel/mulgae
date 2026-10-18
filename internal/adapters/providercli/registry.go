@@ -4,6 +4,7 @@ package providercli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -24,6 +26,7 @@ const (
 	FamilyGrok   = "grok"
 	FamilyCodex  = "codex"
 	FamilyCursor = "cursor"
+	FamilyAgy    = "agy"
 )
 
 var errProviderOutputFrameMissing = errors.New("provider output frame missing")
@@ -104,6 +107,9 @@ type RuntimeDefinition struct {
 	grokModel                                               string
 	grokReasoningEffort                                     string
 	grokSettingsIdentity                                    string
+	agyModel                                                string
+	agyReasoningEffort                                      string
+	agySettingsIdentity                                     string
 	profileID                                               string
 	baseArgv                                                []string
 	transport                                               RuntimeTransport
@@ -164,6 +170,9 @@ func NewRuntimeDefinitionWithTransport(
 	}
 	if family == FamilyGrok {
 		definition.grokSettingsIdentity = grokSettingsIdentity("", "")
+	}
+	if family == FamilyAgy {
+		definition.agySettingsIdentity = agySettingsIdentity("", "")
 	}
 	if err := definition.validate(); err != nil {
 		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
@@ -297,6 +306,9 @@ func (d RuntimeDefinition) CodexReasoningEffort() string { return d.codexReasoni
 func (d RuntimeDefinition) GrokModel() string            { return d.grokModel }
 func (d RuntimeDefinition) GrokReasoningEffort() string  { return d.grokReasoningEffort }
 func (d RuntimeDefinition) GrokSettingsIdentity() string { return d.grokSettingsIdentity }
+func (d RuntimeDefinition) AgyModel() string             { return d.agyModel }
+func (d RuntimeDefinition) AgyReasoningEffort() string   { return d.agyReasoningEffort }
+func (d RuntimeDefinition) AgySettingsIdentity() string  { return d.agySettingsIdentity }
 func (d RuntimeDefinition) Transport() RuntimeTransport  { return d.transport }
 func (d RuntimeDefinition) BaseArgv() []string           { return append([]string(nil), d.baseArgv...) }
 func (d RuntimeDefinition) Environment() []ports.EnvironmentVariable {
@@ -394,6 +406,14 @@ func (d RuntimeDefinition) validate() error {
 	if d.family == FamilyGrok {
 		if !validGrokSettings(d.grokModel, d.grokReasoningEffort) || d.grokSettingsIdentity != grokSettingsIdentity(d.grokModel, d.grokReasoningEffort) {
 			return fmt.Errorf("invalid Grok settings")
+		}
+	}
+	if d.family != FamilyAgy && (d.agyModel != "" || d.agyReasoningEffort != "" || d.agySettingsIdentity != "") {
+		return fmt.Errorf("AGY settings are bound to another family")
+	}
+	if d.family == FamilyAgy {
+		if !validAgySettings(d.agyModel, d.agyReasoningEffort) || d.agySettingsIdentity != agySettingsIdentity(d.agyModel, d.agyReasoningEffort) {
+			return fmt.Errorf("invalid AGY settings")
 		}
 	}
 	authority, authorityErr := adapterAuthorityForFamily(d.family)
@@ -524,6 +544,147 @@ func (namespace retainedQualificationNamespace) cursorDataDirectory() (string, e
 		return "", fmt.Errorf("missing cursor data directory")
 	}
 	return lease.cursorDataDirectory()
+}
+
+func (namespace retainedQualificationNamespace) recordAgyQualification(definition RuntimeDefinition, version string) error {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil {
+		return fmt.Errorf("missing AGY namespace")
+	}
+	identity, err := currentProbeRuntimeDefinitionIdentity(definition)
+	if err != nil {
+		return err
+	}
+	lease.seedMu.Lock()
+	defer lease.seedMu.Unlock()
+	lease.agyQualifiedVersion, lease.agyQualifiedRuntime = version, identity
+	return nil
+}
+
+func (lease *namespaceLease) agyQualifiedCodec(definition RuntimeDefinition) (string, error) {
+	identity, err := currentProbeRuntimeDefinitionIdentity(definition)
+	if err != nil {
+		return "", err
+	}
+	lease.seedMu.RLock()
+	defer lease.seedMu.RUnlock()
+	if lease.agyQualifiedVersion == "" || identity != lease.agyQualifiedRuntime {
+		return "", fmt.Errorf("AGY runtime lacks current qualification")
+	}
+	return lease.agyQualifiedVersion, nil
+}
+
+func (namespace retainedQualificationNamespace) agyCredentialIdentity() (string, error) {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil {
+		return "", fmt.Errorf("missing AGY credential authority")
+	}
+	if err := lease.ValidateForSpawn(); err != nil {
+		return "", err
+	}
+	lease.seedMu.RLock()
+	defer lease.seedMu.RUnlock()
+	seed, ok := lease.seeds[ports.CredentialProjectionAgyToken]
+	if !ok || seed.sourceInfo == nil {
+		return "", fmt.Errorf("missing AGY credential seed")
+	}
+	// Selection, source content and namespace generation are independently bound.
+	stat, ok := seed.sourceInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("missing AGY source metadata")
+	}
+	identity := fmt.Sprintf("Mulgae-AGY-CREDENTIAL/1\x00%s\x00%s\x00%d\x00%d\x00%d", seed.sourcePath, seed.sourceSHA256, stat.Dev, stat.Ino, stat.Uid)
+	sum := sha256.Sum256([]byte(identity))
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func (namespace retainedQualificationNamespace) agyProjectedGeminiHome() (string, error) {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil {
+		return "", fmt.Errorf("missing AGY namespace")
+	}
+	return lease.agyProjectedGeminiHome()
+}
+
+func (namespace retainedQualificationNamespace) finishAgyInvocation(profile *agyInvocationProfile, observation ports.ProcessObservation, attempted bool) error {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil {
+		return fmt.Errorf("missing AGY namespace")
+	}
+	return lease.finishAgyInvocation(profile, observation, attempted)
+}
+
+// agyQualificationBinding returns the read-only boundary and neutral launch
+// cwd for one AGY capability probe. The materialized fixture and the neutral
+// namespace scratch directory stay read-only, the original AGY credential home plus every
+// other available original operator credential directory stay denied, the
+// namespace stays writable, and the boundary opts into the owned-PTY
+// capability AGY's native launcher requires.
+func (namespace retainedQualificationNamespace) agyQualificationBinding(source ports.AnchoredRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, error) {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil || !source.Valid() {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("agy qualification: missing namespace")
+	}
+	// Keep the read-only cwd separate from home/.gemini: native cache,
+	// settings and token refresh must remain writable inside the namespace.
+	neutral, err := ports.NewAnchoredRoot(filepath.Join(lease.root, "scratch"))
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	writable, err := ports.NewAnchoredRoot(lease.root)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	credentialSource, err := lease.agyCredentialSourceRoot()
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	synthetic, err := ports.NewAnchoredRoot(filepath.Join(lease.root, "auth"))
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	if err := cursorRejectContainedLaunch(source.String(), neutral.String()); err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("agy qualification: %w", err)
+	}
+	extras, err := agyQualificationCredentialExtras(filepath.Dir(lease.agySourceHome), source.String())
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	extras = append(extras, lease.agyConfiguredRoots...)
+	credentials, err := cursorBoundaryCredentials([]ports.AnchoredRoot{credentialSource, synthetic}, synthetic.String(), extras)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	boundary, err := ports.NewLiveReadOnlyBoundary([]ports.AnchoredRoot{source, neutral}, credentials, writable)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	boundary, err = ports.NewLiveReadOnlyBoundaryWithOwnedPTY(boundary)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
+	return boundary, neutral, nil
+}
+
+// agyQualificationCredentialExtras derives the fixed original operator
+// credential directories that must stay denied during qualification. Only
+// directory metadata of these well-known names is checked; no alternative AGY
+// token is scanned, imported, or selected.
+func agyQualificationCredentialExtras(operatorHome, source string) ([]string, error) {
+	if !validCanonicalAbsolute(operatorHome) || operatorHome == string(filepath.Separator) {
+		return nil, fmt.Errorf("agy qualification: missing operator home")
+	}
+	if err := cursorRejectRuntimeHomeExposure(operatorHome, source); err != nil {
+		return nil, fmt.Errorf("agy qualification: %w", err)
+	}
+	if cursorPathContains(source, operatorHome) {
+		return nil, fmt.Errorf("agy qualification: source contains the operator home")
+	}
+	extras := []string{filepath.Join(operatorHome, ".gemini")}
+	for _, relative := range []string{".codex", ".grok", ".zcode", ".cursor", filepath.Join(".config", "cursor")} {
+		extras = append(extras, filepath.Join(operatorHome, relative))
+	}
+	return extras, nil
 }
 
 func (namespace retainedQualificationNamespace) cursorLaunchBoundary(source ports.AnchoredRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, error) {
@@ -1138,7 +1299,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	// the same one the staged-success validation and the direct-execution
 	// role proof apply, so the layers cannot drift apart.
 	protocolConversationSucceeded := definition.transport.channel == ports.ProviderPacketChannelProtocol &&
-		processObservation.ProtocolConversationCompleted()
+		(definition.family != FamilyAgy && processObservation.ProtocolConversationCompleted())
 	if processObservation.Succeeded() || protocolConversationSucceeded {
 		if staging != nil {
 			// The workspace guard has already revalidated at this point, so the
@@ -1428,6 +1589,9 @@ func (r *Registry) executeProtocolProviderProcess(ctx context.Context, definitio
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}
 	observation, err := conversationRunner.Converse(ctx, request, session)
+	if err == nil && definition.family == FamilyAgy && !agyNaturalExitObservation(observation) {
+		err = providerRuntimeFailure(domain.DiagnosticCauseProviderExecutionFailed, fmt.Errorf("AGY did not exit naturally"))
+	}
 	evidence := session.AssistantEvidenceText()
 	if cleanupErr := releaseProtocolTranscript(observation); cleanupErr != nil {
 		err = errors.Join(err, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid,
@@ -1735,7 +1899,7 @@ func isolatedProcessEnvironmentWithCursorData(
 		if _, reserved := owned[variable.Name()]; reserved || unsafeNamespaceEnvironmentName(variable.Name()) {
 			continue
 		}
-		if family == FamilyCursor && !cursorLaunchEnvironmentName(variable.Name()) {
+		if (family == FamilyCursor && !cursorLaunchEnvironmentName(variable.Name())) || (family == FamilyAgy && variable.Name() != "PATH" && variable.Name() != "PAGER" && !strings.HasPrefix(variable.Name(), "GIT_")) {
 			continue
 		}
 		environment = append(environment, variable)
@@ -1767,6 +1931,16 @@ func isolatedProcessEnvironmentWithCursorData(
 			return nil, fmt.Errorf("provider registry: invalid Grok home")
 		}
 		environment = append(environment, grokHome)
+	}
+	if family == FamilyAgy {
+		// File-token authentication requires bypassing the shared macOS
+		// Keychain: SSH_TTY selects the native file token storage, and
+		// /dev/null keeps it selected without granting a terminal.
+		sshTTY, err := ports.NewEnvironmentVariable("SSH_TTY", "/dev/null")
+		if err != nil {
+			return nil, fmt.Errorf("provider registry: invalid AGY token store")
+		}
+		environment = append(environment, sshTTY)
 	}
 	if family == FamilyCursor {
 		store, err := ports.NewEnvironmentVariable("AGENT_CLI_CREDENTIAL_STORE", "memory")
@@ -1970,6 +2144,12 @@ func buildArgvForPurpose(definition definition, workingDirectory string, packet 
 		return appendCodexProtocolServerArgv(argv, definition.codexModel, definition.codexReasoningEffort), nil
 	case FamilyCursor:
 		return []string{definition.executable, "acp"}, nil
+	case FamilyAgy:
+		// The AGY argv is bound to one invocation profile (projected Gemini
+		// home plus app-owned agent) installed by the live-source and
+		// qualification flows. Snapshot and legacy routes fail closed instead
+		// of constructing an unbound launch.
+		return nil, fmt.Errorf("agy protocol requires invocation-bound namespace authority")
 	default:
 		return nil, fmt.Errorf("unknown provider family")
 	}
@@ -1992,6 +2172,8 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("codex protocol transport delivers no report on raw stdout"))
 	case FamilyCursor:
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("cursor protocol transport delivers no report on stdout"))
+	case FamilyAgy:
+		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("agy protocol transport delivers no report on stdout"))
 	default:
 		return nil, false, newProviderOutputFailure(domain.DiagnosticCauseResultBindingFailed, fmt.Errorf("unknown provider family"))
 	}
@@ -2096,6 +2278,13 @@ func nativeProviderOutcome(
 		// has authority to classify a native failure.
 		output = errorOutput
 		loginRequired = providerLoginRequired(errorOutput)
+	case FamilyAgy:
+		// Stream-json stdout is the protocol transcript, so only stderr has
+		// authority to classify a native failure, notably the bounded
+		// authentication rejection of an unusable projected token.
+		output = errorOutput
+		loginRequired = providerLoginRequired(errorOutput) ||
+			errorContainsAny("authentication required", "authentication failed")
 	default:
 		return "", "", "", false
 	}
@@ -2294,7 +2483,7 @@ func validPromptFileReference(value string) bool {
 }
 
 func validFamily(value string) bool {
-	return value == FamilyZcode || value == FamilyGrok || value == FamilyCodex || value == FamilyCursor
+	return value == FamilyZcode || value == FamilyGrok || value == FamilyCodex || value == FamilyCursor || value == FamilyAgy
 }
 
 func nilSpawnVerifier(verifier SpawnVerifier) bool {
@@ -2360,6 +2549,8 @@ func supportedFamilyOrder(family string) int {
 		return 2
 	case FamilyCursor:
 		return 3
+	case FamilyAgy:
+		return 4
 	default:
 		return -1
 	}

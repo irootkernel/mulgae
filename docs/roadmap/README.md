@@ -564,9 +564,12 @@ Depends on: completed EPIC-009. No EPIC-008 or EPIC-010 dependency.
 Execution scope: implement and verify one AGY account first. Multiple-account
 configuration and validation are deferred to the
 [AGY multiple-account candidate](../todo/agy-multiple-accounts.md). TASK-043 is
-completed under Main's delegated acceptance. TASK-044 and TASK-045 remain planned.
+completed under Main's delegated acceptance. TASK-044 is also completed: its six
+current-binary controls, repository checks and independent result reviews pass.
+Main accepted the internal adapter under Master's delegation. TASK-045 remains
+planned.
 
-Installed AGY `1.4.0` passes neutral-cwd workspace/Git reads, complete stdin,
+TASK-043 verified AGY `1.4.0` neutral-cwd workspace/Git reads, complete stdin,
 natural exit `0`, no signals and process-group absence. Separate native
 workspace/Git writes and protected credential reads are denied. Empty file-token
 authentication rejects before `init` or a user frame; original credentials and
@@ -584,11 +587,20 @@ Those denial-terminated turns have empty responses and remain invalid reviews;
 their failed response-nonce criterion is preserved separately from assessment
 of configuration and native denial evidence.
 
+The installed CLI is now `1.4.2`. TASK-044's current-version matched controls
+verify guarded Git reads, source-plugin MCP suppression and canonical-command
+translation. Separate appended-operand, numeric-fallback and bare-command
+controls receive native pre-execution denials. Both selected positives keep all
+six instruction canaries absent across every retained carrier. Source, original
+credentials and fixtures stay intact; verified namespace cleanup succeeds. One
+earlier startup discriminator was inconclusive before user input and remains
+separate from these six passing controls. All use the one default account.
+
 The shared recovery adds opt-in owned PTYs, stdin half-close/drain and child-only
 inherited-descriptor sanitization. Existing teardown grace stays `150ms`.
-Focused race, unit, integration, release-binary and static checks pass. The full
-`make test` gate stops at eight reported Go `1.27.1` standard-library
-vulnerabilities; Master reserved toolchain upgrades and no waiver was made.
+TASK-043 focused race, unit, integration, release-binary and static checks
+passed. Its full `make test` gate stopped at eight Go `1.27.1` standard-library
+vulnerability findings; Master reserved toolchain upgrades and no waiver was made.
 That gate still blocks whole-Epic readiness. The Judge and two independent
 Workers passed TASK-043; Main accepted its bounded result under Master's delegation.
 Workers are `opencode / GLM 5.3 / max`; the Judge is
@@ -622,7 +634,7 @@ remains ZCode, Grok, and Codex until TASK-045 publishes the route.
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
 | TASK-043 | Completed | Add the reviewed opt-in owned-PTY and exchange half-close prerequisites; pin the installed `agy` (`1.2.9+`) `stream-json` wire and prove neutral-cwd workspace/Git reads, Seatbelt write and credential denial, visible `step_update` tool identity, and `--gemini_dir` + `SSH_TTY` file-token isolation for one account. Stop the epic if any in-scope check fails. | Installed `1.4.0` passes the tested wire/read/lifecycle, write/credential-denial, instruction and source-plugin MCP checks under one-account file authentication. The bounded refresh-confinement evidence is accepted; no live refresh is claimed. The Judge and two independent Workers passed the final result; Main accepted it under Master's delegation. |
-| TASK-044 | Planned | Add the `FamilyAgy` `stream-json` protocol driver (`agy_protocol.go`), Seatbelt live execution, disposable `--gemini_dir` binding for the default account, model/effort flags, and qualification behind the existing protocol runner. Leave public schemas and default role routing unchanged. | Scripted `stream-json` success and failure (`init`, `step_update`, `result`, `denied_actions`, disallowed tools), qualification partitioning across model/effort and source identity, and unchanged ZCode, Grok, and Codex regressions. |
+| TASK-044 | Completed | Add the `FamilyAgy` `stream-json` protocol driver (`agy_protocol.go`), Seatbelt live execution, disposable `--gemini_dir` binding for the default account, model/effort flags, and qualification behind the existing protocol runner. Leave public schemas and default role routing unchanged. | Scripted wire, policy, credential and qualification tests, six installed-CLI controls, unit, integration, release-binary and static checks pass. The Judge and two independent Workers passed the result; Main accepted the internal adapter under Master's delegation. |
 | TASK-045 | Planned | Publish single-account `agy` across `init`, `config` (`model`, `reasoning_effort`, `timeout`, local `executable`), `assets/roles.yaml` (`documentation` primary default = `agy`), CLI, MCP, versioned schemas, help, contracts, security, portfolio ADR, and transport ADR. | Generator idempotence, configuration and role-assignment tests, one exact-binary single-account `agy` review, and the complete `make test` gate. |
 
 TASK-043 is the provider feasibility prerequisite. A failed probe blocks

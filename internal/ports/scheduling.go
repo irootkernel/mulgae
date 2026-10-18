@@ -85,11 +85,12 @@ type CredentialProjectionDestination string
 const (
 	CredentialProjectionGrokAuth  CredentialProjectionDestination = "grok_auth"
 	CredentialProjectionCodexAuth CredentialProjectionDestination = "codex_auth"
+	CredentialProjectionAgyToken  CredentialProjectionDestination = "agy_token"
 )
 
 func (destination CredentialProjectionDestination) Valid() bool {
 	switch destination {
-	case CredentialProjectionGrokAuth, CredentialProjectionCodexAuth:
+	case CredentialProjectionGrokAuth, CredentialProjectionCodexAuth, CredentialProjectionAgyToken:
 		return true
 	default:
 		return false

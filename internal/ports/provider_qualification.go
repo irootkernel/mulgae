@@ -28,6 +28,7 @@ type ProviderRuntimeDefinition interface {
 	ZCodeModel() string
 	ZCodeReasoningEffort() string
 	GrokSettingsIdentity() string
+	AgySettingsIdentity() string
 	ProfileID() string
 	BaseArgv() []string
 	Environment() []EnvironmentVariable
@@ -64,6 +65,8 @@ type ProviderRuntimeSpec struct {
 	CodexReasoningEffort        string
 	GrokModel                   string
 	GrokReasoningEffort         string
+	AgyModel                    string
+	AgyReasoningEffort          string
 	BaseArgv                    []string
 	TransportChannel            ProviderPacketChannel
 	TransportArgvIndex          int

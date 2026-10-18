@@ -483,7 +483,7 @@ func TestCurrentProbeReleasesProtocolTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	argv := appendCodexProtocolServerArgv(definition.BaseArgv(), "", "")
-	if _, _, err := probe.runBound(context.Background(), definition, currentProbeNamespace{instance: "codex_current"}, fixture, argv, nil, time.Second, &packet); err != nil {
+	if _, _, _, err := probe.runBound(context.Background(), definition, currentProbeNamespace{instance: "codex_current"}, fixture, argv, nil, time.Second, &packet, ""); err != nil {
 		t.Fatal(err)
 	}
 	if lease.closes != 1 {

@@ -9,10 +9,12 @@ tasks start. A failed check stops the epic.
 
 The original planning baseline was Antigravity CLI (`agy` `1.2.9`) and its
 embedded `printmode` and `steps` stream-JSON contracts. TASK-043 preflight
-observes installed version `1.4.0`. The final single-account native profile demonstrates workspace/Git reads,
+observed version `1.4.0`. That single-account native profile demonstrated workspace/Git reads,
 natural exit, tested credential denials and instruction/plugin isolation.
 The Judge and two independent Workers passed the final Task result review;
-Main accepted TASK-043 under Master's delegation. The declared minimum version remains `1.2.9`.
+Main accepted TASK-043 under Master's delegation. The declared minimum version
+remains `1.2.9`. During TASK-044, the installed CLI changed to `1.4.2`; its
+current-binary controls are recorded separately below.
 
 ## Goal and scope
 
@@ -112,9 +114,9 @@ plugin configuration remain untrusted source data.
 The outer `NewLiveReadOnlyBoundary` owns filesystem restrictions; native tool
 permissions protect the writable projected token from model tools. The plan
 flag is not read-only enforcement when slash-command expansion is disabled.
-This boundary claims no general network or IPC containment. The tested native
-profile must be preserved by TASK-044; the runtime AGY adapter is not yet
-implemented.
+This boundary claims no general network or IPC containment. TASK-044 implements
+the tested native profile internally; TASK-045 owns its public route and
+real-provider certification.
 
 In addition to Seatbelt enforcement, the protocol driver fails the turn closed
 if any `step_update` frame reports a disallowed tool (`write_to_file`,
@@ -323,6 +325,131 @@ Non-`EBADF` descriptor-error injection remains untested; inspection confirms
 that such errors stop execution. No whole-Epic, release-ready or installed
 AGY capability claim follows from these Task-scoped results.
 
+## TASK-044 internal adapter
+
+The internal adapter now implements the pinned profile. Public configuration,
+CLI/MCP selection, schemas and default role routing remain TASK-045 work.
+
+The driver accepts one authenticated session and one correlated final result.
+It checks the native agent and permission mode before sending the prompt,
+correlates tool identity, operands and completion, and returns report text only
+after stdin half-close and clean stdout EOF. The registry separately requires
+natural exit zero, complete input, no signals and process-group absence. A
+successful app-server teardown receipt cannot satisfy AGY's natural-exit rule.
+
+Each invocation authors settings, an explicit two-tool agent and an empty global
+MCP configuration through retained private directory descriptors. Auditing
+rejects changed policy, agent content, file ownership, links or parent identity;
+cleanup unlinks only files created by that installation. An unverified process
+drain preserves the protection files and namespace, rejects reuse, and prevents
+a successful terminal cleanup receipt. Authentication may refresh the
+disposable token, without changing its original source. Source revalidation
+checks ownership and the single-link requirement as well as identity and content.
+
+Qualification stays prompt-bound and tool-denied. Its final JSON must bind the
+fixture's root, link and role. The proof hashes the final namespace-bound argv
+and binds the admitted default credential source. The observed CLI version and
+exact runtime identity authorize later codec comparison. The explicitly
+inspected `1.4.0` and `1.4.2` codecs may omit the two established defaults.
+Other omissions fail closed; the version floor does not certify an untested
+intermediate or future codec.
+AGY qualification is not shared across independently seeded namespaces. Model,
+effort, executable or source changes invalidate the applicable authority.
+Its read-only cwd uses the namespace's separate scratch directory, so the
+projected Gemini home remains writable. The plain version probe uses the
+one-shot runner's successful exit; stream conversations additionally require
+their explicit lifecycle receipt.
+
+Scripted tests cover wire rejection, profile drift and rollback, token admission,
+qualification and live review/extraction request composition. These tests do not
+replace TASK-045's exact-binary review with the real single-account provider.
+An actual process-runner test separately verifies that the qualification
+boundary permits disposable token writes while denying source and neutral-cwd
+writes and original credential reads. This fixture uses synthetic credentials.
+Explicit model/effort selection with this profile has not yet been certified by
+a live review.
+
+Independent result review found that native `command(...)` grants use token
+prefix matching for ordinary POSIX Git reads. Additional safe arguments and
+compounds composed of covered commands can pass; equivalent quoting can also
+match. The driver's byte-exact check runs after native execution and therefore
+does not prove prevention. Main accepted the Judge's rework finding. A fixed
+`LC_ALL=C` assignment does not change that selector and was rejected as a
+correction without being implemented. An indexed assignment alone was also
+rejected because its tokenized grant admits a separate numeric fallback.
+
+AGY translates each app-owned Git read into
+`MULGAE_READ_GUARD[1]=1 <native_git_command>` inside the AGY adapter and adds
+`command(1)` to the native deny list whenever command reads exist. The
+inspected native matcher compares indexed-assignment requests as raw commands;
+its alternate tokenized grant begins with `1`, which the deny blocks before
+allows and hardcoded allowances. Native raw comparison trims surrounding
+whitespace; the driver's completed-operation map remains byte-exact. Policy,
+agent instructions and driver authority use the same guard. Shared read plans,
+packets and other providers' commands are unchanged.
+
+Command-bearing profiles accept only the established `1.4.0` and `1.4.2`
+codecs, bound to the qualified runtime and executable identity. Other command
+codecs fail before prompt/tool execution, including uninspected `1.4.1`.
+Command-free profiles retain explicit-policy validation, and the `1.2.9`
+admission floor stays unchanged. The safety-policy identity changed to
+invalidate earlier qualification authority.
+
+### Current `1.4.2` native controls
+
+The installed binary is `1.4.2`, SHA-256
+`74935642426b5bb1fcf07a5555f847c478f4517dd002c72b9c98159cb773b932`.
+The earlier `1.4.0` observations remain historical. Rebuilt current-binary
+inspection confirmed the matching, deny precedence, sparse defaults and
+`SSH_TTY` file-mode paths. Its Markdown parser instruction sequence changed,
+so static inspection alone did not establish effective profile isolation.
+
+One authenticated startup control reached `init` but found no MCP journal in
+its immediate pre-user snapshot. It sent no user frame and stopped. That
+inconclusive result establishes no general startup-order rule or suppression
+claim. The reviewed replacement used identical positive prompt bytes instead.
+
+Six authenticated controls then passed using one immutable synthetic
+source/plugin fixture and fresh disposable namespaces for the default account:
+
+| Control | Observed result |
+|---|---|
+| Default-agent positive | The explicit guarded Git read returned its hidden marker. The source MCP sentinel completed initialize, tools/list and EOF. The response, input and process lifecycle completed naturally. This is a control observation, not a qualified review. |
+| Selected-agent matched positive | The production driver received exactly the same user prompt and completed the same guarded read. The sentinel did not launch at init, during the turn or after verified drain. |
+| Canonical read-plan positive | The production prompt supplied only the original bare `native_git_command`. The selected agent issued the guarded command and returned the hidden source marker through the unmodified driver. |
+| Appended safe operand | The exact extended command received a native pre-execution permission denial. |
+| Numeric fallback | `1 1 git ...` received a native pre-execution permission denial, not command-not-found. |
+| Guard omitted | The bare Git command received a native pre-execution permission denial. |
+
+Both selected positives had zero occurrences of all six undisclosed instruction
+canaries across response, frames, stdout, stderr, native log and ANSI carriers.
+Their native agent/mode acknowledgements and policy/agent/MCP audits passed.
+All positive turns completed input, half-close and EOF with natural exit zero,
+no signals and process-group absence. The negatives returned no accepted
+report. Original credentials, source/Git metadata, canaries and plugin files
+stayed intact; namespaces were removed only after verified drain. The single
+inconclusive control plus six passing controls consumed seven authenticated
+invocations, without automatic retries.
+
+The matched pair uses a test-only baseline driver and the production selected
+driver. The result applies to that fixture/profile and exact binary; individual
+native flags were not tested separately. The tests' diagnostic
+`--log-file` argument preserves the original request's executable, environment,
+packet binding, timeout, launch descriptor and filesystem/PTY authority.
+In-memory codec selection in these controls issues no production qualification
+certificate. TASK-045 still owns public qualification and the exact
+release-binary review. No process-wide Keychain tracing, live refresh, forced
+refresh, general network/IPC isolation or second-account validation is claimed.
+
+Focused race checks and the offline sentinel/request-authority/baseline-admission
+checks pass. Repository unit, integration and release-binary checks also pass,
+along with lint, vet, architecture tests and vet with the live-provider tag.
+The Judge and two independent Workers passed the actual implementation and
+final check evidence. Main accepted TASK-044 under Master's delegation.
+TASK-045 retains public integration and exact release-binary AGY certification.
+The prior full `make test` failed at the fixed Go `1.27.1` standard-library
+vulnerability check, with no waiver. Whole-Epic readiness remains blocked.
+
 ## Intended owners
 
 | Owner | Responsibility |
@@ -330,7 +457,7 @@ AGY capability claim follows from these Task-scoped results.
 | `internal/adapters/providercli/agy_protocol.go` | `stream-json` session order (`init`, `user`, `step_update`, `result`), tool-audit rejection, and report extraction. |
 | `internal/adapters/providercli/protocol_dispatch.go` | Register the adapter-owned `FamilyAgy` across all protocol purposes. |
 | `internal/adapters/providercli/live_execution.go` & `qualifier.go` | Seatbelt launch, neutral-cwd execution, `--gemini_dir` + `SSH_TTY=/dev/null` binding, and qualification probes. |
-| `internal/app/config` & `internal/adapters/yamlconfig` | Single-account `AgyProviderConfig` (`executable`, `model`, `reasoning_effort`, `timeout`). |
+| `internal/app/config` & `internal/adapters/config` | Single-account `AgyProviderConfig` (`executable`, `model`, `reasoning_effort`, `timeout`). |
 | `assets/roles.yaml`, schemas, help, and contributor specs | TASK-045 only. TASK-044 leaves public schemas and default role routing unchanged. |
 
 ## Non-goals

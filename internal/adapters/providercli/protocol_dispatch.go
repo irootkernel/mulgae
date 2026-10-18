@@ -46,6 +46,9 @@ type protocolSessionConfiguration struct {
 	grokSettings    grokInvocationSettings
 	grokLiveReads   *grokLiveReadAuthority
 	cursorLiveReads *cursorLiveReadAuthority
+	agySettings     agyInvocationSettings
+	agyLiveReads    *agyLiveReadAuthority
+	agyAgentName    string
 }
 
 type zcodeAccountRuntimeAuthority interface {
@@ -57,6 +60,13 @@ func protocolConfigurationForNamespace(definition RuntimeDefinition, namespace a
 		grokSettings: grokInvocationSettings{
 			model: definition.grokModel, reasoningEffort: definition.grokReasoningEffort,
 		},
+	}
+	if definition.family == FamilyAgy {
+		settings, err := newAgyInvocationSettings(definition.agyModel, definition.agyReasoningEffort)
+		if err != nil {
+			return protocolSessionConfiguration{}, err
+		}
+		configuration.agySettings = settings
 	}
 	if definition.family != FamilyZcode {
 		return configuration, nil
@@ -138,6 +148,12 @@ func (cursorACPProtocolDriverConstructor) NewSession(workspacePath string, promp
 	return newCursorACPProtocolSession(workspacePath, prompt, purpose, configuration.cursorLiveReads)
 }
 
+type agyProtocolDriverConstructor struct{}
+
+func (agyProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
+	return newAgyProtocolSession(workspacePath, prompt, purpose, writeAuthority, configuration)
+}
+
 type codexProtocolDriverConstructor struct{}
 
 func (codexProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, _ protocolSessionConfiguration) (providerProtocolSession, error) {
@@ -163,6 +179,8 @@ func adapterAuthorityForFamily(family string) (providerAdapterAuthority, error) 
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: codexProtocolDriverConstructor{}}, nil
 	case FamilyCursor:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: cursorACPProtocolDriverConstructor{}}, nil
+	case FamilyAgy:
+		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: agyProtocolDriverConstructor{}}, nil
 	default:
 		return providerAdapterAuthority{}, fmt.Errorf("unsupported family")
 	}

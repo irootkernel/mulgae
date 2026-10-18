@@ -131,6 +131,8 @@ func credentialDestination(destination ports.CredentialProjectionDestination) (s
 		return "home/.grok/auth.json", true
 	case ports.CredentialProjectionCodexAuth:
 		return "home/.codex/auth.json", true
+	case ports.CredentialProjectionAgyToken:
+		return "home/.gemini/antigravity-cli/antigravity-oauth-token", true
 	default:
 		return "", false
 	}
@@ -423,4 +425,32 @@ func zeroBytes(bytes []byte) {
 	for index := range bytes {
 		bytes[index] = 0
 	}
+}
+
+func openAbsoluteDirectory(path string) (*os.File, error) {
+	rootFD, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	current := os.NewFile(uintptr(rootFD), "runtime-root")
+	for _, component := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+		if component == "" {
+			continue
+		}
+		next, openErr := openDirectoryAt(current, component)
+		_ = current.Close()
+		if openErr != nil {
+			return nil, openErr
+		}
+		current = next
+	}
+	return current, nil
+}
+
+func openDirectoryAt(parent *os.File, component string) (*os.File, error) {
+	fd, err := unix.Openat(int(parent.Fd()), component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), "credential-directory"), nil
 }

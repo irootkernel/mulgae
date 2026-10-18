@@ -197,6 +197,9 @@ func DeriveEquivalentRouteDirectExecutionAuthority(
 	if !sourceReceipt.Matches(sourceRuntime, observedVersion, sourceNamespaceGeneration, sourceProvedRoles) {
 		return nil, fmt.Errorf("equivalent route authority: source authority does not match source runtime")
 	}
+	if sourceRuntime.Family() == FamilyAgy && sourceNamespaceGeneration != destinationNamespaceGeneration {
+		return nil, fmt.Errorf("AGY source authority cannot cross namespaces")
+	}
 	if !equivalentFamilyRuntimeProfiles(sourceRuntime, destinationRuntime) {
 		return nil, fmt.Errorf("equivalent route authority: family runtime profiles are not shareable")
 	}
@@ -279,7 +282,13 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.TransportReference() != right.TransportReference() {
 		return false
 	}
+	if left.agySettingsIdentity != right.agySettingsIdentity {
+		return false
+	}
 	if left.grokModel != right.grokModel || left.grokReasoningEffort != right.grokReasoningEffort || left.grokSettingsIdentity != right.grokSettingsIdentity {
+		return false
+	}
+	if left.Family() == FamilyAgy && left.Instance() != right.Instance() {
 		return false
 	}
 	if left.Family() == FamilyCodex {
@@ -367,6 +376,19 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 			result = CurrentProbeResult{}
 			retErr = errors.Join(probeFailure("diagnostics", domain.FailureArtifact, "qualification diagnostics persistence failed", err), retErr)
 		}
+		if retErr == nil && definition.Family() == FamilyAgy {
+			recorder, ok := namespace.(interface {
+				recordAgyQualification(RuntimeDefinition, string) error
+			})
+			if !ok {
+				result = CurrentProbeResult{}
+				retErr = securityProbeFailure("namespace", "missing AGY qualification owner", nil)
+			} else if err := recorder.recordAgyQualification(definition, result.Version); err != nil {
+				result = CurrentProbeResult{}
+				retErr = err
+			}
+		}
+
 	}()
 	namespaceEnvironment := namespace.Environment()
 	cursorDataDir := ""
@@ -385,12 +407,18 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("environment", "isolated environment rejected", err)
 	}
+	if definition.Family() == FamilyAgy {
+		environment, err = withLiveGitEnvironment(environment)
+		if err != nil {
+			return CurrentProbeResult{}, securityProbeFailure("environment", "AGY Git environment rejected", err)
+		}
+	}
 	timeout := boundedProbeTimeout(definition.Timeout())
 	versionArgv, err := request.Invocation.VersionArgv(definition)
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe version invocation unavailable", err)
 	}
-	versionObservation, _, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil)
+	versionObservation, _, _, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil, "")
 	if versionError != nil {
 		return CurrentProbeResult{}, versionError
 	}
@@ -414,7 +442,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe invocation rejected", invokeErr)
 	}
 	var capabilityEvidence []byte
-	capabilityObservation, capabilityEvidence, capabilityError = probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet)
+	capabilityObservation, capabilityEvidence, argv, capabilityError = probe.runBound(ctx, definition, namespace, roleFixture, argv, environment, timeout, &packet, version)
 	if capabilityError != nil {
 		return CurrentProbeResult{}, capabilityError
 	}
@@ -466,6 +494,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 		ExpiresAt:                expires,
 		DirectExecutionAuthority: &receipt,
 	})
+
 	return CurrentProbeResult{VersionArgv: versionArgv, Version: version, Receipts: receipts}, nil
 }
 
@@ -482,13 +511,13 @@ func qualificationFamilyOutputCause(family string, err error) domain.RuntimeDiag
 // the namespace and fixture before launch and the fixture guard after launch.
 // A protocol capability probe converses the packet through its bound driver
 // and returns the captured assistant evidence text alongside the observation.
-func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket) (observation ports.ProcessObservation, protocolEvidence []byte, err error) {
+func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket, codecVersion string) (observation ports.ProcessObservation, protocolEvidence []byte, effectiveArgv []string, err error) {
 	if err := namespace.ValidateForSpawn(); err != nil {
-		return ports.ProcessObservation{}, nil, securityProbeFailure("namespace", "namespace validation failed", err)
+		return ports.ProcessObservation{}, nil, nil, securityProbeFailure("namespace", "namespace validation failed", err)
 	}
 	guard, guardErr := fixture.RevalidateForExecution()
 	if guardErr != nil || nilWorkspaceExecutionGuard(guard) {
-		return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "fixture execution guard unavailable", guardErr)
+		return ports.ProcessObservation{}, nil, nil, securityProbeFailure("fixture", "fixture execution guard unavailable", guardErr)
 	}
 	defer func() {
 		if closeErr := guard.Close(); closeErr != nil {
@@ -497,34 +526,81 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	}()
 	root := guard.WorkspaceRoot()
 	if !root.Valid() || guard.WorkspaceSnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() || root.SnapshotIdentity() != fixture.WorkspaceSnapshotIdentity() {
-		return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "fixture descriptor binding drift", nil)
+		return ports.ProcessObservation{}, nil, nil, securityProbeFailure("fixture", "fixture descriptor binding drift", nil)
 	}
 	var request ports.ProcessRequest
 	var requestErr error
 	var protocolSession providerProtocolSession
 	authority, authorityErr := adapterAuthorityForFamily(definition.Family())
 	if authorityErr != nil {
-		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "protocol authority unavailable", authorityErr)
+		return ports.ProcessObservation{}, nil, nil, securityProbeFailure("process", "protocol authority unavailable", authorityErr)
 	}
 	workingDirectory := root.Path()
+	var agyProfile *agyInvocationProfile
+	agyAttempted := false
 	var cursorBoundary ports.LiveReadOnlyBoundary
 	var cursorNeutral ports.AnchoredRoot
+	if definition.Family() == FamilyAgy {
+		authority, ok := namespace.(interface {
+			agyQualificationBinding(ports.AnchoredRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, error)
+			agyProjectedGeminiHome() (string, error)
+			finishAgyInvocation(*agyInvocationProfile, ports.ProcessObservation, bool) error
+		})
+		if !ok {
+			return observation, nil, nil, securityProbeFailure("namespace", "AGY namespace authority unavailable", nil)
+		}
+		source, rootErr := ports.NewAnchoredRoot(root.Path())
+		if rootErr != nil {
+			return observation, nil, nil, rootErr
+		}
+		cursorBoundary, cursorNeutral, requestErr = authority.agyQualificationBinding(source)
+		if requestErr != nil {
+			return observation, nil, nil, requestErr
+		}
+		workingDirectory = cursorNeutral.String()
+		environment, requestErr = withLiveGitEnvironment(environment)
+		if requestErr != nil {
+			return observation, nil, nil, requestErr
+		}
+		if packet != nil {
+			gemini, homeErr := authority.agyProjectedGeminiHome()
+			if homeErr != nil {
+				return observation, nil, nil, homeErr
+			}
+			profile, profileErr := installAgyInvocationProfile(gemini, agyPromptBoundReadPlan(), codecVersion)
+			if profileErr != nil {
+				return observation, nil, nil, securityProbeFailure("namespace", "AGY profile unavailable", profileErr)
+			}
+			defer func() {
+				if profileErr := authority.finishAgyInvocation(profile, observation, agyAttempted); profileErr != nil {
+					protocolEvidence = nil
+					err = errors.Join(err, securityProbeFailure("namespace", "AGY profile integrity failed", profileErr))
+				}
+			}()
+			argv, requestErr = agyBindInvocationArgv(argv, gemini, profile.agentName)
+			if requestErr != nil {
+				return observation, nil, nil, requestErr
+			}
+			// The session configuration is bound below to these app-owned values.
+			agyProfile = profile
+		}
+	}
 	if definition.Family() == FamilyCursor {
 		cursorBoundary, cursorNeutral, requestErr = cursorQualificationRoots(namespace, root)
 		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "cursor qualification boundary rejected", requestErr)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("process", "cursor qualification boundary rejected", requestErr)
 		}
 		environment, requestErr = withLiveGitEnvironment(environment)
 		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, securityProbeFailure("environment", "cursor git environment rejected", requestErr)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("environment", "cursor git environment rejected", requestErr)
 		}
 		environment, requestErr = cursorNeutralWorkTree(environment, cursorNeutral)
 		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, securityProbeFailure("environment", "cursor git environment rejected", requestErr)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("environment", "cursor git environment rejected", requestErr)
 		}
 		workingDirectory = cursorNeutral.String()
 	}
-	if definition.Family() == FamilyCursor && packet == nil {
+	if (definition.Family() == FamilyCursor || definition.Family() == FamilyAgy) && packet == nil {
 		marker, markerErr := ports.NewProviderPacketFromBytes([]byte("cursor-qualification-version"))
 		if markerErr != nil {
 			requestErr = markerErr
@@ -545,7 +621,10 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		if requestErr == nil {
 			configuration, configurationErr := protocolConfigurationForNamespace(definition, namespace)
 			if configurationErr != nil {
-				return ports.ProcessObservation{}, nil, configurationErr
+				return ports.ProcessObservation{}, nil, nil, configurationErr
+			}
+			if agyProfile != nil {
+				configuration.agyAgentName = agyProfile.agentName
 			}
 			protocolSession, requestErr = authority.protocolDriver.NewSession(workingDirectory, packet.Bytes(), protocolPurposeQualification, nil, configuration)
 		}
@@ -553,31 +632,31 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, workingDirectory, timeout)
 	}
 	if requestErr != nil {
-		return ports.ProcessObservation{}, nil, securityProbeFailure("process", "bound process request rejected", requestErr)
+		return ports.ProcessObservation{}, nil, nil, securityProbeFailure("process", "bound process request rejected", requestErr)
 	}
-	if definition.Family() == FamilyCursor {
+	if definition.Family() == FamilyCursor || definition.Family() == FamilyAgy {
 		request, requestErr = ports.NewLiveReadOnlyProcessRequest(request, cursorBoundary)
 		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "cursor qualification boundary rejected", requestErr)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("process", "cursor qualification boundary rejected", requestErr)
 		}
 		launchDirectory, openErr := os.Open(cursorNeutral.String())
 		if openErr != nil {
-			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "cursor neutral directory unavailable", openErr)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("process", "cursor neutral directory unavailable", openErr)
 		}
 		request, requestErr = ports.NewNeutralBoundProcessRequest(request, cursorNeutral, launchDirectory)
 		if requestErr != nil {
 			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "cursor neutral directory rejected", requestErr)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("process", "cursor neutral directory rejected", requestErr)
 		}
 	} else {
 		launchDirectory, duplicateErr := guard.DuplicateLaunchDirectory()
 		if duplicateErr != nil {
-			return ports.ProcessObservation{}, nil, securityProbeFailure("fixture", "launch descriptor unavailable", duplicateErr)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("fixture", "launch descriptor unavailable", duplicateErr)
 		}
 		request, requestErr = ports.NewBoundProcessRequest(request, root, launchDirectory)
 		if requestErr != nil {
 			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "bound process descriptor rejected", requestErr)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("process", "bound process descriptor rejected", requestErr)
 		}
 	}
 	if err := probe.verifier.VerifyProviderSpawn(ctx, definition); err != nil {
@@ -585,16 +664,20 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		if launchDirectory != nil {
 			_ = launchDirectory.Close()
 		}
-		return ports.ProcessObservation{}, nil, securityProbeFailure("spawn", "spawn verification failed", err)
+		return ports.ProcessObservation{}, nil, nil, securityProbeFailure("spawn", "spawn verification failed", err)
 	}
 	if protocolSession != nil {
 		conversationRunner, ok := probe.runner.(ports.ProviderConversationRunner)
 		if !ok {
-			return ports.ProcessObservation{}, nil, securityProbeFailure("process", "process runner cannot converse", nil)
+			return ports.ProcessObservation{}, nil, nil, securityProbeFailure("process", "process runner cannot converse", nil)
 		}
+		agyAttempted = definition.Family() == FamilyAgy
 		observation, err = conversationRunner.Converse(ctx, request, protocolSession)
 	} else {
 		observation, err = probe.runner.Run(ctx, request)
+	}
+	if err == nil && packet != nil && definition.Family() == FamilyAgy && !agyNaturalExitObservation(observation) {
+		err = providerRuntimeFailure(domain.DiagnosticCauseProviderExecutionFailed, fmt.Errorf("AGY did not exit naturally"))
 	}
 	var transcriptCleanupErr error
 	if protocolSession != nil {
@@ -602,22 +685,22 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		transcriptCleanupErr = releaseProtocolTranscript(observation)
 	}
 	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
-		return observation, nil, errors.Join(securityProbeFailure("fixture", "post-execution fixture drift", postErr), transcriptCleanupErr)
+		return observation, nil, nil, errors.Join(securityProbeFailure("fixture", "post-execution fixture drift", postErr), transcriptCleanupErr)
 	}
 	if err != nil {
 		err = errors.Join(err, transcriptCleanupErr)
 		if interruption := qualificationInterruptionFailure(observation, err); interruption != nil {
 			if errors.Is(interruption, context.Canceled) {
-				return observation, nil, interruption
+				return observation, nil, nil, interruption
 			}
 			err = interruption
 		}
-		return observation, nil, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
+		return observation, nil, nil, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
 	}
 	if transcriptCleanupErr != nil {
-		return observation, nil, probeFailure("process", domain.FailureArtifact, "protocol transcript cleanup failed", transcriptCleanupErr)
+		return observation, nil, nil, probeFailure("process", domain.FailureArtifact, "protocol transcript cleanup failed", transcriptCleanupErr)
 	}
-	return observation, protocolEvidence, nil
+	return observation, protocolEvidence, argv, nil
 }
 
 func qualificationInterruptionFailure(observation ports.ProcessObservation, err error) error {
@@ -780,6 +863,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		ProfileGeneration, RuntimeSafetyPolicyIdentity, ProfileID                 string
 		ZCodeModel, ZCodeReasoningEffort                                          string
 		GrokModel, GrokReasoningEffort, GrokSettingsIdentity                      string
+		AgySettingsIdentity                                                       string
 		BaseArgv, Environment                                                     []string
 		TransportChannel, TransportReference                                      string
 		TransportArgvIndex                                                        int
@@ -791,7 +875,8 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		RequiresWorkspaceAuthority, RequiresSpawnVerification                     bool
 		ProductionExplicitTransport                                               bool
 	}{
-		Family: definition.family, Instance: definition.instance, Version: definition.version,
+		AgySettingsIdentity: definition.agySettingsIdentity,
+		Family:              definition.family, Instance: definition.instance, Version: definition.version,
 		Executable: definition.executable, ExecutableSHA256: definition.executableSHA256,
 		Launcher: definition.launcher, LauncherSHA256: definition.launcherSHA256,
 		ApplicationVersion: definition.applicationVersion, ApplicationMetadata: definition.applicationMetadata,
@@ -1072,6 +1157,9 @@ func plainSemver(family string, observation ports.ProcessObservation) (string, e
 	if !observation.Succeeded() || !acceptedObservedVersion(family, version) {
 		return "", fmt.Errorf("invalid plain semver version output")
 	}
+	if family == FamilyAgy && !VersionAtLeast(version, 1, 2, 9) {
+		return "", fmt.Errorf("AGY version is below 1.2.9")
+	}
 	return version, nil
 }
 
@@ -1089,6 +1177,23 @@ func acceptCapabilityResponse(ctx context.Context, family string, output, stderr
 }
 
 func acceptCapabilityEvidence(family string, output []byte, fixture ProbeFixtureLease) error {
+	if family == FamilyAgy {
+		object, objectErr := controlledProbeJSON(output)
+		var fields map[string]json.RawMessage
+		if objectErr == nil {
+			objectErr = json.Unmarshal(object, &fields)
+		}
+		if objectErr == nil && (len(fields) != 3 || fields["root"] == nil || fields["link"] == nil || fields["role"] == nil) {
+			objectErr = fmt.Errorf("AGY capability schema mismatch")
+		}
+		if objectErr == nil {
+			objectErr = validateProbeEvidence(object, fixture)
+		}
+		if objectErr != nil {
+			return probeFailure("capability", domain.FailureInvalidOutput, "AGY structured capability failed", newProviderOutputFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, objectErr))
+		}
+		return nil
+	}
 	candidates, err := capabilityEvidenceCandidates(family, output)
 	if err != nil {
 		return probeFailure("capability", domain.FailureInvalidOutput, "capability evidence unavailable", newProviderOutputFailure(qualificationFamilyOutputCause(family, err), err))

@@ -65,6 +65,7 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		definition.ZCodeModel(),
 		definition.ZCodeReasoningEffort(),
 		definition.GrokSettingsIdentity(),
+		definition.AgySettingsIdentity(),
 		strings.Join(definition.BaseArgv(), "\x1e"),
 		string(definition.TransportChannel()),
 		definition.TransportReference(),
@@ -79,7 +80,7 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 	if definition.Family() == string(FamilyCodex) && definition.ProfileID() != definition.Instance() {
 		parts = append(parts, definition.ProfileID())
 	}
-	if definition.Family() == string(FamilyZCode) {
+	if definition.Family() == string(FamilyZCode) || definition.Family() == "agy" {
 		parts = append(parts, definition.Instance())
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))

@@ -286,14 +286,14 @@ func TestCursorQualificationLaunchUsesSeatbeltNeutralCwdAndGitEnvironment(t *tes
 		t.Fatal(err)
 	}
 	namespace := retainedQualificationNamespace{lease: lease}
-	if _, _, err := probe.runBound(context.Background(), definition, namespace, fixture, []string{executable, "--version"}, environment, time.Minute, nil); len(runner.requests) != 1 {
+	if _, _, _, err := probe.runBound(context.Background(), definition, namespace, fixture, []string{executable, "--version"}, environment, time.Minute, nil, ""); len(runner.requests) != 1 {
 		t.Fatalf("version launch was not recorded: %v", err)
 	}
 	packet, err := ports.NewProviderPacketFromBytes(fixture.Packet())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := probe.runBound(context.Background(), definition, namespace, fixture, []string{executable, "acp"}, environment, time.Minute, &packet); len(runner.requests) != 2 {
+	if _, _, _, err := probe.runBound(context.Background(), definition, namespace, fixture, []string{executable, "acp"}, environment, time.Minute, &packet, ""); len(runner.requests) != 2 {
 		t.Fatalf("capability launch was not recorded: %v", err)
 	}
 	neutral := filepath.Join(concrete.root, "home")

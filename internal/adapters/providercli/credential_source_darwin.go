@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strings"
+	"syscall"
 
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
@@ -25,6 +25,7 @@ const (
 	CredentialSourceGrok   CredentialSourceFamily = "grok"
 	CredentialSourceCodex  CredentialSourceFamily = "codex"
 	CredentialSourceCursor CredentialSourceFamily = "cursor"
+	CredentialSourceAgy    CredentialSourceFamily = "agy"
 )
 
 type credentialProjectingNamespaceFactory struct {
@@ -60,6 +61,7 @@ type credentialSourceAuthority struct {
 	components   []string
 	directoryIDs []fileIdentity
 	sourceID     fileIdentity
+	agyToken     bool
 }
 
 var credentialSources = map[CredentialSourceFamily][]credentialSource{
@@ -71,6 +73,9 @@ var credentialSources = map[CredentialSourceFamily][]credentialSource{
 		{ports.CredentialProjectionCodexAuth, []string{".codex", "auth.json"}},
 	},
 	CredentialSourceCursor: {},
+	CredentialSourceAgy: {
+		{ports.CredentialProjectionAgyToken, []string{".gemini", "antigravity-cli", "antigravity-oauth-token"}},
+	},
 }
 
 var _ ports.ProviderNamespaceFactory = (*credentialProjectingNamespaceFactory)(nil)
@@ -262,6 +267,26 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 		concrete.zcodeNativeHome = factory.runtimeHome
 		concrete.zcodeNativeHomeInfo = factory.runtimeHomeInfo
 	}
+	if family == CredentialSourceAgy {
+		for _, configured := range factory.configuredRoots {
+			concrete.agyConfiguredRoots = append(concrete.agyConfiguredRoots, configured.path)
+		}
+		sort.Strings(concrete.agyConfiguredRoots)
+		sourceHome := filepath.Join(factory.runtimeHome, ".gemini")
+		directory, openErr := openAbsoluteDirectory(sourceHome)
+		if openErr != nil {
+			_, _ = lease.DrainTerminal(context.Background())
+			return nil, fmt.Errorf("credential source factory: unsafe AGY source home")
+		}
+		info, infoErr := directory.Stat()
+		_ = directory.Close()
+		if infoErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			_, _ = lease.DrainTerminal(context.Background())
+			return nil, fmt.Errorf("credential source factory: unsafe AGY source home")
+		}
+		concrete.agySourceHome = sourceHome
+		concrete.agySourceHomeInfo = info
+	}
 	if family == CredentialSourceGrok {
 		if factory.projectRoot != "" {
 			bundle, boundaryErr := installGrokBoundaryBundle(filepath.Join(concrete.root, "home", ".grok"), factory.runtimeHome, factory.projectRoot)
@@ -324,6 +349,12 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 	file, sourcePath, err := factory.openSource(rootPath, rootIdentity, components)
 	if err != nil {
 		if err == unix.ENOENT {
+			// AGY resolves exactly the default token. A missing source stops
+			// admission instead of silently launching unauthenticated; no
+			// alternative token is ever scanned.
+			if family == CredentialSourceAgy {
+				return fmt.Errorf("missing AGY credential source")
+			}
 			return nil
 		}
 		return err
@@ -336,8 +367,15 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 	}()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxProjectedCredentialBytes ||
-		(family == CredentialSourceCodex || family == CredentialSourceGrok) && info.Mode().Perm() != 0600 {
+		(family == CredentialSourceCodex || family == CredentialSourceGrok || family == CredentialSourceAgy) && info.Mode().Perm() != 0600 {
 		return fmt.Errorf("unsafe credential source")
+	}
+	if family == CredentialSourceAgy {
+		// The default-account token must be a regular, single-link, same-user,
+		// mode-0600 file with content; anything else is unsafe admission.
+		if !safeAgyCredentialSource(info) {
+			return fmt.Errorf("unsafe credential source")
+		}
 	}
 	digest, err := digestCredentialSource(file, info.Size())
 	if err != nil {
@@ -351,7 +389,7 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 	if err != nil {
 		return fmt.Errorf("unsafe credential source")
 	}
-	authority := credentialSourceAuthority{runtimeHome: rootPath, homeIdentity: rootIdentity, components: components, directoryIDs: directoryIDs, sourceID: sourceID}
+	authority := credentialSourceAuthority{runtimeHome: rootPath, homeIdentity: rootIdentity, components: components, directoryIDs: directoryIDs, sourceID: sourceID, agyToken: family == CredentialSourceAgy}
 	request, err := ports.NewCredentialProjectionRequestWithAuthority(lease.ProviderInstance(), lease.Generation(), sourcePath, file, digest, info.Size(), info.Mode(), source.destination, authority)
 	if err != nil {
 		return fmt.Errorf("unsafe credential source")
@@ -382,7 +420,7 @@ func (factory *credentialProjectingNamespaceFactory) openSource(rootPath string,
 		}
 		current = next
 	}
-	fd, openErr := unix.Openat(int(current.Fd()), components[len(components)-1], unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, openErr := unix.Openat(int(current.Fd()), components[len(components)-1], unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	_ = current.Close()
 	if openErr != nil {
 		return nil, "", openErr
@@ -412,11 +450,19 @@ func (authority credentialSourceAuthority) ValidateCredentialSource(size int64, 
 	if err != nil || !info.Mode().IsRegular() || info.Size() != size || info.Mode().Perm() != mode.Perm() {
 		return fmt.Errorf("credential source drift")
 	}
+	if authority.agyToken && !safeAgyCredentialSource(info) {
+		return fmt.Errorf("AGY credential source ownership drift")
+	}
 	digest, err := digestCredentialSource(file, size)
 	if err != nil || digest != sha256 {
 		return fmt.Errorf("credential source drift")
 	}
 	return nil
+}
+
+func safeAgyCredentialSource(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return info.Mode().IsRegular() && info.Mode().Perm() == 0600 && info.Size() > 0 && ok && stat.Nlink == 1 && stat.Uid == uint32(unix.Geteuid())
 }
 
 func credentialDirectoryIdentities(runtimeHome string, homeIdentity fileIdentity, components []string) ([]fileIdentity, error) {
@@ -473,40 +519,12 @@ func openAnchoredCredentialSource(runtimeHome string, homeIdentity fileIdentity,
 		}
 		current = next
 	}
-	fd, openErr := unix.Openat(int(current.Fd()), components[len(components)-1], unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, openErr := unix.Openat(int(current.Fd()), components[len(components)-1], unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	_ = current.Close()
 	if openErr != nil {
 		return nil, openErr
 	}
 	return os.NewFile(uintptr(fd), "credential-source"), nil
-}
-
-func openAbsoluteDirectory(path string) (*os.File, error) {
-	rootFD, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, err
-	}
-	current := os.NewFile(uintptr(rootFD), "runtime-root")
-	for _, component := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
-		if component == "" {
-			continue
-		}
-		next, openErr := openDirectoryAt(current, component)
-		_ = current.Close()
-		if openErr != nil {
-			return nil, openErr
-		}
-		current = next
-	}
-	return current, nil
-}
-
-func openDirectoryAt(parent *os.File, component string) (*os.File, error) {
-	fd, err := unix.Openat(int(parent.Fd()), component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, err
-	}
-	return os.NewFile(uintptr(fd), "credential-directory"), nil
 }
 
 func identityOf(file *os.File) (fileIdentity, error) {
