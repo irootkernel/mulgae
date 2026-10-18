@@ -43,6 +43,17 @@ objective, so a report that merely claims it could not read the target does not
 certify original-source access. The complete gate then invokes the opt-in Codex
 profile target, which reports a stable skip unless `MULGAE_E2E_OPT_IN=1` is
 present.
+
+Vulnerability scanning is separate from `make test` and `make test-prepare`.
+Run it manually with the module's declared tool:
+
+```bash
+go tool govulncheck ./...
+```
+
+The scan reports findings independently of the test gate. Passing `make test`
+does not establish that the vulnerability scan passes.
+
 Independent live capability certification failures preserve the exact request,
 nonempty version/capability stdout and stderr, and process exit metadata in a
 private `mulgae-capability-failure-<family>-*` temporary directory. The failure
