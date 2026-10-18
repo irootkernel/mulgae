@@ -49,6 +49,11 @@ func DiscoverySourceSpecs() []DiscoverySourceSpec {
 			{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},
 			{JSONName: "reasoning_effort_source", Values: []string{"override", "provider_default", "not_selected"}},
 		}},
+		{Family: "agy", Fields: []DiscoverySourceFieldSpec{
+			{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
+			{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},
+			{JSONName: "reasoning_effort_source", Values: []string{"override", "provider_default", "not_selected"}},
+		}},
 	}
 	for index := range specs {
 		specs[index].Fields = append([]DiscoverySourceFieldSpec(nil), specs[index].Fields...)
@@ -126,7 +131,7 @@ func (result InitializeProjectResult) Validate() error {
 		auto := len(result.SelectedProviderIDs) == 0
 		for index, family := range familyOrder {
 			row := result.Discovery[index]
-			autoSelected := auto && (family == "zcode" || family == "grok")
+			autoSelected := auto && (family == "zcode" || family == "grok" || family == "agy")
 			if row.Family != family || row.Status == "" || !validDiscoverySources(row) || row.Selected != (autoSelected || contains(result.SelectedProviderIDs, family)) || row.Candidate != contains(result.CandidateProviderIDs, family) || row.Configured != contains(result.ConfiguredProviderIDs, family) {
 				return fmt.Errorf("init result: inconsistent discovery row")
 			}

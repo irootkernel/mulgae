@@ -313,16 +313,37 @@ func cleanupReviewCompositionRoots(cleanup bool, namespaceRoot, workspaceRoot po
 	if !cleanup {
 		return nil
 	}
-	var cleanupErr error
-	for _, root := range []ports.AnchoredRoot{namespaceRoot, workspaceRoot} {
-		if !root.Valid() {
-			continue
-		}
-		if err := os.RemoveAll(root.String()); err != nil {
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove private root: %w", err))
+	if err := removeDrainedNamespaceParent(namespaceRoot); err != nil {
+		return err
+	}
+	if workspaceRoot.Valid() {
+		if err := os.RemoveAll(workspaceRoot.String()); err != nil {
+			return fmt.Errorf("remove private workspace root: %w", err)
 		}
 	}
-	return cleanupErr
+	return nil
+}
+
+func removeDrainedNamespaceParent(root ports.AnchoredRoot) error {
+	if !root.Valid() {
+		return nil
+	}
+	info, err := os.Lstat(root.String())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect namespace parent: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("unsafe namespace parent")
+	}
+	// Leases retain their children when process drain is unverified. Only an
+	// atomic empty-directory removal may release this parent; never sweep it.
+	if err := os.Remove(root.String()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("namespace parent is not drained: %w", err)
+	}
+	return nil
 }
 
 type productionRunPolicy struct {
@@ -616,25 +637,29 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 	if provider := source.config.Providers.Cursor; provider != nil {
 		configured[reviewrun.FamilyCursor] = []string{provider.Executable}
 	}
+	if provider := source.config.Providers.Agy; provider != nil {
+		configured[reviewrun.FamilyAgy] = []string{provider.Executable}
+	}
 	profiles, err := reviewrun.DiscoverConfiguredProviderProfiles(ctx, source.inspector, configured)
 	if err != nil {
 		return nil, err
 	}
-	zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort := source.providerSettings()
+	zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort := source.providerSettings()
 	return reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts(
 		providercli.RuntimeBuilder{}, profiles, source.policyIdentities,
 		zcodeModel, zcodeReasoningEffort,
 		grokModel, grokReasoningEffort,
 		codexModel, codexReasoningEffort,
+		agyModel, agyReasoningEffort,
 		configuredCodexCredentialProfiles(source.config),
 		cloneProviderTimeouts(source.providerTimeouts),
 		source.cursorAuthToken,
 	)
 }
 
-func (source *configuredProductionCandidateSource) providerSettings() (zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort string) {
+func (source *configuredProductionCandidateSource) providerSettings() (zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort string) {
 	if source == nil {
-		return "", "", "", "", "", ""
+		return "", "", "", "", "", "", "", ""
 	}
 	if provider := source.config.Providers.ZCode; provider != nil {
 		zcodeModel, zcodeReasoningEffort = provider.Model, provider.ReasoningEffort
@@ -645,7 +670,10 @@ func (source *configuredProductionCandidateSource) providerSettings() (zcodeMode
 	if provider := source.config.Providers.Codex; provider != nil {
 		codexModel, codexReasoningEffort = provider.Model, provider.ReasoningEffort
 	}
-	return zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort
+	if provider := source.config.Providers.Agy; provider != nil {
+		agyModel, agyReasoningEffort = provider.Model, provider.ReasoningEffort
+	}
+	return zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort
 }
 
 func (source *configuredProductionCandidateSource) newHeartbeatCandidate(ctx context.Context, workspace ports.WorkspaceSnapshotIdentity, family reviewrun.Family, credentialProfile string) (reviewrun.QualifiedRunCandidate, error) {
@@ -788,7 +816,7 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		if !definition.Enabled() {
 			continue
 		}
-		if role == domain.RoleArtist && (reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyGrok || reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyCursor) {
+		if role == domain.RoleArtist && (reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyGrok || reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyCursor || reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyAgy) {
 			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureProviderUnavailable, "provider_capability_unsupported", nil)
 		}
 		assignment, err := reviewrun.NewRoleProviderAssignmentWithCredentialProfile(role, reviewrun.Family(definition.PrimaryProvider()), definition.CredentialProfile())

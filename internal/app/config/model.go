@@ -43,6 +43,7 @@ type ProvidersConfig struct {
 	Grok   *GrokProviderConfig   `yaml:"grok,omitempty" json:"grok,omitempty"`
 	Codex  *CodexProviderConfig  `yaml:"codex,omitempty" json:"codex,omitempty"`
 	Cursor *CursorProviderConfig `yaml:"cursor,omitempty" json:"cursor,omitempty"`
+	Agy    *AgyProviderConfig    `yaml:"agy,omitempty" json:"agy,omitempty"`
 }
 type ZCodeProviderConfig struct {
 	AppBundle       string `yaml:"app_bundle" json:"app_bundle"`
@@ -71,6 +72,17 @@ type CodexCredentialHomeConfig struct {
 type CursorProviderConfig struct {
 	Executable string `yaml:"executable" json:"executable"`
 	Timeout    string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+}
+
+// AgyProviderConfig is the single-account AGY provider block. The executable is
+// machine-local; model, reasoning effort, and timeout are project policy. AGY
+// admits no credential profile, credential home, or account fields: the one
+// default Gemini account is the only credential source.
+type AgyProviderConfig struct {
+	Executable      string `yaml:"executable" json:"executable"`
+	Model           string `yaml:"model,omitempty" json:"model,omitempty"`
+	ReasoningEffort string `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+	Timeout         string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
 func (provider CodexProviderConfig) CredentialHome(profile string) (string, bool) {
@@ -154,6 +166,7 @@ var (
 	zcodeModelPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 	grokModelPattern           = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 	grokReasoningEffortPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	agyModelPattern            = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 )
 
 // ValidZCodeModel reports whether value is one provider-qualified ZCode model
@@ -195,6 +208,32 @@ func ValidGrokModel(value string) bool {
 // Grok reasoning-effort grammar.
 func ValidGrokReasoningEffort(value string) bool {
 	return grokReasoningEffortPattern.MatchString(value)
+}
+
+// ValidAgyModel reports whether value has the model grammar the AGY adapter
+// admits. The spelling is validated as supplied and is never normalized.
+func ValidAgyModel(value string) bool {
+	if !agyModelPattern.MatchString(value) || path.IsAbs(value) || strings.Contains(value, "//") {
+		return false
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidAgyReasoningEffort reports whether value is one effort of the closed
+// enum the installed AGY CLI lists for --effort. The empty value means
+// omitted, never an invented default.
+func ValidAgyReasoningEffort(value string) bool {
+	switch value {
+	case "low", "medium", "high", "xhigh", "max":
+		return true
+	default:
+		return false
+	}
 }
 
 // ParseProviderTimeout resolves an optional Config v5 provider timeout. An
@@ -281,7 +320,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 	lastOrdinal := -1
 	for _, family := range families {
 		ordinal := -1
-		for index, candidate := range []string{"zcode", "grok", "codex", "cursor"} {
+		for index, candidate := range []string{"zcode", "grok", "codex", "cursor", "agy"} {
 			if family == candidate {
 				ordinal = index
 				break
@@ -375,7 +414,7 @@ func CanonicalRolesConfigForSelection(defaults RoleDefaults, families, selectedR
 }
 
 func (providers ProvidersConfig) Families() []string {
-	result := make([]string, 0, 4)
+	result := make([]string, 0, 5)
 	if providers.ZCode != nil {
 		result = append(result, "zcode")
 	}
@@ -387,6 +426,9 @@ func (providers ProvidersConfig) Families() []string {
 	}
 	if providers.Cursor != nil {
 		result = append(result, "cursor")
+	}
+	if providers.Agy != nil {
+		result = append(result, "agy")
 	}
 	return result
 }

@@ -8,7 +8,7 @@ const (
 )
 
 var (
-	intendedProviderIDs = []string{"zcode", "grok", "codex", "cursor"}
+	intendedProviderIDs = []string{"zcode", "grok", "codex", "cursor", "agy"}
 	platformCells       = []PlatformCell{PlatformLinuxAMD64, PlatformLinuxARM64, PlatformDarwinAMD64, PlatformDarwinARM64}
 	providerProbeIDs    = []string{
 		"PV-VERSION",

@@ -687,5 +687,3 @@ func agyNaturalExitObservation(observation ports.ProcessObservation) bool {
 	lifecycle, present := observation.LifecycleReceipt()
 	return observation.Valid() && observation.Succeeded() && exited && code == 0 && present && lifecycle.Valid() && lifecycle.ProcessGroupAbsent() && len(lifecycle.SignalRequests()) == 0
 }
-
-const agyCapabilitySchema = `{"type":"object","properties":{"root":{"type":"string"},"link":{"type":"string"},"role":{"type":"string"}},"required":["root","link","role"],"additionalProperties":false}`

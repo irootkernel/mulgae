@@ -40,6 +40,8 @@ type productionCandidateTemplate struct {
 	codexReasoningEffort        string
 	grokModel                   string
 	grokReasoningEffort         string
+	agyModel                    string
+	agyReasoningEffort          string
 	supportedRoles              []domain.Role
 }
 
@@ -84,19 +86,19 @@ func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndCodexSetting
 // binds the closed set of admitted provider-wide settings into each matching
 // runtime definition without introducing role-level overrides.
 func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndProviderSettingsAndTimeouts(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration) (*ProductionQualifiedRunCandidateSource, error) {
-	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts(builder, profiles, identities, "", "", grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, codexCredentialProfiles, providerTimeouts, "")
+	return NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts(builder, profiles, identities, "", "", grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, "", "", codexCredentialProfiles, providerTimeouts, "")
 }
 
 // NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts
-// binds independently optional ZCode, Grok, and Codex settings.
-func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration, cursorAuthToken string) (*ProductionQualifiedRunCandidateSource, error) {
+// binds independently optional ZCode, Grok, Codex, and AGY settings.
+func NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts(builder ports.ProviderRuntimeBuilder, profiles []DiscoveredProviderProfile, identities map[Family]string, zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration, cursorAuthToken string) (*ProductionQualifiedRunCandidateSource, error) {
 	if nilInterface(builder) {
 		return nil, fmt.Errorf("review run: provider runtime builder is required")
 	}
 	if err := validateProductionPolicyIdentities(identities); err != nil {
 		return nil, fmt.Errorf("review run: invalid production policy identities: %w", err)
 	}
-	templates, err := productionCandidateTemplatesWithAllProviderSettingsAndTimeouts(identities, zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, codexCredentialProfiles, providerTimeouts, cursorAuthToken)
+	templates, err := productionCandidateTemplatesWithAllProviderSettingsAndTimeouts(identities, zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort, codexCredentialProfiles, providerTimeouts, cursorAuthToken)
 	if err != nil {
 		return nil, fmt.Errorf("review run: construct production candidate templates: %w", err)
 	}
@@ -219,6 +221,7 @@ func (template productionCandidateTemplate) definition(builder ports.ProviderRun
 		ZCodeModel: template.zcodeModel, ZCodeReasoningEffort: template.zcodeReasoningEffort,
 		CodexModel: template.codexModel, CodexReasoningEffort: template.codexReasoningEffort,
 		GrokModel: template.grokModel, GrokReasoningEffort: template.grokReasoningEffort,
+		AgyModel: template.agyModel, AgyReasoningEffort: template.agyReasoningEffort,
 		BaseArgv: baseArgv, TransportChannel: template.transportChannel,
 		TransportArgvIndex: template.transportArgvIndex, TransportReference: template.transportReference,
 		Environment: append([]ports.EnvironmentVariable(nil), template.environment...), WorkingDirectory: productionWorkingDirectory,
@@ -259,10 +262,10 @@ func productionCandidateTemplatesWithCodexSettingsAndTimeouts(identities map[Fam
 }
 
 func productionCandidateTemplatesWithProviderSettingsAndTimeouts(identities map[Family]string, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration) ([]productionCandidateTemplate, error) {
-	return productionCandidateTemplatesWithAllProviderSettingsAndTimeouts(identities, "", "", grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, codexCredentialProfiles, providerTimeouts, "")
+	return productionCandidateTemplatesWithAllProviderSettingsAndTimeouts(identities, "", "", grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, "", "", codexCredentialProfiles, providerTimeouts, "")
 }
 
-func productionCandidateTemplatesWithAllProviderSettingsAndTimeouts(identities map[Family]string, zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration, cursorAuthToken string) ([]productionCandidateTemplate, error) {
+func productionCandidateTemplatesWithAllProviderSettingsAndTimeouts(identities map[Family]string, zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort string, codexCredentialProfiles map[domain.Role]string, providerTimeouts map[Family]time.Duration, cursorAuthToken string) ([]productionCandidateTemplate, error) {
 	if err := validateProductionPolicyIdentities(identities); err != nil {
 		return nil, err
 	}
@@ -302,6 +305,9 @@ func productionCandidateTemplatesWithAllProviderSettingsAndTimeouts(identities m
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
 			case FamilyGrok:
 				template.grokModel, template.grokReasoningEffort = grokModel, grokReasoningEffort
+				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
+			case FamilyAgy:
+				template.agyModel, template.agyReasoningEffort = agyModel, agyReasoningEffort
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
 			case FamilyCursor:
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
@@ -406,7 +412,7 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		if template.family == FamilyCodex {
 			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1
 		}
-		if template.family == FamilyZCode || template.family == FamilyGrok || template.family == FamilyCursor {
+		if template.family == FamilyZCode || template.family == FamilyGrok || template.family == FamilyCursor || template.family == FamilyAgy {
 			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1
 		}
 		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" || !validTransport || template.transportReference != "" ||
@@ -433,7 +439,7 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 	for _, family := range Families() {
 		for _, role := range domain.FixedRoleOrder() {
 			want := 1
-			if (family == FamilyGrok || family == FamilyCursor) && role == domain.RoleArtist {
+			if (family == FamilyGrok || family == FamilyCursor || family == FamilyAgy) && role == domain.RoleArtist {
 				want = 0
 			}
 			if roleCoverage[family][role] != want {
@@ -459,7 +465,7 @@ func codexCredentialProfileFromInstance(instance string, role domain.Role) (stri
 
 func productionRolesForFamily(family Family) []domain.Role {
 	roles := domain.FixedRoleOrder()
-	if family != FamilyGrok && family != FamilyCursor {
+	if family != FamilyGrok && family != FamilyCursor && family != FamilyAgy {
 		return roles
 	}
 	return append([]domain.Role(nil), roles[:len(roles)-1]...)
@@ -468,7 +474,7 @@ func productionRolesForFamily(family Family) []domain.Role {
 func productionTemplateCount() int {
 	count := len(Families()) * len(domain.FixedRoleOrder())
 	for _, family := range Families() {
-		if family == FamilyGrok || family == FamilyCursor {
+		if family == FamilyGrok || family == FamilyCursor || family == FamilyAgy {
 			count--
 		}
 	}

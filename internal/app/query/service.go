@@ -1478,22 +1478,11 @@ func buildCommittedReview(
 	}
 	var source *evidence.LiveSourceRead
 	if live {
-		value, err := validateLiveQueryTarget(final)
+		value, err := validateLivePublicationBinding(final, manifest)
 		if err != nil {
 			return CommittedReview{}, err
 		}
 		source = &value
-		if final.Target.ContentSHA256 != "" || manifest.Target.ContentSHA256 != "" || manifest.Target.SourceIdentitySHA256 != value.Identity.SHA256() || manifest.CompositeIdentity.SupportIndex == nil || final.FollowupOutcome != nil || manifest.FollowupOutcome != nil {
-			return CommittedReview{}, fmt.Errorf("live source target or support binding is invalid")
-		}
-		for _, role := range final.RoleOutcomes {
-			if value.NoChange != (role.Outcome == "not_applicable") {
-				return CommittedReview{}, fmt.Errorf("live selection and role outcomes disagree")
-			}
-		}
-		if value.NoChange && (len(final.Findings) != 0 || len(manifest.Attempts) != 0 || len(manifest.Failures) != 0 || len(manifest.RoleReports) != 0) {
-			return CommittedReview{}, fmt.Errorf("live no-change publication contains provider work")
-		}
 	} else {
 		if final.Target.LiveSource != nil || final.Provenance.LiveProduction != nil || manifest.Target.SourceIdentitySHA256 != "" {
 			return CommittedReview{}, fmt.Errorf("historical publication contains live authority")

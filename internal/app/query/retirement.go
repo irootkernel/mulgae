@@ -12,8 +12,15 @@ import (
 const retiredProviderArtifactReason = "retired_provider_artifact"
 
 func retiredProviderInstance(value string) bool {
+	return providerInstanceRetired(value, false)
+}
+
+func providerInstanceRetired(value string, live bool) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
 	for _, family := range []string{"kimi", "agy"} {
+		if live && family == "agy" {
+			continue
+		}
 		if value == family {
 			return true
 		}
@@ -27,20 +34,29 @@ func retiredProviderInstance(value string) bool {
 }
 
 func finalRecordRetired(final finalDTO, manifest manifestDTO) bool {
+	_, bindingErr := validateLivePublicationBinding(final, manifest)
+	retired := func(value string) bool { return providerInstanceRetired(value, bindingErr == nil) }
+	if final.Provenance.LiveProduction != nil {
+		for _, provider := range final.Provenance.LiveProduction.Providers {
+			if retired(provider.Family) || retired(provider.Instance) {
+				return true
+			}
+		}
+	}
 	if final.Provenance.Production != nil {
 		for _, provider := range final.Provenance.Production.Providers {
-			if retiredProviderInstance(provider.Family) || retiredProviderInstance(provider.Instance) {
+			if retired(provider.Family) || retired(provider.Instance) {
 				return true
 			}
 		}
 	}
 	for _, attempt := range manifest.Attempts {
-		if retiredProviderInstance(attempt.ProviderInstance) {
+		if retired(attempt.ProviderInstance) {
 			return true
 		}
 	}
 	for _, report := range manifest.RoleReports {
-		if retiredProviderInstance(report.ProviderInstance) {
+		if retired(report.ProviderInstance) {
 			return true
 		}
 	}
@@ -53,18 +69,19 @@ func (service *Service) committedArtifactRetired(ctx context.Context, run ports.
 		return false, nil
 	}
 	seen[key] = struct{}{}
+	retired := func(value string) bool { return providerInstanceRetired(value, review.liveSource != nil) }
 	for _, role := range review.Roles() {
-		if provider, present := role.ProviderInstance(); present && retiredProviderInstance(provider) {
+		if provider, present := role.ProviderInstance(); present && retired(provider) {
 			return true, nil
 		}
 	}
 	for _, attempt := range review.Attempts() {
-		if retiredProviderInstance(attempt.ProviderInstance()) {
+		if retired(attempt.ProviderInstance()) {
 			return true, nil
 		}
 	}
 	for _, report := range review.RoleReports() {
-		if retiredProviderInstance(report.ProviderInstance()) {
+		if retired(report.ProviderInstance()) {
 			return true, nil
 		}
 	}
@@ -97,9 +114,16 @@ func (service *Service) committedArtifactRetired(ctx context.Context, run ports.
 	if err := decodeStrictDTO(review.FinalBytes(), &final); err != nil {
 		return false, typedFailure(readCommittedStage, domain.FailureArtifact, "committed final decode failed", err)
 	}
+	if final.Provenance.LiveProduction != nil {
+		for _, provider := range final.Provenance.LiveProduction.Providers {
+			if retired(provider.Family) || retired(provider.Instance) {
+				return true, nil
+			}
+		}
+	}
 	if final.Provenance.Production != nil {
 		for _, provider := range final.Provenance.Production.Providers {
-			if retiredProviderInstance(provider.Family) || retiredProviderInstance(provider.Instance) {
+			if retired(provider.Family) || retired(provider.Instance) {
 				return true, nil
 			}
 		}

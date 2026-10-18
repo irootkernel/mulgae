@@ -231,8 +231,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 160 {
-		t.Fatalf("manifest asset count = %d, want 160", len(manifest.Assets))
+	if len(manifest.Assets) != 168 {
+		t.Fatalf("manifest asset count = %d, want 168", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -317,8 +317,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 149 {
-		t.Fatalf("authoritative runtime source count = %d, want 149", len(authoritativeSources))
+	if len(authoritativeSources) != 157 {
+		t.Fatalf("authoritative runtime source count = %d, want 157", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -468,7 +468,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 		"`<canonical-project-root>/.mulgae/config.yaml` is the Git-shareable project",
 		"`<canonical-project-root>/.mulgae/local.yaml` contains machine-local native",
 		"--providers auto|FAMILY[,FAMILY...]",
-		"`FAMILY := zcode | grok | codex | cursor`",
+		"`FAMILY := zcode | grok | codex | cursor | agy`",
 		"The retired `execution.workspace_access` field is rejected.",
 		"Mulgae roles are functional review lenses.\nThey are not people, teams, or organizational authorities.\nMulgae reports findings and recommendations only.",
 		"Automatic initialization requires ZCode and Grok",
@@ -480,7 +480,7 @@ func TestCatalogHelpCoversProjectLocalInitContract(t *testing.T) {
 			t.Errorf("embedded help is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"~/.config/mulgae", "$XDG_CONFIG_HOME/mulgae", "--providers kimi", "--providers agy"} {
+	for _, forbidden := range []string{"~/.config/mulgae", "$XDG_CONFIG_HOME/mulgae", "--providers kimi"} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("embedded help retains legacy authority %q", forbidden)
 		}
@@ -568,6 +568,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-command-result.v18.schema.json", "schemas/mulgae-command-result.v18.schema.json", "examples/command-result.v18.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v19.schema.json", "schemas/mulgae-command-result.v19.schema.json", "examples/command-result.v19.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v20.schema.json", "schemas/mulgae-command-result.v20.schema.json", "examples/command-result.v20.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v21.schema.json", "schemas/mulgae-command-result.v21.schema.json", "examples/command-result.v21.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v10.schema.json", "schemas/mulgae-command-result.v10.schema.json", "examples/command-result.v10.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v9.schema.json", "schemas/mulgae-command-result.v9.schema.json", "examples/command-result.v9.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v8.schema.json", "schemas/mulgae-command-result.v8.schema.json", "examples/command-result.v8.valid.json"},
@@ -586,6 +587,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v4.schema.json", "schemas/mulgae-doctor-result.v4.schema.json", "examples/doctor-result.v4.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v5.schema.json", "schemas/mulgae-doctor-result.v5.schema.json", "examples/doctor-result.v5.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v6.schema.json", "schemas/mulgae-doctor-result.v6.schema.json", "examples/doctor-result.v6.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-doctor-result.v7.schema.json", "schemas/mulgae-doctor-result.v7.schema.json", "examples/doctor-result.v7.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v3.schema.json", "schemas/mulgae-doctor-result.v3.schema.json", "examples/doctor-result.v3.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v2.schema.json", "schemas/mulgae-doctor-result.v2.schema.json", "examples/doctor-result.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v1.schema.json", "examples/export-manifest.v1.valid.json"},
@@ -596,6 +598,7 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v3.schema.json", "schemas/mulgae-provider-contract-evidence.v3.schema.json", "examples/provider-contract-evidence.v3.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-contract-evidence.v2.schema.json", "schemas/mulgae-provider-contract-evidence.v2.schema.json", "examples/provider-contract-evidence.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v3.schema.json", "schemas/mulgae-provider-heartbeat-result.v3.schema.json", "examples/provider-heartbeat-result.v3.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v4.schema.json", "schemas/mulgae-provider-heartbeat-result.v4.schema.json", "examples/provider-heartbeat-result.v4.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v2.schema.json", "schemas/mulgae-provider-heartbeat-result.v2.schema.json", "examples/provider-heartbeat-result.v2.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v1.schema.json", "schemas/mulgae-provider-heartbeat-result.v1.schema.json", "examples/provider-heartbeat-result.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-followup-output.v1.schema.json", "schemas/mulgae-provider-followup-output.v1.schema.json", "examples/provider-followup-output.v1.valid.json"},
@@ -612,13 +615,14 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v4.schema.json", "schemas/mulgae-review-preflight.v4.schema.json", "examples/review-preflight.v4.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v3.schema.json", "schemas/mulgae-review-preflight.v3.schema.json", "examples/review-preflight.v3.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v8.schema.json", "schemas/mulgae-review-preflight.v8.schema.json", "examples/review-preflight.v8.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-review-preflight.v9.schema.json", "schemas/mulgae-review-preflight.v9.schema.json", "examples/review-preflight.v9.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json", "schemas/mulgae-run-manifest.v1.schema.json", "examples/run-manifest.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json", "schemas/mulgae-run-manifest.v3.schema.json", "examples/run-manifest.v3.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "schemas/mulgae-validation-receipt.v1.schema.json", "examples/validation-receipt.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "schemas/mulgae-validation-result.v1.schema.json", "examples/validation-result.v1.valid.json"},
 	}
-	if len(expected) != 63 {
-		t.Fatalf("test pair inventory contains %d pairs, want 63", len(expected))
+	if len(expected) != 67 {
+		t.Fatalf("test pair inventory contains %d pairs, want 67", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

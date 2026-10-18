@@ -165,7 +165,7 @@ func TestCursorAdmissionKeepsPublicFamiliesClosed(t *testing.T) {
 		}
 	}
 	public := reviewrun.Families()
-	if len(public) != 4 || public[0] != reviewrun.FamilyZCode || public[1] != reviewrun.FamilyGrok || public[2] != reviewrun.FamilyCodex || public[3] != reviewrun.FamilyCursor {
+	if len(public) != 5 || public[0] != reviewrun.FamilyZCode || public[1] != reviewrun.FamilyGrok || public[2] != reviewrun.FamilyCodex || public[3] != reviewrun.FamilyCursor || public[4] != reviewrun.FamilyAgy {
 		t.Fatalf("public families = %v", public)
 	}
 	if !reviewrun.Family(FamilyCursor).Valid() {

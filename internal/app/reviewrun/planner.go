@@ -117,7 +117,7 @@ func NewRoleProviderAssignmentWithCredentialProfile(role domain.Role, primary Fa
 	if !role.Valid() || !primary.Valid() {
 		return RoleProviderAssignment{}, fmt.Errorf("review run: invalid role provider assignment")
 	}
-	if role == domain.RoleArtist && (primary == FamilyGrok || primary == FamilyCursor) {
+	if role == domain.RoleArtist && (primary == FamilyGrok || primary == FamilyCursor || primary == FamilyAgy) {
 		return RoleProviderAssignment{}, fmt.Errorf("review run: artist provider capability is unsupported")
 	}
 	if credentialProfile != "" && (primary != FamilyCodex || !validCredentialProfile(credentialProfile)) {

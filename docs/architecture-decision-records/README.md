@@ -7,8 +7,8 @@ explain why durable choices were made.
 
 ## Accepted
 
-- [Final provider portfolio](final-provider-portfolio.md) records why ZCode,
-  Grok, and Codex are the supported families and how retired references fail.
+- [Final provider portfolio](final-provider-portfolio.md) records the supported
+  families, role preferences and historical retirement boundaries.
 - [Composite review recovery](composite-review-recovery.md) records why exact
   same-target reruns are combined into a new immutable authority.
 - [Review await design](review-await.md) records the accepted session-local MCP
@@ -20,6 +20,8 @@ explain why durable choices were made.
   ephemeral Codex protocol route and its report and isolation boundaries.
 - [Cursor ACP transport](cursor-acp-transport.md) records explicit Cursor
   selection and the ACP session, permission, and credential boundaries.
+- [AGY stream-JSON transport](agy-stream-json-transport.md) records the
+  single-account stream protocol, guarded reads and natural-exit boundary.
 
 ## Accepted design for planned implementation
 

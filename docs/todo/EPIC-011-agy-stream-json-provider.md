@@ -173,8 +173,8 @@ Version and capability probes use the protocol runner:
 - Version check runs `<executable> --version`. Installed `1.4.0` emits plain
   semver; the parser must admit that observed form with minimum floor `1.2.9`.
   This preflight does not establish wire compatibility for an untested binary.
-- Capability check runs a single-turn `stream-json` probe with `--json-schema`
-  (or structured JSON response validation) under the same neutral-cwd,
+- Capability check runs a single-turn `stream-json` probe with Mulgae-owned
+  strict JSON response validation under the same neutral-cwd,
   `--gemini_dir`, and `SSH_TTY=/dev/null` isolation as review.
 - Qualification identity binds the `agy` family, executable identity, default
   credential-source identity, and optional `model` and `reasoning_effort`
@@ -449,6 +449,65 @@ final check evidence. Main accepted TASK-044 under Master's delegation.
 TASK-045 retains public integration and exact release-binary AGY certification.
 The prior full `make test` failed at the fixed Go `1.27.1` standard-library
 vulnerability check, with no waiver. Whole-Epic readiness remains blocked.
+
+## TASK-045 integration findings
+
+Public configuration, optional automatic AGY discovery, role defaults, runtime
+composition, CLI/MCP projections and current live-publication readers now admit
+the single-account route. Command-result v21, doctor v7, heartbeat v4 and
+preflight v9 have paired schemas and examples; earlier contracts retain their
+bytes and meanings. Legacy provider-evidence v4 does not acquire an AGY
+certificate producer or production reader. Current live AGY reads require
+validated source/target/support binding; historical captured/composite AGY and
+all Kimi lineage remain retired.
+
+Focused regressions cover configuration ownership, role generation, strict
+parsing, optional native settings, capability admission, current/historical
+readers, parenthesized grants and undrained namespace preservation. An isolated
+compiled-binary regression proves that heartbeat acquires its dedicated
+`agy-logic` namespace even when generated AGY routing is documentation-only.
+That fake-version fixture is wiring evidence, not native certification.
+
+The first public native gate exposed a missing AGY case in the offline version
+observer; its regression failed before the correction and passed afterward.
+The next native qualification exposed 1.4.2 saving an empty allow list by
+omitting `permissions.allow`. A diagnostic-only build recovered the nested
+profile-audit error, with instrumentation removed byte-for-byte from source.
+The correction recognizes that equivalent empty set only for 1.4.2. Exact
+negative cases retain rejection of null, added grants, nonempty omissions,
+other codecs and altered deny policy. The focused race gate passes.
+
+After that correction, native qualification returned four identical JSON
+proofs with `num_turns: 4` while `--json-schema` was supplied. Omitting only
+that native flag in a diagnostic overlay produced one exact proof and
+`num_turns: 1`; the authorized synthetic heartbeat succeeded. Production now
+uses the dossier's structured-response-validation alternative. The strict
+three-field proof validator is unchanged and still rejects repeated JSON,
+narration, extra or duplicate fields, and incorrect bindings. The argv binding
+regression failed before the correction and the focused race checks passed
+afterward. Diagnostic overlays are investigation evidence, not the production
+binary's final certification.
+
+The standalone `make test-agy` gate uses one default account, one top-level
+review attempt and a source-only nonce on a parenthesized path. The production
+gate passed on native 1.4.2: one initial documentation invocation returned the
+marker, published a valid live-source review, and supported status, inspection,
+complete report reads, report rendering and redacted export. All seven exported
+JSON members were read back. Original token/source/Git state remained unchanged
+and private namespace/workspace roots were removed. Successful diagnostics
+retain natural process exit data; trusted driver and lifecycle checks enforce
+half-close, EOF, complete input, no requested signals and process-group absence
+before publication. Earlier failed gates retain their failed outcomes.
+Unit, integration, release-binary, static and mandatory ZCode/Grok live checks
+pass. One mixed-provider run failed when the logic report transcribed one source
+marker digit incorrectly; the native read result contained the correct marker.
+The unchanged gate then passed, including its independent capability checks.
+The Judge and two nonauthor Workers found no new implementation defect and
+verified the passing live evidence. Main accepted TASK-045 under Master's
+delegation; Epic integration review remains pending. The
+current `make test` still stops at eight Go 1.27.1 standard-library advisories;
+the toolchain stays fixed and no waiver is recorded. This section records
+Main's delegated Task acceptance, not Master's Epic acceptance.
 
 ## Intended owners
 

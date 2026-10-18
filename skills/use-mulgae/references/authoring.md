@@ -16,10 +16,12 @@ mulgae config --mode provenance --output json
 ```
 
 For a new workspace, `mulgae init` selects only compiled provider families and
-compiled roles. Mulgae supports ZCode, Grok, and Codex. Automatic provider
-selection requires both ZCode and Grok; select a subset explicitly with
-`--providers zcode`, `--providers grok`, or `--providers codex`. The compiled
-catalog holds seven roles, and bare `mulgae init` enables only the required
+compiled roles. Mulgae supports ZCode, Grok, Codex, Cursor and AGY. Automatic
+selection requires ZCode and Grok and includes AGY when installed; select a
+supported subset explicitly with `--providers FAMILY[,FAMILY...]`. Documentation
+prefers AGY when configured, and other default roles prefer ZCode. Cursor is
+explicit and outside the default preference lists. Existing policy is preserved.
+The compiled catalog holds seven roles, and bare `mulgae init` enables only the required
 `logic` role, so list every intended role explicitly. Examples:
 
 ```bash
@@ -30,6 +32,8 @@ mulgae init --providers grok --roles logic,security \
   --grok-executable /absolute/path/to/grok \
   --grok-model grok-4.7 --grok-reasoning-effort high --output json
 mulgae init --providers codex --roles logic,security --output json
+mulgae init --providers agy --roles documentation \
+  --agy-executable /absolute/path/to/agy --output json
 ```
 
 New projects that select Grok write `grok-4.7` and `high` when either value is
@@ -41,6 +45,13 @@ silently add the generated defaults to it.
 Add the seventh role, `artist`, only with `--project-kind ui`; artist inputs
 require the artist role. Initialization never overwrites an existing complete
 Config v5 pair.
+
+AGY uses only the OS user's default Gemini token. Do not propose account,
+credential-profile, credential-home or permission-mode fields for it. Optional
+`--agy-model` and `--agy-reasoning-effort` are shared policy; omission preserves
+native defaults. Effort accepts `low`, `medium`, `high`, `xhigh`, `max`. AGY is
+text-only, so artist requires ZCode or Codex. Multiple-account AGY support and
+validation are deferred.
 
 ## Change an existing configuration
 

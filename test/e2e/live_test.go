@@ -52,14 +52,22 @@ type liveCommandEnvelope struct {
 		Kind string `json:"kind"`
 	} `json:"exit"`
 	Result struct {
-		Kind              string              `json:"kind"`
-		SessionID         *string             `json:"session_id"`
-		RunID             *string             `json:"run_id"`
-		RunManifestURI    *string             `json:"run_manifest_uri"`
-		ReviewArtifactURI *string             `json:"review_artifact_uri"`
-		RoleReportURIs    []liveRoleReportURI `json:"role_report_uris"`
-		Policy            json.RawMessage     `json:"policy"`
-		Doctor            json.RawMessage     `json:"doctor"`
+		Kind               string              `json:"kind"`
+		SessionID          *string             `json:"session_id"`
+		RunID              *string             `json:"run_id"`
+		RunManifestURI     *string             `json:"run_manifest_uri"`
+		ReviewArtifactURI  *string             `json:"review_artifact_uri"`
+		RoleReportURIs     []liveRoleReportURI `json:"role_report_uris"`
+		Policy             json.RawMessage     `json:"policy"`
+		Doctor             json.RawMessage     `json:"doctor"`
+		Content            string              `json:"content"`
+		Encoding           string              `json:"encoding"`
+		ContentSHA256      string              `json:"content_sha256"`
+		NextOffset         *int64              `json:"next_offset"`
+		PublicationReceipt string              `json:"publication_receipt"`
+		Receipt            struct {
+			ProjectBinding string `json:"project_binding"`
+		} `json:"receipt"`
 	} `json:"result"`
 	Reasons []liveReason `json:"reasons"`
 }
@@ -207,7 +215,7 @@ func TestE2EZCodeGrokReviewAggregation(t *testing.T) {
 	logicMarker := appendLiveReadMarker(t, project, "counter.go", "logic-read")
 	securityMarker := appendLiveReadMarker(t, project, "report.go", "security-read")
 
-	initResult := runLiveMulgae(t, validator, environment, project, 0, liveAutoInitArguments(environment)...)
+	initResult := runLiveMulgae(t, validator, environment, project, 0, liveMixedInitArguments(environment)...)
 	if initResult.Result.Kind != "initialized" {
 		t.Fatalf("init result kind = %q", initResult.Result.Kind)
 	}
@@ -259,9 +267,9 @@ func appendLiveReadMarker(t *testing.T, project, relativePath, prefix string) st
 	return marker
 }
 
-func liveAutoInitArguments(environment liveE2EEnvironment) []string {
+func liveMixedInitArguments(environment liveE2EEnvironment) []string {
 	arguments := []string{
-		"init", "--providers", "auto",
+		"init", "--providers", "zcode,grok",
 		"--roles", "logic,security",
 		"--zcode-app-bundle", environment.zcodeAppBundle,
 		"--grok-executable", environment.grokExecutable,

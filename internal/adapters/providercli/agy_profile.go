@@ -165,15 +165,15 @@ func (plan agyTrustedReadPlan) allowGrants() []string {
 }
 
 // validAgyPermissionGrant checks one native permission grant against the
-// closed grammar the app-authored settings use. It round-trips so an operand
-// can never smuggle a delimiter.
+// closed grammar the app-authored settings use. Native parsing splits at the
+// first opening and final closing parenthesis, preserving operand parentheses.
 func validAgyPermissionGrant(grant string) bool {
 	action, rest, ok := strings.Cut(grant, "(")
 	if !ok || !strings.HasSuffix(rest, ")") {
 		return false
 	}
 	operand := strings.TrimSuffix(rest, ")")
-	if operand == "" || strings.ContainsAny(operand, "\r\n\x00") || strings.Contains(operand, "(") || strings.Contains(operand, ")") {
+	if operand == "" || strings.ContainsAny(operand, "\r\n\x00") {
 		return false
 	}
 	switch action {
@@ -485,8 +485,15 @@ func agySettingsPolicyMatches(after []byte, plan agyTrustedReadPlan, geminiDir, 
 			return fmt.Errorf("unknown permission field")
 		}
 	}
-	if err := agyGrantListMatches(permissions["allow"], plan.allowGrants()); err != nil {
-		return fmt.Errorf("allow grants drift: %w", err)
+	wantAllow := plan.allowGrants()
+	_, allowPresent := permissions["allow"]
+	// Native 1.4.2 rewrites an empty allow slice by omitting it. This is
+	// equivalent only to the already-empty app-owned set; explicit null,
+	// missing nonempty grants and unestablished codecs still fail closed.
+	if allowPresent || len(wantAllow) != 0 || codecVersion != "1.4.2" {
+		if err := agyGrantListMatches(permissions["allow"], wantAllow); err != nil {
+			return fmt.Errorf("allow grants drift: %w", err)
+		}
 	}
 	wantDeny := plan.denyGrants(geminiDir)
 	if err := agyGrantListMatches(permissions["deny"], wantDeny); err != nil {

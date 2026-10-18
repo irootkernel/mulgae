@@ -3,7 +3,7 @@ TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.26
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-mcp-clients
+.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients
 
 test:
 	@$(MAKE) test-prepare
@@ -208,6 +208,34 @@ test-cursor:
 		$(GO) test -v -tags='live_e2e live_cursor' -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestE2ECursorReleaseBinaryReview$$' ./test/e2e
 	@printf '%s\n' '[test-cursor] completed'
+
+test-agy:
+	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-agy requires darwin/arm64" >&2; exit 1; }
+	@set -eu; \
+	agy_base="$$(cd "$${TMPDIR:-/tmp}" && pwd -P)"; \
+	agy_root="$$(mktemp -d "$${agy_base%/}/mulgae-agy.XXXXXX")"; \
+	chmod 700 "$$agy_root"; \
+	printf '%s\n' "[test-agy] private evidence retained: $$agy_root"; \
+	mkdir -m 700 "$$agy_root/runtime" "$$agy_root/project (single account)"; \
+	agy_binary="$$agy_root/mulgae"; \
+	agy_commit="$$(git rev-parse HEAD)"; \
+	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$agy_commit" -o "$$agy_binary" .; \
+	agy_candidate="$${MULGAE_E2E_AGY_EXECUTABLE:-$$(command -v agy || true)}"; \
+	test -n "$$agy_candidate" && test -x "$$agy_candidate" || { echo "test-agy requires the AGY executable" >&2; exit 1; }; \
+	agy_bin="$$(realpath "$$agy_candidate")"; \
+	case "$$agy_bin" in /*) ;; *) echo "test-agy requires an absolute AGY executable" >&2; exit 1;; esac; \
+	shasum -a 256 "$$agy_binary" "$$agy_bin" > "$$agy_root/binaries.sha256"; \
+	git diff --binary HEAD > "$$agy_root/candidate.patch"; \
+	git ls-files --others --exclude-standard -z > "$$agy_root/untracked.paths"; \
+	if test -s "$$agy_root/untracked.paths"; then \
+		xargs -0 shasum -a 256 -- < "$$agy_root/untracked.paths" > "$$agy_root/untracked.sha256"; \
+	else : > "$$agy_root/untracked.sha256"; fi; \
+	MULGAE_E2E_BINARY="$$agy_binary" MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" \
+		MULGAE_E2E_PROJECT_ROOT="$$agy_root/project (single account)" TMPDIR="$$agy_root/runtime" \
+		$(GO) test -v -tags='live_e2e live_agy' -timeout $(TEST_TIMEOUT) -count=1 \
+		-run '^TestE2EAgySingleAccountReleaseBinaryReview$$' ./test/e2e; \
+	shasum -a 256 -c "$$agy_root/binaries.sha256"
+	@printf '%s\n' '[test-agy] completed'
 
 test-mcp-clients:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-mcp-clients requires darwin/arm64" >&2; exit 1; }

@@ -74,6 +74,59 @@ func TestConfigV4SplitRejectsGrokPolicyInMachineAuthority(t *testing.T) {
 	}
 }
 
+func TestConfigV4SplitKeepsAgyExecutableMachineLocalAndPolicyShared(t *testing.T) {
+	config := validConfig()
+	config.Providers = ProvidersConfig{Agy: &AgyProviderConfig{Executable: "/opt/agy/bin/agy", Model: "gemini-3-pro", ReasoningEffort: "high", Timeout: "40m"}}
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
+	project, local, err := EncodeSplit(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(project, []byte(config.Providers.Agy.Executable)) || !bytes.Contains(project, []byte(`model: "gemini-3-pro"`)) || !bytes.Contains(project, []byte(`reasoning_effort: "high"`)) || !bytes.Contains(project, []byte(`timeout: "40m"`)) {
+		t.Fatalf("AGY project policy authority is invalid:\n%s", project)
+	}
+	if !bytes.Contains(local, []byte(`executable: "/opt/agy/bin/agy"`)) || bytes.Contains(local, []byte("model:")) || bytes.Contains(local, []byte("reasoning_effort:")) || bytes.Contains(local, []byte("timeout:")) {
+		t.Fatalf("AGY machine-path authority is invalid:\n%s", local)
+	}
+	decoded, err := DecodeSplit(project, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Providers.Agy == nil || decoded.Providers.Agy.Executable != config.Providers.Agy.Executable || decoded.Providers.Agy.Model != "gemini-3-pro" || decoded.Providers.Agy.ReasoningEffort != "high" || decoded.Providers.Agy.Timeout != "40m" {
+		t.Fatalf("AGY split round trip = %#v", decoded.Providers.Agy)
+	}
+	renderedProject, renderedLocal, err := EncodeSplit(decoded)
+	if err != nil || !bytes.Equal(renderedProject, project) || !bytes.Equal(renderedLocal, local) {
+		t.Fatalf("AGY split is not canonical:\n%s\n---\n%s\n===\n%s\n---\n%s", project, renderedProject, local, renderedLocal)
+	}
+}
+
+func TestConfigV4SplitRejectsAgyFieldPlacementAcrossAuthorities(t *testing.T) {
+	config := validConfig()
+	config.Providers = ProvidersConfig{Agy: &AgyProviderConfig{Executable: "/opt/agy/bin/agy"}}
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
+	project, local, err := EncodeSplit(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"model: gemini-3-pro\n", "reasoning_effort: high\n", "timeout: 30m\n"} {
+		candidate := bytes.Replace(local, []byte("  agy:\n    executable: "), []byte("  agy:\n    "+field+"    executable: "), 1)
+		if bytes.Equal(candidate, local) {
+			t.Fatalf("local fixture does not carry the AGY block for %q:\n%s", field, local)
+		}
+		if _, err := DecodeSplit(project, candidate); err == nil {
+			t.Fatalf("machine-local AGY policy %q was accepted", field)
+		}
+	}
+	leaked := bytes.Replace(project, []byte("  agy: {}\n"), []byte("  agy:\n    executable: /opt/agy/bin/agy\n"), 1)
+	if bytes.Equal(leaked, project) {
+		t.Fatalf("project fixture does not carry the AGY block:\n%s", project)
+	}
+	if _, err := DecodeSplit(leaked, local); err == nil {
+		t.Fatal("project-local AGY executable was accepted")
+	}
+}
+
 func TestConfigV4SplitRejectsLegacyAndProviderSetMismatch(t *testing.T) {
 	project, local, err := EncodeSplit(validConfig())
 	if err != nil {

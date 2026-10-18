@@ -10,8 +10,10 @@ Mulgae reports findings and recommendations only.
 
 ## Start
 
-Automatic initialization requires ZCode and Grok and assigns every default role
-to ZCode. Codex remains available through explicit `--providers codex` selection.
+Automatic initialization requires ZCode and Grok and includes AGY when installed.
+Documentation prefers AGY when available; other default roles prefer ZCode.
+Codex and Cursor remain available by explicit selection. Existing configured
+role assignments are preserved.
 
 ```bash
 mulgae init

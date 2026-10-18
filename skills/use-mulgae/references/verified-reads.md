@@ -8,7 +8,7 @@ invoke no provider and do not create report files.
 ## Select available contracts
 
 Use `get_context` or verified inspection `capabilities` and the host's connected
-tools/resources for read support. Preflight v8 has a narrower advertisement and
+tools/resources for read support. Preflight v9 has a narrower advertisement and
 leaves the inspection/page/content fields empty. The
 relevant values are `inspection`, `finding_pages`, `finding_details`,
 `report_content`, `indexed_evidence`, and `composite_evidence`, each `v1` when

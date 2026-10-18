@@ -36,7 +36,7 @@ mulgae init [--project-root PATH] [--name NAME]
   [--output human|json]
 ```
 
-`FAMILY := zcode | grok | codex | cursor`
+`FAMILY := zcode | grok | codex | cursor | agy`
 
 Cursor is an explicit selection. `--providers cursor` admits it beside the
 existing families. The machine-local override is `--cursor-executable`. It has
@@ -44,7 +44,8 @@ no model, reasoning-effort, credential-profile, or credential-home flags.
 Default role preferences are unchanged and do not assign Cursor.
 
 `--providers auto` discovers ZCode and Grok and fails closed unless both are
-available. It assigns every default role to ZCode. Select any supported family
+available, and includes AGY when installed. Documentation prefers AGY when
+present; the remaining default roles prefer ZCode. Select any supported family
 explicitly to choose a different portfolio. Grok accepts a
 machine-local `--grok-executable` override and an optional shared-policy
 `providers.grok.timeout`. `--grok-model` and `--grok-reasoning-effort` record
@@ -68,6 +69,16 @@ Omitting either value preserves app-server's default for that dimension. Mulgae
 reads ZCode's v2 app state and answers app-server's account-auth request
 without copying credentials into the disposable review home; it never reads
 `~/.zcode/cli/config.json`.
+
+AGY accepts machine-local `--agy-executable` and optional shared-policy
+`--agy-model` and `--agy-reasoning-effort`. The effort values are `low`,
+`medium`, `high`, `xhigh`, and `max`. Omitting model or effort preserves that
+native default independently. Model syntax matches Grok's closed ASCII path
+grammar; the installed AGY CLI owns the available model IDs. These policy flags
+require AGY selection or discovery and are rejected by `--refresh-local`.
+`providers.agy.timeout` uses the common `1m` through `60m` range. AGY has no
+account, credential-profile, credential-home or permission-mode setting. It
+uses only the OS user's default Gemini token; multiple accounts are deferred.
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.

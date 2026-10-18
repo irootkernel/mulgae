@@ -72,6 +72,15 @@ the untracked `.mulgae/local.yaml` authority.
 
 ## Review flow
 
+The configured provider inventory is ZCode, Grok, Codex, Cursor, AGY. AGY's
+single-account stream-JSON adapter owns native permission codecs, correlated
+tool admission, default-token projection and natural-exit acceptance. It uses
+the shared conversation runner and native read-only boundary. Qualification
+authority binds the actual namespace, token source, executable, model and effort;
+it cannot transfer across AGY namespaces. Composition preserves undrained
+namespace children before closing reviewer-home or workspace ownership.
+See the [AGY transport decision](../architecture-decision-records/agy-stream-json-transport.md).
+
 1. CLI/MCP admits one live selector against the canonical original root.
 2. Configuration, source/Git locality and optional independent binding are
    checked before allocating a run or constructing provider authority.
@@ -226,7 +235,7 @@ to the process-scoped `Serve` context. SIGINT, SIGTERM, or transport shutdown
 therefore cancels and drains provider and publication work instead of leaving a
 late child execution.
 
-Preflight v8 returns source selection identity, candidate counts, transmission
+Preflight v9 returns source selection identity, candidate counts, transmission
 routes, warnings and execution budget. MCP omits the native read plan. Preflight
 does not reserve state or supply a content fingerprint; execution separately
 compares the independently observed project binding before qualification. Committed report and evidence bytes

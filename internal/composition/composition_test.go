@@ -628,6 +628,140 @@ func TestReviewCompositionConstructorFailureCleansTemporaryRoots(t *testing.T) {
 	}
 }
 
+type cleanupTrackingReviewerHome struct {
+	ports.ReviewerHome
+	closes  int
+	onClose func() error
+}
+
+func (home *cleanupTrackingReviewerHome) Close() error {
+	home.closes++
+	if home.onClose != nil {
+		return home.onClose()
+	}
+	return nil
+}
+
+func TestReviewCompositionCleanupNamespaceParentBoundary(t *testing.T) {
+	for _, state := range []string{"empty", "missing", "file", "symlink", "disabled"} {
+		t.Run(state, func(t *testing.T) {
+			namespacePath, workspacePath := canonicalTestTempDir(t), canonicalTestTempDir(t)
+			namespace, _ := ports.NewAnchoredRoot(namespacePath)
+			workspace, _ := ports.NewAnchoredRoot(workspacePath)
+			if state == "missing" || state == "file" || state == "symlink" {
+				if err := os.Remove(namespacePath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var target string
+			if state == "file" {
+				if err := os.WriteFile(namespacePath, []byte("unexpected file"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if state == "symlink" {
+				target = canonicalTestTempDir(t)
+				if err := os.Symlink(target, namespacePath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := cleanupReviewCompositionRoots(state != "disabled", namespace, workspace)
+			unsafe := state == "file" || state == "symlink"
+			if (err != nil) != unsafe {
+				t.Fatalf("cleanup error=%v for %s namespace parent", err, state)
+			}
+			preserved := unsafe || state == "disabled"
+			for _, path := range []string{namespacePath, workspacePath} {
+				_, err := os.Lstat(path)
+				if preserved && err != nil || !preserved && !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("cleanup preservation=%t: %v", preserved, err)
+				}
+			}
+			if target != "" {
+				if _, err := os.Stat(target); err != nil {
+					t.Fatal("cleanup followed the unsafe namespace parent", err)
+				}
+			}
+			if !preserved {
+				if err := cleanupReviewCompositionRoots(true, namespace, workspace); err != nil {
+					t.Fatal("completed cleanup was not idempotent", err)
+				}
+			}
+		})
+	}
+}
+
+func TestReviewCompositionClosesHomeOnlyAfterNamespaceDrain(t *testing.T) {
+	for _, closeFails := range []bool{false, true} {
+		t.Run(fmt.Sprintf("closeFails=%t", closeFails), func(t *testing.T) {
+			namespacePath, workspacePath := canonicalTestTempDir(t), canonicalTestTempDir(t)
+			namespace, _ := ports.NewAnchoredRoot(namespacePath)
+			workspace, _ := ports.NewAnchoredRoot(workspacePath)
+			closeErr := errors.New("injected reviewer-home close failure")
+			home := &cleanupTrackingReviewerHome{onClose: func() error {
+				if _, err := os.Lstat(namespacePath); !errors.Is(err, os.ErrNotExist) {
+					t.Error("reviewer home closed before namespace parent removal")
+				}
+				if closeFails {
+					return closeErr
+				}
+				return nil
+			}}
+			graph := &productionRuntimeGraph{namespaceRoot: namespace, workspaceRoot: workspace, reviewerHome: home}
+			err := graph.cleanupRoots()
+			if errors.Is(err, closeErr) != closeFails || home.closes != 1 {
+				t.Fatalf("home closes=%d, cleanup error=%v", home.closes, err)
+			}
+			if _, err := os.Lstat(workspacePath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("drained workspace was not cleaned", err)
+			}
+			if err := graph.cleanupRoots(); err != nil || home.closes != 1 {
+				t.Fatalf("repeated cleanup closed the reviewer home twice: %v", err)
+			}
+		})
+	}
+}
+
+func TestReviewCompositionCleanupPreservesUndrainedNamespace(t *testing.T) {
+	for _, graphCleanup := range []bool{false, true} {
+		t.Run(fmt.Sprintf("graph=%t", graphCleanup), func(t *testing.T) {
+			namespacePath, workspacePath := canonicalTestTempDir(t), canonicalTestTempDir(t)
+			namespace, _ := ports.NewAnchoredRoot(namespacePath)
+			workspace, _ := ports.NewAnchoredRoot(workspacePath)
+			retained := filepath.Join(namespacePath, "undrained")
+			if err := os.Mkdir(retained, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			files := []string{filepath.Join(retained, "policy"), filepath.Join(retained, "token"), filepath.Join(workspacePath, "fixture")}
+			for _, path := range files {
+				if err := os.WriteFile(path, []byte("synthetic retained protection"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			home := &cleanupTrackingReviewerHome{}
+			var err error
+			if graphCleanup {
+				graph := &productionRuntimeGraph{namespaceRoot: namespace, workspaceRoot: workspace, reviewerHome: home}
+				err = graph.cleanupRoots()
+			} else {
+				err = cleanupReviewCompositionRoots(true, namespace, workspace)
+			}
+			if err == nil {
+				t.Error("cleanup accepted an undrained namespace")
+			}
+			if home.closes != 0 {
+				t.Error("reviewer home closed before namespace drain was established")
+			}
+			for _, path := range files {
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != "synthetic retained protection" {
+					t.Errorf("retained protection was erased: %s: %v", filepath.Base(path), err)
+				}
+			}
+		})
+	}
+}
+
 type failingReviewRunService struct{ err error }
 
 func (service failingReviewRunService) StartReviewRun(context.Context, mulgaeentry.ReviewRequest, ports.AnchoredRoot) (mulgaeentry.ReviewRunResult, error) {
@@ -732,8 +866,8 @@ func TestReviewCompositionCleanupFailureIsArtifactFailureAndPreservesPrimaryErro
 	if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact {
 		t.Fatalf("cleanup error = %#v, want joined artifact failure", err)
 	}
-	if _, statErr := os.Lstat(removablePath); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("cleanup stopped after first root failure; second root status: %v", statErr)
+	if _, statErr := os.Lstat(removablePath); statErr != nil {
+		t.Fatalf("cleanup erased workspace after namespace cleanup failed: %v", statErr)
 	}
 	if _, statErr := os.Lstat(lockedPath); statErr != nil {
 		t.Fatalf("injected failing root unexpectedly removed: %v", statErr)

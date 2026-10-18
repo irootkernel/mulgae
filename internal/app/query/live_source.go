@@ -66,6 +66,28 @@ func validateLiveQueryTarget(final finalDTO) (evidence.LiveSourceRead, error) {
 	return value, nil
 }
 
+func validateLivePublicationBinding(final finalDTO, manifest manifestDTO) (evidence.LiveSourceRead, error) {
+	if final.SchemaVersion != "mulgae-review-artifact.v3" || manifest.SchemaVersion != "mulgae-run-manifest.v3" {
+		return evidence.LiveSourceRead{}, fmt.Errorf("schema version does not match committed contract")
+	}
+	value, err := validateLiveQueryTarget(final)
+	if err != nil {
+		return evidence.LiveSourceRead{}, err
+	}
+	if final.Target.ContentSHA256 != "" || manifest.Target.ContentSHA256 != "" || manifest.Target.SourceIdentitySHA256 != value.Identity.SHA256() || manifest.CompositeIdentity.SupportIndex == nil || final.FollowupOutcome != nil || manifest.FollowupOutcome != nil {
+		return evidence.LiveSourceRead{}, fmt.Errorf("live source target or support binding is invalid")
+	}
+	for _, role := range final.RoleOutcomes {
+		if value.NoChange != (role.Outcome == "not_applicable") {
+			return evidence.LiveSourceRead{}, fmt.Errorf("live selection and role outcomes disagree")
+		}
+	}
+	if value.NoChange && (len(final.Findings) != 0 || len(manifest.Attempts) != 0 || len(manifest.Failures) != 0 || len(manifest.RoleReports) != 0) {
+		return evidence.LiveSourceRead{}, fmt.Errorf("live no-change publication contains provider work")
+	}
+	return value, nil
+}
+
 func optionalObjectIDMatches(value *string, expected string) bool {
 	if expected == "" {
 		return value == nil

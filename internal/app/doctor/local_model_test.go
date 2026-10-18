@@ -66,7 +66,7 @@ func validLocalDoctorResult() LocalDoctorResult {
 		ConfiguredProviderIDs: []string{"zcode"},
 		ProviderInventory: []LocalProviderInventoryRow{
 			{Family: "zcode", Configured: true, ReferencedByRoles: []string{"logic"}, State: "eligible", Reason: "zcode_application_version_supported", BinaryAvailable: LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}, CLICompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "0.16.5", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "0.16.5", VerifiedLatest: "0.16.5", ReasonCode: "provider_cli_version_supported"}, ApplicationCompatible: LocalCLICompatibility{Status: "verified", ObservedVersion: "3.12.3", Eligibility: "eligible", Compatibility: "verified", MinimumVersion: "3.12.3", VerifiedLatest: "3.12.3", ReasonCode: "zcode_application_version_supported"}},
-			notConfigured("grok"), notConfigured("codex"), notConfigured("cursor"),
+			notConfigured("grok"), notConfigured("codex"), notConfigured("cursor"), notConfigured("agy"),
 		},
 		Assignment: LocalAssignmentProjection{State: "ready", Resilience: "ready"}, PlatformEvidence: []LocalPlatformEvidence{{Cell: "darwin-arm64", Native: true}}, ToolsLock: LocalToolsLock{State: "not_observed"},
 		Readiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, ConfiguredReadiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, RoleRouteReadiness: LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}, Diagnostics: []LocalDiagnostic{},

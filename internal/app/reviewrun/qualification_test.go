@@ -13,7 +13,7 @@ import (
 )
 
 func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
-	want := []Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyCursor}
+	want := []Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyCursor, FamilyAgy}
 	if got := Families(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Families() = %v, want %v", got, want)
 	}
@@ -22,6 +22,7 @@ func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
 		{Family: FamilyGrok, Minimum: "1.0.34", VerifiedLatest: "1.0.40"},
 		{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
 		{Family: FamilyCursor, Minimum: "2026.10.14-0f9edde", VerifiedLatest: "2026.10.14-0f9edde"},
+		{Family: FamilyAgy, Minimum: "1.2.9", VerifiedLatest: "1.4.2"},
 	}
 	for _, want := range guidance {
 		got, ok := Guidance(want.Family)
@@ -603,7 +604,7 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 	}
 	sawCursor := false
 	for _, profile := range profiles {
-		if profile.Family() == FamilyCursor {
+		if profile.Family() == FamilyCursor || profile.Family() == FamilyAgy {
 			sawCursor = true
 			if profile.Available() || profile.Reason() != "executable_not_found" {
 				t.Fatalf("cursor missing executable = available %t reason %q", profile.Available(), profile.Reason())

@@ -292,7 +292,8 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		"--grok-executable": true, "--grok-model": true, "--grok-reasoning-effort": true,
 		"--codex-executable": true, "--codex-model": true, "--codex-reasoning-effort": true,
 		"--cursor-executable": true,
-		"--refresh-local":     false,
+		"--agy-executable":    true, "--agy-model": true, "--agy-reasoning-effort": true,
+		"--refresh-local": false,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -315,7 +316,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	request := InitRequest{
 		projectRoot: projectRoot, projectName: projectName, selectionMode: "auto", roleIDs: []string{"logic"},
 	}
-	for _, flag := range []string{"--name", "--context", "--providers", "--roles", "--project-kind", "--artist-brief", "--artist-design-specs", "--zcode-model", "--zcode-reasoning-effort", "--grok-model", "--grok-reasoning-effort", "--codex-model", "--codex-reasoning-effort"} {
+	for _, flag := range []string{"--name", "--context", "--providers", "--roles", "--project-kind", "--artist-brief", "--artist-design-specs", "--zcode-model", "--zcode-reasoning-effort", "--grok-model", "--grok-reasoning-effort", "--codex-model", "--codex-reasoning-effort", "--agy-model", "--agy-reasoning-effort"} {
 		if _, present := options[flag]; present {
 			request.projectPolicyOptions = true
 			break
@@ -380,7 +381,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 			request.providerIDs = canonicalProviderOrder(providers)
 		}
 	}
-	for flag, destination := range map[string]*string{"--zcode-app-bundle": &request.zcodeAppBundle, "--zcode-model": &request.zcodeModel, "--zcode-reasoning-effort": &request.zcodeReasoningEffort, "--grok-executable": &request.grokExecutable, "--grok-model": &request.grokModel, "--grok-reasoning-effort": &request.grokReasoningEffort, "--codex-executable": &request.codexExecutable, "--codex-model": &request.codexModel, "--codex-reasoning-effort": &request.codexReasoningEffort, "--cursor-executable": &request.cursorExecutable} {
+	for flag, destination := range map[string]*string{"--zcode-app-bundle": &request.zcodeAppBundle, "--zcode-model": &request.zcodeModel, "--zcode-reasoning-effort": &request.zcodeReasoningEffort, "--grok-executable": &request.grokExecutable, "--grok-model": &request.grokModel, "--grok-reasoning-effort": &request.grokReasoningEffort, "--codex-executable": &request.codexExecutable, "--codex-model": &request.codexModel, "--codex-reasoning-effort": &request.codexReasoningEffort, "--cursor-executable": &request.cursorExecutable, "--agy-executable": &request.agyExecutable, "--agy-model": &request.agyModel, "--agy-reasoning-effort": &request.agyReasoningEffort} {
 		if value, present := options[flag]; present {
 			*destination = value
 		}
@@ -389,6 +390,8 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	_, request.hasGrokReasoningEffort = options["--grok-reasoning-effort"]
 	_, request.hasZCodeModel = options["--zcode-model"]
 	_, request.hasZCodeReasoningEffort = options["--zcode-reasoning-effort"]
+	_, request.hasAgyModel = options["--agy-model"]
+	_, request.hasAgyReasoningEffort = options["--agy-reasoning-effort"]
 	if value, present := options["--native-home"]; present {
 		if !validAbsoluteRoot(value) {
 			return Invocation{}, usageError("native home is not canonical")
@@ -396,7 +399,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		request.nativeHome = value
 		request.hasNativeHome = true
 	}
-	for _, value := range []string{request.zcodeAppBundle, request.grokExecutable, request.codexExecutable, request.cursorExecutable} {
+	for _, value := range []string{request.zcodeAppBundle, request.grokExecutable, request.codexExecutable, request.cursorExecutable, request.agyExecutable} {
 		if value != "" && !validAbsoluteRoot(value) {
 			return Invocation{}, usageError("provider path is not canonical")
 		}
@@ -409,6 +412,12 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 	}
 	if request.hasGrokReasoningEffort && !appconfig.ValidGrokReasoningEffort(request.grokReasoningEffort) {
 		return Invocation{}, usageError("Grok reasoning effort is invalid")
+	}
+	if request.hasAgyModel && !appconfig.ValidAgyModel(request.agyModel) {
+		return Invocation{}, usageError("AGY model is invalid")
+	}
+	if request.hasAgyReasoningEffort && !appconfig.ValidAgyReasoningEffort(request.agyReasoningEffort) {
+		return Invocation{}, usageError("AGY reasoning effort is invalid")
 	}
 	if request.hasZCodeModel && !appconfig.ValidZCodeModel(request.zcodeModel) {
 		return Invocation{}, usageError("ZCode model must be provider-qualified")
@@ -436,6 +445,9 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		if !containsString(selected, "cursor") && request.cursorExecutable != "" {
 			return Invocation{}, usageError("Cursor override requires Cursor selection")
 		}
+		if !containsString(selected, "agy") && (request.agyExecutable != "" || request.hasAgyModel || request.hasAgyReasoningEffort) {
+			return Invocation{}, usageError("AGY override requires AGY selection")
+		}
 	}
 	outputFormat, err := optionOutputFormat(options)
 	if err != nil {
@@ -456,6 +468,9 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		CodexModel           string `json:"codex_model,omitempty"`
 		CodexReasoningEffort string `json:"codex_reasoning_effort,omitempty"`
 		CursorExecutable     string `json:"cursor_executable,omitempty"`
+		AgyExecutable        string `json:"agy_executable,omitempty"`
+		AgyModel             string `json:"agy_model,omitempty"`
+		AgyReasoningEffort   string `json:"agy_reasoning_effort,omitempty"`
 	}
 	requestJSON, err := marshalRequest(struct {
 		RequestID    string        `json:"request_id"`
@@ -473,7 +488,7 @@ func parseInit(arguments []string, defaultProjectRoot, requestID string) (Invoca
 		RefreshLocal *bool         `json:"refresh_local,omitempty"`
 		OutputFormat OutputFormat  `json:"output_format"`
 	}{
-		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{ZCodeAppBundle: request.zcodeAppBundle, ZCodeModel: request.zcodeModel, ZCodeReasoningEffort: request.zcodeReasoningEffort, GrokExecutable: request.grokExecutable, GrokModel: request.grokModel, GrokReasoningEffort: request.grokReasoningEffort, CodexExecutable: request.codexExecutable, CodexModel: request.codexModel, CodexReasoningEffort: request.codexReasoningEffort, CursorExecutable: request.cursorExecutable}, Overwrite: false, RefreshLocal: optionalBool(request.refreshLocal), OutputFormat: outputFormat,
+		RequestID: requestID, Command: string(app.CommandInit), ProjectRoot: request.projectRoot, ProjectName: request.projectName, Context: optionalString(request.contextPath, request.hasContextPath), ProjectKind: optionalString(request.projectKind, request.hasProjectKind), ArtistBrief: optionalString(request.artistBriefPath, request.artistBriefPath != ""), ArtistDesign: cloneStrings(request.artistDesignGlobs), Selection: selectionJSON{Mode: request.selectionMode, ProviderIDs: cloneStrings(request.providerIDs)}, Roles: cloneStrings(request.roleIDs), Overrides: overridesJSON{ZCodeAppBundle: request.zcodeAppBundle, ZCodeModel: request.zcodeModel, ZCodeReasoningEffort: request.zcodeReasoningEffort, GrokExecutable: request.grokExecutable, GrokModel: request.grokModel, GrokReasoningEffort: request.grokReasoningEffort, CodexExecutable: request.codexExecutable, CodexModel: request.codexModel, CodexReasoningEffort: request.codexReasoningEffort, CursorExecutable: request.cursorExecutable, AgyExecutable: request.agyExecutable, AgyModel: request.agyModel, AgyReasoningEffort: request.agyReasoningEffort}, Overwrite: false, RefreshLocal: optionalBool(request.refreshLocal), OutputFormat: outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -1559,7 +1574,7 @@ func parseProviderCSV(value string, allowed func(string) bool) ([]string, error)
 
 func canonicalProviderOrder(values []string) []string {
 	result := make([]string, 0, len(values))
-	for _, family := range []string{"zcode", "grok", "codex", "cursor"} {
+	for _, family := range []string{"zcode", "grok", "codex", "cursor", "agy"} {
 		if containsString(values, family) {
 			result = append(result, family)
 		}
@@ -1591,7 +1606,7 @@ func optionalBool(value bool) *bool {
 
 func intendedProvider(value string) bool {
 	switch value {
-	case "zcode", "grok", "codex", "cursor":
+	case "zcode", "grok", "codex", "cursor", "agy":
 		return true
 	default:
 		return false

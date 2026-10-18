@@ -198,8 +198,23 @@ scratch are removed after verified provider drain.
   only the selected `CURSOR_AUTH_TOKEN` and an in-memory credential store. User
   rules, skills, and MCP configuration are not projected. Explicit selection
   does not assign Cursor to a role by default.
+- AGY uses native plan mode and bidirectional stream-JSON inside the mandatory
+  outer guard. Its adapter-owned settings, agent and empty MCP configuration
+  are audited after invocation. It imports only a disposable copy of the OS
+  user's default Gemini token; the original is never written back. The token
+  must be a nonempty regular no-follow mode-`0600` file, user-owned and
+  single-link. Native refresh may change the disposable copy. There is no
+  alternate account scan, credential profile or home override.
+  Indexed guarded commands and explicit `command(1)` denial constrain the
+  native prefix codec; the driver separately verifies exact tool operands and
+  correlated completions. Natural zero exit, complete input, EOF and verified
+  process-group absence are mandatory. Unknown drain retains the namespace,
+  policy and token, and forbids reuse or successful cleanup. Composition removes
+  the namespace parent nonrecursively before closing reviewer-home/workspace
+  ownership. See [AGY transport](../architecture-decision-records/agy-stream-json-transport.md).
 
-The outer guard protects source, Git and neutral-guide roots from writes. It
+The outer guard denies writes outside admitted private runtime directories and
+protects source, Git and neutral-guide roots from writes. It
 also denies reads, writes, links and Unix sockets at every configured credential
 root, including unselected profiles and aliases. These controls are not general
 process, IPC, network or read containment: ordinary network requests and reads

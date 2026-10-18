@@ -154,3 +154,72 @@ func TestCursorProvenanceCoversPresenceAndTimeoutOwnership(t *testing.T) {
 		})
 	}
 }
+
+// TestAgyProvenanceCoversPresenceSettingsAndTimeoutOwnership mirrors the
+// provider-agnostic provenance contract for the AGY block: the executable is
+// machine-local, omitted model and effort read as provider defaults, and only
+// the timeout carries an implicit Mulgae default.
+func TestAgyProvenanceCoversPresenceSettingsAndTimeoutOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		config Config
+		want   map[string]ProvenanceRow
+	}{
+		{
+			name: "absent",
+			want: map[string]ProvenanceRow{
+				"providers.agy.configured":       {Field: "providers.agy.configured", Source: "project", Disposition: "absent", ValueClass: "policy"},
+				"providers.agy.executable":       {Field: "providers.agy.executable", Source: "local", Disposition: "absent", ValueClass: "machine"},
+				"providers.agy.model":            {Field: "providers.agy.model", Source: "project", Disposition: "absent", ValueClass: "policy"},
+				"providers.agy.reasoning_effort": {Field: "providers.agy.reasoning_effort", Source: "project", Disposition: "absent", ValueClass: "policy"},
+				"providers.agy.timeout":          {Field: "providers.agy.timeout", Source: "project", Disposition: "absent", ValueClass: "policy"},
+			},
+		},
+		{
+			name: "present omitted settings",
+			config: Config{Providers: ProvidersConfig{Agy: &AgyProviderConfig{
+				Executable: "/opt/agy/bin/agy",
+				Timeout:    ProviderTimeoutText(DefaultProviderTimeout),
+			}}},
+			want: map[string]ProvenanceRow{
+				"providers.agy.configured":       {Field: "providers.agy.configured", Source: "project", Disposition: "configured", ValueClass: "policy"},
+				"providers.agy.executable":       {Field: "providers.agy.executable", Source: "local", Disposition: "configured", ValueClass: "machine"},
+				"providers.agy.model":            {Field: "providers.agy.model", Source: "provider", Disposition: "defaulted", ValueClass: "policy"},
+				"providers.agy.reasoning_effort": {Field: "providers.agy.reasoning_effort", Source: "provider", Disposition: "defaulted", ValueClass: "policy"},
+				"providers.agy.timeout":          {Field: "providers.agy.timeout", Source: "default", Disposition: "defaulted", ValueClass: "policy"},
+			},
+		},
+		{
+			name: "present explicit settings",
+			config: Config{Providers: ProvidersConfig{Agy: &AgyProviderConfig{
+				Executable:      "/opt/agy/bin/agy",
+				Model:           "gemini-3-pro",
+				ReasoningEffort: "high",
+				Timeout:         "40m",
+			}}},
+			want: map[string]ProvenanceRow{
+				"providers.agy.configured":       {Field: "providers.agy.configured", Source: "project", Disposition: "configured", ValueClass: "policy"},
+				"providers.agy.executable":       {Field: "providers.agy.executable", Source: "local", Disposition: "configured", ValueClass: "machine"},
+				"providers.agy.model":            {Field: "providers.agy.model", Source: "project", Disposition: "configured", ValueClass: "policy"},
+				"providers.agy.reasoning_effort": {Field: "providers.agy.reasoning_effort", Source: "project", Disposition: "configured", ValueClass: "policy"},
+				"providers.agy.timeout":          {Field: "providers.agy.timeout", Source: "project", Disposition: "configured", ValueClass: "policy"},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rows := provenanceRows(test.config)
+			found := map[string]ProvenanceRow{}
+			for _, row := range rows {
+				if _, ok := test.want[row.Field]; ok {
+					found[row.Field] = row
+				}
+			}
+			for field, want := range test.want {
+				got, ok := found[field]
+				if !ok || got != want {
+					t.Fatalf("%s provenance = %#v, want %#v", field, got, want)
+				}
+			}
+		})
+	}
+}

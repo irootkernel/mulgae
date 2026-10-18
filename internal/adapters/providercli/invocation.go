@@ -69,11 +69,10 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 	case FamilyCursor:
 		return []string{definition.Executable(), "acp"}, nil
 	case FamilyAgy:
-		argv, err := agyProtocolArgv(definition, fixture.WorkspaceSnapshotIdentity().SnapshotPath())
-		if err != nil {
-			return nil, err
-		}
-		return append(argv, "--json-schema", agyCapabilitySchema), nil
+		// Native 1.4.2 schema enforcement repeats the proof across internal
+		// turns. Keep one prompt-bound turn and validate its exact JSON proof
+		// in acceptCapabilityEvidence, without relaxing the wire or read policy.
+		return agyProtocolArgv(definition, fixture.WorkspaceSnapshotIdentity().SnapshotPath())
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}

@@ -83,15 +83,16 @@ func TestConfiguredProviderSettingsReachSharedReviewAndHeartbeatSource(t *testin
 		ZCode: &adapterconfig.ZCodeProviderConfig{Model: "account:zai-individual-coding-plan/GLM-5.3", ReasoningEffort: "high"},
 		Grok:  &adapterconfig.GrokProviderConfig{Model: "grok-4.5", ReasoningEffort: "high-precision"},
 		Codex: &adapterconfig.CodexProviderConfig{Model: "gpt-5.3-codex", ReasoningEffort: "high"},
+		Agy:   &adapterconfig.AgyProviderConfig{Model: "gemini-3", ReasoningEffort: "max"},
 	}}}
-	zcodeModel, zcodeEffort, grokModel, grokEffort, codexModel, codexEffort := source.providerSettings()
-	if zcodeModel != "account:zai-individual-coding-plan/GLM-5.3" || zcodeEffort != "high" || grokModel != "grok-4.5" || grokEffort != "high-precision" || codexModel != "gpt-5.3-codex" || codexEffort != "high" {
-		t.Fatalf("provider settings = %q/%q/%q/%q/%q/%q", zcodeModel, zcodeEffort, grokModel, grokEffort, codexModel, codexEffort)
+	zcodeModel, zcodeEffort, grokModel, grokEffort, codexModel, codexEffort, agyModel, agyEffort := source.providerSettings()
+	if zcodeModel != "account:zai-individual-coding-plan/GLM-5.3" || zcodeEffort != "high" || grokModel != "grok-4.5" || grokEffort != "high-precision" || codexModel != "gpt-5.3-codex" || codexEffort != "high" || agyModel != "gemini-3" || agyEffort != "max" {
+		t.Fatalf("provider settings = %q/%q/%q/%q/%q/%q/%q/%q", zcodeModel, zcodeEffort, grokModel, grokEffort, codexModel, codexEffort, agyModel, agyEffort)
 	}
 	heartbeatSource := *source
-	heartbeatZCodeModel, heartbeatZCodeEffort, heartbeatGrokModel, heartbeatGrokEffort, _, _ := heartbeatSource.providerSettings()
-	if heartbeatZCodeModel != zcodeModel || heartbeatZCodeEffort != zcodeEffort || heartbeatGrokModel != grokModel || heartbeatGrokEffort != grokEffort {
-		t.Fatalf("heartbeat settings = %q/%q/%q/%q", heartbeatZCodeModel, heartbeatZCodeEffort, heartbeatGrokModel, heartbeatGrokEffort)
+	heartbeatZCodeModel, heartbeatZCodeEffort, heartbeatGrokModel, heartbeatGrokEffort, _, _, heartbeatAgyModel, heartbeatAgyEffort := heartbeatSource.providerSettings()
+	if heartbeatZCodeModel != zcodeModel || heartbeatZCodeEffort != zcodeEffort || heartbeatGrokModel != grokModel || heartbeatGrokEffort != grokEffort || heartbeatAgyModel != agyModel || heartbeatAgyEffort != agyEffort {
+		t.Fatalf("heartbeat settings = %q/%q/%q/%q/%q/%q", heartbeatZCodeModel, heartbeatZCodeEffort, heartbeatGrokModel, heartbeatGrokEffort, heartbeatAgyModel, heartbeatAgyEffort)
 	}
 }
 

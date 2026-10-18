@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const SchemaVersion = "mulgae-provider-heartbeat-result.v3"
+const SchemaVersion = "mulgae-provider-heartbeat-result.v4"
 
 type Request struct {
 	ProviderID        string

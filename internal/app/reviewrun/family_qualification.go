@@ -80,7 +80,7 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 	if definition.Family() == string(FamilyCodex) && definition.ProfileID() != definition.Instance() {
 		parts = append(parts, definition.ProfileID())
 	}
-	if definition.Family() == string(FamilyZCode) || definition.Family() == "agy" {
+	if definition.Family() == string(FamilyZCode) || definition.Family() == string(FamilyAgy) {
 		parts = append(parts, definition.Instance())
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))

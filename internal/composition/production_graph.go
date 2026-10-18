@@ -52,12 +52,15 @@ func (graph *productionRuntimeGraph) cleanupRoots() error {
 	if graph == nil {
 		return nil
 	}
+	if err := removeDrainedNamespaceParent(graph.namespaceRoot); err != nil {
+		return reviewCompositionFailure(domain.FailureArtifact, "production temporary root cleanup failed", err)
+	}
 	var homeErr error
 	if graph.reviewerHome != nil {
 		homeErr = graph.reviewerHome.Close()
 		graph.reviewerHome = nil
 	}
-	if err := errors.Join(homeErr, cleanupReviewCompositionRoots(true, graph.namespaceRoot, graph.workspaceRoot)); err != nil {
+	if err := errors.Join(homeErr, cleanupReviewCompositionRoots(true, ports.AnchoredRoot{}, graph.workspaceRoot)); err != nil {
 		return reviewCompositionFailure(domain.FailureArtifact, "production temporary root cleanup failed", err)
 	}
 	return nil
@@ -123,7 +126,7 @@ func composeProductionRuntimeGraph(
 	for _, item := range []struct {
 		family     reviewrun.Family
 		credential providercli.CredentialSourceFamily
-	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}, {reviewrun.FamilyCursor, providercli.CredentialSourceCursor}} {
+	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}, {reviewrun.FamilyCursor, providercli.CredentialSourceCursor}, {reviewrun.FamilyAgy, providercli.CredentialSourceAgy}} {
 		value, policyErr := providercli.RuntimeSafetyPolicyForFamily(item.credential)
 		if policyErr != nil {
 			return nil, fmt.Errorf("production graph: %s runtime safety policy: %w", item.family, policyErr)
@@ -185,11 +188,19 @@ func composeProductionRuntimeGraph(
 			}
 		case reviewrun.FamilyCursor:
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCursor, policies[family]
+		case reviewrun.FamilyAgy:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[family]
 		default:
 			return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
 		}
 	}
 	candidates.cursorAuthToken = os.Getenv("CURSOR_AUTH_TOKEN")
+	if policy.config.Providers.Agy != nil {
+		// Heartbeat qualifies the fixed synthetic logic candidate even when
+		// generated project policy assigns AGY only to documentation.
+		instance := string(reviewrun.FamilyAgy) + "-" + string(domain.RoleLogic)
+		instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[reviewrun.FamilyAgy]
+	}
 	if codex := policy.config.Providers.Codex; codex != nil {
 		seen := make(map[string]struct{}, len(sourceRoots))
 		for _, home := range sourceRoots {

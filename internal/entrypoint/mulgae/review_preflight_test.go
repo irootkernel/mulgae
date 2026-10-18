@@ -15,7 +15,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v8.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v9.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 
 func TestReviewPreflightValidateWarningsAndNoChange(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v8.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v9.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,6 +94,19 @@ func TestReviewPreflightValidateAcceptsCodexCredentialProfileInstance(t *testing
 	}
 }
 
+func TestReviewPreflightValidateAcceptsAgyTextRoute(t *testing.T) {
+	result := loadReviewPreflightExample(t)
+	result.Transmissions[0].ProviderFamily = "agy"
+	result.Transmissions[0].ProviderInstance = "agy-logic"
+	result.Budget.RolePaths[0].ProviderInstance = "agy-logic"
+	if err := validatePreflightBudgetProjection(result.Transmissions, result.Budget); err != nil {
+		t.Fatalf("AGY budget reconstruction: %v", err)
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("AGY text route rejected: %v", err)
+	}
+}
+
 func TestReviewPreflightValidateAcceptsLargeNativeReadPlan(t *testing.T) {
 	result := loadReviewPreflightExample(t)
 	result.ReadPlan = make([]ReviewPreflightRead, 10_002)
@@ -115,7 +128,7 @@ func loadReviewPreflightExample(t *testing.T) ReviewPreflightResult {
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v8.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v9.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
+- Review text roles with AGY over stream-JSON using one default Gemini account. New projects prefer AGY for documentation when available; existing configured routes remain unchanged. Add single-account live verification with `make test-agy`.
 - Select Cursor explicitly for a text role through init, CLI, and MCP. Schemas, help, and contracts name that route. Default role preferences stay unchanged, and live Cursor certification remains opt-in.
 
 ### Fixed

@@ -105,7 +105,7 @@ identities. Cancellation never rolls back an already committed publication.
    ```
 
    Use `mulgae doctor --output json` for offline setup readiness. In
-   `mulgae-doctor-result.v5`, consume `config_v3`, `local_configuration`, and
+   `mulgae-doctor-result.v7`, consume `config_v3`, `local_configuration`, and
    `provider_identity` independently. For each configured provider, consume
    `binary_available` and `cli_compatible`, then read `configured_readiness`.
    Static admission and prior review qualification do not gate this state.

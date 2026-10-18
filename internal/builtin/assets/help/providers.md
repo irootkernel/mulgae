@@ -1,6 +1,6 @@
 # Providers
 
-Mulgae supports ZCode, Grok, Codex and Cursor on native Apple Silicon macOS.
+Mulgae supports ZCode, Grok, Codex, Cursor and AGY on native Apple Silicon macOS.
 Each role runs on exactly one configured provider. Failed providers are
 reported with typed reasons; Mulgae does not substitute another provider or
 combine opinions as consensus. Independent runs own separate registries and
@@ -43,6 +43,21 @@ Live review and extraction use original source reads from a neutral cwd:
   configuration are not projected. There is no model, reasoning-effort,
   credential-profile or credential-home flag. Artist assignment fails capability
   admission. A failed Cursor role stays on Cursor.
+
+- AGY uses bidirectional stream-JSON in native plan mode inside the mandatory
+  outer Seatbelt guard. Documentation prefers AGY when configured. Other text
+  roles retain ZCode first; artist remains ZCode or Codex. It uses one default
+  Gemini account and copies only the native default token into a disposable
+  Gemini directory. Native model and effort defaults survive omission. No user
+  rules, plugins or MCP configuration are imported. A report requires correlated
+  completion, stdin half-close, drained EOF, natural exit zero and verified
+  process-group absence. An uncertain drain retains the namespace and token
+  copy. AGY is text-only; failures never select another provider.
+
+AGY's version floor is `1.2.9`, with `1.4.2` verified. Command permission codecs
+are separately known for `1.4.0` and `1.4.2`; an uninspected version does not
+gain command authority from its version number. `make test-agy` exercises one
+default-account documentation review and public report/export access.
 
 No live review uses staged-file role report output. Historical transport
 receipts remain unchanged. Process lifetime, protocol inputs and diagnostics

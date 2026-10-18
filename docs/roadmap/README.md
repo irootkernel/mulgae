@@ -566,8 +566,13 @@ configuration and validation are deferred to the
 [AGY multiple-account candidate](../todo/agy-multiple-accounts.md). TASK-043 is
 completed under Main's delegated acceptance. TASK-044 is also completed: its six
 current-binary controls, repository checks and independent result reviews pass.
-Main accepted the internal adapter under Master's delegation. TASK-045 remains
-planned.
+Main accepted the internal adapter under Master's delegation. TASK-045's plan
+passed independent review. Public integration and the exact-candidate native
+single-account gate pass. Unit, integration, release-binary, static and mandatory
+ZCode/Grok live checks pass. The Judge and two nonauthor Workers found no new
+implementation defect. Main accepted TASK-045 under Master's delegation; Epic
+integration review remains pending. The complete gate still fails on the fixed
+Go 1.27.1 standard-library vulnerability check, with no waiver.
 
 TASK-043 verified AGY `1.4.0` neutral-cwd workspace/Git reads, complete stdin,
 natural exit `0`, no signals and process-group absence. Separate native
@@ -628,14 +633,15 @@ Mulgae-authored settings and agent files. `--gemini_dir` and `SSH_TTY=/dev/null`
 select file authentication; original credential roots stay protected and refresh
 writes remain confined to the copy. No live or forced refresh is claimed.
 
-This registration does not change runtime behavior. Current provider behavior
-remains ZCode, Grok, and Codex until TASK-045 publishes the route.
+The working implementation supports ZCode, Grok, Codex, Cursor and AGY.
+TASK-045's completion and Epic acceptance remain pending; implemented behavior
+alone does not close either delivery boundary.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
 | TASK-043 | Completed | Add the reviewed opt-in owned-PTY and exchange half-close prerequisites; pin the installed `agy` (`1.2.9+`) `stream-json` wire and prove neutral-cwd workspace/Git reads, Seatbelt write and credential denial, visible `step_update` tool identity, and `--gemini_dir` + `SSH_TTY` file-token isolation for one account. Stop the epic if any in-scope check fails. | Installed `1.4.0` passes the tested wire/read/lifecycle, write/credential-denial, instruction and source-plugin MCP checks under one-account file authentication. The bounded refresh-confinement evidence is accepted; no live refresh is claimed. The Judge and two independent Workers passed the final result; Main accepted it under Master's delegation. |
 | TASK-044 | Completed | Add the `FamilyAgy` `stream-json` protocol driver (`agy_protocol.go`), Seatbelt live execution, disposable `--gemini_dir` binding for the default account, model/effort flags, and qualification behind the existing protocol runner. Leave public schemas and default role routing unchanged. | Scripted wire, policy, credential and qualification tests, six installed-CLI controls, unit, integration, release-binary and static checks pass. The Judge and two independent Workers passed the result; Main accepted the internal adapter under Master's delegation. |
-| TASK-045 | Planned | Publish single-account `agy` across `init`, `config` (`model`, `reasoning_effort`, `timeout`, local `executable`), `assets/roles.yaml` (`documentation` primary default = `agy`), CLI, MCP, versioned schemas, help, contracts, security, portfolio ADR, and transport ADR. | Generator idempotence, configuration and role-assignment tests, one exact-binary single-account `agy` review, and the complete `make test` gate. |
+| TASK-045 | Completed | Publish single-account `agy` across `init`, `config` (`model`, `reasoning_effort`, `timeout`, local `executable`), `assets/roles.yaml` (`documentation` primary default = `agy`), CLI, MCP, versioned schemas, help, contracts, security, portfolio ADR, and transport ADR. | Generator idempotence, configuration and role-assignment tests, one exact-binary single-account `agy` review, and the complete `make test` gate. |
 
 TASK-043 is the provider feasibility prerequisite. A failed probe blocks
 TASK-044 and TASK-045. TASK-044 must not expose a public route that diverges

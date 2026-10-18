@@ -5,8 +5,43 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
+
+func TestAgyPermissionGrantPreservesNativeOperandParentheses(t *testing.T) {
+	// ParseGrantString uses this anchored grammar in the two supported codecs.
+	native := regexp.MustCompile(`^([^(]+)\((.*)\)$`)
+	for _, operand := range []string{
+		"/source/project (text)/README.md",
+		"/source/path with 'apostrophe' (nested (text))",
+		"/source/ending)",
+		"/source/name),command(other)",
+	} {
+		command := agyReadCommandGuard + "git --no-pager show 'HEAD:" + operand + "'"
+		for _, grant := range []string{"read_file(" + operand + ")", "command(" + command + ")"} {
+			parsed := native.FindStringSubmatch(grant)
+			if !validAgyPermissionGrant(grant) || len(parsed) != 3 || parsed[1]+"("+parsed[2]+")" != grant {
+				t.Fatalf("native grant did not round-trip: %q", grant)
+			}
+		}
+		profile, err := installAgyInvocationProfile(agyProfileTestHome(t), agyTrustedReadPlan{files: []string{operand}, commands: []string{command}}, "1.4.2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := profile.validateAfterRun(); err != nil {
+			t.Fatal(err)
+		}
+		if err := profile.remove(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, grant := range []string{"read_file(relative)", "read_file(/source/a\nother)", "command(x\r)", "command(x\x00)", "unknown(/source/a)", "command()", "command(x)trailing"} {
+		if validAgyPermissionGrant(grant) {
+			t.Fatalf("unsafe grant admitted: %q", grant)
+		}
+	}
+}
 
 func agyProfileTestHome(t *testing.T) string {
 	t.Helper()
@@ -119,6 +154,43 @@ func TestAgyProfileAuthorsOnlyIsolatedPolicyAndAuditsSparseCodec(t *testing.T) {
 		})
 	}
 }
+func TestAgyProfileAdmitsNative142OmittedEmptyAllowOnly(t *testing.T) {
+	for _, item := range []struct {
+		name, version string
+		files         []string
+		allow         any
+		omit          bool
+		wantOK        bool
+	}{
+		{name: "native empty omission", version: "1.4.2", omit: true, wantOK: true},
+		{name: "old codec not established", version: "1.4.0", omit: true},
+		{name: "unknown codec", version: "1.4.1", omit: true},
+		{name: "floor is not codec", version: "1.2.9", omit: true},
+		{name: "nonempty omission", version: "1.4.2", files: []string{"/source/README.md"}, omit: true},
+		{name: "null is not omission", version: "1.4.2"},
+		{name: "added permission", version: "1.4.2", allow: []string{"read_file(/other)"}},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			profile, err := installAgyInvocationProfile(agyProfileTestHome(t), agyTrustedReadPlan{files: item.files}, item.version)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer profile.remove()
+			agyMutatePolicy(t, profile, func(fields map[string]any) {
+				permissions := fields["permissions"].(map[string]any)
+				if item.omit {
+					delete(permissions, "allow")
+				} else {
+					permissions["allow"] = item.allow
+				}
+			})
+			if err := profile.validateAfterRun(); (err == nil) != item.wantOK {
+				t.Fatalf("native allow omission: %v, want accepted=%t", err, item.wantOK)
+			}
+		})
+	}
+}
+
 func TestAgyProfileRejectsPolicyAndFileDrift(t *testing.T) {
 	cases := map[string]func(*testing.T, *agyInvocationProfile){
 		"null mode": func(t *testing.T, p *agyInvocationProfile) {

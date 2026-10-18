@@ -46,7 +46,7 @@ It is not an idempotency key or a content/request digest. Retired capture-bound
 request guards, `--dirty`, `--patch`, `--stdin`, `followup`, `delta`, `rerun`, and
 `compose` are rejected before provider execution. Request no automatic fallback.
 
-Preflight v8 reports source selection identity, candidate count, native read
+Preflight v9 reports source selection identity, candidate count, native read
 plan, configured routes, timeouts and enclosing budgets. Its source identity
 hashes selection metadata, not workspace/index file contents. It discovers and
 invokes no provider and creates no run, diagnostics or publication. Ordinary

@@ -196,6 +196,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-command-result.v21.schema.json",
+      "path": "sot/examples/command-result.v21.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v21.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "command-result-validator"
       ],
       "disposition": "ADDED",
@@ -372,6 +384,18 @@
       "pair": "sot/schemas/mulgae-doctor-result.v6.schema.json",
       "path": "sot/examples/doctor-result.v6.valid.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-doctor-result.v6.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "doctor-result-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-doctor-result.v7.schema.json",
+      "path": "sot/examples/doctor-result.v7.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-doctor-result.v7.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -558,6 +582,18 @@
       "pair": "sot/schemas/mulgae-provider-heartbeat-result.v3.schema.json",
       "path": "sot/examples/provider-heartbeat-result.v3.valid.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v3.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "heartbeat-result-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-provider-heartbeat-result.v4.schema.json",
+      "path": "sot/examples/provider-heartbeat-result.v4.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v4.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -750,6 +786,18 @@
       "pair": "sot/schemas/mulgae-review-preflight.v8.schema.json",
       "path": "sot/examples/review-preflight.v8.valid.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v8.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "review-preflight-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-review-preflight.v9.schema.json",
+      "path": "sot/examples/review-preflight.v9.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v9.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -1162,6 +1210,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/command-result.v21.valid.json",
+      "path": "sot/schemas/mulgae-command-result.v21.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v21.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "command-result-validator"
       ],
       "disposition": "ADDED",
@@ -1342,6 +1402,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "doctor-result-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/doctor-result.v7.valid.json",
+      "path": "sot/schemas/mulgae-doctor-result.v7.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-doctor-result.v7.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "export-manifest-validator"
       ],
       "disposition": "ADDED",
@@ -1500,6 +1572,18 @@
       "pair": "sot/examples/provider-heartbeat-result.v3.valid.json",
       "path": "sot/schemas/mulgae-provider-heartbeat-result.v3.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v3.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "heartbeat-result-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/provider-heartbeat-result.v4.valid.json",
+      "path": "sot/schemas/mulgae-provider-heartbeat-result.v4.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v4.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -1692,6 +1776,18 @@
       "pair": "sot/examples/review-preflight.v8.valid.json",
       "path": "sot/schemas/mulgae-review-preflight.v8.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v8.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "review-preflight-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/review-preflight.v9.valid.json",
+      "path": "sot/schemas/mulgae-review-preflight.v9.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v9.schema.json"
     },
     {
       "checksum_inclusion": true,

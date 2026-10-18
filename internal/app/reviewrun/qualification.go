@@ -18,15 +18,14 @@ import (
 type Family string
 
 const (
-	// Retired family tokens remain available for historical-artifact
-	// classification. Valid deliberately rejects them.
 	FamilyZCode  Family = "zcode"
 	FamilyGrok   Family = "grok"
 	FamilyCodex  Family = "codex"
 	FamilyCursor Family = "cursor"
+	FamilyAgy    Family = "agy"
 )
 
-var families = [...]Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyCursor}
+var families = [...]Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyCursor, FamilyAgy}
 
 // Families returns the allowlisted families in canonical order. The returned
 // slice is caller-owned.
@@ -34,7 +33,7 @@ func Families() []Family { return append([]Family(nil), families[:]...) }
 
 // Valid reports whether family is allowlisted.
 func (family Family) Valid() bool {
-	return family == FamilyZCode || family == FamilyGrok || family == FamilyCodex || family == FamilyCursor
+	return family == FamilyZCode || family == FamilyGrok || family == FamilyCodex || family == FamilyCursor || family == FamilyAgy
 }
 
 // VersionClassification describes a version's qualification guidance.
@@ -64,6 +63,7 @@ var guidance = [...]VersionGuidance{
 	// Cursor guidance is one pinned calendar date and commit hash. The hash
 	// identifies that tuple; it is not an ordering key.
 	{Family: FamilyCursor, Minimum: cursorVerifiedVersion, VerifiedLatest: cursorVerifiedVersion},
+	{Family: FamilyAgy, Minimum: "1.2.9", VerifiedLatest: "1.4.2"},
 }
 
 var zcodeApplicationGuidance = VersionGuidance{Family: FamilyZCode, Minimum: "3.12.3", VerifiedLatest: "3.12.3"}

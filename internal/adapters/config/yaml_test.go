@@ -60,14 +60,33 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 	}
 }
 
+// TestDecodeRejectsRetiredProviderBlocks proves Kimi stays retired in both the
+// provider blocks and the role assignments. AGY is an admitted family since
+// EPIC-011; its credential-shaped fields are rejected by strict decoding and
+// family validation instead of a retirement reason.
 func TestDecodeRejectsRetiredProviderBlocks(t *testing.T) {
-	for _, family := range []string{"kimi", "agy"} {
+	for _, family := range []string{"kimi"} {
 		document := []byte("version: 5\nproject:\n  name: project\nproviders:\n  " + family + ":\n    executable: /bin/provider\n")
 		_, err := Decode(document)
 		admission, ok := AsAdmissionError(err)
 		if !ok || admission.Reason() != ReasonProviderRetired {
 			t.Fatalf("Decode(%s) error = %v, want %s", family, err, ReasonProviderRetired)
 		}
+	}
+	config := validConfig()
+	config.Roles, _ = CanonicalRolesConfig(testRoleDefaults(), config.Providers.Families())
+	encoded, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retiredRole := strings.Replace(string(encoded), `logic: {enabled: true, primary_provider: "zcode"}`, `logic: {enabled: true, primary_provider: "kimi"}`, 1)
+	if retiredRole == string(encoded) {
+		t.Fatal("canonical fixture does not carry the logic role assignment")
+	}
+	_, err = Decode([]byte(retiredRole))
+	admission, ok := AsAdmissionError(err)
+	if !ok || admission.Reason() != ReasonProviderRetired {
+		t.Fatalf("retired role provider error = %v, want %s", err, ReasonProviderRetired)
 	}
 }
 
@@ -556,7 +575,7 @@ func TestDecodeRejectsBudgetAndPermissionContradictions(t *testing.T) {
 	config.Resources.RoleMaxInvocations = 2
 	config.Resources.RunMaxInvocations = 12
 	encoded, _ := EncodeCanonical(validConfig())
-	retired := strings.Replace(string(encoded), "providers:\n", "providers:\n  agy: {}\n", 1)
+	retired := strings.Replace(string(encoded), "providers:\n", "providers:\n  kimi: {}\n", 1)
 	if _, err := Decode([]byte(retired)); err == nil {
 		t.Fatal("retired provider was accepted")
 	}
@@ -585,6 +604,232 @@ func TestDecodeRejectsRetiredSnapshotAndShellConfiguration(t *testing.T) {
 				t.Fatal("unsafe or incomplete execution mode was accepted")
 			}
 		})
+	}
+}
+
+// agyTestConfig returns a valid Config v5 whose AGY block is the only varied
+// provider, with role assignments derived from the shipped role defaults.
+func agyTestConfig(t *testing.T, agy AgyProviderConfig) Config {
+	t.Helper()
+	config := validConfig()
+	config.Providers = ProvidersConfig{Agy: &agy}
+	roles, err := CanonicalRolesConfig(testRoleDefaults(), []string{"agy"})
+	if err != nil {
+		t.Fatalf("canonical agy roles: %v", err)
+	}
+	config.Roles = roles
+	return config
+}
+
+func TestAgyProviderBlockRoundTripsCanonically(t *testing.T) {
+	t.Parallel()
+
+	config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy", Model: "gemini-3-pro-preview", ReasoningEffort: "high", Timeout: "45m"})
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		"  agy:\n    executable: \"/opt/agy/bin/agy\"\n",
+		"    model: \"gemini-3-pro-preview\"\n",
+		"    reasoning_effort: \"high\"\n",
+		"    timeout: \"45m\"\n",
+	} {
+		if !bytes.Contains(canonical, []byte(fragment)) {
+			t.Fatalf("canonical config omitted AGY fragment %q:\n%s", fragment, canonical)
+		}
+	}
+	decoded, err := Decode(canonical)
+	if err != nil {
+		t.Fatalf("decode agy config: %v\n%s", err, canonical)
+	}
+	if decoded.Providers.Agy == nil || decoded.Providers.Agy.Executable != "/opt/agy/bin/agy" || decoded.Providers.Agy.Model != "gemini-3-pro-preview" || decoded.Providers.Agy.ReasoningEffort != "high" || decoded.Providers.Agy.Timeout != "45m" {
+		t.Fatalf("AGY settings did not round trip: %#v", decoded.Providers.Agy)
+	}
+	rendered, err := EncodeCanonical(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rendered, canonical) {
+		t.Fatalf("agy config is not canonical:\n%s\n---\n%s", canonical, rendered)
+	}
+}
+
+// TestAgyOmittedSettingsStayOmittedAndDefaultTheTimeout proves an empty model
+// and effort mean "omitted", and only the timeout carries an implicit default.
+func TestAgyOmittedSettingsStayOmittedAndDefaultTheTimeout(t *testing.T) {
+	t.Parallel()
+
+	config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy"})
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(canonical, []byte("model:")) || bytes.Contains(canonical, []byte("reasoning_effort:")) || bytes.Contains(canonical, []byte("timeout:")) {
+		t.Fatalf("omitted AGY settings were emitted:\n%s", canonical)
+	}
+	decoded, err := Decode(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Providers.Agy.Model != "" || decoded.Providers.Agy.ReasoningEffort != "" || decoded.Providers.Agy.Timeout != "60m" {
+		t.Fatalf("omitted AGY settings = %#v, want empty model/effort and the default timeout", decoded.Providers.Agy)
+	}
+	rendered, err := EncodeCanonical(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rendered, canonical) {
+		t.Fatalf("explicit default timeout did not canonicalize to the omitted form:\n%s", rendered)
+	}
+}
+
+// TestAgyProviderRejectsCredentialAndAccountFields proves the AGY block admits
+// no credential profile, credential home, account, or retired permission-mode
+// field, matching the single default-account boundary.
+func TestAgyProviderRejectsCredentialAndAccountFields(t *testing.T) {
+	t.Parallel()
+
+	config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy"})
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{
+		"    default_credential_profile: \"personal\"\n",
+		"    credential_homes:\n      - profile: \"personal\"\n        home: \"/Users/test/.gemini\"\n",
+		"    account: \"work\"\n",
+		"    permission_mode: \"safe\"\n",
+		"    agy_permission_mode: \"safe\"\n",
+	} {
+		candidate := bytes.Replace(canonical, []byte("  agy:\n    executable: \"/opt/agy/bin/agy\"\n"), []byte("  agy:\n    executable: \"/opt/agy/bin/agy\"\n"+field), 1)
+		if bytes.Equal(candidate, canonical) {
+			t.Fatalf("canonical fixture does not carry the AGY block for %q", field)
+		}
+		_, err := Decode(candidate)
+		admission, ok := AsAdmissionError(err)
+		if !ok || admission.Reason() != ReasonYAMLInvalid {
+			t.Fatalf("AGY field %q err = %v, want %s", field, err, ReasonYAMLInvalid)
+		}
+	}
+}
+
+func TestAgyReasoningEffortAdmitsOnlyTheNativeEnum(t *testing.T) {
+	t.Parallel()
+
+	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy", ReasoningEffort: effort})
+		if _, err := EncodeCanonical(config); err != nil {
+			t.Fatalf("effort %q was rejected: %v", effort, err)
+		}
+	}
+	for _, effort := range []string{"minimal", "ultra", "HIGH", "high ", "none"} {
+		config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy", ReasoningEffort: effort})
+		if _, err := EncodeCanonical(config); err == nil {
+			t.Fatalf("effort %q was accepted", effort)
+		}
+	}
+}
+
+func TestAgyModelGrammarRejectsUnsafeSpellings(t *testing.T) {
+	t.Parallel()
+
+	for _, model := range []string{"gemini-3-pro", "model-2.5_preview", "a"} {
+		config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy", Model: model})
+		if _, err := EncodeCanonical(config); err != nil {
+			t.Fatalf("model %q was rejected: %v", model, err)
+		}
+	}
+	for _, model := range []string{"/abs/model", "a//b", "a/../b", "../escape", "-leading", " trailing", strings.Repeat("m", 129)} {
+		config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy", Model: model})
+		if _, err := EncodeCanonical(config); err == nil {
+			t.Fatalf("model %q was accepted", model)
+		}
+	}
+}
+
+// TestAgyRoleRoutingFollowsTheShippedRoleDocument pins the authored default:
+// documentation prefers AGY, the other text roles trail it, and AGY-absent
+// configurations keep their existing routes.
+func TestAgyRoleRoutingFollowsTheShippedRoleDocument(t *testing.T) {
+	t.Parallel()
+
+	withAgy, err := CanonicalRolesConfig(testRoleDefaults(), []string{"zcode", "grok", "agy"})
+	if err != nil {
+		t.Fatalf("canonical agy roles: %v", err)
+	}
+	if withAgy.Documentation.PrimaryProvider != "agy" {
+		t.Fatalf("documentation = %s, want agy from the shipped role document", withAgy.Documentation.PrimaryProvider)
+	}
+	for _, role := range []string{withAgy.Logic.PrimaryProvider, withAgy.Security.PrimaryProvider, withAgy.Testing.PrimaryProvider} {
+		if role != "zcode" {
+			t.Fatalf("text role = %s, want the untouched zcode route", role)
+		}
+	}
+	withoutAgy, err := CanonicalRolesConfig(testRoleDefaults(), []string{"zcode", "grok"})
+	if err != nil {
+		t.Fatalf("canonical agy-free roles: %v", err)
+	}
+	if withoutAgy.Documentation.PrimaryProvider != "zcode" {
+		t.Fatalf("documentation without agy = %s, want zcode", withoutAgy.Documentation.PrimaryProvider)
+	}
+}
+
+// TestAgyRoleAssignmentsRejectCredentialProfilesAndArtist proves a role routed
+// to AGY admits no credential profile and that the artist role never runs AGY.
+func TestAgyRoleAssignmentsRejectCredentialProfilesAndArtist(t *testing.T) {
+	t.Parallel()
+
+	config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy"})
+	config.Roles.Documentation.CredentialProfile = "personal"
+	if _, err := EncodeCanonical(config); err == nil {
+		t.Fatal("AGY role credential profile was accepted")
+	}
+
+	artistUI := validConfig()
+	artistUI.Project.Kind = ProjectKindUI
+	artistUI.Providers = ProvidersConfig{ZCode: &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}, Agy: &AgyProviderConfig{Executable: "/opt/agy/bin/agy"}}
+	roles, err := CanonicalRolesConfigForUI(testRoleDefaults(), artistUI.Providers.Families())
+	if err != nil {
+		t.Fatalf("canonical UI roles: %v", err)
+	}
+	artistUI.Roles = roles
+	artistUI.Resources.MaxActiveLanes = 7
+	artistUI.Resources.RunMaxInvocations = 14
+	if artistUI.Roles.Artist.PrimaryProvider != "zcode" {
+		t.Fatalf("UI artist = %s, want zcode; AGY must stay unsupported for artist", artistUI.Roles.Artist.PrimaryProvider)
+	}
+	if artistUI.Roles.Documentation.PrimaryProvider != "agy" {
+		t.Fatalf("UI documentation = %s, want agy", artistUI.Roles.Documentation.PrimaryProvider)
+	}
+	if _, err := EncodeCanonical(artistUI); err != nil {
+		t.Fatalf("valid UI config with agy present was rejected: %v", err)
+	}
+	artistUI.Roles.Artist.PrimaryProvider = "agy"
+	if _, err := EncodeCanonical(artistUI); err == nil {
+		t.Fatal("AGY artist assignment was accepted")
+	}
+}
+
+// TestAgyRoleRequiresAConfiguredProvider keeps the strict role-to-provider
+// binding: an enabled AGY role with no providers.agy block is a mapping error.
+func TestAgyRoleRequiresAConfiguredProvider(t *testing.T) {
+	t.Parallel()
+
+	config := agyTestConfig(t, AgyProviderConfig{Executable: "/opt/agy/bin/agy"})
+	config.Providers.ZCode = &ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}
+	canonical, err := EncodeCanonical(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := strings.Replace(string(canonical), "  agy:\n    executable: \"/opt/agy/bin/agy\"\n", "", 1)
+	if stripped == string(canonical) {
+		t.Fatal("canonical fixture does not carry the AGY block")
+	}
+	_, err = Decode([]byte(stripped))
+	admission, ok := AsAdmissionError(err)
+	if !ok || admission.Reason() != ReasonRoleMappingInvalid {
+		t.Fatalf("agy-free config with agy roles err = %v, want %s", err, ReasonRoleMappingInvalid)
 	}
 }
 

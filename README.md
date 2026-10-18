@@ -21,12 +21,14 @@ provider families:
 - Grok CLI
 - Codex CLI
 - Cursor CLI, by explicit text-only selection
+- Antigravity CLI (`agy`), for text roles using one default Gemini account
 
 The default `mulgae init` topology requires a ZCode app bundle with a current
 Z.AI Individual Coding Plan connection and an authenticated Grok installation,
-and assigns every default role to ZCode. Codex remains available
+and optionally discovers AGY. Documentation prefers AGY when present; other
+default roles prefer ZCode. Codex remains available
 through explicit `--providers codex` selection. Cursor is available through
-explicit `--providers cursor` selection. Default role preferences stay
+explicit `--providers cursor` selection. Existing configured assignments remain
 unchanged. Mulgae records
 provider identity and capabilities at runtime and fails closed when a required
 capability is unavailable. Other operating systems, architectures, and provider
@@ -212,6 +214,39 @@ executable's version line must match `YYYY.MM.DD` plus lowercase hexadecimal.
 The target is not part of `make test`. A missing or unsafe prerequisite fails
 it. The check catalog is in
 [Implementation and release guidance](docs/implementation-tips/README.md).
+
+### Use AGY from Mulgae
+
+Sign in with Antigravity CLI before using it. Mulgae uses the default account's
+`~/.gemini/antigravity-cli/antigravity-oauth-token`; it has no AGY account,
+credential-profile, or credential-home override. Multiple-account support is
+deferred. The token must be a regular, user-owned, single-link mode-`0600` file.
+
+```bash
+mulgae init --providers agy --roles documentation \
+  --agy-executable /absolute/path/to/agy
+mulgae review --workspace --roles documentation
+```
+
+`--agy-model` and `--agy-reasoning-effort` are optional shared policy. Omission
+preserves each native default. Effort accepts `low`, `medium`, `high`, `xhigh`,
+or `max`. The machine-local executable belongs in `local.yaml`. AGY supports
+text roles; assigning it to `artist` fails capability admission.
+
+AGY uses bidirectional `stream-json`, native plan mode, and a disposable Gemini
+directory inside the mandatory macOS guard. Mulgae copies only the default
+token; refresh may update that disposable copy, never the original. User rules,
+plugins, and MCP configuration are not imported. Reports require a correlated
+completed turn, stdin half-close, drained EOF, natural exit zero and verified
+process-group absence. A failed AGY role stays on AGY.
+
+The version floor is `1.2.9`, with `1.4.2` verified. Native command permission
+codecs are separately pinned to `1.4.0` and `1.4.2`; another version does not
+inherit command compatibility merely by exceeding the floor.
+`make test-agy` runs one documentation review through the exact candidate
+release binary and the default account, including a source-only read marker,
+public report/export reads and cleanup checks. It retains private evidence and
+is separate from `make test`. No second account is required.
 
 ## Install
 

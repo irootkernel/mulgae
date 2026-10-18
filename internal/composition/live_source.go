@@ -20,7 +20,7 @@ import (
 // that are not selected for this review. Missing default directories still have
 // deny authority; existing aliases also exclude their resolved source roots.
 func liveSourceBoundaries(config appconfig.Config, project ports.AnchoredRoot, runtimeRoots ...ports.AnchoredRoot) (credentials, protected []ports.AnchoredRoot, err error) {
-	paths := []string{filepath.Join(config.NativeUser.Home, ".codex"), filepath.Join(config.NativeUser.Home, ".grok"), filepath.Join(config.NativeUser.Home, ".zcode")}
+	paths := []string{filepath.Join(config.NativeUser.Home, ".codex"), filepath.Join(config.NativeUser.Home, ".grok"), filepath.Join(config.NativeUser.Home, ".zcode"), filepath.Join(config.NativeUser.Home, ".gemini")}
 	if config.Providers.Codex != nil {
 		for _, profile := range config.Providers.Codex.CredentialHomes {
 			paths = append(paths, profile.Home)

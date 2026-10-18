@@ -180,6 +180,28 @@ func (r *agyProbeRunner) Converse(ctx context.Context, request ports.ProcessRequ
 	}
 	return currentProbeCapabilityProtocolObservation(r.t, r.fixture, []byte("transcript")), err
 }
+func TestAgyCapabilityProofRequiresOneExactJSONObject(t *testing.T) {
+	fixture := &currentProbeFixture{role: domain.RoleDocumentation}
+	proof := `{"root":"nonce","link":"linked","role":"documentation"}`
+	for _, item := range []struct {
+		name, output string
+		wantOK       bool
+	}{
+		{"exact", proof, true},
+		{"repeated native schema output", strings.Repeat(proof+"\n", 4), false},
+		{"narrated", "Readiness confirmed: " + proof, false},
+		{"extra field", `{"root":"nonce","link":"linked","role":"documentation","other":true}`, false},
+		{"wrong binding", `{"root":"other","link":"linked","role":"documentation"}`, false},
+		{"duplicate key", `{"root":"nonce","root":"other","link":"linked","role":"documentation"}`, false},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			if err := acceptCapabilityEvidence(FamilyAgy, []byte(item.output), fixture); (err == nil) != item.wantOK {
+				t.Fatalf("AGY proof acceptance = %v, want accepted=%t", err, item.wantOK)
+			}
+		})
+	}
+}
+
 func TestAgyQualificationBindsFinalArgvCodecCredentialsAndNativeBoundary(t *testing.T) {
 	for _, variant := range []string{"success", "signaled", "policy drift", "drain unknown", "diagnostics failure"} {
 		t.Run(variant, func(t *testing.T) {
@@ -236,8 +258,8 @@ func TestAgyQualificationBindsFinalArgvCodecCredentialsAndNativeBoundary(t *test
 			if env["SSH_TTY"] != "/dev/null" || env["HOME"] != filepath.Join(lease.root, "home") {
 				t.Fatal("wrong auth environment")
 			}
-			if !strings.Contains(strings.Join(request.Argv(), " "), "--json-schema "+agyCapabilitySchema) {
-				t.Fatal("schema probe missing")
+			if strings.Contains(strings.Join(request.Argv(), " "), "--json-schema") {
+				t.Fatal("qualification must validate prompt-bound JSON without native schema retries")
 			}
 			encoded, _ := json.Marshal(request.Argv())
 			sum := sha256.Sum256(encoded)

@@ -19,6 +19,146 @@ type contractPair struct {
 	oldVersion, newVersion       string
 }
 
+var agyContractPairs = []contractPair{
+	{"schemas/mulgae-command-result.v20.schema.json", "schemas/mulgae-command-result.v21.schema.json", "examples/command-result.v20.valid.json", "examples/command-result.v21.valid.json", "mulgae-command-result.v20", "mulgae-command-result.v21"},
+	{"schemas/mulgae-doctor-result.v6.schema.json", "schemas/mulgae-doctor-result.v7.schema.json", "examples/doctor-result.v6.valid.json", "examples/doctor-result.v7.valid.json", "mulgae-doctor-result.v6", "mulgae-doctor-result.v7"},
+	{"schemas/mulgae-provider-heartbeat-result.v3.schema.json", "schemas/mulgae-provider-heartbeat-result.v4.schema.json", "examples/provider-heartbeat-result.v3.valid.json", "examples/provider-heartbeat-result.v4.valid.json", "mulgae-provider-heartbeat-result.v3", "mulgae-provider-heartbeat-result.v4"},
+	{"schemas/mulgae-review-preflight.v8.schema.json", "schemas/mulgae-review-preflight.v9.schema.json", "examples/review-preflight.v8.valid.json", "examples/review-preflight.v9.valid.json", "mulgae-review-preflight.v8", "mulgae-review-preflight.v9"},
+}
+
+// Publish AGY after the historical portfolio stages, preserving their bytes.
+func publishAgySelection(assets string) error {
+	for _, pair := range agyContractPairs {
+		for _, item := range []struct{ source, target string }{
+			{pair.schemaSource, pair.schemaTarget}, {pair.exampleSource, pair.exampleTarget},
+		} {
+			contents, err := os.ReadFile(filepath.Join(assets, item.source))
+			if err != nil {
+				return err
+			}
+			var document any
+			if err := json.Unmarshal(contents, &document); err != nil {
+				return err
+			}
+			admitAgyContracts(document)
+			if item.target == "examples/provider-heartbeat-result.v4.valid.json" {
+				document.(map[string]any)["provider_id"] = "agy"
+			}
+			if item.target == "examples/review-preflight.v9.valid.json" {
+				// Source identity has a canonical field order independent of the
+				// enclosing document's formatting. Preserve that opaque value.
+				var original map[string]json.RawMessage
+				if err := json.Unmarshal(contents, &original); err != nil {
+					return err
+				}
+				document.(map[string]any)["target"] = original["target"]
+			}
+			encoded, err := json.MarshalIndent(document, "", "  ")
+			if err != nil {
+				return err
+			}
+			if err := writeGenerated(filepath.Join(assets, item.target), append(encoded, '\n')); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func cloneGeneratedJSON(value any) any {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	var cloned any
+	if err := json.Unmarshal(encoded, &cloned); err != nil {
+		panic(err)
+	}
+	return cloned
+}
+
+var agyContractVersionRewrite = strings.NewReplacer(
+	"mulgae-command-result.v20", "mulgae-command-result.v21", "Command Result v20", "Command Result v21",
+	"mulgae-doctor-result.v6", "mulgae-doctor-result.v7", "Doctor Result v6", "Doctor Result v7",
+	"mulgae-provider-heartbeat-result.v3", "mulgae-provider-heartbeat-result.v4", "Heartbeat Result v3", "Heartbeat Result v4",
+	"mulgae-review-preflight.v8", "mulgae-review-preflight.v9", "Review Preflight v8", "Review Preflight v9",
+)
+
+func admitAgyContracts(document any) {
+	switch typed := document.(type) {
+	case map[string]any:
+		if values, ok := typed["enum"].([]any); ok && stringList(values, "zcode", "grok", "codex", "cursor") {
+			typed["enum"] = append(values, "agy")
+		}
+		if definitions, ok := typed["$defs"].(map[string]any); ok {
+			if source, ok := definitions["init_discovery_codex"]; ok {
+				agy := cloneGeneratedJSON(source)
+				renameDiscoveryFamily(agy, "agy")
+				definitions["init_discovery_agy"] = agy
+			}
+			if source, ok := definitions["provider_cursor"]; ok {
+				agy := cloneGeneratedJSON(source).(map[string]any)
+				renameProviderFamily(agy, "agy")
+				definitions["provider_agy"] = agy
+			}
+			if inventory, ok := definitions["not_observed_inventory"].(map[string]any); ok {
+				appendAgyInventoryPrefix(inventory)
+			}
+		}
+		if properties, ok := typed["properties"].(map[string]any); ok {
+			if executable, ok := properties["grok_executable"]; ok {
+				properties["agy_executable"] = cloneGeneratedJSON(executable)
+				properties["agy_model"] = cloneGeneratedJSON(properties["grok_model"])
+				properties["agy_reasoning_effort"] = map[string]any{"enum": []any{"low", "medium", "high", "xhigh", "max"}}
+			}
+			if inventory, ok := properties["provider_inventory"].(map[string]any); ok {
+				appendAgyInventoryPrefix(inventory)
+			}
+		}
+		if rows, ok := typed["provider_inventory"].([]any); ok && len(rows) == 4 {
+			agy := cloneGeneratedJSON(rows[3]).(map[string]any)
+			agy["family"] = "agy"
+			typed["provider_inventory"] = append(rows, agy)
+		}
+		families := []string{"zcode", "grok", "codex", "cursor", "agy"}
+		extendProviderIDBranchesForFamilies(typed, families)
+		extendDiscoveryBranchesForFamilies(typed, families)
+		for key, child := range typed {
+			if value, ok := child.(string); ok {
+				typed[key] = agyContractVersionRewrite.Replace(value)
+			} else {
+				admitAgyContracts(child)
+			}
+		}
+	case []any:
+		for index, child := range typed {
+			if value, ok := child.(string); ok {
+				typed[index] = agyContractVersionRewrite.Replace(value)
+			} else {
+				admitAgyContracts(child)
+			}
+		}
+	}
+}
+
+func appendAgyInventoryPrefix(inventory map[string]any) {
+	prefix, ok := inventory["prefixItems"].([]any)
+	if !ok || len(prefix) != 4 {
+		return
+	}
+	var added any
+	if inventoryFamily(prefix[3]) == "cursor" {
+		added = cloneGeneratedJSON(prefix[3])
+		added.(map[string]any)["properties"].(map[string]any)["family"].(map[string]any)["const"] = "agy"
+	} else if item, ok := prefix[3].(map[string]any); ok && item["$ref"] == "#/$defs/provider_cursor" {
+		added = map[string]any{"$ref": "#/$defs/provider_agy"}
+	} else {
+		return
+	}
+	inventory["prefixItems"] = append(prefix, added)
+	inventory["minItems"], inventory["maxItems"] = 5, 5
+}
+
 func main() {
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
@@ -40,8 +180,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := publishAgySelection(assets); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	commandPair := contractPair{"schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v13.schema.json", "examples/command-result.v12.valid.json", "examples/command-result.v13.valid.json", "mulgae-command-result.v12", "mulgae-command-result.v13"}
-	if err := updateFileCatalog(assets, append(pairs, commandPair,
+	catalogPairs := append(pairs, commandPair,
 		contractPair{"schemas/mulgae-command-result.v13.schema.json", "schemas/mulgae-command-result.v14.schema.json", "examples/command-result.v13.valid.json", "examples/command-result.v14.valid.json", "mulgae-command-result.v13", "mulgae-command-result.v14"},
 		contractPair{"schemas/mulgae-command-result.v14.schema.json", "schemas/mulgae-command-result.v15.schema.json", "examples/command-result.v14.valid.json", "examples/command-result.v15.valid.json", "mulgae-command-result.v14", "mulgae-command-result.v15"},
 		contractPair{"schemas/mulgae-command-result.v15.schema.json", "schemas/mulgae-command-result.v16.schema.json", "examples/command-result.v15.valid.json", "examples/command-result.v16.valid.json", "mulgae-command-result.v15", "mulgae-command-result.v16"},
@@ -55,7 +199,8 @@ func main() {
 		contractPair{"schemas/mulgae-export-manifest.v1.schema.json", "schemas/mulgae-export-manifest.v2.schema.json", "examples/export-manifest.v1.valid.json", "examples/export-manifest.v2.valid.json", "mulgae-export-manifest.v1", "mulgae-export-manifest.v2"},
 		contractPair{"schemas/mulgae-review-artifact.v1.schema.json", "schemas/mulgae-review-artifact.v3.schema.json", "examples/review-artifact.v1.valid.json", "examples/review-artifact.v3.valid.json", "mulgae-review-artifact.v1", "mulgae-review-artifact.v3"},
 		contractPair{"schemas/mulgae-run-manifest.v1.schema.json", "schemas/mulgae-run-manifest.v3.schema.json", "examples/run-manifest.v1.valid.json", "examples/run-manifest.v3.valid.json", "mulgae-run-manifest.v1", "mulgae-run-manifest.v3"},
-	)); err != nil {
+	)
+	if err := updateFileCatalog(assets, append(catalogPairs, agyContractPairs...)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -738,6 +883,10 @@ func renameDiscoveryFamily(document any, family string) {
 }
 
 func extendProviderIDBranches(document any) {
+	extendProviderIDBranchesForFamilies(document, []string{"zcode", "grok", "codex", "cursor"})
+}
+
+func extendProviderIDBranchesForFamilies(document any, families []string) {
 	object, ok := document.(map[string]any)
 	if !ok {
 		return
@@ -750,7 +899,6 @@ func extendProviderIDBranches(document any) {
 	if providerIDs == nil {
 		return
 	}
-	families := []string{"zcode", "grok", "codex", "cursor"}
 	branches := make([]any, 0, 1<<len(families))
 	for mask := 0; mask < 1<<len(families); mask++ {
 		selected := make([]any, 0, len(families))
@@ -770,6 +918,10 @@ func extendProviderIDBranches(document any) {
 }
 
 func extendDiscoveryBranches(document any) {
+	extendDiscoveryBranchesForFamilies(document, []string{"zcode", "grok", "codex", "cursor"})
+}
+
+func extendDiscoveryBranchesForFamilies(document any, families []string) {
 	object, ok := document.(map[string]any)
 	if !ok {
 		return
@@ -782,14 +934,13 @@ func extendDiscoveryBranches(document any) {
 	if discovery == nil {
 		return
 	}
+	prefix := make([]any, 0, len(families))
+	for _, family := range families {
+		prefix = append(prefix, map[string]any{"$ref": "#/$defs/init_discovery_" + family})
+	}
 	discovery["oneOf"] = []any{
 		map[string]any{"maxItems": 0},
-		map[string]any{"minItems": 4, "maxItems": 4, "items": false, "prefixItems": []any{
-			map[string]any{"$ref": "#/$defs/init_discovery_zcode"},
-			map[string]any{"$ref": "#/$defs/init_discovery_grok"},
-			map[string]any{"$ref": "#/$defs/init_discovery_codex"},
-			map[string]any{"$ref": "#/$defs/init_discovery_cursor"},
-		}},
+		map[string]any{"minItems": len(families), "maxItems": len(families), "items": false, "prefixItems": prefix},
 	}
 	discovery["type"] = "array"
 }

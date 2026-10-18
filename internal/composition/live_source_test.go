@@ -39,7 +39,7 @@ func TestProductionLiveSourcesExcludeAllCredentialProfilesAndRuntimeRoots(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(credentials) != 4 {
+	if len(credentials) != 5 {
 		t.Fatalf("all default and configured homes must remain denied: %v", credentials)
 	}
 	selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")

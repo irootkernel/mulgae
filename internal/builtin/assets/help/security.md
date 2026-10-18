@@ -24,7 +24,18 @@ configured credential homes are protected, including unselected profiles and
 aliases. Provider namespaces and
 scratch are private and are removed after verified process drain.
 
-These controls are not general process, IPC, read or network containment.
+AGY requires native plan mode and the outer guard. It imports only the default
+Gemini token into a private writable Gemini directory. The original token is
+never written back. Adapter-owned settings, agent policy and an empty MCP
+configuration are audited after execution. Indexed command guards and an
+explicit `command(1)` denial prevent native prefix grants from authorizing
+appended commands. Mulgae checks exact tool identity, inputs and completion.
+Unknown tools or failed lifecycle checks cannot publish a report. An uncertain
+drain retains the namespace, policy and token copy; cleanup does not erase them.
+
+The outer guard denies writes outside the invocation's admitted private runtime
+directories as well as reads, links and Unix sockets at protected credential
+roots. These controls are not general process, IPC, read or network containment.
 Reads outside credential roots and ordinary network requests remain permitted.
 Ignoring source paths is not a filesystem access restriction. Workspace
 selection uses `.gitignore`; `.mulgaeignore` is not processed or generated.

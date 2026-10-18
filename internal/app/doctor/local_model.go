@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const LocalSchemaVersion = "mulgae-doctor-result.v6"
+const LocalSchemaVersion = "mulgae-doctor-result.v7"
 
 type LocalConfigProjection struct {
 	Status             string   `json:"status"`
@@ -100,7 +100,7 @@ func (result LocalDoctorResult) Validate() error {
 	if result.SchemaVersion != LocalSchemaVersion || result.CheckedAt.IsZero() || result.ProjectRootURI != "." || result.Config.URI != ".mulgae/config.yaml" || result.Config.Authority != "project_local" {
 		return fmt.Errorf("local doctor result: invalid identity")
 	}
-	if len(result.ProviderInventory) != 4 || result.ProviderInventory[0].Family != "zcode" || result.ProviderInventory[1].Family != "grok" || result.ProviderInventory[2].Family != "codex" || result.ProviderInventory[3].Family != "cursor" {
+	if len(result.ProviderInventory) != 5 || result.ProviderInventory[0].Family != "zcode" || result.ProviderInventory[1].Family != "grok" || result.ProviderInventory[2].Family != "codex" || result.ProviderInventory[3].Family != "cursor" || result.ProviderInventory[4].Family != "agy" {
 		return fmt.Errorf("local doctor result: invalid provider inventory")
 	}
 	for _, check := range []LocalDiagnosticCheck{result.ConfigV3, result.LocalConfiguration, result.ProviderIdentity} {
@@ -263,7 +263,7 @@ func validateDiagnostics(readiness LocalReadiness, diagnostics []LocalDiagnostic
 
 func canonicalProviderIDs(ids []string) bool {
 	position := -1
-	order := []string{"zcode", "grok", "codex", "cursor"}
+	order := []string{"zcode", "grok", "codex", "cursor", "agy"}
 	for _, id := range ids {
 		found := -1
 		for index, family := range order {

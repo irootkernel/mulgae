@@ -7,12 +7,11 @@ import "github.com/irootkernel/mulgae/internal/app/doctor"
 type Family string
 
 const (
-	// Retired family constants are retained only for negative and historical
-	// compatibility tests. They are absent from the trusted profile inventory.
 	FamilyZCode  Family = "zcode"
 	FamilyGrok   Family = "grok"
 	FamilyCodex  Family = "codex"
 	FamilyCursor Family = "cursor"
+	FamilyAgy    Family = "agy"
 )
 
 // SupportState is the non-authoritative availability projection of doctor evidence.

@@ -43,7 +43,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v20.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v21.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -1476,7 +1476,7 @@ func TestApplicationDoctorClassifiesProviderIdentityAndRoleMappingConfigurationF
 		{
 			name: "retired role provider",
 			mutate: func(contents []byte) []byte {
-				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "agy"`), 1)
+				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "kimi"`), 1)
 			},
 			reason:         "config_provider_retired",
 			providerStatus: "unverifiable",
@@ -2026,7 +2026,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 		t.Fatalf("providers human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
-	wantFamilies := []string{"zcode", "grok", "codex", "cursor"}
+	wantFamilies := []string{"zcode", "grok", "codex", "cursor", "agy"}
 	if len(lines) != len(wantFamilies) {
 		t.Fatalf("providers human rows = %q, want provider rows without failure details", human.Stdout())
 	}
@@ -2098,7 +2098,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err != nil {
 		t.Fatal(err)
 	}
-	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v6.schema.json")
+	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v7.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2142,7 +2142,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 		t.Fatalf("doctor config status = %q, want ready", got)
 	}
 
-	wantCalls := []string{"zcode", "grok", "codex", "cursor"}
+	wantCalls := []string{"zcode", "grok", "codex", "cursor", "agy"}
 	if !reflect.DeepEqual(evidence.providerCalls, wantCalls) ||
 		len(evidence.platformCalls) != 1 || evidence.toolsCalls != 1 {
 		t.Fatalf("evidence reader calls = providers %#v platforms %#v tools %d, want only shared reader observations", evidence.providerCalls, evidence.platformCalls, evidence.toolsCalls)

@@ -106,7 +106,29 @@ fixed product byte ceiling.
 
 Cursor joins the selectable families without a model, reasoning-effort,
 credential-profile, or credential-home field. `--providers cursor` is explicit.
-Default role preferences stay on the families they already name.
+Cursor remains outside the default preference lists.
+
+AGY is the fifth inventory family. Config v5 admits machine-local
+`providers.agy.executable` and optional project-policy `model`,
+`reasoning_effort`, and the common provider `timeout`. Omitting model or effort
+preserves that native default independently. Model syntax uses 1–128 ASCII
+characters, starts alphanumeric, permits `._/-`, and rejects absolute paths,
+`//` and `..` segments. Effort is one of `low`, `medium`, `high`, `xhigh`, `max`.
+No AGY account, credential-profile, credential-home or permission-mode field
+exists. Unsupported fields remain rejected.
+
+Init accepts `--agy-executable`, `--agy-model` and `--agy-reasoning-effort`.
+Automatic selection still requires ZCode and Grok; installed AGY is optional.
+AGY policy overrides require selected or discovered AGY, and local refresh
+rejects model/effort options. `assets/roles.yaml` prefers AGY for documentation,
+then ZCode, Grok, Codex. Other text roles prefer ZCode, Grok, Codex, AGY; artist
+retains ZCode and Codex. Existing shared policy is never re-derived.
+
+Current public contracts are command-result v21, doctor v7, provider-heartbeat
+v4 and review-preflight v9. Their earlier schema/example pairs remain frozen.
+Provider-evidence v4 remains historical and has no AGY producer or production
+reader. An injected v4 claim cannot establish AGY certification; the optional
+evidence projection leaves it unsupported/unverified.
 
 Codex may additionally declare a Git-shareable
 `default_credential_profile` and role-level `credential_profile` overrides.
@@ -189,7 +211,7 @@ examples.
 Config v5 retains `resources.max_active_lanes` as the explicit number of
 provider invocations one Mulgae process may run at once. It is not a provider
 identity and does not coordinate another process or project. Current
-command-result v20 and review-preflight v8 documents describe execution as
+command-result v21 and review-preflight v9 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
@@ -725,10 +747,35 @@ stored semantics, including ancestry protection and explicit unavailable
 recovery evidence. No current command creates or replays these historical
 artifacts.
 
+### AGY transport and historical reads
+
+AGY review, extraction, qualification and heartbeat use bidirectional
+stream-JSON. Initialization and the exact controlled agent/permission
+acknowledgement precede one user turn. Correlated file and command operations
+must match the admitted native read plan; unknown tools, failed or incomplete
+operations, and mismatched operands fail closed. Only a completed assistant
+turn supplies report text, under the common `stdout` role-report transport.
+Success additionally requires stdin half-close, drained EOF, natural exit zero,
+valid lifecycle evidence, no requested signals and process-group absence.
+The [transport decision](../architecture-decision-records/agy-stream-json-transport.md)
+defines the guarded command and credential boundaries.
+
+Only validated current live-source artifact/manifest v3 publications admit AGY
+on verified query, report and export paths. Source/target/support binding must
+agree; an old document's version token alone grants no exemption. Captured,
+composite, recovery and transitive historical AGY references retain
+`retired_provider_artifact`. Kimi is retired in every era. There is no new
+historical replay or recovery execution path.
+
+MCP uses the same configured route, preflight, result and inspection owners.
+It adds no init/configuration tool or provider selector. Heartbeat's synthetic
+`agy-logic` namespace is registered independently of enabled review roles, so
+a documentation-only route can still use the authorized diagnostic.
+
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Contract-valid
-workflow requests emit command-result v20. Init's rejected-request envelope
+workflow requests emit command-result v21. Init's rejected-request envelope
 remains supported. Retired commands and capture-bound fields fail grammar before
 provider execution with usage exit 2 and human stderr, even when JSON was requested.
 No child selector resolution or compose mutation exists on the current surface.
@@ -796,7 +843,7 @@ this internal failure.
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 
-`mulgae doctor --output json` returns `mulgae-doctor-result.v6`. Capability
+`mulgae doctor --output json` returns `mulgae-doctor-result.v7`. Capability
 detection starts with `schema_version`; consumers of an older result must treat
 an absent v2 dimension as unsupported, never as failed. The result reports
 `config_v3`, `local_configuration`, and `provider_identity` independently, and
@@ -851,7 +898,7 @@ owned by the filesystem/Git admission boundary.
 `mulgae heartbeat --provider FAMILY --authorize-live-request` is the only
 standalone live diagnostic. For named Codex configurations it also accepts the
 explicit `--credential-profile`. Omitting the authorization returns a versioned
-`mulgae-provider-heartbeat-result.v3` with `attempted: false` before provider
+`mulgae-provider-heartbeat-result.v4` with `attempted: false` before provider
 composition, credential access, or process execution. An authorized heartbeat
 discloses that authentication, network, cost, and remote logging may occur,
 uses a bounded provider timeout, and sends only Mulgae's immutable synthetic
@@ -1090,16 +1137,16 @@ a failed rerun. Cleanup validates bounded manifest metadata and confirms its
 identity without reading input or report blobs. Historical status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
-These historical records grant no new provider execution. CLI v5 through v19
+These historical records grant no new provider execution. CLI v5 through v20
 schema examples remain available for explicit backward validation; current CLI
-envelopes use v20. MCP retains its v1 common envelope, whose `data` object
+envelopes use v21. MCP retains its v1 common envelope, whose `data` object
 carries the extended status projection.
 
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v20 `result` and MCP v1
+accepts an empty argument object. CLI command-result v21 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `live_source`, `source_evidence`, `project_binding`, `inspection`,
@@ -1118,7 +1165,7 @@ without configuration, credentials, provider discovery, capture, or writes.
 
 ## Preflight-bound review admission
 
-Preflight v8 reports project binding, configuration identity, source selection
+Preflight v9 reports project binding, configuration identity, source selection
 identity, candidate count, native read plan, warnings, configured routes and
 bounded execution budgets. It is provider-free and creates no run, diagnostics
 or publication. Ordinary admission lists native source reads; selected artist

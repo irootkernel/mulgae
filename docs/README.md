@@ -53,12 +53,15 @@ remain unimplemented. Their adoption grants no current execution capability.
 Detailed SOT for planned
 [EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider).
 [AGY stream-json review provider](todo/EPIC-011-agy-stream-json-provider.md) is
-the Detailed SOT for planned
+the temporary Detailed SOT for active
 [EPIC-011](roadmap/README.md#epic-011-agy-stream-json-review-provider).
-The implemented provider portfolio remains ZCode, Grok, and Codex, with Cursor
-available by explicit selection. Live Cursor certification stays with
-[EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider). Adoption of
-EPIC-011 grants no current execution capability.
+The implemented provider portfolio is ZCode, Grok, Codex, Cursor and AGY. Cursor
+is explicit; new policy prefers AGY for documentation when available. AGY uses
+one default Gemini account. Its durable design is in the
+[transport decision](architecture-decision-records/agy-stream-json-transport.md).
+Live Cursor certification stays with
+[EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider). The roadmap
+tracks EPIC-011's remaining certification and Epic acceptance.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The

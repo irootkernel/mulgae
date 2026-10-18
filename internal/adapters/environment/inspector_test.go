@@ -1066,6 +1066,23 @@ func TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes(t *testing
 	}
 }
 
+func TestProviderVersionObserverAdmitsAgyOfflineVersion(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "agy")
+	contents := []byte("#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf '1.4.2\\n'\n")
+	writeExecutable(t, path, contents)
+	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "agy", []string{path, "--version"}, ports.ProviderVersionIdentity{ExecutableSHA256: testDigest(contents), LauncherSHA256: testDigest(contents)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.State() != ports.ProviderVersionObserved || observation.Version() != "1.4.2" {
+		t.Fatalf("AGY version observation = %q/%q", observation.State(), observation.Version())
+	}
+}
+
 func TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution(t *testing.T) {
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

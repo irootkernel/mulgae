@@ -76,6 +76,10 @@ func configuredProviderTimeout(providers ProvidersConfig, family string) string 
 		if providers.Cursor != nil {
 			return providers.Cursor.Timeout
 		}
+	case "agy":
+		if providers.Agy != nil {
+			return providers.Agy.Timeout
+		}
 	}
 	return ""
 }
@@ -179,6 +183,10 @@ func cloneConfig(value Config) Config {
 	if value.Providers.Cursor != nil {
 		provider := *value.Providers.Cursor
 		copyValue.Providers.Cursor = &provider
+	}
+	if value.Providers.Agy != nil {
+		provider := *value.Providers.Agy
+		copyValue.Providers.Agy = &provider
 	}
 	copyValue.Review.RequiredRoles = append([]string(nil), value.Review.RequiredRoles...)
 	copyValue.Review.RequestChangesOn = append([]string(nil), value.Review.RequestChangesOn...)
