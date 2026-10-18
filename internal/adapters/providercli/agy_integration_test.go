@@ -29,7 +29,7 @@ func agyTestNamespace(t *testing.T) (*namespaceLease, string) {
 	t.Helper()
 	home := credentialSourceTempDir(t)
 	writeCredentialSource(t, home, agyTestTokenPath, "synthetic-auth")
-	base, err := NewNamespaceFactory(t.TempDir())
+	base, err := NewNamespaceFactory(credentialSourceTempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}

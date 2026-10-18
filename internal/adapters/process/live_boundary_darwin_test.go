@@ -303,12 +303,16 @@ func TestLiveBoundaryDeniesProtectedUnixSockets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Keep native socket paths short while honoring the gate's TMPDIR.
-	base, err := os.MkdirTemp("", "s")
+	// Keep native socket paths short and canonical while honoring TMPDIR.
+	temporaryBase, err := os.MkdirTemp("", "s")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	t.Cleanup(func() { _ = os.RemoveAll(temporaryBase) })
+	base, err := filepath.EvalSymlinks(temporaryBase)
+	if err != nil {
+		t.Fatal(err)
+	}
 	source, credentials, namespace := filepath.Join(base, "source"), filepath.Join(base, "credentials"), filepath.Join(base, "invocation")
 	runtimeTemp := filepath.Join(base, "runtime")
 	for _, path := range []string{source, credentials, namespace, runtimeTemp} {

@@ -303,6 +303,14 @@ tests in the owning application package.
 
 ## Verification for the adopted review Epics
 
+Native boundary fixtures require canonical directory paths. Resolve owned
+`t.TempDir` and `os.MkdirTemp` roots with `filepath.EvalSymlinks` before passing
+them into descriptor admission; the default macOS `TMPDIR` commonly traverses
+the `/var` alias. After changing these fixtures, check the affected tests with
+the inherited `TMPDIR` and a custom symlinked temporary parent, then run the
+complete gate. A pass using only a short canonical `TMPDIR` does not verify the
+default environment.
+
 EPIC-009's internal neutral execution fixtures live in
 `internal/adapters/providercli` under the `liveprovider` build tag. The focused
 groups `TestLiveNeutralReviewReports`, `TestLiveNeutralExtractionReports`,

@@ -80,7 +80,10 @@ func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := t.TempDir()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	source, neutral := filepath.Join(base, "source"), filepath.Join(base, "neutral")
 	credentials, namespace := filepath.Join(base, "credentials"), filepath.Join(base, "invocation")
 	for _, path := range []string{source, neutral, credentials, namespace} {

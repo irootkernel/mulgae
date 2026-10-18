@@ -174,7 +174,11 @@ func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *tes
 				mode, scope = string(scope), domain.LiveSourceWorkspace
 			}
 			ctx := context.Background()
-			root, _ := ports.NewAnchoredRoot(t.TempDir())
+			rootPath, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, _ := ports.NewAnchoredRoot(rootPath)
 			git := func(args ...string) string {
 				command := exec.Command("git", append([]string{"-C", root.String(), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
 				raw, err := command.CombinedOutput()
