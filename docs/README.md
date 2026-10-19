@@ -62,6 +62,13 @@ one default Gemini account. Its durable design is in the
 Live Cursor certification remains a separate opt-in gate. The roadmap records
 the final acceptance of EPIC-010 and EPIC-011.
 
+The planned structural improvement sequence is
+[EPIC-012 correctness and historical compatibility](todo/EPIC-012-correctness-and-historical-compatibility.md),
+[EPIC-013 verified operation reuse](todo/EPIC-013-verified-operation-reuse.md), then
+[EPIC-014 application and contract ownership](todo/EPIC-014-application-and-contract-ownership.md).
+These dossiers describe future implementation and verification; current runtime
+contracts remain unchanged. The roadmap owns their dependencies and status.
+
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The
 [design decision](architecture-decision-records/verified-review-iteration.md)

@@ -16,6 +16,10 @@ task identity, ordering, dependencies, and status.
   develops structured requirements review, bounded batch followup, and exact-run
   comparison as a preserved design held for redesign after EPIC-009 acceptance.
 
+- [EPIC-012: Correctness and historical compatibility](EPIC-012-correctness-and-historical-compatibility.md) defines the planning-only execution contract for this stage of the improvement sequence.
+- [EPIC-013: Verified operation reuse](EPIC-013-verified-operation-reuse.md) defines the planning-only execution contract for this stage of the improvement sequence.
+- [EPIC-014: Application and contract ownership](EPIC-014-application-and-contract-ownership.md) defines the planning-only execution contract for this stage of the improvement sequence.
+
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply
 that implementation has begun or that the planned interfaces are available.
