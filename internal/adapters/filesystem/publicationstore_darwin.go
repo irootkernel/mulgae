@@ -29,6 +29,11 @@ const (
 	publicationReadBuffer        = 32 * 1024
 	publicationMaximumReadBytes  = ports.PublicationStoreMaxReadBytes
 	publicationDirectoryEntryCap = 4096
+	// publicationEpochScanBatchSize bounds each epoch-directory scan batch. It
+	// intentionally equals publicationDirectoryEntryCap: the epoch scan streams
+	// in bounded batches instead of applying the whole-directory entry cap,
+	// while unrelated directory listings keep that cap.
+	publicationEpochScanBatchSize = publicationDirectoryEntryCap
 )
 
 var (
@@ -2034,42 +2039,88 @@ func nextPublicationEpoch(root ports.AnchoredRoot) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("duplicate epoch directory: %w", err)
 	}
+	// The duplicated descriptor shares the directory offset, so ReadDir on it
+	// advances the shared offset. That is harmless because the Openat, Fstatat,
+	// and revalidation operations on directory are name-based lookups that do
+	// not consume the offset. The dup exists so the os.File can own and close
+	// the scan descriptor without closing directory prematurely.
 	file := os.NewFile(uintptr(scanFD), epochsPath.String())
-	entries, readErr := readPublicationDirectoryEntries(file)
-	closeErr := file.Close()
-	if readErr != nil {
-		return 0, fmt.Errorf("read epoch directory: %w", readErr)
+	scanClosed := false
+	defer func() {
+		if !scanClosed {
+			_ = file.Close()
+		}
+	}()
+	highest, scanErr := scanPublicationEpochDirectory(directory, file.ReadDir, publicationFileIdentityForFD)
+	if scanErr != nil {
+		return 0, scanErr
 	}
-	if closeErr != nil {
-		return 0, fmt.Errorf("close epoch directory: %w", closeErr)
+	if err := file.Close(); err != nil {
+		scanClosed = true
+		return 0, fmt.Errorf("close epoch directory: %w", err)
 	}
+	scanClosed = true
+	return resolveNextPublicationEpoch(root, epochsPath, directory, identity, highest)
+}
 
+// scanPublicationEpochDirectory streams the epoch directory in bounded
+// batches, validating every member and folding parsed epochs into a running
+// maximum. readBatch fetches the next batch and validateMember verifies one
+// opened member descriptor; production passes file.ReadDir and
+// publicationFileIdentityForFD, while deterministic tests inject their own
+// collaborators. Only the running maximum is retained across batches.
+func scanPublicationEpochDirectory(
+	directory int,
+	readBatch func(int) ([]os.DirEntry, error),
+	validateMember func(int) (publicationFileIdentity, error),
+) (uint64, error) {
 	var highest uint64
-	for _, entry := range entries {
-		name := entry.Name()
-		epoch, err := parsePublicationEpochFilename(name)
-		if err != nil {
-			return 0, err
+	for {
+		entries, err := readBatch(publicationEpochScanBatchSize)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return 0, fmt.Errorf("read epoch directory: %w", err)
 		}
-		fd, err := unix.Openat(directory, name, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		if err != nil {
-			return 0, fmt.Errorf("open epoch member %q: %w", name, err)
+		for _, entry := range entries {
+			name := entry.Name()
+			epoch, err := parsePublicationEpochFilename(name)
+			if err != nil {
+				return 0, err
+			}
+			fd, err := unix.Openat(directory, name, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+			if err != nil {
+				return 0, fmt.Errorf("open epoch member %q: %w", name, err)
+			}
+			_, validationErr := validateMember(fd)
+			closeErr := unix.Close(fd)
+			if validationErr != nil {
+				return 0, fmt.Errorf("validate epoch member %q: %w", name, validationErr)
+			}
+			if closeErr != nil {
+				return 0, fmt.Errorf("close epoch member %q: %w", name, closeErr)
+			}
+			if epoch == 0 {
+				return 0, fmt.Errorf("malformed epoch member %q", name)
+			}
+			if epoch > highest {
+				highest = epoch
+			}
 		}
-		_, validationErr := publicationFileIdentityForFD(fd)
-		closeErr := unix.Close(fd)
-		if validationErr != nil {
-			return 0, fmt.Errorf("validate epoch member %q: %w", name, validationErr)
+		if errors.Is(err, io.EOF) {
+			return highest, nil
 		}
-		if closeErr != nil {
-			return 0, fmt.Errorf("close epoch member %q: %w", name, closeErr)
-		}
-		if epoch == 0 {
-			return 0, fmt.Errorf("malformed epoch member %q", name)
-		}
-		if epoch > highest {
-			highest = epoch
+		// A short batch with a nil error is not terminal — ReadDir may return
+		// fewer entries than requested before the end — but an empty batch
+		// cannot make progress, so the scan ends.
+		if len(entries) == 0 {
+			return highest, nil
 		}
 	}
+}
+
+// resolveNextPublicationEpoch applies the overflow guard, the next-name
+// collision check, and the final namespace revalidation after the epoch
+// inventory has completed.
+func resolveNextPublicationEpoch(root ports.AnchoredRoot, epochsPath ports.SafeRelativePath, directory int, identity privateDirectoryIdentity, highest uint64) (uint64, error) {
 	if highest == ^uint64(0) {
 		return 0, errors.New("epoch overflow")
 	}
@@ -2249,7 +2300,13 @@ func parentPath(parts []string) ports.SafeRelativePath {
 }
 
 func publicationFileIdentityForFD(fd int) (publicationFileIdentity, error) {
-	if err := verifyPrivateRegularFile(fd); err != nil {
+	return publicationFileIdentityForFDWithUID(fd, uint32(os.Geteuid()))
+}
+
+// publicationFileIdentityForFDWithUID verifies the member via
+// verifyPrivateRegularFileWithUID(fd, expectedUID) and returns its identity.
+func publicationFileIdentityForFDWithUID(fd int, expectedUID uint32) (publicationFileIdentity, error) {
+	if err := verifyPrivateRegularFileWithUID(fd, expectedUID); err != nil {
 		return publicationFileIdentity{}, err
 	}
 	var stat unix.Stat_t

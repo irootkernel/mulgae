@@ -166,6 +166,13 @@ func verifyPrivateDirectory(fd int) error {
 }
 
 func verifyPrivateRegularFile(fd int) error {
+	return verifyPrivateRegularFileWithUID(fd, uint32(os.Geteuid()))
+}
+
+// verifyPrivateRegularFileWithUID is verifyPrivateRegularFile with the owner
+// comparison against expectedUID, enabling deterministic UID-rejection
+// verification without privileges.
+func verifyPrivateRegularFileWithUID(fd int, expectedUID uint32) error {
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
 		return fmt.Errorf("stat temporary file: %w", err)
@@ -173,7 +180,7 @@ func verifyPrivateRegularFile(fd int) error {
 	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
 		return fmt.Errorf("temporary node is not a regular file")
 	}
-	if stat.Uid != uint32(os.Geteuid()) {
+	if stat.Uid != expectedUID {
 		return fmt.Errorf("temporary file is not owned by the current user")
 	}
 	if stat.Mode&0o7777 != privateFileMode {

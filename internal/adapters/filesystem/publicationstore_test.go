@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -238,14 +239,549 @@ func TestParsePublicationEpochFilenameRejectsMalformedMembers(t *testing.T) {
 		"epoch_00000000000000000001.tmp",
 		"epoch_0000000000000000000a.json",
 		"epoch_000000000000000000001.json",
+		"epoch_010000000000000000001.json",
+		"epoch_18446744073709551616.json",
 		"other_00000000000000000001.json",
 	} {
 		if _, err := parsePublicationEpochFilename(name); err == nil {
 			t.Fatalf("malformed epoch name accepted: %q", name)
 		}
 	}
-	if epoch, err := parsePublicationEpochFilename("epoch_00000000000000000001.json"); err != nil || epoch != 1 {
-		t.Fatalf("canonical epoch parse = (%d, %v)", epoch, err)
+	for _, test := range []struct {
+		name  string
+		epoch uint64
+	}{
+		{name: "epoch_00000000000000000001.json", epoch: 1},
+		{name: "epoch_18446744073709551615.json", epoch: ^uint64(0)},
+	} {
+		if epoch, err := parsePublicationEpochFilename(test.name); err != nil || epoch != test.epoch {
+			t.Fatalf("canonical epoch parse %q = (%d, %v), want (%d, nil)", test.name, epoch, err, test.epoch)
+		}
+	}
+}
+
+// epochMemberNames returns the canonical member names for epochs 1..count.
+func epochMemberNames(count int) []string {
+	names := make([]string, count)
+	for index := 1; index <= count; index++ {
+		names[index-1] = fmt.Sprintf("epoch_%020d.json", index)
+	}
+	return names
+}
+
+// writeEpochMembers writes zero or more private epoch member files directly
+// under <root>/store/epochs. The epoch scan validates ownership, mode,
+// regularity, and no-follow itself, so direct writes keep multi-thousand-file
+// fixtures fast.
+func writeEpochMembers(t *testing.T, root string, names ...string) {
+	t.Helper()
+	storeDir := filepath.Join(root, "store")
+	epochsDir := filepath.Join(storeDir, "epochs")
+	for _, directory := range []string{storeDir, epochsDir} {
+		if err := os.MkdirAll(directory, privateDirectoryMode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(directory, privateDirectoryMode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range names {
+		path := filepath.Join(epochsDir, name)
+		if err := os.WriteFile(path, []byte(`{"epoch":1}`), privateFileMode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, privateFileMode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func countEpochMembers(t *testing.T, root string) int {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, "store", "epochs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(entries)
+}
+
+func TestPublicationStoreNextEpochStreamsBoundedBatchesBeyondEntryCap(t *testing.T) {
+	for _, count := range []int{publicationDirectoryEntryCap, publicationDirectoryEntryCap + 1} {
+		t.Run(fmt.Sprintf("members=%d", count), func(t *testing.T) {
+			fixture := newPublicationStoreFixture(t)
+			writeEpochMembers(t, fixture.root, epochMemberNames(count)...)
+			var next uint64
+			locked := false
+			if err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(ctx context.Context, epoch uint64) error {
+				next = epoch
+				locked = true
+				return fixture.store.withLock(ctx, fixture.run.Root(), func() error { return nil })
+			}); err != nil {
+				t.Fatalf("next publication epoch beyond the entry cap: %v", err)
+			}
+			if next != uint64(count)+1 {
+				t.Fatalf("next epoch = %d, want %d", next, count+1)
+			}
+			if !locked {
+				t.Fatal("epoch callback did not observe the transaction lock")
+			}
+		})
+	}
+}
+
+func TestPublicationStoreNextEpochValidatesLateBatchEntriesDeterministically(t *testing.T) {
+	// driveLateBatchScan builds a fixture with valid epoch members plus one
+	// unsafe member, then streams the production loop helper with a
+	// test-chosen batch composition: Batch 1 holds every valid entry, Batch 2
+	// holds exactly the unsafe entry together with io.EOF. If the production
+	// loop ever stops after Batch 1, the unsafe member is never parsed or
+	// validated and the expected-error assertions fail.
+	driveLateBatchScan := func(t *testing.T, unsafeName string, prepare func(epochsDir string), lateBatchValidator func(fd int) (publicationFileIdentity, error)) (uint64, error, string) {
+		t.Helper()
+		const validMembers = 5
+		fixture := newPublicationStoreFixture(t)
+		writeEpochMembers(t, fixture.root, epochMemberNames(validMembers)...)
+		epochsDir := filepath.Join(fixture.root, "store", "epochs")
+		if prepare != nil {
+			prepare(epochsDir)
+		}
+		entries, err := os.ReadDir(epochsDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		byName := make(map[string]os.DirEntry, len(entries))
+		var validEntries []os.DirEntry
+		for _, entry := range entries {
+			byName[entry.Name()] = entry
+			if entry.Name() != unsafeName {
+				validEntries = append(validEntries, entry)
+			}
+		}
+		unsafe, known := byName[unsafeName]
+		if !known {
+			t.Fatalf("unsafe member %q missing from fixture", unsafeName)
+		}
+		if len(validEntries) != validMembers {
+			t.Fatalf("valid fixture members = %d, want %d", len(validEntries), validMembers)
+		}
+		directory, err := walkPrivateDirectory(fixture.run.Root(), []string{"store", "epochs"}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer closeFD(directory)
+		calls := 0
+		readBatch := func(int) ([]os.DirEntry, error) {
+			calls++
+			if calls == 1 {
+				return validEntries, nil
+			}
+			return []os.DirEntry{unsafe}, io.EOF
+		}
+		validateMember := publicationFileIdentityForFD
+		if lateBatchValidator != nil {
+			remaining := len(validEntries)
+			validateMember = func(fd int) (publicationFileIdentity, error) {
+				if remaining > 0 {
+					remaining--
+					return publicationFileIdentityForFDWithUID(fd, uint32(os.Geteuid()))
+				}
+				return lateBatchValidator(fd)
+			}
+		}
+		highest, scanErr := scanPublicationEpochDirectory(directory, readBatch, validateMember)
+		if calls != 2 {
+			t.Fatalf("readBatch calls = %d, want exactly two batches", calls)
+		}
+		return highest, scanErr, fixture.root
+	}
+	assertMembersRetained := func(t *testing.T, fixtureRoot string) {
+		t.Helper()
+		if got := countEpochMembers(t, fixtureRoot); got != 6 {
+			t.Fatalf("epoch members = %d, want 6 (evidence must be retained)", got)
+		}
+	}
+
+	t.Run("multi-batch maximum over two all-valid batches", func(t *testing.T) {
+		// The unsafe name is a valid sixth member, so Batch 1 holds five
+		// entries and Batch 2 completes the inventory with the sixth.
+		highest, err, fixtureRoot := driveLateBatchScan(t, "epoch_00000000000000000006.json", func(epochsDir string) {
+			path := filepath.Join(epochsDir, "epoch_00000000000000000006.json")
+			if err := os.WriteFile(path, []byte(`{}`), privateFileMode); err != nil {
+				panic(err)
+			}
+			if err := os.Chmod(path, privateFileMode); err != nil {
+				panic(err)
+			}
+		}, nil)
+		if err != nil {
+			t.Fatalf("two all-valid batches: %v", err)
+		}
+		if highest != 6 {
+			t.Fatalf("folded maximum = %d, want 6", highest)
+		}
+		assertMembersRetained(t, fixtureRoot)
+	})
+
+	for _, test := range []struct {
+		name       string
+		unsafeName string
+		prepare    func(epochsDir string)
+		wantError  string
+	}{
+		{
+			name:       "malformed foreign name",
+			unsafeName: "not_an_epoch.json",
+			prepare: func(epochsDir string) {
+				path := filepath.Join(epochsDir, "not_an_epoch.json")
+				if err := os.WriteFile(path, []byte(`{}`), privateFileMode); err != nil {
+					panic(err)
+				}
+				if err := os.Chmod(path, privateFileMode); err != nil {
+					panic(err)
+				}
+			},
+			wantError: "malformed epoch member",
+		},
+		{
+			name:       "zero epoch name",
+			unsafeName: "epoch_00000000000000000000.json",
+			prepare: func(epochsDir string) {
+				path := filepath.Join(epochsDir, "epoch_00000000000000000000.json")
+				if err := os.WriteFile(path, []byte(`{}`), privateFileMode); err != nil {
+					panic(err)
+				}
+				if err := os.Chmod(path, privateFileMode); err != nil {
+					panic(err)
+				}
+			},
+			wantError: "malformed epoch member",
+		},
+		{
+			name:       "wrong-length 21-digit name",
+			unsafeName: "epoch_010000000000000000001.json",
+			prepare: func(epochsDir string) {
+				path := filepath.Join(epochsDir, "epoch_010000000000000000001.json")
+				if err := os.WriteFile(path, []byte(`{}`), privateFileMode); err != nil {
+					panic(err)
+				}
+				if err := os.Chmod(path, privateFileMode); err != nil {
+					panic(err)
+				}
+			},
+			wantError: "malformed epoch member",
+		},
+		{
+			name:       "20-digit out-of-range name",
+			unsafeName: "epoch_18446744073709551616.json",
+			prepare: func(epochsDir string) {
+				path := filepath.Join(epochsDir, "epoch_18446744073709551616.json")
+				if err := os.WriteFile(path, []byte(`{}`), privateFileMode); err != nil {
+					panic(err)
+				}
+				if err := os.Chmod(path, privateFileMode); err != nil {
+					panic(err)
+				}
+			},
+			wantError: "malformed epoch member",
+		},
+		{
+			name:       "symlink member",
+			unsafeName: "epoch_00000000000000000099.json",
+			prepare: func(epochsDir string) {
+				if err := os.Symlink(filepath.Join(epochsDir, "epoch_00000000000000000001.json"), filepath.Join(epochsDir, "epoch_00000000000000000099.json")); err != nil {
+					panic(err)
+				}
+			},
+			wantError: "open epoch member",
+		},
+		{
+			name:       "directory member",
+			unsafeName: "epoch_00000000000000000098.json",
+			prepare: func(epochsDir string) {
+				if err := os.Mkdir(filepath.Join(epochsDir, "epoch_00000000000000000098.json"), privateDirectoryMode); err != nil {
+					panic(err)
+				}
+			},
+			wantError: "validate epoch member",
+		},
+		{
+			name:       "mode 0644 member",
+			unsafeName: "epoch_00000000000000000097.json",
+			prepare: func(epochsDir string) {
+				path := filepath.Join(epochsDir, "epoch_00000000000000000097.json")
+				if err := os.WriteFile(path, []byte(`{}`), privateFileMode); err != nil {
+					panic(err)
+				}
+				if err := os.Chmod(path, 0o644); err != nil {
+					panic(err)
+				}
+			},
+			wantError: "validate epoch member",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err, fixtureRoot := driveLateBatchScan(t, test.unsafeName, test.prepare, nil)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("late-batch unsafe member = %v, want %q", err, test.wantError)
+			}
+			assertMembersRetained(t, fixtureRoot)
+		})
+	}
+
+	t.Run("bad owner through the real Fstat", func(t *testing.T) {
+		// The member is an ordinary valid 0600 file owned by the test user;
+		// the late-batch validation runs under a mismatched expected UID, so
+		// the real Fstat and the UID rejection branch decide the outcome.
+		_, err, fixtureRoot := driveLateBatchScan(t, "epoch_00000000000000000096.json", func(epochsDir string) {
+			path := filepath.Join(epochsDir, "epoch_00000000000000000096.json")
+			if err := os.WriteFile(path, []byte(`{}`), privateFileMode); err != nil {
+				panic(err)
+			}
+			if err := os.Chmod(path, privateFileMode); err != nil {
+				panic(err)
+			}
+		}, func(fd int) (publicationFileIdentity, error) {
+			return publicationFileIdentityForFDWithUID(fd, uint32(os.Geteuid())+1)
+		})
+		if err == nil || !strings.Contains(err.Error(), "validate epoch member") || !strings.Contains(err.Error(), "temporary file is not owned by the current user") {
+			t.Fatalf("late-batch bad owner = %v, want the UID rejection surfaced as a validate epoch member failure", err)
+		}
+		assertMembersRetained(t, fixtureRoot)
+	})
+}
+
+func TestPublicationStoreNextEpochRejectsUnsafeMemberBeyondEntryCap(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	names := epochMemberNames(publicationDirectoryEntryCap)
+	writeEpochMembers(t, fixture.root, append(names, "not_an_epoch.json")...)
+	invoked := false
+	err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(context.Context, uint64) error {
+		invoked = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "malformed epoch member") {
+		t.Fatalf("unsafe member beyond the entry cap: err=%v, want the malformed epoch member rejection", err)
+	}
+	if invoked {
+		t.Fatal("epoch callback ran despite an unsafe member")
+	}
+	if got := countEpochMembers(t, fixture.root); got != publicationDirectoryEntryCap+1 {
+		t.Fatalf("epoch members = %d, want %d (evidence must be retained)", got, publicationDirectoryEntryCap+1)
+	}
+}
+
+func TestPublicationStoreNextEpochKeepsOverflowCollisionAndRevalidation(t *testing.T) {
+	t.Run("overflow beyond the entry cap", func(t *testing.T) {
+		fixture := newPublicationStoreFixture(t)
+		names := epochMemberNames(publicationDirectoryEntryCap)
+		writeEpochMembers(t, fixture.root, append(names, "epoch_18446744073709551615.json")...)
+		err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(context.Context, uint64) error {
+			t.Fatal("epoch callback ran despite epoch overflow")
+			return nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "epoch overflow") {
+			t.Fatalf("overflow beyond the entry cap: err=%v, want the epoch overflow rejection", err)
+		}
+	})
+
+	// The resolver seam is the deterministic point between inventory
+	// completion and the candidate Fstatat, reproducing precisely the
+	// interleaving the collision guard exists for.
+	resolverFixture := func(t *testing.T) (*publicationStoreTestFixture, ports.SafeRelativePath, int, privateDirectoryIdentity) {
+		t.Helper()
+		fixture := newPublicationStoreFixture(t)
+		writeEpochMembers(t, fixture.root, epochMemberNames(5)...)
+		epochsPath := mustRelativePath(t, "store/epochs")
+		directory, err := walkPrivateDirectory(fixture.run.Root(), []string{"store", "epochs"}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { closeFD(directory) })
+		identity, err := privateDirectoryIdentityForFD(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &fixture, epochsPath, directory, identity
+	}
+
+	t.Run("collision at the resolver seam", func(t *testing.T) {
+		fixture, epochsPath, directory, identity := resolverFixture(t)
+		writeEpochMembers(t, fixture.root, "epoch_00000000000000000006.json")
+		_, err := resolveNextPublicationEpoch(fixture.run.Root(), epochsPath, directory, identity, 5)
+		if err == nil || !strings.Contains(err.Error(), `epoch collision at "epoch_00000000000000000006.json"`) {
+			t.Fatalf("resolver seam collision = %v, want the epoch collision rejection", err)
+		}
+	})
+
+	t.Run("symlink candidate also collides", func(t *testing.T) {
+		fixture, epochsPath, directory, identity := resolverFixture(t)
+		epochsDir := filepath.Join(fixture.root, "store", "epochs")
+		if err := os.Symlink(filepath.Join(epochsDir, "epoch_00000000000000000001.json"), filepath.Join(epochsDir, "epoch_00000000000000000006.json")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := resolveNextPublicationEpoch(fixture.run.Root(), epochsPath, directory, identity, 5)
+		if err == nil || !strings.Contains(err.Error(), "epoch collision") {
+			t.Fatalf("symlink candidate collision = %v, want the epoch collision rejection", err)
+		}
+	})
+
+	t.Run("namespace replacement after capture", func(t *testing.T) {
+		fixture, epochsPath, directory, identity := resolverFixture(t)
+		epochsDir := filepath.Join(fixture.root, "store", "epochs")
+		replacement := epochsDir + ".replacement"
+		if err := os.Rename(epochsDir, replacement); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(epochsDir, privateDirectoryMode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(epochsDir, privateDirectoryMode); err != nil {
+			t.Fatal(err)
+		}
+		_, err := resolveNextPublicationEpoch(fixture.run.Root(), epochsPath, directory, identity, 5)
+		if err == nil || !strings.Contains(err.Error(), "epoch directory namespace changed") {
+			t.Fatalf("post-capture replacement = %v, want the namespace revalidation rejection", err)
+		}
+	})
+
+	t.Run("mode change after capture", func(t *testing.T) {
+		fixture, epochsPath, directory, identity := resolverFixture(t)
+		if err := os.Chmod(filepath.Join(fixture.root, "store", "epochs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, err := resolveNextPublicationEpoch(fixture.run.Root(), epochsPath, directory, identity, 5)
+		if err == nil || !strings.Contains(err.Error(), "directory mode is not 0700") {
+			t.Fatalf("post-capture mode change = %v, want the reopen's 0700 rejection", err)
+		}
+	})
+
+	// Component-level legs below are initial-open rejection, not final
+	// revalidation evidence: a pre-existing symlink at the epochs component
+	// and a pre-transaction chmod fail during the initial walkPrivateDirectory
+	// open, proving only that the open itself stays fail-closed.
+	t.Run("symlinked epochs component fails at initial open", func(t *testing.T) {
+		fixture := newPublicationStoreFixture(t)
+		storeDir := filepath.Join(fixture.root, "store")
+		realEpochs := filepath.Join(storeDir, "epochs-real")
+		if err := os.MkdirAll(realEpochs, privateDirectoryMode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(realEpochs, privateDirectoryMode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(realEpochs, filepath.Join(storeDir, "epochs")); err != nil {
+			t.Fatal(err)
+		}
+		err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(context.Context, uint64) error {
+			t.Fatal("epoch callback ran despite a symlinked epochs component")
+			return nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "open private directory component") {
+			t.Fatalf("symlinked epochs component = %v, want the initial-open rejection", err)
+		}
+	})
+
+	t.Run("pre-transaction mode change fails at initial open", func(t *testing.T) {
+		fixture := newPublicationStoreFixture(t)
+		writeEpochMembers(t, fixture.root, "epoch_00000000000000000001.json")
+		if err := os.Chmod(filepath.Join(fixture.root, "store", "epochs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(context.Context, uint64) error {
+			t.Fatal("epoch callback ran despite an open epochs directory")
+			return nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "directory mode is not 0700") {
+			t.Fatalf("pre-transaction mode change = %v, want the initial-open rejection", err)
+		}
+	})
+}
+
+func TestPublicationStoreNextEpochCancellationAtTransactionBoundaryKeepsEpochEvidence(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	writeEpochMembers(t, fixture.root, epochMemberNames(publicationDirectoryEntryCap)...)
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	invoked := false
+	if err := fixture.store.WithNextPublicationEpoch(cancelled, fixture.run.Root(), func(context.Context, uint64) error {
+		invoked = true
+		return nil
+	}); err == nil || invoked {
+		t.Fatalf("pre-cancelled context: err=%v invoked=%t, want an error before the callback", err, invoked)
+	}
+	if got := countEpochMembers(t, fixture.root); got != publicationDirectoryEntryCap {
+		t.Fatalf("epoch members after cancellation = %d, want %d (evidence must be retained)", got, publicationDirectoryEntryCap)
+	}
+
+	// A successful transaction first initializes the publication lock.
+	if err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(context.Context, uint64) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("initialize publication lock: %v", err)
+	}
+	lockFile, err := os.OpenFile(filepath.Join(fixture.root, publicationLockDirectory, publicationLockFile), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockFile.Close()
+	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		t.Fatalf("hold publication lock: %v", err)
+	}
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer deadlineCancel()
+	deadlineInvoked := false
+	err = fixture.store.WithNextPublicationEpoch(deadlineCtx, fixture.run.Root(), func(context.Context, uint64) error {
+		deadlineInvoked = true
+		return nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) || deadlineInvoked {
+		t.Fatalf("publication lock contention = invoked %t, error %v; want deadline before callback", deadlineInvoked, err)
+	}
+	if got := countEpochMembers(t, fixture.root); got != publicationDirectoryEntryCap {
+		t.Fatalf("epoch members after deadline = %d, want %d (evidence must be retained)", got, publicationDirectoryEntryCap)
+	}
+
+	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_UN); err != nil {
+		t.Fatalf("release held publication lock: %v", err)
+	}
+	var next uint64
+	if err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(_ context.Context, epoch uint64) error {
+		next = epoch
+		return nil
+	}); err != nil {
+		t.Fatalf("publication store did not recover after contention: %v", err)
+	}
+	if next != publicationDirectoryEntryCap+1 {
+		t.Fatalf("next epoch after recovery = %d, want %d", next, publicationDirectoryEntryCap+1)
+	}
+}
+
+func TestPublicationStoreUnrelatedDirectoryEntryCapRemains(t *testing.T) {
+	fixture := newPublicationStoreFixture(t)
+	lineageDir := filepath.Join(fixture.root, "store", "lineage-edges")
+	if err := os.MkdirAll(lineageDir, privateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(lineageDir, privateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index <= publicationDirectoryEntryCap; index++ {
+		path := filepath.Join(lineageDir, fmt.Sprintf("e_%020d.json", index))
+		if err := os.WriteFile(path, []byte(`{}`), privateFileMode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, privateFileMode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := listPublicationDirectory(fixture.run.Root(), mustRelativePath(t, "store/lineage-edges")); err == nil || !strings.Contains(err.Error(), "exceeds entry cap") {
+		t.Fatalf("unrelated directory cap = %v, want the entry cap rejection", err)
+	}
+	if err := fixture.store.WithNextPublicationEpoch(context.Background(), fixture.run.Root(), func(context.Context, uint64) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("epoch scan failed on a root with an unrelated capped directory: %v", err)
 	}
 }
 func TestPublicationStorePersistsCandidateAndAuxiliaryArtifacts(t *testing.T) {
