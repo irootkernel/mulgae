@@ -1,12 +1,10 @@
-version: 4
+version: 5
 project:
   name: "mulgae"
 providers:
   zcode: {}
   grok: {}
   codex: {}
-execution:
-  workspace_access: "none"
 roles:
   logic: {enabled: true, primary_provider: "grok"}
   security: {enabled: true, primary_provider: "grok"}

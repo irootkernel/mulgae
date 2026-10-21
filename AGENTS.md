@@ -31,6 +31,7 @@ caution over speed; apply them proportionally for trivial work.
 - Ask a focused question when unresolved ambiguity would materially change the
   result. Push back when a request conflicts with repository authority, product
   boundaries, safety, or Master's stated goal.
+- Before changing a feature, read applicable directory AGENTS.md files and the canonical documents relevant to the change. Respect the selected harness's native instruction scope and precedence.
 
 ### 3. Act on Sufficient Evidence
 
@@ -62,6 +63,7 @@ caution over speed; apply them proportionally for trivial work.
   owner. If none exists, propose the entry and obtain approval before creating
   one. Promote epic-sized work to a TODO candidate or roadmap unit; never defer
   work required for current correctness or acceptance.
+- Read directory-guide adoption coverage in the root documentation index. Maintain affected canonical documents and existing applicable guides, including guides outside that coverage. Within adopted coverage, add guides for new feature boundaries as part of the authorized work. Report uncovered areas without unrelated backfill; guide absence alone adds no workflow blocker. Finish affected documentation before candidate review.
 
 ### 4. Carry Authorization Forward
 
