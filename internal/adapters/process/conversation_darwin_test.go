@@ -20,34 +20,206 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestSplitConversationLinesReturnsCompleteLinesAndRemainder(t *testing.T) {
+func TestConversationLineAssemblerChunkingEquivalence(t *testing.T) {
+	const stream = "alpha\nbeta\n\ngamma\n"
+	wantLines := []string{"alpha", "beta", "", "gamma"}
+	byteWise := make([]string, len(stream))
+	for index := 0; index < len(stream); index++ {
+		byteWise[index] = stream[index : index+1]
+	}
 	for _, test := range []struct {
-		name      string
-		pending   string
-		wantLines []string
-		wantTail  string
+		name        string
+		chunks      []string
+		copiedBytes int
 	}{
-		{name: "empty", pending: "", wantLines: nil, wantTail: ""},
-		{name: "single complete", pending: "first\n", wantLines: []string{"first"}, wantTail: ""},
-		{name: "partial only", pending: "partial", wantLines: nil, wantTail: "partial"},
-		{name: "split across chunk boundary", pending: "first\nsecond\npartial", wantLines: []string{"first", "second"}, wantTail: "partial"},
-		{name: "blank line is a line", pending: "\nlast\n", wantLines: []string{"", "last"}, wantTail: ""},
+		{name: "whole stream in one chunk", chunks: []string{stream}, copiedBytes: 0},
+		{name: "byte-wise", chunks: byteWise, copiedBytes: 0},
+		{name: "chunk boundaries at newlines", chunks: []string{"alpha\n", "beta\n", "\ngamma\n"}, copiedBytes: 0},
+		{name: "one byte past newline", chunks: []string{"alpha\nb", "eta\n\ng", "amma\n"}, copiedBytes: 2},
+		{name: "mid-word", chunks: []string{"al", "pha\nbe", "ta\n\ngam", "ma\n"}, copiedBytes: 5},
+		{name: "several frames per chunk", chunks: []string{"alpha\nbeta\n", "\ngamma\n"}, copiedBytes: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			lines, remainder := splitConversationLines([]byte(test.pending))
-			if len(lines) != len(test.wantLines) {
-				t.Fatalf("lines = %q, want %q", lines, test.wantLines)
+			assembler := conversationLineAssembler{}
+			var lines [][]byte
+			for _, chunk := range test.chunks {
+				lines = append(lines, assembler.appendChunk([]byte(chunk))...)
+			}
+			if assembler.unfinished() {
+				t.Fatal("stream ended with an unfinished tail")
+			}
+			if len(lines) != len(wantLines) {
+				t.Fatalf("lines = %q, want %q", lines, wantLines)
 			}
 			for index, line := range lines {
-				if string(line) != test.wantLines[index] {
-					t.Fatalf("lines = %q, want %q", lines, test.wantLines)
+				if string(line) != wantLines[index] {
+					t.Fatalf("line %d = %q, want %q", index, line, wantLines[index])
 				}
 			}
-			if string(remainder) != test.wantTail {
-				t.Fatalf("remainder = %q, want %q", remainder, test.wantTail)
+			if assembler.scannedBytes != len(stream) {
+				t.Fatalf("scannedBytes = %d, want %d", assembler.scannedBytes, len(stream))
+			}
+			if assembler.copiedBytes != test.copiedBytes {
+				t.Fatalf("copiedBytes = %d, want %d", assembler.copiedBytes, test.copiedBytes)
 			}
 		})
 	}
+
+	t.Run("1 MiB line in 64 KiB chunks", func(t *testing.T) {
+		payload := bytes.Repeat([]byte("L"), 1<<20)
+		assembler := conversationLineAssembler{}
+		var lines [][]byte
+		for offset := 0; offset < len(payload); offset += 65536 {
+			end := offset + 65536
+			if end > len(payload) {
+				end = len(payload)
+			}
+			lines = append(lines, assembler.appendChunk(payload[offset:end])...)
+		}
+		lines = append(lines, assembler.appendChunk([]byte("\n"))...)
+		if len(lines) != 1 || !bytes.Equal(lines[0], payload) {
+			t.Fatalf("delivered %d lines (first length %d), want exactly the 1 MiB line", len(lines), len(lines[0]))
+		}
+		if assembler.scannedBytes != len(payload)+1 || assembler.copiedBytes != 0 {
+			t.Fatalf("counters = scanned %d copied %d, want %d and 0", assembler.scannedBytes, assembler.copiedBytes, len(payload)+1)
+		}
+	})
+}
+
+func TestConversationLineAssemblerRetainsTailAndCompactsAmortized(t *testing.T) {
+	assembler := conversationLineAssembler{}
+	if lines := assembler.appendChunk([]byte("par")); len(lines) != 0 || !assembler.unfinished() {
+		t.Fatalf("partial chunk delivered %d lines, unfinished %t", len(lines), assembler.unfinished())
+	}
+	if lines := assembler.appendChunk([]byte("tial\n")); len(lines) != 1 || string(lines[0]) != "partial" || assembler.unfinished() {
+		t.Fatalf("completion delivered %q, unfinished %t", lines, assembler.unfinished())
+	}
+
+	compacting := conversationLineAssembler{}
+	if lines := compacting.appendChunk([]byte("aaaa\nbbbb")); len(lines) != 1 || string(lines[0]) != "aaaa" || !compacting.unfinished() {
+		t.Fatalf("first chunk delivered %q, unfinished %t", lines, compacting.unfinished())
+	}
+	if compacting.copiedBytes != 4 || compacting.scannedBytes != 9 {
+		t.Fatalf("counters = copied %d scanned %d, want 4 and 9", compacting.copiedBytes, compacting.scannedBytes)
+	}
+	if lines := compacting.appendChunk([]byte("cccc\n")); len(lines) != 1 || string(lines[0]) != "bbbbcccc" {
+		t.Fatalf("second chunk delivered %q", lines)
+	}
+
+	resetting := conversationLineAssembler{}
+	resetting.appendChunk([]byte("x\n"))
+	resetting.appendChunk([]byte("y\n"))
+	if resetting.copiedBytes != 0 || resetting.scannedBytes != 4 {
+		t.Fatalf("counters = copied %d scanned %d, want 0 and 4", resetting.copiedBytes, resetting.scannedBytes)
+	}
+
+	interleaved := conversationLineAssembler{}
+	var lines [][]byte
+	lines = append(lines, interleaved.appendChunk([]byte("one\ntw"))...)
+	lines = append(lines, interleaved.appendChunk([]byte("o\nthree\n"))...)
+	if len(lines) != 3 || string(lines[0]) != "one" || string(lines[1]) != "two" || string(lines[2]) != "three" {
+		t.Fatalf("interleaved lines = %q", lines)
+	}
+	if interleaved.unfinished() {
+		t.Fatal("interleaved stream ended with an unfinished tail")
+	}
+}
+
+func TestConversationLineAssemblerDeliveredLinesOwnTheirBytes(t *testing.T) {
+	assembler := conversationLineAssembler{}
+	chunk := []byte("own")
+	assembler.appendChunk(chunk)
+	copy(chunk, "XXX")
+	lines := assembler.appendChunk([]byte("ership\n"))
+	if len(lines) != 1 || string(lines[0]) != "ownership" {
+		t.Fatalf("line after input mutation = %q, want [ownership]", lines)
+	}
+
+	independent := conversationLineAssembler{}
+	first := independent.appendChunk([]byte("first\nAAAA"))
+	if len(first) != 1 || string(first[0]) != "first" {
+		t.Fatalf("first line = %q, want [first]", first)
+	}
+	// The completed line above already forced the compaction copy over the
+	// region that held its bytes; a large further append grows the buffer past
+	// its current capacity before the second line completes.
+	tail := bytes.Repeat([]byte("t"), 1<<17)
+	independent.appendChunk(tail)
+	second := independent.appendChunk([]byte("z\n"))
+	if len(second) != 1 || string(second[0]) != "AAAA"+string(tail)+"z" {
+		t.Fatalf("second line length = %d, want %d", len(second[0]), len("AAAA")+len(tail)+1)
+	}
+	if string(first[0]) != "first" {
+		t.Fatalf("retained first line = %q, want [first]", first[0])
+	}
+}
+
+func TestConversationLineAssemblerScansIncomingBytesOnce(t *testing.T) {
+	t.Run("single line across 256 chunks", func(t *testing.T) {
+		payload := bytes.Repeat([]byte("l"), 1<<20)
+		assembler := conversationLineAssembler{}
+		for index := 0; index < len(payload); index += 4096 {
+			end := index + 4096
+			if end > len(payload) {
+				end = len(payload)
+			}
+			lines := assembler.appendChunk(payload[index:end])
+			if len(lines) != 0 || !assembler.unfinished() {
+				t.Fatalf("chunk at %d delivered %d lines, unfinished %t", index, len(lines), assembler.unfinished())
+			}
+		}
+		lines := assembler.appendChunk([]byte("\n"))
+		if len(lines) != 1 || assembler.unfinished() || !bytes.Equal(lines[0], payload) {
+			t.Fatalf("final chunk delivered %d lines, unfinished %t, line length %d", len(lines), assembler.unfinished(), len(lines[0]))
+		}
+		if assembler.scannedBytes != len(payload)+1 {
+			t.Fatalf("scannedBytes = %d, want %d (each byte examined exactly once)", assembler.scannedBytes, len(payload)+1)
+		}
+		if assembler.copiedBytes != 0 {
+			t.Fatalf("copiedBytes = %d, want 0 (no per-chunk tail movement)", assembler.copiedBytes)
+		}
+	})
+
+	t.Run("newline-aligned 16-byte frames across 64 KiB chunks", func(t *testing.T) {
+		const frames = 65536
+		expected := make([][]byte, 0, frames)
+		stream := make([]byte, 0, frames*16)
+		for index := 0; index < frames; index++ {
+			frame := fmt.Sprintf("%015d\n", index)
+			expected = append(expected, []byte(frame[:15]))
+			stream = append(stream, frame...)
+		}
+		assembler := conversationLineAssembler{}
+		delivered := 0
+		for offset := 0; offset < len(stream); offset += 65536 {
+			end := offset + 65536
+			if end > len(stream) {
+				end = len(stream)
+			}
+			lines := assembler.appendChunk(stream[offset:end])
+			if len(lines) != 4096 {
+				t.Fatalf("chunk at %d delivered %d lines, want 4096", offset, len(lines))
+			}
+			for _, line := range lines {
+				if !bytes.Equal(line, expected[delivered]) {
+					t.Fatalf("line %d = %q, want %q", delivered, line, expected[delivered])
+				}
+				delivered++
+			}
+			if assembler.unfinished() {
+				t.Fatalf("chunk at %d left an unfinished tail", offset)
+			}
+		}
+		if delivered != frames {
+			t.Fatalf("delivered %d lines, want %d", delivered, frames)
+		}
+		if assembler.scannedBytes != len(stream) {
+			t.Fatalf("scannedBytes = %d, want %d", assembler.scannedBytes, len(stream))
+		}
+		if assembler.copiedBytes != 0 {
+			t.Fatalf("copiedBytes = %d, want 0 (newline-aligned chunks reset in place)", assembler.copiedBytes)
+		}
+	})
 }
 
 func newFedConversationExchange(t *testing.T, stdout string) (*conversationExchange, *conversationTranscriptSink, chan conversationStdoutResult, *os.File) {
@@ -75,6 +247,85 @@ func newFedConversationExchange(t *testing.T, stdout string) (*conversationExcha
 		t.Fatal(err)
 	}
 	return exchange, sink, results, stdinReader
+}
+
+// newOpenConversationFeed mirrors the production feed wiring with a real
+// spool pipe: an os.Pipe stdout whose writer stays open for the test, a real
+// io.Pipe spool writer in the sink, and the feed goroutine running against
+// them. The returned spool reader stays open so the test can drain it.
+func newOpenConversationFeed(t *testing.T) (*conversationExchange, *conversationTranscriptSink, chan conversationStdoutResult, *os.File, *io.PipeReader) {
+	t.Helper()
+	streamReader, streamWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spoolReader, spoolWriter := io.Pipe()
+	stdinReader, stdinWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exchange := newConversationExchange(stdinWriter)
+	sink := &conversationTranscriptSink{spoolWriter: spoolWriter, transcript: &streamCapture{}}
+	results := make(chan conversationStdoutResult, 1)
+	go feedConversationStdout(streamReader, sink, exchange, results)
+	t.Cleanup(func() {
+		_ = streamReader.Close()
+		_ = spoolReader.Close()
+		_ = stdinReader.Close()
+	})
+	return exchange, sink, results, streamWriter, spoolReader
+}
+
+type spoolReadResult struct {
+	data []byte
+	err  error
+}
+
+func TestFeedConversationStdoutDropsLinesAndKeepsSpoolingAfterExchangeClose(t *testing.T) {
+	exchange, sink, results, streamWriter, spoolReader := newOpenConversationFeed(t)
+	spoolDone := make(chan spoolReadResult, 1)
+	go func() {
+		// EOF arrives only when the feed's deferred closeSpool closes the
+		// spool writer, so this read blocks until the feed completes.
+		data, err := io.ReadAll(spoolReader)
+		spoolDone <- spoolReadResult{data: data, err: err}
+	}()
+
+	if _, err := streamWriter.Write([]byte("before\n")); err != nil {
+		t.Fatal(err)
+	}
+	line, err := exchange.ReceiveLine(context.Background())
+	if err != nil || string(line) != "before" {
+		t.Fatalf("ReceiveLine() = (%q, %v), want the pre-close line", line, err)
+	}
+	exchange.close()
+	if _, err := streamWriter.Write([]byte("after\npartial")); err != nil {
+		t.Fatal(err)
+	}
+	if err := streamWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The feed sends its result before its deferred closeSpool executes, so
+	// the spool drain completes only after both waits.
+	feedResult := <-results
+	spoolRes := <-spoolDone
+
+	if !errors.Is(feedResult.err, io.ErrUnexpectedEOF) {
+		t.Fatalf("feed result = %v, want a wrapped io.ErrUnexpectedEOF", feedResult.err)
+	}
+	expected := "before\nafter\npartial"
+	if string(sink.transcript.bytes) != expected {
+		t.Fatalf("transcript = %q, want %q", sink.transcript.bytes, expected)
+	}
+	if spoolRes.err != nil {
+		t.Fatalf("spool read = %v, want nil", spoolRes.err)
+	}
+	if !bytes.Equal(spoolRes.data, []byte(expected)) {
+		t.Fatalf("spool bytes = %q, want %q", spoolRes.data, expected)
+	}
+	if _, err := exchange.ReceiveLine(context.Background()); !errors.Is(err, ports.ErrProviderSessionExchangeClosed) {
+		t.Fatalf("ReceiveLine() after close = %v, want exchange closure", err)
+	}
 }
 
 func TestConversationExchangeDeliversLinesAndStreamEnd(t *testing.T) {

@@ -522,7 +522,7 @@ func feedConversationStdout(reader *os.File, sink *conversationTranscriptSink, e
 		sink.closeSpool()
 	}()
 	endErr := error(io.EOF)
-	var pending []byte
+	assembler := conversationLineAssembler{}
 	buffer := make([]byte, 32768)
 	for {
 		count, readErr := reader.Read(buffer)
@@ -533,21 +533,16 @@ func feedConversationStdout(reader *os.File, sink *conversationTranscriptSink, e
 				results <- conversationStdoutResult{err: err}
 				return
 			}
-			pending = append(pending, buffer[:count]...)
-			// Deliver defensive copies before shifting the remainder to the
-			// front of the pending buffer.
-			complete, remainder := splitConversationLines(pending)
-			for index := range complete {
+			for _, line := range assembler.appendChunk(buffer[:count]) {
 				select {
-				case exchange.lines <- append([]byte(nil), complete[index]...):
+				case exchange.lines <- line:
 				case <-exchange.closed:
 				}
 			}
-			pending = append(pending[:0], remainder...)
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
-				if len(pending) > 0 {
+				if assembler.unfinished() {
 					endErr = fmt.Errorf("process runner: conversation stdout ended with a partial line: %w", io.ErrUnexpectedEOF)
 				}
 			} else {
@@ -560,17 +555,66 @@ func feedConversationStdout(reader *os.File, sink *conversationTranscriptSink, e
 	results <- conversationStdoutResult{err: endErr}
 }
 
-// splitConversationLines returns every complete newline-terminated line in
-// pending without its newline and the unterminated remainder.
-func splitConversationLines(pending []byte) ([][]byte, []byte) {
+// conversationLineAssembler incrementally assembles newline-terminated
+// protocol lines from streamed stdout chunks. Every byte is examined for a
+// newline exactly once, the unfinished tail stays in place across chunks,
+// and each completed line owns a dedicated copy of its bytes. The
+// scannedBytes and copiedBytes counters exist only for deterministic
+// verification of those scan and preservation properties.
+type conversationLineAssembler struct {
+	// buffer holds delivered dead bytes at [0:consumed), bytes proven
+	// newline-free at [consumed:scanned), and unexamined bytes at
+	// [scanned:len).
+	buffer       []byte
+	consumed     int
+	scanned      int
+	scannedBytes int
+	copiedBytes  int
+}
+
+// appendChunk absorbs one stdout chunk and returns every line it completed
+// in stream order, each line owning its bytes.
+func (assembler *conversationLineAssembler) appendChunk(chunk []byte) [][]byte {
+	scannedBefore := assembler.scanned
+	assembler.buffer = append(assembler.buffer, chunk...)
 	var lines [][]byte
 	for {
-		index := bytes.IndexByte(pending, '\n')
+		index := bytes.IndexByte(assembler.buffer[assembler.scanned:], '\n')
 		if index < 0 {
-			return lines, pending
+			assembler.scanned = len(assembler.buffer)
+			break
 		}
-		lines = append(lines, pending[:index])
-		pending = pending[index+1:]
+		lineEnd := assembler.scanned + index
+		lines = append(lines, append([]byte(nil), assembler.buffer[assembler.consumed:lineEnd]...))
+		assembler.consumed = lineEnd + 1
+		assembler.scanned = assembler.consumed
+	}
+	assembler.scannedBytes += assembler.scanned - scannedBefore
+	assembler.compact()
+	return lines
+}
+
+// unfinished reports whether an unterminated tail remains at the end of the
+// stream.
+func (assembler *conversationLineAssembler) unfinished() bool {
+	return len(assembler.buffer) > assembler.consumed
+}
+
+// compact reclaims delivered bytes from the front of the buffer. It copies
+// the live tail forward only when the dead prefix is at least as large as
+// the live suffix, keeping preservation amortized, and resets in place
+// when nothing remains.
+func (assembler *conversationLineAssembler) compact() {
+	if assembler.consumed == len(assembler.buffer) {
+		assembler.buffer = assembler.buffer[:0]
+		assembler.consumed, assembler.scanned = 0, 0
+		return
+	}
+	if assembler.consumed*2 >= len(assembler.buffer) {
+		assembler.copiedBytes += copy(assembler.buffer, assembler.buffer[assembler.consumed:])
+		assembler.buffer = assembler.buffer[:len(assembler.buffer)-assembler.consumed]
+		assembler.scanned -= assembler.consumed
+		assembler.consumed = 0
 	}
 }
 
