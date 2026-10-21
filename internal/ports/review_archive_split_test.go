@@ -78,7 +78,7 @@ func TestRestoreCapturedReviewArchiveAcceptsLegacyV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := marshalCapturedReviewMaterialV1(material)
+	legacy, err := MarshalCapturedReviewMaterialV1(material)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestCapturedReviewArchiveKeepsRepeatedLargeContentOutOfManifest(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := marshalCapturedReviewMaterialV1(material)
+	legacy, err := MarshalCapturedReviewMaterialV1(material)
 	if err != nil {
 		t.Fatal(err)
 	}

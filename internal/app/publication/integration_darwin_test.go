@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -743,4 +745,159 @@ func publicationIntegrationErrorChain(err error) []string {
 		err = errors.Unwrap(err)
 	}
 	return chain
+}
+
+// TestArtistRuntimeInputsPublishReadRoundTrip commits real writer bytes with
+// artist inputs and reads them back through the strict historical query
+// reader over the same committed store, in every writer input state. It is
+// the writer/reader drift guard for the retained artist manifest fields.
+func TestArtistRuntimeInputsPublishReadRoundTrip(t *testing.T) {
+	briefBytes := []byte("Check the reviewed home screen design.\n")
+	visualBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	visualPath, _ := ports.NewSafeRelativePath("design-specs/home.png")
+	for _, test := range []struct {
+		name       string
+		status     string
+		task       string
+		withVisual bool
+		wantBrief  bool
+	}{
+		{name: "ready", status: "ready", task: string(briefBytes), withVisual: true, wantBrief: true},
+		{name: "code_only", status: "code_only", task: string(briefBytes), withVisual: false, wantBrief: true},
+		{name: "missing", status: "missing", task: "", withVisual: true, wantBrief: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			catalog := builtin.NewCatalog()
+			validator, err := jsonschema.New(ctx, catalog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rootPath := filepath.Join(t.TempDir(), ".mulgae")
+			if err := os.Mkdir(rootPath, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			root, err := ports.NewAnchoredRoot(rootPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			clock := publicationServiceClock{now: publicationTestTime()}
+			candidate := publicationRuntimeCandidate(t)
+			target, err := ports.NewCapturedReviewPatchTarget([]byte("reviewed line\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			briefWorkspacePath, _ := ports.NewSafeRelativePath("docs/roadmap.md")
+			briefFile, err := ports.NewWorkspaceSnapshotFile(briefWorkspacePath, briefBytes, sha256Identifier(briefBytes))
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := []ports.WorkspaceSnapshotFile{}
+			visualAssets := []capturedArtistVisualWire{}
+			if test.withVisual {
+				visual, visualErr := ports.NewWorkspaceVisualAsset(visualPath, visualBytes, sha256Identifier(visualBytes), "image/png")
+				if visualErr != nil {
+					t.Fatal(visualErr)
+				}
+				files = append(files, visual)
+				visualAssets = append(visualAssets, capturedArtistVisualWire{Path: "current/" + visual.Path().String(), SHA256: visual.SHA256(), MediaType: visual.MediaType()})
+			}
+			// Snapshot files must stay strictly lexicographic:
+			// design-specs/... sorts before docs/...
+			files = append(files, briefFile)
+			snapshot, err := ports.NewWorkspaceSnapshotRequest(files, "artist-round-trip")
+			if err != nil {
+				t.Fatal(err)
+			}
+			evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceHead: files})
+			if err != nil {
+				t.Fatal(err)
+			}
+			artistContext, err := json.Marshal(capturedArtistInputWire{
+				SchemaVersion: "mulgae-artist-inputs.v1", Status: test.status, TaskPath: "docs/roadmap.md", Task: test.task,
+				VisualAssets: visualAssets,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			material, err := ports.NewCapturedReviewMaterialWithEvidenceAndProjectContext(target, snapshot, artistContext, true, evidence)
+			if err != nil {
+				t.Fatal(err)
+			}
+			archive, err := ports.MarshalCapturedReviewMaterial(material)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for roleIndex := range candidate.roles {
+				for attemptIndex := range candidate.roles[roleIndex].attempts {
+					for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
+						candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime.capturedArchive = append([]byte(nil), archive...)
+					}
+				}
+			}
+			if _, err := candidate.Build(ctx, validator, publicationTestReviewID(t), publicationTestTime(), 1); err != nil {
+				t.Fatalf("artist candidate build: %v", err)
+			}
+			store, err := filesystem.NewPublicationStore(
+				validator,
+				clock,
+				publicationIntegrationIDs{reviewID: publicationTestReviewID(t)},
+				filesystem.NewSecureWriter(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			publisher, err := NewService(store, validator, clock, 8<<20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			published, err := publisher.Publish(ctx, root, candidate, 1)
+			if err != nil {
+				t.Fatalf("artist publish: %v", err)
+			}
+			if published.Decision().Authority() != domain.PublicationAuthorityP2 || published.Decision().Status() != domain.PublicationCommitted {
+				t.Fatalf("artist publish decision = (%q, %q)", published.Decision().Authority(), published.Decision().Status())
+			}
+			run, err := ports.NewPublicationRun(root, candidate.SessionID(), candidate.RunID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			queries, err := appquery.NewService(store, validator, nil, 8<<20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			read, err := queries.ReadRuntimeTarget(ctx, run)
+			if err != nil {
+				t.Fatalf("historical artist read: %v", err)
+			}
+			if string(read.Bytes()) != "reviewed line\n" || len(read.CapturedArchive()) == 0 {
+				t.Fatalf("round-trip target = %q with archive length %d", read.Bytes(), len(read.CapturedArchive()))
+			}
+			brief, briefPresent := read.ArtistBrief()
+			if briefPresent != test.wantBrief {
+				t.Fatalf("artist brief presence = %t, want %t", briefPresent, test.wantBrief)
+			}
+			if test.wantBrief && string(brief) != string(briefBytes) {
+				t.Fatalf("artist brief = %q, want the exact retained brief bytes", brief)
+			}
+			visuals, visualsPresent := read.ArtistVisualAssets()
+			if !visualsPresent {
+				t.Fatal("artist visual assets are absent in every writer input state")
+			}
+			var visualsWire publishedArtistVisualsWire
+			if err := json.Unmarshal(visuals, &visualsWire); err != nil {
+				t.Fatalf("retained visual manifest is not the writer wire: %v", err)
+			}
+			if test.withVisual {
+				if len(visualsWire.VisualAssets) == 0 || visualsWire.VisualAssets[0].SHA256 != sha256Identifier(visualBytes) {
+					t.Fatalf("retained visual manifest = %#v, want the captured visual identity", visualsWire)
+				}
+			} else if len(visualsWire.VisualAssets) != 0 {
+				t.Fatalf("code-only visual manifest = %#v, want an empty visual_assets list", visualsWire)
+			}
+		})
+	}
 }

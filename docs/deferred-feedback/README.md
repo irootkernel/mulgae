@@ -154,10 +154,10 @@ work.
 
 - `DF-022` Historical v1 captured archive: ports tests cover the legacy
   codec, while ReadRuntimeTarget preserves the original archive bytes after
-  target binding. Its query-service v1 branch lacks a direct fixture. Re-
-  entry: before changing the retained support reader, verify exact v1 bytes
-  and the wrong-binding, missing and tampered archive cases alongside v2
-  controls.
+  target binding. Query-service v1 fixtures now exist (TASK-050): exact v1
+  bytes plus wrong-binding, missing, and tampered archive cases run alongside
+  v2 controls before the retained support reader changes. No deferred work
+  remains.
 
 - `DF-023` Live admission and artist brief tests: canonical root mismatch is
   rejected before admission, and a binary artist brief is rejected before

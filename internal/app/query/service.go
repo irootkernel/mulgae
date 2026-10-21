@@ -378,7 +378,47 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 			}
 		}
 	}
-	return RuntimeTarget{identity: identity, bytes: targetArtifact.Bytes(), capturedArchive: capturedArchive}, nil
+	var artistBrief, artistVisualAssets []byte
+	if manifest.ArtistBrief != nil {
+		artistBrief, err = service.readArtistSupportArtifact(ctx, run, review, index, manifest.ArtistBrief, ports.RunSupportArtifactArtistBrief, "artist brief")
+		if err != nil {
+			return RuntimeTarget{}, err
+		}
+	}
+	if manifest.ArtistVisualAssets != nil {
+		artistVisualAssets, err = service.readArtistSupportArtifact(ctx, run, review, index, manifest.ArtistVisualAssets, ports.RunSupportArtifactArtistVisuals, "artist visual assets")
+		if err != nil {
+			return RuntimeTarget{}, err
+		}
+	}
+	return RuntimeTarget{identity: identity, bytes: targetArtifact.Bytes(), capturedArchive: capturedArchive, artistBrief: artistBrief, artistVisualAssets: artistVisualAssets}, nil
+}
+
+// readArtistSupportArtifact correlates one optional artist input identity from
+// the runtime target manifest with its exactly retained bytes. It requires the
+// exact canonical path and artifact kind, a valid digest, support-index
+// membership, and a digest-bound read.
+func (service *Service) readArtistSupportArtifact(
+	ctx context.Context, run ports.PublicationRun, review CommittedReview,
+	index map[string]string, identity *artifactIdentityDTO,
+	expectedKind ports.RunSupportArtifactKind, label string,
+) ([]byte, error) {
+	if !validSHA256(identity.SHA256) {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, label+" identity is invalid", nil)
+	}
+	path, err := ports.NewSafeRelativePath(identity.Path)
+	kind, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
+	if err != nil || classifyErr != nil || kind != expectedKind {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, label+" path is not canonical", errors.Join(err, classifyErr))
+	}
+	if index[path.String()] != identity.SHA256 {
+		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, label+" is not support-indexed", nil)
+	}
+	artifact, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, path)
+	if err != nil {
+		return nil, err
+	}
+	return artifact.Bytes(), nil
 }
 
 func sameOptionalTargetOID(value string, expected *string) bool {

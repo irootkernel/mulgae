@@ -1,6 +1,7 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -2391,7 +2392,55 @@ func TestReadCommittedAttemptRejectsRepairPromptSelection(t *testing.T) {
 	}
 }
 
+type queryRuntimeFixtureOptions struct {
+	legacyArchive bool
+	artistBrief   bool
+	artistVisuals bool
+	// Negative-case deviations applied while the fixture is constructed, so
+	// every digest binding (index member, index artifact, run manifest) stays
+	// self-consistent and each named failure is reached deterministically.
+	legacyArchiveWrongBinding  bool   // legacy archive material binds a different target
+	omitArchiveFromIndex       bool   // support index omits the captured archive entry
+	artistBriefDigestOverride  string // replaces the brief identity digest in the target manifest
+	artistBriefPathOverride    string // replaces the brief identity path in the target manifest
+	artistBriefOmitIndex       bool   // support index omits the brief entry
+	manifestUnknownArtistField bool   // target manifest carries an artist_extra identity
+}
+
+// queryArtistBriefContent and queryArtistVisualsContent are the frozen artist
+// input bytes. The visuals bytes follow the published artist visual manifest
+// wire shape and stay opaque to the reader, which correlates by identity.
+const (
+	queryArtistBriefContent   = "# Artist brief\n\nDraw the reviewed home screen exactly as captured.\n"
+	queryArtistVisualsContent = `{"schema_version":"mulgae-artist-visual-assets.v1","brief_path":"docs/roadmap.md","visual_assets":[{"path":"current/design-specs/home.png","sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","media_type":"image/png"}]}`
+)
+
+// queryRuntimeFixture is the frozen synthetic runtime fixture: a support index
+// v1, a modern split captured archive, prompts, and final/manifest rebinding
+// served through the queryStore. Its bytes are unchanged; the variants below
+// reuse the same construction with declared deviations only.
 func queryRuntimeFixture(t *testing.T, canonicalPrompt ...bool) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact, map[string]string, domain.AttemptID) {
+	t.Helper()
+	return queryRuntimeFixtureWithOptions(t, queryRuntimeFixtureOptions{}, canonicalPrompt...)
+}
+
+// queryArtistRuntimeFixture returns the runtime fixture with the target
+// manifest binding optional artist input identities and the corresponding
+// input artifacts retained in the store and support index. The two booleans
+// enable independent presence, including combinations the writer never emits.
+func queryArtistRuntimeFixture(t *testing.T, brief, visuals bool) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact, map[string]string, domain.AttemptID) {
+	t.Helper()
+	return queryRuntimeFixtureWithOptions(t, queryRuntimeFixtureOptions{artistBrief: brief, artistVisuals: visuals})
+}
+
+// queryLegacyArchiveRuntimeFixture returns the runtime fixture with the
+// captured archive in the legacy v1 single-byte form and no split blobs.
+func queryLegacyArchiveRuntimeFixture(t *testing.T) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact, map[string]string, domain.AttemptID) {
+	t.Helper()
+	return queryRuntimeFixtureWithOptions(t, queryRuntimeFixtureOptions{legacyArchive: true})
+}
+
+func queryRuntimeFixtureWithOptions(t *testing.T, options queryRuntimeFixtureOptions, canonicalPrompt ...bool) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, map[string]ports.ImmutablePublicationArtifact, map[string]string, domain.AttemptID) {
 	t.Helper()
 	run, baseSnapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
 	prefix := run.SessionID().String() + "/" + run.RunID().String()
@@ -2417,19 +2466,32 @@ func queryRuntimeFixture(t *testing.T, canonicalPrompt ...bool) (ports.Publicati
 	if err != nil {
 		t.Fatal(err)
 	}
-	captured, err := ports.NewCapturedReviewArchive(capturedMaterial)
-	if err != nil {
-		t.Fatal(err)
-	}
 	capturedPath := prefix + "/target/captured-review.json"
-	capturedManifest := mustQueryArtifact(t, mustQueryPath(t, capturedPath), captured.Manifest())
+	var capturedManifest ports.ImmutablePublicationArtifact
 	capturedArtifacts := make(map[string]ports.ImmutablePublicationArtifact)
 	var capturedBlobPath string
-	for _, blob := range captured.Blobs() {
-		path := prefix + "/target/" + blob.Path().String()
-		artifact := mustQueryArtifact(t, mustQueryPath(t, path), blob.Bytes())
-		capturedArtifacts[path] = artifact
-		capturedBlobPath = path
+	if options.legacyArchive {
+		archiveMaterial := capturedMaterial
+		if options.legacyArchiveWrongBinding {
+			archiveMaterial = queryAlternateCapturedMaterial(t, "query-runtime-fixture-wrong-binding", "different runtime target bytes")
+		}
+		legacyBytes, legacyErr := ports.MarshalCapturedReviewMaterialV1(archiveMaterial)
+		if legacyErr != nil {
+			t.Fatal(legacyErr)
+		}
+		capturedManifest = mustQueryArtifact(t, mustQueryPath(t, capturedPath), legacyBytes)
+	} else {
+		captured, capturedErr := ports.NewCapturedReviewArchive(capturedMaterial)
+		if capturedErr != nil {
+			t.Fatal(capturedErr)
+		}
+		capturedManifest = mustQueryArtifact(t, mustQueryPath(t, capturedPath), captured.Manifest())
+		for _, blob := range captured.Blobs() {
+			path := prefix + "/target/" + blob.Path().String()
+			artifact := mustQueryArtifact(t, mustQueryPath(t, path), blob.Bytes())
+			capturedArtifacts[path] = artifact
+			capturedBlobPath = path
+		}
 	}
 	stdinPath := prefix + "/prompts/" + attempt.String() + "/001-initial.stdin"
 	stdin := mustQueryArtifact(t, mustQueryPath(t, stdinPath), []byte("runtime stdin bytes"))
@@ -2458,8 +2520,43 @@ func queryRuntimeFixture(t *testing.T, canonicalPrompt ...bool) (ports.Publicati
 	}
 	roleReportPath := prefix + "/role-reports/logic.md"
 	roleReport := mustQueryArtifact(t, mustQueryPath(t, roleReportPath), []byte("verified role report\n"))
+	artistBriefPath := prefix + "/inputs/artist-brief.md"
+	artistVisualsPath := prefix + "/inputs/artist-visual-assets.json"
+	artistArtifacts := make(map[string]ports.ImmutablePublicationArtifact)
+	var artistIdentities []artifactIdentityDTO
+	var artistFields []string
+	if options.artistBrief {
+		brief := mustQueryArtifact(t, mustQueryPath(t, artistBriefPath), []byte(queryArtistBriefContent))
+		artistArtifacts[artistBriefPath] = brief
+		briefDigest := brief.SHA256()
+		if options.artistBriefDigestOverride != "" {
+			briefDigest = options.artistBriefDigestOverride
+		}
+		briefManifestPath := artistBriefPath
+		if options.artistBriefPathOverride != "" {
+			briefManifestPath = options.artistBriefPathOverride
+		}
+		if !options.artistBriefOmitIndex && options.artistBriefPathOverride == "" {
+			artistIdentities = append(artistIdentities, artifactIdentityDTO{Path: artistBriefPath, SHA256: brief.SHA256()})
+		}
+		artistFields = append(artistFields, fmt.Sprintf(`"artist_brief":{"path":%q,"sha256":%q}`, briefManifestPath, briefDigest))
+	}
+	if options.artistVisuals {
+		visuals := mustQueryArtifact(t, mustQueryPath(t, artistVisualsPath), []byte(queryArtistVisualsContent))
+		artistArtifacts[artistVisualsPath] = visuals
+		artistIdentities = append(artistIdentities, artifactIdentityDTO{Path: artistVisualsPath, SHA256: visuals.SHA256()})
+		artistFields = append(artistFields, fmt.Sprintf(`"artist_visual_assets":{"path":%q,"sha256":%q}`, artistVisualsPath, visuals.SHA256()))
+	}
 	targetManifestPath := prefix + "/target/target-manifest.json"
-	targetManifest := mustQueryArtifact(t, mustQueryPath(t, targetManifestPath), []byte(fmt.Sprintf(`{"schema_version":"mulgae-runtime-target-manifest.v1","target":{"path":%q,"sha256":%q},"captured_archive":{"path":%q,"sha256":%q},"target_kind":"patch","repository_id":"","base_object_id":"","head_object_id":"","head_tree_object_id":"","index_tree_object_id":"","prompts":[{"path":%q,"sha256":%q}],"selected_replay_prompts":[{"attempt_id":%q,"sequence":1,"purpose":"initial","artifact":{"path":%q,"sha256":%q}}]}`, targetPath, target.SHA256(), capturedPath, capturedManifest.SHA256(), promptPath, prompt.SHA256(), attempt.String(), promptPath, prompt.SHA256())))
+	manifestJSON := fmt.Sprintf(`{"schema_version":"mulgae-runtime-target-manifest.v1","target":{"path":%q,"sha256":%q},"captured_archive":{"path":%q,"sha256":%q},"target_kind":"patch","repository_id":"","base_object_id":"","head_object_id":"","head_tree_object_id":"","index_tree_object_id":"","prompts":[{"path":%q,"sha256":%q}],"selected_replay_prompts":[{"attempt_id":%q,"sequence":1,"purpose":"initial","artifact":{"path":%q,"sha256":%q}}]`, targetPath, target.SHA256(), capturedPath, capturedManifest.SHA256(), promptPath, prompt.SHA256(), attempt.String(), promptPath, prompt.SHA256())
+	if len(artistFields) > 0 {
+		manifestJSON += "," + strings.Join(artistFields, ",")
+	}
+	if options.manifestUnknownArtistField {
+		manifestJSON += `,"artist_extra":{"path":"` + artistBriefPath + `","sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
+	}
+	manifestJSON += "}"
+	targetManifest := mustQueryArtifact(t, mustQueryPath(t, targetManifestPath), []byte(manifestJSON))
 	normalizedPath := prefix + "/excerpts/F001.json"
 	normalized := mustQueryArtifact(t, mustQueryPath(t, normalizedPath), []byte(`{"id":"F001"}`))
 	excerptPath := prefix + "/excerpts/F001_1.md"
@@ -2469,9 +2566,12 @@ func queryRuntimeFixture(t *testing.T, canonicalPrompt ...bool) (ports.Publicati
 		{Path: normalizedPath, SHA256: normalized.SHA256()}, {Path: excerptPath, SHA256: excerpt.SHA256()},
 		{Path: targetPath, SHA256: target.SHA256()}, {Path: stdinPath, SHA256: stdin.SHA256()},
 		{Path: promptPath, SHA256: prompt.SHA256()}, {Path: targetManifestPath, SHA256: targetManifest.SHA256()},
-		{Path: capturedPath, SHA256: capturedManifest.SHA256()},
 		{Path: roleReportPath, SHA256: roleReport.SHA256()},
 	}
+	if !options.omitArchiveFromIndex {
+		supportIdentities = append(supportIdentities, artifactIdentityDTO{Path: capturedPath, SHA256: capturedManifest.SHA256()})
+	}
+	supportIdentities = append(supportIdentities, artistIdentities...)
 	for path, artifact := range capturedArtifacts {
 		supportIdentities = append(supportIdentities, artifactIdentityDTO{Path: path, SHA256: artifact.SHA256()})
 	}
@@ -2558,8 +2658,264 @@ func queryRuntimeFixture(t *testing.T, canonicalPrompt ...bool) (ports.Publicati
 	for path, artifact := range capturedArtifacts {
 		artifacts[path] = artifact
 	}
-	paths := map[string]string{"support": supportPath, "normalized": normalizedPath, "excerpt": excerptPath, "target": targetPath, "target-manifest": targetManifestPath, "captured-archive": capturedPath, "captured-blob": capturedBlobPath, "prompt-manifest": promptPath, "stdin": stdinPath}
+	for path, artifact := range artistArtifacts {
+		artifacts[path] = artifact
+	}
+	paths := map[string]string{"support": supportPath, "normalized": normalizedPath, "excerpt": excerptPath, "target": targetPath, "target-manifest": targetManifestPath, "captured-archive": capturedPath, "captured-blob": capturedBlobPath, "prompt-manifest": promptPath, "stdin": stdinPath, "artist-brief": artistBriefPath, "artist-visuals": artistVisualsPath}
 	return run, snapshot, observation, artifacts, paths, attempt
+}
+
+// queryAlternateCapturedMaterial builds a minimal captured material whose
+// target differs from the fixture target, for wrong-binding controls.
+func queryAlternateCapturedMaterial(t *testing.T, policy, targetBytes string) ports.CapturedReviewMaterial {
+	t.Helper()
+	otherTarget, err := ports.NewCapturedReviewPatchTarget([]byte(targetBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSnapshot, err := ports.NewWorkspaceSnapshotRequest(nil, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherEvidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceHead: nil})
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := ports.NewCapturedReviewMaterialWithEvidence(otherTarget, otherSnapshot, nil, otherEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return material
+}
+
+// TestReadRuntimeTargetAdmitsRetainedArtistManifestFields proves the strict
+// historical reader admits a runtime target manifest that binds retained
+// artist inputs. Phase 1 uses existing APIs only: the read must succeed and
+// the target bytes must be exact.
+func TestReadRuntimeTargetAdmitsRetainedArtistManifestFields(t *testing.T) {
+	t.Parallel()
+	run, snapshot, observation, artifacts, _, _ := queryArtistRuntimeFixture(t, true, true)
+	service := mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+	target, err := service.ReadRuntimeTarget(context.Background(), run)
+	if err != nil {
+		t.Fatalf("ReadRuntimeTarget() error = %v, want a retained artist manifest to read", err)
+	}
+	if string(target.Bytes()) != "runtime target bytes" {
+		t.Fatalf("target bytes = %q", target.Bytes())
+	}
+	brief, briefPresent := target.ArtistBrief()
+	if !briefPresent || string(brief) != queryArtistBriefContent {
+		t.Fatalf("artist brief = (%q, %t), want the exact retained brief bytes", brief, briefPresent)
+	}
+	visuals, visualsPresent := target.ArtistVisualAssets()
+	if !visualsPresent || string(visuals) != queryArtistVisualsContent {
+		t.Fatalf("artist visual assets = (%q, %t), want the exact retained manifest bytes", visuals, visualsPresent)
+	}
+
+	// Strict unknown-field rejection is preserved: an artist_extra identity is
+	// still rejected by strict decoding.
+	run, snapshot, observation, artifacts, _, _ = queryRuntimeFixtureWithOptions(t, queryRuntimeFixtureOptions{manifestUnknownArtistField: true})
+	service = mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+	if _, err := service.ReadRuntimeTarget(context.Background(), run); err == nil || !strings.Contains(err.Error(), "runtime target manifest decode failed") {
+		t.Fatalf("unknown artist field = %v, want the strict decode rejection", err)
+	}
+}
+
+// queryFixturePrefix is the frozen session/run prefix of the committed
+// fixture the runtime fixture family builds on.
+const queryFixturePrefix = "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba"
+
+// TestReadRuntimeTargetArtistFieldPresenceCombinations pins old-manifest
+// absence and independent optional-field presence, including the synthetic
+// brief-only combination the writer never produces.
+func TestReadRuntimeTargetArtistFieldPresenceCombinations(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name        string
+		brief       bool
+		visuals     bool
+		wantBrief   bool
+		wantVisuals bool
+	}{
+		{name: "old manifest without artist fields", brief: false, visuals: false, wantBrief: false, wantVisuals: false},
+		{name: "brief only", brief: true, visuals: false, wantBrief: true, wantVisuals: false},
+		{name: "visuals only", brief: false, visuals: true, wantBrief: false, wantVisuals: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			run, snapshot, observation, artifacts, _, _ := queryArtistRuntimeFixture(t, test.brief, test.visuals)
+			service := mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+			target, err := service.ReadRuntimeTarget(context.Background(), run)
+			if err != nil {
+				t.Fatalf("ReadRuntimeTarget() error = %v", err)
+			}
+			brief, briefPresent := target.ArtistBrief()
+			if briefPresent != test.wantBrief || (briefPresent && string(brief) != queryArtistBriefContent) {
+				t.Fatalf("artist brief = (%q, %t), want present %t", brief, briefPresent, test.wantBrief)
+			}
+			visuals, visualsPresent := target.ArtistVisualAssets()
+			if visualsPresent != test.wantVisuals || (visualsPresent && string(visuals) != queryArtistVisualsContent) {
+				t.Fatalf("artist visual assets = (%q, %t), want present %t", visuals, visualsPresent, test.wantVisuals)
+			}
+		})
+	}
+}
+
+// TestReadRuntimeTargetRejectsMissingTamperedReboundOrCrossRunArtistArtifacts
+// pins one named failure for each correlation requirement of a bound artist
+// input.
+func TestReadRuntimeTargetRejectsMissingTamperedReboundOrCrossRunArtistArtifacts(t *testing.T) {
+	t.Parallel()
+	readErr := func(t *testing.T, options queryRuntimeFixtureOptions, mutate func(artifacts map[string]ports.ImmutablePublicationArtifact, paths map[string]string)) error {
+		t.Helper()
+		run, snapshot, observation, artifacts, paths, _ := queryRuntimeFixtureWithOptions(t, options)
+		if mutate != nil {
+			mutate(artifacts, paths)
+		}
+		service := mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+		_, err := service.ReadRuntimeTarget(context.Background(), run)
+		return err
+	}
+	artist := queryRuntimeFixtureOptions{artistBrief: true, artistVisuals: true}
+	for _, test := range []struct {
+		name      string
+		options   queryRuntimeFixtureOptions
+		mutate    func(artifacts map[string]ports.ImmutablePublicationArtifact, paths map[string]string)
+		wantError string
+	}{
+		{
+			name:      "not in support index",
+			options:   queryRuntimeFixtureOptions{artistBrief: true, artistVisuals: true, artistBriefOmitIndex: true},
+			wantError: "artist brief is not support-indexed",
+		},
+		{
+			name:    "missing from store",
+			options: artist,
+			mutate: func(artifacts map[string]ports.ImmutablePublicationArtifact, paths map[string]string) {
+				delete(artifacts, paths["artist-brief"])
+			},
+			wantError: "runtime artifact read failed",
+		},
+		{
+			name:    "tampered store bytes",
+			options: artist,
+			mutate: func(artifacts map[string]ports.ImmutablePublicationArtifact, paths map[string]string) {
+				artifacts[paths["artist-brief"]] = mustQueryArtifact(t, mustQueryPath(t, paths["artist-brief"]), []byte("tampered brief bytes"))
+			},
+			wantError: "runtime artifact identity drifted",
+		},
+		{
+			name:      "invalid digest identity",
+			options:   queryRuntimeFixtureOptions{artistBrief: true, artistVisuals: true, artistBriefDigestOverride: "not-a-sha256"},
+			wantError: "artist brief identity is invalid",
+		},
+		{
+			name:      "rebound familiar path",
+			options:   queryRuntimeFixtureOptions{artistBrief: true, artistVisuals: true, artistBriefPathOverride: queryFixturePrefix + "/target/target.bytes"},
+			wantError: "artist brief path is not canonical",
+		},
+		{
+			name:      "rebound sibling swap",
+			options:   queryRuntimeFixtureOptions{artistBrief: true, artistVisuals: true, artistBriefPathOverride: queryFixturePrefix + "/inputs/artist-visual-assets.json"},
+			wantError: "artist brief path is not canonical",
+		},
+		{
+			name:      "cross-run path",
+			options:   queryRuntimeFixtureOptions{artistBrief: true, artistVisuals: true, artistBriefPathOverride: "s_019f596a-cf80-7c67-b265-f37053d51cdf/r_019f596a-cfe4-7c9c-b82e-7149158243bb/inputs/artist-brief.md"},
+			wantError: "artist brief path is not canonical",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			err := readErr(t, test.options, test.mutate)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("artist correlation failure = %v, want %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+// TestReadRuntimeTargetLiveSourceReplayRefusalPreserved pins that a live-source
+// committed review is refused before any runtime target manifest field would
+// be decoded.
+func TestReadRuntimeTargetLiveSourceReplayRefusalPreserved(t *testing.T) {
+	t.Parallel()
+	service, _, run, _ := liveAgyCommittedFixture(t)
+	if _, err := service.ReadRuntimeTarget(context.Background(), run); !errors.Is(err, ErrSourceReplayUnavailable) {
+		t.Fatalf("live-source ReadRuntimeTarget() = %v, want the source replay refusal", err)
+	}
+}
+
+// TestReadRuntimeTargetLegacyArchiveControls pins the DF-022 re-entry
+// contract for the historical v1 single-byte archive branch: exact byte
+// preservation plus wrong-binding, missing, and tampered negatives, with the
+// modern v2 reconstruction path as the control.
+func TestReadRuntimeTargetLegacyArchiveControls(t *testing.T) {
+	t.Parallel()
+
+	t.Run("exact v1 bytes are preserved", func(t *testing.T) {
+		t.Parallel()
+		run, snapshot, observation, artifacts, paths, _ := queryLegacyArchiveRuntimeFixture(t)
+		service := mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+		target, err := service.ReadRuntimeTarget(context.Background(), run)
+		if err != nil {
+			t.Fatalf("ReadRuntimeTarget() error = %v", err)
+		}
+		legacy, legacyPresent := artifacts[paths["captured-archive"]]
+		if !legacyPresent || !bytes.Equal(target.CapturedArchive(), legacy.Bytes()) {
+			t.Fatalf("legacy archive bytes = %q, want the exact retained v1 bytes", target.CapturedArchive())
+		}
+		if string(target.Bytes()) != "runtime target bytes" {
+			t.Fatalf("legacy target bytes = %q", target.Bytes())
+		}
+	})
+
+	t.Run("wrong binding", func(t *testing.T) {
+		t.Parallel()
+		run, snapshot, observation, artifacts, _, _ := queryRuntimeFixtureWithOptions(t, queryRuntimeFixtureOptions{legacyArchive: true, legacyArchiveWrongBinding: true})
+		service := mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+		_, err := service.ReadRuntimeTarget(context.Background(), run)
+		if err == nil || !strings.Contains(err.Error(), "captured archive target binding is invalid") {
+			t.Fatalf("wrong binding = %v, want the captured archive target binding rejection", err)
+		}
+	})
+
+	t.Run("missing from index", func(t *testing.T) {
+		t.Parallel()
+		run, snapshot, observation, artifacts, _, _ := queryRuntimeFixtureWithOptions(t, queryRuntimeFixtureOptions{legacyArchive: true, omitArchiveFromIndex: true})
+		service := mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+		_, err := service.ReadRuntimeTarget(context.Background(), run)
+		if err == nil || !strings.Contains(err.Error(), "captured archive is not support-indexed") {
+			t.Fatalf("missing archive index entry = %v, want the support-index rejection", err)
+		}
+	})
+
+	t.Run("tampered store bytes", func(t *testing.T) {
+		t.Parallel()
+		run, snapshot, observation, artifacts, paths, _ := queryLegacyArchiveRuntimeFixture(t)
+		artifacts[paths["captured-archive"]] = mustQueryArtifact(t, mustQueryPath(t, paths["captured-archive"]), []byte("tampered archive bytes"))
+		service := mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+		_, err := service.ReadRuntimeTarget(context.Background(), run)
+		if err == nil || !strings.Contains(err.Error(), "runtime artifact identity drifted") {
+			t.Fatalf("tampered archive bytes = %v, want the identity drift rejection", err)
+		}
+	})
+
+	t.Run("v2 reconstruction control", func(t *testing.T) {
+		t.Parallel()
+		run, snapshot, observation, artifacts, _, _ := queryRuntimeFixture(t)
+		service := mustQueryService(t, &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}, &queryValidator{}, nil)
+		target, err := service.ReadRuntimeTarget(context.Background(), run)
+		if err != nil {
+			t.Fatalf("ReadRuntimeTarget() error = %v", err)
+		}
+		if len(target.CapturedArchive()) == 0 {
+			t.Fatal("v2 control lost the reconstructed captured archive")
+		}
+		if _, err := ports.UnmarshalCapturedReviewMaterial(target.CapturedArchive()); err != nil {
+			t.Fatalf("v2 reconstruction is not a valid captured bundle: %v", err)
+		}
+	})
 }
 
 type queryStore struct {

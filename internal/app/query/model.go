@@ -382,14 +382,28 @@ func (item FollowupEvidence) Verification() evidence.ReceiptStatus {
 // RuntimeTarget is the immutable target material reconstructed from a committed
 // P2 target manifest. Its bytes and identity are returned as defensive copies.
 type RuntimeTarget struct {
-	identity        domain.TargetIdentity
-	bytes           []byte
-	capturedArchive []byte
+	identity           domain.TargetIdentity
+	bytes              []byte
+	capturedArchive    []byte
+	artistBrief        []byte
+	artistVisualAssets []byte
 }
 
 func (target RuntimeTarget) Identity() domain.TargetIdentity { return target.identity }
 func (target RuntimeTarget) Bytes() []byte                   { return cloneBytes(target.bytes) }
 func (target RuntimeTarget) CapturedArchive() []byte         { return cloneBytes(target.capturedArchive) }
+
+// ArtistBrief returns the exactly retained brief bytes when the runtime
+// target manifest binds an artist brief.
+func (target RuntimeTarget) ArtistBrief() ([]byte, bool) {
+	return cloneBytes(target.artistBrief), target.artistBrief != nil
+}
+
+// ArtistVisualAssets returns the exactly retained artist visual manifest
+// bytes when the runtime target manifest binds one.
+func (target RuntimeTarget) ArtistVisualAssets() ([]byte, bool) {
+	return cloneBytes(target.artistVisualAssets), target.artistVisualAssets != nil
+}
 
 // RuntimePrompt is exact persisted replay material from one initial invocation.
 type RuntimePrompt struct {
@@ -450,7 +464,13 @@ func (attempt CommittedAttempt) AttemptID() domain.AttemptID { return attempt.at
 func (attempt CommittedAttempt) Role() domain.Role           { return attempt.role }
 func (attempt CommittedAttempt) Provider() string            { return attempt.provider }
 func (attempt CommittedAttempt) Target() RuntimeTarget {
-	return RuntimeTarget{identity: attempt.target.identity, bytes: cloneBytes(attempt.target.bytes), capturedArchive: cloneBytes(attempt.target.capturedArchive)}
+	return RuntimeTarget{
+		identity:           attempt.target.identity,
+		bytes:              cloneBytes(attempt.target.bytes),
+		capturedArchive:    cloneBytes(attempt.target.capturedArchive),
+		artistBrief:        cloneBytes(attempt.target.artistBrief),
+		artistVisualAssets: cloneBytes(attempt.target.artistVisualAssets),
+	}
 }
 func (attempt CommittedAttempt) Prompt() RuntimePrompt {
 	return RuntimePrompt{
@@ -481,6 +501,8 @@ type runtimeTargetManifestDTO struct {
 	SchemaVersion         string                    `json:"schema_version"`
 	Target                artifactIdentityDTO       `json:"target"`
 	CapturedArchive       *artifactIdentityDTO      `json:"captured_archive,omitempty"`
+	ArtistBrief           *artifactIdentityDTO      `json:"artist_brief,omitempty"`
+	ArtistVisualAssets    *artifactIdentityDTO      `json:"artist_visual_assets,omitempty"`
 	TargetKind            string                    `json:"target_kind"`
 	RepositoryID          string                    `json:"repository_id"`
 	BaseObjectID          string                    `json:"base_object_id"`

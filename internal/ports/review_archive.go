@@ -52,9 +52,9 @@ func MarshalCapturedReviewMaterial(material CapturedReviewMaterial) ([]byte, err
 	return marshalCapturedReviewBundle(material)
 }
 
-// marshalCapturedReviewMaterialV1 is retained only to build compatibility
+// MarshalCapturedReviewMaterialV1 is retained only to build compatibility
 // fixtures for archives published before the split manifest/blob format.
-func marshalCapturedReviewMaterialV1(material CapturedReviewMaterial) ([]byte, error) {
+func MarshalCapturedReviewMaterialV1(material CapturedReviewMaterial) ([]byte, error) {
 	if !material.Valid() {
 		return nil, fmt.Errorf("captured review archive: invalid material")
 	}
