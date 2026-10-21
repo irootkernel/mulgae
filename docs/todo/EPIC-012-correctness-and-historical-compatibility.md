@@ -163,11 +163,15 @@ or schema versions in this task.
 
 ### TASK-052: Certify the correctness candidate
 
-Run the common gates and affected provider/client checks, confirm each earlier
-regression is meaningful, and update canonical documentation in the owning
-changes. Recheck the preserved wave barrier, process worker pool, durability
-adoption, source boundary and historical support matrix. Hand the accepted exact
-candidate to EPIC-013; do not claim release or implementation of later Epics.
+Run the deterministic gates (`make test-prepare`, `make test-unit`,
+`make test-int`, and `make test-release`) and ZCode-only live verification,
+confirm each earlier regression is meaningful, and update canonical
+documentation in the owning changes. Recheck the preserved wave barrier,
+process worker pool, durability adoption, source boundary and historical
+support matrix. Record non-ZCode live provider gates (`grok`, `cursor`, `agy`,
+and `codex`) as explicitly deferred to the `v0.1.26` release gate under
+Master's quota-preservation decision. Hand the accepted exact candidate to
+EPIC-013; do not claim release or implementation of later Epics.
 
 ## Excluded behavioral changes
 
@@ -188,14 +192,21 @@ existing behavior before changing it. Use an explicit package and anchored
 and static targets. Changing embedded assets requires both documented
 generators twice and an unchanged second output.
 
-Epic acceptance requires `make test`, including mandatory ZCode/Grok live
-certification. Provider-driver or source-guard changes additionally require
-`make test-cursor` and `make test-agy`. Shared process/source-boundary changes
-affect Codex too and require `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in` with
-the two explicit homes; other Codex behavior changes require the same route. MCP consumer changes require
-`make test-mcp-clients`. Missing prerequisites remain an unmet check; never
-substitute providers, modify credentials/configuration or silently waive a gate.
-These are future implementation checks, not commands run by this design task.
+Under Master's quota-preservation decision for EPIC-012 through EPIC-014,
+development and Epic acceptance run the deterministic gates (`make test-prepare`,
+`make test-unit`, `make test-int`, and `make test-release`),
+`make test-mcp-clients` when MCP consumer paths change, and ZCode-only live
+verification (`TestLiveZCodeCapability` and ZCode-only live review checks).
+Live provider checks for Grok (`make test` / `make test-e2e` Grok leg and
+`make test-grok`), Cursor (`make test-cursor`), AGY (`make test-agy`), and
+Codex (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in` with the two explicit homes)
+are explicitly deferred to the `v0.1.26` release gate (`release-handler`),
+where all five providers (`zcode`, `grok`, `cursor`, `agy`, and `codex`) must
+be certified on the release candidate. Record those deferred non-ZCode live
+checks explicitly at handoff; never substitute ZCode as proof of another
+provider's live wire behavior, modify credentials/configuration, or claim
+unexercised providers were live-certified. These are future implementation
+checks, not commands run by this design task.
 
 Hand off the exact candidate identity, changed owners, regression results,
 compatibility matrix, integrity/cancellation evidence and all unperformed

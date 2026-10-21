@@ -183,18 +183,25 @@ explicit concurrency-only precedence matrix: earlier ordinary/later protected,
 earlier protected/later ordinary, equal-class ties, cancellation and cleanup
 failures. Enumerate success/failure combinations, including later acquisitions
 and failures, cancellation, panics and failed drain. Preserve ZCode/AGY instance
-keys and named Codex profile isolation. Prove actual affected provider routes
-before claiming concurrency compatibility. The coordinator wave barrier and
+keys and named Codex profile isolation. Prove deterministic multi-family
+qualification routes and ZCode live verification during EPIC-013 before
+claiming concurrency compatibility; non-ZCode live provider certification
+(`grok`, `cursor`, `agy`, and `codex`) remains deferred to the `v0.1.26`
+release gate. The coordinator wave barrier and
 process-wide worker capacity are unchanged.
 
 ### TASK-059: Certify reuse and boundary preservation
 
-Run the common gates and the affected provider/client matrix. Compare normalized
-public outputs, stored bytes, typed errors, corrupt-status projections and
-publication failure recovery to the EPIC-012 baseline. Promote the chosen
-lifetime/ownership rules to architecture and verification guidance. Hand the
-accepted exact candidate to EPIC-014 with any independent residual explicitly
-owned; do not defer work needed for current correctness.
+Run the deterministic gates (`make test-prepare`, `make test-unit`,
+`make test-int`, and `make test-release`) and ZCode-only live verification.
+Compare normalized public outputs, stored bytes, typed errors, corrupt-status
+projections and publication failure recovery to the EPIC-012 baseline. Promote
+the chosen lifetime/ownership rules to architecture and verification guidance.
+Record non-ZCode live provider gates (`grok`, `cursor`, `agy`, and `codex`) as
+explicitly deferred to the `v0.1.26` release gate under Master's
+quota-preservation decision. Hand the accepted exact candidate to EPIC-014 with
+any independent residual explicitly owned; do not defer work needed for current
+correctness.
 
 ## Verification and handoff
 
@@ -204,14 +211,21 @@ existing behavior before changing it. Use an explicit package and anchored
 and static targets. Changing embedded assets requires both documented
 generators twice and an unchanged second output.
 
-Epic acceptance requires `make test`, including mandatory ZCode/Grok live
-certification. Provider-driver or source-guard changes additionally require
-`make test-cursor` and `make test-agy`. Shared process/source-boundary changes
-affect Codex too and require `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in` with
-the two explicit homes; other Codex behavior changes require the same route. MCP consumer changes require
-`make test-mcp-clients`. Missing prerequisites remain an unmet check; never
-substitute providers, modify credentials/configuration or silently waive a gate.
-These are future implementation checks, not commands run by this design task.
+Under Master's quota-preservation decision for EPIC-012 through EPIC-014,
+development and Epic acceptance run the deterministic gates (`make test-prepare`,
+`make test-unit`, `make test-int`, and `make test-release`),
+`make test-mcp-clients` when MCP consumer paths change, and ZCode-only live
+verification (`TestLiveZCodeCapability` and ZCode-only live review checks).
+Live provider checks for Grok (`make test` / `make test-e2e` Grok leg and
+`make test-grok`), Cursor (`make test-cursor`), AGY (`make test-agy`), and
+Codex (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in` with the two explicit homes)
+are explicitly deferred to the `v0.1.26` release gate (`release-handler`),
+where all five providers (`zcode`, `grok`, `cursor`, `agy`, and `codex`) must
+be certified on the release candidate. Record those deferred non-ZCode live
+checks explicitly at handoff; never substitute ZCode as proof of another
+provider's live wire behavior, modify credentials/configuration, or claim
+unexercised providers were live-certified. These are future implementation
+checks, not commands run by this design task.
 
 Hand off the exact candidate identity, changed owners, regression results,
 compatibility matrix, integrity/cancellation evidence and all unperformed

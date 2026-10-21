@@ -47,8 +47,20 @@ EPIC-007 or block EPIC-010 or EPIC-011.
 EPIC-012, EPIC-013 and EPIC-014 are the newly planned improvement sequence:
 EPIC-012 -> EPIC-013 -> EPIC-014. Each requires explicit acceptance of its
 predecessor; none depends on Deferred EPIC-008. Their dossiers define what
-to implement and how to verify it. This registration is documentation only;
-no implementation task has started and a separate execution request is required.
+to implement and how to verify it. Under Master's quota-preservation decision,
+development and epic acceptance across EPIC-012 through EPIC-014 run the
+deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`,
+and `make test-release`), `make test-mcp-clients` when MCP consumer paths
+change, and ZCode-only live verification (`TestLiveZCodeCapability` and
+ZCode-only live review checks). Live provider gates for Grok, Cursor, AGY, and
+Codex (`make test` / `make test-e2e` Grok leg, `make test-grok`,
+`make test-cursor`, `make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`)
+are explicitly deferred to the `v0.1.26` release gate (`release-handler`),
+where all five providers (`zcode`, `grok`, `cursor`, `agy`, and `codex`) must
+pass on the release candidate. Record those deferred non-ZCode live checks
+explicitly at each epic handoff without claiming live coverage for unexercised
+providers. This registration is documentation only; no implementation task has
+started and a separate execution request is required.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -717,7 +729,7 @@ Goal: Repair normalization, teardown/framing, epoch allocation and retained arti
 | TASK-049 | Planned | Stream epoch inventory beyond the accidental 4096-entry lifetime limit. | Boundary counts, malformed/unsafe late entries, overflow/collision and namespace checks. |
 | TASK-050 | Planned | Restore strict historical artist input manifests and their support bindings. | Frozen artist and old manifests, publish/read round trip, missing/tampered/cross-run support. |
 | TASK-051 | Planned | Align Cursor diagnostic IDs, provider transport metadata, structured-limit checks, schema index and sequential qualification documentation with existing runtime contracts. | Port grammar/correlation, exact providers JSON, equal structured limits, schema/example rows, sequential qualification wording and deterministic generation. |
-| TASK-052 | Planned | Certify the complete correctness candidate and promote its durable outcomes. | Complete make test, affected provider/client gates, preserved safety invariants and explicit Epic acceptance. |
+| TASK-052 | Planned | Certify the complete correctness candidate and promote its durable outcomes. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), ZCode live verification, preserved safety invariants, deferred non-ZCode live gates recorded for `v0.1.26`, and explicit Epic acceptance. |
 
 Tasks run in the listed order; each Task after the first depends on its
 predecessor. The dossier owns scope, implementation decisions, negative tests,
@@ -729,7 +741,7 @@ implementation or grant delivery/runtime authority.
 - [ ] Every member Task has implementation and verification evidence for the exact candidate.
 - [ ] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
 - [ ] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass.
-- [ ] The complete make test gate and all affected provider/client checks pass; missing checks remain unmet.
+- [ ] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`) and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
 - [ ] Durable outcomes are promoted and dossier/index/roadmap links are reconciled under the documented lifecycle.
 - [ ] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.
 
@@ -751,7 +763,7 @@ Goal: Remove repeated construction, source parsing and whole-support reads withi
 | TASK-056 | Planned | Separate native path admission from source-body reads through the source port. | DF-011 and late-tool mutation controls, descriptor/protected-path safety, Close and zero admission body reads. |
 | TASK-057 | Planned | Reuse fixed commit path/OID inventories and identical successful config-byte parsing. | Fresh descriptor checks, changed/appearing/disappearing config, bounded reader-local state and unchanged mutable-source behavior. |
 | TASK-058 | Planned | Run distinct-family qualification groups concurrently with ordered outcomes and complete cleanup ownership. | Barrier/oracle tests, canonical fatal-failure precedence with original-order ties, complete cleanup and exact namespace/profile authority. |
-| TASK-059 | Planned | Certify reuse against the accepted correctness baseline and document lifetime rules. | Complete make test, affected provider/client gates, wire/error/failure-recovery compatibility and explicit Epic acceptance. |
+| TASK-059 | Planned | Certify reuse against the accepted correctness baseline and document lifetime rules. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), ZCode live verification, wire/error/failure-recovery compatibility, deferred non-ZCode live gates recorded for `v0.1.26`, and explicit Epic acceptance. |
 
 Tasks run in the listed order; each Task after the first depends on its
 predecessor. The dossier owns scope, implementation decisions, negative tests,
@@ -763,7 +775,7 @@ implementation or grant delivery/runtime authority.
 - [ ] Every member Task has implementation and verification evidence for the exact candidate.
 - [ ] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
 - [ ] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass.
-- [ ] The complete make test gate and all affected provider/client checks pass; missing checks remain unmet.
+- [ ] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`) and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
 - [ ] Durable outcomes are promoted and dossier/index/roadmap links are reconciled under the documented lifecycle.
 - [ ] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.
 
@@ -786,7 +798,7 @@ Goal: Consolidate application and wire-contract ownership, then remove proven re
 | TASK-064 | Planned | Share identical provider correlation, diagnostic and read-plan mechanics. | Per-family wire/permission/cancel/EOF/exit behavior and deterministic tool diagnostic selection. |
 | TASK-065 | Planned | Remove proven retired execution/writer paths after their fixture and reader dependencies are replaced. | Caller/build-tag inventory, all retained compatibility checks, live P2 composite preservation and tagged compilation. |
 | TASK-066 | Planned | Enforce the established dependency boundaries and split changed files along ownership seams. | Architecture/import checks, pure-move equivalence and unchanged build-tag behavior. |
-| TASK-067 | Planned | Certify integrated ownership and retained compatibility, then prepare canonical closeout. | Complete make test, affected provider/client matrix, historical consumers, resolved-feedback accounting and explicit Epic acceptance. |
+| TASK-067 | Planned | Certify integrated ownership and retained compatibility, then prepare canonical closeout. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), `make test-mcp-clients`, ZCode live verification, historical consumers, resolved-feedback accounting, deferred non-ZCode live gates recorded for `v0.1.26`, and explicit Epic acceptance. |
 
 Tasks run in the listed order; each Task after the first depends on its
 predecessor. The dossier owns scope, implementation decisions, negative tests,
@@ -798,6 +810,6 @@ implementation or grant delivery/runtime authority.
 - [ ] Every member Task has implementation and verification evidence for the exact candidate.
 - [ ] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
 - [ ] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass.
-- [ ] The complete make test gate and all affected provider/client checks pass; missing checks remain unmet.
+- [ ] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), `make test-mcp-clients`, and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
 - [ ] Durable outcomes are promoted and dossier/index/roadmap links are reconciled under the documented lifecycle.
 - [ ] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.
