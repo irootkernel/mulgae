@@ -1022,7 +1022,9 @@ authority. Their provider instances use `codex-<profile>-<role>`. Legacy Codex
 configuration retains `codex-<role>`.
 Codex qualification takes evidence from its correlated final assistant
 message rather than the raw protocol transcript. Required family probes,
-including Codex, run concurrently. Capability readiness is decided by bound
+including Codex, run sequentially in the implemented scheduler; concurrent
+probe scheduling is a later change owned by TASK-058 together with this
+contract sentence. Capability readiness is decided by bound
 immutable fixture evidence: free-form or narrated
 provider output is accepted when it proves immutable fixture nonce/input binding
 together with transport, lifecycle, authentication, version, and required

@@ -21,6 +21,8 @@ Draft 2020-12 and a canonical
 | `mulgae-command-result.v17` | `../examples/command-result.v17.valid.json` |
 | `mulgae-command-result.v18` | `../examples/command-result.v18.valid.json` |
 | `mulgae-command-result.v19` | `../examples/command-result.v19.valid.json` |
+| `mulgae-command-result.v20` | `../examples/command-result.v20.valid.json` |
+| `mulgae-command-result.v21` | `../examples/command-result.v21.valid.json` |
 | `mulgae-command-result.v5` | `../examples/command-result.v5.valid.json` |
 | `mulgae-command-result.v6` | `../examples/command-result.v6.valid.json` |
 | `mulgae-command-result.v7` | `../examples/command-result.v7.valid.json` |
@@ -35,6 +37,8 @@ Draft 2020-12 and a canonical
 | `mulgae-doctor-result.v3` | `../examples/doctor-result.v3.valid.json` |
 | `mulgae-doctor-result.v4` | `../examples/doctor-result.v4.valid.json` |
 | `mulgae-doctor-result.v5` | `../examples/doctor-result.v5.valid.json` |
+| `mulgae-doctor-result.v6` | `../examples/doctor-result.v6.valid.json` |
+| `mulgae-doctor-result.v7` | `../examples/doctor-result.v7.valid.json` |
 | `mulgae-export-manifest.v1` | `../examples/export-manifest.v1.valid.json` |
 | `mulgae-export-manifest.v2` | `../examples/export-manifest.v2.valid.json` |
 | `mulgae-file-catalog.v1` | `../examples/file-catalog.v1.valid.json` |
@@ -48,6 +52,7 @@ Draft 2020-12 and a canonical
 | `mulgae-provider-heartbeat-result.v1` | `../examples/provider-heartbeat-result.v1.valid.json` |
 | `mulgae-provider-heartbeat-result.v2` | `../examples/provider-heartbeat-result.v2.valid.json` |
 | `mulgae-provider-heartbeat-result.v3` | `../examples/provider-heartbeat-result.v3.valid.json` |
+| `mulgae-provider-heartbeat-result.v4` | `../examples/provider-heartbeat-result.v4.valid.json` |
 | `mulgae-provider-review-output.v1` | `../examples/provider-review-output.v1.valid.json` |
 | `mulgae-provider-review-output.v2` | `../examples/provider-review-output.v2.valid.json` |
 | `mulgae-provider-review-wire.v1` | `../examples/provider-review-wire.v1.valid.json` |
@@ -64,6 +69,7 @@ Draft 2020-12 and a canonical
 | `mulgae-review-preflight.v6` | `../examples/review-preflight.v6.valid.json` |
 | `mulgae-review-preflight.v7` | `../examples/review-preflight.v7.valid.json` |
 | `mulgae-review-preflight.v8` | `../examples/review-preflight.v8.valid.json` |
+| `mulgae-review-preflight.v9` | `../examples/review-preflight.v9.valid.json` |
 | `mulgae-run-manifest.v1` | `../examples/run-manifest.v1.valid.json` |
 | `mulgae-run-manifest.v2` | `../examples/run-manifest.v2.valid.json` |
 | `mulgae-run-manifest.v3` | `../examples/run-manifest.v3.valid.json` |
@@ -76,8 +82,8 @@ contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a new schema version. Current commands emit v19 and
-review preflight emits v8. Earlier command and preflight schemas remain frozen
+Breaking changes require a new schema version. Current commands emit v21 and
+review preflight emits v9. Earlier command and preflight schemas remain frozen
 for historical validation dependencies. Current live publications use review
 artifact v3, run manifest v3 and `mulgae-run-support-index.v3`; receipt and export v2 bind
 verified source observations. Historical ordinary, child and composite contracts

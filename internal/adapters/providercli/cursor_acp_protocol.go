@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -98,7 +100,7 @@ func (session *cursorACPProtocolSession) Drive(ctx context.Context, exchange por
 		}
 		observation, err := ports.NewProviderSessionObservation(ports.ProviderSessionObservationInput{
 			Phase: phase, Terminal: terminal,
-			ProviderSessionID: state.sessionID,
+			ProviderSessionID: sanitizeCursorDiagnosticSessionID(state.sessionID),
 			CreateAccepted:    state.sessionCreated,
 			SendAccepted:      state.promptSent,
 			TurnObserved:      state.promptCompleted,
@@ -588,4 +590,20 @@ func (state *cursorACPConversation) send(ctx context.Context, exchange ports.Pro
 		return cursorACPFailure(domain.DiagnosticCauseProviderExecutionFailed, err)
 	}
 	return nil
+}
+
+// sanitizeCursorDiagnosticSessionID admits only session identifiers that
+// satisfy the shared provider session identifier grammar. An unsafe value
+// becomes empty so a diagnostic identity never invalidates an otherwise
+// valid observation; native session correlation keeps the raw value.
+func sanitizeCursorDiagnosticSessionID(value string) string {
+	if len(value) > 512 || !utf8.ValidString(value) || value != strings.TrimSpace(value) {
+		return ""
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return ""
+		}
+	}
+	return value
 }

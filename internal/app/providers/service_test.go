@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -42,8 +43,8 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		output  ResultTransport
 		support SupportState
 	}{
-		{FamilyZCode, "zcode-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnsupported},
-		{FamilyGrok, "grok-default", PromptTransportProtocol, ResultTransportStagedFile, SupportUnverified},
+		{FamilyZCode, "zcode-default", PromptTransportProtocol, ResultTransportStdout, SupportUnsupported},
+		{FamilyGrok, "grok-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
 		{FamilyCodex, "codex-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
 		{FamilyCursor, "cursor-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
 		{FamilyAgy, "agy-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
@@ -52,6 +53,52 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		profile := profiles[index]
 		if profile.Family() != expected.family || profile.ID() != expected.id || profile.PromptTransport() != expected.prompt || profile.ResultTransport() != expected.output || profile.Support() != expected.support {
 			t.Fatalf("profile[%d] = %#v, want family=%q id=%q prompt=%q output=%q support=%q", index, profile, expected.family, expected.id, expected.prompt, expected.output, expected.support)
+		}
+	}
+	// The service-layer JSON projection carries the same factual result
+	// transport on every profile row. Staged output remains an internal
+	// delivery grant, never the recorded result path of a live review.
+	projection := result.JSON()
+	if len(projection.Profiles) != 5 {
+		t.Fatalf("projection profiles = %d, want 5", len(projection.Profiles))
+	}
+	wantTransports := map[Family]ResultTransport{
+		FamilyZCode: ResultTransportStdout, FamilyGrok: ResultTransportStdout, FamilyCodex: ResultTransportStdout,
+		FamilyCursor: ResultTransportStdout, FamilyAgy: ResultTransportStdout,
+	}
+	for index, row := range projection.Profiles {
+		if row.ResultTransport != wantTransports[row.Family] {
+			t.Fatalf("projection[%d] (%s) result_transport = %q, want %q", index, row.Family, row.ResultTransport, wantTransports[row.Family])
+		}
+	}
+	rawProjection, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projectionEnvelope struct {
+		Profiles []struct {
+			Family          string `json:"family"`
+			ProfileID       string `json:"profile_id"`
+			PromptTransport string `json:"prompt_transport"`
+			ResultTransport string `json:"result_transport"`
+			Support         string `json:"support"`
+			EvidenceState   string `json:"evidence_state"`
+			AssignmentState string `json:"assignment_state"`
+		} `json:"profiles"`
+	}
+	if err := json.Unmarshal(rawProjection, &projectionEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	decodedProjection := projectionEnvelope.Profiles
+	if len(decodedProjection) != 5 {
+		t.Fatalf("decoded projection rows = %d, want 5", len(decodedProjection))
+	}
+	for index, row := range decodedProjection {
+		expected := want[index]
+		if row.Family != string(expected.family) || row.ProfileID != expected.id ||
+			row.PromptTransport != string(expected.prompt) || row.ResultTransport != string(ResultTransportStdout) ||
+			row.Support != string(expected.support) {
+			t.Fatalf("decoded projection[%d] = %#v, want the exact projection field structure with result_transport stdout", index, row)
 		}
 	}
 }

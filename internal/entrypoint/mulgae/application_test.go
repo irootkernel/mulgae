@@ -2049,22 +2049,35 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 
 	machine := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSuccess)
-	var envelope struct {
-		Result struct {
-			Kind                             string  `json:"kind"`
-			ProviderEvidenceURI              *string `json:"provider_evidence_uri"`
-			OfflineReadyProviderCount        int     `json:"offline_ready_provider_count"`
-			StaticEvidenceReadyProviderCount int     `json:"static_evidence_ready_provider_count"`
-		} `json:"result"`
+	// The CLI providers result is a closed four-field summary pinned by the
+	// mulgae-command-result.v21 schema with additionalProperties: false;
+	// profiles and transports exist only in the service-layer projection.
+	var machineEnvelope struct {
+		SchemaVersion string          `json:"schema_version"`
+		Result        json.RawMessage `json:"result"`
 	}
-	if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+	if err := json.Unmarshal(machine.Stdout(), &machineEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Result.Kind != "providers_listed" ||
-		envelope.Result.ProviderEvidenceURI != nil ||
-		envelope.Result.OfflineReadyProviderCount != 1 ||
-		envelope.Result.StaticEvidenceReadyProviderCount != 0 {
-		t.Fatalf("providers JSON result = %#v, want unverified readiness projection", envelope.Result)
+	if machineEnvelope.SchemaVersion != "mulgae-command-result.v21" {
+		t.Fatalf("providers envelope schema_version = %q, want the current command schema identity", machineEnvelope.SchemaVersion)
+	}
+	var machineResult struct {
+		Kind                             string  `json:"kind"`
+		ProviderEvidenceURI              *string `json:"provider_evidence_uri"`
+		OfflineReadyProviderCount        int     `json:"offline_ready_provider_count"`
+		StaticEvidenceReadyProviderCount int     `json:"static_evidence_ready_provider_count"`
+	}
+	machineDecoder := json.NewDecoder(bytes.NewReader(machineEnvelope.Result))
+	machineDecoder.DisallowUnknownFields()
+	if err := machineDecoder.Decode(&machineResult); err != nil {
+		t.Fatalf("providers JSON result carries fields beyond the closed summary: %v", err)
+	}
+	if machineResult.Kind != "providers_listed" ||
+		machineResult.ProviderEvidenceURI != nil ||
+		machineResult.OfflineReadyProviderCount != 1 ||
+		machineResult.StaticEvidenceReadyProviderCount != 0 {
+		t.Fatalf("providers JSON result = %#v, want unverified readiness projection", machineResult)
 	}
 }
 

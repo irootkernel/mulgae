@@ -20,6 +20,7 @@ import (
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
+	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
@@ -932,4 +933,15 @@ func canonicalTestTempDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return filepath.Clean(path)
+}
+
+// TestStructuredMemberLimitsStayEqual pins the JSON-validation input limit and
+// the publication structured-member limit as equal by design, not by
+// coincidence: a divergence would let one boundary accept bytes the other
+// rejects.
+func TestStructuredMemberLimitsStayEqual(t *testing.T) {
+	if jsonschema.MaxInputBytes != ports.PublicationStructuredMemberMaxBytes {
+		t.Fatalf("structured member limits diverged: json validation %d vs publication %d",
+			jsonschema.MaxInputBytes, ports.PublicationStructuredMemberMaxBytes)
+	}
 }

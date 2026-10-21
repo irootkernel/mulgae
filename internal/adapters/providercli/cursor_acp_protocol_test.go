@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 type cursorScriptExchange struct {
@@ -168,5 +170,154 @@ func TestCursorFailedExecuteIsNotASelectedRead(t *testing.T) {
 	}
 	if string(session.AssistantEvidenceText()) != "" {
 		t.Fatal("failed execute still produced assistant evidence")
+	}
+}
+
+// TestCursorSessionObservationAdmitsUnsafeDiagnosticIdentifiers proves an
+// unsafe diagnostic session identifier never invalidates an otherwise valid
+// observation: the identifier is emptied while native correlation keeps the
+// raw value, across completed and failed turns.
+func TestCursorSessionObservationAdmitsUnsafeDiagnosticIdentifiers(t *testing.T) {
+	unsafeIDs := map[string]string{
+		"oversized":  strings.Repeat("s", 513),
+		"whitespace": " session-1 ",
+		"control":    "session-\u0001-1",
+	}
+	safeID := "session-1"
+	for name, unsafeID := range unsafeIDs {
+		for _, outcome := range []string{"completed", "failed"} {
+			t.Run(name+"/"+outcome, func(t *testing.T) {
+				session, err := newCursorACPProtocolSession("/neutral", []byte("review the target"), protocolPurposeQualification, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				inbox := [][]byte{
+					cursorFrame(map[string]any{"jsonrpc": "2.0", "id": "cursor-initialize", "result": map[string]any{"protocolVersion": 1}}),
+					cursorFrame(map[string]any{"jsonrpc": "2.0", "id": "cursor-new", "result": map[string]any{"sessionId": unsafeID}}),
+					cursorFrame(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": unsafeID, "update": map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": "ask"}}}),
+					cursorFrame(map[string]any{"jsonrpc": "2.0", "id": "cursor-mode", "result": map[string]any{}}),
+				}
+				if outcome == "completed" {
+					inbox = append(inbox,
+						cursorFrame(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": unsafeID, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "done"}}}}),
+						cursorFrame(map[string]any{"jsonrpc": "2.0", "id": "cursor-prompt", "result": map[string]any{"stopReason": "end_turn"}}),
+					)
+				}
+				exchange := &cursorScriptExchange{inbox: inbox}
+				driveErr := session.Drive(context.Background(), exchange)
+				if outcome == "completed" && driveErr != nil {
+					t.Fatalf("completed turn drive error = %v", driveErr)
+				}
+				if outcome == "failed" && driveErr == nil {
+					t.Fatal("failed turn unexpectedly succeeded")
+				}
+				observation, present := session.SessionObservation()
+				if !present || !observation.Valid() {
+					t.Fatalf("session observation = (%#v, %t), want a present valid observation despite the unsafe identifier", observation, present)
+				}
+				if observation.ProviderSessionID() != "" {
+					t.Fatalf("diagnostic session id = %q, want the emptied admission value", observation.ProviderSessionID())
+				}
+				createAccepted, sendAccepted, _, _, _, _ := observation.Receipts()
+				if !createAccepted || !sendAccepted {
+					t.Fatalf("observation protocol facts = %#v, want create and send accepted", observation)
+				}
+				if outcome == "completed" {
+					_, _, turnObserved, _, _, _ := observation.Receipts()
+					if observation.Terminal() != ports.ProviderSessionCompleted || !turnObserved {
+						t.Fatalf("completed observation = %#v", observation)
+					}
+				} else {
+					_, _, _, _, closeSent, _ := observation.Receipts()
+					if observation.Terminal() != ports.ProviderSessionFailed || !closeSent {
+						t.Fatalf("failed observation = %#v, want terminal failed with close sent", observation)
+					}
+					var cancelledWithRawID bool
+					for _, line := range exchange.sent {
+						var message struct {
+							Method string          `json:"method"`
+							Params json.RawMessage `json:"params"`
+						}
+						if json.Unmarshal(line, &message) != nil || message.Method != "session/cancel" {
+							continue
+						}
+						var params struct {
+							SessionID string `json:"sessionId"`
+						}
+						if json.Unmarshal(message.Params, &params) == nil && params.SessionID == unsafeID {
+							cancelledWithRawID = true
+						}
+					}
+					if !cancelledWithRawID {
+						t.Fatalf("session/cancel did not carry the raw unsafe identifier: sent = %q", exchange.sent)
+					}
+				}
+			})
+		}
+	}
+
+	t.Run("valid identifier passes through", func(t *testing.T) {
+		for _, outcome := range []string{"completed", "failed"} {
+			t.Run(outcome, func(t *testing.T) {
+				session, err := newCursorACPProtocolSession("/neutral", []byte("review the target"), protocolPurposeQualification, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				inbox := [][]byte{
+					cursorFrame(map[string]any{"jsonrpc": "2.0", "id": "cursor-initialize", "result": map[string]any{"protocolVersion": 1}}),
+					cursorFrame(map[string]any{"jsonrpc": "2.0", "id": "cursor-new", "result": map[string]any{"sessionId": safeID}}),
+					cursorFrame(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": safeID, "update": map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": "ask"}}}),
+					cursorFrame(map[string]any{"jsonrpc": "2.0", "id": "cursor-mode", "result": map[string]any{}}),
+				}
+				if outcome == "completed" {
+					inbox = append(inbox,
+						cursorFrame(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": safeID, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "done"}}}}),
+						cursorFrame(map[string]any{"jsonrpc": "2.0", "id": "cursor-prompt", "result": map[string]any{"stopReason": "end_turn"}}),
+					)
+				}
+				exchange := &cursorScriptExchange{inbox: inbox}
+				driveErr := session.Drive(context.Background(), exchange)
+				if (outcome == "completed") != (driveErr == nil) {
+					t.Fatalf("drive error = %v for outcome %q", driveErr, outcome)
+				}
+				observation, present := session.SessionObservation()
+				if !present || !observation.Valid() || observation.ProviderSessionID() != safeID {
+					t.Fatalf("session observation = (%#v, %t), want the valid identifier retained", observation, present)
+				}
+			})
+		}
+	})
+}
+
+// TestSanitizeCursorDiagnosticSessionIDGrammar pins the sanitizer grammar
+// directly, including raw invalid UTF-8 that the JSON driver cannot deliver,
+// and proves every helper output satisfies the shared observation admission.
+func TestSanitizeCursorDiagnosticSessionIDGrammar(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "empty stays empty", value: "", want: ""},
+		{name: "raw invalid UTF-8 run", value: "\xff\xfe", want: ""},
+		{name: "raw invalid UTF-8 embedded", value: "a\xffb", want: ""},
+		{name: "512 bytes pass", value: strings.Repeat("s", 512), want: strings.Repeat("s", 512)},
+		{name: "513 bytes emptied", value: strings.Repeat("s", 513), want: ""},
+		{name: "surrounding whitespace emptied", value: " session-1 ", want: ""},
+		{name: "control character emptied", value: "session-\u0001-1", want: ""},
+		{name: "trimmed valid identifier passes", value: "session-1", want: "session-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := sanitizeCursorDiagnosticSessionID(test.value); got != test.want {
+				t.Fatalf("sanitizeCursorDiagnosticSessionID(%q) = %q, want %q", test.value, got, test.want)
+			}
+			observation, err := ports.NewProviderSessionObservation(ports.ProviderSessionObservationInput{
+				Phase: ports.ProviderSessionPhaseCreate, Terminal: ports.ProviderSessionCompleted,
+				ProviderSessionID: sanitizeCursorDiagnosticSessionID(test.value),
+			})
+			if err != nil || !observation.Valid() {
+				t.Fatalf("helper output rejected by shared admission: %v", err)
+			}
+		})
 	}
 }
