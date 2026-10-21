@@ -503,6 +503,46 @@ func (driver *conversationFailingDriver) Drive(ctx context.Context, exchange por
 	return driver.failure
 }
 
+// conversationGatedDriver completes one exchange, records the response, closes
+// gated, then blocks on release while ignoring its context so the conversation
+// loop's terminal handling, not the driver, must release it.
+type conversationGatedDriver struct {
+	gated    chan struct{}
+	release  chan struct{}
+	received []byte
+}
+
+func (driver *conversationGatedDriver) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	if err := exchange.SendLine(ctx, []byte(`{"id":1,"method":"session/create"}`)); err != nil {
+		return err
+	}
+	line, err := exchange.ReceiveLine(ctx)
+	if err != nil {
+		return err
+	}
+	driver.received = line
+	close(driver.gated)
+	<-driver.release
+	return nil
+}
+
+// conversationStreamEndGatedDriver records the stream-end error, closes ended,
+// blocks on release while ignoring its context, and reports the recorded error
+// when released.
+type conversationStreamEndGatedDriver struct {
+	ended   chan struct{}
+	release chan struct{}
+	endErr  error
+}
+
+func (driver *conversationStreamEndGatedDriver) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	_, err := exchange.ReceiveLine(ctx)
+	driver.endErr = err
+	close(driver.ended)
+	<-driver.release
+	return driver.endErr
+}
+
 type conversationResult struct {
 	observation ports.ProcessObservation
 	err         error
@@ -886,6 +926,99 @@ func TestIntegrationRunnerConverseTimesOutAndTerminatesProcessGroup(t *testing.T
 	}
 	if !membership.absent() {
 		t.Fatalf("process group %d remains live (%d live, %d zombie)", processGroupID, membership.liveMembers, membership.zombieMembers)
+	}
+}
+
+func TestIntegrationRunnerConverseConsumesCancellationExactlyOnceWithDelayedDriver(t *testing.T) {
+	request, _ := newConversationRequest(t, "conversation-hold", nil, 300*time.Millisecond)
+	runner := newTestRunner(t)
+	driver := &conversationGatedDriver{gated: make(chan struct{}), release: make(chan struct{})}
+	capture := captureNextTerminalWatch(t, driver.release)
+	termReached, termRelease := interceptTeardownSIGTERM(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := converseAsync(runner, ctx, request, driver)
+	waitForChannel(t, driver.gated, "driver exchange completion")
+	// The 300ms request timeout is the only terminal fact, so teardown starts
+	// deterministically; the natural-exit SIGTERM parks in the barrier while no
+	// cancellation fact exists yet.
+	waitForChannel(t, termReached, "teardown SIGTERM barrier")
+	cancel()
+	close(termRelease)
+	result := waitForConversationResult(t, done)
+
+	if result.err != nil {
+		t.Fatalf("delayed driver conversation error: %v", result.err)
+	}
+	assertTermination(t, result.observation, ports.ProcessTerminationCancelled)
+	if !capture.ctxDoneNilAtFirstObservation.Load() {
+		t.Fatal("done-channel receive was not disabled at first cancellation observation")
+	}
+	// Active teardown skips loop-top polling, so the select branch is the only
+	// possible observer and the run cannot complete without it firing once.
+	if capture.watch == nil || capture.watch.receivesDone != 1 {
+		t.Fatalf("done receives = %#v", capture.watch)
+	}
+	if capture.watch.receivesTimeout > 1 {
+		t.Fatalf("timeout receives = %d", capture.watch.receivesTimeout)
+	}
+	receipts := result.observation.SignalRequests()
+	if len(receipts) != 1 ||
+		receipts[0].Reason() != ports.ProcessGroupSignalRequestConversationTeardown ||
+		receipts[0].Signal().Name() != "SIGTERM" {
+		t.Fatalf("signal requests = %#v, want exactly one conversation teardown SIGTERM", receipts)
+	}
+	if !result.observation.ProcessGroupAbsent() {
+		t.Fatal("torn-down conversation left its process group live")
+	}
+	if string(driver.received) != `{"id":1,"result":{"sessionId":"session"}}` {
+		t.Fatalf("driver received = %q", driver.received)
+	}
+}
+
+func TestRunnerConverseClassifiesCancellationAgainstSimultaneousStreamEndAndExit(t *testing.T) {
+	request, _ := newConversationRequest(t, "conversation-partial-line", nil, 10*time.Second)
+	runner := newTestRunner(t)
+	driver := &conversationStreamEndGatedDriver{ended: make(chan struct{}), release: make(chan struct{})}
+	capture := captureNextTerminalWatch(t, make(chan struct{}))
+	termReached, termRelease := interceptTeardownSIGTERM(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := converseAsync(runner, ctx, request, driver)
+	// The child has exited and both stream-end facts exist; no terminal fact
+	// exists yet.
+	waitForChannel(t, driver.ended, "driver stream end")
+	cancel()
+	// Teardown is provably in progress with the cancellation recorded before
+	// the driver is released.
+	waitForChannel(t, termReached, "teardown SIGTERM barrier")
+	close(termRelease)
+	close(driver.release)
+	result := waitForConversationResult(t, done)
+
+	if result.err == nil || !errors.Is(result.err, io.ErrUnexpectedEOF) {
+		t.Fatalf("conversation error = %v, want the driver's partial-line stream end", result.err)
+	}
+	if driver.endErr == nil || !errors.Is(driver.endErr, io.ErrUnexpectedEOF) {
+		t.Fatalf("driver end error = %v, want io.ErrUnexpectedEOF", driver.endErr)
+	}
+	assertTermination(t, result.observation, ports.ProcessTerminationCancelled)
+	if !capture.ctxDoneNilAtFirstObservation.Load() {
+		t.Fatal("done-channel receive was not disabled at first cancellation observation")
+	}
+	if capture.watch == nil || capture.watch.receivesDone > 1 {
+		t.Fatalf("done receives = %#v", capture.watch)
+	}
+	if got := string(result.observation.Stdout()); got != `{"partial":` {
+		t.Fatalf("partial transcript = %q", got)
+	}
+	if len(result.observation.SignalRequests()) != 0 {
+		t.Fatalf("signal requests = %#v, want none", result.observation.SignalRequests())
+	}
+	if !result.observation.ProcessGroupAbsent() {
+		t.Fatal("cancelled conversation left its process group live")
 	}
 }
 

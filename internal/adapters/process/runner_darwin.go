@@ -144,6 +144,88 @@ func (signals terminationSignals) termination() ports.ProcessTermination {
 	}
 }
 
+// terminalWatch owns the one-shot reception of caller cancellation and request
+// deadline inside an execution loop. A cancelled context's done channel stays
+// permanently readable, so each terminal fact disables its receive after it is
+// first observed to stop an already-recorded fact from continuously waking the
+// loop.
+type terminalWatch struct {
+	ctxDone  <-chan struct{}
+	timeoutC <-chan time.Time
+
+	// onReceiveDone exists only for deterministic test synchronization. It is
+	// nil in production. See the hook contract on observeCancellation and
+	// receiveCancellation.
+	onReceiveDone func(count int)
+
+	// receivesDone and receivesTimeout count terminal channel receptions that
+	// happened in execution-loop select branches, not loop-top snapshot
+	// observations.
+	receivesDone    int
+	receivesTimeout int
+	cancelObserved  bool
+}
+
+func newTerminalWatch(ctx context.Context, timer *time.Timer) *terminalWatch {
+	return &terminalWatch{ctxDone: ctx.Done(), timeoutC: timer.C}
+}
+
+// newTerminalWatchForRun is the production factory for execution-loop terminal
+// watches. It is a package variable so tests can capture a hooked watch.
+var newTerminalWatchForRun = newTerminalWatch
+
+// snapshot records caller-context and deadline facts without blocking and
+// disables each receive after it is first observed.
+func (watch *terminalWatch) snapshot(ctx context.Context, signals *terminationSignals) {
+	if ctx.Err() != nil {
+		watch.observeCancellation(ctx, signals)
+	}
+	watch.drainDeadline(signals)
+}
+
+func (watch *terminalWatch) drainDeadline(signals *terminationSignals) {
+	select {
+	case <-watch.timeoutC:
+		watch.observeDeadline(signals)
+	default:
+	}
+}
+
+// observeCancellation records the caller's terminal context fact and disables
+// the done-channel receive. On the first observation, when this is the first
+// consumption of that fact for the run, it runs onReceiveDone(receivesDone).
+func (watch *terminalWatch) observeCancellation(ctx context.Context, signals *terminationSignals) {
+	first := !watch.cancelObserved
+	watch.cancelObserved = true
+	signals.recordContext(ctx)
+	watch.ctxDone = nil
+	if first && watch.onReceiveDone != nil {
+		watch.onReceiveDone(watch.receivesDone)
+	}
+}
+
+func (watch *terminalWatch) observeDeadline(signals *terminationSignals) {
+	signals.timedOut = true
+	watch.timeoutC = nil
+}
+
+// receiveCancellation and receiveDeadline are called only from execution-loop
+// select branches. A branch that consumes first increments the counter and
+// reports count 1; later receptions in an undisabled build report 2, 3, ...
+func (watch *terminalWatch) receiveCancellation(ctx context.Context, signals *terminationSignals) {
+	watch.receivesDone++
+	observed := watch.cancelObserved
+	watch.observeCancellation(ctx, signals)
+	if observed && watch.onReceiveDone != nil {
+		watch.onReceiveDone(watch.receivesDone)
+	}
+}
+
+func (watch *terminalWatch) receiveDeadline(signals *terminationSignals) {
+	watch.receivesTimeout++
+	watch.observeDeadline(signals)
+}
+
 // Run executes a ProcessRequest with direct argv and only its explicit
 // environment. It owns and terminates a dedicated process group; it does not
 // claim sandbox or process-tree containment against an executable that escapes
@@ -749,15 +831,9 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 		}
 		return err
 	}
+	watch := newTerminalWatchForRun(ctx, outer)
 	for !(outDone && errDone && stdinDone && waited && producersJoined == 2 && spoolFinished) {
-		if ctx.Err() != nil {
-			signals.recordContext(ctx)
-		}
-		select {
-		case <-outer.C:
-			signals.timedOut = true
-		default:
-		}
+		watch.snapshot(ctx, &signals)
 		if stdinDone && receipt.Valid() && (!receipt.Complete() || receipt.SHA256() != expected) {
 			signals.stdinIncomplete = true
 		}
@@ -921,10 +997,10 @@ func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Time
 				)
 			}
 			outDone, errDone = true, true
-		case <-ctx.Done():
-			signals.recordContext(ctx)
-		case <-outer.C:
-			signals.timedOut = true
+		case <-watch.ctxDone:
+			watch.receiveCancellation(ctx, &signals)
+		case <-watch.timeoutC:
+			watch.receiveDeadline(&signals)
 		}
 	}
 	var absenceErr error

@@ -258,9 +258,10 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 		escalationC = escalationTimer.C
 	}
 
+	watch := newTerminalWatchForRun(ctx, timer)
 	for {
 		if !tearingDown {
-			snapshotTerminalFacts(ctx, timer, &signals)
+			watch.snapshot(ctx, &signals)
 			if signals.termination() != "" || signals.internal != nil {
 				beginTeardown()
 			}
@@ -298,11 +299,11 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 					signals.internal = fmt.Errorf("process runner: spool conversation stdout: %w", spooled.err)
 				}
 				continue
-			case <-ctx.Done():
-				signals.recordContext(ctx)
+			case <-watch.ctxDone:
+				watch.receiveCancellation(ctx, &signals)
 				continue
-			case <-timer.C:
-				signals.timedOut = true
+			case <-watch.timeoutC:
+				watch.receiveDeadline(&signals)
 				continue
 			}
 		}
@@ -342,10 +343,10 @@ func (runner *Runner) Converse(ctx context.Context, request ports.ProcessRequest
 				}
 				groupAbsent = absent
 			}
-		case <-ctx.Done():
-			signals.recordContext(ctx)
-		case <-timer.C:
-			signals.timedOut = true
+		case <-watch.ctxDone:
+			watch.receiveCancellation(ctx, &signals)
+		case <-watch.timeoutC:
+			watch.receiveDeadline(&signals)
 		}
 	}
 

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -661,6 +662,69 @@ func TestRunnerPostOutputReservesTimeAfterEscalation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunnerPostOutputConsumesCancellationExactlyOnceAndCompletesTeardown(t *testing.T) {
+	groupPath := filepath.Join(t.TempDir(), "process-group")
+	packetBytes := bytes.Repeat([]byte("p"), 512*1024)
+	request, identity := newPostOutputProviderHelperRequestWithPacket(t, t.TempDir(),
+		"post-output-resistant", []string{groupPath}, packetBytes,
+		5*time.Second, 100*time.Millisecond, 800*time.Millisecond)
+
+	originalSignal := signalProcessGroup
+	termReached := make(chan struct{})
+	termRelease := make(chan struct{})
+	killReached := make(chan struct{})
+	killRelease := make(chan struct{})
+	var termOnce, killOnce sync.Once
+	signalProcessGroup = func(processGroupID int, signal syscall.Signal) error {
+		switch signal {
+		case syscall.SIGTERM:
+			termOnce.Do(func() { close(termReached) })
+			<-termRelease
+		case syscall.SIGKILL:
+			killOnce.Do(func() { close(killReached) })
+			<-killRelease
+		}
+		return originalSignal(processGroupID, signal)
+	}
+	t.Cleanup(func() {
+		signalProcessGroup = originalSignal
+	})
+	capture := captureNextTerminalWatch(t, killRelease)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runRunnerAsync(newTestRunner(t), ctx, request)
+
+	// The child writes its stable frame, and the post-output SIGTERM attempt
+	// parks inside the synchronous barrier while the runner holds no
+	// cancellation fact yet.
+	waitForChannel(t, termReached, "post-output SIGTERM barrier")
+	cancel()
+	close(termRelease)
+	// The loop-top poll deterministically makes the first cancellation
+	// observation: the latch opens the escalation gate before the termination
+	// timer can ever reach it.
+	waitForChannel(t, killReached, "escalation SIGKILL barrier")
+	result := waitForRunnerResultAllowError(t, done)
+
+	groupID := readHelperPID(t, groupPath)
+	assertNoLiveProcessGroup(t, groupID)
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	assertTermination(t, result.observation, ports.ProcessTerminationCancelled)
+	if !capture.ctxDoneNilAtFirstObservation.Load() {
+		t.Fatal("done-channel receive was not disabled at first cancellation observation")
+	}
+	if capture.watch == nil || capture.watch.receivesDone > 1 {
+		t.Fatalf("done receives = %#v", capture.watch)
+	}
+	assertBoundedPostOutputEvidence(t, result.observation, identity, true, "SIGKILL", []postOutputSignalExpectation{
+		{ports.ProcessGroupSignalRequestPostOutput, "SIGTERM"},
+		{ports.ProcessGroupSignalRequestPostOutputEscalation, "SIGKILL"},
+	})
 }
 
 func TestRunnerBoundedPostOutputLifecycle(t *testing.T) {
@@ -1803,6 +1867,49 @@ func newPostOutputProviderHelperRequest(
 	return request, packet.Identity()
 }
 
+func newPostOutputProviderHelperRequestWithPacket(
+	t *testing.T,
+	workingDirectory, scenario string,
+	arguments []string,
+	packetBytes []byte,
+	timeout,
+	stabilityGrace, terminationGrace time.Duration,
+) (ports.ProcessRequest, ports.ProviderPacketIdentity) {
+	t.Helper()
+	packet := runnerTestProviderPacket(t, packetBytes)
+	binding, err := ports.NewStdinProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := ports.NewBoundedPostOutputLifecycle(
+		ports.ProcessOutputFramingStrictJSON,
+		stabilityGrace,
+		terminationGrace,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := helperBinary(t)
+	argv := []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", scenario}
+	argv = append(argv, arguments...)
+	request, err := ports.NewProviderProcessRequestWithPostOutputLifecycle(
+		binary,
+		argv,
+		[]ports.EnvironmentVariable{
+			mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"),
+			mustEnvironment(t, "GOCOVERDIR", t.TempDir()),
+		},
+		workingDirectory,
+		binding,
+		lifecycle,
+		timeout,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request, packet.Identity()
+}
+
 func runnerTestProviderPacket(t *testing.T, value []byte) ports.ProviderPacket {
 	t.Helper()
 	packet, err := ports.NewProviderPacket(value, runnerTestStdinDigest(value))
@@ -1907,6 +2014,185 @@ func waitForChannel(t *testing.T, channel <-chan struct{}, event string) {
 	case <-channel:
 	case <-time.After(processTestExecutionTimeout):
 		t.Fatalf("timed out waiting for %s", event)
+	}
+}
+
+// terminalWatchCapture retains a test-hooked execution-loop terminal watch.
+// The watch pointer is written by the runner goroutine and read only after the
+// runner result is received; the flag is atomic because the hook runs on the
+// runner goroutine.
+type terminalWatchCapture struct {
+	watch                        *terminalWatch
+	ctxDoneNilAtFirstObservation atomic.Bool
+}
+
+// captureNextTerminalWatch replaces the terminal-watch factory until cleanup.
+// The first cancellation observation unconditionally closes gate — a statement
+// that is program-ordered ahead of everything the gate can gate — and records
+// whether the done receive was already disabled at that exact moment.
+func captureNextTerminalWatch(t *testing.T, gate chan struct{}) *terminalWatchCapture {
+	t.Helper()
+	originalFactory := newTerminalWatchForRun
+	capture := &terminalWatchCapture{}
+	var consumeOnce sync.Once
+	newTerminalWatchForRun = func(ctx context.Context, timer *time.Timer) *terminalWatch {
+		watch := originalFactory(ctx, timer)
+		capture.watch = watch
+		watch.onReceiveDone = func(int) {
+			consumeOnce.Do(func() {
+				capture.ctxDoneNilAtFirstObservation.Store(watch.ctxDone == nil)
+				close(gate)
+			})
+		}
+		return watch
+	}
+	t.Cleanup(func() {
+		newTerminalWatchForRun = originalFactory
+	})
+	return capture
+}
+
+// interceptTeardownSIGTERM synchronizes the runner at its first SIGTERM
+// attempt: the wrapper reports the attempt, blocks until release, then
+// delegates to the real signal.
+func interceptTeardownSIGTERM(t *testing.T) (<-chan struct{}, chan struct{}) {
+	t.Helper()
+	originalSignal := signalProcessGroup
+	termReached := make(chan struct{})
+	termRelease := make(chan struct{})
+	var reachedOnce sync.Once
+	signalProcessGroup = func(processGroupID int, signal syscall.Signal) error {
+		if signal == syscall.SIGTERM {
+			reachedOnce.Do(func() { close(termReached) })
+			<-termRelease
+		}
+		return originalSignal(processGroupID, signal)
+	}
+	t.Cleanup(func() {
+		signalProcessGroup = originalSignal
+	})
+	return termReached, termRelease
+}
+
+func TestTerminalWatchDisablesReceivesAfterFirstObservation(t *testing.T) {
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	deadlineCtx, deadlineCancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer deadlineCancel()
+	select {
+	case <-deadlineCtx.Done():
+	default:
+		t.Fatal("past-deadline context did not become done")
+	}
+
+	for _, test := range []struct {
+		name          string
+		ctx           context.Context
+		wantCancelled bool
+		wantTimedOut  bool
+	}{
+		{name: "canceled maps to cancelled", ctx: canceledCtx, wantCancelled: true},
+		{name: "deadline exceeded maps to timed out", ctx: deadlineCtx, wantTimedOut: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mappingSignals := &terminationSignals{}
+			mappingSignals.recordContext(test.ctx)
+			if mappingSignals.cancelled != test.wantCancelled || mappingSignals.timedOut != test.wantTimedOut {
+				t.Fatalf("context mapping = (cancelled %t, timedOut %t), want (%t, %t)",
+					mappingSignals.cancelled, mappingSignals.timedOut, test.wantCancelled, test.wantTimedOut)
+			}
+
+			freshChannels := func() (<-chan struct{}, <-chan time.Time) {
+				done := make(chan struct{})
+				close(done)
+				fired := make(chan time.Time, 1)
+				fired <- time.Now()
+				return done, fired
+			}
+
+			// The loop-top snapshot path: observeCancellation runs through
+			// snapshot and the deadline is drained, so no select-branch receive
+			// is counted and both receives end up disabled.
+			snapshotDone, snapshotFired := freshChannels()
+			snapshotWatch := &terminalWatch{ctxDone: snapshotDone, timeoutC: snapshotFired}
+			snapshotSignals := &terminationSignals{}
+			var snapshotCounts []int
+			snapshotWatch.onReceiveDone = func(count int) { snapshotCounts = append(snapshotCounts, count) }
+
+			snapshotWatch.snapshot(test.ctx, snapshotSignals)
+			if snapshotSignals.cancelled != test.wantCancelled || !snapshotSignals.timedOut {
+				t.Fatalf("snapshot signals = (cancelled %t, timedOut %t), want (%t, true)",
+					snapshotSignals.cancelled, snapshotSignals.timedOut, test.wantCancelled)
+			}
+			if len(snapshotCounts) != 1 || snapshotCounts[0] != 0 {
+				t.Fatalf("snapshot hook counts = %v, want [0]", snapshotCounts)
+			}
+			if snapshotWatch.receivesDone != 0 || snapshotWatch.receivesTimeout != 0 {
+				t.Fatalf("snapshot incremented receive counters: done=%d timeout=%d",
+					snapshotWatch.receivesDone, snapshotWatch.receivesTimeout)
+			}
+			if snapshotWatch.ctxDone != nil || snapshotWatch.timeoutC != nil {
+				t.Fatalf("snapshot did not disable both receives: ctxDone=%v timeoutC=%v",
+					snapshotWatch.ctxDone, snapshotWatch.timeoutC)
+			}
+			for index := 0; index < 32; index++ {
+				select {
+				case <-snapshotWatch.ctxDone:
+					t.Fatalf("done receive %d was not disabled", index)
+				default:
+				}
+				select {
+				case <-snapshotWatch.timeoutC:
+					t.Fatalf("timeout receive %d was not disabled", index)
+				default:
+				}
+			}
+
+			// The select-first path on a separate fresh watch: the execution-
+			// loop branches consume both facts directly.
+			selectDone, selectFired := freshChannels()
+			selectWatch := &terminalWatch{ctxDone: selectDone, timeoutC: selectFired}
+			selectSignals := &terminationSignals{}
+			var selectCounts []int
+			selectWatch.onReceiveDone = func(count int) { selectCounts = append(selectCounts, count) }
+
+			selectWatch.receiveCancellation(test.ctx, selectSignals)
+			selectWatch.receiveDeadline(selectSignals)
+			if selectSignals.cancelled != test.wantCancelled || !selectSignals.timedOut {
+				t.Fatalf("select signals = (cancelled %t, timedOut %t), want (%t, true)",
+					selectSignals.cancelled, selectSignals.timedOut, test.wantCancelled)
+			}
+			if selectWatch.receivesDone != 1 || selectWatch.receivesTimeout != 1 {
+				t.Fatalf("select receive counters = done %d timeout %d, want 1 and 1",
+					selectWatch.receivesDone, selectWatch.receivesTimeout)
+			}
+			if selectWatch.ctxDone != nil || selectWatch.timeoutC != nil {
+				t.Fatalf("select consumption did not disable both receives: ctxDone=%v timeoutC=%v",
+					selectWatch.ctxDone, selectWatch.timeoutC)
+			}
+			if len(selectCounts) != 1 || selectCounts[0] != 1 {
+				t.Fatalf("select hook counts = %v, want [1]", selectCounts)
+			}
+			for index := 0; index < 32; index++ {
+				select {
+				case <-selectWatch.ctxDone:
+					t.Fatalf("done receive %d was not disabled", index)
+				default:
+				}
+				select {
+				case <-selectWatch.timeoutC:
+					t.Fatalf("timeout receive %d was not disabled", index)
+				default:
+				}
+			}
+
+			// A repeated select consumption would report count 2.
+			selectWatch.receiveCancellation(test.ctx, selectSignals)
+			if len(selectCounts) != 2 || selectCounts[1] != 2 || selectWatch.receivesDone != 2 {
+				t.Fatalf("repeated consumption = counts %v receivesDone %d, want [1 2] and 2",
+					selectCounts, selectWatch.receivesDone)
+			}
+		})
 	}
 }
 
