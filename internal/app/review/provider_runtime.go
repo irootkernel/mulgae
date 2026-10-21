@@ -1147,9 +1147,16 @@ func (runtime *ProviderInvocationRuntime) acceptFreeFormReport(
 	return outcome, true
 }
 
+// exactEvidenceRepairPaths builds quote-repair JSON Pointers from the claims'
+// original wire coordinates. The groups and their receipts are in canonical
+// finding and evidence order, but the pointers address the original provider
+// wire document the repair plan is bound to, so a wire/canonical divergence
+// must not select a different quote. NewExactEvidenceRepairPlan restores the
+// sorted and unique pointer contract; wire (finding, evidence) positions are
+// unique because every wire evidence entry yields exactly one claim.
 func exactEvidenceRepairPaths(groups []VerifiedFindingEvidence) ([]string, bool) {
 	paths := make([]string, 0)
-	for findingIndex, group := range groups {
+	for _, group := range groups {
 		for evidenceIndex, receipt := range group.Receipts() {
 			if receipt.Status() == evidence.ReceiptVerified {
 				continue
@@ -1157,7 +1164,11 @@ func exactEvidenceRepairPaths(groups []VerifiedFindingEvidence) ([]string, bool)
 			if receipt.Status() != evidence.ReceiptInvalid || receipt.ReasonCode() != evidence.ReasonQuoteMismatch || receipt.ExcerptSHA256() == "" {
 				return nil, false
 			}
-			paths = append(paths, fmt.Sprintf("/findings/%d/evidence/%d/current/quote", findingIndex, evidenceIndex))
+			claim := group.claims[evidenceIndex]
+			if claim.WireFindingIndex() < 0 || claim.WireEvidenceIndex() < 0 {
+				return nil, false
+			}
+			paths = append(paths, fmt.Sprintf("/findings/%d/evidence/%d/current/quote", claim.WireFindingIndex(), claim.WireEvidenceIndex()))
 		}
 	}
 	return paths, len(paths) > 0

@@ -370,7 +370,7 @@ func meaningfulRepairTarget(pointer string, value any) bool {
 		return ok && domain.Confidence(text).Valid()
 	case "side":
 		text, ok := value.(string)
-		return ok && (text == "base" || text == "head" || text == "worktree")
+		return ok && CurrentEvidenceSide(text).Valid()
 	case "line_start", "line_end":
 		number, ok := value.(json.Number)
 		if !ok || strings.ContainsAny(number.String(), ".eE") {

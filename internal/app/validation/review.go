@@ -1338,7 +1338,7 @@ func reviewAccessVerb(word string) bool {
 func duplicateNormalizedFinding(findings []providerFinding, trustedTargetSHA256 string) bool {
 	seen := make(map[string]struct{}, len(findings))
 	for _, finding := range findings {
-		claims, _, err := normalizeCurrentEvidenceClaims(finding.evidence, trustedTargetSHA256)
+		claims, _, err := normalizeCurrentEvidenceClaims(finding.evidence, trustedTargetSHA256, -1)
 		if err != nil {
 			return false
 		}
@@ -1389,7 +1389,7 @@ func normalizeFindings(input []providerFinding, scope ReviewValidationScope, tru
 		if len(finding.evidence) == 0 {
 			return nil, nil, fmt.Errorf("review validation: finding %d has no evidence", index)
 		}
-		claims, visuals, err := normalizeCurrentEvidenceClaims(finding.evidence, trustedTargetSHA256)
+		claims, visuals, err := normalizeCurrentEvidenceClaims(finding.evidence, trustedTargetSHA256, index)
 		if err != nil {
 			return nil, nil, fmt.Errorf("review validation: normalize finding %d evidence: %w", index, err)
 		}
@@ -1465,7 +1465,15 @@ func normalizeFindings(input []providerFinding, scope ReviewValidationScope, tru
 	return ordered, evidenceClaims, nil
 }
 
-func normalizeCurrentEvidenceClaims(input []providerEvidence, trustedTargetSHA256 string) ([]CurrentEvidenceClaim, []VerifiedVisualReference, error) {
+// normalizeCurrentEvidenceClaims normalizes the complete original wire evidence
+// array of one finding, including entries with visual references, into claims
+// in canonical evidence-region order. Each claim records its original wire
+// coordinates first: wireFindingIndex is the finding's position in the original
+// wire findings array (-1 when the caller has no wire correlation), and the
+// per-entry loop index is the claim's position in the complete original wire
+// evidence array. Coordinates survive the canonical sort as correlation
+// metadata and never participate in evidence identity or ordering.
+func normalizeCurrentEvidenceClaims(input []providerEvidence, trustedTargetSHA256 string, wireFindingIndex int) ([]CurrentEvidenceClaim, []VerifiedVisualReference, error) {
 	type claimWithVisual struct {
 		claim  CurrentEvidenceClaim
 		visual VerifiedVisualReference
@@ -1484,12 +1492,14 @@ func normalizeCurrentEvidenceClaims(input []providerEvidence, trustedTargetSHA25
 			return nil, nil, fmt.Errorf("claim %d has invalid line range", index)
 		}
 		items[index].claim = CurrentEvidenceClaim{
-			targetSHA256: trustedTargetSHA256,
-			path:         path,
-			lineStart:    evidence.lineStart,
-			lineEnd:      evidence.lineEnd,
-			side:         side,
-			quote:        []byte(evidence.quote),
+			targetSHA256:      trustedTargetSHA256,
+			path:              path,
+			lineStart:         evidence.lineStart,
+			lineEnd:           evidence.lineEnd,
+			side:              side,
+			quote:             []byte(evidence.quote),
+			wireFindingIndex:  wireFindingIndex,
+			wireEvidenceIndex: index,
 		}
 		if evidence.visual != nil {
 			visualPath, pathErr := ports.NewSafeRelativePath(evidence.visual.path)

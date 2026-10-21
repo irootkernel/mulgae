@@ -112,6 +112,129 @@ func TestApplyExactEvidenceRepairMayReplaceOnlySelectedQuote(t *testing.T) {
 	}
 }
 
+func TestMeaningfulRepairTargetAdmitsAllFourCurrentSides(t *testing.T) {
+	for _, side := range []string{"base", "head", "worktree", "index"} {
+		if !meaningfulRepairTarget("/findings/0/evidence/0/current/side", side) {
+			t.Fatalf("valid side %q must be a meaningful repair target", side)
+		}
+	}
+	for _, side := range []string{"staging", "", "BASE", "both"} {
+		if meaningfulRepairTarget("/findings/0/evidence/0/current/side", side) {
+			t.Fatalf("unknown side %q must not be a meaningful repair target", side)
+		}
+	}
+}
+
+func TestFillRepairCannotOverwriteMeaningfulIndexSide(t *testing.T) {
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	const path = "/findings/0/evidence/0/current/side"
+	for _, side := range []string{"base", "head", "worktree", "index"} {
+		t.Run(side, func(t *testing.T) {
+			original := providerReviewWith(t, func(document map[string]any) {
+				current := document["findings"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)
+				current["side"] = side
+			})
+			plan := newRepairPlan(RepairModeFillMissingFields, original, []string{path})
+			patch := marshalRepairPatch(t, []map[string]any{{"path": path, "value": "base"}})
+			if _, err := validator.ApplyRepair(context.Background(), original, patch, testScope(), *plan); err == nil {
+				t.Fatalf("meaningful %q side was overwritten by a fill repair", side)
+			}
+		})
+	}
+}
+
+func TestExactEvidenceRepairTargetsWireOrderNotCanonicalOrder(t *testing.T) {
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	currentEvidence := func(path string, line int, side string, quote string) map[string]any {
+		return map[string]any{"current": map[string]any{
+			"path": path, "line_start": line, "line_end": line, "side": side, "quote": quote,
+		}}
+	}
+	original := providerReviewWith(t, func(document map[string]any) {
+		document["findings"] = []any{
+			map[string]any{
+				"severity":       "low",
+				"title":          "Later wire finding",
+				"description":    "The lower severity finding appears first on the wire.",
+				"recommendation": "Keep the later wire finding.",
+				"confidence":     "high",
+				"evidence": []any{
+					currentEvidence("src/zeta.go", 1, "head", "zeta wrong\n"),
+					currentEvidence("src/alpha.go", 1, "base", "alpha match\n"),
+				},
+			},
+			map[string]any{
+				"severity":       "high",
+				"title":          "Earlier wire finding",
+				"description":    "The higher severity finding appears last on the wire.",
+				"recommendation": "Keep the earlier wire finding.",
+				"confidence":     "high",
+				"evidence": []any{
+					currentEvidence("src/beta.go", 2, "worktree", "beta wrong\n"),
+					currentEvidence("src/beta.go", 2, "base", "beta match\n"),
+				},
+			},
+		}
+	})
+	if _, plan, err := validator.Validate(context.Background(), original, testScope()); err != nil || plan != nil {
+		t.Fatalf("permuted review validation: err=%v plan=%#v", err, plan)
+	}
+	// The zeta and beta worktree quotes mismatch the target bytes. Both sit at
+	// wire evidence position 0 of their findings, while their canonical receipt
+	// positions are 1.
+	plan, err := NewExactEvidenceRepairPlan(original, []string{
+		"/findings/0/evidence/0/current/quote",
+		"/findings/1/evidence/0/current/quote",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := plan.AllowedPaths()
+	for _, canonicalPath := range []string{"/findings/0/evidence/1/current/quote", "/findings/1/evidence/1/current/quote"} {
+		for _, path := range allowed {
+			if path == canonicalPath {
+				t.Fatalf("canonical-order path %q was admitted as a wire-coordinate pointer", canonicalPath)
+			}
+		}
+	}
+	wrongWire := marshalRepairPatch(t, []map[string]any{{"path": "/findings/0/evidence/1/current/quote", "value": "zeta right\n"}})
+	if _, err := validator.ApplyRepair(context.Background(), original, wrongWire, testScope(), *plan); err == nil {
+		t.Fatal("canonical-order pointer was admitted by the wire-coordinate repair plan")
+	}
+	outside := marshalRepairPatch(t, []map[string]any{{"path": "/findings/0/title", "value": "Replacement title."}})
+	if _, err := validator.ApplyRepair(context.Background(), original, outside, testScope(), *plan); err == nil {
+		t.Fatal("outside-path patch was admitted by the wire-coordinate repair plan")
+	}
+	partial := marshalRepairPatch(t, []map[string]any{{"path": "/findings/0/evidence/0/current/quote", "value": "zeta right\n"}})
+	if _, err := validator.ApplyRepair(context.Background(), original, partial, testScope(), *plan); err == nil {
+		t.Fatal("partial wire-coordinate repair was accepted")
+	}
+	full := marshalRepairPatch(t, []map[string]any{
+		{"path": "/findings/0/evidence/0/current/quote", "value": "zeta right\n"},
+		{"path": "/findings/1/evidence/0/current/quote", "value": "beta right\n"},
+	})
+	repaired, err := validator.ApplyRepair(context.Background(), original, full, testScope(), *plan)
+	if err != nil {
+		t.Fatalf("wire-coordinate repair was rejected: %v", err)
+	}
+	quotesByTitle := make(map[string][]string)
+	for _, group := range repaired.EvidenceClaims() {
+		for _, claim := range group.Claims() {
+			quotesByTitle[group.Finding().Title()] = append(quotesByTitle[group.Finding().Title()], string(claim.QuoteBytes()))
+		}
+	}
+	if got := quotesByTitle["Later wire finding"]; len(got) != 2 || got[0] != "alpha match\n" || got[1] != "zeta right\n" {
+		t.Fatalf("later wire finding quotes = %q", got)
+	}
+	if got := quotesByTitle["Earlier wire finding"]; len(got) != 2 || got[0] != "beta match\n" || got[1] != "beta right\n" {
+		t.Fatalf("earlier wire finding quotes = %q", got)
+	}
+	findings := repaired.Findings()
+	if len(findings) != 2 || findings[0].Severity() != domain.SeverityHigh || findings[1].Severity() != domain.SeverityLow {
+		t.Fatalf("repaired findings = %#v", findings)
+	}
+}
+
 func TestApplyRepairRejectsOverwriteOrUnapprovedOrStructuralChanges(t *testing.T) {
 	validator := testReviewValidator(t, &recordingSchemaValidator{})
 	original := validProviderReview()

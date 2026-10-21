@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1145,6 +1146,216 @@ func TestInitialQuoteMismatchRetainsExactEvidenceRepairPlan(t *testing.T) {
 				t.Fatalf("retained exact evidence repair = %#v, present=%t", pending, ok)
 			}
 		})
+	}
+}
+
+// exactWireFindings builds two findings whose wire order is the reverse of the
+// canonical severity order, each with evidence entries whose canonical claim
+// order is the reverse of their wire order. The zeta (head) and beta
+// (worktree) quotes mismatch the reader's target bytes at wire positions
+// findings[0].evidence[0] and findings[1].evidence[0].
+func exactWireFindings() (string, string) {
+	later := strings.Replace(
+		bridgeFindingJSON("Later wire finding", []bridgeClaimSpec{
+			{path: "src/zeta.go", side: evidence.SideHead, lineStart: 1, lineEnd: 1, quote: "zeta wrong\n"},
+			{path: "src/alpha.go", side: evidence.SideBase, lineStart: 1, lineEnd: 1, quote: "alpha match\n"},
+		}),
+		`"severity":"high"`, `"severity":"low"`, 1,
+	)
+	earlier := bridgeFindingJSON("Earlier wire finding", []bridgeClaimSpec{
+		{path: "src/beta.go", side: evidence.SideWorktree, lineStart: 2, lineEnd: 2, quote: "beta wrong\n"},
+		{path: "src/beta.go", side: evidence.SideBase, lineStart: 2, lineEnd: 2, quote: "beta match\n"},
+	})
+	return later, earlier
+}
+
+func exactWireReader() *bridgeImmutableReader {
+	return &bridgeImmutableReader{responses: map[string]bridgeReaderResponse{
+		bridgeReaderKey(evidence.SideHead, "src/zeta.go"):     {availability: evidence.ImmutableTargetAvailable, bytes: []byte("zeta right\n")},
+		bridgeReaderKey(evidence.SideBase, "src/alpha.go"):    {availability: evidence.ImmutableTargetAvailable, bytes: []byte("alpha match\n")},
+		bridgeReaderKey(evidence.SideWorktree, "src/beta.go"): {availability: evidence.ImmutableTargetAvailable, bytes: []byte("first\nbeta right\n")},
+		bridgeReaderKey(evidence.SideBase, "src/beta.go"):     {availability: evidence.ImmutableTargetAvailable, bytes: []byte("first\nbeta match\n")},
+	}}
+}
+
+func TestExactEvidenceRepairPlanUsesOriginalWireCoordinates(t *testing.T) {
+	job := coordinatorTypesJob(t, domain.RoleSecurity, "fake.security", 1)
+	later, earlier := exactWireFindings()
+	validated := bridgeValidatedReview(t, job.Target().SHA256(), []string{later, earlier})
+	verifier, err := evidence.NewVerifier(exactWireReader())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput)}
+	outcome := runtime.accept(context.Background(), job, validated, nil, ports.ProviderOutputTransportStdout)
+	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInvalidEvidenceClaim {
+		t.Fatalf("quote mismatch outcome = %#v", outcome)
+	}
+	pending, ok := runtime.pending[job.AttemptID()]
+	wantPaths := []string{"/findings/0/evidence/0/current/quote", "/findings/1/evidence/0/current/quote"}
+	if !ok || pending.Plan().Mode() != validation.RepairModeExactEvidence || !reflect.DeepEqual(pending.Plan().AllowedPaths(), wantPaths) ||
+		!bytes.Equal(pending.InitialCandidate(), validated.OriginalRaw()) {
+		t.Fatalf("retained exact evidence repair = %#v, present=%t", pending, ok)
+	}
+	for _, canonicalPath := range []string{"/findings/0/evidence/1/current/quote", "/findings/1/evidence/1/current/quote"} {
+		for _, allowed := range pending.Plan().AllowedPaths() {
+			if allowed == canonicalPath {
+				t.Fatalf("canonical-order path %q leaked into the wire-coordinate repair plan", canonicalPath)
+			}
+		}
+	}
+
+	// A mixed artist evidence array interleaves visual references and current
+	// text claims on the wire; the repair pointer must still address the
+	// mismatching claim's position in that complete original array.
+	artistJob := coordinatorTypesJob(t, domain.RoleArtist, "fake.artist", 2)
+	visualDigest := "sha256:" + strings.Repeat("d", 64)
+	artistScope := validation.ReviewValidationScope{
+		TargetSHA256:     artistJob.Target().SHA256(),
+		Role:             domain.RoleArtist,
+		ProviderInstance: "fake.artist",
+		VisualAssets: map[string]string{
+			"current/design-specs/mixed.png": visualDigest,
+			"current/design-specs/base.png":  visualDigest,
+		},
+	}
+	mixedEntries := []string{
+		`{"current":{"path":"src/mixed.go","side":"worktree","line_start":3,"line_end":3,"quote":"mixed wrong\n"},` +
+			`"visual":{"path":"current/design-specs/mixed.png","sha256":` + fmt.Sprintf("%q", visualDigest) + `,"bbox":{"x":0,"y":4,"width":10,"height":6}}}`,
+		`{"current":{"path":"src/mixed.go","side":"base","line_start":3,"line_end":3,"quote":"mixed base match\n"},` +
+			`"visual":{"path":"current/design-specs/base.png","sha256":` + fmt.Sprintf("%q", visualDigest) + `,"bbox":{"x":1,"y":2,"width":8,"height":4}}}`,
+		`{"current":{"path":"src/a.go","side":"base","line_start":1,"line_end":1,"quote":"a match\n"}}`,
+	}
+	artistRaw := fmt.Sprintf(
+		`{"schema_version":"mulgae-provider-review-output.v1","summary":"Bridge evidence test.","completeness":"complete","limitations":[],"findings":[`+
+			`{"severity":"high","title":"Mixed evidence finding","description":"The bridge must retain every verifier result.","evidence":[%s],`+
+			`"recommendation":"Retain verifier results.","confidence":"high"}]}`,
+		strings.Join(mixedEntries, ","),
+	)
+	schemaID, err := ports.ParseAssetID(validation.ProviderReviewSchemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artistValidator, err := validation.NewReviewValidator(bridgeSchemaValidator{}, schemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artistReview, artistPlan, err := artistValidator.Validate(context.Background(), []byte(artistRaw), artistScope)
+	if err != nil || artistPlan != nil {
+		t.Fatalf("mixed artist review validation: err=%v plan=%#v", err, artistPlan)
+	}
+	artistClaims := artistReview.EvidenceClaims()[0].Claims()
+	artistVisuals := artistReview.EvidenceClaims()[0].VisualReferences()
+	if len(artistClaims) != 3 || len(artistVisuals) != 3 ||
+		artistClaims[0].WireEvidenceIndex() != 2 || artistClaims[1].WireEvidenceIndex() != 1 || artistClaims[2].WireEvidenceIndex() != 0 {
+		t.Fatalf("mixed artist claim wire coordinates = %#v", artistClaims)
+	}
+	if artistVisuals[0] != (validation.VerifiedVisualReference{}) ||
+		artistVisuals[1].Path().String() != "current/design-specs/base.png" ||
+		artistVisuals[2].Path().String() != "current/design-specs/mixed.png" {
+		t.Fatalf("mixed artist visual alignment = %#v", artistVisuals)
+	}
+	mixedVerifier, err := evidence.NewVerifier(&bridgeImmutableReader{responses: map[string]bridgeReaderResponse{
+		bridgeReaderKey(evidence.SideWorktree, "src/mixed.go"): {availability: evidence.ImmutableTargetAvailable, bytes: []byte("one\ntwo\nmixed right\n")},
+		bridgeReaderKey(evidence.SideBase, "src/mixed.go"):     {availability: evidence.ImmutableTargetAvailable, bytes: []byte("one\ntwo\nmixed base match\n")},
+		bridgeReaderKey(evidence.SideBase, "src/a.go"):         {availability: evidence.ImmutableTargetAvailable, bytes: []byte("a match\n")},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mixedRuntime := &ProviderInvocationRuntime{verifier: mixedVerifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput)}
+	mixedOutcome := mixedRuntime.accept(context.Background(), artistJob, artistReview, nil, ports.ProviderOutputTransportStdout)
+	if mixedOutcome.Succeeded() || coordinatorOutcomeCondition(mixedOutcome) != AttemptConditionInvalidEvidenceClaim {
+		t.Fatalf("mixed quote mismatch outcome = %#v", mixedOutcome)
+	}
+	mixedPending, mixedPendingOk := mixedRuntime.pending[artistJob.AttemptID()]
+	if !mixedPendingOk || mixedPending.Plan().Mode() != validation.RepairModeExactEvidence ||
+		!reflect.DeepEqual(mixedPending.Plan().AllowedPaths(), []string{"/findings/0/evidence/0/current/quote"}) {
+		t.Fatalf("mixed evidence exact repair = %#v, present=%t", mixedPending, mixedPendingOk)
+	}
+	for _, canonicalPath := range []string{"/findings/0/evidence/1/current/quote", "/findings/0/evidence/2/current/quote"} {
+		for _, allowed := range mixedPending.Plan().AllowedPaths() {
+			if allowed == canonicalPath {
+				t.Fatalf("canonical-order path %q leaked into the mixed-array repair plan", canonicalPath)
+			}
+		}
+	}
+}
+
+func TestExactEvidenceRepairRoundTripRepairsActualWireClaims(t *testing.T) {
+	// bridgeValidatedReview validates with the security role, so the job must
+	// carry the same role for the repaired accept to build its role output.
+	job := coordinatorTypesJob(t, domain.RoleSecurity, "fake.security", 1)
+	later, earlier := exactWireFindings()
+	validated := bridgeValidatedReview(t, job.Target().SHA256(), []string{later, earlier})
+	verifier, err := evidence.NewVerifier(exactWireReader())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput)}
+	outcome := runtime.accept(context.Background(), job, validated, nil, ports.ProviderOutputTransportStdout)
+	if outcome.Succeeded() || coordinatorOutcomeCondition(outcome) != AttemptConditionInvalidEvidenceClaim {
+		t.Fatalf("quote mismatch outcome = %#v", outcome)
+	}
+	pending, ok := runtime.pending[job.AttemptID()]
+	if !ok {
+		t.Fatal("exact evidence repair plan was not retained")
+	}
+	schemaID, err := ports.ParseAssetID(validation.ProviderReviewSchemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator, err := validation.NewReviewValidator(bridgeSchemaValidator{}, schemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := validation.ReviewValidationScope{TargetSHA256: job.Target().SHA256(), Role: domain.RoleSecurity, ProviderInstance: "fake.security"}
+	wrongWirePatch := []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[{"path":"/findings/0/evidence/1/current/quote","value":"zeta right\n"}]}`)
+	if _, _, err := validator.ApplyRepairCandidate(context.Background(), validated.OriginalRaw(), wrongWirePatch, scope, pending.Plan()); err == nil {
+		t.Fatal("canonical-order pointer was admitted by the wire-coordinate repair plan")
+	}
+	patch := []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[` +
+		`{"path":"/findings/0/evidence/0/current/quote","value":"zeta right\n"},` +
+		`{"path":"/findings/1/evidence/0/current/quote","value":"beta right\n"}]}`)
+	repaired, candidateBytes, err := validator.ApplyRepairCandidate(context.Background(), validated.OriginalRaw(), patch, scope, pending.Plan())
+	if err != nil {
+		t.Fatalf("wire-coordinate repair was rejected: %v", err)
+	}
+	// The candidate must be the original wire document with exactly the two
+	// authorized quotes replaced; every other field, and the non-targeted
+	// quotes, stay untouched. Trusted identity fields are injected only on the
+	// validation-internal clone, so the candidate keeps the provider-owned
+	// current field set.
+	decodeDocument := func(raw []byte) map[string]any {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var document map[string]any
+		if err := decoder.Decode(&document); err != nil {
+			t.Fatal(err)
+		}
+		return document
+	}
+	candidateDocument := decodeDocument(candidateBytes)
+	expectedDocument := decodeDocument(validated.OriginalRaw())
+	expectedDocument["findings"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "zeta right\n"
+	expectedDocument["findings"].([]any)[1].(map[string]any)["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "beta right\n"
+	if !reflect.DeepEqual(candidateDocument, expectedDocument) {
+		t.Fatalf("candidate bytes changed non-targeted content: %s", candidateBytes)
+	}
+	repairedRuntime := &ProviderInvocationRuntime{verifier: verifier, policy: DefaultEvidencePolicy(), pending: make(map[domain.AttemptID]InvocationRepairInput), pendingExtraction: make(map[domain.AttemptID]InvocationExtractionInput)}
+	repairedOutcome := repairedRuntime.accept(context.Background(), job, repaired, nil, ports.ProviderOutputTransportStdout)
+	if !repairedOutcome.Succeeded() {
+		t.Fatalf("repaired candidate did not verify against the target bytes: %#v", repairedOutcome)
+	}
+	output, outputOk := repairedOutcome.Output()
+	if !outputOk || len(output.Findings()) != 2 ||
+		output.Findings()[0].Severity() != domain.SeverityHigh || output.Findings()[1].Severity() != domain.SeverityLow {
+		t.Fatalf("repaired output findings = %#v, present=%t", output, outputOk)
+	}
+	for _, finding := range output.Findings() {
+		if finding.EvidenceState() != domain.EvidenceVerified {
+			t.Fatalf("finding %q was not verified against the target bytes", finding.Title())
+		}
 	}
 }
 

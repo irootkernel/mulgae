@@ -42,6 +42,13 @@ type CurrentEvidenceClaim struct {
 	lineEnd      int
 	side         CurrentEvidenceSide
 	quote        []byte
+	// wireFindingIndex and wireEvidenceIndex correlate the claim with its
+	// position in the original provider wire document. They are internal
+	// correlation metadata for exact-evidence repair pointers, never part of
+	// evidence identity, ordering, or any public receipt; -1 marks an absent
+	// coordinate.
+	wireFindingIndex  int
+	wireEvidenceIndex int
 }
 
 // VerifiedVisualReference is an immutable visual-evidence identity verified
@@ -101,6 +108,16 @@ func (claim CurrentEvidenceClaim) Side() CurrentEvidenceSide { return claim.side
 func (claim CurrentEvidenceClaim) QuoteBytes() []byte {
 	return append([]byte(nil), claim.quote...)
 }
+
+// WireFindingIndex returns the claim's finding position in the original
+// provider wire findings array, or -1 when the claim carries no wire
+// coordinate.
+func (claim CurrentEvidenceClaim) WireFindingIndex() int { return claim.wireFindingIndex }
+
+// WireEvidenceIndex returns the claim's evidence position within the complete
+// original provider wire evidence array of its finding, or -1 when the claim
+// carries no wire coordinate.
+func (claim CurrentEvidenceClaim) WireEvidenceIndex() int { return claim.wireEvidenceIndex }
 
 // CompareCurrentEvidenceClaims orders claims by their canonical evidence region:
 // path, numeric line range, side, normalized quote, then exact quote bytes.
@@ -215,6 +232,7 @@ func (claims FindingEvidenceClaims) valid() bool {
 	regionParts := make([]string, len(claims.claims))
 	for index, claim := range claims.claims {
 		if !validCurrentEvidenceClaim(claim) ||
+			claim.wireFindingIndex < 0 || claim.wireEvidenceIndex < 0 ||
 			claim.targetSHA256 != targetSHA256 ||
 			claim.SourceIdentitySHA256() != claims.claims[0].SourceIdentitySHA256() ||
 			(index > 0 && CompareCurrentEvidenceClaims(claims.claims[index-1], claim) > 0) {

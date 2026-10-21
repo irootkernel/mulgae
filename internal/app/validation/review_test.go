@@ -395,6 +395,241 @@ func TestReviewValidatorAcceptsIndexEvidenceSide(t *testing.T) {
 	}
 }
 
+func TestClaimWireCoordinatesFollowOriginalWirePositions(t *testing.T) {
+	currentEvidence := func(path string, line int, side string, quote string) map[string]any {
+		return map[string]any{"current": map[string]any{
+			"path": path, "line_start": line, "line_end": line, "side": side, "quote": quote,
+		}}
+	}
+	wireFinding := func(severity, title string, entries ...map[string]any) map[string]any {
+		evidence := make([]any, len(entries))
+		for index, entry := range entries {
+			evidence[index] = entry
+		}
+		return map[string]any{
+			"severity":       severity,
+			"title":          title,
+			"description":    "Description for " + title + ".",
+			"recommendation": "Address " + title + ".",
+			"confidence":     "high",
+			"evidence":       evidence,
+		}
+	}
+	tests := []struct {
+		name               string
+		live               bool
+		artist             bool
+		findings           []any
+		want               map[string][][2]int
+		visualPathsByTitle map[string][]string
+	}{
+		{
+			name: "finding permutation",
+			findings: []any{
+				wireFinding("low", "Later finding", currentEvidence("internal/app/zeta.go", 20, "head", "later quote")),
+				wireFinding("critical", "Earlier finding", currentEvidence("internal/app/alpha.go", 3, "base", "earlier quote")),
+			},
+			want: map[string][][2]int{
+				"Later finding":   {{0, 0}},
+				"Earlier finding": {{1, 0}},
+			},
+		},
+		{
+			name: "evidence permutation",
+			findings: []any{wireFinding("high", "Single finding",
+				currentEvidence("internal/app/zeta.go", 2, "base", "zeta base quote\n"),
+				currentEvidence("internal/app/alpha.go", 10, "worktree", "alpha ten quote\n"),
+				currentEvidence("internal/app/alpha.go", 2, "head", "alpha head quote\n"),
+				currentEvidence("internal/app/alpha.go", 2, "base", "alpha base quote\n"),
+			)},
+			want: map[string][][2]int{
+				"Single finding": {{0, 3}, {0, 2}, {0, 1}, {0, 0}},
+			},
+		},
+		{
+			name: "finding and evidence permutation",
+			findings: []any{
+				wireFinding("low", "Later finding",
+					currentEvidence("src/m.go", 5, "head", "m head quote"),
+					currentEvidence("src/a.go", 1, "base", "a base quote"),
+				),
+				wireFinding("critical", "Earlier finding",
+					currentEvidence("src/b.go", 2, "worktree", "b worktree quote"),
+					currentEvidence("src/b.go", 2, "base", "b base quote"),
+				),
+			},
+			want: map[string][][2]int{
+				"Later finding":   {{0, 1}, {0, 0}},
+				"Earlier finding": {{1, 1}, {1, 0}},
+			},
+		},
+		{
+			name: "already canonical input",
+			findings: []any{wireFinding("high", "Canonical finding",
+				currentEvidence("src/a.go", 1, "base", "first quote"),
+				currentEvidence("src/a.go", 2, "base", "second quote"),
+			)},
+			want: map[string][][2]int{
+				"Canonical finding": {{0, 0}, {0, 1}},
+			},
+		},
+		{
+			name: "duplicate-looking claims",
+			findings: []any{
+				wireFinding("low", "Duplicate region finding",
+					currentEvidence("src/same.go", 4, "base", "same two\n"),
+					currentEvidence("src/same.go", 4, "base", "same one\n"),
+				),
+				wireFinding("high", "Shared region finding",
+					currentEvidence("src/same.go", 4, "base", "same two\n"),
+					currentEvidence("src/same.go", 4, "base", "same one\n"),
+				),
+			},
+			want: map[string][][2]int{
+				"Duplicate region finding": {{0, 1}, {0, 0}},
+				"Shared region finding":    {{1, 1}, {1, 0}},
+			},
+		},
+		{
+			name:   "mixed visual and text evidence",
+			artist: true,
+			findings: []any{func() map[string]any {
+				worktree := currentEvidence("src/mixed.go", 3, "worktree", "mixed worktree quote")
+				base := currentEvidence("src/mixed.go", 3, "base", "mixed base quote")
+				base["visual"] = map[string]any{
+					"path": "current/design-specs/mixed.png", "sha256": "sha256:" + strings.Repeat("e", 64),
+					"bbox": map[string]any{"x": 0, "y": 4, "width": 10, "height": 6},
+				}
+				aBase := currentEvidence("src/a.go", 1, "base", "a base quote")
+				aBase["visual"] = map[string]any{
+					"path": "current/design-specs/a.png", "sha256": "sha256:" + strings.Repeat("d", 64),
+					"bbox": map[string]any{"x": 1, "y": 2, "width": 8, "height": 4},
+				}
+				return wireFinding("high", "Mixed evidence finding", worktree, base, aBase)
+			}()},
+			want: map[string][][2]int{
+				"Mixed evidence finding": {{0, 2}, {0, 1}, {0, 0}},
+			},
+			visualPathsByTitle: map[string][]string{
+				"Mixed evidence finding": {"current/design-specs/a.png", "current/design-specs/mixed.png", ""},
+			},
+		},
+		{
+			name: "live source scope",
+			live: true,
+			findings: []any{wireFinding("high", "Single finding",
+				currentEvidence("internal/app/zeta.go", 2, "base", "zeta base quote\n"),
+				currentEvidence("internal/app/alpha.go", 2, "base", "alpha base quote\n"),
+			)},
+			want: map[string][][2]int{
+				"Single finding": {{0, 1}, {0, 0}},
+			},
+		},
+	}
+	coordinatesByTitle := func(t *testing.T, groups []FindingEvidenceClaims) map[string][][2]int {
+		t.Helper()
+		result := make(map[string][][2]int, len(groups))
+		for _, group := range groups {
+			claims := group.Claims()
+			entries := make([][2]int, 0, len(claims))
+			for _, claim := range claims {
+				entries = append(entries, [2]int{claim.WireFindingIndex(), claim.WireEvidenceIndex()})
+			}
+			result[group.Finding().Title()] = entries
+		}
+		return result
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			raw := providerReviewWith(t, func(document map[string]any) {
+				document["findings"] = test.findings
+			})
+			scope := testScope()
+			if test.live {
+				scope = liveValidationScope(t)
+			}
+			if test.artist {
+				scope.Role = domain.RoleArtist
+				scope.VisualAssets = map[string]string{
+					"current/design-specs/a.png":     "sha256:" + strings.Repeat("d", 64),
+					"current/design-specs/mixed.png": "sha256:" + strings.Repeat("e", 64),
+				}
+			}
+			review, plan, err := testReviewValidator(t, &recordingSchemaValidator{}).Validate(context.Background(), raw, scope)
+			if err != nil || plan != nil {
+				t.Fatalf("validation: err=%v plan=%#v", err, plan)
+			}
+			if coordinates := coordinatesByTitle(t, review.EvidenceClaims()); !reflect.DeepEqual(coordinates, test.want) {
+				t.Fatalf("wire coordinates = %v, want %v", coordinates, test.want)
+			}
+			if test.visualPathsByTitle != nil {
+				for _, group := range review.EvidenceClaims() {
+					expectedPaths, known := test.visualPathsByTitle[group.Finding().Title()]
+					if !known {
+						t.Fatalf("unexpected finding group %q in visual alignment check", group.Finding().Title())
+					}
+					claims := group.Claims()
+					visuals := group.VisualReferences()
+					if len(visuals) != len(claims) || len(expectedPaths) != len(claims) {
+						t.Fatalf("visual alignment for %q: claims=%d visuals=%d expected=%d", group.Finding().Title(), len(claims), len(visuals), len(expectedPaths))
+					}
+					for index, expectedPath := range expectedPaths {
+						if expectedPath == "" {
+							if visuals[index] != (VerifiedVisualReference{}) {
+								t.Fatalf("claim %d of %q unexpectedly carries a visual reference", index, group.Finding().Title())
+							}
+							continue
+						}
+						if visuals[index].Path().String() != expectedPath || visuals[index].SHA256() != scope.VisualAssets[expectedPath] {
+							t.Fatalf("claim %d of %q visual = %#v, want path %q", index, group.Finding().Title(), visuals[index], expectedPath)
+						}
+					}
+				}
+			}
+			// Defensive copies retain the coordinates after caller mutation.
+			groups := review.EvidenceClaims()
+			claims := groups[0].Claims()
+			claims[0] = CurrentEvidenceClaim{}
+			groups[0] = FindingEvidenceClaims{}
+			if coordinates := coordinatesByTitle(t, review.EvidenceClaims()); !reflect.DeepEqual(coordinates, test.want) {
+				t.Fatalf("wire coordinates after defensive copy mutation = %v, want %v", coordinates, test.want)
+			}
+		})
+	}
+}
+
+func TestFindingEvidenceClaimsRequireWireCoordinates(t *testing.T) {
+	validator := testReviewValidator(t, &recordingSchemaValidator{})
+	raw := providerReviewWith(t, func(document map[string]any) {
+		finding := document["findings"].([]any)[0].(map[string]any)
+		finding["evidence"] = []any{
+			map[string]any{"current": map[string]any{"path": "internal/app/one.go", "line_start": 1, "line_end": 1, "side": "base", "quote": "one"}},
+			map[string]any{"current": map[string]any{"path": "internal/app/two.go", "line_start": 2, "line_end": 2, "side": "head", "quote": "two"}},
+		}
+	})
+	review, _, err := validator.Validate(context.Background(), raw, testScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := review.Findings()[0]
+	group := review.EvidenceClaims()[0]
+	visuals := make([]VerifiedVisualReference, len(group.Claims()))
+	claims := group.Claims()
+	if _, err := newFindingEvidenceClaims(finding, claims, visuals, claims[0].TargetSHA256()); err != nil {
+		t.Fatalf("complete wire coordinates were rejected: %v", err)
+	}
+	noFindingCoordinate := group.Claims()
+	noFindingCoordinate[0].wireFindingIndex = -1
+	if _, err := newFindingEvidenceClaims(finding, noFindingCoordinate, visuals, claims[0].TargetSHA256()); err == nil {
+		t.Fatal("claim without a wire finding coordinate was accepted")
+	}
+	noEvidenceCoordinate := group.Claims()
+	noEvidenceCoordinate[0].wireEvidenceIndex = -1
+	if _, err := newFindingEvidenceClaims(finding, noEvidenceCoordinate, visuals, claims[0].TargetSHA256()); err == nil {
+		t.Fatal("claim without a wire evidence coordinate was accepted")
+	}
+}
+
 func TestFindingEvidenceClaimsFailClosedOnProofIDOrClaimDisagreement(t *testing.T) {
 	validator := testReviewValidator(t, &recordingSchemaValidator{})
 	review, plan, err := validator.Validate(context.Background(), validProviderReview(), testScope())
