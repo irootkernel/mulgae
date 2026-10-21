@@ -578,7 +578,12 @@ native cleanup policy.
 
 Historical `target/captured-review.json` v2 manifests reference source blobs
 under `target/blobs/sha256-<hex>`. The retained query and export readers verify
-those support-indexed files; v1 single-file archives remain readable. Current
+those support-indexed files; v1 single-file archives remain readable.
+Historical runtime-target manifest reads admit the optional retained
+`artist_brief` and `artist_visual_assets` identity fields, verifying their
+canonical per-run support paths, artifact kinds, digests, support-index
+membership, and exact retained bytes while keeping unknown-field rejection and
+live-source replay refusal fail-closed. Current
 reviews do not create capture manifests, source archives, copied provider trees,
 or replay workspaces. `.mulgaeignore` is neither generated nor processed by
 current source admission.
@@ -674,6 +679,9 @@ arrive in either order. Accepted text is the correlated assistant turn whose
 extraction, fail closed on a tool call. The pinned wire and fail-closed
 rules are in
 [Cursor ACP transport](../architecture-decision-records/cursor-acp-transport.md).
+Optional diagnostic session identifiers from Cursor ACP frames are sanitized
+to the port diagnostic grammar, so an unsafe or oversized identifier is
+omitted without invalidating an otherwise valid session observation.
 
 Historical child lineage may contain `source_attempt_id`, replay modes, and
 staged-file transport receipts. Retained readers validate these fields without
@@ -881,6 +889,10 @@ offline readiness. `mulgae providers --output json` exposes the independent
 `offline_ready_provider_count` and `static_evidence_ready_provider_count`; its
 human static profiles remain `unverified` when no static source exists. A
 successful or failed live review never mutates these offline observations.
+The underlying `providers` service profile projection (`Result.JSON()`) reports
+`result_transport: "stdout"` for the current ZCode, Grok, Codex, Cursor, and
+AGY protocol profiles, while the `mulgae providers --output json` CLI result
+retains its closed four-field summary.
 
 Stable doctor reasons are grouped as follows:
 
@@ -922,7 +934,12 @@ review is promoted into a durable qualification cache.
 Provider-authored review JSON is parsed with duplicate
 key rejection before projection. Unknown additional fields and fields owned by
 Mulgae are removed from the provider-content projection; Mulgae then injects
-trusted identity and verification values. Removed values are never exposed.
+trusted identity and verification values. Normalization preserves each
+finding's and evidence claim's original provider wire coordinates
+(`wire_finding_index` and `wire_evidence_index`) before canonical ordering, so
+exact-evidence repair targets the original wire positions, and admits all four
+current evidence sides (`base`, `head`, `worktree`, and `index`) as meaningful
+repair targets. Removed values are never exposed.
 Runtime diagnostics use `mulgae-runtime-log.v4` and the
 `provider_output_fields_discarded` event to record only sorted JSON Pointer
 paths and `discarded_path_count`. At most the first 100 sorted paths are retained

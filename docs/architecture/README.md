@@ -152,6 +152,11 @@ Conversation drivers may half-close stdin with `ProviderSessionExchange.CloseInp
 and continue receiving through stdout EOF. A driver that needs the provider's
 natural shutdown must drain that stream before returning; returning starts the
 existing bounded teardown. Half-close is idempotent and preserves stdin receipts.
+Conversation and bounded post-output teardown disable their caller-cancellation
+and request-timeout channel arms after the first observation, so cancellation
+and timeout are consumed once while driver and process-group drain complete,
+and conversation stdout line assembly scans each incoming chunk once from a
+monotone frontier while spooling raw capture bytes unchanged.
 
 CLI and MCP share this execution path. Provider, client, and integrated-gate
 verification follows the [implementation guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics);
@@ -168,7 +173,12 @@ retains selection metadata, required excerpts, normalized findings, complete rol
 reports, and selected PNG/JPEG/WebP bytes. Source closure is recorded separately
 from snapshot and workspace provenance. `query` verifies these stored members
 before inspection or content reads and never falls back to original files.
-Receipt v2 and export v2 name source selection explicitly. Historical captured
+Publication epoch allocation streams `.mulgae/store/epochs/` in bounded batches
+without a 4096-entry directory ceiling while validating every member's naming,
+ownership, mode, and symlink safety, and composition enforces equality between
+the JSON Schema validator's `MaxInputBytes` and
+`PublicationStructuredMemberMaxBytes`. Receipt v2 and export v2 name source
+selection explicitly. Historical captured
 readers keep their existing versions and meaning. Source replay is
 explicitly unavailable, including after successful publication recovery.
 

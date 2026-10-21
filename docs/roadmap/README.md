@@ -31,7 +31,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-009](#epic-009-live-workspace-and-git-review) | Completed | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
 | [EPIC-010](#epic-010-cursor-acp-review-provider) | Completed | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
-| [EPIC-012](#epic-012-correctness-and-historical-compatibility) | Planned | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
+| [EPIC-012](#epic-012-correctness-and-historical-compatibility) | In Progress | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
 | [EPIC-013](#epic-013-verified-operation-reuse) | Planned | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Planned | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 
@@ -44,11 +44,13 @@ capture-dependent contracts are redesigned and reapproved. Preserve their
 identities; this hold does not reopen
 EPIC-007 or block EPIC-010 or EPIC-011.
 
-EPIC-012, EPIC-013 and EPIC-014 are the newly planned improvement sequence:
-EPIC-012 -> EPIC-013 -> EPIC-014. Each requires explicit acceptance of its
-predecessor; none depends on Deferred EPIC-008. Their dossiers define what
-to implement and how to verify it. Under Master's quota-preservation decision,
-development and epic acceptance across EPIC-012 through EPIC-014 run the
+EPIC-012 is `In Progress`: TASK-046 through TASK-052 are completed and
+certified, and the Epic awaits Master's explicit acceptance of the completed
+Epic result. EPIC-013 -> EPIC-014 are the remaining
+planned improvement sequence: each requires explicit acceptance of its
+predecessor; none depends on Deferred EPIC-008. Under Master's
+quota-preservation decision,
+development and epic acceptance across EPIC-013 through EPIC-014 run the
 deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`,
 and `make test-release`), `make test-mcp-clients` when MCP consumer paths
 change, and ZCode-only live verification (`TestLiveZCodeCapability` and
@@ -713,36 +715,42 @@ from the pinned wire. TASK-045 is the first task that updates
 
 ## EPIC-012: Correctness and historical compatibility
 
-Status: Planned
+Status: In Progress (awaiting Master's explicit acceptance of the completed
+Epic result)
 
 Depends on: completed EPIC-009, EPIC-010 and EPIC-011. No EPIC-008 dependency.
 
-Detailed SOT: [EPIC-012 execution dossier](../todo/EPIC-012-correctness-and-historical-compatibility.md).
+Canonical Outcomes:
+
+- [Provider content normalization and bounded retry](../specs/contracts.md#provider-content-normalization-and-bounded-retry), [artifact layout](../specs/contracts.md#artifact-layout), [output and exits](../specs/contracts.md#output-and-exits), and [provider qualification readiness](../specs/contracts.md#provider-qualification-readiness) (`76ac2f4`, `bd8657f`, `d1dc8b6`).
+- [Architecture review flow and publication](../architecture/README.md#review-flow) (`4a49586`, `3c0ed46`, `9130548`, `d1dc8b6`).
+- [Deferred feedback DF-022](../deferred-feedback/README.md#deferred-feedback) and the [embedded schema index](../../internal/builtin/assets/schemas/README.md) (`bd8657f`, `d1dc8b6`).
+- [Verification for the adopted review Epics](../implementation-tips/README.md#verification-for-the-adopted-review-epics) (deterministic gates, ZCode-only live certification, and `v0.1.26` non-ZCode live deferral).
 
 Goal: Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-046 | Planned | Preserve original provider coordinates for exact-evidence repair and admit all valid evidence sides. | Permuted findings/evidence, exact patch application, side boundaries and unchanged repair authority. |
-| TASK-047 | Planned | Consume conversation cancellation once while preserving complete teardown. | Deterministic cancel/EOF/exit, signal receipts, driver drain and group absence. |
-| TASK-048 | Planned | Assemble stdout lines by scanning incoming chunks once. | Chunk equivalence, byte ownership, long lines, partial EOF and complete capture. |
-| TASK-049 | Planned | Stream epoch inventory beyond the accidental 4096-entry lifetime limit. | Boundary counts, malformed/unsafe late entries, overflow/collision and namespace checks. |
-| TASK-050 | Planned | Restore strict historical artist input manifests and their support bindings. | Frozen artist and old manifests, publish/read round trip, missing/tampered/cross-run support. |
-| TASK-051 | Planned | Align Cursor diagnostic IDs, provider transport metadata, structured-limit checks, schema index and sequential qualification documentation with existing runtime contracts. | Port grammar/correlation, exact providers JSON, equal structured limits, schema/example rows, sequential qualification wording and deterministic generation. |
-| TASK-052 | Planned | Certify the complete correctness candidate and promote its durable outcomes. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), ZCode live verification, preserved safety invariants, deferred non-ZCode live gates recorded for `v0.1.26`, and explicit Epic acceptance. |
+| TASK-046 | Completed | Preserve original provider coordinates for exact-evidence repair and admit all valid evidence sides. | Permuted findings/evidence, exact patch application, side boundaries and unchanged repair authority (`76ac2f4`). |
+| TASK-047 | Completed | Consume conversation cancellation once while preserving complete teardown. | Deterministic cancel/EOF/exit, signal receipts, driver drain and group absence (`4a49586`). |
+| TASK-048 | Completed | Assemble stdout lines by scanning incoming chunks once. | Chunk equivalence, byte ownership, long lines, partial EOF and complete capture (`3c0ed46`). |
+| TASK-049 | Completed | Stream epoch inventory beyond the accidental 4096-entry lifetime limit. | Boundary counts, malformed/unsafe late entries, overflow/collision and namespace checks (`9130548`). |
+| TASK-050 | Completed | Restore strict historical artist input manifests and their support bindings. | Frozen artist and old manifests, publish/read round trip, missing/tampered/cross-run support (`bd8657f`). |
+| TASK-051 | Completed | Align Cursor diagnostic IDs, provider transport metadata, structured-limit checks, schema index and sequential qualification documentation with existing runtime contracts. | Port grammar/correlation, exact providers JSON, equal structured limits, schema/example rows, sequential qualification wording and deterministic generation (`d1dc8b6`). |
+| TASK-052 | Completed | Certify the complete correctness candidate and promote its durable outcomes. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), ZCode live verification, preserved safety invariants, deferred non-ZCode live gates recorded for `v0.1.26`, and canonical outcome promotion; final Epic status awaits Master's explicit acceptance. |
 
-Tasks run in the listed order; each Task after the first depends on its
-predecessor. The dossier owns scope, implementation decisions, negative tests,
-compatibility, prohibited actions and handoff details. Planning does not start
-implementation or grant delivery/runtime authority.
+Tasks ran in the listed order; each Task after the first depended on its
+predecessor. Scope, implementation decisions, negative tests, compatibility,
+prohibited actions and handoff details were owned by the retired execution
+dossier; durable outcomes are the canonical commits and documents above.
 
 ### Epic acceptance
 
-- [ ] Every member Task has implementation and verification evidence for the exact candidate.
-- [ ] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
-- [ ] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass.
-- [ ] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`) and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
-- [ ] Durable outcomes are promoted and dossier/index/roadmap links are reconciled under the documented lifecycle.
+- [x] Every member Task has implementation and verification evidence for the exact candidate (`76ac2f4`, `4a49586`, `3c0ed46`, `9130548`, `bd8657f`, `d1dc8b6`, and this closeout change).
+- [x] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved (consolidated `c4d717e..HEAD` diff audit; schema versions unchanged except the corrected schema index; historical read families green).
+- [x] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass (work-counter and construction proofs only).
+- [x] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`) and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
+- [x] Durable outcomes are promoted to `contracts.md`, `architecture/README.md`, and `implementation-tips/README.md`, and the dossier and its index entry are retired under Master's explicit closeout authorization in the approved execution plan.
 - [ ] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.
 
 ## EPIC-013: Verified operation reuse

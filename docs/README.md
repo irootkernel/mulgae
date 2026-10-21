@@ -62,8 +62,12 @@ one default Gemini account. Its durable design is in the
 Live Cursor certification remains a separate opt-in gate. The roadmap records
 the final acceptance of EPIC-010 and EPIC-011.
 
-The planned structural improvement sequence is
-[EPIC-012 correctness and historical compatibility](todo/EPIC-012-correctness-and-historical-compatibility.md),
+[EPIC-012 correctness and historical compatibility](roadmap/README.md#epic-012-correctness-and-historical-compatibility)
+has completed its member Tasks (`TASK-046` through `TASK-052`), the
+deterministic gates, and ZCode-only live certification, with its durable
+outcomes promoted to the canonical documents and roadmap; the final Epic
+status awaits Master's explicit acceptance of the completed result. The
+remaining planned structural improvement sequence is
 [EPIC-013 verified operation reuse](todo/EPIC-013-verified-operation-reuse.md), then
 [EPIC-014 application and contract ownership](todo/EPIC-014-application-and-contract-ownership.md).
 These dossiers describe future implementation and verification; current runtime

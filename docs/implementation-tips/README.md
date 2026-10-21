@@ -423,6 +423,17 @@ section), and replace Detailed SOT with Canonical Outcomes before changing the
 Epic status. Stop at the accepted scope; no additional feature or unlimited
 review cycle is an acceptance condition.
 
+Under Master's quota-preservation decision for `EPIC-012` through `EPIC-014`,
+development and Epic certification run the deterministic Make gates
+(`make test-prepare`, `make test-unit`, `make test-int`, and
+`make test-release`), `make test-mcp-clients` when MCP consumer paths change,
+and ZCode-only live verification (`TestLiveZCodeCapability` and a real-source
+single-provider ZCode review), while live provider gates for Grok
+(`make test` / `make test-e2e` Grok leg and `make test-grok`), Cursor
+(`make test-cursor`), AGY (`make test-agy`), and Codex
+(`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) are explicitly deferred to the
+`v0.1.26` five-provider release gate.
+
 ## Composite support verification
 
 For changes to self-contained composite support, cover published P2 sources and
