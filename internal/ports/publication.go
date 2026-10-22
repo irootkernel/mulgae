@@ -217,11 +217,15 @@ func (binding IssuedFinalBinding) validate() error {
 }
 
 // ImmutablePublicationArtifact is validated immutable artifact bytes. Bytes
-// always returns a caller-owned copy.
+// always returns a caller-owned copy. The proven bit is set only by the
+// validating constructor and records that the exact-byte digest was verified
+// at construction; it is a lifetime fact about this value, never evidence
+// about any external state.
 type ImmutablePublicationArtifact struct {
 	path   SafeRelativePath
 	sha256 string
 	bytes  []byte
+	proven bool
 }
 
 // NewImmutablePublicationArtifact validates identity against exact immutable
@@ -231,6 +235,7 @@ func NewImmutablePublicationArtifact(path SafeRelativePath, sha256 string, bytes
 	if err := artifact.validate(); err != nil {
 		return ImmutablePublicationArtifact{}, fmt.Errorf("immutable publication artifact: %w", err)
 	}
+	artifact.proven = true
 	return artifact, nil
 }
 
@@ -243,7 +248,21 @@ func (artifact ImmutablePublicationArtifact) SHA256() string { return artifact.s
 // Bytes returns a caller-owned copy of the immutable artifact bytes.
 func (artifact ImmutablePublicationArtifact) Bytes() []byte { return cloneBytes(artifact.bytes) }
 
-// Valid reports whether identity and bytes are coherent.
+// ByteLength returns the exact artifact byte length without copying content.
+func (artifact ImmutablePublicationArtifact) ByteLength() int { return len(artifact.bytes) }
+
+// Equal reports whether both artifacts carry the exact same path, SHA-256,
+// and bytes. It is a byte-exact comparison, not a validity check, and never
+// copies content.
+func (artifact ImmutablePublicationArtifact) Equal(other ImmutablePublicationArtifact) bool {
+	return artifact.path == other.path && artifact.sha256 == other.sha256 &&
+		bytes.Equal(artifact.bytes, other.bytes)
+}
+
+// Valid reports whether identity and bytes are coherent. A constructor-proven
+// artifact skips only the digest recomputation its constructor already
+// performed; every other value, including the zero value and in-package
+// literals, keeps the full exact-byte verification.
 func (artifact ImmutablePublicationArtifact) Valid() bool { return artifact.validate() == nil }
 
 func (artifact ImmutablePublicationArtifact) validate() error {
@@ -256,13 +275,15 @@ func (artifact ImmutablePublicationArtifact) validate() error {
 	if len(artifact.bytes) == 0 {
 		return fmt.Errorf("bytes must be non-empty")
 	}
+	if artifact.proven {
+		return nil
+	}
 	if sha256Identifier(artifact.bytes) != artifact.sha256 {
 		return fmt.Errorf("bytes do not match SHA-256")
 	}
 	return nil
 }
 
-// FinalReviewArtifact is one immutable final review and its exact bytes.
 // AttemptArtifactKind identifies one captured provider byte stream.
 type AttemptArtifactKind string
 
@@ -330,9 +351,14 @@ func (artifact CapturedAttemptArtifact) Valid() bool {
 	return len(artifact.bytes) > 0
 }
 
+// FinalReviewArtifact is one immutable final review and its exact bytes. The
+// proven bit is set only by the validating constructor and records that the
+// exact-byte digest was verified at construction; it is a lifetime fact about
+// this value, never evidence about any external state.
 type FinalReviewArtifact struct {
 	identity FinalReviewIdentity
 	bytes    []byte
+	proven   bool
 }
 
 // NewFinalReviewArtifact validates a final identity against exact bytes and
@@ -342,6 +368,7 @@ func NewFinalReviewArtifact(identity FinalReviewIdentity, bytes []byte) (FinalRe
 	if err := artifact.validate(); err != nil {
 		return FinalReviewArtifact{}, fmt.Errorf("final review artifact: %w", err)
 	}
+	artifact.proven = true
 	return artifact, nil
 }
 
@@ -351,7 +378,21 @@ func (artifact FinalReviewArtifact) Identity() FinalReviewIdentity { return arti
 // Bytes returns a caller-owned copy of exact final review bytes.
 func (artifact FinalReviewArtifact) Bytes() []byte { return cloneBytes(artifact.bytes) }
 
-// Valid reports whether final identity and bytes are coherent.
+// ByteLength returns the exact final review byte length without copying
+// content.
+func (artifact FinalReviewArtifact) ByteLength() int { return len(artifact.bytes) }
+
+// Equal reports whether both artifacts carry the exact same identity and
+// exact same bytes. It is a byte-exact comparison, not a validity check, and
+// never copies content.
+func (artifact FinalReviewArtifact) Equal(other FinalReviewArtifact) bool {
+	return artifact.identity == other.identity && bytes.Equal(artifact.bytes, other.bytes)
+}
+
+// Valid reports whether final identity and bytes are coherent. A
+// constructor-proven artifact skips only the digest recomputation its
+// constructor already performed; every other value, including the zero value
+// and in-package literals, keeps the full exact-byte verification.
 func (artifact FinalReviewArtifact) Valid() bool { return artifact.validate() == nil }
 
 func (artifact FinalReviewArtifact) validate() error {
@@ -360,6 +401,9 @@ func (artifact FinalReviewArtifact) validate() error {
 	}
 	if len(artifact.bytes) == 0 {
 		return fmt.Errorf("bytes must be non-empty")
+	}
+	if artifact.proven {
+		return nil
 	}
 	if sha256Identifier(artifact.bytes) != artifact.identity.sha256 {
 		return fmt.Errorf("bytes do not match final SHA-256")
@@ -511,7 +555,7 @@ func (result PersistValidatedCandidateResult) validate() error {
 	}
 	if result.receipt.Destination() != result.path ||
 		result.receipt.SHA256() != result.candidate.Identity().SHA256() ||
-		result.receipt.ByteLength() != int64(len(result.candidate.Bytes())) {
+		result.receipt.ByteLength() != int64(result.candidate.ByteLength()) {
 		return fmt.Errorf("receipt does not match candidate")
 	}
 	return nil
@@ -722,7 +766,7 @@ func (result PersistAuxiliaryArtifactResult) validate() error {
 	}
 	if result.receipt.Destination() != result.artifact.Path() ||
 		result.receipt.SHA256() != result.artifact.SHA256() ||
-		result.receipt.ByteLength() != int64(len(result.artifact.Bytes())) {
+		result.receipt.ByteLength() != int64(result.artifact.ByteLength()) {
 		return fmt.Errorf("receipt does not match auxiliary artifact")
 	}
 	return nil
@@ -1421,6 +1465,7 @@ func cloneFinalReviewArtifact(artifact FinalReviewArtifact) FinalReviewArtifact 
 	return FinalReviewArtifact{
 		identity: artifact.identity,
 		bytes:    cloneBytes(artifact.bytes),
+		proven:   artifact.proven,
 	}
 }
 
@@ -1897,7 +1942,7 @@ func (request AdoptStagedFinalRequest) MaxBytes() int64 { return request.maxByte
 func (request AdoptStagedFinalRequest) validate() error {
 	if !request.run.Valid() || !request.stagedPath.Valid() || !request.binding.Valid() ||
 		!request.final.Valid() || request.maxBytes <= 0 ||
-		int64(len(request.final.Bytes())) > request.maxBytes {
+		int64(request.final.ByteLength()) > request.maxBytes {
 		return fmt.Errorf("invalid run, staged path, binding, final, or read cap")
 	}
 	if request.binding.Final() != request.final.Identity() {
@@ -2643,7 +2688,7 @@ func (prepared PreparedComposite) validate() error {
 		}
 		if receipt.Destination() != staged[index].Path() ||
 			receipt.SHA256() != staged[index].SHA256() ||
-			receipt.ByteLength() != int64(len(staged[index].Bytes())) {
+			receipt.ByteLength() != int64(staged[index].ByteLength()) {
 			return fmt.Errorf("receipt %d does not match staged artifact", index)
 		}
 	}
@@ -3095,7 +3140,7 @@ func (result CorruptionDiagnosticResult) validate() error {
 	if result.receipt.Destination() != result.diagnostic.Path() || result.receipt.SHA256() != result.diagnostic.SHA256() {
 		return fmt.Errorf("receipt does not match diagnostic identity")
 	}
-	if result.receipt.ByteLength() != int64(len(result.diagnostic.Bytes())) {
+	if result.receipt.ByteLength() != int64(result.diagnostic.ByteLength()) {
 		return fmt.Errorf("receipt byte length does not match diagnostic bytes")
 	}
 	return nil
@@ -3454,7 +3499,5 @@ func validateDiagnosticReasonCode(reasonCode string) error {
 }
 
 func sameFinalReviewArtifactIdentity(left, right FinalReviewArtifact) bool {
-	return left.Valid() && right.Valid() &&
-		left.Identity() == right.Identity() &&
-		bytes.Equal(left.Bytes(), right.Bytes())
+	return left.Valid() && right.Valid() && left.Equal(right)
 }

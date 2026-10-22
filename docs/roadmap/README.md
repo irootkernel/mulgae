@@ -32,7 +32,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-010](#epic-010-cursor-acp-review-provider) | Completed | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
 | [EPIC-012](#epic-012-correctness-and-historical-compatibility) | Completed | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
-| [EPIC-013](#epic-013-verified-operation-reuse) | Planned | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
+| [EPIC-013](#epic-013-verified-operation-reuse) | In Progress | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Planned | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 
 ## Adopted execution order
@@ -47,7 +47,7 @@ EPIC-007 or block EPIC-010 or EPIC-011.
 EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-22.
 EPIC-013 -> EPIC-014 are the remaining
-planned improvement sequence: each requires explicit acceptance of its
+improvement sequence: each requires explicit acceptance of its
 predecessor; none depends on Deferred EPIC-008. Under Master's
 quota-preservation decision,
 development and epic acceptance across EPIC-013 through EPIC-014 run the
@@ -61,8 +61,8 @@ are explicitly deferred to the `v0.1.26` release gate (`release-handler`),
 where all five providers (`zcode`, `grok`, `cursor`, `agy`, and `codex`) must
 pass on the release candidate. Record those deferred non-ZCode live checks
 explicitly at each epic handoff without claiming live coverage for unexercised
-providers. This registration is documentation only; no implementation task has
-started and a separate execution request is required.
+providers. Master requested EPIC-013 execution on 2026-10-22; EPIC-014 remains
+documentation only and requires a separate execution request.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -755,7 +755,7 @@ Master accepted the completed Epic result on 2026-10-22.
 
 ## EPIC-013: Verified operation reuse
 
-Status: Planned
+Status: In Progress
 
 Depends on: completed and explicitly accepted EPIC-012. No EPIC-008 dependency.
 
@@ -765,7 +765,7 @@ Goal: Remove repeated construction, source parsing and whole-support reads withi
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-053 | Planned | Reuse constructor-proven immutable packet and publication values without repeated hashing/copying. | Zero values, digest mismatch, nested clone/getter independence and unchanged bytes. |
+| TASK-053 | Completed | Reuse constructor-proven immutable packet and publication values without repeated hashing/copying. | Zero values, digest mismatch, nested clone/getter independence and unchanged bytes. |
 | TASK-054 | Planned | Build review-independent publication support once and preserve pre-issuance validation. | Byte equality, zero ID issuance on preflight failure, interrupted/resumed candidate binding and durable commit. |
 | TASK-055 | Planned | Share one verified read context across query, status, excerpts and report rendering. | DF-010 interleavings, corrupt-status/error preservation, fresh next-request verification and no repeated whole-support pass per excerpt. |
 | TASK-056 | Planned | Separate native path admission from source-body reads through the source port. | DF-011 and late-tool mutation controls, descriptor/protected-path safety, Close and zero admission body reads. |

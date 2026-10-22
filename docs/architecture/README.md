@@ -323,6 +323,32 @@ verified capture identity. Recovery sources retain their recovery-manifest ident
 P2 publication. Existing cleanup retention and export allowlists remain separate
 application policies; copied private content does not enter exports implicitly.
 
+## Immutable value lifetime and proof ownership
+
+Provider packets and immutable publication artifacts (`ImmutablePublicationArtifact`
+and `FinalReviewArtifact` in `internal/ports`) verify their exact-byte digest once,
+over exactly the bytes they retain, in their validating constructors. The
+unexported proof bit that records this is a lifetime fact about one in-memory
+value whose representation cannot change after construction: private storage,
+defensive copies at mutable byte boundaries, and no in-package mutation paths.
+Repeated validity checks on such a value skip only the digest recomputation its
+constructor already performed; every other value, including zero values and
+in-package literals, keeps the full exact-byte verification. The proof never
+extends to process-success classification: `ProcessObservation`,
+`ProviderExecutionObservation`, and every receipt or termination fact keep their
+complete validation, and observation getters return deep copies that own their
+packet, stdout, and stderr bytes. The proof never replaces disk, provider, or
+transport re-verification: stdin write receipts, staged-output receipts, prompt
+files, and publication store read-backs hash the actual bytes they observe.
+
+Exact equality (`Equal`) and length (`ByteLength`) accessors compare or measure
+private storage without copying content; they are byte-exact comparisons, not
+validity checks. `internal/ports` also carries a disabled-by-default counting
+seam used only by in-package tests to count digest and defensive-copy helper
+calls deterministically; each instrumented helper pays one disabled atomic load
+per call, production never enables it, and its counts are never treated as
+evidence about external state.
+
 ## Planned extension ownership
 
 EPIC-008 is held for redesign after EPIC-009. Its old capture/batch ownership

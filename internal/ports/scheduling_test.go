@@ -967,3 +967,77 @@ func (*schedulingTerminalLease) ValidateForSpawn() error { return nil }
 func (lease *schedulingTerminalLease) DrainTerminal(ctx context.Context) (ProviderNamespaceTerminalReceipt, error) {
 	return lease.drain(ctx)
 }
+
+func TestProcessRequestReuseOfProvenPacketBinding(t *testing.T) {
+	scope := beginVerificationCounting(t)
+	packet, err := NewProviderPacketFromBytes([]byte("packet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.reset()
+	stdinBinding, err := NewStdinProviderPacketBinding(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.reset()
+
+	request, err := NewProviderProcessRequest(
+		"/usr/bin/provider", []string{"/usr/bin/provider", "--request"}, nil, "/work", stdinBinding, time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("NewProviderProcessRequest digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(1); got != want {
+		t.Errorf("NewProviderProcessRequest copies = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	if !request.Valid() {
+		t.Fatal("process request reports itself invalid")
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("Valid() digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("Valid() copies = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	spooled, err := NewSpooledStdoutProcessRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("NewSpooledStdoutProcessRequest digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("NewSpooledStdoutProcessRequest copies = %d, want %d", got, want)
+	}
+
+	lifecycle, err := NewBoundedPostOutputLifecycle(ProcessOutputFramingStrictJSON, 50*time.Millisecond, 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.reset()
+	withLifecycle, err := NewProviderProcessRequestWithPostOutputLifecycle(
+		"/usr/bin/provider", []string{"/usr/bin/provider", "--request"}, nil, "/work", stdinBinding, lifecycle, time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("NewProviderProcessRequestWithPostOutputLifecycle digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(1); got != want {
+		t.Errorf("NewProviderProcessRequestWithPostOutputLifecycle copies = %d, want %d", got, want)
+	}
+	if !spooled.Valid() || !spooled.SpoolStdout() {
+		t.Fatal("spooled stdout process request is invalid or does not spool stdout")
+	}
+	if _, hasLifecycle := withLifecycle.PostOutputLifecycle(); !withLifecycle.Valid() || !hasLifecycle {
+		t.Fatal("post-output lifecycle request is invalid or lost its lifecycle policy")
+	}
+}

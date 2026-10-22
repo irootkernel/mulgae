@@ -584,7 +584,7 @@ func (service *Service) publishCandidate(
 				return PublicationResult{}, publicationFailure("publish.persist_support", domain.FailureArtifact, "store returned inconsistent run support receipt", nil)
 			}
 		}
-		readMaximum := max(service.maxBytes, int64(len(support.Bytes())))
+		readMaximum := max(service.maxBytes, int64(support.ByteLength()))
 		readRequest, err := ports.NewReadRunSupportArtifactRequest(run, support.Path(), support.SHA256(), readMaximum)
 		if err != nil {
 			return PublicationResult{}, publicationFailure("publish.verify_support", domain.FailureInternal, "run support read request is invalid", err)
@@ -1816,11 +1816,11 @@ func issuedReviewIDFromMaterial(
 	return ports.NewIssuedReviewID(candidate.Identity().ReviewID(), journal.ValidatedCandidateSHA256)
 }
 func sameFinalArtifact(left, right ports.FinalReviewArtifact) bool {
-	return left.Identity() == right.Identity() && bytes.Equal(left.Bytes(), right.Bytes())
+	return left.Equal(right)
 }
 
 func sameImmutableArtifact(left, right ports.ImmutablePublicationArtifact) bool {
-	return left.Path() == right.Path() && left.SHA256() == right.SHA256() && bytes.Equal(left.Bytes(), right.Bytes())
+	return left.Equal(right)
 }
 
 func persistedCandidateMatches(
@@ -1853,7 +1853,7 @@ func stagedFinalMatches(
 		result.Final() == expected.Identity() &&
 		result.StagedPath() == stagedPath &&
 		result.Receipt().Root() == run.Root() &&
-		result.Receipt().ByteLength() == int64(len(expected.Bytes()))
+		result.Receipt().ByteLength() == int64(expected.ByteLength())
 }
 
 func installedFinalMatches(
@@ -1864,7 +1864,7 @@ func installedFinalMatches(
 	return result.Valid() &&
 		result.Final() == expected.Identity() &&
 		result.Receipt().Root() == run.Root() &&
-		result.Receipt().ByteLength() == int64(len(expected.Bytes()))
+		result.Receipt().ByteLength() == int64(expected.ByteLength())
 }
 
 func mutableReplacementMatches(
@@ -1887,7 +1887,7 @@ func diagnosticResultMatches(
 ) bool {
 	return result.Valid() &&
 		result.Receipt().Root() == run.Root() &&
-		result.Receipt().ByteLength() == int64(len(expected.Bytes())) &&
+		result.Receipt().ByteLength() == int64(expected.ByteLength()) &&
 		sameImmutableArtifact(result.Diagnostic(), expected)
 }
 
@@ -1998,7 +1998,7 @@ func commitMatchesPreparedComposite(committed ports.CompositeCommitResult, prepa
 		if receipt.Root() != prepared.Composite().Run().Root() ||
 			receipt.Destination() != expected[index].Path() ||
 			receipt.SHA256() != expected[index].SHA256() ||
-			receipt.ByteLength() != int64(len(expected[index].Bytes())) {
+			receipt.ByteLength() != int64(expected[index].ByteLength()) {
 			return false
 		}
 	}

@@ -137,7 +137,7 @@ func VerifyLiveSourceArtifacts(live *LiveSourceMetadata, sessionID domain.Sessio
 			return err
 		}
 		artifact, ok := artifacts[path.String()]
-		if !ok || artifact.SHA256() != image.SHA256 || len(artifact.Bytes()) != image.ByteLength {
+		if !ok || artifact.SHA256() != image.SHA256 || artifact.ByteLength() != image.ByteLength {
 			return fmt.Errorf("live source support: missing or damaged binary evidence")
 		}
 		if _, err := ports.NewLiveSourceFile(sourcePath, artifact.Bytes(), image.MediaType); err != nil {

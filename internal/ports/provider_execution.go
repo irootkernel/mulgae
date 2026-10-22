@@ -361,8 +361,8 @@ func newSuccessfulProviderExecutionObservation(
 		hasProcess:         true,
 		result:             canonicalResult,
 		hasResult:          true,
-		stdout:             canonicalProcess.Stdout(),
-		stderr:             canonicalProcess.Stderr(),
+		stdout:             canonicalProcess.stdout,
+		stderr:             canonicalProcess.stderr,
 		resultIsolated:     resultIsolated,
 	}
 	if err := observation.Validate(); err != nil {
@@ -447,8 +447,8 @@ func newFailedProviderExecutionObservationWithCause(
 		diagnosticCode:     diagnosticCode,
 		primaryCause:       cause,
 		cleanupCause:       cleanupCause,
-		stdout:             canonicalProcess.Stdout(),
-		stderr:             canonicalProcess.Stderr(),
+		stdout:             canonicalProcess.stdout,
+		stderr:             canonicalProcess.stderr,
 		sessionObservation: sessionObservation,
 		hasSession:         hasSession,
 	}
@@ -494,9 +494,14 @@ func (observation ProviderExecutionObservation) Succeeded() bool {
 }
 
 // Invocation returns a defensive copy of the invocation bound to this
-// execution observation.
+// execution observation. The returned copy owns its packet bytes, so mutating
+// a returned copy cannot affect the observation.
 func (observation ProviderExecutionObservation) Invocation() ProviderInvocation {
-	invocation, _ := canonicalProviderInvocation(observation.invocation)
+	invocation, err := canonicalProviderInvocation(observation.invocation)
+	if err != nil {
+		return ProviderInvocation{}
+	}
+	invocation.packet = invocation.packet.withOwnedBytes()
 	return invocation
 }
 
@@ -882,19 +887,19 @@ func canonicalProviderInvocationIdentity(invocation ProviderInvocation) (Provide
 }
 
 func canonicalProviderResult(result ProviderResult) (ProviderResult, error) {
-	return NewProviderResultForInput(result.Stdout(), result.InputIdentity())
+	return NewProviderResultForInput(result.stdout, result.inputIdentity)
 }
 func canonicalProcessObservation(observation ProcessObservation) (ProcessObservation, error) {
 	if lifecycle, ok := observation.LifecycleReceipt(); ok {
 		if receipt, hasTransport := observation.ProviderPacketTransportReceipt(); hasTransport {
 			return NewStartedProviderProcessObservation(
-				observation.Stdout(), observation.Stderr(), observation.Termination(),
+				observation.stdout, observation.stderr, observation.Termination(),
 				observation.StdinWriteReceipt(), receipt, lifecycle,
 				observation.StartedAt(), observation.EndedAt(),
 			)
 		}
 		return NewStartedProcessObservation(
-			observation.Stdout(), observation.Stderr(), observation.Termination(),
+			observation.stdout, observation.stderr, observation.Termination(),
 			observation.StdinWriteReceipt(), lifecycle, observation.StartedAt(), observation.EndedAt(),
 		)
 	}
@@ -912,12 +917,12 @@ func canonicalProcessObservation(observation ProcessObservation) (ProcessObserva
 	}
 	if receipt, ok := observation.ProviderPacketTransportReceipt(); ok {
 		return NewProviderProcessObservation(
-			observation.Stdout(), observation.Stderr(), exitCode, observation.Termination(),
+			observation.stdout, observation.stderr, exitCode, observation.Termination(),
 			observation.StdinWriteReceipt(), receipt, observation.StartedAt(), observation.EndedAt(), signals...,
 		)
 	}
 	return NewProcessObservation(
-		observation.Stdout(), observation.Stderr(), exitCode, observation.Termination(),
+		observation.stdout, observation.stderr, exitCode, observation.Termination(),
 		observation.StdinWriteReceipt(), observation.StartedAt(), observation.EndedAt(), signals...,
 	)
 }
@@ -1010,7 +1015,7 @@ func validateProviderExecutionStdinReceipt(invocation ProviderInvocation, proces
 			return fmt.Errorf("legacy stdin receipt intended length does not match packet")
 		}
 		writtenByteCount := receipt.WrittenByteCount()
-		packet := invocation.PacketBytes()
+		packet := invocation.packet.bytes
 		if writtenByteCount < 0 || writtenByteCount > int64(len(packet)) ||
 			receipt.SHA256() != providerPacketDigest(packet[:int(writtenByteCount)]) {
 			return fmt.Errorf("legacy stdin receipt digest does not match written packet prefix")
@@ -1026,7 +1031,7 @@ func validateProviderExecutionStdinReceipt(invocation ProviderInvocation, proces
 			return fmt.Errorf("stdin receipt intended length does not match packet")
 		}
 		writtenByteCount := receipt.WrittenByteCount()
-		packet := invocation.PacketBytes()
+		packet := invocation.packet.bytes
 		if receipt.SHA256() != providerPacketDigest(packet[:int(writtenByteCount)]) {
 			return fmt.Errorf("stdin receipt digest does not match written packet prefix")
 		}

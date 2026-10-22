@@ -303,7 +303,7 @@ func (store *PublicationStore) PersistValidatedCandidate(ctx context.Context, re
 	}
 	candidate := request.Candidate()
 	canonical, err := ports.NewPersistValidatedCandidateRequest(request.Run(), candidate)
-	if err != nil || canonical.Path() != request.Path() || int64(len(candidate.Bytes())) > publicationMaximumReadBytes {
+	if err != nil || canonical.Path() != request.Path() || int64(candidate.ByteLength()) > publicationMaximumReadBytes {
 		return ports.PersistValidatedCandidateResult{}, fmt.Errorf("persist validated candidate: invalid request")
 	}
 
@@ -336,7 +336,7 @@ func (store *PublicationStore) PersistValidatedCandidate(ctx context.Context, re
 			}
 			return setUndurable(fmt.Errorf("persist validated candidate: installed but undurable: %w", writeErr))
 		}
-		file, err := readPublicationFile(request.Run().Root(), request.Path(), int64(len(candidate.Bytes())))
+		file, err := readPublicationFile(request.Run().Root(), request.Path(), int64(candidate.ByteLength()))
 		if err != nil {
 			return setUndurable(fmt.Errorf("persist validated candidate: re-read: %w", err))
 		}
@@ -424,7 +424,7 @@ func (store *PublicationStore) PersistAuxiliaryArtifact(ctx context.Context, req
 			}
 			return setUndurable(fmt.Errorf("persist auxiliary artifact: installed but undurable: %w", writeErr))
 		}
-		file, err := readPublicationFile(request.Run().Root(), artifact.Path(), int64(len(artifact.Bytes())))
+		file, err := readPublicationFile(request.Run().Root(), artifact.Path(), int64(artifact.ByteLength()))
 		if err != nil {
 			return setUndurable(fmt.Errorf("persist auxiliary artifact: re-read: %w", err))
 		}
@@ -1480,7 +1480,7 @@ func (store *PublicationStore) resumePreparedComposite(
 			if index != installed {
 				return ports.CompositeCommitResult{}, errors.New("resume prepared composite: installed members are not a canonical prefix")
 			}
-			if _, err := readPublicationFile(run.Root(), member.staged.Path(), int64(len(member.staged.Bytes()))); err == nil {
+			if _, err := readPublicationFile(run.Root(), member.staged.Path(), int64(member.staged.ByteLength())); err == nil {
 				return ports.CompositeCommitResult{}, fmt.Errorf("resume prepared composite: %s exists at both staged and destination paths", member.channel)
 			} else if !errors.Is(err, errPublicationAbsent) {
 				return ports.CompositeCommitResult{}, fmt.Errorf("resume prepared composite: inspect staged %s: %w", member.channel, err)
@@ -1489,7 +1489,7 @@ func (store *PublicationStore) resumePreparedComposite(
 			installed++
 			continue
 		}
-		file, err := readPublicationFile(run.Root(), member.staged.Path(), int64(len(member.staged.Bytes())))
+		file, err := readPublicationFile(run.Root(), member.staged.Path(), int64(member.staged.ByteLength()))
 		if err != nil {
 			return ports.CompositeCommitResult{}, fmt.Errorf("resume prepared composite: re-read staged %s: %w", member.channel, err)
 		}
@@ -1845,7 +1845,7 @@ func (store *PublicationStore) WriteCorruptionDiagnostic(ctx context.Context, re
 		return ports.CorruptionDiagnosticResult{}, err
 	}
 	if !request.Valid() ||
-		int64(len(request.Diagnostic().Bytes())) > publicationMaximumReadBytes {
+		int64(request.Diagnostic().ByteLength()) > publicationMaximumReadBytes {
 		return ports.CorruptionDiagnosticResult{}, fmt.Errorf("write corruption diagnostic: invalid request")
 	}
 
@@ -2946,7 +2946,7 @@ func validatePrepareCompositeRequest(request ports.PrepareCompositeRequest) erro
 		composite.LineageEdge(),
 		composite.Epoch().Record(),
 	} {
-		if int64(len(artifact.Bytes())) > publicationMaximumReadBytes {
+		if int64(artifact.ByteLength()) > publicationMaximumReadBytes {
 			return errPublicationCap
 		}
 	}
@@ -4179,7 +4179,7 @@ func publicationRecoveredPreparedReceipts(
 			run.Root(),
 			member.artifact.Path(),
 			member.artifact.SHA256(),
-			int64(len(member.artifact.Bytes())),
+			int64(member.artifact.ByteLength()),
 			member.channel,
 			[]string{member.channel},
 		)

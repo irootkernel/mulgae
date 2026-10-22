@@ -1803,3 +1803,112 @@ func TestProviderExecutionTransportReceiptBindsPacketInsteadOfPipe(t *testing.T)
 		t.Fatal("legacy pre-start receipt claimed packet delivery")
 	}
 }
+
+func TestProviderExecutionObservationReusesProvenPacket(t *testing.T) {
+	stdin := []byte("complete provider stdin")
+	stdout := []byte(`{"findings":[]}`)
+	stderr := []byte("safe diagnostic")
+
+	// Legacy stdin transport: no packet transport receipt is bound, so the only
+	// packet digest inside the observation is the stdin write-receipt prefix
+	// verification.
+	scope := beginVerificationCounting(t)
+	invocation := newProviderExecutionTestInvocationWithStdin(t, stdin)
+	process := newProviderExecutionTestProcess(
+		t, stdout, stderr, providerExecutionTestExitCode(0), ProcessTerminationExited,
+		completeProviderExecutionReceipt(t, invocation),
+		providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+	)
+	result := newProviderExecutionTestResult(t, invocation, stdout)
+	scope.reset()
+
+	observation, err := NewSuccessfulProviderExecutionObservation(invocation, result, process)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.packetDigests(), int64(1); got != want {
+		t.Errorf("legacy stdin construction digests = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	if err := observation.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.packetDigests(), int64(1); got != want {
+		t.Errorf("legacy stdin Validate() digests = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	returnedInvocation := observation.Invocation()
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("Invocation() digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(1); got != want {
+		t.Errorf("Invocation() copies = %d, want %d", got, want)
+	}
+	if got := returnedInvocation.Stdin(); !bytes.Equal(got, stdin) {
+		t.Fatalf("Invocation().Stdin() = %q", got)
+	}
+
+	scope.reset()
+	returnedResult, ok := observation.Result()
+	if !ok {
+		t.Fatal("Result() missing")
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("Result() digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(1); got != want {
+		t.Errorf("Result() copies = %d, want %d", got, want)
+	}
+	if got := returnedResult.Stdout(); !bytes.Equal(got, stdout) {
+		t.Fatalf("Result().Stdout() = %q", got)
+	}
+
+	// Protocol packet channel: the packet travels inside protocol frames, so
+	// observation construction verifies receipt completeness only and performs
+	// no packet digest at all.
+	packetIdentity, err := NewProviderPacketIdentity(len(invocation.Stdin()), invocation.CompleteStdinSHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := NewProviderPacketTransportReceipt(
+		ProviderPacketChannelProtocol, packetIdentity, "", "",
+		ProviderPacketIdentity{}, ProviderPacketIdentity{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := NewExitedProcessFinalTermination(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := NewProcessLifecycleReceipt(final, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeStdin, err := NewStdinWriteReceipt(0, 0, providerTestDigest(nil), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocolProcess, err := NewStartedProviderProcessObservation(
+		[]byte("protocol transcript"), nil, ProcessTerminationExited, completeStdin, transport, lifecycle,
+		providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocolResult := newProviderExecutionTestResult(t, invocation, []byte("structured report"))
+	scope.reset()
+
+	isolated, err := NewIsolatedSuccessfulProviderExecutionObservation(invocation, protocolResult, protocolProcess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("protocol construction digests = %d, want %d", got, want)
+	}
+	if !isolated.Succeeded() {
+		t.Fatal("protocol observation is not successful")
+	}
+}

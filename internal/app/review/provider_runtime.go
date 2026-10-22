@@ -699,7 +699,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			return runtimeObservedCondition(job, observedStatusCondition(observation.Status(), observation.PrimaryCause()), observation, providerElapsed)
 		}
 		result, ok := observation.Result()
-		if !ok || result.StdinByteLength() != len(material.Prompt.Stdin()) || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
+		if !ok || result.StdinByteLength() != material.Prompt.CompleteStdinByteLength() || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
 			return runtimeCondition(job, AttemptConditionSecurityViolation)
 		}
 		transport = observation.OutputTransport()
@@ -713,7 +713,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		}
 		stdout = result.Stdout()
 		rawStdout = stdout
-		if result.StdinByteLength() != len(material.Prompt.Stdin()) || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
+		if result.StdinByteLength() != material.Prompt.CompleteStdinByteLength() || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
 			return runtimeCondition(job, AttemptConditionSecurityViolation)
 		}
 	}
@@ -1706,8 +1706,7 @@ func sameProviderInvocation(left, right ports.ProviderInvocation) bool {
 		left.Purpose() != right.Purpose() ||
 		left.SourceInvocationID() != right.SourceInvocationID() ||
 		left.ExecutionInvocationID() != right.ExecutionInvocationID() ||
-		left.CompleteStdinSHA256() != right.CompleteStdinSHA256() ||
-		string(left.Stdin()) != string(right.Stdin()) {
+		!left.Packet().Equal(right.Packet()) {
 		return false
 	}
 	leftDestination, leftHasStaged := left.StagedOutputDestination()

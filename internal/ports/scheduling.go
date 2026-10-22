@@ -496,9 +496,12 @@ func NewProtocolProviderPacketBinding(packet ProviderPacket) (ProviderPacketBind
 }
 
 func (binding ProviderPacketBinding) Channel() ProviderPacketChannel { return binding.channel }
+
+// Packet returns the bound packet. The returned value shares no mutable
+// surface with callers: packet bytes remain reachable only through
+// Packet.Bytes, which returns a caller-owned copy.
 func (binding ProviderPacketBinding) Packet() ProviderPacket {
-	packet, _ := NewProviderPacket(binding.packet.Bytes(), binding.packet.Identity().CompleteSHA256())
-	return packet
+	return binding.packet
 }
 func (binding ProviderPacketBinding) PacketIdentity() ProviderPacketIdentity {
 	return binding.packet.Identity()
@@ -621,7 +624,9 @@ func NewProviderProcessRequest(
 ) (ProcessRequest, error) {
 	var stdin []byte
 	if binding.Channel() == ProviderPacketChannelStdin {
-		stdin = binding.Packet().Bytes()
+		// NewProcessRequest retains its own defensive copy, so the binding's
+		// private packet storage can be passed directly without an extra copy.
+		stdin = binding.packet.bytes
 	}
 	request, err := NewProcessRequest(
 		executable,
@@ -737,7 +742,7 @@ func validateProviderPacketRequestBinding(request ProcessRequest, binding Provid
 	if !binding.Valid() {
 		return fmt.Errorf("invalid packet binding")
 	}
-	packetBytes := binding.Packet().Bytes()
+	packetBytes := binding.packet.bytes
 	packet := string(packetBytes)
 	packetOccurrences := 0
 	for _, argument := range request.argv {

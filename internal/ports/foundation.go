@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"unicode"
 	"unicode/utf8"
 )
@@ -951,12 +952,43 @@ func isLowerHex(character rune) bool {
 	return character >= '0' && character <= '9' || character >= 'a' && character <= 'f'
 }
 
+// Verification counting is a disabled-by-default instrumentation hook used
+// only by in-package tests to count exact-byte digest computations and
+// defensive byte-copy helper calls deterministically. Each instrumented helper
+// pays one disabled atomic load per call; production never enables counting,
+// and the counts never serve as evidence about external state.
+var verificationCounting atomic.Bool
+
+var providerPacketDigestCalls atomic.Int64
+var sha256IdentifierCalls atomic.Int64
+var cloneBytesCalls atomic.Int64
+
+func noteProviderPacketDigest() {
+	if verificationCounting.Load() {
+		providerPacketDigestCalls.Add(1)
+	}
+}
+
+func noteSha256Identifier() {
+	if verificationCounting.Load() {
+		sha256IdentifierCalls.Add(1)
+	}
+}
+
+func noteCloneBytes() {
+	if verificationCounting.Load() {
+		cloneBytesCalls.Add(1)
+	}
+}
+
 func sha256Identifier(bytes []byte) string {
+	noteSha256Identifier()
 	sum := sha256.Sum256(bytes)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func cloneBytes(value []byte) []byte {
+	noteCloneBytes()
 	if value == nil {
 		return nil
 	}

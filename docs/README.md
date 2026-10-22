@@ -67,11 +67,12 @@ has completed its member Tasks (`TASK-046` through `TASK-052`), the
 deterministic gates, and ZCode-only live certification, with its durable
 outcomes promoted to the canonical documents and roadmap; Master accepted the
 completed Epic result on 2026-10-22. The
-remaining planned structural improvement sequence is
+remaining structural improvement sequence is
 [EPIC-013 verified operation reuse](todo/EPIC-013-verified-operation-reuse.md), then
 [EPIC-014 application and contract ownership](todo/EPIC-014-application-and-contract-ownership.md).
-These dossiers describe future implementation and verification; current runtime
-contracts remain unchanged. The roadmap owns their dependencies and status.
+These dossiers describe the remaining implementation and verification;
+current runtime contracts remain unchanged. The roadmap owns their dependencies
+and status.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The

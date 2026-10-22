@@ -1,6 +1,7 @@
 package ports
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -108,34 +109,70 @@ func (identity ProviderPacketIdentity) Valid() bool {
 	return err == nil
 }
 
-// ProviderPacket is immutable complete provider input.
+// ProviderPacket is immutable complete provider input. The proven bit is set
+// only by a validating constructor and records that the complete digest was
+// verified over exactly the retained bytes; it is a lifetime fact about this
+// value, never evidence about any external state.
 type ProviderPacket struct {
 	bytes    []byte
 	identity ProviderPacketIdentity
+	proven   bool
 }
 
 // NewProviderPacketFromBytes constructs the canonical v1 packet identity from
-// the complete bytes. Callers that do not already possess a trusted v1 digest
-// should use this constructor rather than reproducing the domain separator.
+// the complete bytes in a single digest computation. Callers that do not
+// already possess a trusted v1 digest should use this constructor rather than
+// reproducing the domain separator.
 func NewProviderPacketFromBytes(bytes []byte) (ProviderPacket, error) {
-	return NewProviderPacket(bytes, providerPacketDigest(bytes))
+	retained := cloneBytes(bytes)
+	identity, err := NewProviderPacketIdentity(len(retained), providerPacketDigest(retained))
+	if err != nil {
+		return ProviderPacket{}, err
+	}
+	return ProviderPacket{bytes: retained, identity: identity, proven: true}, nil
 }
 
 // NewProviderPacket retains a defensive copy and validates its v1 identity.
+// The digest is verified over exactly the retained copy, and the returned
+// packet carries the constructor-owned proof of that verification.
 func NewProviderPacket(bytes []byte, completeSHA256 string) (ProviderPacket, error) {
 	identity, err := NewProviderPacketIdentity(len(bytes), completeSHA256)
 	if err != nil {
 		return ProviderPacket{}, err
 	}
-	if providerPacketDigest(bytes) != identity.completeSHA256 {
+	retained := cloneBytes(bytes)
+	if providerPacketDigest(retained) != identity.completeSHA256 {
 		return ProviderPacket{}, fmt.Errorf("provider packet: complete SHA-256 does not match bytes")
 	}
-	return ProviderPacket{bytes: cloneBytes(bytes), identity: identity}, nil
+	return ProviderPacket{bytes: retained, identity: identity, proven: true}, nil
 }
 
 func (packet ProviderPacket) Bytes() []byte                    { return cloneBytes(packet.bytes) }
 func (packet ProviderPacket) Identity() ProviderPacketIdentity { return packet.identity }
+
+// Equal reports whether both packets carry the exact same identity and exact
+// same bytes. It is a byte-exact comparison, not a validity check, and never
+// copies content.
+func (packet ProviderPacket) Equal(other ProviderPacket) bool {
+	return packet.identity == other.identity && bytes.Equal(packet.bytes, other.bytes)
+}
+
+// withOwnedBytes returns an equivalent packet whose byte storage is privately
+// owned, preserving the constructor ownership promise for getters that hand
+// out independently mutable copies.
+func (packet ProviderPacket) withOwnedBytes() ProviderPacket {
+	packet.bytes = cloneBytes(packet.bytes)
+	return packet
+}
+
+// Valid reports whether the packet is coherent. A constructor-proven packet
+// skips only the digest recomputation its constructor already performed; every
+// other value, including the zero value and in-package literals, keeps the
+// full exact-byte verification.
 func (packet ProviderPacket) Valid() bool {
+	if packet.proven {
+		return packet.identity.Valid() && len(packet.bytes) == packet.identity.byteLength
+	}
 	canonical, err := NewProviderPacket(packet.bytes, packet.identity.completeSHA256)
 	return err == nil && canonical.identity == packet.identity
 }
@@ -176,8 +213,7 @@ func NewProviderInvocationWithPacket(
 	if err := validateProviderInvocationID(executionInvocationID, ""); err != nil {
 		return ProviderInvocation{}, fmt.Errorf("provider invocation: invalid execution invocation ID: %w", err)
 	}
-	canonicalPacket, _ := NewProviderPacket(packet.Bytes(), packet.Identity().CompleteSHA256())
-	return ProviderInvocation{role: role, providerInstance: providerInstance, attemptID: attemptID, purpose: purpose, packet: canonicalPacket, sourceInvocationID: sourceInvocationID, executionInvocationID: executionInvocationID}, nil
+	return ProviderInvocation{role: role, providerInstance: providerInstance, attemptID: attemptID, purpose: purpose, packet: packet, sourceInvocationID: sourceInvocationID, executionInvocationID: executionInvocationID}, nil
 }
 
 // NewProviderInvocationWithPacketInWorkspace binds a provider invocation to the
@@ -242,9 +278,12 @@ func (invocation ProviderInvocation) Role() domain.Role                  { retur
 func (invocation ProviderInvocation) ProviderInstance() string           { return invocation.providerInstance }
 func (invocation ProviderInvocation) AttemptID() domain.AttemptID        { return invocation.attemptID }
 func (invocation ProviderInvocation) Purpose() ProviderInvocationPurpose { return invocation.purpose }
+
+// Packet returns the invocation's complete provider packet. The returned
+// value shares no mutable surface with callers: packet bytes remain reachable
+// only through Packet.Bytes, which returns a caller-owned copy.
 func (invocation ProviderInvocation) Packet() ProviderPacket {
-	packet, _ := NewProviderPacket(invocation.packet.Bytes(), invocation.packet.Identity().CompleteSHA256())
-	return packet
+	return invocation.packet
 }
 func (invocation ProviderInvocation) PacketBytes() []byte { return invocation.packet.Bytes() }
 func (invocation ProviderInvocation) InputIdentity() ProviderPacketIdentity {
@@ -424,6 +463,7 @@ func validateRawSHA256(value string) error {
 	return nil
 }
 func providerPacketDigest(packet []byte) string {
+	noteProviderPacketDigest()
 	hash := sha256.New()
 	_, _ = hash.Write([]byte("Mulgae-PROVIDER-STDIN/1"))
 	_, _ = hash.Write([]byte{0})

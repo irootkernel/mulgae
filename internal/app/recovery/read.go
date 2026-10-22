@@ -145,7 +145,7 @@ func readArtifact(ctx context.Context, store ports.RunSupportArtifactStore, run 
 	if err != nil {
 		return ports.ImmutablePublicationArtifact{}, err
 	}
-	if artifact.Path() != path || !artifact.Valid() || hash != "" && artifact.SHA256() != hash || int64(len(artifact.Bytes())) > maximum {
+	if artifact.Path() != path || !artifact.Valid() || hash != "" && artifact.SHA256() != hash || int64(artifact.ByteLength()) > maximum {
 		return ports.ImmutablePublicationArtifact{}, fmt.Errorf("recovery read: artifact identity or size mismatch")
 	}
 	return artifact, nil

@@ -1452,3 +1452,384 @@ func publicationTestCorruptionCAS(t *testing.T, epoch uint64, reasons []string) 
 	}
 	return cas
 }
+
+func TestImmutablePublicationArtifactProofAndByteLength(t *testing.T) {
+	path := publicationTestPath(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/support/example.json")
+	payload := []byte(`{"support":true}`)
+	digest := sha256Identifier(payload)
+
+	scope := beginVerificationCounting(t)
+	artifact, err := NewImmutablePublicationArtifact(path, digest, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.artifactDigests(), int64(1); got != want {
+		t.Errorf("artifact construction digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(1); got != want {
+		t.Errorf("artifact construction copies = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	if !artifact.Valid() {
+		t.Fatal("constructed artifact reports itself invalid")
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("Valid() digests = %d, want %d", got, want)
+	}
+
+	// An in-package literal is never proof-carrying: a coherent literal still
+	// validates (and pays its own digest), a mismatched literal stays invalid.
+	coherent := ImmutablePublicationArtifact{path: path, sha256: digest, bytes: payload}
+	scope.reset()
+	if !coherent.Valid() {
+		t.Fatal("coherent unproven artifact literal reports itself invalid")
+	}
+	if got, want := scope.artifactDigests(), int64(1); got != want {
+		t.Errorf("coherent literal Valid() digests = %d, want %d", got, want)
+	}
+	scope.reset()
+	mismatchedDigest := sha256Identifier([]byte("different"))
+	scope.reset()
+	if (ImmutablePublicationArtifact{path: path, sha256: mismatchedDigest, bytes: payload}).Valid() {
+		t.Fatal("mismatched artifact literal is valid")
+	}
+	if got, want := scope.artifactDigests(), int64(1); got != want {
+		t.Errorf("mismatched literal Valid() digests = %d, want %d", got, want)
+	}
+	if (ImmutablePublicationArtifact{}).Valid() {
+		t.Fatal("zero artifact is valid")
+	}
+
+	if got := artifact.ByteLength(); got != len(payload) {
+		t.Fatalf("ByteLength() = %d, want %d", got, len(payload))
+	}
+	sameContent, err := NewImmutablePublicationArtifact(path, digest, []byte(`{"support":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentBytes, err := NewImmutablePublicationArtifact(path, sha256Identifier([]byte(`{"support":false}`)), []byte(`{"support":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPath := publicationTestPath(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/support/other.json")
+	secondDigest := sha256Identifier([]byte("second"))
+	scope.reset()
+	if got := artifact.ByteLength(); got != len(payload) {
+		t.Fatalf("ByteLength() = %d, want %d", got, len(payload))
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("ByteLength() copies = %d, want %d", got, want)
+	}
+	if !artifact.Equal(sameContent) {
+		t.Fatal("artifacts with the same path, digest, and bytes are not equal")
+	}
+	if artifact.Equal(differentBytes) {
+		t.Fatal("artifacts with different bytes are equal")
+	}
+	if !(ImmutablePublicationArtifact{}).Equal(ImmutablePublicationArtifact{}) {
+		t.Fatal("zero artifacts are not equal")
+	}
+
+	// Equal is pinned on identity metadata and bytes separately; the literals
+	// are deliberately unproven and may be invalid because Equal never
+	// consults validity.
+	if (ImmutablePublicationArtifact{path: path, sha256: digest, bytes: []byte("aaaa")}).Equal(
+		ImmutablePublicationArtifact{path: path, sha256: digest, bytes: []byte("bbbb")},
+	) {
+		t.Fatal("artifacts with the same path and digest but different bytes are equal")
+	}
+	if (ImmutablePublicationArtifact{path: path, sha256: digest, bytes: payload}).Equal(
+		ImmutablePublicationArtifact{path: secondPath, sha256: digest, bytes: payload},
+	) {
+		t.Fatal("artifacts with the same bytes and digest but different paths are equal")
+	}
+	if (ImmutablePublicationArtifact{path: path, sha256: digest, bytes: payload}).Equal(
+		ImmutablePublicationArtifact{path: path, sha256: secondDigest, bytes: payload},
+	) {
+		t.Fatal("artifacts with the same bytes and path but different digests are equal")
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("Equal digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("Equal copies = %d, want %d", got, want)
+	}
+
+	// Behavioral ownership: mutating the caller's input slice or a returned
+	// copy cannot change the artifact's bytes or validity.
+	mutationPayload := []byte(`{"mutation":true}`)
+	mutated, err := NewImmutablePublicationArtifact(path, sha256Identifier(mutationPayload), mutationPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutationPayload[0] = 'x'
+	if got := mutated.Bytes(); string(got) != `{"mutation":true}` {
+		t.Fatalf("Bytes() after source mutation = %s", got)
+	}
+	if !mutated.Valid() {
+		t.Fatal("artifact invalid after source mutation")
+	}
+	returned := mutated.Bytes()
+	returned[0] = 'y'
+	if got := mutated.Bytes(); string(got) != `{"mutation":true}` {
+		t.Fatalf("Bytes() after getter mutation = %s", got)
+	}
+	if !mutated.Valid() {
+		t.Fatal("artifact invalid after getter mutation")
+	}
+}
+
+func TestFinalReviewArtifactProofAndExactEquality(t *testing.T) {
+	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v1"}`)
+	identity := publicationTestFinal(t, finalBytes)
+
+	scope := beginVerificationCounting(t)
+	artifact, err := NewFinalReviewArtifact(identity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.artifactDigests(), int64(1); got != want {
+		t.Errorf("final artifact construction digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(1); got != want {
+		t.Errorf("final artifact construction copies = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	if !artifact.Valid() {
+		t.Fatal("constructed final artifact reports itself invalid")
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("Valid() digests = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	cloned := cloneFinalReviewArtifact(artifact)
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("cloneFinalReviewArtifact digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(1); got != want {
+		t.Errorf("cloneFinalReviewArtifact copies = %d, want %d", got, want)
+	}
+	scope.reset()
+	if !cloned.Valid() {
+		t.Fatal("cloned final artifact reports itself invalid")
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("cloned Valid() digests = %d, want %d", got, want)
+	}
+
+	// In-package literals are never proof-carrying: the zero value is invalid,
+	// a coherent literal validates with its own digest, and a mismatched
+	// identity stays invalid.
+	mismatchedPayload := []byte(`{"schema_version":"mulgae-final-other.v1"}`)
+	mismatchedIdentity := publicationTestFinal(t, mismatchedPayload)
+	if (FinalReviewArtifact{}).Valid() {
+		t.Fatal("zero final artifact is valid")
+	}
+	scope.reset()
+	if !(FinalReviewArtifact{identity: identity, bytes: finalBytes}).Valid() {
+		t.Fatal("coherent unproven final artifact literal is invalid")
+	}
+	if got, want := scope.artifactDigests(), int64(1); got != want {
+		t.Errorf("coherent final literal Valid() digests = %d, want %d", got, want)
+	}
+	scope.reset()
+	if (FinalReviewArtifact{identity: mismatchedIdentity, bytes: finalBytes}).Valid() {
+		t.Fatal("mismatched final artifact literal is valid")
+	}
+	if got, want := scope.artifactDigests(), int64(1); got != want {
+		t.Errorf("mismatched final literal Valid() digests = %d, want %d", got, want)
+	}
+
+	if got := artifact.ByteLength(); got != len(finalBytes) {
+		t.Fatalf("ByteLength() = %d, want %d", got, len(finalBytes))
+	}
+	sameContent, err := NewFinalReviewArtifact(identity, []byte(`{"schema_version":"mulgae-review-artifact.v1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentPayload := []byte(`{"schema_version":"mulgae-review-artifact.v1","x":true}`)
+	differentBytes, err := NewFinalReviewArtifact(publicationTestFinal(t, differentPayload), differentPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.reset()
+	if !artifact.Equal(sameContent) {
+		t.Fatal("final artifacts with the same identity and bytes are not equal")
+	}
+	if artifact.Equal(differentBytes) {
+		t.Fatal("final artifacts with different bytes are equal")
+	}
+	if !artifact.Equal(cloned) {
+		t.Fatal("a cloned final artifact is not equal to its source")
+	}
+	if !(FinalReviewArtifact{}).Equal(FinalReviewArtifact{}) {
+		t.Fatal("zero final artifacts are not equal")
+	}
+
+	// Equal is pinned on identity and bytes separately; the literals are
+	// deliberately unproven and may be invalid because Equal never consults
+	// validity.
+	if (FinalReviewArtifact{identity: identity, bytes: []byte("aaaa")}).Equal(
+		FinalReviewArtifact{identity: identity, bytes: []byte("bbbb")},
+	) {
+		t.Fatal("final artifacts with the same identity but different bytes are equal")
+	}
+	if (FinalReviewArtifact{identity: identity, bytes: []byte("cccc")}).Equal(
+		FinalReviewArtifact{identity: mismatchedIdentity, bytes: []byte("cccc")},
+	) {
+		t.Fatal("final artifacts with the same bytes but different identities are equal")
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("Equal digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("Equal copies = %d, want %d", got, want)
+	}
+
+	// Behavioral ownership: mutating the caller's input slice or a returned
+	// copy cannot change the final artifact's bytes or validity.
+	mutationPayload := []byte(`{"schema_version":"mulgae-final-mutation.v1"}`)
+	mutated, err := NewFinalReviewArtifact(publicationTestFinal(t, mutationPayload), mutationPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutationPayload[0] = 'x'
+	if got := mutated.Bytes(); string(got) != `{"schema_version":"mulgae-final-mutation.v1"}` {
+		t.Fatalf("Bytes() after source mutation = %s", got)
+	}
+	if !mutated.Valid() {
+		t.Fatal("final artifact invalid after source mutation")
+	}
+	returned := mutated.Bytes()
+	returned[0] = 'y'
+	if got := mutated.Bytes(); string(got) != `{"schema_version":"mulgae-final-mutation.v1"}` {
+		t.Fatalf("Bytes() after getter mutation = %s", got)
+	}
+	if !mutated.Valid() {
+		t.Fatal("final artifact invalid after getter mutation")
+	}
+}
+
+func TestSameFinalReviewArtifactIdentityRequiresValidExactArtifacts(t *testing.T) {
+	finalBytes := []byte(`{"schema_version":"mulgae-review-artifact.v1"}`)
+	identity := publicationTestFinal(t, finalBytes)
+	differentPayload := []byte(`{"schema_version":"mulgae-review-other.v1"}`)
+
+	scope := beginVerificationCounting(t)
+	left, err := NewFinalReviewArtifact(identity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := NewFinalReviewArtifact(identity, []byte(`{"schema_version":"mulgae-review-artifact.v1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	different, err := NewFinalReviewArtifact(publicationTestFinal(t, differentPayload), differentPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.reset()
+
+	if !sameFinalReviewArtifactIdentity(left, right) {
+		t.Fatal("equal valid final artifacts do not share identity")
+	}
+	if sameFinalReviewArtifactIdentity(left, different) {
+		t.Fatal("final artifacts with different bytes share identity")
+	}
+	if sameFinalReviewArtifactIdentity(left, FinalReviewArtifact{}) {
+		t.Fatal("an invalid right final artifact shares identity")
+	}
+	if sameFinalReviewArtifactIdentity(FinalReviewArtifact{}, left) {
+		t.Fatal("an invalid left final artifact shares identity")
+	}
+	// Two equal-but-invalid artifacts must still be refused: Equal alone is
+	// true for this pair, so only the Valid() conjuncts reject it.
+	if sameFinalReviewArtifactIdentity(FinalReviewArtifact{}, FinalReviewArtifact{}) {
+		t.Fatal("two invalid final artifacts share identity")
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("sameFinalReviewArtifactIdentity digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("sameFinalReviewArtifactIdentity copies = %d, want %d", got, want)
+	}
+}
+
+func TestCompositeValidationReusesConstructorProof(t *testing.T) {
+	run := publicationTestRun(t)
+	final := publicationTestFinal(t, []byte(`{"schema_version":"mulgae-review-artifact.v1"}`))
+	manifestBytes := []byte(`{"schema_version":"mulgae-run-manifest.v1"}`)
+	lineageBytes := []byte(`{"schema_version":"mulgae-lineage-edge.v1"}`)
+	epochBytes := []byte(`{"schema_version":"mulgae-publication-epoch.v1"}`)
+
+	scope := beginVerificationCounting(t)
+	manifest := publicationTestArtifact(t, publicationTestPath(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf/r_019f596a-cfe4-7c9c-b82e-7149158243ba/manifest.json"), manifestBytes)
+	lineage := publicationTestArtifact(t, publicationTestPath(t, "store/lineage-edges/e_019f596a-d174-7321-b920-c2d312c82cc2.json"), lineageBytes)
+	epochRecord := publicationTestArtifact(t, publicationTestPath(t, "store/epochs/epoch_00000000000000000001.json"), epochBytes)
+	epoch, err := NewPublicationEpoch(1, epochRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberConstructionDigests := scope.artifactDigests()
+	scope.reset()
+
+	commit, err := NewCommitCompositeRequest(run, final, manifest, lineage, epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("NewCommitCompositeRequest digests = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	prepare, err := NewPrepareCompositeRequest(commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("NewPrepareCompositeRequest digests = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	stagedManifest := publicationTestArtifact(t, prepare.StagedManifestPath(), manifestBytes)
+	stagedLineage := publicationTestArtifact(t, prepare.StagedLineageEdgePath(), lineageBytes)
+	stagedEpoch := publicationTestArtifact(t, prepare.StagedEpochPath(), epochBytes)
+	// The fixture helper digests each artifact itself before the constructor
+	// verifies it, so staged construction always measures 6. The committed
+	// member stage (memberConstructionDigests) measured 7 before this change
+	// (6 fixture digests plus the epoch record revalidation) and 6 after.
+	if got, want := scope.artifactDigests(), memberConstructionDigests; got != want {
+		t.Errorf("staged member construction digests = %d, want %d (same as committed member construction)", got, want)
+	}
+	receipts := []SecureWriteReceipt{
+		publicationTestReceipt(t, prepare.StagedManifestPath(), manifestBytes),
+		publicationTestReceipt(t, prepare.StagedLineageEdgePath(), lineageBytes),
+		publicationTestReceipt(t, prepare.StagedEpochPath(), epochBytes),
+	}
+	scope.reset()
+
+	prepared, err := NewPreparedComposite(prepare, stagedManifest, stagedLineage, stagedEpoch, receipts, CompositePreparationDurable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("NewPreparedComposite digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("NewPreparedComposite copies = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	if !prepared.Valid() {
+		t.Fatal("prepared composite reports itself invalid")
+	}
+	if got, want := scope.artifactDigests(), int64(0); got != want {
+		t.Errorf("prepared.Valid() digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("prepared.Valid() copies = %d, want %d", got, want)
+	}
+}

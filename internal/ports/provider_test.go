@@ -368,3 +368,169 @@ func TestProviderPacketContractPreservesV1IdentityAndLegacyAliases(t *testing.T)
 		})
 	}
 }
+
+func TestProviderPacketValidAvoidsRehashAfterConstruction(t *testing.T) {
+	payload := []byte("complete provider stdin")
+	wantDigest := providerTestDigest(payload)
+
+	scope := beginVerificationCounting(t)
+	packet, err := NewProviderPacketFromBytes(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.packetDigests(), int64(1); got != want {
+		t.Errorf("NewProviderPacketFromBytes digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(1); got != want {
+		t.Errorf("NewProviderPacketFromBytes copies = %d, want %d", got, want)
+	}
+	if got := packet.Identity(); got.ByteLength() != len(payload) || got.CompleteSHA256() != wantDigest {
+		t.Fatalf("packet identity = %#v, want length %d digest %q", got, len(payload), wantDigest)
+	}
+
+	// The digest is verified over the retained clone, so mutating the caller's
+	// input slice cannot change the packet's bytes, identity, or validity.
+	payload[0] = 'x'
+	if got := packet.Bytes(); !bytes.Equal(got, []byte("complete provider stdin")) {
+		t.Fatalf("Bytes() after source mutation = %q", got)
+	}
+	if got := packet.Identity(); got.ByteLength() != len(payload) || got.CompleteSHA256() != wantDigest {
+		t.Fatalf("identity after source mutation = %#v", got)
+	}
+	if !packet.Valid() {
+		t.Fatal("valid packet reports itself invalid after source mutation")
+	}
+	payload[0] = 'c'
+
+	scope.reset()
+	if !packet.Valid() {
+		t.Fatal("constructed packet reports itself invalid")
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("Valid() digests = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	invocation, err := NewProviderInvocationWithPacket(
+		domain.RoleSecurity, "kimi-main", providerTestAttempt(t), ProviderInvocationInitial, packet,
+		providerTestSourceID, providerTestExecutionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("NewProviderInvocationWithPacket digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("NewProviderInvocationWithPacket copies = %d, want %d", got, want)
+	}
+
+	scope.reset()
+	returned := invocation.Packet()
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("Packet() digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("Packet() copies = %d, want %d", got, want)
+	}
+	if got := returned.Bytes(); !bytes.Equal(got, []byte("complete provider stdin")) {
+		t.Fatalf("Packet().Bytes() = %q", got)
+	}
+
+	// In-package literals are never proof-carrying: they keep the full
+	// exact-byte verification, paying exactly one packet digest.
+	literalBytes := []byte("unproven literal payload")
+	coherentIdentity, err := NewProviderPacketIdentity(len(literalBytes), providerTestDigest(literalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatchedIdentity, err := NewProviderPacketIdentity(len(literalBytes), providerTestDigest([]byte("different bytes")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.reset()
+	mismatched := ProviderPacket{bytes: literalBytes, identity: mismatchedIdentity}
+	if mismatched.Valid() {
+		t.Fatal("mismatched unproven packet literal is valid")
+	}
+	if got, want := scope.packetDigests(), int64(1); got != want {
+		t.Errorf("mismatched literal Valid() digests = %d, want %d", got, want)
+	}
+	scope.reset()
+	coherent := ProviderPacket{bytes: literalBytes, identity: coherentIdentity}
+	if !coherent.Valid() {
+		t.Fatal("coherent unproven packet literal is invalid")
+	}
+	if got, want := scope.packetDigests(), int64(1); got != want {
+		t.Errorf("coherent literal Valid() digests = %d, want %d", got, want)
+	}
+	scope.reset()
+	if _, err := NewProviderInvocationWithPacket(
+		domain.RoleSecurity, "kimi-main", providerTestAttempt(t), ProviderInvocationInitial, mismatched,
+		providerTestSourceID, providerTestExecutionID,
+	); err == nil {
+		t.Fatal("NewProviderInvocationWithPacket accepted a mismatched unproven packet literal")
+	}
+	if got, want := scope.packetDigests(), int64(1); got != want {
+		t.Errorf("NewProviderInvocationWithPacket rejection digests = %d, want %d", got, want)
+	}
+
+	if (ProviderPacket{}).Valid() {
+		t.Fatal("zero packet is valid")
+	}
+}
+
+func TestProviderPacketEqualComparesExactBytesWithoutCopying(t *testing.T) {
+	payload := []byte("exact packet payload")
+	otherPayload := []byte("exact packet payloaX")
+
+	scope := beginVerificationCounting(t)
+	left, err := NewProviderPacketFromBytes(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameContent, err := NewProviderPacketFromBytes([]byte("exact packet payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := NewProviderPacketFromBytes(otherPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope.reset()
+
+	if !left.Equal(sameContent) {
+		t.Fatal("packets built from the same bytes are not equal")
+	}
+	if left.Equal(changed) {
+		t.Fatal("packets with different bytes are equal")
+	}
+	if !(ProviderPacket{}).Equal(ProviderPacket{}) {
+		t.Fatal("zero packets are not equal")
+	}
+
+	// Equal is pinned on identity and bytes separately; the literals are
+	// deliberately unproven because Equal never consults validity.
+	firstIdentity, err := NewProviderPacketIdentity(4, providerTestDigest([]byte("aaaa")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondIdentity, err := NewProviderPacketIdentity(4, providerTestDigest([]byte("bbbb")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameIdentityDifferentBytes := ProviderPacket{bytes: []byte("bbbb"), identity: firstIdentity}
+	if (ProviderPacket{bytes: []byte("aaaa"), identity: firstIdentity}).Equal(sameIdentityDifferentBytes) {
+		t.Fatal("packets with the same identity but different bytes are equal")
+	}
+	sameBytesDifferentIdentity := ProviderPacket{bytes: []byte("aaaa"), identity: secondIdentity}
+	if (ProviderPacket{bytes: []byte("aaaa"), identity: firstIdentity}).Equal(sameBytesDifferentIdentity) {
+		t.Fatal("packets with the same bytes but different identities are equal")
+	}
+	if got, want := scope.packetDigests(), int64(0); got != want {
+		t.Errorf("Equal digests = %d, want %d", got, want)
+	}
+	if got, want := scope.copies(), int64(0); got != want {
+		t.Errorf("Equal copies = %d, want %d", got, want)
+	}
+}
