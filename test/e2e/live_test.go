@@ -37,7 +37,6 @@ type liveE2EEnvironment struct {
 	binary         string
 	nativeHome     string
 	zcodeAppBundle string
-	grokExecutable string
 }
 
 type liveRoleReportURI struct {
@@ -226,7 +225,7 @@ func TestE2EZCodeGrokReviewAggregation(t *testing.T) {
 	doctorResult := runLiveMulgae(t, validator, environment, project, 0, "doctor", "--output", "json")
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
-	expected := map[string]string{"logic": "zcode-logic", "security": "grok-security"}
+	expected := map[string]string{"logic": "zcode-logic", "security": "zcode-security"}
 	run := runLiveRecoverableWorkflowWithGate(t, validator, environment, project, "zcode-grok-review-aggregation", expected, validateLiveSingleInvocationGate,
 		"review", "--workspace",
 		"--objective", "Review the changed fixture strictly within your assigned functional role. Return a concise Markdown role report. The logic role must read counter.go and reproduce its logic-read marker verbatim. The security role must read report.go and reproduce its security-read marker verbatim. It is valid to report no defects; report only concrete actionable defects supported by the selected original source.",
@@ -269,10 +268,9 @@ func appendLiveReadMarker(t *testing.T, project, relativePath, prefix string) st
 
 func liveMixedInitArguments(environment liveE2EEnvironment) []string {
 	arguments := []string{
-		"init", "--providers", "zcode,grok",
+		"init", "--providers", "zcode",
 		"--roles", "logic,security",
 		"--zcode-app-bundle", environment.zcodeAppBundle,
-		"--grok-executable", environment.grokExecutable,
 	}
 	return append(arguments, "--output", "json")
 }
@@ -280,13 +278,13 @@ func liveMixedInitArguments(environment liveE2EEnvironment) []string {
 func configureLiveMixedReview(t *testing.T, project string) {
 	t.Helper()
 	config := readE2EConfig(t, project)
-	if config.Providers.ZCode == nil || config.Providers.Grok == nil {
+	if config.Providers.ZCode == nil {
 		t.Fatalf("automatic init omitted required providers: %#v", config.Providers)
 	}
 	config.Providers.ZCode.Model = "account:zai-individual-coding-plan/GLM-5.3"
 	config.Providers.ZCode.ReasoningEffort = "high"
 	config.Roles.Logic.PrimaryProvider = "zcode"
-	config.Roles.Security.PrimaryProvider = "grok"
+	config.Roles.Security.PrimaryProvider = "zcode"
 	config.Review.RequiredRoles = []string{"logic", "security"}
 	config.Validation.Repair = adapterconfig.RepairConfig{}
 	config.Validation.Extraction.Enabled = false
@@ -337,8 +335,7 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 	if discoverErr != nil || profile.Executable() == "" || profile.Launcher() == "" || profile.ZCodeProviderConfig() == "" {
 		t.Fatalf("ZCode production discovery failed: reason=%q error=%v", profile.Reason(), discoverErr)
 	}
-	grokExecutable := requireLiveExecutable(t, "MULGAE_E2E_GROK_EXECUTABLE", lookupLiveExecutable(t, "grok"))
-	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeAppBundle: zcodeAppBundle, grokExecutable: grokExecutable}
+	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeAppBundle: zcodeAppBundle}
 }
 
 func requireLiveExecutable(t *testing.T, environmentName, fallback string) string {
@@ -585,15 +582,20 @@ func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, en
 	scope := beginLiveE2ELogScope(t, "attempt", fmt.Sprintf("scenario=%s attempt=%d/%d", scenario, attempt, maxAttempts))
 	defer scope.end()
 	envelope := runLiveMulgaeAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
-	inspectLiveFailureDiagnostics(t, project, attempt, envelope)
+	terminalCauses := inspectLiveFailureDiagnostics(t, project, attempt, envelope)
 	if liveReasonPresent(envelope, "provider_login_required") {
 		t.Fatalf("focused live attempt %d requires provider login: %#v", attempt, envelope.Reasons)
+	}
+	for _, cause := range terminalCauses {
+		if cause == "provider_quota_exceeded" {
+			t.Fatalf("INCONCLUSIVE: focused live attempt %d stopped because a required provider account has no quota left (terminal_cause=%s): reasons=%#v. Restore quota on the provider account, then run this suite again.", attempt, cause, envelope.Reasons)
+		}
 	}
 	if envelope.Result.RunID == nil || envelope.Result.RunManifestURI == nil || envelope.Result.ReviewArtifactURI == nil {
 		if !liveFocusedAttemptRetryable(envelope) {
 			t.Fatalf("focused live attempt %d stopped without retry authority: exit=%#v reasons=%#v result=%#v", attempt, envelope.Exit, envelope.Reasons, envelope.Result)
 		}
-		reason = fmt.Sprintf("non-P2 %s: %#v", envelope.Exit.Kind, envelope.Reasons)
+		reason = fmt.Sprintf("non-P2 %s (terminal_causes=%v): %#v", envelope.Exit.Kind, terminalCauses, envelope.Reasons)
 		scope.status = "retry_non_p2"
 		if attempt == maxAttempts {
 			scope.status = "failed"
@@ -641,9 +643,10 @@ func validateLiveSingleInvocationGate(project string, run livePublishedRun, expe
 // inspectLiveFailureDiagnostics validates diagnostic URI safety and logs the
 // terminal cause of every published diagnostic. It grants no retry authority:
 // retry is decided by the envelope's own exit kind and retryable reasons.
-func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, envelope liveCommandEnvelope) {
+func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, envelope liveCommandEnvelope) []string {
 	t.Helper()
 	seen := make(map[string]struct{})
+	var terminalCauses []string
 	for _, reason := range envelope.Reasons {
 		if reason.ArtifactURI == nil {
 			continue
@@ -680,8 +683,12 @@ func inspectLiveFailureDiagnostics(t *testing.T, project string, attempt int, en
 		if err != nil {
 			t.Fatalf("focused live attempt %d cannot inventory raw diagnostic streams %q: %v", attempt, uri, err)
 		}
+		if status.TerminalCause != "" {
+			terminalCauses = append(terminalCauses, status.TerminalCause)
+		}
 		t.Logf("focused live attempt %d diagnostic_uri=%s session=%s run=%s state=%s terminal_cause=%s last_seq=%d p2_uri=%s raw_streams=%d", attempt, uri, status.SessionID, status.RunID, status.State, status.TerminalCause, status.LastSequence, status.P2URI, len(rawStreams))
 	}
+	return terminalCauses
 }
 
 func liveReasonPresent(envelope liveCommandEnvelope, code string) bool {
@@ -714,7 +721,6 @@ func liveFocusedAttemptRetryable(envelope liveCommandEnvelope) bool {
 }
 
 func TestLiveRetryableReasonRequiresMatchingCodeAndAuthority(t *testing.T) {
-	t.Parallel()
 	envelope := liveCommandEnvelope{}
 	envelope.Reasons = append(envelope.Reasons, liveReason{Code: "provider_qualification_failed", Retryable: true})
 	if !liveRetryableReasonPresent(envelope, "provider_qualification_failed") ||
@@ -846,8 +852,6 @@ func TestLiveChildWorkflowRequiresCommittedIdentity(t *testing.T) {
 }
 
 func TestLiveArtifactURINormalizationIsProjectBound(t *testing.T) {
-	t.Parallel()
-
 	project := t.TempDir()
 	artifact := filepath.Join(project, ".mulgae", "session", "manifest.json")
 	if err := os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
@@ -1087,11 +1091,11 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &redacted); err != nil {
 		t.Fatalf("decode redacted config: %v", err)
 	}
-	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode", "grok"}) {
+	if !reflect.DeepEqual(redacted.ConfiguredProviderIDs, []string{"zcode"}) {
 		t.Fatalf("configured providers = %v", redacted.ConfiguredProviderIDs)
 	}
 	want := map[string]string{
-		"logic": "zcode", "security": "grok", "maintainability": "zcode",
+		"logic": "zcode", "security": "zcode", "maintainability": "zcode",
 		"product": "zcode", "documentation": "zcode", "testing": "zcode",
 		"artist": "",
 	}
@@ -1252,7 +1256,6 @@ func liveTerminalProcessState(state string) bool {
 }
 
 func TestLiveTerminalProcessStateAcceptsCompletedProcesses(t *testing.T) {
-	t.Parallel()
 	for _, state := range []string{"succeeded", "failed", "timed_out"} {
 		if !liveTerminalProcessState(state) {
 			t.Fatalf("terminal process state %q was rejected", state)
@@ -1267,7 +1270,7 @@ func TestLiveTerminalProcessStateAcceptsCompletedProcesses(t *testing.T) {
 
 func assertLiveDoctorPrequalification(t *testing.T, raw json.RawMessage) {
 	t.Helper()
-	families := []string{"zcode", "grok"}
+	families := []string{"zcode"}
 	var doctor struct {
 		ConfiguredProviderIDs []string `json:"configured_provider_ids"`
 		Readiness             struct {

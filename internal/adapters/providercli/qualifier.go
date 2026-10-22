@@ -726,6 +726,11 @@ func qualificationProcessFailure(family string, observation ports.ProcessObserva
 		return failure
 	}
 	if cause, ok := providerDiagnosticCause(err); ok {
+		if (cause == domain.DiagnosticCauseProviderExecutionFailed || cause == domain.DiagnosticCauseProviderTurnFailed) && observation.Valid() {
+			if _, _, nativeCause, known := nativeProviderOutcome(family, observation.Stdout(), observation.Stderr()); known {
+				cause = nativeCause
+			}
+		}
 		return newProviderOutputFailure(cause, err)
 	}
 	_, _, cause := classifyProviderFailure(family, observation)
@@ -733,19 +738,19 @@ func qualificationProcessFailure(family string, observation ports.ProcessObserva
 }
 
 func providerDiagnosticCause(err error) (domain.RuntimeDiagnosticCause, bool) {
-	var process interface {
-		PrimaryCause() domain.RuntimeDiagnosticCause
-	}
-	if errors.As(err, &process) && process.PrimaryCause().Valid() {
-		return process.PrimaryCause(), true
-	}
 	var source interface {
 		Cause() domain.RuntimeDiagnosticCause
 	}
-	if !errors.As(err, &source) || !source.Cause().Valid() {
+	if errors.As(err, &source) && source.Cause().Valid() {
+		return source.Cause(), true
+	}
+	var process interface {
+		PrimaryCause() domain.RuntimeDiagnosticCause
+	}
+	if !errors.As(err, &process) || !process.PrimaryCause().Valid() {
 		return "", false
 	}
-	return source.Cause(), true
+	return process.PrimaryCause(), true
 }
 
 var semverOutput = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
@@ -1415,7 +1420,15 @@ func classifyProbeFailure(ctx context.Context, family string, err error, stderr 
 	if errors.As(err, &failure) {
 		return failure
 	}
-	if cause, ok := providerDiagnosticCause(err); ok {
+	stdout := bytes.Join(additionalDiagnostics, []byte{'\n'})
+	cause, hasCause := providerDiagnosticCause(err)
+	if !hasCause || cause == domain.DiagnosticCauseProviderExecutionFailed || cause == domain.DiagnosticCauseProviderTurnFailed {
+		if _, _, nativeCause, ok := nativeProviderOutcome(family, stdout, stderr); ok {
+			cause, hasCause = nativeCause, true
+			err = newProviderOutputFailure(nativeCause, err)
+		}
+	}
+	if hasCause {
 		switch cause {
 		case domain.DiagnosticCauseTimedOut:
 			return probeFailure("capability", domain.FailureTimeout, "provider timed out", err)
@@ -1423,14 +1436,15 @@ func classifyProbeFailure(ctx context.Context, family string, err error, stderr 
 			return probeFailure("capability", domain.FailureRateLimit, "provider rate limited", err)
 		case domain.DiagnosticCauseQuotaExceeded:
 			return probeFailure("capability", domain.FailureQuota, "provider quota unavailable", err)
-		case domain.DiagnosticCauseLoginRequired, domain.DiagnosticCauseAuthenticationFailed, domain.DiagnosticCausePermissionDenied:
+		case domain.DiagnosticCauseLoginRequired:
+			return probeFailure("capability", domain.FailureAuthentication, "provider login required", errors.Join(ports.ErrProviderLoginRequired, err))
+		case domain.DiagnosticCauseAuthenticationFailed, domain.DiagnosticCausePermissionDenied:
 			return probeFailure("capability", domain.FailureAuthentication, "provider authentication unavailable", err)
 		case domain.DiagnosticCauseProviderSpawnFailed, domain.DiagnosticCauseProviderExecutionFailed,
 			domain.DiagnosticCauseProviderTurnFailed, domain.DiagnosticCauseProviderProcessWaitFailed:
 			return probeFailure("capability", domain.FailureProviderUnavailable, "provider unavailable", err)
 		}
 	}
-	stdout := bytes.Join(additionalDiagnostics, []byte{'\n'})
 	if status, _, _, ok := nativeProviderOutcome(family, stdout, stderr); ok {
 		switch status {
 		case ports.ProviderExecutionStatusAuthentication:

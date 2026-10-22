@@ -54,6 +54,47 @@ func TestClassifyCodexProbeFailurePreservesQuotaSignalFromStderr(t *testing.T) {
 	}
 }
 
+func TestClassifyGrokACPProbeFailurePreservesQuotaAndLoginSignalsFromStderr(t *testing.T) {
+	t.Run("quota balance exhausted", func(t *testing.T) {
+		observation := protocolTeardownObservationWithStderr(
+			t,
+			nil,
+			[]byte("ERROR responses API error status=402 Payment Required error_message=Grok Build usage balance exhausted"),
+		)
+		processed := qualificationProcessFailure(
+			FamilyGrok,
+			observation,
+			grokACPFailure(domain.DiagnosticCauseProviderExecutionFailed, errors.New("ACP request failed: Internal error")),
+		)
+		requireProviderDiagnosticCause(t, processed, domain.DiagnosticCauseQuotaExceeded)
+		classified := classifyProbeFailure(context.Background(), FamilyGrok, processed, observation.Stderr(), observation.Stdout())
+		var failure *domain.Failure
+		if !errors.As(classified, &failure) || failure.Class() != domain.FailureQuota {
+			t.Fatalf("Grok quota probe failure = %#v, want %q", failure, domain.FailureQuota)
+		}
+		requireProviderDiagnosticCause(t, classified, domain.DiagnosticCauseQuotaExceeded)
+	})
+	t.Run("login required", func(t *testing.T) {
+		observation := protocolTeardownObservationWithStderr(
+			t,
+			nil,
+			[]byte(`{"code":"auth.login_required","message":"login first"}`),
+		)
+		processed := qualificationProcessFailure(
+			FamilyGrok,
+			observation,
+			grokACPFailure(domain.DiagnosticCauseProviderExecutionFailed, errors.New("ACP request failed: Internal error")),
+		)
+		requireProviderDiagnosticCause(t, processed, domain.DiagnosticCauseLoginRequired)
+		classified := classifyProbeFailure(context.Background(), FamilyGrok, processed, observation.Stderr(), observation.Stdout())
+		var failure *domain.Failure
+		if !errors.As(classified, &failure) || failure.Class() != domain.FailureAuthentication || !errors.Is(classified, ports.ErrProviderLoginRequired) {
+			t.Fatalf("Grok login-required probe failure = %v", classified)
+		}
+		requireProviderDiagnosticCause(t, classified, domain.DiagnosticCauseLoginRequired)
+	})
+}
+
 type currentProbeNamespace struct {
 	environment []ports.EnvironmentVariable
 	nativeHome  ports.NativeHomeLaunchAuthority

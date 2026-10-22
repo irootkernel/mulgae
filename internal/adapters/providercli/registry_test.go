@@ -1938,6 +1938,11 @@ func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T
 	if !ok || status != ports.ProviderExecutionStatusRateLimit || diagnostic != "provider_rate_limit" || cause != domain.DiagnosticCauseRateLimited {
 		t.Fatalf("Codex standalone HTTP status was not classified: status = %q, diagnostic = %q, cause = %q, ok = %t", status, diagnostic, cause, ok)
 	}
+	grokQuotaStderr := []byte("ERROR responses API error status=402 Payment Required error_message=Grok Build usage balance exhausted")
+	status, diagnostic, cause, ok = nativeProviderOutcome(FamilyGrok, nil, grokQuotaStderr)
+	if !ok || status != ports.ProviderExecutionStatusQuota || diagnostic != "provider_quota" || cause != domain.DiagnosticCauseQuotaExceeded {
+		t.Fatalf("Grok usage balance exhaustion was not classified as quota: status = %q, diagnostic = %q, cause = %q, ok = %t", status, diagnostic, cause, ok)
+	}
 }
 
 func TestNativeProviderOutcomeRequiresExactHTTPStatusToken(t *testing.T) {

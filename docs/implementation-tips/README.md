@@ -5,8 +5,9 @@
 - macOS on Apple silicon for the complete release gate
 - Go 1.27.1 or newer
 - Git
-- a ZCode app bundle with a current Z.AI Individual Coding Plan connection,
-  plus an authenticated Grok installation, for the mandatory live tests
+- a ZCode app bundle with a current Z.AI Individual Coding Plan connection for
+  the mandatory live tests, plus an authenticated Grok installation for
+  `make test-grok`
 - two distinct authenticated Codex homes only for the opt-in profile E2E
 
 Codex provider execution requires CLI 0.154.0 or newer for the app-server
@@ -34,9 +35,9 @@ make test
 
 It runs generators and static checks, serialized race-instrumented unit tests,
 serialized race-instrumented integration tests, one exact-binary two-role live
-review, and independent live capability certification for ZCode and Grok. The
-live review routes `logic` to ZCode and `security` to Grok concurrently, accepts
-one Markdown report from each provider without repair or structured extraction,
+review, and independent live capability certification for ZCode. The
+live review routes `logic` and `security` to ZCode concurrently, accepts
+one Markdown report from each role without repair or structured extraction,
 and requires Mulgae to publish one complete reports-only review. Each role must
 reproduce a fresh marker stored only in its original source file, never the
 objective, so a report that merely claims it could not read the target does not
@@ -97,12 +98,12 @@ before providers, and integrity failures after a process restart.
 `make test-release` includes this fixture. It uses a fake provider and does not
 replace mandatory live gates.
 
-`make test-grok` builds the exact current release binary and runs one authorized
-Grok review through ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and
-otherwise discovers `grok` on `PATH`. The target requires an already
-authenticated installation, does not modify native Grok configuration, and is
-an optional standalone provider diagnostic; the mandatory `make test-e2e` gate
-already exercises Grok through the mixed-provider review.
+`make test-grok` builds the exact current release binary, runs independent live
+Grok capability certification, and runs one authorized Grok review through
+ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and otherwise discovers
+`grok` on `PATH`. The target requires an already authenticated installation,
+does not modify native Grok configuration, and is the standalone Grok live
+provider gate outside `make test-e2e`.
 
 `make test-cursor` builds the exact current release binary and runs one Cursor
 review. It requires `darwin/arm64`, `CURSOR_AUTH_TOKEN`, and an absolute
@@ -127,9 +128,9 @@ diff/untracked-file hashes under the selected temporary directory on success
 or failure. Inspect those local artifacts before cleanup, especially after
 uncertain drain. Runtime data is not durable tracked evidence. A dirty candidate
 build is an exact tested candidate, not an exact committed release claim.
-This target is separate from `make test`. The mandatory live mixed-provider
-gate explicitly selects ZCode and Grok, so optional AGY discovery cannot add a
-third provider or change that gate's two-role assertions.
+This target is separate from `make test`. The mandatory live E2E
+gate explicitly selects ZCode, so optional AGY discovery cannot add a
+second provider or change that gate's two-role assertions.
 
 `make test-e2e-opt-in` is called after `make test-e2e`, but performs no provider
 discovery or execution unless `MULGAE_E2E_OPT_IN=1`. When enabled it runs one
@@ -149,7 +150,7 @@ Override executable discovery with `MULGAE_E2E_CODEX_EXECUTABLE`. Once enabled,
 missing credentials, qualification
 failure, invalid provider output, wrong role routing, publication failure, or
 credential mutation fails the target; the Go test never converts these states
-to a skip. This optional result does not replace mandatory ZCode/Grok
+to a skip. This optional result does not replace mandatory ZCode
 certification.
 
 `make test-mcp-clients` is an opt-in local compatibility check and is not part
@@ -427,9 +428,9 @@ Under Master's quota-preservation decision for `EPIC-012` through `EPIC-014`,
 development and Epic certification run the deterministic Make gates
 (`make test-prepare`, `make test-unit`, `make test-int`, and
 `make test-release`), `make test-mcp-clients` when MCP consumer paths change,
-and ZCode-only live verification (`TestLiveZCodeCapability` and a real-source
-single-provider ZCode review), while live provider gates for Grok
-(`make test` / `make test-e2e` Grok leg and `make test-grok`), Cursor
+and ZCode-only live verification (`make test-e2e`, which runs
+`TestLiveZCodeCapability` and the two-role ZCode live review), while live
+provider gates for Grok (`make test-grok`), Cursor
 (`make test-cursor`), AGY (`make test-agy`), and Codex
 (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) are explicitly deferred to the
 `v0.1.26` five-provider release gate.

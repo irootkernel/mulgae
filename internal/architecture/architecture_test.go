@@ -284,10 +284,10 @@ func TestMakefileContract(t *testing.T) {
 	e2eTarget := text[releaseEnd:optInStart]
 	for _, required := range []string{
 		"zcode_app=", `test -d "$$zcode_app"`, "zcode_executable=", `test -x "$$zcode_executable"`,
-		"zcode_launcher=", `test -f "$$zcode_launcher"`, "grok_candidate=", `test -n "$$grok_candidate"`,
-		"MULGAE_LIVE_ZCODE_APP_BUNDLE", "MULGAE_LIVE_GROK_BIN",
-		"-tags=liveprovider", "-run '^TestLive(ZCode|Grok)Capability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
-		"MULGAE_E2E_ZCODE_APP_BUNDLE", "MULGAE_E2E_GROK_EXECUTABLE",
+		"zcode_launcher=", `test -f "$$zcode_launcher"`,
+		"MULGAE_LIVE_ZCODE_APP_BUNDLE",
+		"-tags=liveprovider", "-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"MULGAE_E2E_ZCODE_APP_BUNDLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
 		if !strings.Contains(e2eTarget, required) {
@@ -571,10 +571,10 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	workflowText := string(workflowData)
 	for _, required := range []string{
-		"func TestE2EZCodeGrokReviewAggregation", `"logic": "zcode-logic"`, `"security": "grok-security"`,
+		"func TestE2EZCodeGrokReviewAggregation", `"logic": "zcode-logic"`, `"security": "zcode-security"`,
 		"configureLiveMixedReview", "validateLiveSingleInvocationGate", "assertLiveRoleReportMarker", "assertLiveReportsOnlyAggregation",
 		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "validateLivePrimaryProcessTerminals",
-		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_APP_BUNDLE", "MULGAE_E2E_GROK_EXECUTABLE",
+		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_APP_BUNDLE",
 	} {
 		if !strings.Contains(workflowText, required) {
 			t.Errorf("exact-binary live workflow contract missing %q", required)

@@ -106,13 +106,8 @@ test-e2e:
 	test -x "$$zcode_executable" || { echo "test-e2e requires the ZCode app runtime" >&2; exit 1; }; \
 	zcode_launcher="$$zcode_app/Contents/Resources/glm/zcode.cjs"; \
 	test -f "$$zcode_launcher" && test -r "$$zcode_launcher" || { echo "test-e2e requires the ZCode launcher" >&2; exit 1; }; \
-	grok_candidate="$${MULGAE_E2E_GROK_EXECUTABLE:-$$(command -v grok)}"; \
-	test -n "$$grok_candidate" && test -x "$$grok_candidate" || { echo "test-e2e requires the Grok executable" >&2; exit 1; }; \
-	grok_bin="$$(realpath "$$grok_candidate")"; \
-	case "$$grok_bin" in /*) ;; *) echo "test-e2e requires an absolute Grok executable" >&2; exit 1;; esac; \
 	if MULGAE_E2E_BINARY="$$MULGAE_E2E_BINARY" MULGAE_E2E_PROJECT_ROOT="$$e2e_project" \
 		MULGAE_E2E_ZCODE_APP_BUNDLE="$$zcode_app" \
-		MULGAE_E2E_GROK_EXECUTABLE="$$grok_bin" \
 		$(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^Test(E2E|Live)' ./test/e2e; then \
 		:; \
@@ -122,9 +117,8 @@ test-e2e:
 		exit $$status; \
 	fi; \
 	MULGAE_LIVE_ZCODE_APP_BUNDLE="$$zcode_app" \
-		MULGAE_LIVE_GROK_BIN="$$grok_bin" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLive(ZCode|Grok)Capability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
+		-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \

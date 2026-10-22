@@ -346,7 +346,7 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
 - Run `make test` before claiming complete development or release readiness. It is
   the complete required gate and includes generation/static checks, serialized
   race-instrumented unit and integration tests, exact release-binary checks, and
-  mandatory live ZCode/Grok certification through one mixed-provider two-role
+  mandatory live ZCode certification through one two-role
   review plus independent capability probes.
 - A patch-only release may use a reduced exact-commit gate when Master explicitly
   states that `make test` has already passed, accepts responsibility for relying
@@ -372,7 +372,7 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   plus Codex-secondary documentation. Missing or unsafe
   prerequisites and provider failures fail the target; do not downgrade them to
   skips or substitute another provider.
-- Do not call a change release-ready when mandatory ZCode/Grok live checks were
+- Do not call a change release-ready when mandatory ZCode live checks were
   skipped, except under the explicit patch-only release rule above with the
   user's full-gate waiver recorded. Distinguish test success from commit, tag,
   push, release, installation, and runtime activation.
@@ -399,7 +399,7 @@ running it through Gaori from the repository root:
 - unit tests: `gaori run unit`
 - integration tests: `gaori run integration`
 - release-binary checks: `gaori run release`
-- mandatory ZCode/Grok live E2E checks: `gaori run e2e`
+- mandatory ZCode live E2E checks: `gaori run e2e`
 - opt-in two-profile Codex E2E: `gaori run e2e-opt-in`
 - complete release gate: `gaori run full`
 

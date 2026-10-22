@@ -2290,7 +2290,9 @@ func nativeProviderOutcome(
 	}
 	rateLimitMarkers := []string{"rate_limit", "rate limit", "too many requests", "rate-limited", "ratelimit"}
 	quotaExceeded := containsAny("quota_exceeded", "insufficient_quota", "quota exceeded",
-		"insufficient_credits", "insufficient credits", "usage limit", "usage_limit_reached")
+		"insufficient_credits", "insufficient credits", "usage limit", "usage_limit_reached",
+		"usage balance exhausted", "balance exhausted") ||
+		errorContainsAny("402 payment required")
 	rateLimited := containsAny(rateLimitMarkers...) ||
 		errorContainsAny("slow down", "try again later", "please try again", "retry after", "retry-after") ||
 		errorContainsStatus("429")
