@@ -76,6 +76,7 @@ func (candidate PreparedCandidate) buildCaptureSupport(existing []ports.Immutabl
 		if err != nil {
 			return err
 		}
+		notePublicationConstruction(&publicationCaptureSupportConstructions)
 		existing = append(existing, artifact)
 		byPath[path.String()] = artifact
 		return nil

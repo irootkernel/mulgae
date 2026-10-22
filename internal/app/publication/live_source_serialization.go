@@ -118,6 +118,7 @@ func (candidate PreparedCandidate) buildLiveSupport(existing []ports.ImmutablePu
 	if err != nil || metadata.SHA256() != source.identity.SHA256() {
 		return nil, fmt.Errorf("live publication: inconsistent source metadata")
 	}
+	notePublicationConstruction(&publicationLiveSupportConstructions)
 	result := append(append([]ports.ImmutablePublicationArtifact(nil), existing...), metadata)
 	seen := make(map[string]string)
 	for _, receipt := range source.binary {
@@ -135,6 +136,7 @@ func (candidate PreparedCandidate) buildLiveSupport(existing []ports.ImmutablePu
 		if err != nil || artifact.SHA256() != receipt.FileSHA256() {
 			return nil, fmt.Errorf("live publication: inconsistent binary support")
 		}
+		notePublicationConstruction(&publicationLiveSupportConstructions)
 		seen[path.String()] = artifact.SHA256()
 		result = append(result, artifact)
 	}

@@ -343,11 +343,30 @@ files, and publication store read-backs hash the actual bytes they observe.
 
 Exact equality (`Equal`) and length (`ByteLength`) accessors compare or measure
 private storage without copying content; they are byte-exact comparisons, not
-validity checks. `internal/ports` also carries a disabled-by-default counting
-seam used only by in-package tests to count digest and defensive-copy helper
-calls deterministically; each instrumented helper pays one disabled atomic load
-per call, production never enables it, and its counts are never treated as
-evidence about external state.
+validity checks. `internal/ports` and `internal/app/publication` each carry a
+disabled-by-default counting seam used only by in-package tests to count digest,
+defensive-copy, and support-construction helper calls deterministically; each
+instrumented helper pays one disabled atomic load per call, production never
+enables it, and its counts are never treated as evidence about external state.
+
+A live publication (`PreparedLiveCandidate`, including the provider-free
+no-change form) binds its candidate twice inside one `publishCandidate`
+invocation: once to the fixed preflight review ID, so schema and size
+rejection stay ahead of review-ID issuance, and once to the issued ID. The
+support members whose paths and bytes do not depend on the review ID (evidence
+excerpts, attempt artifacts, runtime artifacts, role reports, and live source
+support) are constructed and digested by the first binding, in the historical
+builder's member order, and reused at the same positions by the issued binding,
+which rebuilds only the review-ID-bound members: normalized findings, support
+index, lineage edge, final review, staged copy, manifest, epoch record, journal,
+and status. The manifest reuses the constructed role-report identities instead
+of digesting the markdown again. Each binding still runs the complete build
+prologue, schema-validates the final review and manifest, and validates the
+assembled bundle. The reuse lifetime is one publication invocation: the shares
+are never cached across invocations or processes, a resumed or recovered
+publication constructs fresh, and the historical builder (`Build`) used by
+captured, followup, and composite candidates keeps its full construction on
+every call. Durable persistence, read-back, and sync behavior are unchanged.
 
 ## Planned extension ownership
 

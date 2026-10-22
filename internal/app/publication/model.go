@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -3701,7 +3702,24 @@ func cloneBytes(source []byte) []byte {
 	return append([]byte(nil), source...)
 }
 
+// Publication verification counting is a disabled-by-default instrumentation
+// hook used only by in-package tests to count exact-byte digest computations
+// and review-independent support construction deterministically, mirroring
+// the internal/ports seam. Each instrumented helper pays one disabled atomic
+// load per call; production never enables counting, and the counts never
+// serve as evidence about external state.
+var publicationVerificationCounting atomic.Bool
+
+var publicationDigestHelperCalls atomic.Int64
+
+func notePublicationDigest() {
+	if publicationVerificationCounting.Load() {
+		publicationDigestHelperCalls.Add(1)
+	}
+}
+
 func sha256Identifier(bytes []byte) string {
+	notePublicationDigest()
 	sum := sha256.Sum256(bytes)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }

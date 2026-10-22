@@ -420,7 +420,18 @@ func (service *Service) publishCandidate(
 	if err != nil {
 		return PublicationResult{}, publicationFailure("publish.preflight", domain.FailureInternal, "preflight review ID is invalid", err)
 	}
-	preflightBundle, err := candidate.Build(ctx, service.validator, preflightID, createdAt, epoch)
+	// A live candidate constructs its review-independent support once for this
+	// publication invocation and reuses it for the issued binding; every other
+	// candidate keeps the historical builder for both bindings.
+	bind := candidate.Build
+	if live, ok := candidate.(PreparedLiveCandidate); ok {
+		builder, builderErr := newLivePublicationBuilder(live)
+		if builderErr != nil {
+			return PublicationResult{}, service.classifyBuildFailure(ctx, builderErr)
+		}
+		bind = builder.bind
+	}
+	preflightBundle, err := bind(ctx, service.validator, preflightID, createdAt, epoch)
 	if err != nil {
 		return PublicationResult{}, service.classifyBuildFailure(ctx, err)
 	}
@@ -509,7 +520,7 @@ func (service *Service) publishCandidate(
 	if err := service.checkpoint(ctx, "publish.build"); err != nil {
 		return PublicationResult{}, err
 	}
-	bundle, err := candidate.Build(ctx, service.validator, issued.ReviewID(), createdAt, epoch)
+	bundle, err := bind(ctx, service.validator, issued.ReviewID(), createdAt, epoch)
 	if err != nil {
 		return PublicationResult{}, service.classifyBuildFailure(ctx, err)
 	}

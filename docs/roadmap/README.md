@@ -766,7 +766,7 @@ Goal: Remove repeated construction, source parsing and whole-support reads withi
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
 | TASK-053 | Completed | Reuse constructor-proven immutable packet and publication values without repeated hashing/copying. | Zero values, digest mismatch, nested clone/getter independence and unchanged bytes. |
-| TASK-054 | Planned | Build review-independent publication support once and preserve pre-issuance validation. | Byte equality, zero ID issuance on preflight failure, interrupted/resumed candidate binding and durable commit. |
+| TASK-054 | Completed | Build review-independent publication support once and preserve pre-issuance validation. | Byte equality, zero ID issuance on preflight failure, interrupted/resumed candidate binding and durable commit. |
 | TASK-055 | Planned | Share one verified read context across query, status, excerpts and report rendering. | DF-010 interleavings, corrupt-status/error preservation, fresh next-request verification and no repeated whole-support pass per excerpt. |
 | TASK-056 | Planned | Separate native path admission from source-body reads through the source port. | DF-011 and late-tool mutation controls, descriptor/protected-path safety, Close and zero admission body reads. |
 | TASK-057 | Planned | Reuse fixed commit path/OID inventories and identical successful config-byte parsing. | Fresh descriptor checks, changed/appearing/disappearing config, bounded reader-local state and unchanged mutable-source behavior. |

@@ -5,11 +5,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
+
+// Construction counting is part of the disabled-by-default publication
+// verification seam. Each counter is incremented only at artifact-creation
+// points of one review-independent support family, never over a returned
+// slice, so the counts record newly constructed immutable artifacts.
+var publicationEvidenceExcerptConstructions atomic.Int64
+var publicationAttemptArtifactConstructions atomic.Int64
+var publicationRuntimeArtifactConstructions atomic.Int64
+var publicationRoleReportConstructions atomic.Int64
+var publicationLiveSupportConstructions atomic.Int64
+var publicationCaptureSupportConstructions atomic.Int64
+
+func notePublicationConstruction(counter *atomic.Int64) {
+	if publicationVerificationCounting.Load() {
+		counter.Add(1)
+	}
+}
 
 // Build assigns the post-validation ReviewID and constructs every deterministic
 // publication member. It validates final-review and manifest bytes against the
@@ -48,30 +66,9 @@ func (candidate PreparedCandidate) Build(
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationStaging, domain.DiagnosticCausePublicationPathFailed, err)
 	}
-	lineage := candidate.publicationLineage()
-	edgeBytes, err := marshalCanonical(lineageEdgeWire{
-		SchemaVersion: lineageVersion(lineageEdgeV1, lineage.sourceRecoveryManifestSHA256),
-		EdgeID:        "e_" + reviewID.String(),
-		Child: lineageChildWire{
-			SessionID: candidate.sessionID.String(),
-			RunID:     candidate.runID.String(),
-			ReviewID:  reviewID.String(),
-		},
-		ParentRunID:                  lineageRunID(lineage.parentRunID),
-		SourceRunID:                  lineageRunID(lineage.sourceRunID),
-		SourceReviewID:               lineageReviewID(lineage.sourceReviewID),
-		SourceRecoveryManifestSHA256: cloneOptionalString(lineage.sourceRecoveryManifestSHA256),
-		SourceKind:                   recoverySourceKind(lineage.sourceRecoveryManifestSHA256),
-		SourceAttemptID:              lineageAttemptID(lineage.sourceAttemptID),
-		SourceFindingRef:             cloneOptionalString(lineage.sourceFindingRef),
-		ReplayMode:                   lineageReplayMode(lineage.replayMode),
-	})
+	lineageEdge, err := candidate.buildLineageEdge(paths, reviewID)
 	if err != nil {
-		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSerializationFailed, fmt.Errorf("publication build: serialize lineage edge: %w", err))
-	}
-	lineageEdge, err := immutableArtifact(paths.lineageEdge, edgeBytes)
-	if err != nil {
-		return PublicationBundle{}, fmt.Errorf("publication build: lineage edge: %w", err)
+		return PublicationBundle{}, err
 	}
 
 	excerpts, err := candidate.buildExcerpts(paths, reviewID)
@@ -101,6 +98,55 @@ func (candidate PreparedCandidate) Build(
 	if err != nil {
 		return PublicationBundle{}, err
 	}
+	return candidate.assembleBoundMembers(ctx, validator, reviewID, createdAtText, epoch, paths, lineageEdge, excerpts, candidate.manifestRoleReports)
+}
+
+// buildLineageEdge constructs the review-ID-bound lineage edge member.
+func (candidate PreparedCandidate) buildLineageEdge(paths publicationPathsSet, reviewID domain.ReviewID) (ports.ImmutablePublicationArtifact, error) {
+	lineage := candidate.publicationLineage()
+	edgeBytes, err := marshalCanonical(lineageEdgeWire{
+		SchemaVersion: lineageVersion(lineageEdgeV1, lineage.sourceRecoveryManifestSHA256),
+		EdgeID:        "e_" + reviewID.String(),
+		Child: lineageChildWire{
+			SessionID: candidate.sessionID.String(),
+			RunID:     candidate.runID.String(),
+			ReviewID:  reviewID.String(),
+		},
+		ParentRunID:                  lineageRunID(lineage.parentRunID),
+		SourceRunID:                  lineageRunID(lineage.sourceRunID),
+		SourceReviewID:               lineageReviewID(lineage.sourceReviewID),
+		SourceRecoveryManifestSHA256: cloneOptionalString(lineage.sourceRecoveryManifestSHA256),
+		SourceKind:                   recoverySourceKind(lineage.sourceRecoveryManifestSHA256),
+		SourceAttemptID:              lineageAttemptID(lineage.sourceAttemptID),
+		SourceFindingRef:             cloneOptionalString(lineage.sourceFindingRef),
+		ReplayMode:                   lineageReplayMode(lineage.replayMode),
+	})
+	if err != nil {
+		return ports.ImmutablePublicationArtifact{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSerializationFailed, fmt.Errorf("publication build: serialize lineage edge: %w", err))
+	}
+	lineageEdge, err := immutableArtifact(paths.lineageEdge, edgeBytes)
+	if err != nil {
+		return ports.ImmutablePublicationArtifact{}, fmt.Errorf("publication build: lineage edge: %w", err)
+	}
+	return lineageEdge, nil
+}
+
+// assembleBoundMembers constructs every member that binds the review ID once
+// the support artifacts exist: support index, final, staged copy, manifest,
+// epoch record, journal and status, then validates the assembled bundle. The
+// manifest role-report wires are requested at the manifest step so both
+// callers keep the historical construction sequence.
+func (candidate PreparedCandidate) assembleBoundMembers(
+	ctx context.Context,
+	validator SchemaValidator,
+	reviewID domain.ReviewID,
+	createdAtText string,
+	epoch uint64,
+	paths publicationPathsSet,
+	lineageEdge ports.ImmutablePublicationArtifact,
+	excerpts []ports.ImmutablePublicationArtifact,
+	roleReports func() []manifestRoleReportWire,
+) (PublicationBundle, error) {
 	supportIndex, err := buildRunSupportIndex(paths.supportIndex, excerpts)
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
@@ -130,7 +176,7 @@ func (candidate PreparedCandidate) Build(
 		return PublicationBundle{}, fmt.Errorf("publication build: staged final: %w", err)
 	}
 
-	manifestBytes, err := candidate.buildManifestBytes(reviewID, createdAtText, epoch, paths, final, lineageEdge, supportIndex)
+	manifestBytes, err := candidate.buildManifestBytesWithRoleReports(reviewID, createdAtText, epoch, paths, final, lineageEdge, supportIndex, roleReports())
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationManifest, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
@@ -216,6 +262,134 @@ func (candidate PreparedCandidate) Build(
 	return bundle, nil
 }
 
+// reviewIndependentSupport holds the support shares whose paths and bytes do
+// not depend on the issued review ID. leading precedes and trailing follows
+// the per-binding normalized findings in the bundle's support order, and
+// roleReports retains each published report's identity for manifest reuse.
+type reviewIndependentSupport struct {
+	leading     []ports.ImmutablePublicationArtifact
+	trailing    []ports.ImmutablePublicationArtifact
+	roleReports map[domain.Role]roleReportIdentity
+}
+
+// livePublicationBuilder binds one live candidate inside one publication
+// invocation. The first binding follows Build's exact member order and retains
+// the review-independent support shares; later bindings reuse those shares at
+// the same positions and rebuild only the members that bind the review ID. A
+// builder never outlives its publication invocation and is never shared.
+type livePublicationBuilder struct {
+	candidate PreparedCandidate
+	support   reviewIndependentSupport
+	prepared  bool
+}
+
+// newLivePublicationBuilder applies the live wrapper's candidate-first
+// rejection before any binding.
+func newLivePublicationBuilder(candidate PreparedLiveCandidate) (*livePublicationBuilder, error) {
+	if !candidate.Valid() {
+		return nil, fmt.Errorf("live publication: invalid candidate")
+	}
+	return &livePublicationBuilder{candidate: candidate.candidate}, nil
+}
+
+// bind runs the complete Build prologue for reviewID and constructs the bundle
+// in Build's member order, constructing the review-independent support shares
+// on the first binding and reusing them afterwards.
+func (builder *livePublicationBuilder) bind(
+	ctx context.Context,
+	validator SchemaValidator,
+	reviewID domain.ReviewID,
+	createdAt time.Time,
+	epoch uint64,
+) (PublicationBundle, error) {
+	candidate := builder.candidate
+	// The prologue mirrors Build's prologue check for check and in the same
+	// order; TestLiveFirstBindingProloguePrecedenceMatchesBuild pins the parity.
+	if ctx == nil {
+		return PublicationBundle{}, fmt.Errorf("publication build: context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return PublicationBundle{}, fmt.Errorf("publication build: context: %w", err)
+	}
+	if nilSchemaValidator(validator) {
+		return PublicationBundle{}, fmt.Errorf("publication build: schema validator is required")
+	}
+	if err := candidate.validate(); err != nil {
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, fmt.Errorf("publication build: candidate is not prevalidated: %w", err))
+	}
+	if _, err := domain.ParseReviewID(reviewID.String()); err != nil {
+		return PublicationBundle{}, fmt.Errorf("publication build: review ID: %w", err)
+	}
+	createdAtText, err := canonicalTime(createdAt)
+	if err != nil {
+		return PublicationBundle{}, err
+	}
+	if epoch == 0 {
+		return PublicationBundle{}, fmt.Errorf("publication build: epoch must be positive")
+	}
+
+	paths, err := publicationPaths(candidate.sessionID, candidate.runID, reviewID, epoch)
+	if err != nil {
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationStaging, domain.DiagnosticCausePublicationPathFailed, err)
+	}
+	lineageEdge, err := candidate.buildLineageEdge(paths, reviewID)
+	if err != nil {
+		return PublicationBundle{}, err
+	}
+	leading := builder.support.leading
+	if !builder.prepared {
+		leading, err = candidate.buildEvidenceExcerpts(paths.excerptsDir)
+		if err != nil {
+			return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationFinalReview, domain.DiagnosticCausePublicationSerializationFailed, err)
+		}
+	}
+	normalized, err := candidate.buildNormalizedFindingExcerpts(paths.excerptsDir, reviewID)
+	if err != nil {
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationFinalReview, domain.DiagnosticCausePublicationSerializationFailed, err)
+	}
+	if !builder.prepared {
+		attemptArtifacts, err := candidate.buildAttemptArtifacts()
+		if err != nil {
+			return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
+		}
+		runtimeArtifacts, err := candidate.buildRuntimeArtifacts()
+		if err != nil {
+			return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
+		}
+		roleReports, err := candidate.buildRoleReports()
+		if err != nil {
+			return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
+		}
+		// Live support receives exactly the list Build assembles before it.
+		input := make([]ports.ImmutablePublicationArtifact, 0, len(leading)+len(normalized)+len(attemptArtifacts)+len(runtimeArtifacts)+len(roleReports))
+		input = append(input, leading...)
+		input = append(input, normalized...)
+		input = append(input, attemptArtifacts...)
+		input = append(input, runtimeArtifacts...)
+		input = append(input, roleReports...)
+		result, err := candidate.buildLiveSupport(input)
+		if err != nil {
+			return PublicationBundle{}, err
+		}
+		liveSupport := result[len(input):]
+		trailing := make([]ports.ImmutablePublicationArtifact, 0, len(attemptArtifacts)+len(runtimeArtifacts)+len(roleReports)+len(liveSupport))
+		trailing = append(trailing, attemptArtifacts...)
+		trailing = append(trailing, runtimeArtifacts...)
+		trailing = append(trailing, roleReports...)
+		trailing = append(trailing, liveSupport...)
+		builder.support = reviewIndependentSupport{leading: leading, trailing: trailing, roleReports: candidate.roleReportIdentities(roleReports)}
+		builder.prepared = true
+	}
+	excerpts := make([]ports.ImmutablePublicationArtifact, 0, len(leading)+len(normalized)+len(builder.support.trailing))
+	excerpts = append(excerpts, leading...)
+	excerpts = append(excerpts, normalized...)
+	excerpts = append(excerpts, builder.support.trailing...)
+	identities := builder.support.roleReports
+	return candidate.assembleBoundMembers(ctx, validator, reviewID, createdAtText, epoch, paths, lineageEdge, excerpts, func() []manifestRoleReportWire {
+		return candidate.manifestRoleReportsFromIdentities(identities)
+	})
+}
+
 type publicationPathsSet struct {
 	final        ports.SafeRelativePath
 	manifest     ports.SafeRelativePath
@@ -252,10 +426,24 @@ func mustPublicationPath(value string) ports.SafeRelativePath {
 }
 
 func (candidate PreparedCandidate) buildExcerpts(paths publicationPathsSet, reviewID domain.ReviewID) ([]ports.ImmutablePublicationArtifact, error) {
+	excerpts, err := candidate.buildEvidenceExcerpts(paths.excerptsDir)
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := candidate.buildNormalizedFindingExcerpts(paths.excerptsDir, reviewID)
+	if err != nil {
+		return nil, err
+	}
+	return append(excerpts, normalized...), nil
+}
+
+// buildEvidenceExcerpts constructs the review-ID-independent evidence excerpt
+// artifacts in finding and evidence order.
+func (candidate PreparedCandidate) buildEvidenceExcerpts(excerptsDir string) ([]ports.ImmutablePublicationArtifact, error) {
 	excerpts := make([]ports.ImmutablePublicationArtifact, 0)
 	for _, finding := range candidate.findings {
 		for index, item := range finding.evidence {
-			path, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s_%d.md", paths.excerptsDir, finding.id, index+1))
+			path, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s_%d.md", excerptsDir, finding.id, index+1))
 			if err != nil {
 				return nil, fmt.Errorf("publication build: excerpt path: %w", err)
 			}
@@ -266,11 +454,19 @@ func (candidate PreparedCandidate) buildExcerpts(paths publicationPathsSet, revi
 			if err != nil {
 				return nil, fmt.Errorf("publication build: excerpt %s/%d: %w", finding.id, index+1, err)
 			}
+			notePublicationConstruction(&publicationEvidenceExcerptConstructions)
 			excerpts = append(excerpts, artifact)
 		}
 	}
+	return excerpts, nil
+}
+
+// buildNormalizedFindingExcerpts constructs the normalized finding artifacts,
+// whose evidence source identity binds the supplied review ID.
+func (candidate PreparedCandidate) buildNormalizedFindingExcerpts(excerptsDir string, reviewID domain.ReviewID) ([]ports.ImmutablePublicationArtifact, error) {
+	excerpts := make([]ports.ImmutablePublicationArtifact, 0)
 	for _, finding := range candidate.finalFindings(reviewID) {
-		path, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s.json", paths.excerptsDir, finding.ID))
+		path, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s.json", excerptsDir, finding.ID))
 		if err != nil {
 			return nil, fmt.Errorf("publication build: normalized finding path: %w", err)
 		}
@@ -413,6 +609,7 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 						if err != nil {
 							return nil, fmt.Errorf("publication build: attempt artifact: %w", err)
 						}
+						notePublicationConstruction(&publicationAttemptArtifactConstructions)
 						wire.Artifact = &artifactIdentityWire{Path: artifact.Path().String(), SHA256: artifact.SHA256()}
 						artifacts = append(artifacts, artifact)
 					}
@@ -437,6 +634,7 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 			if err != nil {
 				return nil, fmt.Errorf("publication build: attempt status artifact: %w", err)
 			}
+			notePublicationConstruction(&publicationAttemptArtifactConstructions)
 			artifacts = append(artifacts, statusArtifact)
 		}
 	}
@@ -538,6 +736,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 				if err != nil {
 					return nil, fmt.Errorf("publication build: runtime stdin: %w", err)
 				}
+				notePublicationConstruction(&publicationRuntimeArtifactConstructions)
 				targetPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
 					"%s/%s/target/target.bytes", candidate.sessionID, candidate.runID,
 				))
@@ -548,6 +747,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 				if err != nil {
 					return nil, fmt.Errorf("publication build: runtime target: %w", err)
 				}
+				notePublicationConstruction(&publicationRuntimeArtifactConstructions)
 				if len(artifacts) == 0 {
 					artifacts = append(artifacts, targetArtifact)
 				}
@@ -576,6 +776,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 				if err != nil {
 					return nil, fmt.Errorf("publication build: runtime prompt artifact: %w", err)
 				}
+				notePublicationConstruction(&publicationRuntimeArtifactConstructions)
 				artifacts = append(artifacts, stdin, promptArtifact)
 				promptIdentity := artifactIdentityWire{Path: promptArtifact.Path().String(), SHA256: promptArtifact.SHA256()}
 				prompts = append(prompts, promptIdentity)
@@ -611,6 +812,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 		if artifactErr != nil {
 			return nil, fmt.Errorf("publication build: captured archive: %w", artifactErr)
 		}
+		notePublicationConstruction(&publicationRuntimeArtifactConstructions)
 		artifacts = append(artifacts, archiveArtifact)
 		for _, blob := range splitArchive.Blobs() {
 			blobPath, blobPathErr := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/target/%s", candidate.sessionID, candidate.runID, blob.Path().String()))
@@ -621,6 +823,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 			if blobArtifactErr != nil {
 				return nil, fmt.Errorf("publication build: captured blob: %w", blobArtifactErr)
 			}
+			notePublicationConstruction(&publicationRuntimeArtifactConstructions)
 			if blobArtifact.SHA256() != blob.SHA256() {
 				return nil, fmt.Errorf("publication build: captured blob identity mismatch")
 			}
@@ -661,6 +864,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 	if err != nil {
 		return nil, fmt.Errorf("publication build: runtime target manifest artifact: %w", err)
 	}
+	notePublicationConstruction(&publicationRuntimeArtifactConstructions)
 	return append(artifacts, targetManifest), nil
 }
 
@@ -787,7 +991,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 	})
 }
 
-func (candidate PreparedCandidate) buildManifestBytes(
+func (candidate PreparedCandidate) buildManifestBytesWithRoleReports(
 	reviewID domain.ReviewID,
 	createdAt string,
 	epoch uint64,
@@ -795,6 +999,7 @@ func (candidate PreparedCandidate) buildManifestBytes(
 	final ports.FinalReviewArtifact,
 	lineageEdge ports.ImmutablePublicationArtifact,
 	supportIndex ports.ImmutablePublicationArtifact,
+	roleReports []manifestRoleReportWire,
 ) ([]byte, error) {
 	return marshalCanonical(runManifestWire{
 		SchemaVersion:              candidate.artifactVersion("mulgae-run-manifest.v1"),
@@ -838,7 +1043,7 @@ func (candidate PreparedCandidate) buildManifestBytes(
 		FinalReview: finalReviewIdentityWire{
 			ReviewID: reviewID.String(), Path: final.Identity().Path().String(), SHA256: final.Identity().SHA256(),
 		},
-		RoleReports: candidate.manifestRoleReports(),
+		RoleReports: roleReports,
 		Failures:    candidate.manifestFailures(),
 		Warnings:    []string{},
 		ExitCode:    candidate.exitCode,
@@ -860,6 +1065,7 @@ func (candidate PreparedCandidate) buildRoleReports() ([]ports.ImmutablePublicat
 		if err != nil {
 			return nil, fmt.Errorf("publication build: role report %s: %w", role.role, err)
 		}
+		notePublicationConstruction(&publicationRoleReportConstructions)
 		reports = append(reports, artifact)
 	}
 	return reports, nil
@@ -880,6 +1086,61 @@ func (candidate PreparedCandidate) manifestRoleReports() []manifestRoleReportWir
 			Path:             "role-reports/" + string(role.role) + ".md",
 			SHA256:           sha256Identifier(role.reportMarkdown),
 			ByteLength:       len(role.reportMarkdown),
+			ProviderInstance: finalAttempt.provider,
+			AttemptID:        finalAttempt.id.String(),
+			ContentType:      "text/markdown",
+			Transport:        string(role.outputTransport),
+		})
+	}
+	return reports
+}
+
+// roleReportIdentity is the exact-byte identity of one constructed role
+// report artifact, retained so later bindings reuse it instead of digesting
+// the report markdown again.
+type roleReportIdentity struct {
+	sha256     string
+	byteLength int
+}
+
+// roleReportIdentities maps each published role to the identity of the
+// artifact buildRoleReports constructed for it, walking the roles with the
+// same emission guard so the mapping stays positional.
+func (candidate PreparedCandidate) roleReportIdentities(reports []ports.ImmutablePublicationArtifact) map[domain.Role]roleReportIdentity {
+	identities := make(map[domain.Role]roleReportIdentity, len(reports))
+	next := 0
+	for _, role := range candidate.roles {
+		if !role.valid || len(role.reportMarkdown) == 0 || next >= len(reports) {
+			continue
+		}
+		identities[role.role] = roleReportIdentity{sha256: reports[next].SHA256(), byteLength: reports[next].ByteLength()}
+		next++
+	}
+	return identities
+}
+
+// manifestRoleReportsFromIdentities applies the manifestRoleReports skip
+// rules while taking each report's digest and length from the retained
+// identities instead of re-hashing the markdown.
+func (candidate PreparedCandidate) manifestRoleReportsFromIdentities(identities map[domain.Role]roleReportIdentity) []manifestRoleReportWire {
+	reports := make([]manifestRoleReportWire, 0)
+	for _, role := range candidate.roles {
+		if !role.valid || len(role.reportMarkdown) == 0 {
+			continue
+		}
+		if len(role.attempts) == 0 {
+			continue
+		}
+		identity, ok := identities[role.role]
+		if !ok {
+			identity = roleReportIdentity{sha256: sha256Identifier(role.reportMarkdown), byteLength: len(role.reportMarkdown)}
+		}
+		finalAttempt := role.attempts[len(role.attempts)-1]
+		reports = append(reports, manifestRoleReportWire{
+			Role:             string(role.role),
+			Path:             "role-reports/" + string(role.role) + ".md",
+			SHA256:           identity.sha256,
+			ByteLength:       identity.byteLength,
 			ProviderInstance: finalAttempt.provider,
 			AttemptID:        finalAttempt.id.String(),
 			ContentType:      "text/markdown",
