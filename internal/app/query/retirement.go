@@ -63,25 +63,28 @@ func finalRecordRetired(final finalDTO, manifest manifestDTO) bool {
 	return false
 }
 
-func (service *Service) committedArtifactRetired(ctx context.Context, run ports.PublicationRun, review CommittedReview, seen map[string]struct{}) (bool, error) {
-	key := run.RunID().String()
-	if _, duplicate := seen[key]; duplicate {
-		return false, nil
+func (context *readContext) committedRetired(ctx context.Context, node *contextRun) (bool, error) {
+	if node.retireChecked {
+		return node.retired, nil
 	}
-	seen[key] = struct{}{}
+	node.retireChecked = true
+	run, review := node.run, node.review
 	retired := func(value string) bool { return providerInstanceRetired(value, review.liveSource != nil) }
 	for _, role := range review.Roles() {
 		if provider, present := role.ProviderInstance(); present && retired(provider) {
+			node.retired = true
 			return true, nil
 		}
 	}
 	for _, attempt := range review.Attempts() {
 		if retired(attempt.ProviderInstance()) {
+			node.retired = true
 			return true, nil
 		}
 	}
 	for _, report := range review.RoleReports() {
 		if retired(report.ProviderInstance()) {
+			node.retired = true
 			return true, nil
 		}
 	}
@@ -90,24 +93,31 @@ func (service *Service) committedArtifactRetired(ctx context.Context, run ports.
 		for _, source := range review.compositeSupport.Sources {
 			for _, provider := range source.ProviderIdentities {
 				if retiredProviderInstance(provider) {
+					node.retired = true
 					return true, nil
 				}
 			}
 		}
 		return false, nil
 	}
+	previousWalking := context.walking
+	context.walking = node
+	defer func() { context.walking = previousWalking }()
 	if review.RunType() == domain.RunTypeComposite {
 		var final compositeFinalDTO
 		if err := decodeStrictDTO(review.FinalBytes(), &final); err != nil {
 			return false, typedFailure(readCommittedStage, domain.FailureArtifact, "committed composite final decode failed", err)
 		}
 		for _, source := range final.ReviewComposition.Sources {
-			retired, err := service.sourceArtifactRetired(ctx, run.Root(), source.RunID, source.Kind, seen)
+			retired, err := context.sourceRetired(ctx, run.Root(), source.RunID, source.Kind)
 			if err != nil || retired {
+				node.retired = retired
 				return retired, err
 			}
 		}
-		return service.sourceArtifactRetired(ctx, run.Root(), final.ReviewComposition.RootRunID, final.ReviewComposition.RootSourceKind, seen)
+		retired, err := context.sourceRetired(ctx, run.Root(), final.ReviewComposition.RootRunID, final.ReviewComposition.RootSourceKind)
+		node.retired = retired
+		return retired, err
 	}
 
 	var final finalDTO
@@ -117,6 +127,7 @@ func (service *Service) committedArtifactRetired(ctx context.Context, run ports.
 	if final.Provenance.LiveProduction != nil {
 		for _, provider := range final.Provenance.LiveProduction.Providers {
 			if retired(provider.Family) || retired(provider.Instance) {
+				node.retired = true
 				return true, nil
 			}
 		}
@@ -124,22 +135,31 @@ func (service *Service) committedArtifactRetired(ctx context.Context, run ports.
 	if final.Provenance.Production != nil {
 		for _, provider := range final.Provenance.Production.Providers {
 			if retired(provider.Family) || retired(provider.Instance) {
+				node.retired = true
 				return true, nil
 			}
 		}
 	}
 	if final.ImmutableLineage.SourceRunID != nil {
-		return service.sourceArtifactRetired(ctx, run.Root(), *final.ImmutableLineage.SourceRunID, final.ImmutableLineage.SourceKind, seen)
+		retired, err := context.sourceRetired(ctx, run.Root(), *final.ImmutableLineage.SourceRunID, final.ImmutableLineage.SourceKind)
+		node.retired = retired
+		return retired, err
 	}
 	return false, nil
 }
 
-func (service *Service) sourceArtifactRetired(ctx context.Context, root ports.AnchoredRoot, rawRunID, kind string, seen map[string]struct{}) (bool, error) {
+func (context *readContext) sourceRetired(ctx context.Context, root ports.AnchoredRoot, rawRunID, kind string) (bool, error) {
 	runID, err := domain.ParseRunID(rawRunID)
 	if err != nil {
 		return false, typedFailure(readCommittedStage, domain.FailureArtifact, "retirement lineage run identity is invalid", err)
 	}
-	run, err := service.ResolveRun(ctx, root, runID)
+	if node, consumed := context.byRun[runID.String()]; consumed && kind != "failed_run_recovery" {
+		if context.walking != nil && !containsRun(context.walking.deps, node) {
+			context.walking.deps = append(context.walking.deps, node)
+		}
+		return context.committedRetired(ctx, node)
+	}
+	run, err := context.service.ResolveRun(ctx, root, runID)
 	if err != nil {
 		// Retirement adds no new corruption classification. Existing lineage
 		// verification remains authoritative when a source cannot be resolved;
@@ -147,25 +167,28 @@ func (service *Service) sourceArtifactRetired(ctx context.Context, root ports.An
 		return false, nil
 	}
 	if kind == "failed_run_recovery" {
-		snapshot, err := recovery.Read(ctx, service.store, service.validator, run, service.maxReadBytes)
+		snapshot, err := recovery.Read(ctx, context.service.store, context.service.validator, run, context.service.maxReadBytes)
 		if err != nil {
 			return false, err
 		}
-		return service.recoveryArtifactRetired(ctx, run, snapshot, seen)
+		return context.recoveryRetired(ctx, run, snapshot)
 	}
-	review, err := service.readCommittedUnfiltered(ctx, run)
+	node, err := context.snapshotReview(ctx, run, readCommittedStage)
 	if err != nil {
 		return false, err
 	}
-	return service.committedArtifactRetired(ctx, run, review, seen)
+	return context.committedRetired(ctx, node)
 }
 
-func (service *Service) recoveryArtifactRetired(ctx context.Context, run ports.PublicationRun, snapshot recovery.Snapshot, seen map[string]struct{}) (bool, error) {
+func (context *readContext) recoveryRetired(ctx context.Context, run ports.PublicationRun, snapshot recovery.Snapshot) (bool, error) {
 	key := run.RunID().String()
-	if _, duplicate := seen[key]; duplicate {
+	if context.recoverySeen == nil {
+		context.recoverySeen = map[string]struct{}{}
+	}
+	if _, duplicate := context.recoverySeen[key]; duplicate {
 		return false, nil
 	}
-	seen[key] = struct{}{}
+	context.recoverySeen[key] = struct{}{}
 	document := snapshot.Document()
 	for _, attempt := range document.Attempts {
 		if retiredProviderInstance(attempt.ProviderInstance) {
@@ -183,7 +206,16 @@ func (service *Service) recoveryArtifactRetired(ctx context.Context, run ports.P
 		}
 	}
 	if document.Source != nil {
-		return service.sourceArtifactRetired(ctx, run.Root(), document.Source.RunID, document.Source.Kind, seen)
+		return context.sourceRetired(ctx, run.Root(), document.Source.RunID, document.Source.Kind)
 	}
 	return false, nil
+}
+
+func containsRun(nodes []*contextRun, node *contextRun) bool {
+	for _, candidate := range nodes {
+		if candidate == node {
+			return true
+		}
+	}
+	return false
 }

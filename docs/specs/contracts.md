@@ -1222,6 +1222,12 @@ before returning a publication receipt. CLI `findings` and MCP `list_findings` u
 receipt binds project, run, review, final, manifest, support, lineage and epoch.
 Before returning, each successful read reobserves the publication and
 revalidates the project lease. Corruption or concurrent cleanup fails the read.
+One entry-point invocation verifies each consumed publication's support once,
+reads every served artifact digest-bound against that verified index, and
+re-observes every consumed publication — a shared ancestor once, the
+requested publication last — before returning; a nested public call and a new
+request, including a continuation chunk, verify freshly in their own
+contexts.
 
 Page selectors, cursor scope, finding summaries and continuation fields follow
 [verified review contracts](verified-review-contracts.md#transport-grammar-and-result-fields).
@@ -1257,7 +1263,12 @@ Adding `--role ROLE` selects the exact original role report. Rendering reuses th
 existing report service against a query-owned snapshot: final data and every
 excerpt come from the same verified publication, which is reobserved before
 returning. Original report bytes are checked against the manifest and support
-index before chunking.
+index before chunking, and receipt-bound evidence excerpts are read
+digest-bound against that verified index; live publications are always
+index-bound. The legacy `report --output-path PATH` command, the legacy
+`excerpt` command and the legacy MCP report resource render on one
+query-owned snapshot per render whose excerpts keep the claim-verified direct
+read for every historical publication, with or without an index.
 
 `excerpt` accepts `--evidence-index N` (zero-based, 0 through 19) and the native
 content selectors. Supplying any new selector chooses receipt-bound chunk

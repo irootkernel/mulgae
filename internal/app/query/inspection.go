@@ -115,11 +115,12 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 	if !binding.Valid() {
 		return Inspection{}, ErrCursorInvalid
 	}
-	observation, err := service.observe(ctx, run, "query.inspect")
+	context := service.newReadContext()
+	node, err := context.ensureRun(ctx, run, "query.inspect")
 	if err != nil {
 		return Inspection{}, err
 	}
-	if observation.decision.Status() != domain.PublicationCommitted {
+	if node.binding.decision.Status() != domain.PublicationCommitted {
 		status, err := service.ReadRunStatus(ctx, run)
 		if err != nil {
 			return Inspection{}, err
@@ -133,7 +134,7 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 		state, _ := status.RunState()
 		return Inspection{FailedRunRecovery: status.FailedRunRecovery(), SessionID: run.SessionID().String(), RunID: run.RunID().String(), RunState: string(state), PublicationState: string(status.PublicationStatus()), PublicationAuthority: string(status.Authority()), RecoveryAction: string(status.RecoveryAction()), DiagnosticOnly: true, Findings: []FindingSummary{}, RoleReports: []InspectionRoleReport{}, MinimumSeverity: string(request.MinimumSeverity), Capabilities: ImplementedReadCapabilities()}, nil
 	}
-	review, receipt, support, err := service.inspectCommitted(ctx, run, binding, observation)
+	review, receipt, support, err := service.inspectCommitted(ctx, context, node, binding)
 	if err != nil {
 		return Inspection{}, err
 	}
@@ -162,7 +163,7 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 		return Inspection{}, ErrCursorInvalid
 	}
 	end := min(offset+uint64(request.Limit), uint64(len(filtered)))
-	result := Inspection{FailedRunRecovery: recovery.UnavailableStatus("published_review"), SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), RunState: string(review.RunState()), PublicationState: string(domain.PublicationCommitted), PublicationAuthority: string(domain.PublicationAuthorityP2), RecoveryAction: string(observation.decision.Action()), ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), CIDecision: string(review.CIDecision()), TargetSHA256: review.TargetSHA256(), ReviewArtifactURI: ".mulgae/" + review.FinalPath().String(), PublicationReceipt: identity.String(), Receipt: &receipt, CaptureIdentity: receipt.CaptureIdentity, CaptureAvailability: receipt.CaptureAvailability, Capabilities: ImplementedReadCapabilities(), MinimumSeverity: string(request.MinimumSeverity), FindingCount: len(filtered), Findings: make([]FindingSummary, 0, end-offset), RoleReports: []InspectionRoleReport{}}
+	result := Inspection{FailedRunRecovery: recovery.UnavailableStatus("published_review"), SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), RunState: string(review.RunState()), PublicationState: string(domain.PublicationCommitted), PublicationAuthority: string(domain.PublicationAuthorityP2), RecoveryAction: string(node.binding.decision.Action()), ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), CIDecision: string(review.CIDecision()), TargetSHA256: review.TargetSHA256(), ReviewArtifactURI: ".mulgae/" + review.FinalPath().String(), PublicationReceipt: identity.String(), Receipt: &receipt, CaptureIdentity: receipt.CaptureIdentity, CaptureAvailability: receipt.CaptureAvailability, Capabilities: ImplementedReadCapabilities(), MinimumSeverity: string(request.MinimumSeverity), FindingCount: len(filtered), Findings: make([]FindingSummary, 0, end-offset), RoleReports: []InspectionRoleReport{}}
 	result.SourceIdentitySHA256 = review.SourceIdentitySHA256()
 	for _, report := range review.RoleReports() {
 		result.RoleReports = append(result.RoleReports, InspectionRoleReport{report.Role(), ReportContentURI(run.RunID().String(), report.Role(), binding.String(), identity.String(), report.SHA256(), 0), report.SHA256(), report.ByteLength()})
@@ -176,7 +177,7 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 				return Inspection{}, pathErr
 			}
 			if _, present := support[path.String()]; present {
-				if _, err := service.readCommittedFindingExcerpt(ctx, run, review, finding.ID(), i+1, item, support); err != nil {
+				if _, err := context.readCommittedFindingExcerpt(ctx, node, finding.ID(), i+1, item); err != nil {
 					return Inspection{}, err
 				}
 				reference.URI = EvidenceContentURI(run.RunID().String(), finding.ID(), review.TargetSHA256(), i, binding.String(), identity.String(), support[path.String()], 0)
@@ -200,31 +201,32 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 			return Inspection{}, err
 		}
 	}
-	if err := service.confirmStableP2Observation(ctx, run, observation, "query.inspect"); err != nil {
+	if err := context.finish(ctx); err != nil {
 		return Inspection{}, err
 	}
 	return result, nil
 }
 
-func (service *Service) inspectCommitted(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, observation observedRun) (CommittedReview, InspectionReceipt, map[string]string, error) {
-	review, err := service.readCommittedSnapshot(ctx, run, observation, "query.inspect")
-	if err != nil {
+func (service *Service) inspectCommitted(ctx context.Context, context *readContext, node *contextRun, binding domain.ProjectBinding) (CommittedReview, InspectionReceipt, map[string]string, error) {
+	run := node.run
+	if err := context.verifySnapshot(ctx, node); err != nil {
 		return CommittedReview{}, InspectionReceipt{}, nil, err
 	}
-	retired, err := service.committedArtifactRetired(ctx, run, review, make(map[string]struct{}))
+	retired, err := context.committedRetired(ctx, node)
 	if err != nil {
 		return CommittedReview{}, InspectionReceipt{}, nil, err
 	}
 	if retired {
 		return CommittedReview{}, InspectionReceipt{}, nil, typedFailure("query.inspect", domain.FailureArtifact, retiredProviderArtifactReason, nil)
 	}
-	if _, err = service.projectStatusRoleReportURIs(ctx, run, review, observation); err != nil {
+	if _, err = context.roleReportURIs(ctx, node); err != nil {
 		return CommittedReview{}, InspectionReceipt{}, nil, err
 	}
-	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	index, err := context.supportIndex(ctx, node, node.review)
 	if err != nil {
 		return CommittedReview{}, InspectionReceipt{}, nil, err
 	}
+	review := node.review
 	var envelope struct {
 		CompositeIdentity struct {
 			SupportIndex *artifactIdentityDTO `json:"support_index"`
@@ -247,7 +249,7 @@ func (service *Service) inspectCommitted(ctx context.Context, run ports.Publicat
 	}
 	path, _ := ports.NewSafeRelativePath(run.SessionID().String() + "/" + run.RunID().String() + "/target/capture-manifest.json")
 	if _, ok := index[path.String()]; ok {
-		artifact, readErr := service.readIndexedRuntimeArtifact(ctx, run, review, index, path)
+		artifact, readErr := context.indexedArtifact(ctx, node, path)
 		if readErr != nil {
 			return CommittedReview{}, InspectionReceipt{}, nil, readErr
 		}
@@ -259,7 +261,8 @@ func (service *Service) inspectCommitted(ctx context.Context, run ports.Publicat
 		if identityErr != nil {
 			return CommittedReview{}, InspectionReceipt{}, nil, identityErr
 		}
-		// readRuntimeSupportIndex already rebuilt and verified the complete capture.
+		// The single whole-support verification already rebuilt and verified
+		// the complete capture.
 		receipt.CaptureIdentity, receipt.CaptureAvailability = identity.String(), "verified"
 	}
 	return review, receipt, index, nil
@@ -295,11 +298,12 @@ func (service *Service) ReadFinding(ctx context.Context, run ports.PublicationRu
 	if err := continuation.Validate(); err != nil {
 		return ContentChunk{}, err
 	}
-	observation, err := service.observe(ctx, run, "query.read_finding")
+	context := service.newReadContext()
+	node, err := context.ensureRun(ctx, run, "query.read_finding")
 	if err != nil {
 		return ContentChunk{}, err
 	}
-	review, receipt, support, err := service.inspectCommitted(ctx, run, binding, observation)
+	review, receipt, support, err := service.inspectCommitted(ctx, context, node, binding)
 	if err != nil {
 		return ContentChunk{}, err
 	}
@@ -317,7 +321,7 @@ func (service *Service) ReadFinding(ctx context.Context, run ports.PublicationRu
 				return ContentChunk{}, err
 			}
 			if _, present := support[path.String()]; present {
-				if _, err := service.readCommittedFindingExcerpt(ctx, run, review, findingID, i+1, item, support); err != nil {
+				if _, err := context.readCommittedFindingExcerpt(ctx, node, findingID, i+1, item); err != nil {
 					return ContentChunk{}, err
 				}
 			}
@@ -372,7 +376,7 @@ func (service *Service) ReadFinding(ctx context.Context, run ports.PublicationRu
 			return ContentChunk{}, err
 		}
 		chunk.RunID, chunk.FindingID = run.RunID().String(), findingID
-		if err = service.confirmStableP2Observation(ctx, run, observation, "query.read_finding"); err != nil {
+		if err = context.finish(ctx); err != nil {
 			return ContentChunk{}, err
 		}
 		return chunk, nil

@@ -15,18 +15,16 @@ import (
 // ReadCompositionSupport captures portable source provenance and verified
 // evidence, then confirms the same publication supplied all copied material.
 func (service *Service) ReadCompositionSupport(ctx context.Context, run ports.PublicationRun) (compositesupport.Material, error) {
-	observation, err := service.observe(ctx, run, "query.composition_support")
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, "query.composition_support")
 	if err != nil {
 		return compositesupport.Material{}, err
 	}
-	review, err := service.ReadCommitted(ctx, run)
-	if err != nil {
-		return compositesupport.Material{}, err
-	}
+	review := node.review
 	if review.RunType() == domain.RunTypeComposite {
 		return compositesupport.Material{}, fmt.Errorf("composite source is unsupported")
 	}
-	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	index, err := context.supportIndex(ctx, node, node.review)
 	if err != nil {
 		return compositesupport.Material{}, err
 	}
@@ -36,14 +34,14 @@ func (service *Service) ReadCompositionSupport(ctx context.Context, run ports.Pu
 	}
 	material := compositesupport.Material{Source: compositesupport.Source{SessionID: run.SessionID().String(), RunID: run.RunID().String(), ReviewID: review.ReviewID().String(), FinalSHA256: review.FinalSHA256(), ManifestSHA256: review.ManifestSHA256(), SupportSHA256: manifest.CompositeIdentity.SupportIndex.SHA256, LineageSHA256: review.LineageEdgeSHA256(), Epoch: review.Epoch(), TargetSHA256: review.TargetSHA256(), CaptureAvailability: "capture_identity_unavailable"}}
 	providers := map[string]bool{}
-	if err := service.compositionProviders(ctx, run, review, providers, map[string]bool{}); err != nil {
+	if err := context.compositionProviders(ctx, node, providers, map[string]bool{}); err != nil {
 		return material, err
 	}
 	for provider := range providers {
 		material.Source.ProviderIdentities = append(material.Source.ProviderIdentities, provider)
 	}
 	sort.Strings(material.Source.ProviderIdentities)
-	target, err := service.ReadRuntimeTarget(ctx, run)
+	target, err := context.runtimeTarget(ctx, node)
 	if err != nil {
 		return material, err
 	}
@@ -80,7 +78,7 @@ func (service *Service) ReadCompositionSupport(ctx context.Context, run ports.Pu
 			}
 			var content []byte
 			if _, ok := index[path.String()]; ok {
-				content, err = service.readCommittedFindingExcerpt(ctx, run, review, finding.ID(), i+1, e, index)
+				content, err = context.readCommittedFindingExcerpt(ctx, node, finding.ID(), i+1, e)
 				if err != nil {
 					return material, err
 				}
@@ -92,7 +90,7 @@ func (service *Service) ReadCompositionSupport(ctx context.Context, run ports.Pu
 		}
 		material.Findings = append(material.Findings, item)
 	}
-	if err := service.confirmStableP2Observation(ctx, run, observation, "query.composition_support"); err != nil {
+	if err := context.finish(ctx); err != nil {
 		return material, err
 	}
 	return material, nil
@@ -100,11 +98,15 @@ func (service *Service) ReadCompositionSupport(ctx context.Context, run ports.Pu
 
 // Preserve the provider identities inspected by the existing retirement policy
 // before detaching a composite from its source lineage.
-func (service *Service) compositionProviders(ctx context.Context, run ports.PublicationRun, review CommittedReview, providers map[string]bool, seen map[string]bool) error {
+func (context *readContext) compositionProviders(ctx context.Context, node *contextRun, providers map[string]bool, seen map[string]bool) error {
+	run, review := node.run, node.review
 	if seen[run.RunID().String()] {
 		return nil
 	}
 	seen[run.RunID().String()] = true
+	previousWalking := context.walking
+	context.walking = node
+	defer func() { context.walking = previousWalking }()
 	for _, r := range review.Roles() {
 		if p, ok := r.ProviderInstance(); ok {
 			providers[p] = true
@@ -130,14 +132,14 @@ func (service *Service) compositionProviders(ctx context.Context, run ports.Publ
 	if final.ImmutableLineage.SourceRunID == nil {
 		return nil
 	}
-	return service.compositionSourceProviders(ctx, run.Root(), *final.ImmutableLineage.SourceRunID, final.ImmutableLineage.SourceKind, providers, seen)
+	return context.compositionSourceProviders(ctx, run.Root(), *final.ImmutableLineage.SourceRunID, final.ImmutableLineage.SourceKind, providers, seen)
 }
-func (service *Service) compositionSourceProviders(ctx context.Context, root ports.AnchoredRoot, id, kind string, providers map[string]bool, seen map[string]bool) error {
+func (context *readContext) compositionSourceProviders(ctx context.Context, root ports.AnchoredRoot, id, kind string, providers map[string]bool, seen map[string]bool) error {
 	sourceID, err := domain.ParseRunID(id)
 	if err != nil {
 		return err
 	}
-	run, err := service.ResolveRun(ctx, root, sourceID)
+	run, err := context.service.ResolveRun(ctx, root, sourceID)
 	if err != nil {
 		return nil
 	}
@@ -146,7 +148,7 @@ func (service *Service) compositionSourceProviders(ctx context.Context, root por
 			return nil
 		}
 		seen[id] = true
-		snapshot, err := recovery.Read(ctx, service.store, service.validator, run, service.maxReadBytes)
+		snapshot, err := recovery.Read(ctx, context.service.store, context.service.validator, run, context.service.maxReadBytes)
 		if err != nil {
 			return err
 		}
@@ -162,22 +164,26 @@ func (service *Service) compositionSourceProviders(ctx context.Context, root por
 		}
 		delete(providers, "")
 		if doc.Source != nil {
-			return service.compositionSourceProviders(ctx, root, doc.Source.RunID, doc.Source.Kind, providers, seen)
+			return context.compositionSourceProviders(ctx, root, doc.Source.RunID, doc.Source.Kind, providers, seen)
 		}
 		return nil
 	}
-	review, err := service.readCommittedUnfiltered(ctx, run)
+	node, err := context.snapshotReview(ctx, run, readCommittedStage)
 	if err != nil {
 		return err
 	}
-	return service.compositionProviders(ctx, run, review, providers, seen)
+	return context.compositionProviders(ctx, node, providers, seen)
 }
 
 // ReadRecoveryCompositionProviders retains the same ancestry retirement policy
 // used when admitting a failed-run recovery source.
 func (service *Service) ReadRecoveryCompositionProviders(ctx context.Context, run ports.PublicationRun) ([]string, error) {
+	context := service.newReadContext()
 	providers := map[string]bool{}
-	if err := service.compositionSourceProviders(ctx, run.Root(), run.RunID().String(), "failed_run_recovery", providers, map[string]bool{}); err != nil {
+	if err := context.compositionSourceProviders(ctx, run.Root(), run.RunID().String(), "failed_run_recovery", providers, map[string]bool{}); err != nil {
+		return nil, err
+	}
+	if err := context.finish(ctx); err != nil {
 		return nil, err
 	}
 	values := []string{}

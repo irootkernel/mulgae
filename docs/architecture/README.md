@@ -368,6 +368,51 @@ publication constructs fresh, and the historical builder (`Build`) used by
 captured, followup, and composite candidates keeps its full construction on
 every call. Durable persistence, read-back, and sync behavior are unchanged.
 
+Verified reads own a query-local, per-call read context
+(`internal/app/query`). Each public entry point — inspection, status, finding
+detail, report and evidence content, excerpt rendering, and the legacy report
+render through `WithVerifiedSnapshot` — owns exactly one context and discards
+it on return; "at most once" below holds within that context. Some entry
+points delegate to other public entry points (`Inspect`'s diagnostic branch
+calls `ReadRunStatus`, `ReadRunStatus` on a not-published run calls
+`ReadFailedRunRecovery`, exact-replay recovery verification calls
+`ReadCommittedAttempt`, and `ResolveCommittedAttempt` calls `ReadCommitted`
+then `ReadCommittedAttempt`); each nested public call verifies freshly in its
+own context, exactly as before this change.
+The context records, per consumed publication, the initial P2 observation, the
+verified support-index identities, and the dependency edges that the
+retirement and composition walks discover. It stores no support-artifact
+bodies of its own; what it retains until the call returns is each consumed
+publication's verified review — the structured final and manifest view, plus
+a composite's bound support — and that publication's initial binding. The
+context is never attached to the `Service`, a returned review, or the MCP
+backend, so a separate request, including an MCP continuation chunk, verifies
+freshly.
+Within the call each consumed publication's snapshot read and whole-support
+verification run at most once, and every served artifact (excerpt, role
+report, source image, captured member) is still read at the point it is
+served, digest-bound to the verified index with the full path/kind/digest
+checks; only the per-artifact re-observation is gone. Before returning, the
+context re-observes every consumed publication in dependency postorder —
+each after all of its dependencies, a shared ancestor once, the requested
+publication last — and compares decision, epoch and snapshot identities.
+Every publication-identity change still observable at that confirmation is
+detected; a transient state with different bytes fails its digest-bound
+read, and one with identical bytes cannot change the returned data.
+Read-contract errors detected after verification — a receipt or cursor
+mismatch, an invalid cursor, or source-replay unavailability — return without
+that final confirmation, so under a concurrent publication change such an
+error can surface instead of the artifact failure the earlier per-artifact
+re-observation reported first; no data is returned either way. Excerpt
+binding follows the two read families: receipt-bound content reads (report
+and evidence content) bind every excerpt digest to the verified index, and
+live publications are always index-bound; the legacy excerpt and render path
+(`RenderExcerptAt` and the snapshot opener reader, used by
+`report --output-path`, `excerpt` and the legacy MCP report resource) keeps
+the claim-verified direct read for every historical publication, with or
+without an index, as it always has.
+No content cap or source snapshot is introduced.
+
 ## Planned extension ownership
 
 EPIC-008 is held for redesign after EPIC-009. Its old capture/batch ownership

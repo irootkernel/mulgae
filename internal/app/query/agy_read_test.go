@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -15,6 +16,14 @@ import (
 
 func liveAgyCommittedFixture(t *testing.T) (*Service, *queryStore, ports.PublicationRun, domain.ProjectBinding) {
 	t.Helper()
+	return liveCommittedFixture(t, 1, 1)
+}
+
+// liveCommittedFixture builds a live v3 publication with the requested number
+// of findings and per-finding current-evidence items, all retained as verified
+// support. The 1x1 shape matches the original single-finding fixture.
+func liveCommittedFixture(t *testing.T, findingCount, evidenceCount int) (*Service, *queryStore, ports.PublicationRun, domain.ProjectBinding) {
+	t.Helper()
 	run, snapshot, _, artifacts, _ := queryStatusRoleReportFixture(t)
 	final, err := decodeFinalDTO(snapshot.Final().Bytes())
 	if err != nil {
@@ -24,13 +33,28 @@ func liveAgyCommittedFixture(t *testing.T) (*Service, *queryStore, ports.Publica
 	if err != nil {
 		t.Fatal(err)
 	}
-	item := &final.Findings[0].Evidence[0]
-	path := mustQueryPath(t, item.Current.Path)
+	prototype := final.Findings[0].Evidence[0]
+	paths := make([]string, 0, findingCount*evidenceCount)
+	for f := 0; f < findingCount; f++ {
+		for e := 0; e < evidenceCount; e++ {
+			path := prototype.Current.Path
+			if findingCount > 1 || evidenceCount > 1 {
+				path = fmt.Sprintf("internal/example-%d-%d.go", f, e)
+			}
+			paths = append(paths, path)
+		}
+	}
+	changes := make([]ports.LiveSourceChange, 0, len(paths))
+	metadataChanges := make([]evidence.LiveSourceChange, 0, len(paths))
+	for _, value := range paths {
+		changes = append(changes, ports.LiveSourceChange{Kind: "included", After: mustQueryPath(t, value)})
+		metadataChanges = append(metadataChanges, evidence.LiveSourceChange{Kind: "included", After: value})
+	}
 	selector, err := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := ports.NewLiveSourceTarget(selector, ports.GitObjectID{}, ports.GitObjectID{}, false, []ports.LiveSourceChange{{Kind: "included", After: path}})
+	target, err := ports.NewLiveSourceTarget(selector, ports.GitObjectID{}, ports.GitObjectID{}, false, changes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,21 +62,25 @@ func liveAgyCommittedFixture(t *testing.T) (*Service, *queryStore, ports.Publica
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := evidence.NewLiveClaim(identity, evidence.SideWorktree, path.String(), item.Current.LineStart, item.Current.LineEnd, item.Current.Quote)
-	if err != nil {
-		t.Fatal(err)
+	digestFor := func(path string, item finalEvidenceDTO) (string, finalEvidenceDTO) {
+		claim, err := evidence.NewLiveClaim(identity, evidence.SideWorktree, path, item.Current.LineStart, item.Current.LineEnd, item.Current.Quote)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
+		if err != nil {
+			t.Fatal(err)
+		}
+		item.Current.Path = path
+		item.Current.TargetSHA256, item.Source.SourceTargetSHA256 = "", ""
+		item.Current.SourceIdentitySHA256, item.Source.SourceIdentitySHA256 = identity.SHA256(), identity.SHA256()
+		item.Current.CurrentExcerptSHA256, item.Source.SourceExcerptSHA256 = digest, digest
+		return digest, item
 	}
-	digest, err := claim.ExcerptSHA256([]byte(item.Current.Quote))
-	if err != nil {
-		t.Fatal(err)
-	}
-	item.Current.TargetSHA256, item.Source.SourceTargetSHA256 = "", ""
-	item.Current.SourceIdentitySHA256, item.Source.SourceIdentitySHA256 = identity.SHA256(), identity.SHA256()
-	item.Current.CurrentExcerptSHA256, item.Source.SourceExcerptSHA256 = digest, digest
 	final.SchemaVersion = "mulgae-review-artifact.v3"
 	final.Target.ContentSHA256, final.Target.ManifestPath = "", "source/source.json"
 	final.Target.BaseOID, final.Target.HeadOID = nil, nil
-	final.Target.LiveSource = &evidence.LiveSourceMetadata{Identity: identity.Bytes(), SourceIdentitySHA256: identity.SHA256(), Changes: []evidence.LiveSourceChange{{Kind: "included", After: path.String()}}, Consistency: "caller_maintained", ReplayAvailability: "unsupported", BinaryEvidence: []evidence.LiveBinaryObservation{}}
+	final.Target.LiveSource = &evidence.LiveSourceMetadata{Identity: identity.Bytes(), SourceIdentitySHA256: identity.SHA256(), Changes: metadataChanges, Consistency: "caller_maintained", ReplayAvailability: "unsupported", BinaryEvidence: []evidence.LiveBinaryObservation{}}
 	productionFinal := queryProductionFinalDTO()
 	final.Mulgae = productionFinal.Mulgae
 	production := productionFinal.Provenance.Production
@@ -66,7 +94,54 @@ func liveAgyCommittedFixture(t *testing.T) (*Service, *queryStore, ports.Publica
 		instance := "agy-" + final.RoleOutcomes[i].Role
 		final.RoleOutcomes[i].ProviderInstance = &instance
 	}
-	final.Findings[0].ProviderInstance = "agy-logic"
+	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
+	support := map[string]ports.ImmutablePublicationArtifact{}
+	for _, report := range manifest.RoleReports {
+		support[prefix+report.Path] = artifacts[prefix+report.Path]
+	}
+	sourcePath := mustQueryPath(t, prefix+"source/source.json")
+	support[sourcePath.String()] = mustQueryArtifact(t, sourcePath, identity.Bytes())
+	findings := make([]finalFindingDTO, 0, findingCount)
+	validIDs := make([]string, 0, findingCount)
+	for f := 0; f < findingCount; f++ {
+		finding := final.Findings[0]
+		finding.ID = fmt.Sprintf("F%03d", f+1)
+		finding.Fingerprint = querySHA([]byte(finding.ID))
+		finding.ProviderInstance = "agy-logic"
+		finding.Evidence = nil
+		for e := 0; e < evidenceCount; e++ {
+			_, item := digestFor(paths[f*evidenceCount+e], prototype)
+			item.Source.FindingID = finding.ID
+			finding.Evidence = append(finding.Evidence, item)
+			excerptPath := mustQueryPath(t, fmt.Sprintf("%sexcerpts/%s_%d.md", prefix, finding.ID, e+1))
+			support[excerptPath.String()] = mustQueryArtifact(t, excerptPath, []byte(item.Current.Quote))
+		}
+		// Canonical evidence order is keyed by the excerpt digest before the
+		// path, so order each finding's items the same way before the
+		// normalized metadata snapshot is taken.
+		evidence := finding.Evidence
+		sort.Slice(evidence, func(i, j int) bool {
+			if evidence[i].Current.CurrentExcerptSHA256 != evidence[j].Current.CurrentExcerptSHA256 {
+				return evidence[i].Current.CurrentExcerptSHA256 < evidence[j].Current.CurrentExcerptSHA256
+			}
+			return evidence[i].Current.Path < evidence[j].Current.Path
+		})
+		finding.Evidence = evidence
+		normalized, err := json.Marshal(finding)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadataPath := mustQueryPath(t, fmt.Sprintf("%sexcerpts/%s.json", prefix, finding.ID))
+		support[metadataPath.String()] = mustQueryArtifact(t, metadataPath, normalized)
+		findings = append(findings, finding)
+		validIDs = append(validIDs, finding.ID)
+	}
+	final.Findings = findings
+	for i := range final.RoleOutcomes {
+		if final.RoleOutcomes[i].Role == "logic" {
+			final.RoleOutcomes[i].ValidFindingIDs = validIDs
+		}
+	}
 	manifest.SchemaVersion = "mulgae-run-manifest.v3"
 	manifest.Target.ContentSHA256, manifest.Target.ManifestPath, manifest.Target.SourceIdentitySHA256 = "", "source/source.json", identity.SHA256()
 	for i := range manifest.Attempts {
@@ -75,21 +150,6 @@ func liveAgyCommittedFixture(t *testing.T) (*Service, *queryStore, ports.Publica
 	for i := range manifest.RoleReports {
 		manifest.RoleReports[i].ProviderInstance = "agy-" + manifest.RoleReports[i].Role
 		manifest.RoleReports[i].Transport = "stdout"
-	}
-	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
-	support := map[string]ports.ImmutablePublicationArtifact{}
-	for _, report := range manifest.RoleReports {
-		support[prefix+report.Path] = artifacts[prefix+report.Path]
-	}
-	sourcePath := mustQueryPath(t, prefix+"source/source.json")
-	support[sourcePath.String()] = mustQueryArtifact(t, sourcePath, identity.Bytes())
-	findingBytes, err := json.Marshal(final.Findings[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	for relative, body := range map[string][]byte{"excerpts/F001.json": findingBytes, "excerpts/F001_1.md": []byte(item.Current.Quote)} {
-		p := mustQueryPath(t, prefix+relative)
-		support[p.String()] = mustQueryArtifact(t, p, body)
 	}
 	index := runtimeSupportIndexDTO{SchemaVersion: "mulgae-run-support-index.v3"}
 	for name, artifact := range support {

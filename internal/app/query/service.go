@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -14,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	coreapp "github.com/irootkernel/mulgae/internal/app"
-	"github.com/irootkernel/mulgae/internal/app/capture"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
@@ -55,10 +53,12 @@ type Service struct {
 // ReadCommittedRoleReport returns exact report bytes only after the report is
 // bound by the committed manifest, support index, and a stable P2 observation.
 func (service *Service) ReadCommittedRoleReport(ctx context.Context, run ports.PublicationRun, report RoleReport) ([]byte, error) {
-	review, err := service.ReadCommitted(ctx, run)
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, readCommittedStage)
 	if err != nil {
 		return nil, err
 	}
+	review := node.review
 	matched := false
 	for _, candidate := range review.RoleReports() {
 		if candidate == report {
@@ -69,14 +69,21 @@ func (service *Service) ReadCommittedRoleReport(ctx context.Context, run ports.P
 	if !matched {
 		return nil, typedFailure(readRoleReportStage, domain.FailureArtifact, "role report is not bound by the committed review", nil)
 	}
-	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	index, err := context.supportIndex(ctx, node, node.review)
 	if err != nil {
 		return nil, err
 	}
-	return service.readRoleReportSnapshot(ctx, run, review, report, index)
+	content, err := context.roleReportSnapshot(ctx, node, run, review, report, index)
+	if err != nil {
+		return nil, err
+	}
+	if err := context.finish(ctx); err != nil {
+		return nil, err
+	}
+	return content, nil
 }
 
-func (service *Service) readRoleReportSnapshot(ctx context.Context, run ports.PublicationRun, review CommittedReview, report RoleReport, index map[string]string) ([]byte, error) {
+func (context *readContext) roleReportSnapshot(ctx context.Context, node *contextRun, run ports.PublicationRun, review CommittedReview, report RoleReport, index map[string]string) ([]byte, error) {
 	path, err := runSupportPath(run, report.Path())
 	if err != nil {
 		return nil, typedFailure(readRoleReportStage, domain.FailureArtifact, "role report path is invalid", err)
@@ -85,7 +92,7 @@ func (service *Service) readRoleReportSnapshot(ctx context.Context, run ports.Pu
 	if err != nil || kind != ports.RunSupportArtifactRoleReport || index[path.String()] != report.SHA256() {
 		return nil, typedFailure(readRoleReportStage, domain.FailureArtifact, "role report support binding is invalid", err)
 	}
-	artifact, err := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, report.SHA256(), int64(report.ByteLength()))
+	artifact, err := context.boundArtifact(ctx, node, path, report.SHA256(), int64(report.ByteLength()))
 	if err != nil {
 		return nil, err
 	}
@@ -179,68 +186,45 @@ func (service *Service) ResolveRun(
 }
 
 // ReadCommitted returns a defensive view only when the observed P2 epoch binds
-// the snapshot and remains unchanged under P2 re-observation.
+// the snapshot and remains unchanged under the call's final confirmation.
 func (service *Service) ReadCommitted(ctx context.Context, run ports.PublicationRun) (CommittedReview, error) {
-	review, err := service.readCommittedUnfiltered(ctx, run)
-	if err != nil {
-		return CommittedReview{}, err
-	}
-	retired, err := service.committedArtifactRetired(ctx, run, review, make(map[string]struct{}))
-	if err != nil {
-		return CommittedReview{}, err
-	}
-	if retired {
-		return CommittedReview{}, typedFailure(readCommittedStage, domain.FailureArtifact, retiredProviderArtifactReason, nil)
-	}
-	return review, nil
-}
-
-func (service *Service) readCommittedUnfiltered(ctx context.Context, run ports.PublicationRun) (CommittedReview, error) {
 	if err := service.preflight(ctx, readCommittedStage); err != nil {
 		return CommittedReview{}, err
 	}
-	observation, err := service.observe(ctx, run, readCommittedStage)
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, readCommittedStage)
 	if err != nil {
 		return CommittedReview{}, err
 	}
-	if observation.decision.Status() != domain.PublicationCommitted ||
-		observation.decision.Authority() != domain.PublicationAuthorityP2 {
-		return CommittedReview{}, typedFailure(
-			readCommittedStage,
-			domain.FailureArtifact,
-			"committed review is unavailable without P2 authority",
-			nil,
-		)
+	if err := context.finish(ctx); err != nil {
+		return CommittedReview{}, err
 	}
-	return service.readCommittedSnapshot(ctx, run, observation, readCommittedStage)
+	return node.review, nil
 }
 
 // ReadCommittedForComposition verifies the exact P2 review together with its
-// target and role-report support, then confirms the same immutable snapshot.
+// target and role-report support; the final confirmation covers any change
+// made while that support was verified.
 func (service *Service) ReadCommittedForComposition(ctx context.Context, run ports.PublicationRun) (CommittedReview, error) {
-	review, err := service.ReadCommitted(ctx, run)
+	context := service.newReadContext()
+	root, err := context.readCommitted(ctx, run, readCommittedStage)
 	if err != nil {
 		return CommittedReview{}, err
 	}
-	if _, err := service.ReadRuntimeTarget(ctx, run); err != nil {
+	if _, err := context.runtimeTarget(ctx, root); err != nil {
 		return CommittedReview{}, err
 	}
-	status, err := service.ReadRunStatus(ctx, run)
+	status, err := service.statusWithin(ctx, context, root)
 	if err != nil {
 		return CommittedReview{}, err
 	}
-	if err := validateCompositionStatus(review, status); err != nil {
+	if err := validateCompositionStatus(root.review, status); err != nil {
 		return CommittedReview{}, typedFailure(readCommittedStage, domain.FailureArtifact, err.Error(), nil)
 	}
-	confirmed, err := service.ReadCommitted(ctx, run)
-	if err != nil {
+	if err := context.finish(ctx); err != nil {
 		return CommittedReview{}, err
 	}
-	if confirmed.ReviewID() != review.ReviewID() || confirmed.FinalSHA256() != review.FinalSHA256() ||
-		confirmed.ManifestSHA256() != review.ManifestSHA256() || confirmed.Epoch() != review.Epoch() {
-		return CommittedReview{}, typedFailure(readCommittedStage, domain.FailureArtifact, "composition source changed during support verification", nil)
-	}
-	return review, nil
+	return root.review, nil
 }
 
 func validateCompositionStatus(review CommittedReview, status RunStatus) error {
@@ -257,10 +241,26 @@ func validateCompositionStatus(review CommittedReview, status RunStatus) error {
 // ReadRuntimeTarget reconstructs target authority only from artifacts bound by a
 // freshly verified P2 final. It never reads a working tree or mutable target.
 func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.PublicationRun) (RuntimeTarget, error) {
-	review, err := service.ReadCommitted(ctx, run)
+	if err := service.preflight(ctx, readRuntimeTargetStage); err != nil {
+		return RuntimeTarget{}, err
+	}
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, readRuntimeTargetStage)
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
+	target, err := context.runtimeTarget(ctx, node)
+	if err != nil {
+		return RuntimeTarget{}, err
+	}
+	if err := context.finish(ctx); err != nil {
+		return RuntimeTarget{}, err
+	}
+	return target, nil
+}
+
+func (context *readContext) runtimeTarget(ctx context.Context, node *contextRun) (RuntimeTarget, error) {
+	run, review := node.run, node.review
 	if review.liveSource != nil {
 		return RuntimeTarget{}, ErrSourceReplayUnavailable
 	}
@@ -278,7 +278,7 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 		}
 		target = final.Target
 	}
-	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	index, err := context.supportIndex(ctx, node, node.review)
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
@@ -286,7 +286,7 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	if err != nil {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed target manifest path is invalid", err)
 	}
-	targetManifest, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, targetManifestPath)
+	targetManifest, err := context.indexedArtifact(ctx, node, targetManifestPath)
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
@@ -304,7 +304,7 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	if index[targetPath.String()] != manifest.Target.SHA256 {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest digest is not support-indexed", nil)
 	}
-	targetArtifact, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, targetPath)
+	targetArtifact, err := context.indexedArtifact(ctx, node, targetPath)
 	if err != nil {
 		return RuntimeTarget{}, err
 	}
@@ -337,7 +337,7 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 		if pathErr != nil || index[archivePath.String()] != manifest.CapturedArchive.SHA256 {
 			return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive is not support-indexed", pathErr)
 		}
-		archiveArtifact, readErr := service.readIndexedRuntimeArtifact(ctx, run, review, index, archivePath)
+		archiveArtifact, readErr := context.indexedArtifact(ctx, node, archivePath)
 		if readErr != nil {
 			return RuntimeTarget{}, readErr
 		}
@@ -351,7 +351,7 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 			if blobPathErr != nil || index[blobPath.String()] != reference.SHA256() {
 				return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "captured archive blob is not support-indexed", blobPathErr)
 			}
-			blobArtifact, blobReadErr := service.readIndexedRuntimeArtifact(ctx, run, review, index, blobPath)
+			blobArtifact, blobReadErr := context.indexedArtifact(ctx, node, blobPath)
 			if blobReadErr != nil {
 				return RuntimeTarget{}, blobReadErr
 			}
@@ -380,13 +380,13 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	}
 	var artistBrief, artistVisualAssets []byte
 	if manifest.ArtistBrief != nil {
-		artistBrief, err = service.readArtistSupportArtifact(ctx, run, review, index, manifest.ArtistBrief, ports.RunSupportArtifactArtistBrief, "artist brief")
+		artistBrief, err = context.artistSupportArtifact(ctx, node, manifest.ArtistBrief, ports.RunSupportArtifactArtistBrief, "artist brief")
 		if err != nil {
 			return RuntimeTarget{}, err
 		}
 	}
 	if manifest.ArtistVisualAssets != nil {
-		artistVisualAssets, err = service.readArtistSupportArtifact(ctx, run, review, index, manifest.ArtistVisualAssets, ports.RunSupportArtifactArtistVisuals, "artist visual assets")
+		artistVisualAssets, err = context.artistSupportArtifact(ctx, node, manifest.ArtistVisualAssets, ports.RunSupportArtifactArtistVisuals, "artist visual assets")
 		if err != nil {
 			return RuntimeTarget{}, err
 		}
@@ -394,15 +394,16 @@ func (service *Service) ReadRuntimeTarget(ctx context.Context, run ports.Publica
 	return RuntimeTarget{identity: identity, bytes: targetArtifact.Bytes(), capturedArchive: capturedArchive, artistBrief: artistBrief, artistVisualAssets: artistVisualAssets}, nil
 }
 
-// readArtistSupportArtifact correlates one optional artist input identity from
+// artistSupportArtifact correlates one optional artist input identity from
 // the runtime target manifest with its exactly retained bytes. It requires the
 // exact canonical path and artifact kind, a valid digest, support-index
 // membership, and a digest-bound read.
-func (service *Service) readArtistSupportArtifact(
-	ctx context.Context, run ports.PublicationRun, review CommittedReview,
-	index map[string]string, identity *artifactIdentityDTO,
+func (context *readContext) artistSupportArtifact(
+	ctx context.Context, node *contextRun,
+	identity *artifactIdentityDTO,
 	expectedKind ports.RunSupportArtifactKind, label string,
 ) ([]byte, error) {
+	run := node.run
 	if !validSHA256(identity.SHA256) {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, label+" identity is invalid", nil)
 	}
@@ -411,10 +412,10 @@ func (service *Service) readArtistSupportArtifact(
 	if err != nil || classifyErr != nil || kind != expectedKind {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, label+" path is not canonical", errors.Join(err, classifyErr))
 	}
-	if index[path.String()] != identity.SHA256 {
+	if node.index[path.String()] != identity.SHA256 {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, label+" is not support-indexed", nil)
 	}
-	artifact, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, path)
+	artifact, err := context.indexedArtifact(ctx, node, path)
 	if err != nil {
 		return nil, err
 	}
@@ -426,161 +427,6 @@ func sameOptionalTargetOID(value string, expected *string) bool {
 		return expected == nil
 	}
 	return expected != nil && value == *expected
-}
-
-func (service *Service) readRuntimeSupportIndex(ctx context.Context, run ports.PublicationRun, review CommittedReview) (map[string]string, error) {
-	var ref *artifactIdentityDTO
-	if review.RunType() == domain.RunTypeComposite {
-		var manifest compositeManifestDTO
-		if err := decodeStrictDTO(review.ManifestBytes(), &manifest); err != nil {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed composite manifest decode failed", err)
-		}
-		ref = manifest.CompositeIdentity.SupportIndex
-	} else {
-		manifest, err := decodeManifestDTO(review.ManifestBytes())
-		if err != nil {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed manifest decode failed", err)
-		}
-		ref = manifest.CompositeIdentity.SupportIndex
-	}
-	if ref == nil || !validSHA256(ref.SHA256) {
-		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "manifest-bound support index is absent", nil)
-	}
-	path, err := ports.NewSafeRelativePath(ref.Path)
-	if err != nil {
-		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index path is invalid", err)
-	}
-	kind, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
-	if err != nil || kind != ports.RunSupportArtifactSupportIndex {
-		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index path is not canonical", err)
-	}
-	artifact, err := service.readBoundRuntimeArtifact(ctx, run, review, path, ref.SHA256)
-	if err != nil {
-		return nil, err
-	}
-	var index runtimeSupportIndexDTO
-	if err := decodeStrictDTO(artifact.Bytes(), &index); err != nil {
-		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index decode failed", err)
-	}
-	live := review.liveSource != nil
-	if live && index.SchemaVersion != "mulgae-run-support-index.v3" || !live && index.SchemaVersion != "mulgae-run-support-index.v1" && index.SchemaVersion != "mulgae-run-support-index.v2" {
-		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index is invalid", nil)
-	}
-	// Empty artifacts is schema-valid for provider-free no-change publications.
-	identities := make(map[string]string, len(index.Artifacts))
-	for _, item := range index.Artifacts {
-		path, pathErr := ports.NewSafeRelativePath(item.Path)
-		if pathErr != nil || !validSHA256(item.SHA256) {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact identity is invalid", pathErr)
-		}
-		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
-		if classifyErr != nil {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact path is invalid", classifyErr)
-		}
-		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && index.SchemaVersion != "mulgae-run-support-index.v2" {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "capture manifest requires support index v2", nil)
-		}
-		if !live && (kind == ports.RunSupportArtifactLiveSource || kind == ports.RunSupportArtifactSourceImage) {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "historical support contains live source authority", nil)
-		}
-		if _, duplicate := identities[item.Path]; duplicate {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact is ambiguous", nil)
-		}
-		identities[item.Path] = item.SHA256
-	}
-	if live {
-		artifacts := make(map[string]ports.ImmutablePublicationArtifact, len(identities))
-		for name, digest := range identities {
-			path, _ := ports.NewSafeRelativePath(name)
-			kind, _ := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
-			maximum := service.maxReadBytes
-			if kind.IsVariableSized() {
-				maximum = math.MaxInt64 - 1
-			}
-			artifact, err := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, maximum)
-			if err != nil {
-				return nil, err
-			}
-			artifacts[name] = artifact
-		}
-		if err := verifyLiveReadSupport(run, review, artifacts); err != nil {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed source support is invalid", err)
-		}
-		return identities, nil
-	}
-	if index.SchemaVersion == "mulgae-run-support-index.v2" && review.RunType() == domain.RunTypeComposite {
-		if _, ok := identities[run.SessionID().String()+"/"+run.RunID().String()+"/support/composite.json"]; !ok {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "composite support metadata absent", nil)
-		}
-		// The committed snapshot reader verifies every copied artifact and final binding.
-		return identities, nil
-	}
-	if index.SchemaVersion == "mulgae-run-support-index.v2" {
-		artifacts := make(map[string]ports.ImmutablePublicationArtifact)
-		for name, digest := range identities {
-			path, _ := ports.NewSafeRelativePath(name)
-			kind, _ := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
-			if kind != ports.RunSupportArtifactCaptureManifest && kind != ports.RunSupportArtifactCapturedArchive && kind != ports.RunSupportArtifactCapturedBlob {
-				continue
-			}
-			artifact, err := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, math.MaxInt64-1)
-			if err != nil {
-				return nil, err
-			}
-			artifacts[name] = artifact
-		}
-		final, err := decodeFinalDTO(review.FinalBytes())
-		if err != nil {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed final decode failed", err)
-		}
-		if _, err := capture.VerifySupport(run.SessionID(), run.RunID(), review.TargetSHA256(), final.Target.BaseOID, final.Target.HeadOID, artifacts); err != nil {
-			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed capture support is invalid", err)
-		}
-	}
-	return identities, nil
-}
-
-func (service *Service) readIndexedRuntimeArtifact(ctx context.Context, run ports.PublicationRun, review CommittedReview, index map[string]string, path ports.SafeRelativePath) (ports.ImmutablePublicationArtifact, error) {
-	digest, ok := index[path.String()]
-	if !ok || !validSHA256(digest) {
-		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact is absent from support index", nil)
-	}
-	if kind, err := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path); err == nil && kind == ports.RunSupportArtifactSourceImage {
-		return service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, math.MaxInt64-1)
-	}
-	return service.readBoundRuntimeArtifact(ctx, run, review, path, digest)
-}
-
-func (service *Service) readBoundRuntimeArtifact(ctx context.Context, run ports.PublicationRun, review CommittedReview, path ports.SafeRelativePath, digest string) (ports.ImmutablePublicationArtifact, error) {
-	return service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, service.maxReadBytes)
-}
-
-func (service *Service) readBoundRuntimeArtifactWithMaximum(ctx context.Context, run ports.PublicationRun, review CommittedReview, path ports.SafeRelativePath, digest string, maximum int64) (ports.ImmutablePublicationArtifact, error) {
-	if !validSHA256(digest) {
-		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact digest is absent", nil)
-	}
-	request, err := ports.NewReadAuxiliaryArtifactRequest(run, path, digest, maximum)
-	if err != nil {
-		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact request is invalid", err)
-	}
-	artifact, err := service.store.ReadAuxiliaryArtifact(ctx, request)
-	if err != nil {
-		return ports.ImmutablePublicationArtifact{}, dependencyFailure(ctx, readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact read failed", err)
-	}
-	if !artifact.Valid() || artifact.Path() != path || artifact.SHA256() != digest {
-		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact identity drifted", nil)
-	}
-	observed, err := service.observe(ctx, run, readRuntimeTargetStage)
-	if err != nil {
-		return ports.ImmutablePublicationArtifact{}, err
-	}
-	if observed.decision.Status() != domain.PublicationCommitted || observed.decision.Authority() != domain.PublicationAuthorityP2 || observed.storeEpoch != review.Epoch() ||
-		observed.snapshot.Final().Identity().ReviewID() != review.ReviewID() || observed.snapshot.Final().Identity().SHA256() != review.FinalSHA256() ||
-		observed.snapshot.Manifest().SHA256() != review.ManifestSHA256() || observed.snapshot.LineageEdge().SHA256() != review.lineageEdgeSHA ||
-		!bytes.Equal(observed.snapshot.Final().Bytes(), review.FinalBytes()) || !bytes.Equal(observed.snapshot.Manifest().Bytes(), review.ManifestBytes()) {
-		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed source changed during runtime read", nil)
-	}
-	return artifact, nil
 }
 
 func runSupportPath(run ports.PublicationRun, value string) (ports.SafeRelativePath, error) {
@@ -602,10 +448,12 @@ func runSupportPath(run ports.PublicationRun, value string) (ports.SafeRelativeP
 // The only replay authority is the unique persisted initial prompt for that
 // attempt; repair prompts are deliberately not candidates.
 func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.PublicationRun, attemptID domain.AttemptID) (CommittedAttempt, error) {
-	review, err := service.ReadCommitted(ctx, run)
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, readRuntimeTargetStage)
 	if err != nil {
 		return CommittedAttempt{}, err
 	}
+	review := node.review
 	if review.liveSource != nil {
 		return CommittedAttempt{}, ErrSourceReplayUnavailable
 	}
@@ -613,7 +461,7 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 	if err != nil {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed manifest decode failed", err)
 	}
-	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+	index, err := context.supportIndex(ctx, node, node.review)
 	if err != nil {
 		return CommittedAttempt{}, err
 	}
@@ -634,7 +482,7 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 	if !role.Valid() {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed attempt role is invalid", nil)
 	}
-	target, err := service.ReadRuntimeTarget(ctx, run)
+	target, err := context.runtimeTarget(ctx, node)
 	if err != nil {
 		return CommittedAttempt{}, err
 	}
@@ -646,7 +494,7 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 	if err != nil {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest path is invalid", err)
 	}
-	targetManifest, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, targetManifestPath)
+	targetManifest, err := context.indexedArtifact(ctx, node, targetManifestPath)
 	if err != nil {
 		return CommittedAttempt{}, err
 	}
@@ -692,7 +540,7 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 	if index[promptPath.String()] != promptRef.SHA256 {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt digest is not support-indexed", nil)
 	}
-	promptArtifact, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, promptPath)
+	promptArtifact, err := context.indexedArtifact(ctx, node, promptPath)
 	if err != nil {
 		return CommittedAttempt{}, err
 	}
@@ -713,12 +561,15 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 	if index[stdinPath.String()] != wire.Stdin.SHA256 {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime stdin digest is not support-indexed", nil)
 	}
-	stdin, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, stdinPath)
+	stdin, err := context.indexedArtifact(ctx, node, stdinPath)
 	if err != nil {
 		return CommittedAttempt{}, err
 	}
 	if prompt.CompleteStdinSHA256(stdin.Bytes()) != wire.CompleteStdinSHA256 {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime complete stdin identity is invalid", nil)
+	}
+	if err := context.finish(ctx); err != nil {
+		return CommittedAttempt{}, err
 	}
 	return CommittedAttempt{
 		lineage:   review.Lineage(),
@@ -771,17 +622,34 @@ func (service *Service) ResolveCommittedAttempt(ctx context.Context, run ports.P
 // durable or semantic result returns a safe corrupt status with an artifact
 // failure so callers can still render the non-sensitive status projection.
 func (service *Service) ReadRunStatus(ctx context.Context, run ports.PublicationRun) (RunStatus, error) {
-	observation, err := service.observe(ctx, run, readStatusStage)
+	context := service.newReadContext()
+	node, err := context.ensureRun(ctx, run, readStatusStage)
 	if err != nil {
 		return RunStatus{}, err
 	}
-	decision := observation.decision
+	status, err := service.statusWithin(ctx, context, node)
+	if err != nil {
+		return failedReadStatus(ctx, run, err), err
+	}
+	if err := context.finish(ctx); err != nil {
+		return failedReadStatus(ctx, run, err), err
+	}
+	return status, nil
+}
+
+// statusWithin projects the run status from one already-observed publication.
+// Committed projections are completed with the role-report support
+// verification of the same call.
+func (service *Service) statusWithin(ctx context.Context, context *readContext, node *contextRun) (RunStatus, error) {
+	run := node.run
+	decision := node.binding.decision
 	status := statusFromDecision(run, decision)
 	status.failedRunRecovery = recovery.UnavailableStatus("publication_in_progress")
 	if decision.Status() == domain.PublicationNotPublished {
+		var err error
 		status.failedRunRecovery, status.runState, err = service.readRecoveryStatus(ctx, run)
 		if err != nil {
-			return failedReadStatus(ctx, run, err), dependencyFailure(
+			return RunStatus{}, dependencyFailure(
 				ctx,
 				readStatusStage,
 				domain.FailureArtifact,
@@ -806,10 +674,10 @@ func (service *Service) ReadRunStatus(ctx context.Context, run ports.Publication
 		return status, nil
 	}
 
-	review, err := service.readCommittedSnapshot(ctx, run, observation, readStatusStage)
-	if err != nil {
-		return failedReadStatus(ctx, run, err), err
+	if err := context.verifySnapshot(ctx, node); err != nil {
+		return RunStatus{}, err
 	}
+	review := node.review
 	status.runState = review.RunState()
 	status.hasRunState = true
 	status.content = review.ContentVerdict()
@@ -818,9 +686,9 @@ func (service *Service) ReadRunStatus(ctx context.Context, run ports.Publication
 	status.hasAxes = true
 	status.finalPath = review.FinalPath()
 	status.hasFinalPath = true
-	roleReportURIs, err := service.projectStatusRoleReportURIs(ctx, run, review, observation)
+	roleReportURIs, err := context.roleReportURIs(ctx, node)
 	if err != nil {
-		return failedReadStatus(ctx, run, err), err
+		return RunStatus{}, err
 	}
 	status.roleReportURIs = roleReportURIs
 	return status, nil
@@ -844,11 +712,15 @@ func (service *Service) ListFindings(
 			nil,
 		)
 	}
-	review, err := service.ReadCommitted(ctx, run)
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, listFindingsStage)
 	if err != nil {
 		return nil, err
 	}
-	findings := review.Findings()
+	if err := context.finish(ctx); err != nil {
+		return nil, err
+	}
+	findings := node.review.Findings()
 	if minimum == "" {
 		return findings, nil
 	}
@@ -871,10 +743,12 @@ func (service *Service) ReadCommittedFindingSource(ctx context.Context, run port
 	if !validFindingID(findingID) {
 		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureConfiguration, "finding ID is invalid", nil)
 	}
-	review, err := service.ReadCommitted(ctx, run)
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, renderExcerptStage)
 	if err != nil {
 		return CommittedFindingSource{}, err
 	}
+	review := node.review
 	var finding Finding
 	for _, candidate := range review.Findings() {
 		if candidate.ID() == findingID {
@@ -889,11 +763,10 @@ func (service *Service) ReadCommittedFindingSource(ctx context.Context, run port
 	if err != nil {
 		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureArtifact, "normalized finding artifact path is invalid", err)
 	}
-	supportIndex, err := service.readRuntimeSupportIndex(ctx, run, review)
-	if err != nil {
+	if _, err := context.supportIndex(ctx, node, node.review); err != nil {
 		return CommittedFindingSource{}, err
 	}
-	normalized, err := service.readIndexedRuntimeArtifact(ctx, run, review, supportIndex, normalizedPath)
+	normalized, err := context.indexedArtifact(ctx, node, normalizedPath)
 	if err != nil {
 		return CommittedFindingSource{}, err
 	}
@@ -906,7 +779,7 @@ func (service *Service) ReadCommittedFindingSource(ctx context.Context, run port
 	}
 	var excerpt []byte
 	for evidenceIndex, current := range claims {
-		persisted, readErr := service.readCommittedFindingExcerpt(ctx, run, review, findingID, evidenceIndex+1, current, supportIndex)
+		persisted, readErr := context.readCommittedFindingExcerpt(ctx, node, findingID, evidenceIndex+1, current)
 		if readErr != nil {
 			return CommittedFindingSource{}, readErr
 		}
@@ -914,18 +787,20 @@ func (service *Service) ReadCommittedFindingSource(ctx context.Context, run port
 			excerpt = persisted
 		}
 	}
+	if err := context.finish(ctx); err != nil {
+		return CommittedFindingSource{}, err
+	}
 	return CommittedFindingSource{review: review, finding: finding, normalized: normalized.Bytes(), excerpt: excerpt}, nil
 }
 
-func (service *Service) readCommittedFindingExcerpt(
+func (context *readContext) readCommittedFindingExcerpt(
 	ctx context.Context,
-	run ports.PublicationRun,
-	review CommittedReview,
+	node *contextRun,
 	findingID string,
 	evidenceIndex int,
 	current Evidence,
-	index map[string]string,
 ) ([]byte, error) {
+	run, review := node.run, node.review
 	if current.TargetSHA256() != review.TargetSHA256() || current.Verification() != evidence.ReceiptVerified {
 		return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "finding current evidence is not bound to the committed target", nil)
 	}
@@ -949,11 +824,11 @@ func (service *Service) readCommittedFindingExcerpt(
 	if err != nil {
 		return nil, typedFailure(renderExcerptStage, domain.FailureArtifact, "committed excerpt artifact path is invalid", err)
 	}
-	artifact, err := service.readIndexedRuntimeArtifact(ctx, run, review, index, path)
+	artifact, err := context.indexedArtifact(ctx, node, path)
 	if err != nil {
 		return nil, err
 	}
-	return service.verifyPersistedExcerpt(ctx, claim, current.CurrentExcerptSHA256(), path, artifact)
+	return context.service.verifyPersistedExcerpt(ctx, claim, current.CurrentExcerptSHA256(), path, artifact)
 }
 
 // RenderExcerpt returns the first canonical committed evidence excerpt. Callers
@@ -1004,10 +879,26 @@ func (service *Service) RenderExcerptAt(
 			nil,
 		)
 	}
-	review, err := service.ReadCommitted(ctx, run)
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, renderExcerptStage)
 	if err != nil {
 		return nil, err
 	}
+	persisted, err := context.renderExcerptAt(ctx, node, findingID, canonicalTarget, evidenceIndex)
+	if err != nil {
+		return nil, err
+	}
+	if err := context.finish(ctx); err != nil {
+		return nil, err
+	}
+	return persisted, nil
+}
+
+// renderExcerptAt is the public excerpt core over one verified context: live
+// evidence serves through the verified support index while historical
+// evidence keeps its claim-verified direct read.
+func (context *readContext) renderExcerptAt(ctx context.Context, node *contextRun, findingID, canonicalTarget string, evidenceIndex int) ([]byte, error) {
+	run, review := node.run, node.review
 	var finding Finding
 	found := false
 	for _, candidate := range review.Findings() {
@@ -1044,11 +935,10 @@ func (service *Service) RenderExcerptAt(
 	}
 	current := claims[evidenceIndex-1]
 	if review.liveSource != nil {
-		index, err := service.readRuntimeSupportIndex(ctx, run, review)
-		if err != nil {
+		if _, err := context.supportIndex(ctx, node, node.review); err != nil {
 			return nil, err
 		}
-		return service.readCommittedFindingExcerpt(ctx, run, review, findingID, evidenceIndex, current, index)
+		return context.readCommittedFindingExcerpt(ctx, node, findingID, evidenceIndex, current)
 	}
 	if current.TargetSHA256() != canonicalTarget || current.Verification() != evidence.ReceiptVerified {
 		return nil, typedFailure(
@@ -1086,7 +976,7 @@ func (service *Service) RenderExcerptAt(
 			err,
 		)
 	}
-	request, err := ports.NewReadAuxiliaryArtifactRequest(run, artifactPath, "", service.maxReadBytes)
+	request, err := ports.NewReadAuxiliaryArtifactRequest(run, artifactPath, "", context.service.maxReadBytes)
 	if err != nil {
 		return nil, typedFailure(
 			renderExcerptStage,
@@ -1095,7 +985,7 @@ func (service *Service) RenderExcerptAt(
 			err,
 		)
 	}
-	artifact, err := service.store.ReadAuxiliaryArtifact(ctx, request)
+	artifact, err := context.service.store.ReadAuxiliaryArtifact(ctx, request)
 	if err != nil {
 		return nil, dependencyFailure(
 			ctx,
@@ -1105,7 +995,7 @@ func (service *Service) RenderExcerptAt(
 			err,
 		)
 	}
-	return service.verifyPersistedExcerpt(ctx, claim, current.CurrentExcerptSHA256(), artifactPath, artifact)
+	return context.service.verifyPersistedExcerpt(ctx, claim, current.CurrentExcerptSHA256(), artifactPath, artifact)
 }
 
 func (service *Service) verifyPersistedExcerpt(
@@ -1310,62 +1200,18 @@ func (service *Service) observe(
 	return result, nil
 }
 
-func (service *Service) readCommittedSnapshot(
+// buildSnapshotReview schema-validates and semantically verifies one
+// observed P2 snapshot, completing the whole-support verification the
+// manifest binds. It performs no confirmation; the owning call's finish does.
+func (service *Service) buildSnapshotReview(
 	ctx context.Context,
-	run ports.PublicationRun,
-	observation observedRun,
-	stage string,
+	context *readContext,
+	node *contextRun,
+	snapshot ports.CommittedPublicationSnapshot,
+	finalBytes []byte,
+	manifestBytes []byte,
 ) (CommittedReview, error) {
-	if missingDependency(service) || missingDependency(service.store) || missingDependency(service.validator) {
-		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed read dependency is unavailable", nil)
-	}
-	if err := contextFailure(ctx, stage); err != nil {
-		return CommittedReview{}, err
-	}
-	if observation.decision.Status() != domain.PublicationCommitted ||
-		observation.decision.Authority() != domain.PublicationAuthorityP2 {
-		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed snapshot was requested without P2 authority", nil)
-	}
-	request, err := ports.NewReadCommittedSnapshotRequest(run, service.maxReadBytes)
-	if err != nil {
-		return CommittedReview{}, typedFailure(stage, domain.FailureConfiguration, "committed snapshot request is invalid", err)
-	}
-	snapshot, err := service.store.ReadCommittedSnapshot(ctx, request)
-	if err != nil {
-		return CommittedReview{}, dependencyFailure(
-			ctx,
-			stage,
-			domain.FailureArtifact,
-			"committed snapshot read failed",
-			err,
-		)
-	}
-	if !snapshot.Valid() {
-		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed snapshot is invalid", nil)
-	}
-	final := snapshot.Final()
-	manifest := snapshot.Manifest()
-	if !final.Valid() || !manifest.Valid() || !snapshot.LineageEdge().Valid() || !snapshot.Epoch().Valid() {
-		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed snapshot members are invalid", nil)
-	}
-	if !sameCommittedSnapshot(observation.snapshot, snapshot) {
-		return CommittedReview{}, typedFailure(
-			stage,
-			domain.FailureArtifact,
-			"committed snapshot identities do not match the observed P2 authority",
-			nil,
-		)
-	}
-	if observation.storeEpoch != snapshot.Epoch().Value() {
-		return CommittedReview{}, typedFailure(
-			stage,
-			domain.FailureArtifact,
-			"committed snapshot epoch does not match the observed P2 authority",
-			nil,
-		)
-	}
-	finalBytes := final.Bytes()
-	manifestBytes := manifest.Bytes()
+	run, stage := node.run, node.stage
 	var schemaEnvelope struct {
 		SchemaVersion string `json:"schema_version"`
 	}
@@ -1415,20 +1261,13 @@ func (service *Service) readCommittedSnapshot(
 		if err := decodeStrictDTO(manifestBytes, &manifestRecord); err != nil {
 			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "composite manifest strict JSON decoding failed", err)
 		}
-		review, err := buildCompositeCommittedReview(run, observation.decision, snapshot, finalRecord, manifestRecord)
+		review, err := buildCompositeCommittedReview(run, node.binding.decision, snapshot, finalRecord, manifestRecord)
 		if err != nil {
 			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed composite semantic validation failed", err)
 		}
-		review, err = service.bindCompositeSupport(ctx, run, review)
+		review, err = context.bindCompositeSupport(ctx, node, review)
 		if err != nil {
 			return CommittedReview{}, err
-		}
-		confirmation, err := service.observe(ctx, run, stage)
-		if err != nil {
-			return CommittedReview{}, err
-		}
-		if confirmation.decision.Status() != domain.PublicationCommitted || confirmation.decision.Authority() != domain.PublicationAuthorityP2 || confirmation.storeEpoch != observation.storeEpoch || !sameCommittedSnapshot(confirmation.snapshot, observation.snapshot) {
-			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed composite snapshot is not stable under P2 re-observation", nil)
 		}
 		return review, nil
 	}
@@ -1443,32 +1282,17 @@ func (service *Service) readCommittedSnapshot(
 	if finalRecordRetired(finalRecord, manifestRecord) {
 		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, retiredProviderArtifactReason, nil)
 	}
-	review, err := buildCommittedReview(run, observation.decision, snapshot, finalRecord, manifestRecord)
+	review, err := buildCommittedReview(run, node.binding.decision, snapshot, finalRecord, manifestRecord)
 	if err != nil {
 		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "committed publication semantic validation failed", err)
 	}
-	// Verify retained capture support before the final P2 re-observation. Older
-	// publications without a support reference retain their historical read path.
+	// Verify retained capture support before the caller's final confirmation.
+	// Older publications without a support reference retain their historical
+	// read path.
 	if manifestRecord.CompositeIdentity.SupportIndex != nil {
-		if _, err := service.readRuntimeSupportIndex(ctx, run, review); err != nil {
+		if _, err := context.supportIndex(ctx, node, review); err != nil {
 			return CommittedReview{}, err
 		}
-	}
-	confirmation, err := service.observe(ctx, run, stage)
-	if err != nil {
-		return CommittedReview{}, err
-	}
-	if confirmation.decision.Status() != domain.PublicationCommitted ||
-		confirmation.decision.Authority() != domain.PublicationAuthorityP2 ||
-		!samePublicationDecision(confirmation.decision, observation.decision) ||
-		confirmation.storeEpoch != observation.storeEpoch ||
-		!sameCommittedSnapshot(confirmation.snapshot, observation.snapshot) {
-		return CommittedReview{}, typedFailure(
-			stage,
-			domain.FailureArtifact,
-			"committed snapshot is not stable under P2 re-observation",
-			nil,
-		)
 	}
 	return review, nil
 }
@@ -2693,82 +2517,6 @@ func validateManifestRoleReports(manifest manifestDTO, roles []Role) ([]RoleRepo
 		})
 	}
 	return reports, nil
-}
-
-func (service *Service) projectStatusRoleReportURIs(
-	ctx context.Context,
-	run ports.PublicationRun,
-	review CommittedReview,
-	observation observedRun,
-) ([]RoleReportURI, error) {
-	reports := review.RoleReports()
-	index, err := service.readRuntimeSupportIndex(ctx, run, review)
-	if err != nil {
-		return nil, err
-	}
-	roleReportIndex := make(map[string]string)
-	for pathValue, digest := range index {
-		path, pathErr := ports.NewSafeRelativePath(pathValue)
-		if pathErr != nil {
-			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "support index path is invalid", pathErr)
-		}
-		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
-		if classifyErr != nil {
-			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "support index path is not canonical", classifyErr)
-		}
-		if kind != ports.RunSupportArtifactRoleReport {
-			continue
-		}
-		roleReportIndex[pathValue] = digest
-	}
-	if len(reports) == 0 {
-		if len(roleReportIndex) != 0 {
-			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "support index has unbound role reports", nil)
-		}
-		if err := service.confirmStableP2Observation(ctx, run, observation, readStatusStage); err != nil {
-			return nil, err
-		}
-		return nil, nil
-	}
-	uris := make([]RoleReportURI, 0, len(reports))
-	for _, report := range reports {
-		pathValue := run.SessionID().String() + "/" + run.RunID().String() + "/" + report.Path()
-		path, pathErr := ports.NewSafeRelativePath(pathValue)
-		if pathErr != nil {
-			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report path is invalid", pathErr)
-		}
-		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
-		if classifyErr != nil || kind != ports.RunSupportArtifactRoleReport {
-			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report path is not canonical", classifyErr)
-		}
-		digest, ok := roleReportIndex[path.String()]
-		if !ok || digest != report.SHA256() {
-			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report is absent from support index", nil)
-		}
-		artifact, readErr := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, int64(report.ByteLength()))
-		if readErr != nil {
-			return nil, readErr
-		}
-		content := artifact.Bytes()
-		if artifact.SHA256() != report.SHA256() || len(content) != report.ByteLength() {
-			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report artifact identity mismatch", nil)
-		}
-		if !validRoleReportMarkdown(content) {
-			return nil, typedFailure(readStatusStage, domain.FailureArtifact, "role report markdown is invalid", nil)
-		}
-		delete(roleReportIndex, path.String())
-		uris = append(uris, RoleReportURI{
-			Role: report.Role(),
-			URI:  ".mulgae/" + path.String(),
-		})
-	}
-	if len(roleReportIndex) != 0 {
-		return nil, typedFailure(readStatusStage, domain.FailureArtifact, "support index has unbound role reports", nil)
-	}
-	if err := service.confirmStableP2Observation(ctx, run, observation, readStatusStage); err != nil {
-		return nil, err
-	}
-	return uris, nil
 }
 
 // validRoleReportMarkdown mirrors review.normalizeRoleReportMarkdown acceptance.

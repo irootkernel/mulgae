@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -306,7 +307,7 @@ func TestRenderIncludesCommittedFollowupOutcome(t *testing.T) {
 		)
 		return strings.Replace(value, `"target":{`, fmt.Sprintf(outcome, reportSHA([]byte("historical source excerpt")), reportCurrentExcerptDigest(t, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktree", "internal/example.go", 1, 2, []byte("line one\nline two")))+`"target":{`, 1)
 	}
-	run, review := reportCommittedFixtureWithMutations(t, mutate, mutate)
+	run, review, _, _ := reportCommittedFixtureWithMutations(t, mutate, mutate)
 	rendered, err := mustReportService(t, &reportReader{review: review, excerpt: []byte("line one\nline two")}).Render(context.Background(), run)
 	if err != nil {
 		t.Fatalf("Render() error = %v: %v", err, errors.Unwrap(err))
@@ -823,7 +824,7 @@ func TestRenderSafelyBoundsProviderMarkdownAndHTML(t *testing.T) {
 	recommendation := "<a href=\"javascript:alert(1)\">follow</a> ```"
 	// Provider instances are grammar-constrained by committed role-report
 	// authority; fence finding prose that may still carry Markdown/HTML.
-	run, review := reportCommittedFixtureWithMutations(
+	run, review, _, _ := reportCommittedFixtureWithMutations(
 		t,
 		func(final string) string {
 			final = replaceReportFixtureString(t, final, `"title":"title"`, fmt.Sprintf(`"title":%q`, title))
@@ -862,7 +863,7 @@ func TestRenderRendersSkippedRoleProvenanceAsAbsent(t *testing.T) {
 	const maintainabilityPrimaryAttempt = `,{"attempt_id":"a_019f596a-d0ae-7c12-8b68-0bd73e911b2e","role":"maintainability","provider_instance":"maintainability-primary","selected_as":"primary","state":"failed","parse_state":"valid","validation_state":"valid","path":"attempts/a_019f596a-d0ae-7c12-8b68-0bd73e911b2e/status.json","invocation_count":1}`
 	const maintainabilityPrimaryFailure = `{"class":"provider_unavailable","stage":"review","reason_code":"provider_unavailable","attempt_id":"a_019f596a-d0ae-7c12-8b68-0bd73e911b2e"}`
 	const maintainabilityFailure = `{"class":"provider_unavailable","stage":"review","reason_code":"provider_unavailable","attempt_id":"a_019f596a-d0ad-77c2-8b68-0bd73e911b2e"}`
-	run, review := reportCommittedFixtureWithMutations(
+	run, review, _, _ := reportCommittedFixtureWithMutations(
 		t,
 		func(final string) string {
 			return replaceReportFixtureString(t, final, completed, skipped)
@@ -1030,6 +1031,10 @@ type reportReader struct {
 	afterExcerpt   func()
 }
 
+func (reader *reportReader) WithVerifiedSnapshot(ctx context.Context, _ ports.PublicationRun, use func(context.Context, query.ContentReader) error) error {
+	return use(ctx, reader)
+}
+
 func (reader *reportReader) ReadCommitted(context.Context, ports.PublicationRun) (query.CommittedReview, error) {
 	reader.readCalls++
 	return reader.review, reader.readErr
@@ -1057,11 +1062,20 @@ func (reader *reportReader) RenderExcerptAt(
 
 func mustReportService(t *testing.T, reader CommittedReader) *Service {
 	t.Helper()
-	service, err := NewService(reader)
+	service, err := NewService(readerOpener{reader})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return service
+}
+
+// readerOpener adapts any committed reader to the opener boundary for tests.
+type readerOpener struct {
+	reader CommittedReader
+}
+
+func (opener readerOpener) WithVerifiedSnapshot(ctx context.Context, _ ports.PublicationRun, use func(context.Context, query.ContentReader) error) error {
+	return use(ctx, opener.reader)
 }
 
 func mustReportFailure(t *testing.T, class domain.FailureClass, reason string) *domain.Failure {
@@ -1074,21 +1088,39 @@ func mustReportFailure(t *testing.T, class domain.FailureClass, reason string) *
 }
 
 func reportCommittedFixture(t *testing.T) (ports.PublicationRun, query.CommittedReview) {
-	return reportCommittedFixtureWithFinal(t, nil)
+	run, review, _, _ := reportCommittedFixtureWithMutations(t, nil, nil)
+	return run, review
 }
 
 func reportCommittedFixtureWithFinal(
 	t *testing.T,
 	mutate func(string) string,
 ) (ports.PublicationRun, query.CommittedReview) {
-	return reportCommittedFixtureWithMutations(t, mutate, nil)
+	run, review, _, _ := reportCommittedFixtureWithMutations(t, mutate, nil)
+	return run, review
 }
 
 func reportCommittedFixtureWithMutations(
 	t *testing.T,
 	finalMutate func(string) string,
 	manifestMutate func(string) string,
-) (ports.PublicationRun, query.CommittedReview) {
+) (ports.PublicationRun, query.CommittedReview, *query.Service, *reportQueryStore) {
+	run, service, store := reportCommittedPartsFixture(t, finalMutate, manifestMutate)
+	review, err := service.ReadCommitted(context.Background(), run)
+	if err != nil {
+		t.Fatalf("%v: %v", err, errors.Unwrap(err))
+	}
+	return run, review, service, store
+}
+
+// reportCommittedPartsFixture builds the fixture without reading it back, so
+// deliberately invalid publications (for example retired-provider ancestors)
+// can be constructed as store state.
+func reportCommittedPartsFixture(
+	t *testing.T,
+	finalMutate func(string) string,
+	manifestMutate func(string) string,
+) (ports.PublicationRun, *query.Service, *reportQueryStore) {
 	t.Helper()
 	root, err := ports.NewAnchoredRoot("/private/report-test")
 	if err != nil {
@@ -1201,8 +1233,9 @@ func reportCommittedFixtureWithMutations(
 	if err != nil {
 		t.Fatal(err)
 	}
+	store := &reportQueryStore{observation: observation, snapshot: snapshot}
 	service, err := query.NewService(
-		&reportQueryStore{observation: observation, snapshot: snapshot},
+		store,
 		reportValidator{},
 		&reportTargetReader{availability: evidence.ImmutableTargetAvailable, bytes: []byte("line one\nline two")},
 		1<<20,
@@ -1210,27 +1243,47 @@ func reportCommittedFixtureWithMutations(
 	if err != nil {
 		t.Fatal(err)
 	}
-	review, err := service.ReadCommitted(context.Background(), run)
-	if err != nil {
-		t.Fatalf("%v: %v", err, errors.Unwrap(err))
-	}
-	return run, review
+	return run, service, store
 }
 
 type reportQueryStore struct {
-	observation ports.PublicationObservation
-	snapshot    ports.CommittedPublicationSnapshot
+	observation        ports.PublicationObservation
+	snapshot           ports.CommittedPublicationSnapshot
+	observationsByRun  map[string]ports.PublicationObservation
+	snapshotsByRun     map[string]ports.CommittedPublicationSnapshot
+	resolutionsByRun   map[string]ports.PublicationRun
+	resolved           ports.PublicationRun
+	auxiliaryArtifacts map[string]ports.ImmutablePublicationArtifact
+	observeOrder       []string
+	resolveCalls       int
+	observeCalls       int
+	snapshotReads      int
+	auxiliaryReads     int
+	auxiliaryRequests  []ports.ReadAuxiliaryArtifactRequest
+	afterSnapshot      func()
 }
 
 func (store *reportQueryStore) IssueReviewID(context.Context, ports.IssueReviewIDRequest) (ports.IssuedReviewID, error) {
 	return ports.IssuedReviewID{}, errors.New("not implemented")
 }
 
-func (store *reportQueryStore) ResolveRun(context.Context, ports.ResolvePublicationRunRequest) (ports.PublicationRun, error) {
+func (store *reportQueryStore) ResolveRun(_ context.Context, request ports.ResolvePublicationRunRequest) (ports.PublicationRun, error) {
+	store.resolveCalls++
+	if resolved, ok := store.resolutionsByRun[request.RunID().String()]; ok {
+		return resolved, nil
+	}
+	if store.resolved.Valid() {
+		return store.resolved, nil
+	}
 	return ports.PublicationRun{}, errors.New("not implemented")
 }
 
-func (store *reportQueryStore) ObserveRun(context.Context, ports.ObserveRunRequest) (ports.PublicationObservation, error) {
+func (store *reportQueryStore) ObserveRun(_ context.Context, request ports.ObserveRunRequest) (ports.PublicationObservation, error) {
+	store.observeCalls++
+	store.observeOrder = append(store.observeOrder, request.Run().RunID().String())
+	if observation, ok := store.observationsByRun[request.Run().RunID().String()]; ok {
+		return observation, nil
+	}
 	return store.observation, nil
 }
 
@@ -1242,8 +1295,13 @@ func (store *reportQueryStore) PersistAuxiliaryArtifact(context.Context, ports.P
 	return ports.PersistAuxiliaryArtifactResult{}, errors.New("not implemented")
 }
 
-func (store *reportQueryStore) ReadAuxiliaryArtifact(context.Context, ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
-	return ports.ImmutablePublicationArtifact{}, errors.New("not implemented")
+func (store *reportQueryStore) ReadAuxiliaryArtifact(_ context.Context, request ports.ReadAuxiliaryArtifactRequest) (ports.ImmutablePublicationArtifact, error) {
+	store.auxiliaryReads++
+	store.auxiliaryRequests = append(store.auxiliaryRequests, request)
+	if artifact, ok := store.auxiliaryArtifacts[request.Path().String()]; ok {
+		return artifact, nil
+	}
+	return ports.ImmutablePublicationArtifact{}, fs.ErrNotExist
 }
 
 func (store *reportQueryStore) PrepareComposite(context.Context, ports.PrepareCompositeRequest) (ports.PreparedComposite, error) {
@@ -1270,7 +1328,14 @@ func (store *reportQueryStore) CommitPreparedComposite(context.Context, ports.Pr
 	return ports.CompositeCommitResult{}, errors.New("not implemented")
 }
 
-func (store *reportQueryStore) ReadCommittedSnapshot(context.Context, ports.ReadCommittedSnapshotRequest) (ports.CommittedPublicationSnapshot, error) {
+func (store *reportQueryStore) ReadCommittedSnapshot(_ context.Context, request ports.ReadCommittedSnapshotRequest) (ports.CommittedPublicationSnapshot, error) {
+	store.snapshotReads++
+	if store.afterSnapshot != nil {
+		store.afterSnapshot()
+	}
+	if snapshot, ok := store.snapshotsByRun[request.Run().RunID().String()]; ok {
+		return snapshot, nil
+	}
 	return store.snapshot, nil
 }
 

@@ -108,6 +108,97 @@ func TestReadContentRenderedSnapshotReobservesAfterRenderer(t *testing.T) {
 	}
 }
 
+// TestReadContentInterleavingsFailClosed pins both DF-010 mutation kinds on
+// the callback-bearing verified content path. The render callback runs
+// strictly after the publication snapshot and its support verification, so
+// these legs also prove the post-verification serve-time digest check: a
+// body-only change of the served artifact with unchanged P2 identities fails
+// when the callback requests the excerpt, and publication-identity changes
+// fail whether they are made inside the callback or after it completes.
+func TestReadContentInterleavingsFailClosed(t *testing.T) {
+	target := "sha256:" + strings.Repeat("a", 64)
+	excerptPath := func(run ports.PublicationRun) string {
+		return run.SessionID().String() + "/" + run.RunID().String() + "/excerpts/F001_1.md"
+	}
+	bindDefaultExcerpt := func(t *testing.T, store *queryStore, run ports.PublicationRun) {
+		final, err := decodeFinalDTO(store.snapshot.Final().Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := decodeManifestDTO(store.snapshot.Manifest().Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		bindContentFixture(t, store, run, final, manifest, map[string][]byte{"excerpts/F001_1.md": []byte("line one\nline two")})
+	}
+	for name, render := range map[string]func(t *testing.T, store *queryStore, run ports.PublicationRun) func(context.Context, ContentReader) ([]byte, error){
+		"served body changed inside callback": func(t *testing.T, store *queryStore, run ports.PublicationRun) func(context.Context, ContentReader) ([]byte, error) {
+			return func(ctx context.Context, reader ContentReader) ([]byte, error) {
+				store.auxiliaryArtifacts[excerptPath(run)] = mustQueryArtifact(t, mustQueryPath(t, excerptPath(run)), []byte("changed excerpt"))
+				if _, err := reader.RenderExcerptAt(ctx, run, "F001", target, 1); err != nil {
+					return nil, err
+				}
+				return []byte("rendered"), nil
+			}
+		},
+		"identity changed inside callback": func(t *testing.T, store *queryStore, run ports.PublicationRun) func(context.Context, ContentReader) ([]byte, error) {
+			return func(ctx context.Context, reader ContentReader) ([]byte, error) {
+				store.observation = queryP2Observation(t, run, querySnapshotAtEpoch(t, store.snapshot, 2), domain.JournalCompleted, domain.ExitCommittedPass, 2)
+				if _, err := reader.RenderExcerptAt(ctx, run, "F001", target, 1); err != nil {
+					return nil, err
+				}
+				return []byte("rendered"), nil
+			}
+		},
+		"identity changed after callback": func(t *testing.T, store *queryStore, run ports.PublicationRun) func(context.Context, ContentReader) ([]byte, error) {
+			return func(context.Context, ContentReader) ([]byte, error) {
+				defer func() {
+					store.observation = queryP2Observation(t, run, querySnapshotAtEpoch(t, store.snapshot, 2), domain.JournalCompleted, domain.ExitCommittedPass, 2)
+				}()
+				return []byte("rendered"), nil
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, store, run, binding := inspectionFixture(t, 1)
+			bindDefaultExcerpt(t, store, run)
+			chunk, err := service.ReadReport(context.Background(), run, binding, "", ContentContinuation{}, render(t, store, run))
+			if failureClass(t, err) != domain.FailureArtifact || chunk.Content != "" {
+				t.Fatalf("interleaving escaped the content guards: %+v/%v", chunk, err)
+			}
+		})
+	}
+}
+
+// TestReadSourceEvidenceRejectsReboundAndUnservedCorruptSupport pins live
+// evidence reads against support rebound to other content and against
+// corruption of verified support the request never serves.
+func TestReadSourceEvidenceRejectsReboundAndUnservedCorruptSupport(t *testing.T) {
+	for name, mutate := range map[string]func(t *testing.T, store *queryStore, run ports.PublicationRun){
+		"served excerpt rebound": func(t *testing.T, store *queryStore, run ports.PublicationRun) {
+			path := run.SessionID().String() + "/" + run.RunID().String() + "/excerpts/F001_1.md"
+			store.auxiliaryArtifacts[path] = mustQueryArtifact(t, mustQueryPath(t, path), []byte("rebound excerpt"))
+		},
+		"unserved normalized finding corrupted": func(t *testing.T, store *queryStore, run ports.PublicationRun) {
+			path := run.SessionID().String() + "/" + run.RunID().String() + "/excerpts/F001.json"
+			store.auxiliaryArtifacts[path] = mustQueryArtifact(t, mustQueryPath(t, path), []byte("{}"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, store, run, binding := liveAgyCommittedFixture(t)
+			review, err := service.ReadCommitted(context.Background(), run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutate(t, store, run)
+			chunk, err := service.ReadSourceEvidence(context.Background(), run, binding, "F001", review.SourceIdentitySHA256(), 0, ContentContinuation{})
+			if failureClass(t, err) != domain.FailureArtifact || chunk.Content != "" {
+				t.Fatalf("live evidence accepted damaged support: %+v/%v", chunk, err)
+			}
+		})
+	}
+}
+
 func TestReadContentEveryEvidenceIndexAndMissingSupport(t *testing.T) {
 	service, store, run, binding := inspectionFixture(t, 1)
 	final, _ := decodeFinalDTO(store.snapshot.Final().Bytes())
@@ -194,5 +285,50 @@ func TestReadContentHasNoReportCeilingAndBinaryChunksAreExact(t *testing.T) {
 	}
 	if !bytes.Equal(combined, binary) {
 		t.Fatal("binary content changed")
+	}
+}
+
+// TestReportChunksKeepReceiptAndFullContentIdentityPerFreshRequest pins the
+// chunk contract and the cross-request freshness rule: every continuation
+// request re-verifies the publication (exactly one fresh support traversal per
+// chunk request), and each chunk carries the same publication receipt and the
+// digest of the complete content.
+func TestReportChunksKeepReceiptAndFullContentIdentityPerFreshRequest(t *testing.T) {
+	service, store, run, binding := inspectionFixture(t, 0)
+	data := []byte(strings.Repeat("verified report line\n", 9000))
+	final, err := decodeFinalDTO(store.snapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := decodeManifestDTO(store.snapshot.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.RoleReports[0].SHA256 = querySHA(data)
+	manifest.RoleReports[0].ByteLength = len(data)
+	bindContentFixture(t, store, run, final, manifest, map[string][]byte{"role-reports/logic.md": data})
+	var combined []byte
+	continuation := ContentContinuation{}
+	requests := 0
+	for {
+		requests++
+		chunk, chunkErr := service.ReadReport(context.Background(), run, binding, "logic", continuation, nil)
+		if chunkErr != nil {
+			t.Fatal(chunkErr)
+		}
+		if chunk.PublicationReceipt == "" || chunk.ContentSHA256 != querySHA(data) {
+			t.Fatalf("chunk lost receipt or full-content identity: %+v", chunk)
+		}
+		combined = append(combined, chunk.Content...)
+		if chunk.NextOffset == nil {
+			break
+		}
+		continuation = ContentContinuation{*chunk.NextOffset, chunk.PublicationReceipt, chunk.ContentSHA256}
+	}
+	if !bytes.Equal(combined, data) {
+		t.Fatalf("reassembled %d bytes, want %d", len(combined), len(data))
+	}
+	if reads := supportIndexReads(store); reads != requests {
+		t.Fatalf("support traversals = %d, want one fresh traversal per chunk request (%d)", reads, requests)
 	}
 }

@@ -90,7 +90,8 @@ func TestCommittedProviderRetirementUsesValidatedLiveContext(t *testing.T) {
 				}
 				review.liveSource = &value
 			}
-			retired, err := (&Service{}).committedArtifactRetired(context.Background(), run, review, map[string]struct{}{})
+			readContext := (&Service{}).newReadContext()
+			retired, err := readContext.committedRetired(context.Background(), readContext.adoptReview(run, review))
 			if err != nil || retired != (!live || family == "kimi") {
 				t.Fatalf("family=%s live=%t retired=%t err=%v", family, live, retired, err)
 			}
@@ -188,7 +189,8 @@ func TestCurrentLiveAgyStillRejectsRetiredSourceLineage(t *testing.T) {
 			t.Fatal(err)
 		}
 		review := CommittedReview{liveSource: &live, runType: domain.RunTypeReview, finalBytes: body}
-		retired, err := service.committedArtifactRetired(context.Background(), currentRun, review, map[string]struct{}{})
+		readContext := service.newReadContext()
+		retired, err := readContext.committedRetired(context.Background(), readContext.adoptReview(currentRun, review))
 		var failure *domain.Failure
 		if !retired && (!errors.As(err, &failure) || failure.Reason() != retiredProviderArtifactReason) {
 			t.Fatalf("%s source lineage escaped retirement: retired=%t err=%v", family, retired, err)
@@ -197,4 +199,13 @@ func TestCurrentLiveAgyStillRejectsRetiredSourceLineage(t *testing.T) {
 			t.Fatalf("lineage was not resolved: %d", store.resolveCalls)
 		}
 	}
+}
+
+// adoptReview registers an already-verified review for run when only the
+// retirement predicate is exercised.
+func (context *readContext) adoptReview(run ports.PublicationRun, review CommittedReview) *contextRun {
+	node := &contextRun{run: run, stage: readCommittedStage, review: review, hasReview: true}
+	context.byRun[run.RunID().String()] = node
+	context.order = append(context.order, node)
+	return node
 }

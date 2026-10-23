@@ -12,8 +12,9 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func (service *Service) bindCompositeSupport(ctx context.Context, run ports.PublicationRun, review CommittedReview) (CommittedReview, error) {
-	index, err := service.readRuntimeSupportIndex(ctx, run, review)
+func (context *readContext) bindCompositeSupport(ctx context.Context, node *contextRun, review CommittedReview) (CommittedReview, error) {
+	run := node.run
+	index, err := context.supportIndex(ctx, node, review)
 	if err != nil {
 		return review, err
 	}
@@ -35,11 +36,11 @@ func (service *Service) bindCompositeSupport(ctx context.Context, run ports.Publ
 		if err != nil {
 			return review, err
 		}
-		maximum := service.maxReadBytes
+		maximum := context.service.maxReadBytes
 		if kind.IsVariableSized() {
 			maximum = math.MaxInt64 - 1
 		}
-		artifact, err := service.readBoundRuntimeArtifactWithMaximum(ctx, run, review, path, digest, maximum)
+		artifact, err := context.boundArtifact(ctx, node, path, digest, maximum)
 		if err != nil {
 			return review, err
 		}

@@ -18,21 +18,29 @@ const ErrSourceReplayUnavailable ReadContractError = "source_replay_unavailable"
 // ReadSourceImageArtifact returns the complete retained raster for an offline
 // export bound to an exact final identity. It does not read the original path.
 func (service *Service) ReadSourceImageArtifact(ctx context.Context, run ports.PublicationRun, finalSHA256, sourceSHA256, side, path string) (ports.ImmutablePublicationArtifact, error) {
-	review, err := service.ReadCommitted(ctx, run)
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, "query.read_source_image")
 	if err != nil {
 		return ports.ImmutablePublicationArtifact{}, err
 	}
+	review := node.review
 	if review.liveSource == nil || review.FinalSHA256() != finalSHA256 || review.SourceIdentitySHA256() != sourceSHA256 {
 		return ports.ImmutablePublicationArtifact{}, ErrPublicationReceiptMismatch
 	}
-	index, err := service.readRuntimeSupportIndex(ctx, run, review)
-	if err != nil {
+	if _, err := context.supportIndex(ctx, node, node.review); err != nil {
 		return ports.ImmutablePublicationArtifact{}, err
 	}
 	for _, image := range review.liveSource.BinaryEvidence {
 		if image.Side == side && image.Path == path {
 			artifactPath, _ := ports.NewSafeRelativePath(image.ArtifactPath)
-			return service.readIndexedRuntimeArtifact(ctx, run, review, index, artifactPath)
+			artifact, err := context.indexedArtifact(ctx, node, artifactPath)
+			if err != nil {
+				return ports.ImmutablePublicationArtifact{}, err
+			}
+			if err := context.finish(ctx); err != nil {
+				return ports.ImmutablePublicationArtifact{}, err
+			}
+			return artifact, nil
 		}
 	}
 	return ports.ImmutablePublicationArtifact{}, typedFailure("query.read_source_image", domain.FailureArtifact, "source image is unavailable", nil)

@@ -14,24 +14,33 @@ import (
 const renderStage = "report.render"
 
 // CommittedReader is the report-owned boundary for verified committed review
-// data and fresh current-evidence excerpts. *query.Service satisfies it.
+// data and fresh current-evidence excerpts.
 type CommittedReader interface {
 	ReadCommitted(context.Context, ports.PublicationRun) (query.CommittedReview, error)
 	RenderExcerptAt(context.Context, ports.PublicationRun, string, string, int) ([]byte, error)
 }
 
+// SnapshotOpener runs one render inside a query-owned, per-call verified
+// snapshot: the committed snapshot, its whole-support verification and the
+// retirement walk complete before the render runs, and every consumed
+// publication is confirmed before the render returns. *query.Service
+// satisfies it.
+type SnapshotOpener interface {
+	WithVerifiedSnapshot(context.Context, ports.PublicationRun, func(context.Context, query.ContentReader) error) error
+}
+
 // Service renders a deterministic report from one P2-committed query snapshot.
 type Service struct {
-	reader CommittedReader
+	opener SnapshotOpener
 }
 
 // NewService creates a report renderer. The query boundary is required so the
 // renderer cannot consult publication artifacts or targets on its own.
-func NewService(reader CommittedReader) (*Service, error) {
-	if missingDependency(reader) {
+func NewService(opener SnapshotOpener) (*Service, error) {
+	if missingDependency(opener) {
 		return nil, fmt.Errorf("report service: committed reader is required")
 	}
-	return &Service{reader: reader}, nil
+	return &Service{opener: opener}, nil
 }
 
 // Report is an immutable derived report and the committed identities from
@@ -94,7 +103,7 @@ func (report Report) TargetSHA256() string { return report.targetSHA256 }
 // Render reads exactly one committed review through the query boundary, checks
 // the defensive final bytes against that view, and renders deterministic Markdown.
 func (service *Service) Render(ctx context.Context, run ports.PublicationRun) (Report, error) {
-	if missingDependency(service) || missingDependency(service.reader) {
+	if missingDependency(service) || missingDependency(service.opener) {
 		return Report{}, reportFailure(domain.FailureArtifact, "committed reader is unavailable", nil)
 	}
 	if err := reportContextFailure(ctx); err != nil {
@@ -104,31 +113,37 @@ func (service *Service) Render(ctx context.Context, run ports.PublicationRun) (R
 		return Report{}, reportFailure(domain.FailureConfiguration, "publication run is invalid", nil)
 	}
 
-	review, err := service.reader.ReadCommitted(ctx, run)
-	if err != nil {
-		return Report{}, err
-	}
-	if err := reportContextFailure(ctx); err != nil {
-		return Report{}, err
-	}
-
-	var final reportFinalDTO
-	if review.RunType() == domain.RunTypeComposite || review.SourceIdentitySHA256() != "" {
-		final, err = reportFinalFromCommitted(review)
+	var review query.CommittedReview
+	var rendered []byte
+	err := service.opener.WithVerifiedSnapshot(ctx, run, func(ctx context.Context, reader query.ContentReader) error {
+		var err error
+		review, err = reader.ReadCommitted(ctx, run)
 		if err != nil {
-			return Report{}, reportFailure(domain.FailureArtifact, "committed verified report data is invalid", err)
+			return err
 		}
-	} else {
-		final, err = decodeReportFinal(review.FinalBytes())
-		if err != nil {
-			return Report{}, reportFailure(domain.FailureArtifact, "committed final report data is invalid", err)
+		if err := reportContextFailure(ctx); err != nil {
+			return err
 		}
-		if err := final.consistentWith(review); err != nil {
-			return Report{}, reportFailure(domain.FailureArtifact, "committed final report data is inconsistent", err)
-		}
-	}
 
-	rendered, err := renderMarkdown(ctx, service.reader, run, review, final)
+		var final reportFinalDTO
+		if review.RunType() == domain.RunTypeComposite || review.SourceIdentitySHA256() != "" {
+			final, err = reportFinalFromCommitted(review)
+			if err != nil {
+				return reportFailure(domain.FailureArtifact, "committed verified report data is invalid", err)
+			}
+		} else {
+			final, err = decodeReportFinal(review.FinalBytes())
+			if err != nil {
+				return reportFailure(domain.FailureArtifact, "committed final report data is invalid", err)
+			}
+			if err := final.consistentWith(review); err != nil {
+				return reportFailure(domain.FailureArtifact, "committed final report data is inconsistent", err)
+			}
+		}
+
+		rendered, err = renderMarkdown(ctx, reader, run, review, final)
+		return err
+	})
 	if err != nil {
 		return Report{}, err
 	}

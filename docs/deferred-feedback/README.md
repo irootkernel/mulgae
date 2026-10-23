@@ -17,11 +17,14 @@ work.
   underlying error in runtime diagnostics before considering further
   hardening.
 - `DF-003` Verified reads of v2 reviews and composites reload and verify all
-  captured or copied support artifacts; inspection can repeat the full pass.
-  Large runs may increase memory use and read latency, especially across
-  report chunks. Re-entry: measure an unacceptable memory peak or read delay
-  on a large committed run, then reduce repeated loading while preserving
-  support integrity checks.
+  captured or copied support artifacts; inspection used to repeat the full
+  pass up to three times per request. TASK-055 introduced the query-owned
+  per-call read context: one entry-point invocation performs each consumed
+  publication's snapshot read and whole-support verification once within its
+  context, serves every artifact with its own digest-bound read, and confirms
+  every consumed publication in dependency postorder before returning. A
+  nested public call and each report chunk or MCP continuation verify freshly
+  in their own contexts. No deferred work remains.
 
 - `DF-004` ZCode's admitted short native socket directory is shared by guarded
   sessions. The guard isolates each invocation's credentials and scratch, but
@@ -66,11 +69,25 @@ work.
 - `DF-010` Inspection defensive tests: direct assertions remain useful for
   malformed internal page projections, receipt suppression, paged fallback
   and publication re-observation. Current verified query and publication
-  guards reject corrupted state. Re-entry: before changing projection, paging
-  or diagnostic recheck code, add negative fake-reader and interleaving
-  assertions for those guards. Include malformed expected-digest CLI flags;
-  keep the existing shared digest parser and MCP guard as the current
-  admission authority.
+  guards reject corrupted state. Standing rule: before changing projection,
+  paging or diagnostic recheck code, add negative fake-reader and
+  interleaving assertions for those guards; keep the existing shared digest
+  parser and MCP guard as the current admission authority. TASK-055 delivered
+  the named controls before changing observation:
+  `TestInspectionInterleavingsFailClosedAtEveryObservationPoint`,
+  `TestInspectionRejectsMissingOrReboundRoleReportSupport`,
+  `TestInspectionRejectsCorruptedUnservedSupport`,
+  `TestReadFindingInterleavingsAfterSnapshotFailClosed`,
+  `TestReadContentInterleavingsFailClosed`,
+  `TestReadSourceEvidenceRejectsReboundAndUnservedCorruptSupport` and
+  `TestReadRunStatusInterleavingsPreserveCorruptIdentity`
+  (`internal/app/query`), `TestRenderMixedExcerptFailuresKeepFatalOverPartial`
+  (`internal/app/report`), `TestVerifiedReadParserRejectsMalformedDigestSelectors`,
+  `TestVerifiedReadRejectsMalformedInspectionProjection` and
+  `TestPagedDiagnosticFallbackIsSuppressed` (`internal/entrypoint/mulgae`),
+  `TestContentResourceRejectsMalformedDigestParameters`
+  (`internal/entrypoint/mcp`) and `TestMCPInspectFallbackSuppressesPagedRequests`
+  (`internal/composition`). No deferred work remains.
 
 - `DF-011` Live source defensive tests: direct cases remain useful for non-
   branch HEAD, unsafe per-worktree config, post-open root/admission changes

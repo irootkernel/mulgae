@@ -18,6 +18,8 @@ type ContentReader interface {
 
 type contentSnapshot struct {
 	service *Service
+	context *readContext
+	node    *contextRun
 	run     ports.PublicationRun
 	review  CommittedReview
 	support map[string]string
@@ -55,7 +57,7 @@ func (snapshot contentSnapshot) RenderExcerptAt(ctx context.Context, run ports.P
 		if _, present := snapshot.support[path.String()]; !present {
 			return nil, typedFailure("query.read_content", domain.FailureArtifact, "evidence_unavailable", nil)
 		}
-		return snapshot.service.readCommittedFindingExcerpt(ctx, run, snapshot.review, findingID, index, items[index-1], snapshot.support)
+		return snapshot.context.readCommittedFindingExcerpt(ctx, snapshot.node, findingID, index, items[index-1])
 	}
 	return nil, typedFailure("query.read_content", domain.FailureConfiguration, "evidence index is not bound to the finding", nil)
 }
@@ -81,7 +83,7 @@ func (service *Service) ReadReport(ctx context.Context, run ports.PublicationRun
 					continue
 				}
 				found = true
-				data, err = service.readRoleReportSnapshot(ctx, run, snapshot.review, report, snapshot.support)
+				data, err = snapshot.context.roleReportSnapshot(ctx, snapshot.node, run, snapshot.review, report, snapshot.support)
 				break
 			}
 			if !found {
@@ -150,7 +152,7 @@ func (service *Service) ReadSourceImage(ctx context.Context, run ports.Publicati
 				continue
 			}
 			artifactPath, _ := ports.NewSafeRelativePath(image.ArtifactPath)
-			artifact, err := service.readIndexedRuntimeArtifact(ctx, run, snapshot.review, snapshot.support, artifactPath)
+			artifact, err := snapshot.context.indexedArtifact(ctx, snapshot.node, artifactPath)
 			if err != nil {
 				return ContentChunk{}, err
 			}
@@ -167,11 +169,12 @@ func (service *Service) readContent(ctx context.Context, run ports.PublicationRu
 	if err := continuation.Validate(); err != nil {
 		return ContentChunk{}, err
 	}
-	observation, err := service.observe(ctx, run, "query.read_content")
+	context := service.newReadContext()
+	node, err := context.ensureRun(ctx, run, "query.read_content")
 	if err != nil {
 		return ContentChunk{}, err
 	}
-	review, receipt, support, err := service.inspectCommitted(ctx, run, binding, observation)
+	review, receipt, support, err := service.inspectCommitted(ctx, context, node, binding)
 	if err != nil {
 		return ContentChunk{}, err
 	}
@@ -179,11 +182,11 @@ func (service *Service) readContent(ctx context.Context, run ports.PublicationRu
 	if err != nil {
 		return ContentChunk{}, err
 	}
-	chunk, err := read(contentSnapshot{service, run, review, support}, identity)
+	chunk, err := read(contentSnapshot{service, context, node, run, review, support}, identity)
 	if err != nil {
 		return ContentChunk{}, err
 	}
-	if err := service.confirmStableP2Observation(ctx, run, observation, "query.read_content"); err != nil {
+	if err := context.finish(ctx); err != nil {
 		return ContentChunk{}, err
 	}
 	chunk.RunID = run.RunID().String()
@@ -228,4 +231,51 @@ func contentURI(base string, fields [][2]string, offset int64) string {
 		base += "?" + strings.Join(parts, "&")
 	}
 	return base
+}
+
+// WithVerifiedSnapshot runs use against one query-owned, per-call verified
+// snapshot of run. The committed snapshot, its whole-support verification and
+// the retirement walk all complete before use runs — preserving the legacy
+// render path's order — and every consumed publication is confirmed in
+// dependency postorder before it returns.
+func (service *Service) WithVerifiedSnapshot(ctx context.Context, run ports.PublicationRun, use func(context.Context, ContentReader) error) error {
+	context := service.newReadContext()
+	node, err := context.readCommitted(ctx, run, readCommittedStage)
+	if err != nil {
+		return err
+	}
+	reader := verifiedSnapshotReader{context: context, node: node}
+	if err := use(ctx, reader); err != nil {
+		return err
+	}
+	return context.finish(ctx)
+}
+
+// verifiedSnapshotReader confines the report renderer to one verified
+// snapshot. ReadCommitted returns the verified view; RenderExcerptAt keeps
+// the public excerpt semantics: live evidence serves through the verified
+// support index, historical evidence uses the claim-verified direct read.
+type verifiedSnapshotReader struct {
+	context *readContext
+	node    *contextRun
+}
+
+func (reader verifiedSnapshotReader) ReadCommitted(ctx context.Context, run ports.PublicationRun) (CommittedReview, error) {
+	if err := contextFailure(ctx, "query.read_content"); err != nil {
+		return CommittedReview{}, err
+	}
+	if run != reader.node.run {
+		return CommittedReview{}, ErrCursorMismatch
+	}
+	return reader.node.review, nil
+}
+
+func (reader verifiedSnapshotReader) RenderExcerptAt(ctx context.Context, run ports.PublicationRun, findingID, target string, index int) ([]byte, error) {
+	if run != reader.node.run {
+		return nil, ErrCursorMismatch
+	}
+	if target != reader.node.review.TargetSHA256() || index < 1 || index > 20 {
+		return nil, typedFailure("query.read_content", domain.FailureConfiguration, "evidence selector is invalid", nil)
+	}
+	return reader.context.renderExcerptAt(ctx, reader.node, findingID, target, index)
 }

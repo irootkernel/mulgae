@@ -5,6 +5,12 @@ package composition
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
@@ -117,4 +123,53 @@ func (*mcpMultiQueryFake) ReadSourceEvidence(context.Context, ports.PublicationR
 
 func (*mcpMultiQueryFake) ReadSourceImage(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, string, query.ContentContinuation) (query.ContentChunk, error) {
 	return query.ContentChunk{}, errors.New("unexpected source image read")
+}
+
+// TestMCPInspectFallbackSuppressesPagedRequests pins that a missing
+// publication carrying a cursor or an expected publication receipt can never
+// fall back to the diagnostic projection: pagination selectors require the
+// committed publication they were issued against.
+func TestMCPInspectFallbackSuppressesPagedRequests(t *testing.T) {
+	projectRoot := mustMCPRoot(t, canonicalTestTempDir(t))
+	artifactRoot := mustMCPRoot(t, filepath.Join(projectRoot.String(), ".mulgae"))
+	sessionID := mustMCPSessionID(t, "s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID := mustMCPRunID(t, "r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	if err := os.MkdirAll(filepath.Join(artifactRoot.String(), sessionID.String(), runID.String()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.August, 14, 5, 0, 0, 0, time.UTC)
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+		SessionID: sessionID, RunID: runID, State: domain.RunFailed, StartedAt: now, UpdatedAt: now.Add(time.Second),
+		CompletedAt: now.Add(time.Second), HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleTesting},
+		RolePathTotal: 1, RolePathFailed: 1, LastSequence: 3, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries := &mcpQueryFake{resolveErr: ports.ErrPublicationRunNotFound}
+	diagnostics := &mcpDiagnosticQueryFake{status: status}
+	backend, err := newMCPBoundTestBackend(projectRoot, artifactRoot, &mulgaeentry.Application{}, queries, diagnostics, &mcpReportFake{}, filesystem.NewRunSelector())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, input := range map[string]mcpentry.ListFindingsInput{
+		"cursor set":           {RunID: runID.String(), Cursor: "opaque"},
+		"expected receipt set": {RunID: runID.String(), ExpectedPublicationReceipt: "sha256:" + strings.Repeat("1", 64)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, inspectErr := backend.InspectReview(context.Background(), input); inspectErr == nil {
+				t.Fatalf("paged missing-publication request fell back to diagnostics")
+			}
+		})
+	}
+	if diagnostics.calls != 0 {
+		t.Fatalf("suppressed fallback still consulted diagnostics %d times", diagnostics.calls)
+	}
+	diagnostics.calls = 0
+	if data, inspectErr := backend.InspectReview(context.Background(), mcpentry.ListFindingsInput{RunID: runID.String()}); inspectErr != nil || data == nil {
+		t.Fatalf("unpaged missing-publication inspect did not use the diagnostic projection: %v", inspectErr)
+	}
+	if diagnostics.calls == 0 {
+		t.Fatal("unpaged missing-publication inspect never consulted diagnostics")
+	}
 }

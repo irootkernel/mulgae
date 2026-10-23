@@ -336,3 +336,107 @@ func TestHumanExcerptEscapesControlsPreservesExactMachineBytes(t *testing.T) {
 		t.Fatal("machine excerpt did not retain exact evidence bytes")
 	}
 }
+
+// TestVerifiedReadParserRejectsMalformedDigestSelectors pins each expected
+// digest flag's actual rejection message: the three --expected-* digest flags
+// fail as "invalid expected digest", while malformed or ambiguous excerpt
+// target/source selectors fail as "excerpt requires exactly one canonical
+// target or source identity".
+func TestVerifiedReadParserRejectsMalformedDigestSelectors(t *testing.T) {
+	requestID := "i_01234567-89ab-7cde-8f01-23456789abcd"
+	digest := "sha256:" + strings.Repeat("1", 64)
+	for _, bad := range []string{"", "sha256:short", strings.Repeat("1", 64), "sha256:" + strings.Repeat("z", 64), "sha256:" + strings.Repeat("1", 63)} {
+		for _, arguments := range [][]string{
+			{"inspect", "--run", testRunID, "--expected-project-binding", bad},
+			{"inspect", "--run", testRunID, "--expected-publication-receipt", bad},
+			{"read-finding", "--run", testRunID, "--finding", "F1000", "--expected-publication-receipt", bad},
+			{"read-report", "--run", testRunID, "--expected-content-sha256", bad},
+		} {
+			_, err := Parse(arguments, "/project", requestID)
+			if err == nil || !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "invalid expected digest") {
+				t.Fatalf("Parse(%v) = %v, want invalid expected digest usage error", arguments, err)
+			}
+		}
+	}
+	for _, bad := range []string{"sha256:short", strings.Repeat("1", 64), "sha256:" + strings.Repeat("z", 64)} {
+		for _, arguments := range [][]string{
+			{"excerpt", "--run", testRunID, "--finding", "F1000", "--current-target-sha256", bad},
+			{"excerpt", "--run", testRunID, "--finding", "F1000", "--source-identity-sha256", bad},
+		} {
+			_, err := Parse(arguments, "/project", requestID)
+			if err == nil || !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "canonical") {
+				t.Fatalf("Parse(%v) = %v, want a canonical selector usage error", arguments, err)
+			}
+		}
+	}
+	_, err := Parse([]string{"excerpt", "--run", testRunID, "--finding", "F1000", "--current-target-sha256", digest, "--source-identity-sha256", digest}, "/project", requestID)
+	if err == nil || !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "excerpt requires exactly one canonical target or source identity") {
+		t.Fatalf("ambiguous selectors = %v, want the canonical excerpt selector usage error", err)
+	}
+	_, err = Parse([]string{"excerpt", "--run", testRunID, "--finding", "F1000"}, "/project", requestID)
+	if err == nil || !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "excerpt requires --current-target-sha256") {
+		t.Fatalf("missing selectors = %v, want the legacy excerpt target requirement", err)
+	}
+}
+
+// malformedInspectionQuery serves an invalid page through the standard query
+// boundary so the CLI projection guard is the only rejection point.
+type malformedInspectionQuery struct {
+	*g006QueryFake
+	page query.Inspection
+}
+
+func (fake malformedInspectionQuery) Inspect(context.Context, ports.PublicationRun, domain.ProjectBinding, query.InspectionRequest) (query.Inspection, error) {
+	return fake.page, nil
+}
+
+// TestVerifiedReadRejectsMalformedInspectionProjection pins the CLI-side
+// guard that refuses malformed internal page projections before any output.
+func TestVerifiedReadRejectsMalformedInspectionProjection(t *testing.T) {
+	for name, page := range map[string]query.Inspection{
+		"run identity mismatch": {RunID: "r_019f596a-cfe4-7c9c-b82e-7149158243ff", FindingCount: 1, ReturnedCount: 1, Findings: []query.FindingSummary{{ID: "F001", Severity: string(domain.SeverityLow), Title: "title"}}},
+		"returned count mismatch": {RunID: testRunID, FindingCount: 2, ReturnedCount: 2,
+			Findings: []query.FindingSummary{{ID: "F001", Severity: string(domain.SeverityLow), Title: "title"}}},
+		"invalid finding identity": {RunID: testRunID, FindingCount: 1, ReturnedCount: 1, Findings: []query.FindingSummary{{ID: "f001", Severity: string(domain.SeverityLow), Title: "title"}}},
+		"newline finding title":    {RunID: testRunID, FindingCount: 1, ReturnedCount: 1, Findings: []query.FindingSummary{{ID: "F001", Severity: string(domain.SeverityLow), Title: "two\nlines"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newG006Fixture(t, malformedInspectionQuery{g006QueryFake: newG006QueryFake(), page: page}, newG006ReportFake())
+			result := fixture.application.Run(context.Background(), []string{"inspect", "--run", testRunID, "--output", "json"}, testAnchoredRoot(t))
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+			if commandResultKind(t, result.Stdout()) == "review_inspected" {
+				t.Fatalf("malformed projection reached output: %s", result.Stdout())
+			}
+		})
+	}
+}
+
+// TestPagedDiagnosticFallbackIsSuppressed pins that a missing publication
+// carrying a cursor or an expected publication receipt never falls back to
+// the diagnostic projection: pagination selectors require the committed
+// publication they were issued against.
+func TestPagedDiagnosticFallbackIsSuppressed(t *testing.T) {
+	fake := &g006QueryFake{resolveErr: ports.ErrPublicationRunNotFound}
+	fixture := newG006Fixture(t, fake, newG006ReportFake())
+	root := testAnchoredRoot(t)
+	session, _ := domain.ParseSessionID(g006SessionID)
+	run, _ := domain.ParseRunID(testRunID)
+	now := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: session, RunID: run, State: domain.RunFailed, StartedAt: now, UpdatedAt: now, CompletedAt: now, HasCompletedAt: true, SelectedRoles: []domain.Role{domain.RoleLogic}, RolePathTotal: 1, RolePathFailed: 1, LastSequence: 1, TerminalCause: domain.DiagnosticCauseProviderSpawnFailed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.application.diagnosticQueries = diagnosticQueryFake{status: status}
+	for name, argv := range map[string][]string{
+		"cursor set":           {"inspect", "--run", testRunID, "--cursor", "opaque", "--output", "json"},
+		"expected receipt set": {"inspect", "--run", testRunID, "--expected-publication-receipt", "sha256:" + strings.Repeat("1", 64), "--output", "json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := fixture.application.Run(context.Background(), argv, root)
+			assertFoundationEnvelope(t, fixture, result, app.ExitCodeArtifact)
+			if commandResultKind(t, result.Stdout()) == "diagnostic_status_read" {
+				t.Fatalf("paged request fell back to diagnostics: %s", result.Stdout())
+			}
+		})
+	}
+}

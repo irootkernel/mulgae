@@ -365,3 +365,26 @@ func TestLiveStoredFindingsRejectScopeInconsistentSides(t *testing.T) {
 		})
 	}
 }
+
+// TestLiveRenderExcerptDoesNotRepeatWholeSupportPass is the failing-first
+// reuse regression for public single-excerpt reads: one request performs one
+// whole-support traversal plus the digest-bound excerpt read, with a single
+// final P2 re-observation.
+func TestLiveRenderExcerptDoesNotRepeatWholeSupportPass(t *testing.T) {
+	service, store, run, _ := liveAgyCommittedFixture(t)
+	if _, err := service.RenderExcerpt(context.Background(), run, "F001", ""); err != nil {
+		t.Fatal(err)
+	}
+	if reads := supportIndexReads(store); reads != 1 {
+		t.Fatalf("whole-support traversals = %d, want 1", reads)
+	}
+	if store.auxiliaryReads != 7 {
+		t.Fatalf("auxiliary reads = %d, want 7 (index + 5 verified artifacts + served excerpt)", store.auxiliaryReads)
+	}
+	if store.observeCalls != 2 {
+		t.Fatalf("ObserveRun calls = %d, want 2", store.observeCalls)
+	}
+	if store.snapshotReads != 1 {
+		t.Fatalf("snapshot reads = %d, want 1", store.snapshotReads)
+	}
+}

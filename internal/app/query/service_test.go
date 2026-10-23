@@ -9,7 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1769,6 +1772,49 @@ func TestReadRunStatusFailsClosedWhenP2EpochChangesDuringSnapshotRead(t *testing
 	assertCorruptRunStatus(t, status, run)
 }
 
+// TestReadRunStatusInterleavingsPreserveCorruptIdentity pins the safe corrupt
+// status projection and its unavailable-recovery metadata, not just the
+// failure class, when the publication identity changes mid-read.
+func TestReadRunStatusInterleavingsPreserveCorruptIdentity(t *testing.T) {
+	armAfterSnapshot := func(store *queryStore, mutate func()) {
+		store.afterSnapshot = func() {
+			store.afterSnapshot = nil
+			mutate()
+		}
+	}
+	for name, arm := range map[string]func(t *testing.T, store *queryStore, run ports.PublicationRun){
+		"epoch change after snapshot": func(t *testing.T, store *queryStore, run ports.PublicationRun) {
+			armAfterSnapshot(store, func() {
+				store.observation = queryP2Observation(t, run, querySnapshotAtEpoch(t, store.snapshot, 2), domain.JournalCompleted, domain.ExitCommittedCIRejected, 2)
+			})
+		},
+		"cleanup after snapshot": func(t *testing.T, store *queryStore, _ ports.PublicationRun) {
+			armAfterSnapshot(store, func() { store.observeErr = ports.ErrPublicationRunNotFound })
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, store, run, _ := inspectionFixture(t, 1)
+			arm(t, store, run)
+			status, err := service.ReadRunStatus(context.Background(), run)
+			if failureClass(t, err) != domain.FailureArtifact {
+				t.Fatalf("failure class = %q, want artifact", failureClass(t, err))
+			}
+			assertCorruptRunStatus(t, status, run)
+		})
+	}
+	t.Run("stable status keeps published-review recovery metadata", func(t *testing.T) {
+		service, _, run, _ := inspectionFixture(t, 1)
+		status, err := service.ReadRunStatus(context.Background(), run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recoveryStatus := status.FailedRunRecovery()
+		if recoveryStatus.Available || recoveryStatus.UnavailableReason == nil || *recoveryStatus.UnavailableReason != "published_review" {
+			t.Fatalf("stable status recovery metadata = %+v, want unavailable published_review", recoveryStatus)
+		}
+	})
+}
+
 func TestValidRoleReportMarkdownMatchesProducerBoundary(t *testing.T) {
 	t.Parallel()
 	if !validRoleReportMarkdown([]byte("# ok\n")) {
@@ -1920,10 +1966,12 @@ func TestReadRunStatusExposesVerifiedRoleReportURIsAndRejectsTamper(t *testing.T
 		t.Fatal("unbound support role report exposed URIs")
 	}
 
+	// One request observes the publication twice: the initial binding and the
+	// final confirmation after every artifact read. A change visible at the
+	// confirmation fails the read without exposing role-report URIs.
 	run3, snapshot3, observation3, artifacts3, _ := queryStatusRoleReportFixture(t)
 	reobserveStore := &queryStore{
 		observations: []ports.PublicationObservation{
-			observation3,
 			observation3,
 			queryP2Observation(t, run3, querySnapshotAtEpoch(t, snapshot3, 2), domain.JournalCompleted, domain.ExitCommittedCIRejected, 2),
 		},
@@ -2175,20 +2223,60 @@ func TestCommittedFindingAndRuntimeSourcesBindEveryAuxiliaryDigest(t *testing.T)
 	}
 }
 
-func TestReadCommittedForCompositionRejectsSnapshotChangeAfterSupportVerification(t *testing.T) {
-	t.Parallel()
-	run, snapshot, observation, artifacts, _, _ := queryRuntimeFixture(t)
-	_, replacement, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+func compositionReadyRuntimeFixture(t *testing.T) (ports.PublicationRun, *queryStore, *Service) {
+	t.Helper()
+	run, snapshot, observation, artifacts, _, _ := queryRuntimeFixtureWithOptions(t, queryRuntimeFixtureOptions{bindAllRoleReports: true})
 	store := &queryStore{snapshot: snapshot, observation: observation, auxiliaryArtifacts: artifacts}
-	store.afterSnapshot = func() {
-		if store.snapshotReads == 3 {
-			store.snapshot = replacement
+	return run, store, mustQueryService(t, store, &queryValidator{}, nil)
+}
+
+// TestReadCommittedForCompositionSingleVerification is the failing-first
+// regression for double verification inside one composition read: the root is
+// verified once (exactly one snapshot read and one support-index read) even
+// though the runtime-target and status projections consume the same node.
+func TestReadCommittedForCompositionSingleVerification(t *testing.T) {
+	run, store, service := compositionReadyRuntimeFixture(t)
+	if _, err := service.ReadCommittedForComposition(context.Background(), run); err != nil {
+		t.Fatalf("ReadCommittedForComposition() error = %v", err)
+	}
+	if store.snapshotReads != 1 {
+		t.Fatalf("composition snapshot reads = %d, want 1", store.snapshotReads)
+	}
+	if reads := supportIndexReads(store); reads != 1 {
+		t.Fatalf("composition support-index reads = %d, want 1", reads)
+	}
+}
+
+// TestReadCommittedForCompositionRejectsIdentityChangeAfterSupportVerification
+// keeps the composition read fail-closed: the stable call succeeds, and a
+// publication-identity change armed after the snapshot read fails the read
+// with no review returned. The final dependency-postorder confirmation owns
+// that window.
+func TestReadCommittedForCompositionRejectsIdentityChangeAfterSupportVerification(t *testing.T) {
+	t.Run("stable", func(t *testing.T) {
+		run, _, service := compositionReadyRuntimeFixture(t)
+		review, err := service.ReadCommittedForComposition(context.Background(), run)
+		if err != nil {
+			t.Fatalf("stable composition read = %v", err)
 		}
-	}
-	service := mustQueryService(t, store, &queryValidator{}, nil)
-	if _, err := service.ReadCommittedForComposition(context.Background(), run); err == nil {
-		t.Fatal("composition source accepted a changed final snapshot")
-	}
+		if review.ReviewID().String() == "" {
+			t.Fatal("stable composition read returned no review")
+		}
+	})
+	t.Run("identity changed after snapshot", func(t *testing.T) {
+		run, store, service := compositionReadyRuntimeFixture(t)
+		store.afterSnapshot = func() {
+			store.afterSnapshot = nil
+			store.observation = queryP2Observation(t, run, querySnapshotAtEpoch(t, store.snapshot, 2), domain.JournalCompleted, domain.ExitCommittedCIRejected, 2)
+		}
+		review, err := service.ReadCommittedForComposition(context.Background(), run)
+		if failureClass(t, err) != domain.FailureArtifact {
+			t.Fatalf("changed composition source = %v, want artifact failure", err)
+		}
+		if review.ReviewID().String() != "" || review.FinalSHA256() != "" {
+			t.Fatalf("failed composition read returned review data: %+v", review)
+		}
+	})
 }
 
 func TestCommittedFindingAndRuntimeSourcesRejectMissingTamperedOrReboundArtifacts(t *testing.T) {
@@ -2396,6 +2484,9 @@ type queryRuntimeFixtureOptions struct {
 	legacyArchive bool
 	artistBrief   bool
 	artistVisuals bool
+	// bindAllRoleReports also retains the security role report, so status
+	// projection and composition reads see every manifest report bound.
+	bindAllRoleReports bool
 	// Negative-case deviations applied while the fixture is constructed, so
 	// every digest binding (index member, index artifact, run manifest) stays
 	// self-consistent and each named failure is reached deterministically.
@@ -2520,6 +2611,8 @@ func queryRuntimeFixtureWithOptions(t *testing.T, options queryRuntimeFixtureOpt
 	}
 	roleReportPath := prefix + "/role-reports/logic.md"
 	roleReport := mustQueryArtifact(t, mustQueryPath(t, roleReportPath), []byte("verified role report\n"))
+	securityReportPath := prefix + "/role-reports/security.md"
+	securityReport := mustQueryArtifact(t, mustQueryPath(t, securityReportPath), []byte("verified security report\n"))
 	artistBriefPath := prefix + "/inputs/artist-brief.md"
 	artistVisualsPath := prefix + "/inputs/artist-visual-assets.json"
 	artistArtifacts := make(map[string]ports.ImmutablePublicationArtifact)
@@ -2570,6 +2663,9 @@ func queryRuntimeFixtureWithOptions(t *testing.T, options queryRuntimeFixtureOpt
 	}
 	if !options.omitArchiveFromIndex {
 		supportIdentities = append(supportIdentities, artifactIdentityDTO{Path: capturedPath, SHA256: capturedManifest.SHA256()})
+	}
+	if options.bindAllRoleReports {
+		supportIdentities = append(supportIdentities, artifactIdentityDTO{Path: securityReportPath, SHA256: securityReport.SHA256()})
 	}
 	supportIdentities = append(supportIdentities, artistIdentities...)
 	for path, artifact := range capturedArtifacts {
@@ -2628,6 +2724,10 @@ func queryRuntimeFixtureWithOptions(t *testing.T, options queryRuntimeFixtureOpt
 	manifestRecord.Target.ContentSHA256 = target.SHA256()
 	manifestRecord.RoleReports[0].SHA256 = roleReport.SHA256()
 	manifestRecord.RoleReports[0].ByteLength = len(roleReport.Bytes())
+	if options.bindAllRoleReports {
+		manifestRecord.RoleReports[1].SHA256 = securityReport.SHA256()
+		manifestRecord.RoleReports[1].ByteLength = len(securityReport.Bytes())
+	}
 	manifestRecord.CompositeIdentity.SupportIndex = &artifactIdentityDTO{Path: supportPath, SHA256: support.SHA256()}
 	manifestRecord.FinalReview.SHA256 = finalIdentity.SHA256()
 	manifestRecord.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
@@ -2655,6 +2755,9 @@ func queryRuntimeFixtureWithOptions(t *testing.T, options queryRuntimeFixtureOpt
 	}
 	observation := queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
 	artifacts := map[string]ports.ImmutablePublicationArtifact{supportPath: support, normalizedPath: normalized, excerptPath: excerpt, targetPath: target, stdinPath: stdin, promptPath: prompt, targetManifestPath: targetManifest, capturedPath: capturedManifest, roleReportPath: roleReport}
+	if options.bindAllRoleReports {
+		artifacts[securityReportPath] = securityReport
+	}
 	for path, artifact := range capturedArtifacts {
 		artifacts[path] = artifact
 	}
@@ -2943,17 +3046,24 @@ type queryStore struct {
 	snapshotRunIDs              []string
 	afterSnapshot               func()
 	afterAuxiliary              func()
+	afterAuxiliaryFor           map[string]func()
+	resolutionsByRun            map[string]ports.PublicationRun
+	observeOrder                []string
 }
 
 func (store *queryStore) IssueReviewID(context.Context, ports.IssueReviewIDRequest) (ports.IssuedReviewID, error) {
 	return ports.IssuedReviewID{}, errors.New("not implemented")
 }
-func (store *queryStore) ResolveRun(context.Context, ports.ResolvePublicationRunRequest) (ports.PublicationRun, error) {
+func (store *queryStore) ResolveRun(_ context.Context, request ports.ResolvePublicationRunRequest) (ports.PublicationRun, error) {
 	store.resolveCalls++
+	if resolved, ok := store.resolutionsByRun[request.RunID().String()]; ok {
+		return resolved, store.resolveErr
+	}
 	return store.resolved, store.resolveErr
 }
 
 func (store *queryStore) ObserveRun(_ context.Context, request ports.ObserveRunRequest) (ports.PublicationObservation, error) {
+	store.observeOrder = append(store.observeOrder, request.Run().RunID().String())
 	if observation, ok := store.observationsByRun[request.Run().RunID().String()]; ok {
 		store.observeCalls++
 		return observation, store.observeErr
@@ -2987,6 +3097,9 @@ func (store *queryStore) ReadAuxiliaryArtifact(_ context.Context, request ports.
 	store.auxiliaryRequests = append(store.auxiliaryRequests, request)
 	if store.afterAuxiliary != nil {
 		store.afterAuxiliary()
+	}
+	if hook := store.afterAuxiliaryFor[request.Path().String()]; hook != nil {
+		hook()
 	}
 	if store.auxiliaryErr != nil {
 		return ports.ImmutablePublicationArtifact{}, store.auxiliaryErr
@@ -3613,6 +3726,18 @@ func failureClass(t *testing.T, err error) domain.FailureClass {
 	return failure.Class()
 }
 
+// supportIndexReads counts whole-support traversals by their support-index
+// read for one run, so reuse tests can assert traversal counts without timing.
+func supportIndexReads(store *queryStore) int {
+	count := 0
+	for _, request := range store.auxiliaryRequests {
+		if strings.HasSuffix(request.Path().String(), "/support/index.json") {
+			count++
+		}
+	}
+	return count
+}
+
 func TestCompositeFindingRequiresSelectedRoleProvider(t *testing.T) {
 	run, snapshot, observation, _, _, _ := queryRuntimeFixture(t)
 	decision, err := domain.ClassifyPublication(observation.ClassifierInput())
@@ -3638,5 +3763,421 @@ func TestCompositeFindingRequiresSelectedRoleProvider(t *testing.T) {
 	final.Findings[0].Role = string(domain.RoleDocumentation)
 	if _, err := buildCompositeCommittedReview(run, decision, snapshot, final, manifest); err == nil {
 		t.Fatal("composite accepted a finding without a selected role provider")
+	}
+}
+
+// indexReadsForRun counts support-index reads for one run.
+func indexReadsForRun(store *queryStore, runID string) int {
+	count := 0
+	for _, request := range store.auxiliaryRequests {
+		if request.Run().RunID().String() == runID && strings.HasSuffix(request.Path().String(), "/support/index.json") {
+			count++
+		}
+	}
+	return count
+}
+
+// lineageRunFixture clones the base committed fixture onto a new run and
+// review identity. With a source it becomes a delta review of that source;
+// every clone carries its own manifest-bound v1 support index without
+// composite.json.
+func lineageRunFixture(
+	t *testing.T,
+	base ports.PublicationRun,
+	baseSnapshot ports.CommittedPublicationSnapshot,
+	runIDText, reviewIDText, sourceRunIDText, sourceReviewIDText string,
+) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, ports.ImmutablePublicationArtifact) {
+	t.Helper()
+	runID, err := domain.ParseRunID(runIDText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, err := domain.ParseReviewID(reviewIDText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := ports.NewPublicationRun(base.Root(), base.SessionID(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := run.SessionID().String() + "/" + run.RunID().String()
+	finalPath := mustQueryPath(t, prefix+"/review_"+reviewID.String()+".json")
+	manifestPath := mustQueryPath(t, prefix+"/manifest.json")
+	edgePath := mustQueryPath(t, "store/lineage-edges/e_"+reviewID.String()+".json")
+	edge := mustQueryArtifact(t, edgePath, []byte(`{"schema_version":"mulgae-lineage-edge.v1"}`))
+	epochPath := mustQueryPath(t, "store/epochs/epoch_00000000000000000001.json")
+	epochRecord := mustQueryArtifact(t, epochPath, []byte(`{"schema_version":"mulgae-publication-epoch.v1"}`))
+	epoch, err := ports.NewPublicationEpoch(1, epochRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexPath := prefix + "/support/index.json"
+	index := mustQueryArtifact(t, mustQueryPath(t, indexPath), []byte(`{"schema_version":"mulgae-run-support-index.v1","artifacts":[]}`))
+	rebase := func(value string) string {
+		value = strings.ReplaceAll(value, base.RunID().String(), runIDText)
+		value = strings.ReplaceAll(value, baseSnapshot.Final().Identity().ReviewID().String(), reviewIDText)
+		value = strings.Replace(value, `"composite_identity":{"manifest":`, `"composite_identity":{"support_index":{"path":`+strconv.Quote(indexPath)+`,"sha256":`+strconv.Quote(index.SHA256())+`},"manifest":`, 1)
+		if sourceRunIDText == "" {
+			return value
+		}
+		lineage := `"parent_run_id":` + strconv.Quote(sourceRunIDText) + `,"source_run_id":` + strconv.Quote(sourceRunIDText) + `,"source_review_id":` + strconv.Quote(sourceReviewIDText) + `,"source_finding_ref":null,"replay_mode":null`
+		value = strings.ReplaceAll(value, `"run_type":"review"`, `"run_type":"delta"`)
+		return strings.Replace(value, `"parent_run_id":null,"source_run_id":null,"source_review_id":null,"source_finding_ref":null,"replay_mode":null`, lineage, 1)
+	}
+	finalBytes := []byte(rebase(string(baseSnapshot.Final().Bytes())))
+	finalIdentity, err := ports.NewFinalReviewIdentity(reviewID, finalPath, querySHA(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBody := strings.ReplaceAll(rebase(string(baseSnapshot.Manifest().Bytes())), baseSnapshot.Final().Identity().SHA256(), finalIdentity.SHA256())
+	// The shared base manifest predates the required role-report transport
+	// field; the derived clones carry it so they stay schema-valid.
+	manifestRecord, err := decodeManifestDTO([]byte(manifestBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range manifestRecord.RoleReports {
+		manifestRecord.RoleReports[i].Transport = "stdout"
+	}
+	manifestBytes, err := json.Marshal(manifestRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := mustQueryArtifact(t, manifestPath, manifestBytes)
+	snapshot, err := ports.NewCommittedPublicationSnapshot(final, manifest, edge, epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run, snapshot, queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1), index
+}
+
+// compositeRootFixture derives a schema-valid composite v1 publication from
+// the embedded valid examples, rebinding its identities to the given run and
+// lineage topology: two role sources and a root source that share one
+// ancestor. Its retirement walk resolves both sources and then the root
+// source.
+func compositeRootFixture(
+	t *testing.T,
+	base ports.PublicationRun,
+	runIDText, reviewIDText string,
+	sourceARunID, sourceAReviewID, sourceBRunID, sourceBReviewID, rootSourceRunID, rootSourceReviewID string,
+) (ports.PublicationRun, ports.CommittedPublicationSnapshot, ports.PublicationObservation, ports.ImmutablePublicationArtifact) {
+	t.Helper()
+	finalBytes, err := os.ReadFile("../../builtin/assets/examples/composite-review-artifact.v1.valid.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBytes, err := os.ReadFile("../../builtin/assets/examples/composite-run-manifest.v1.valid.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final compositeFinalDTO
+	if err := json.Unmarshal(finalBytes, &final); err != nil {
+		t.Fatal(err)
+	}
+	var manifest compositeManifestDTO
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	runID, err := domain.ParseRunID(runIDText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewID, err := domain.ParseReviewID(reviewIDText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := ports.NewPublicationRun(base.Root(), base.SessionID(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := run.SessionID().String() + "/" + run.RunID().String()
+	finalPath := mustQueryPath(t, prefix+"/review_"+reviewID.String()+".json")
+	manifestPath := mustQueryPath(t, prefix+"/manifest.json")
+	edgePath := mustQueryPath(t, "store/lineage-edges/e_"+reviewID.String()+".json")
+	edge := mustQueryArtifact(t, edgePath, []byte(`{"schema_version":"mulgae-lineage-edge.v1"}`))
+	epochPath := mustQueryPath(t, "store/epochs/epoch_00000000000000000001.json")
+	epochRecord := mustQueryArtifact(t, epochPath, []byte(`{"schema_version":"mulgae-publication-epoch.v1"}`))
+	epoch, err := ports.NewPublicationEpoch(1, epochRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexPath := prefix + "/support/index.json"
+	index := mustQueryArtifact(t, mustQueryPath(t, indexPath), []byte(`{"schema_version":"mulgae-run-support-index.v1","artifacts":[]}`))
+	final.SessionID, final.RunID, final.ReviewID = run.SessionID().String(), runIDText, reviewIDText
+	final.ReviewComposition.RootRunID = rootSourceRunID
+	final.ReviewComposition.RootReviewID = rootSourceReviewID
+	final.ReviewComposition.Sources = []compositeSourceDTO{
+		{Kind: "recovery", Role: "logic", RunID: sourceARunID, ReviewID: sourceAReviewID, AttemptID: "a_019f596a-d048-79e7-b2b7-59822f012273", RoleReportSHA256: "sha256:" + strings.Repeat("c", 64)},
+		{Kind: "recovery", Role: "security", RunID: sourceBRunID, ReviewID: sourceBReviewID, AttemptID: "a_019f596a-d049-79e7-b2b7-59822f012273", RoleReportSHA256: "sha256:" + strings.Repeat("d", 64)},
+	}
+	// The example's AGY role provider is retired for committed non-live
+	// reads; use live provider instances so the retirement walk passes.
+	final.RoleOutcomes[0].ProviderInstance = "zcode-logic"
+	final.RoleOutcomes[1].ProviderInstance = "zcode-security"
+	final.RoleOutcomes[0].SourceRunID, final.RoleOutcomes[0].SourceReviewID = sourceARunID, sourceAReviewID
+	final.RoleOutcomes[1].SourceRunID, final.RoleOutcomes[1].SourceReviewID = sourceBRunID, sourceBReviewID
+	final.Findings[0].Source.RunID, final.Findings[0].Source.ReviewID = sourceARunID, sourceAReviewID
+	finalBytes, err = json.Marshal(final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The composite target schema admits only content_sha256 and
+	// manifest_path, while the shared target DTO re-emits null base/head
+	// members; strip them the way the embedded example omits them.
+	var document map[string]any
+	if err := json.Unmarshal(finalBytes, &document); err != nil {
+		t.Fatal(err)
+	}
+	if target, ok := document["target"].(map[string]any); ok {
+		delete(target, "base_oid")
+		delete(target, "head_oid")
+	}
+	if finalBytes, err = json.Marshal(document); err != nil {
+		t.Fatal(err)
+	}
+	finalIdentity, err := ports.NewFinalReviewIdentity(reviewID, finalPath, querySHA(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalArtifact, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.SessionID, manifest.RunID = run.SessionID().String(), runIDText
+	manifest.ImmutableLineage.LineageEdgePath, manifest.ImmutableLineage.LineageEdgeSHA = edgePath.String(), edge.SHA256()
+	manifest.ReviewComposition = final.ReviewComposition
+	manifest.RoleReports[0].SourceRunID = sourceARunID
+	manifest.RoleReports[1].SourceRunID = sourceBRunID
+	manifest.RecoveryJournal.ExpectedStaged.Path = prefix + "/publication/staged/review_" + reviewID.String() + ".json.tmp"
+	manifest.RecoveryJournal.ExpectedFinal.Path = finalPath.String()
+	manifest.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
+	validated := finalIdentity.SHA256()
+	manifest.RecoveryJournal.ValidatedCandidateSHA256 = &validated
+	manifest.CompositeIdentity.Manifest.Path = manifestPath.String()
+	manifest.CompositeIdentity.LineageEdge.Path, manifest.CompositeIdentity.LineageEdge.SHA256 = edgePath.String(), edge.SHA256()
+	manifest.CompositeIdentity.Epoch.Path = epochPath.String()
+	manifest.CompositeIdentity.SupportIndex = &artifactIdentityDTO{Path: indexPath, SHA256: index.SHA256()}
+	manifest.FinalReview.ReviewID, manifest.FinalReview.Path, manifest.FinalReview.SHA256 = reviewIDText, finalPath.String(), finalIdentity.SHA256()
+	manifestBytes, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestArtifact := mustQueryArtifact(t, manifestPath, manifestBytes)
+	snapshot, err := ports.NewCommittedPublicationSnapshot(finalArtifact, manifestArtifact, edge, epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run, snapshot, queryP2Observation(t, run, snapshot, domain.JournalCompleted, domain.ExitCommittedPass, 1), index
+}
+
+// TestCommittedLineageConfirmsDependenciesInPostorder is the failing-first
+// lineage regression: a composite root with two sources sharing one ancestor
+// consumes each publication once (one initial observation, one snapshot read,
+// one index read) and confirms every consumed publication exactly once in
+// dependency postorder — the shared ancestor once, before both dependents,
+// and the requested publication last.
+func TestCommittedLineageConfirmsDependenciesInPostorder(t *testing.T) {
+	const (
+		ancestorRun    = "r_019f596a-cfe4-7c9c-b82e-7149158243be"
+		sourceARun     = "r_019f596a-cfe4-7c9c-b82e-7149158243bb"
+		sourceBRun     = "r_019f596a-cfe4-7c9c-b82e-7149158243bc"
+		rootRun        = "r_019f596a-cfe4-7c9c-b82e-7149158243bd"
+		ancestorReview = "019f596a-d174-7321-b920-c2d312c82cc5"
+		sourceAReview  = "019f596a-d174-7321-b920-c2d312c82cc3"
+		sourceBReview  = "019f596a-d174-7321-b920-c2d312c82cc4"
+		rootReview     = "019f596a-d174-7321-b920-c2d312c82cc6"
+	)
+	baseRun, baseSnapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	ancestorPublication, ancestorSnapshot, ancestorObservation, ancestorIndex := lineageRunFixture(t, baseRun, baseSnapshot, ancestorRun, ancestorReview, "", "")
+	sourceAPublication, sourceASnapshot, sourceAObservation, sourceAIndex := lineageRunFixture(t, baseRun, baseSnapshot, sourceARun, sourceAReview, ancestorRun, ancestorReview)
+	sourceBPublication, sourceBSnapshot, sourceBObservation, sourceBIndex := lineageRunFixture(t, baseRun, baseSnapshot, sourceBRun, sourceBReview, ancestorRun, ancestorReview)
+	rootPublication, rootSnapshot, rootObservation, rootIndex := compositeRootFixture(t, baseRun, rootRun, rootReview,
+		sourceARun, sourceAReview, sourceBRun, sourceBReview, ancestorRun, ancestorReview)
+	store := &queryStore{
+		resolved: rootPublication,
+		resolutionsByRun: map[string]ports.PublicationRun{
+			ancestorRun: ancestorPublication, sourceARun: sourceAPublication, sourceBRun: sourceBPublication,
+		},
+		observationsByRun: map[string]ports.PublicationObservation{
+			rootRun: rootObservation, sourceARun: sourceAObservation, sourceBRun: sourceBObservation, ancestorRun: ancestorObservation,
+		},
+		snapshotsByRun: map[string]ports.CommittedPublicationSnapshot{
+			rootRun: rootSnapshot, sourceARun: sourceASnapshot, sourceBRun: sourceBSnapshot, ancestorRun: ancestorSnapshot,
+		},
+		auxiliaryArtifacts: map[string]ports.ImmutablePublicationArtifact{
+			rootIndex.Path().String(): rootIndex, sourceAIndex.Path().String(): sourceAIndex, sourceBIndex.Path().String(): sourceBIndex, ancestorIndex.Path().String(): ancestorIndex,
+		},
+	}
+	service := mustQueryService(t, store, &queryValidator{}, nil)
+	review, err := service.ReadCommitted(context.Background(), rootPublication)
+	if err != nil {
+		t.Fatalf("lineage committed read: %v (%v)", err, errors.Unwrap(err))
+	}
+	if review.RunType() != domain.RunTypeComposite {
+		t.Fatalf("lineage fixture run type = %q, want composite", review.RunType())
+	}
+	if store.resolveCalls != 3 {
+		t.Fatalf("retirement walk resolved %d ancestors, want 3 (both sources and the shared root)", store.resolveCalls)
+	}
+	for runID, name := range map[string]string{ancestorRun: "ancestor", sourceARun: "source A", sourceBRun: "source B", rootRun: "root"} {
+		if reads := store.snapshotReadsByRun[runID]; reads != 1 {
+			t.Fatalf("%s snapshot reads = %d, want 1", name, reads)
+		}
+		if reads := indexReadsForRun(store, runID); reads != 1 {
+			t.Fatalf("%s support-index reads = %d, want 1", name, reads)
+		}
+	}
+	want := []string{rootRun, sourceARun, ancestorRun, sourceBRun, ancestorRun, sourceARun, sourceBRun, rootRun}
+	if !slices.Equal(store.observeOrder, want) {
+		t.Fatalf("observation order = %v, want dependency postorder %v", store.observeOrder, want)
+	}
+}
+
+// TestSeparateRequestsDetectLaterCorruption pins fresh per-request
+// verification: a second request through the same entry point detects both a
+// body-only change of a served artifact (with P2 identities unchanged) and a
+// later publication-identity change.
+func TestSeparateRequestsDetectLaterCorruption(t *testing.T) {
+	t.Run("served body changed between requests", func(t *testing.T) {
+		service, store, run, _ := liveAgyCommittedFixture(t)
+		// liveSourceIdentity performs the first, successful request. This leg
+		// proves a later served-body change is detected; per-request support
+		// freshness is pinned by
+		// TestReportChunksKeepReceiptAndFullContentIdentityPerFreshRequest.
+		sourceIdentity := liveSourceIdentity(t, service, run)
+		path := run.SessionID().String() + "/" + run.RunID().String() + "/excerpts/F001_1.md"
+		store.auxiliaryArtifacts[path] = mustQueryArtifact(t, mustQueryPath(t, path), []byte("changed between requests"))
+		if _, err := service.ReadSourceEvidence(context.Background(), run, mustLiveBinding(t), "F001", sourceIdentity, 0, ContentContinuation{}); failureClass(t, err) != domain.FailureArtifact {
+			t.Fatalf("later body change escaped fresh verification: %v", err)
+		}
+	})
+	t.Run("publication identity changed between requests", func(t *testing.T) {
+		service, store, run, _ := liveAgyCommittedFixture(t)
+		if _, err := service.ReadCommitted(context.Background(), run); err != nil {
+			t.Fatal(err)
+		}
+		store.observations = []ports.PublicationObservation{
+			store.observation,
+			queryP2Observation(t, run, querySnapshotAtEpoch(t, store.snapshot, 2), domain.JournalCompleted, domain.ExitCommittedCIRejected, 2),
+		}
+		store.observation = ports.PublicationObservation{}
+		if _, err := service.ReadCommitted(context.Background(), run); failureClass(t, err) != domain.FailureArtifact {
+			t.Fatalf("later identity change escaped fresh verification: %v", err)
+		}
+	})
+}
+
+func mustLiveBinding(t *testing.T) domain.ProjectBinding {
+	t.Helper()
+	binding, err := domain.ParseProjectBinding("sha256:" + strings.Repeat("1", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binding
+}
+
+func liveSourceIdentity(t *testing.T, service *Service, run ports.PublicationRun) string {
+	t.Helper()
+	review, err := service.ReadCommitted(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return review.SourceIdentitySHA256()
+}
+
+// TestReadCommittedStableWithoutSupportIndexKeepsTwoObservations guards the
+// minimal path: a no-index publication keeps exactly the initial observation
+// and one final confirmation.
+func TestReadCommittedStableWithoutSupportIndexKeepsTwoObservations(t *testing.T) {
+	run, snapshot, initial := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	store := &queryStore{observations: []ports.PublicationObservation{initial, initial}, snapshot: snapshot}
+	if _, err := mustQueryService(t, store, &queryValidator{}, nil).ReadCommitted(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if store.observeCalls != 2 {
+		t.Fatalf("ObserveRun calls = %d, want 2", store.observeCalls)
+	}
+}
+
+// deltaRuntimeCompositionFixture builds a runtime-capable delta review whose
+// lineage resolves to a committed ancestor, so a composition-support read
+// consumes two publications in one call.
+func deltaRuntimeCompositionFixture(t *testing.T) (ports.PublicationRun, ports.PublicationRun, *queryStore, *Service) {
+	t.Helper()
+	ancestorRunID := "r_019f596a-cfe4-7c9c-b82e-7149158243bf"
+	ancestorReviewID := "019f596a-d174-7321-b920-c2d312c82cc7"
+	baseRun, baseSnapshot, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
+	deltaRun, runtimeSnapshot, _, artifacts, _, _ := queryRuntimeFixture(t)
+	ancestorPublication, ancestorSnapshot, ancestorObservation, ancestorIndex := lineageRunFixture(t, baseRun, baseSnapshot, ancestorRunID, ancestorReviewID, "", "")
+	final, err := decodeFinalDTO(runtimeSnapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord, err := decodeManifestDTO(runtimeSnapshot.Manifest().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	final.RunType = string(domain.RunTypeDelta)
+	manifestRecord.RunType = final.RunType
+	final.ImmutableLineage.ParentRunID = &ancestorRunID
+	final.ImmutableLineage.SourceRunID = &ancestorRunID
+	final.ImmutableLineage.SourceReviewID = &ancestorReviewID
+	manifestRecord.ImmutableLineage = final.ImmutableLineage
+	finalBytes, err := json.Marshal(final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalIdentity, err := ports.NewFinalReviewIdentity(runtimeSnapshot.Final().Identity().ReviewID(), runtimeSnapshot.Final().Identity().Path(), querySHA(finalBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalArtifact, err := ports.NewFinalReviewArtifact(finalIdentity, finalBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRecord.FinalReview.SHA256 = finalIdentity.SHA256()
+	manifestRecord.RecoveryJournal.ExpectedFinal.SHA256 = finalIdentity.SHA256()
+	manifestBytes, err := json.Marshal(manifestRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestArtifact := mustQueryArtifact(t, runtimeSnapshot.Manifest().Path(), manifestBytes)
+	deltaSnapshot, err := ports.NewCommittedPublicationSnapshot(finalArtifact, manifestArtifact, runtimeSnapshot.LineageEdge(), runtimeSnapshot.Epoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	deltaObservation := queryP2Observation(t, deltaRun, deltaSnapshot, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1)
+	store := &queryStore{
+		resolved:           deltaRun,
+		resolutionsByRun:   map[string]ports.PublicationRun{ancestorRunID: ancestorPublication},
+		observationsByRun:  map[string]ports.PublicationObservation{deltaRun.RunID().String(): deltaObservation, ancestorRunID: ancestorObservation},
+		snapshotsByRun:     map[string]ports.CommittedPublicationSnapshot{deltaRun.RunID().String(): deltaSnapshot, ancestorRunID: ancestorSnapshot},
+		auxiliaryArtifacts: artifacts,
+	}
+	store.auxiliaryArtifacts[ancestorIndex.Path().String()] = ancestorIndex
+	return deltaRun, ancestorPublication, store, mustQueryService(t, store, &queryValidator{}, nil)
+}
+
+// TestReadCompositionSupportConsumesEachPublicationOnce guards the delta
+// composition path where the retirement walk and the composition walk both
+// reach the ancestor: each consumed publication performs exactly one snapshot
+// read and one support-index read per call.
+func TestReadCompositionSupportConsumesEachPublicationOnce(t *testing.T) {
+	deltaRun, ancestor, store, service := deltaRuntimeCompositionFixture(t)
+	if _, err := service.ReadCompositionSupport(context.Background(), deltaRun); err != nil {
+		t.Fatalf("ReadCompositionSupport() error = %v", err)
+	}
+	for runID, name := range map[string]string{deltaRun.RunID().String(): "delta root", ancestor.RunID().String(): "ancestor"} {
+		if reads := store.snapshotReadsByRun[runID]; reads != 1 {
+			t.Fatalf("%s snapshot reads = %d, want 1", name, reads)
+		}
+		if reads := indexReadsForRun(store, runID); reads != 1 {
+			t.Fatalf("%s support-index reads = %d, want 1", name, reads)
+		}
 	}
 }

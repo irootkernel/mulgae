@@ -3,6 +3,7 @@ package mcpentry
 import (
 	"bytes"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -100,5 +101,31 @@ func TestVerifiedContentResourcesReassembleTextAndBinary(t *testing.T) {
 		if !bytes.Equal(combined, data) {
 			t.Fatal("resource changed bytes")
 		}
+	}
+}
+
+// TestContentResourceRejectsMalformedDigestParameters pins the shared MCP
+// resource guard as the admission authority for expected-digest parameters:
+// malformed publication receipts and content digests are rejected during URI
+// parsing, before any backend call.
+func TestContentResourceRejectsMalformedDigestParameters(t *testing.T) {
+	run := "r_019f596a-cfe4-7c9c-b82e-7149158243ba"
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for _, bad := range []string{
+		"sha256:short",
+		strings.Repeat("a", 64),
+		"sha256:" + strings.Repeat("z", 64),
+		"sha256:" + strings.Repeat("a", 63),
+	} {
+		receiptURI := strings.Replace(query.ReportContentURI(run, "logic", "", digest, "", 0), "publication_receipt="+url.QueryEscape(digest), "publication_receipt="+url.QueryEscape(bad), 1)
+		contentURI := strings.Replace(query.ReportContentURI(run, "logic", "", "", digest, 0), "content_sha256="+url.QueryEscape(digest), "content_sha256="+url.QueryEscape(bad), 1)
+		for _, uri := range []string{receiptURI, contentURI} {
+			if _, err := ParseResourceURI(uri); err == nil {
+				t.Fatalf("accepted malformed digest parameter: %s", uri)
+			}
+		}
+	}
+	if _, err := ParseResourceURI(query.ReportContentURI(run, "logic", "", digest, digest, 0)); err != nil {
+		t.Fatalf("valid digest parameters rejected: %v", err)
 	}
 }
