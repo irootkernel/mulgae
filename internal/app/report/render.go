@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,8 +18,10 @@ import (
 	appevidence "github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
+	"github.com/irootkernel/mulgae/internal/strictjson"
 )
 
 const (
@@ -58,23 +59,9 @@ type reportFollowupOutcomeDTO struct {
 	Evidence   []reportEvidenceDTO `json:"evidence"`
 }
 
-type reportMulgaeDTO struct {
-	Version string  `json:"version"`
-	Commit  *string `json:"commit"`
-}
+type reportMulgaeDTO = artifactwire.BuildMetadata
 
-type reportLineageDTO struct {
-	ParentRunID                  *string `json:"parent_run_id"`
-	SourceRunID                  *string `json:"source_run_id"`
-	SourceReviewID               *string `json:"source_review_id"`
-	SourceRecoveryManifestSHA256 *string `json:"source_recovery_manifest_sha256,omitempty"`
-	SourceKind                   string  `json:"source_kind,omitempty"`
-	SourceAttemptID              *string `json:"source_attempt_id,omitempty"`
-	SourceFindingRef             *string `json:"source_finding_ref"`
-	ReplayMode                   *string `json:"replay_mode"`
-	LineageEdgePath              string  `json:"lineage_edge_path"`
-	LineageEdgeSHA               string  `json:"lineage_edge_sha256"`
-}
+type reportLineageDTO = artifactwire.ImmutableLineage
 
 type reportTargetDTO struct {
 	ContentSHA256 string  `json:"content_sha256"`
@@ -83,29 +70,11 @@ type reportTargetDTO struct {
 	HeadOID       *string `json:"head_oid"`
 }
 
-type reportValidationDTO struct {
-	Status             string `json:"status"`
-	SchemaValidation   string `json:"schema_validation"`
-	SemanticValidation string `json:"semantic_validation"`
-	EvidenceValidation string `json:"evidence_validation"`
-}
+type reportValidationDTO = artifactwire.Validation
 
-type reportSeverityDTO struct {
-	RequestChangesAtOrAbove string `json:"request_changes_at_or_above"`
-	PolicySource            string `json:"policy_source"`
-}
+type reportSeverityDTO = artifactwire.SeverityThreshold
 
-type reportRoleDTO struct {
-	Role             string   `json:"role"`
-	Required         bool     `json:"required"`
-	Outcome          string   `json:"outcome"`
-	AttemptID        *string  `json:"attempt_id"`
-	ProviderInstance *string  `json:"provider_instance"`
-	SelectedVia      *string  `json:"selected_via"`
-	ValidFindingIDs  []string `json:"valid_finding_ids"`
-	FailureReason    *string  `json:"failure_reason"`
-	Limitations      []string `json:"limitations"`
-}
+type reportRoleDTO = artifactwire.RoleOutcome
 
 type reportFindingDTO struct {
 	ID               string              `json:"id"`
@@ -127,19 +96,9 @@ type reportEvidenceDTO struct {
 	Visual  *reportVisualEvidenceDTO `json:"visual,omitempty"`
 }
 
-type reportVisualEvidenceDTO struct {
-	Path         string              `json:"path"`
-	SHA256       string              `json:"sha256"`
-	BBox         reportVisualBBoxDTO `json:"bbox"`
-	Verification string              `json:"verification"`
-}
+type reportVisualEvidenceDTO = artifactwire.VisualEvidence
 
-type reportVisualBBoxDTO struct {
-	X      int `json:"x"`
-	Y      int `json:"y"`
-	Width  int `json:"width"`
-	Height int `json:"height"`
-}
+type reportVisualBBoxDTO = artifactwire.VisualBoundingBox
 
 type reportSourceEvidenceDTO struct {
 	SessionID           string `json:"session_id"`
@@ -182,7 +141,7 @@ func reportFinalFromCommitted(review query.CommittedReview) (reportFinalDTO, err
 	if err := json.Unmarshal(review.FinalBytes(), &metadata); err != nil {
 		return reportFinalDTO{}, err
 	}
-	final := reportFinalDTO{CreatedAt: metadata.CreatedAt, SchemaVersion: metadata.SchemaVersion, SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), CIReasonCodes: metadata.CIReasonCodes, SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{ManifestPath: "manifest.json"}}
+	final := reportFinalDTO{CreatedAt: metadata.CreatedAt, SchemaVersion: metadata.SchemaVersion, SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), Target: reportTargetDTO{ContentSHA256: review.TargetSHA256(), ManifestPath: "target/target-manifest.json"}, ImmutableLineage: reportLineageDTO{LineageEdgePath: review.LineageEdgePath().String(), LineageEdgeSHA256: review.LineageEdgeSHA256()}, ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), PublicationStatus: string(review.PublicationStatus()), CIDecision: string(review.CIDecision()), CIReasonCodes: metadata.CIReasonCodes, SeverityThreshold: reportSeverityDTO{RequestChangesAtOrAbove: string(review.RequestChangesThreshold()), PolicySource: "root_review"}, RoleOutcomes: []reportRoleDTO{}, Findings: []reportFindingDTO{}, Limitations: []string{}, Provenance: reportProvenanceDTO{ManifestPath: "manifest.json"}}
 	if review.SourceIdentitySHA256() != "" {
 		// Query has already verified the v3 final and its indexed source support.
 		final.Target = metadata.Target
@@ -219,30 +178,8 @@ func reportFinalFromCommitted(review query.CommittedReview) (reportFinalDTO, err
 	return final, nil
 }
 
-type reportProductionProvenanceDTO struct {
-	BuildProduct             string                        `json:"build_product"`
-	BuildVersion             string                        `json:"build_version"`
-	BuildCommit              string                        `json:"build_commit"`
-	ObjectiveSHA256          *string                       `json:"objective_sha256"`
-	ObjectivePresent         bool                          `json:"objective_present"`
-	SnapshotManifestSHA256   string                        `json:"snapshot_manifest_sha256"`
-	WorkspaceTerminalReceipt string                        `json:"workspace_terminal_receipt"`
-	Providers                []reportProductionProviderDTO `json:"providers"`
-}
-type reportProductionProviderDTO struct {
-	Family                    string   `json:"family"`
-	Instance                  string   `json:"instance"`
-	Version                   string   `json:"version"`
-	Executable                string   `json:"executable"`
-	ExecutableSHA256          string   `json:"executable_sha256"`
-	Launcher                  string   `json:"launcher"`
-	LauncherSHA256            string   `json:"launcher_sha256"`
-	ProfileGeneration         string   `json:"profile_generation"`
-	AdapterProfile            string   `json:"adapter_profile"`
-	QualificationReceiptIDs   []string `json:"qualification_receipt_ids"`
-	PacketTransportReceiptIDs []string `json:"packet_transport_receipt_ids"`
-	NamespaceTerminalReceipt  string   `json:"namespace_terminal_receipt"`
-}
+type reportProductionProvenanceDTO = artifactwire.ProductionProvenance
+type reportProductionProviderDTO = artifactwire.ProductionProvider
 
 func decodeReportFinal(raw []byte) (reportFinalDTO, error) {
 	var value reportFinalDTO
@@ -253,114 +190,17 @@ func decodeReportFinal(raw []byte) (reportFinalDTO, error) {
 }
 
 func decodeReportStrictObject(raw []byte, destination any) error {
-	if !utf8.Valid(raw) {
-		return fmt.Errorf("contains invalid UTF-8")
-	}
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return fmt.Errorf("is empty")
-	}
-	scanner := json.NewDecoder(bytes.NewReader(raw))
-	scanner.UseNumber()
-	token, err := scanner.Token()
-	if err != nil {
-		return err
-	}
-	if token != json.Delim('{') {
-		return fmt.Errorf("must be a non-null JSON object")
-	}
-	if err := consumeReportJSONObject(scanner); err != nil {
-		return err
-	}
-	if _, err := scanner.Token(); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("contains trailing JSON value")
-		}
-		return fmt.Errorf("contains trailing data: %w", err)
-	}
-
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("contains trailing JSON value")
-		}
-		return fmt.Errorf("contains trailing data: %w", err)
-	}
-	return nil
-}
-
-func consumeReportJSONObject(decoder *json.Decoder) error {
-	seen := make(map[string]struct{})
-	for decoder.More() {
-		keyToken, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return fmt.Errorf("object key is not a string")
-		}
-		if _, duplicate := seen[key]; duplicate {
-			return fmt.Errorf("contains duplicate object key %q", key)
-		}
-		seen[key] = struct{}{}
-		if err := consumeReportJSONValue(decoder); err != nil {
-			return err
-		}
-	}
-	end, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	if end != json.Delim('}') {
-		return fmt.Errorf("object is not terminated")
-	}
-	return nil
-}
-
-func consumeReportJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		return consumeReportJSONObject(decoder)
-	case '[':
-		for decoder.More() {
-			if err := consumeReportJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		end, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if end != json.Delim(']') {
-			return fmt.Errorf("array is not terminated")
-		}
-		return nil
-	default:
-		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
-	}
+	return strictjson.DecodeObject(raw, destination)
 }
 
 func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
-	if final.SchemaVersion != "mulgae-review-artifact.v1" && final.SchemaVersion != "mulgae-review-artifact.v2" && !(final.SchemaVersion == "mulgae-review-artifact.v3" && review.SourceIdentitySHA256() != "") && (final.SchemaVersion != "mulgae-composite-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v2") ||
+	if final.SchemaVersion != artifactwire.ReviewArtifactV1 && final.SchemaVersion != artifactwire.ReviewArtifactV2 && !(final.SchemaVersion == artifactwire.ReviewArtifactV3 && review.SourceIdentitySHA256() != "") && (final.SchemaVersion != artifactwire.CompositeReviewArtifactV1 && final.SchemaVersion != artifactwire.CompositeReviewArtifactV2) ||
 		final.SessionID != review.SessionID().String() ||
 		final.RunID != review.RunID().String() ||
 		final.ReviewID != review.ReviewID().String() ||
 		final.Target.ContentSHA256 != review.TargetSHA256() ||
 		final.ImmutableLineage.LineageEdgePath != review.LineageEdgePath().String() ||
-		final.ImmutableLineage.LineageEdgeSHA != review.LineageEdgeSHA256() ||
+		final.ImmutableLineage.LineageEdgeSHA256 != review.LineageEdgeSHA256() ||
 		final.ContentVerdict != string(review.ContentVerdict()) ||
 		final.CoverageStatus != string(review.CoverageStatus()) ||
 		final.StructuredExtractionStatus != string(review.StructuredExtractionStatus()) ||

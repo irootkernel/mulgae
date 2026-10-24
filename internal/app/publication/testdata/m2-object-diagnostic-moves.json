@@ -1,0 +1,2163 @@
+{
+  "compositeManifestReadWire/type/composite_identity.epoch": {
+    "error_type": "*fmt.wrapError",
+    "field": "composite_identity.epoch",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field compositeManifestReadWire.composite_identity.epoch of type artifactwire.PathPointer",
+    "offset": 32,
+    "struct": "compositeManifestReadWire",
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "compositeManifestReadWire/type/composite_identity.manifest": {
+    "error_type": "*fmt.wrapError",
+    "field": "composite_identity.manifest",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field compositeManifestReadWire.composite_identity.manifest of type artifactwire.PathPointer",
+    "offset": 35,
+    "struct": "compositeManifestReadWire",
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "compositeManifestReadWire/type/role_reports": {
+    "error_type": "*fmt.wrapError",
+    "field": "role_reports",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field compositeManifestReadWire.role_reports of type []artifactwire.CompositeManifestRole",
+    "offset": 17,
+    "struct": "compositeManifestReadWire",
+    "type": "[]artifactwire.CompositeManifestRole",
+    "value": "number"
+  },
+  "finalReviewIdentityWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.FinalReviewIdentity",
+    "offset": 2,
+    "type": "artifactwire.FinalReviewIdentity",
+    "value": "number"
+  },
+  "finalReviewIdentityWire/type/path": {
+    "error_type": "*fmt.wrapError",
+    "field": "path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field FinalReviewIdentity.path of type string",
+    "offset": 13,
+    "struct": "FinalReviewIdentity",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalReviewIdentityWire/type/review_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "review_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field FinalReviewIdentity.review_id of type string",
+    "offset": 18,
+    "struct": "FinalReviewIdentity",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalReviewIdentityWire/type/sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field FinalReviewIdentity.sha256 of type string",
+    "offset": 15,
+    "struct": "FinalReviewIdentity",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalReviewWire/type/findings[].evidence[].visual": {
+    "error_type": "*fmt.wrapError",
+    "field": "findings.0.evidence.0.visual",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.findings.0.evidence.0.visual of type artifactwire.VisualEvidence",
+    "offset": 37,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.VisualEvidence",
+    "value": "number"
+  },
+  "finalReviewWire/type/findings[].evidence[].visual.bbox": {
+    "error_type": "*fmt.wrapError",
+    "field": "findings.0.evidence.0.visual.bbox",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.findings.0.evidence.0.visual.bbox of type artifactwire.VisualBoundingBox",
+    "offset": 45,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "finalReviewWire/type/followup_outcome.evidence[].visual": {
+    "error_type": "*fmt.wrapError",
+    "field": "followup_outcome.evidence.0.visual",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.followup_outcome.evidence.0.visual of type artifactwire.VisualEvidence",
+    "offset": 44,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.VisualEvidence",
+    "value": "number"
+  },
+  "finalReviewWire/type/followup_outcome.evidence[].visual.bbox": {
+    "error_type": "*fmt.wrapError",
+    "field": "followup_outcome.evidence.0.visual.bbox",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.followup_outcome.evidence.0.visual.bbox of type artifactwire.VisualBoundingBox",
+    "offset": 52,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "finalReviewWire/type/immutable_lineage": {
+    "error_type": "*fmt.wrapError",
+    "field": "immutable_lineage",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.immutable_lineage of type artifactwire.ImmutableLineage",
+    "offset": 22,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.ImmutableLineage",
+    "value": "number"
+  },
+  "finalReviewWire/type/mulgae": {
+    "error_type": "*fmt.wrapError",
+    "field": "mulgae",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.mulgae of type artifactwire.BuildMetadata",
+    "offset": 11,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.BuildMetadata",
+    "value": "number"
+  },
+  "finalReviewWire/type/provenance.live_production": {
+    "error_type": "*fmt.wrapError",
+    "field": "provenance.live_production",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.provenance.live_production of type artifactwire.LiveProductionProvenance",
+    "offset": 34,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.LiveProductionProvenance",
+    "value": "number"
+  },
+  "finalReviewWire/type/provenance.live_production.providers": {
+    "error_type": "*fmt.wrapError",
+    "field": "provenance.live_production.providers",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.provenance.live_production.providers of type []artifactwire.ProductionProvider",
+    "offset": 47,
+    "struct": "finalReviewWire",
+    "type": "[]artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "finalReviewWire/type/provenance.production": {
+    "error_type": "*fmt.wrapError",
+    "field": "provenance.production",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.provenance.production of type artifactwire.ProductionProvenance",
+    "offset": 29,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.ProductionProvenance",
+    "value": "number"
+  },
+  "finalReviewWire/type/provenance.production.providers": {
+    "error_type": "*fmt.wrapError",
+    "field": "provenance.production.providers",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.provenance.production.providers of type []artifactwire.ProductionProvider",
+    "offset": 42,
+    "struct": "finalReviewWire",
+    "type": "[]artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "finalReviewWire/type/role_outcomes": {
+    "error_type": "*fmt.wrapError",
+    "field": "role_outcomes",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.role_outcomes of type []artifactwire.RoleOutcome",
+    "offset": 18,
+    "struct": "finalReviewWire",
+    "type": "[]artifactwire.RoleOutcome",
+    "value": "number"
+  },
+  "finalReviewWire/type/severity_threshold": {
+    "error_type": "*fmt.wrapError",
+    "field": "severity_threshold",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.severity_threshold of type artifactwire.SeverityThreshold",
+    "offset": 23,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.SeverityThreshold",
+    "value": "number"
+  },
+  "finalReviewWire/type/validation": {
+    "error_type": "*fmt.wrapError",
+    "field": "validation",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field finalReviewWire.validation of type artifactwire.Validation",
+    "offset": 15,
+    "struct": "finalReviewWire",
+    "type": "artifactwire.Validation",
+    "value": "number"
+  },
+  "immutableLineageWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.ImmutableLineage",
+    "offset": 2,
+    "type": "artifactwire.ImmutableLineage",
+    "value": "number"
+  },
+  "immutableLineageWire/type/lineage_edge_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "lineage_edge_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.lineage_edge_path of type string",
+    "offset": 26,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/lineage_edge_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "lineage_edge_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.lineage_edge_sha256 of type string",
+    "offset": 28,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/parent_run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "parent_run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.parent_run_id of type string",
+    "offset": 22,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/replay_mode": {
+    "error_type": "*fmt.wrapError",
+    "field": "replay_mode",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.replay_mode of type string",
+    "offset": 20,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/source_attempt_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_attempt_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.source_attempt_id of type string",
+    "offset": 26,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/source_finding_ref": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_finding_ref",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.source_finding_ref of type string",
+    "offset": 27,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/source_kind": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_kind",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.source_kind of type string",
+    "offset": 20,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/source_recovery_manifest_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_recovery_manifest_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.source_recovery_manifest_sha256 of type string",
+    "offset": 40,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/source_review_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_review_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.source_review_id of type string",
+    "offset": 25,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "immutableLineageWire/type/source_run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ImmutableLineage.source_run_id of type string",
+    "offset": 22,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageChildWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.LineageChild",
+    "offset": 2,
+    "type": "artifactwire.LineageChild",
+    "value": "number"
+  },
+  "lineageChildWire/type/review_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "review_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageChild.review_id of type string",
+    "offset": 18,
+    "struct": "LineageChild",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageChildWire/type/run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageChild.run_id of type string",
+    "offset": 15,
+    "struct": "LineageChild",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageChildWire/type/session_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "session_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageChild.session_id of type string",
+    "offset": 19,
+    "struct": "LineageChild",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.LineageEdge",
+    "offset": 2,
+    "type": "artifactwire.LineageEdge",
+    "value": "number"
+  },
+  "lineageEdgeWire/type/child": {
+    "error_type": "*fmt.wrapError",
+    "field": "child",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field LineageEdge.child of type artifactwire.LineageChild",
+    "offset": 10,
+    "struct": "LineageEdge",
+    "type": "artifactwire.LineageChild",
+    "value": "number"
+  },
+  "lineageEdgeWire/type/child.review_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "child.review_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.child.review_id of type string",
+    "offset": 27,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/child.run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "child.run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.child.run_id of type string",
+    "offset": 24,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/child.session_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "child.session_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.child.session_id of type string",
+    "offset": 28,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/edge_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "edge_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.edge_id of type string",
+    "offset": 16,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/parent_run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "parent_run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.parent_run_id of type string",
+    "offset": 22,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/replay_mode": {
+    "error_type": "*fmt.wrapError",
+    "field": "replay_mode",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.replay_mode of type string",
+    "offset": 20,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/schema_version": {
+    "error_type": "*fmt.wrapError",
+    "field": "schema_version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.schema_version of type string",
+    "offset": 23,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/source_attempt_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_attempt_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.source_attempt_id of type string",
+    "offset": 26,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/source_finding_ref": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_finding_ref",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.source_finding_ref of type string",
+    "offset": 27,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/source_kind": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_kind",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.source_kind of type string",
+    "offset": 20,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/source_recovery_manifest_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_recovery_manifest_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.source_recovery_manifest_sha256 of type string",
+    "offset": 40,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/source_review_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_review_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.source_review_id of type string",
+    "offset": 25,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageEdgeWire/type/source_run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LineageEdge.source_run_id of type string",
+    "offset": 22,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.LiveProductionProvenance",
+    "offset": 2,
+    "type": "artifactwire.LiveProductionProvenance",
+    "value": "number"
+  },
+  "liveProductionProvenanceWire/type/build_commit": {
+    "error_type": "*fmt.wrapError",
+    "field": "build_commit",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.build_commit of type string",
+    "offset": 21,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/build_product": {
+    "error_type": "*fmt.wrapError",
+    "field": "build_product",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.build_product of type string",
+    "offset": 22,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/build_version": {
+    "error_type": "*fmt.wrapError",
+    "field": "build_version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.build_version of type string",
+    "offset": 22,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/objective_present": {
+    "error_type": "*fmt.wrapError",
+    "field": "objective_present",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field LiveProductionProvenance.objective_present of type bool",
+    "offset": 22,
+    "struct": "LiveProductionProvenance",
+    "type": "bool",
+    "value": "number"
+  },
+  "liveProductionProvenanceWire/type/objective_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "objective_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.objective_sha256 of type string",
+    "offset": 25,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field LiveProductionProvenance.providers of type []artifactwire.ProductionProvider",
+    "offset": 14,
+    "struct": "LiveProductionProvenance",
+    "type": "[]artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "liveProductionProvenanceWire/type/providers[].adapter_profile": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.adapter_profile",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.adapter_profile of type string",
+    "offset": 38,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].executable": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.executable",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.executable of type string",
+    "offset": 33,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].executable_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.executable_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.executable_sha256 of type string",
+    "offset": 40,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].family": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.family",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.family of type string",
+    "offset": 29,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].instance": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.instance",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.instance of type string",
+    "offset": 31,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].launcher": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.launcher",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.launcher of type string",
+    "offset": 31,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].launcher_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.launcher_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.launcher_sha256 of type string",
+    "offset": 38,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].namespace_terminal_receipt": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.namespace_terminal_receipt",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.namespace_terminal_receipt of type string",
+    "offset": 49,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].packet_transport_receipt_ids": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.packet_transport_receipt_ids",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field LiveProductionProvenance.providers.0.packet_transport_receipt_ids of type []string",
+    "offset": 47,
+    "struct": "LiveProductionProvenance",
+    "type": "[]string",
+    "value": "number"
+  },
+  "liveProductionProvenanceWire/type/providers[].profile_generation": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.profile_generation",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.profile_generation of type string",
+    "offset": 41,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/providers[].qualification_receipt_ids": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.qualification_receipt_ids",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field LiveProductionProvenance.providers.0.qualification_receipt_ids of type []string",
+    "offset": 44,
+    "struct": "LiveProductionProvenance",
+    "type": "[]string",
+    "value": "number"
+  },
+  "liveProductionProvenanceWire/type/providers[].version": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.version of type string",
+    "offset": 30,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/source_identity_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_identity_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.source_identity_sha256 of type string",
+    "offset": 31,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceWire/type/source_terminal_receipt": {
+    "error_type": "*fmt.wrapError",
+    "field": "source_terminal_receipt",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field LiveProductionProvenance.source_terminal_receipt of type string",
+    "offset": 32,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.ManifestAttempt",
+    "offset": 2,
+    "type": "artifactwire.ManifestAttempt",
+    "value": "number"
+  },
+  "manifestAttemptWire/type/attempt_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "attempt_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestAttempt.attempt_id of type string",
+    "offset": 19,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptWire/type/invocation_count": {
+    "error_type": "*fmt.wrapError",
+    "field": "invocation_count",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field ManifestAttempt.invocation_count of type int",
+    "offset": 25,
+    "struct": "ManifestAttempt",
+    "type": "int",
+    "value": "string"
+  },
+  "manifestAttemptWire/type/parse_state": {
+    "error_type": "*fmt.wrapError",
+    "field": "parse_state",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestAttempt.parse_state of type string",
+    "offset": 20,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptWire/type/path": {
+    "error_type": "*fmt.wrapError",
+    "field": "path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestAttempt.path of type string",
+    "offset": 13,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptWire/type/provider_instance": {
+    "error_type": "*fmt.wrapError",
+    "field": "provider_instance",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestAttempt.provider_instance of type string",
+    "offset": 26,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptWire/type/role": {
+    "error_type": "*fmt.wrapError",
+    "field": "role",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestAttempt.role of type string",
+    "offset": 13,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptWire/type/selected_as": {
+    "error_type": "*fmt.wrapError",
+    "field": "selected_as",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestAttempt.selected_as of type string",
+    "offset": 20,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptWire/type/state": {
+    "error_type": "*fmt.wrapError",
+    "field": "state",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestAttempt.state of type string",
+    "offset": 14,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptWire/type/validation_state": {
+    "error_type": "*fmt.wrapError",
+    "field": "validation_state",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestAttempt.validation_state of type string",
+    "offset": 25,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestFailureWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.ManifestFailure",
+    "offset": 2,
+    "type": "artifactwire.ManifestFailure",
+    "value": "number"
+  },
+  "manifestFailureWire/type/attempt_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "attempt_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestFailure.attempt_id of type string",
+    "offset": 19,
+    "struct": "ManifestFailure",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestFailureWire/type/class": {
+    "error_type": "*fmt.wrapError",
+    "field": "class",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestFailure.class of type string",
+    "offset": 14,
+    "struct": "ManifestFailure",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestFailureWire/type/reason_code": {
+    "error_type": "*fmt.wrapError",
+    "field": "reason_code",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestFailure.reason_code of type string",
+    "offset": 20,
+    "struct": "ManifestFailure",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestFailureWire/type/stage": {
+    "error_type": "*fmt.wrapError",
+    "field": "stage",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestFailure.stage of type string",
+    "offset": 14,
+    "struct": "ManifestFailure",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.ManifestRoleReport",
+    "offset": 2,
+    "type": "artifactwire.ManifestRoleReport",
+    "value": "number"
+  },
+  "manifestRoleReportWire/type/attempt_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "attempt_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestRoleReport.attempt_id of type string",
+    "offset": 19,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportWire/type/byte_length": {
+    "error_type": "*fmt.wrapError",
+    "field": "byte_length",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field ManifestRoleReport.byte_length of type int",
+    "offset": 20,
+    "struct": "ManifestRoleReport",
+    "type": "int",
+    "value": "string"
+  },
+  "manifestRoleReportWire/type/content_type": {
+    "error_type": "*fmt.wrapError",
+    "field": "content_type",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestRoleReport.content_type of type string",
+    "offset": 21,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportWire/type/path": {
+    "error_type": "*fmt.wrapError",
+    "field": "path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestRoleReport.path of type string",
+    "offset": 13,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportWire/type/provider_instance": {
+    "error_type": "*fmt.wrapError",
+    "field": "provider_instance",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestRoleReport.provider_instance of type string",
+    "offset": 26,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportWire/type/role": {
+    "error_type": "*fmt.wrapError",
+    "field": "role",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestRoleReport.role of type string",
+    "offset": 13,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportWire/type/sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestRoleReport.sha256 of type string",
+    "offset": 15,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportWire/type/transport": {
+    "error_type": "*fmt.wrapError",
+    "field": "transport",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ManifestRoleReport.transport of type string",
+    "offset": 18,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "mulgaeWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.BuildMetadata",
+    "offset": 2,
+    "type": "artifactwire.BuildMetadata",
+    "value": "number"
+  },
+  "mulgaeWire/type/commit": {
+    "error_type": "*fmt.wrapError",
+    "field": "commit",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field BuildMetadata.commit of type string",
+    "offset": 15,
+    "struct": "BuildMetadata",
+    "type": "string",
+    "value": "bool"
+  },
+  "mulgaeWire/type/version": {
+    "error_type": "*fmt.wrapError",
+    "field": "version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field BuildMetadata.version of type string",
+    "offset": 16,
+    "struct": "BuildMetadata",
+    "type": "string",
+    "value": "bool"
+  },
+  "pathPointerWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.PathPointer",
+    "offset": 2,
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "pathPointerWire/type/path": {
+    "error_type": "*fmt.wrapError",
+    "field": "path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PathPointer.path of type string",
+    "offset": 13,
+    "struct": "PathPointer",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.ProductionProvenance",
+    "offset": 2,
+    "type": "artifactwire.ProductionProvenance",
+    "value": "number"
+  },
+  "productionProvenanceWire/type/build_commit": {
+    "error_type": "*fmt.wrapError",
+    "field": "build_commit",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.build_commit of type string",
+    "offset": 21,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/build_product": {
+    "error_type": "*fmt.wrapError",
+    "field": "build_product",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.build_product of type string",
+    "offset": 22,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/build_version": {
+    "error_type": "*fmt.wrapError",
+    "field": "build_version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.build_version of type string",
+    "offset": 22,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/objective_present": {
+    "error_type": "*fmt.wrapError",
+    "field": "objective_present",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field ProductionProvenance.objective_present of type bool",
+    "offset": 22,
+    "struct": "ProductionProvenance",
+    "type": "bool",
+    "value": "number"
+  },
+  "productionProvenanceWire/type/objective_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "objective_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.objective_sha256 of type string",
+    "offset": 25,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field ProductionProvenance.providers of type []artifactwire.ProductionProvider",
+    "offset": 14,
+    "struct": "ProductionProvenance",
+    "type": "[]artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "productionProvenanceWire/type/providers[].adapter_profile": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.adapter_profile",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.adapter_profile of type string",
+    "offset": 38,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].executable": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.executable",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.executable of type string",
+    "offset": 33,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].executable_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.executable_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.executable_sha256 of type string",
+    "offset": 40,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].family": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.family",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.family of type string",
+    "offset": 29,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].instance": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.instance",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.instance of type string",
+    "offset": 31,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].launcher": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.launcher",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.launcher of type string",
+    "offset": 31,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].launcher_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.launcher_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.launcher_sha256 of type string",
+    "offset": 38,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].namespace_terminal_receipt": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.namespace_terminal_receipt",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.namespace_terminal_receipt of type string",
+    "offset": 49,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].packet_transport_receipt_ids": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.packet_transport_receipt_ids",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field ProductionProvenance.providers.0.packet_transport_receipt_ids of type []string",
+    "offset": 47,
+    "struct": "ProductionProvenance",
+    "type": "[]string",
+    "value": "number"
+  },
+  "productionProvenanceWire/type/providers[].profile_generation": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.profile_generation",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.profile_generation of type string",
+    "offset": 41,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/providers[].qualification_receipt_ids": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.qualification_receipt_ids",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field ProductionProvenance.providers.0.qualification_receipt_ids of type []string",
+    "offset": 44,
+    "struct": "ProductionProvenance",
+    "type": "[]string",
+    "value": "number"
+  },
+  "productionProvenanceWire/type/providers[].version": {
+    "error_type": "*fmt.wrapError",
+    "field": "providers.0.version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.version of type string",
+    "offset": 30,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/snapshot_manifest_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "snapshot_manifest_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.snapshot_manifest_sha256 of type string",
+    "offset": 33,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceWire/type/workspace_terminal_receipt": {
+    "error_type": "*fmt.wrapError",
+    "field": "workspace_terminal_receipt",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvenance.workspace_terminal_receipt of type string",
+    "offset": 35,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.ProductionProvider",
+    "offset": 2,
+    "type": "artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "productionProviderWire/type/adapter_profile": {
+    "error_type": "*fmt.wrapError",
+    "field": "adapter_profile",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.adapter_profile of type string",
+    "offset": 24,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/executable": {
+    "error_type": "*fmt.wrapError",
+    "field": "executable",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.executable of type string",
+    "offset": 19,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/executable_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "executable_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.executable_sha256 of type string",
+    "offset": 26,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/family": {
+    "error_type": "*fmt.wrapError",
+    "field": "family",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.family of type string",
+    "offset": 15,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/instance": {
+    "error_type": "*fmt.wrapError",
+    "field": "instance",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.instance of type string",
+    "offset": 17,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/launcher": {
+    "error_type": "*fmt.wrapError",
+    "field": "launcher",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.launcher of type string",
+    "offset": 17,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/launcher_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "launcher_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.launcher_sha256 of type string",
+    "offset": 24,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/namespace_terminal_receipt": {
+    "error_type": "*fmt.wrapError",
+    "field": "namespace_terminal_receipt",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.namespace_terminal_receipt of type string",
+    "offset": 35,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/packet_transport_receipt_ids": {
+    "error_type": "*fmt.wrapError",
+    "field": "packet_transport_receipt_ids",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field ProductionProvider.packet_transport_receipt_ids of type []string",
+    "offset": 33,
+    "struct": "ProductionProvider",
+    "type": "[]string",
+    "value": "number"
+  },
+  "productionProviderWire/type/profile_generation": {
+    "error_type": "*fmt.wrapError",
+    "field": "profile_generation",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.profile_generation of type string",
+    "offset": 27,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderWire/type/qualification_receipt_ids": {
+    "error_type": "*fmt.wrapError",
+    "field": "qualification_receipt_ids",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field ProductionProvider.qualification_receipt_ids of type []string",
+    "offset": 30,
+    "struct": "ProductionProvider",
+    "type": "[]string",
+    "value": "number"
+  },
+  "productionProviderWire/type/version": {
+    "error_type": "*fmt.wrapError",
+    "field": "version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field ProductionProvider.version of type string",
+    "offset": 16,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationCorruptionDiagnosticWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.CorruptionDiagnostic",
+    "offset": 2,
+    "type": "artifactwire.CorruptionDiagnostic",
+    "value": "number"
+  },
+  "publicationCorruptionDiagnosticWire/type/observation_epoch": {
+    "error_type": "*fmt.wrapError",
+    "field": "observation_epoch",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field CorruptionDiagnostic.observation_epoch of type uint64",
+    "offset": 26,
+    "struct": "CorruptionDiagnostic",
+    "type": "uint64",
+    "value": "string"
+  },
+  "publicationCorruptionDiagnosticWire/type/reason_codes": {
+    "error_type": "*fmt.wrapError",
+    "field": "reason_codes",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field CorruptionDiagnostic.reason_codes of type []string",
+    "offset": 17,
+    "struct": "CorruptionDiagnostic",
+    "type": "[]string",
+    "value": "number"
+  },
+  "publicationCorruptionDiagnosticWire/type/run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field CorruptionDiagnostic.run_id of type string",
+    "offset": 15,
+    "struct": "CorruptionDiagnostic",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationCorruptionDiagnosticWire/type/schema_version": {
+    "error_type": "*fmt.wrapError",
+    "field": "schema_version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field CorruptionDiagnostic.schema_version of type string",
+    "offset": 23,
+    "struct": "CorruptionDiagnostic",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationCorruptionDiagnosticWire/type/session_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "session_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field CorruptionDiagnostic.session_id of type string",
+    "offset": 19,
+    "struct": "CorruptionDiagnostic",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.PublicationEpoch",
+    "offset": 2,
+    "type": "artifactwire.PublicationEpoch",
+    "value": "number"
+  },
+  "publicationEpochWire/type/final_review": {
+    "error_type": "*fmt.wrapError",
+    "field": "final_review",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field PublicationEpoch.final_review of type artifactwire.ArtifactIdentity",
+    "offset": 17,
+    "struct": "PublicationEpoch",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationEpochWire/type/final_review.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "final_review.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationEpoch.final_review.path of type string",
+    "offset": 29,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/final_review.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "final_review.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationEpoch.final_review.sha256 of type string",
+    "offset": 31,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/lineage_edge": {
+    "error_type": "*fmt.wrapError",
+    "field": "lineage_edge",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field PublicationEpoch.lineage_edge of type artifactwire.ArtifactIdentity",
+    "offset": 17,
+    "struct": "PublicationEpoch",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationEpochWire/type/lineage_edge.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "lineage_edge.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationEpoch.lineage_edge.path of type string",
+    "offset": 29,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/lineage_edge.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "lineage_edge.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationEpoch.lineage_edge.sha256 of type string",
+    "offset": 31,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/manifest": {
+    "error_type": "*fmt.wrapError",
+    "field": "manifest",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field PublicationEpoch.manifest of type artifactwire.ArtifactIdentity",
+    "offset": 13,
+    "struct": "PublicationEpoch",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationEpochWire/type/manifest.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "manifest.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationEpoch.manifest.path of type string",
+    "offset": 25,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/manifest.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "manifest.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationEpoch.manifest.sha256 of type string",
+    "offset": 27,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/schema_version": {
+    "error_type": "*fmt.wrapError",
+    "field": "schema_version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationEpoch.schema_version of type string",
+    "offset": 23,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/store_epoch": {
+    "error_type": "*fmt.wrapError",
+    "field": "store_epoch",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field PublicationEpoch.store_epoch of type uint64",
+    "offset": 20,
+    "struct": "PublicationEpoch",
+    "type": "uint64",
+    "value": "string"
+  },
+  "publicationJournalWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.PublicationJournal",
+    "offset": 2,
+    "type": "artifactwire.PublicationJournal",
+    "value": "number"
+  },
+  "publicationJournalWire/type/epoch_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "epoch_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.epoch_path of type string",
+    "offset": 19,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/expected_final": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field PublicationJournal.expected_final of type artifactwire.ArtifactIdentity",
+    "offset": 19,
+    "struct": "PublicationJournal",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationJournalWire/type/expected_final.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.expected_final.path of type string",
+    "offset": 31,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/expected_final.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.expected_final.sha256 of type string",
+    "offset": 33,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/expected_staged": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field PublicationJournal.expected_staged of type artifactwire.ArtifactIdentity",
+    "offset": 20,
+    "struct": "PublicationJournal",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationJournalWire/type/expected_staged.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.expected_staged.path of type string",
+    "offset": 32,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/expected_staged.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.expected_staged.sha256 of type string",
+    "offset": 34,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/lineage_edge_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "lineage_edge_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.lineage_edge_path of type string",
+    "offset": 26,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/manifest_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "manifest_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.manifest_path of type string",
+    "offset": 22,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/normal_exit": {
+    "error_type": "*fmt.wrapError",
+    "field": "normal_exit",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field PublicationJournal.normal_exit of type int",
+    "offset": 20,
+    "struct": "PublicationJournal",
+    "type": "int",
+    "value": "string"
+  },
+  "publicationJournalWire/type/persisted_journal_state": {
+    "error_type": "*fmt.wrapError",
+    "field": "persisted_journal_state",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.persisted_journal_state of type string",
+    "offset": 32,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.run_id of type string",
+    "offset": 15,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/schema_version": {
+    "error_type": "*fmt.wrapError",
+    "field": "schema_version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.schema_version of type string",
+    "offset": 23,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/session_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "session_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.session_id of type string",
+    "offset": 19,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/store_epoch": {
+    "error_type": "*fmt.wrapError",
+    "field": "store_epoch",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field PublicationJournal.store_epoch of type uint64",
+    "offset": 20,
+    "struct": "PublicationJournal",
+    "type": "uint64",
+    "value": "string"
+  },
+  "publicationJournalWire/type/validated_candidate_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "validated_candidate_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationJournal.validated_candidate_sha256 of type string",
+    "offset": 35,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.PublicationStatus",
+    "offset": 2,
+    "type": "artifactwire.PublicationStatus",
+    "value": "number"
+  },
+  "publicationStatusWire/type/epoch_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "epoch_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.epoch_path of type string",
+    "offset": 19,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/expected_final": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field PublicationStatus.expected_final of type artifactwire.ArtifactIdentity",
+    "offset": 19,
+    "struct": "PublicationStatus",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationStatusWire/type/expected_final.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.expected_final.path of type string",
+    "offset": 31,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/expected_final.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.expected_final.sha256 of type string",
+    "offset": 33,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/expected_staged": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field PublicationStatus.expected_staged of type artifactwire.ArtifactIdentity",
+    "offset": 20,
+    "struct": "PublicationStatus",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationStatusWire/type/expected_staged.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.expected_staged.path of type string",
+    "offset": 32,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/expected_staged.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.expected_staged.sha256 of type string",
+    "offset": 34,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/lineage_edge_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "lineage_edge_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.lineage_edge_path of type string",
+    "offset": 26,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/manifest_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "manifest_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.manifest_path of type string",
+    "offset": 22,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/normal_exit": {
+    "error_type": "*fmt.wrapError",
+    "field": "normal_exit",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field PublicationStatus.normal_exit of type int",
+    "offset": 20,
+    "struct": "PublicationStatus",
+    "type": "int",
+    "value": "string"
+  },
+  "publicationStatusWire/type/persisted_journal_state": {
+    "error_type": "*fmt.wrapError",
+    "field": "persisted_journal_state",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.persisted_journal_state of type string",
+    "offset": 32,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/publication_authority": {
+    "error_type": "*fmt.wrapError",
+    "field": "publication_authority",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.publication_authority of type string",
+    "offset": 30,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/publication_status": {
+    "error_type": "*fmt.wrapError",
+    "field": "publication_status",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.publication_status of type string",
+    "offset": 27,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.run_id of type string",
+    "offset": 15,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/schema_version": {
+    "error_type": "*fmt.wrapError",
+    "field": "schema_version",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.schema_version of type string",
+    "offset": 23,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/session_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "session_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.session_id of type string",
+    "offset": 19,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationStatusWire/type/store_epoch": {
+    "error_type": "*fmt.wrapError",
+    "field": "store_epoch",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field PublicationStatus.store_epoch of type uint64",
+    "offset": 20,
+    "struct": "PublicationStatus",
+    "type": "uint64",
+    "value": "string"
+  },
+  "publicationStatusWire/type/validated_candidate_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "validated_candidate_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field PublicationStatus.validated_candidate_sha256 of type string",
+    "offset": 35,
+    "struct": "PublicationStatus",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.RestartState",
+    "offset": 2,
+    "type": "artifactwire.RestartState",
+    "value": "number"
+  },
+  "restartStateWire/type/epoch_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "epoch_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.epoch_path of type string",
+    "offset": 19,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/expected_final": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field RestartState.expected_final of type artifactwire.ArtifactIdentity",
+    "offset": 19,
+    "struct": "RestartState",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "restartStateWire/type/expected_final.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.expected_final.path of type string",
+    "offset": 31,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/expected_final.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_final.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.expected_final.sha256 of type string",
+    "offset": 33,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/expected_staged": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field RestartState.expected_staged of type artifactwire.ArtifactIdentity",
+    "offset": 20,
+    "struct": "RestartState",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "restartStateWire/type/expected_staged.path": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged.path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.expected_staged.path of type string",
+    "offset": 32,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/expected_staged.sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "expected_staged.sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.expected_staged.sha256 of type string",
+    "offset": 34,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/lineage_edge_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "lineage_edge_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.lineage_edge_path of type string",
+    "offset": 26,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/manifest_path": {
+    "error_type": "*fmt.wrapError",
+    "field": "manifest_path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.manifest_path of type string",
+    "offset": 22,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/normal_exit": {
+    "error_type": "*fmt.wrapError",
+    "field": "normal_exit",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field RestartState.normal_exit of type int",
+    "offset": 20,
+    "struct": "RestartState",
+    "type": "int",
+    "value": "string"
+  },
+  "restartStateWire/type/persisted_journal_state": {
+    "error_type": "*fmt.wrapError",
+    "field": "persisted_journal_state",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.persisted_journal_state of type string",
+    "offset": 32,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/run_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "run_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.run_id of type string",
+    "offset": 15,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/session_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "session_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.session_id of type string",
+    "offset": 19,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "restartStateWire/type/store_epoch": {
+    "error_type": "*fmt.wrapError",
+    "field": "store_epoch",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field RestartState.store_epoch of type uint64",
+    "offset": 20,
+    "struct": "RestartState",
+    "type": "uint64",
+    "value": "string"
+  },
+  "restartStateWire/type/validated_candidate_sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "validated_candidate_sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RestartState.validated_candidate_sha256 of type string",
+    "offset": 35,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "roleOutcomeWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.RoleOutcome",
+    "offset": 2,
+    "type": "artifactwire.RoleOutcome",
+    "value": "number"
+  },
+  "roleOutcomeWire/type/attempt_id": {
+    "error_type": "*fmt.wrapError",
+    "field": "attempt_id",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RoleOutcome.attempt_id of type string",
+    "offset": 19,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "roleOutcomeWire/type/failure_reason": {
+    "error_type": "*fmt.wrapError",
+    "field": "failure_reason",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RoleOutcome.failure_reason of type string",
+    "offset": 23,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "roleOutcomeWire/type/limitations": {
+    "error_type": "*fmt.wrapError",
+    "field": "limitations",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field RoleOutcome.limitations of type []string",
+    "offset": 16,
+    "struct": "RoleOutcome",
+    "type": "[]string",
+    "value": "number"
+  },
+  "roleOutcomeWire/type/outcome": {
+    "error_type": "*fmt.wrapError",
+    "field": "outcome",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RoleOutcome.outcome of type string",
+    "offset": 16,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "roleOutcomeWire/type/provider_instance": {
+    "error_type": "*fmt.wrapError",
+    "field": "provider_instance",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RoleOutcome.provider_instance of type string",
+    "offset": 26,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "roleOutcomeWire/type/required": {
+    "error_type": "*fmt.wrapError",
+    "field": "required",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field RoleOutcome.required of type bool",
+    "offset": 13,
+    "struct": "RoleOutcome",
+    "type": "bool",
+    "value": "number"
+  },
+  "roleOutcomeWire/type/role": {
+    "error_type": "*fmt.wrapError",
+    "field": "role",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RoleOutcome.role of type string",
+    "offset": 13,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "roleOutcomeWire/type/selected_via": {
+    "error_type": "*fmt.wrapError",
+    "field": "selected_via",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field RoleOutcome.selected_via of type string",
+    "offset": 21,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "roleOutcomeWire/type/valid_finding_ids": {
+    "error_type": "*fmt.wrapError",
+    "field": "valid_finding_ids",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field RoleOutcome.valid_finding_ids of type []string",
+    "offset": 22,
+    "struct": "RoleOutcome",
+    "type": "[]string",
+    "value": "number"
+  },
+  "runManifestWire/type/attempts": {
+    "error_type": "*fmt.wrapError",
+    "field": "attempts",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.attempts of type []artifactwire.ManifestAttempt",
+    "offset": 13,
+    "struct": "runManifestWire",
+    "type": "[]artifactwire.ManifestAttempt",
+    "value": "number"
+  },
+  "runManifestWire/type/composite_identity.epoch": {
+    "error_type": "*fmt.wrapError",
+    "field": "composite_identity.epoch",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.composite_identity.epoch of type artifactwire.PathPointer",
+    "offset": 32,
+    "struct": "runManifestWire",
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "runManifestWire/type/composite_identity.manifest": {
+    "error_type": "*fmt.wrapError",
+    "field": "composite_identity.manifest",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.composite_identity.manifest of type artifactwire.PathPointer",
+    "offset": 35,
+    "struct": "runManifestWire",
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "runManifestWire/type/failures": {
+    "error_type": "*fmt.wrapError",
+    "field": "failures",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.failures of type []artifactwire.ManifestFailure",
+    "offset": 13,
+    "struct": "runManifestWire",
+    "type": "[]artifactwire.ManifestFailure",
+    "value": "number"
+  },
+  "runManifestWire/type/final_review": {
+    "error_type": "*fmt.wrapError",
+    "field": "final_review",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.final_review of type artifactwire.FinalReviewIdentity",
+    "offset": 17,
+    "struct": "runManifestWire",
+    "type": "artifactwire.FinalReviewIdentity",
+    "value": "number"
+  },
+  "runManifestWire/type/followup_outcome.evidence[].visual": {
+    "error_type": "*fmt.wrapError",
+    "field": "followup_outcome.evidence.0.visual",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.followup_outcome.evidence.0.visual of type artifactwire.VisualEvidence",
+    "offset": 44,
+    "struct": "runManifestWire",
+    "type": "artifactwire.VisualEvidence",
+    "value": "number"
+  },
+  "runManifestWire/type/followup_outcome.evidence[].visual.bbox": {
+    "error_type": "*fmt.wrapError",
+    "field": "followup_outcome.evidence.0.visual.bbox",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.followup_outcome.evidence.0.visual.bbox of type artifactwire.VisualBoundingBox",
+    "offset": 52,
+    "struct": "runManifestWire",
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "runManifestWire/type/immutable_lineage": {
+    "error_type": "*fmt.wrapError",
+    "field": "immutable_lineage",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.immutable_lineage of type artifactwire.ImmutableLineage",
+    "offset": 22,
+    "struct": "runManifestWire",
+    "type": "artifactwire.ImmutableLineage",
+    "value": "number"
+  },
+  "runManifestWire/type/role_reports": {
+    "error_type": "*fmt.wrapError",
+    "field": "role_reports",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field runManifestWire.role_reports of type []artifactwire.ManifestRoleReport",
+    "offset": 17,
+    "struct": "runManifestWire",
+    "type": "[]artifactwire.ManifestRoleReport",
+    "value": "number"
+  },
+  "severityThresholdWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.SeverityThreshold",
+    "offset": 2,
+    "type": "artifactwire.SeverityThreshold",
+    "value": "number"
+  },
+  "severityThresholdWire/type/policy_source": {
+    "error_type": "*fmt.wrapError",
+    "field": "policy_source",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field SeverityThreshold.policy_source of type string",
+    "offset": 22,
+    "struct": "SeverityThreshold",
+    "type": "string",
+    "value": "bool"
+  },
+  "severityThresholdWire/type/request_changes_at_or_above": {
+    "error_type": "*fmt.wrapError",
+    "field": "request_changes_at_or_above",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field SeverityThreshold.request_changes_at_or_above of type string",
+    "offset": 36,
+    "struct": "SeverityThreshold",
+    "type": "string",
+    "value": "bool"
+  },
+  "validationWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.Validation",
+    "offset": 2,
+    "type": "artifactwire.Validation",
+    "value": "number"
+  },
+  "validationWire/type/evidence_validation": {
+    "error_type": "*fmt.wrapError",
+    "field": "evidence_validation",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field Validation.evidence_validation of type string",
+    "offset": 28,
+    "struct": "Validation",
+    "type": "string",
+    "value": "bool"
+  },
+  "validationWire/type/schema_validation": {
+    "error_type": "*fmt.wrapError",
+    "field": "schema_validation",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field Validation.schema_validation of type string",
+    "offset": 26,
+    "struct": "Validation",
+    "type": "string",
+    "value": "bool"
+  },
+  "validationWire/type/semantic_validation": {
+    "error_type": "*fmt.wrapError",
+    "field": "semantic_validation",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field Validation.semantic_validation of type string",
+    "offset": 28,
+    "struct": "Validation",
+    "type": "string",
+    "value": "bool"
+  },
+  "validationWire/type/status": {
+    "error_type": "*fmt.wrapError",
+    "field": "status",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field Validation.status of type string",
+    "offset": 15,
+    "struct": "Validation",
+    "type": "string",
+    "value": "bool"
+  },
+  "visualBoundingBoxWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.VisualBoundingBox",
+    "offset": 2,
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "visualBoundingBoxWire/type/height": {
+    "error_type": "*fmt.wrapError",
+    "field": "height",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field VisualBoundingBox.height of type int",
+    "offset": 15,
+    "struct": "VisualBoundingBox",
+    "type": "int",
+    "value": "string"
+  },
+  "visualBoundingBoxWire/type/width": {
+    "error_type": "*fmt.wrapError",
+    "field": "width",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field VisualBoundingBox.width of type int",
+    "offset": 14,
+    "struct": "VisualBoundingBox",
+    "type": "int",
+    "value": "string"
+  },
+  "visualBoundingBoxWire/type/x": {
+    "error_type": "*fmt.wrapError",
+    "field": "x",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field VisualBoundingBox.x of type int",
+    "offset": 10,
+    "struct": "VisualBoundingBox",
+    "type": "int",
+    "value": "string"
+  },
+  "visualBoundingBoxWire/type/y": {
+    "error_type": "*fmt.wrapError",
+    "field": "y",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field VisualBoundingBox.y of type int",
+    "offset": 10,
+    "struct": "VisualBoundingBox",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceWire/root-type": {
+    "error_type": "*fmt.wrapError",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go value of type artifactwire.VisualEvidence",
+    "offset": 2,
+    "type": "artifactwire.VisualEvidence",
+    "value": "number"
+  },
+  "visualEvidenceWire/type/bbox": {
+    "error_type": "*fmt.wrapError",
+    "field": "bbox",
+    "message": "decode M2 characterization: json: cannot unmarshal number into Go struct field VisualEvidence.bbox of type artifactwire.VisualBoundingBox",
+    "offset": 9,
+    "struct": "VisualEvidence",
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "visualEvidenceWire/type/bbox.height": {
+    "error_type": "*fmt.wrapError",
+    "field": "bbox.height",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field VisualEvidence.bbox.height of type int",
+    "offset": 23,
+    "struct": "VisualEvidence",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceWire/type/bbox.width": {
+    "error_type": "*fmt.wrapError",
+    "field": "bbox.width",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field VisualEvidence.bbox.width of type int",
+    "offset": 22,
+    "struct": "VisualEvidence",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceWire/type/bbox.x": {
+    "error_type": "*fmt.wrapError",
+    "field": "bbox.x",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field VisualEvidence.bbox.x of type int",
+    "offset": 18,
+    "struct": "VisualEvidence",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceWire/type/bbox.y": {
+    "error_type": "*fmt.wrapError",
+    "field": "bbox.y",
+    "message": "decode M2 characterization: json: cannot unmarshal string into Go struct field VisualEvidence.bbox.y of type int",
+    "offset": 18,
+    "struct": "VisualEvidence",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceWire/type/path": {
+    "error_type": "*fmt.wrapError",
+    "field": "path",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field VisualEvidence.path of type string",
+    "offset": 13,
+    "struct": "VisualEvidence",
+    "type": "string",
+    "value": "bool"
+  },
+  "visualEvidenceWire/type/sha256": {
+    "error_type": "*fmt.wrapError",
+    "field": "sha256",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field VisualEvidence.sha256 of type string",
+    "offset": 15,
+    "struct": "VisualEvidence",
+    "type": "string",
+    "value": "bool"
+  },
+  "visualEvidenceWire/type/verification": {
+    "error_type": "*fmt.wrapError",
+    "field": "verification",
+    "message": "decode M2 characterization: json: cannot unmarshal bool into Go struct field VisualEvidence.verification of type string",
+    "offset": 21,
+    "struct": "VisualEvidence",
+    "type": "string",
+    "value": "bool"
+  }
+}

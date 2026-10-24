@@ -1,0 +1,568 @@
+{
+  "publicationEpochWire/root-type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go value of type artifactwire.PublicationEpoch",
+    "offset": 2,
+    "type": "artifactwire.PublicationEpoch",
+    "value": "number"
+  },
+  "publicationEpochWire/type/final_review": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "final_review",
+    "message": "json: cannot unmarshal number into Go struct field PublicationEpoch.final_review of type artifactwire.ArtifactIdentity",
+    "offset": 17,
+    "struct": "PublicationEpoch",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationEpochWire/type/final_review.path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "final_review.path",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationEpoch.final_review.path of type string",
+    "offset": 29,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/final_review.sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "final_review.sha256",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationEpoch.final_review.sha256 of type string",
+    "offset": 31,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/lineage_edge": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "lineage_edge",
+    "message": "json: cannot unmarshal number into Go struct field PublicationEpoch.lineage_edge of type artifactwire.ArtifactIdentity",
+    "offset": 17,
+    "struct": "PublicationEpoch",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationEpochWire/type/lineage_edge.path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "lineage_edge.path",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationEpoch.lineage_edge.path of type string",
+    "offset": 29,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/lineage_edge.sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "lineage_edge.sha256",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationEpoch.lineage_edge.sha256 of type string",
+    "offset": 31,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/manifest": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "manifest",
+    "message": "json: cannot unmarshal number into Go struct field PublicationEpoch.manifest of type artifactwire.ArtifactIdentity",
+    "offset": 13,
+    "struct": "PublicationEpoch",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationEpochWire/type/manifest.path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "manifest.path",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationEpoch.manifest.path of type string",
+    "offset": 25,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/manifest.sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "manifest.sha256",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationEpoch.manifest.sha256 of type string",
+    "offset": 27,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/schema_version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "schema_version",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationEpoch.schema_version of type string",
+    "offset": 23,
+    "struct": "PublicationEpoch",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationEpochWire/type/store_epoch": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "store_epoch",
+    "message": "json: cannot unmarshal string into Go struct field PublicationEpoch.store_epoch of type uint64",
+    "offset": 20,
+    "struct": "PublicationEpoch",
+    "type": "uint64",
+    "value": "string"
+  },
+  "publicationJournalWire/root-type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go value of type artifactwire.PublicationJournal",
+    "offset": 2,
+    "type": "artifactwire.PublicationJournal",
+    "value": "number"
+  },
+  "publicationJournalWire/type/epoch_path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "epoch_path",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.epoch_path of type string",
+    "offset": 19,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/expected_final": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_final",
+    "message": "json: cannot unmarshal number into Go struct field PublicationJournal.expected_final of type artifactwire.ArtifactIdentity",
+    "offset": 19,
+    "struct": "PublicationJournal",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationJournalWire/type/expected_final.path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_final.path",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.expected_final.path of type string",
+    "offset": 31,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/expected_final.sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_final.sha256",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.expected_final.sha256 of type string",
+    "offset": 33,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/expected_staged": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_staged",
+    "message": "json: cannot unmarshal number into Go struct field PublicationJournal.expected_staged of type artifactwire.ArtifactIdentity",
+    "offset": 20,
+    "struct": "PublicationJournal",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationJournalWire/type/expected_staged.path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_staged.path",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.expected_staged.path of type string",
+    "offset": 32,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/expected_staged.sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_staged.sha256",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.expected_staged.sha256 of type string",
+    "offset": 34,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/lineage_edge_path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "lineage_edge_path",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.lineage_edge_path of type string",
+    "offset": 26,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/manifest_path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "manifest_path",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.manifest_path of type string",
+    "offset": 22,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/normal_exit": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "normal_exit",
+    "message": "json: cannot unmarshal string into Go struct field PublicationJournal.normal_exit of type int",
+    "offset": 20,
+    "struct": "PublicationJournal",
+    "type": "int",
+    "value": "string"
+  },
+  "publicationJournalWire/type/persisted_journal_state": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "persisted_journal_state",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.persisted_journal_state of type string",
+    "offset": 32,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "run_id",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.run_id of type string",
+    "offset": 15,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/schema_version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "schema_version",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.schema_version of type string",
+    "offset": 23,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/session_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "session_id",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.session_id of type string",
+    "offset": 19,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationJournalWire/type/store_epoch": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "store_epoch",
+    "message": "json: cannot unmarshal string into Go struct field PublicationJournal.store_epoch of type uint64",
+    "offset": 20,
+    "struct": "PublicationJournal",
+    "type": "uint64",
+    "value": "string"
+  },
+  "publicationJournalWire/type/validated_candidate_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "validated_candidate_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field PublicationJournal.validated_candidate_sha256 of type string",
+    "offset": 35,
+    "struct": "PublicationJournal",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageChildWire/root-type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go value of type artifactwire.LineageChild",
+    "offset": 2,
+    "type": "artifactwire.LineageChild",
+    "value": "number"
+  },
+  "publicationLineageChildWire/type/review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "review_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageChild.review_id of type string",
+    "offset": 18,
+    "struct": "LineageChild",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageChildWire/type/run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "run_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageChild.run_id of type string",
+    "offset": 15,
+    "struct": "LineageChild",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageChildWire/type/session_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "session_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageChild.session_id of type string",
+    "offset": 19,
+    "struct": "LineageChild",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/root-type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go value of type artifactwire.LineageEdge",
+    "offset": 2,
+    "type": "artifactwire.LineageEdge",
+    "value": "number"
+  },
+  "publicationLineageWire/type/child": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "child",
+    "message": "json: cannot unmarshal number into Go struct field LineageEdge.child of type artifactwire.LineageChild",
+    "offset": 10,
+    "struct": "LineageEdge",
+    "type": "artifactwire.LineageChild",
+    "value": "number"
+  },
+  "publicationLineageWire/type/child.review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "child.review_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.child.review_id of type string",
+    "offset": 27,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/child.run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "child.run_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.child.run_id of type string",
+    "offset": 24,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/child.session_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "child.session_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.child.session_id of type string",
+    "offset": 28,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/edge_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "edge_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.edge_id of type string",
+    "offset": 16,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/parent_run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "parent_run_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.parent_run_id of type string",
+    "offset": 22,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/replay_mode": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "replay_mode",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.replay_mode of type string",
+    "offset": 20,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/schema_version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "schema_version",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.schema_version of type string",
+    "offset": 23,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/source_attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.source_attempt_id of type string",
+    "offset": 26,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/source_finding_ref": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_finding_ref",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.source_finding_ref of type string",
+    "offset": 27,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/source_kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_kind",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.source_kind of type string",
+    "offset": 20,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/source_recovery_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_recovery_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.source_recovery_manifest_sha256 of type string",
+    "offset": 40,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/source_review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_review_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.source_review_id of type string",
+    "offset": 25,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationLineageWire/type/source_run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_run_id",
+    "message": "json: cannot unmarshal bool into Go struct field LineageEdge.source_run_id of type string",
+    "offset": 22,
+    "struct": "LineageEdge",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/root-type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go value of type artifactwire.RestartState",
+    "offset": 2,
+    "type": "artifactwire.RestartState",
+    "value": "number"
+  },
+  "publicationRestartWire/type/epoch_path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "epoch_path",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.epoch_path of type string",
+    "offset": 19,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/expected_final": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_final",
+    "message": "json: cannot unmarshal number into Go struct field RestartState.expected_final of type artifactwire.ArtifactIdentity",
+    "offset": 19,
+    "struct": "RestartState",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationRestartWire/type/expected_final.path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_final.path",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.expected_final.path of type string",
+    "offset": 31,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/expected_final.sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_final.sha256",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.expected_final.sha256 of type string",
+    "offset": 33,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/expected_staged": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_staged",
+    "message": "json: cannot unmarshal number into Go struct field RestartState.expected_staged of type artifactwire.ArtifactIdentity",
+    "offset": 20,
+    "struct": "RestartState",
+    "type": "artifactwire.ArtifactIdentity",
+    "value": "number"
+  },
+  "publicationRestartWire/type/expected_staged.path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_staged.path",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.expected_staged.path of type string",
+    "offset": 32,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/expected_staged.sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "expected_staged.sha256",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.expected_staged.sha256 of type string",
+    "offset": 34,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/lineage_edge_path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "lineage_edge_path",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.lineage_edge_path of type string",
+    "offset": 26,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/manifest_path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "manifest_path",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.manifest_path of type string",
+    "offset": 22,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/normal_exit": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "normal_exit",
+    "message": "json: cannot unmarshal string into Go struct field RestartState.normal_exit of type int",
+    "offset": 20,
+    "struct": "RestartState",
+    "type": "int",
+    "value": "string"
+  },
+  "publicationRestartWire/type/persisted_journal_state": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "persisted_journal_state",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.persisted_journal_state of type string",
+    "offset": 32,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "run_id",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.run_id of type string",
+    "offset": 15,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/session_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "session_id",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.session_id of type string",
+    "offset": 19,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  },
+  "publicationRestartWire/type/store_epoch": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "store_epoch",
+    "message": "json: cannot unmarshal string into Go struct field RestartState.store_epoch of type uint64",
+    "offset": 20,
+    "struct": "RestartState",
+    "type": "uint64",
+    "value": "string"
+  },
+  "publicationRestartWire/type/validated_candidate_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "validated_candidate_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field RestartState.validated_candidate_sha256 of type string",
+    "offset": 35,
+    "struct": "RestartState",
+    "type": "string",
+    "value": "bool"
+  }
+}

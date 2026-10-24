@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -14,16 +15,7 @@ type liveSourceTargetWire = evidence.LiveSourceMetadata
 type liveSourceChangeWire = evidence.LiveSourceChange
 type liveBinaryEvidenceWire = evidence.LiveBinaryObservation
 
-type liveProductionProvenanceWire struct {
-	BuildProduct          string                   `json:"build_product"`
-	BuildVersion          string                   `json:"build_version"`
-	BuildCommit           string                   `json:"build_commit"`
-	ObjectiveSHA256       *string                  `json:"objective_sha256"`
-	ObjectivePresent      bool                     `json:"objective_present"`
-	SourceIdentitySHA256  string                   `json:"source_identity_sha256"`
-	SourceTerminalReceipt string                   `json:"source_terminal_receipt"`
-	Providers             []productionProviderWire `json:"providers"`
-}
+type liveProductionProvenanceWire = artifactwire.LiveProductionProvenance
 
 func (target finalTargetWire) identitySHA256() string {
 	if target.LiveSource != nil {
@@ -175,7 +167,7 @@ func validateLiveSupport(final finalReviewWire, artifacts map[string]ports.Immut
 		images[image.Side+"\x00"+image.Path] = image.SHA256
 	}
 	for _, finding := range final.Findings {
-		metadataPath := fmt.Sprintf("%s/%s/excerpts/%s.json", session.String(), run.String(), finding.ID)
+		metadataPath := artifactwire.RunPath(session.String(), run.String(), "excerpts/"+artifactwire.FindingName(finding.ID))
 		metadataBytes, err := marshalCanonical(finding)
 		metadata, ok := artifacts[metadataPath]
 		if err != nil || !ok || !bytes.Equal(metadata.Bytes(), metadataBytes) {
@@ -183,7 +175,7 @@ func validateLiveSupport(final finalReviewWire, artifacts map[string]ports.Immut
 		}
 		expected[metadataPath] = struct{}{}
 		for i, item := range finding.Evidence {
-			name := fmt.Sprintf("%s/%s/excerpts/%s_%d.md", session.String(), run.String(), finding.ID, i+1)
+			name := artifactwire.RunPath(session.String(), run.String(), "excerpts/"+artifactwire.EvidenceExcerptName(finding.ID, i+1))
 			artifact, ok := artifacts[name]
 			if !ok || !bytes.Equal(artifact.Bytes(), []byte(item.Current.Quote)) {
 				return fmt.Errorf("live publication: missing or rebound excerpt")
@@ -217,16 +209,16 @@ func publicationOptionalStringsEqual(left, right *string) bool {
 
 func finalArtifactVersion(final finalReviewWire) string {
 	if final.Target.LiveSource != nil {
-		return "mulgae-review-artifact.v3"
+		return artifactwire.ReviewArtifactV3
 	}
-	return lineageVersion("mulgae-review-artifact.v1", final.ImmutableLineage.SourceRecoveryManifestSHA256)
+	return lineageVersion(artifactwire.ReviewArtifactV1, final.ImmutableLineage.SourceRecoveryManifestSHA256)
 }
 
 func manifestArtifactVersion(final finalReviewWire) string {
 	if final.Target.LiveSource != nil {
-		return "mulgae-run-manifest.v3"
+		return artifactwire.RunManifestV3
 	}
-	return lineageVersion("mulgae-run-manifest.v1", final.ImmutableLineage.SourceRecoveryManifestSHA256)
+	return lineageVersion(artifactwire.RunManifestV1, final.ImmutableLineage.SourceRecoveryManifestSHA256)
 }
 
 func validatePublicationTargetFormats(final finalReviewWire, manifest runManifestWire) error {

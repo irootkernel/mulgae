@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -31,7 +32,7 @@ var (
 func validateProjection(source VerifiedSourceProjection, options BuildOptions) error {
 	live := source.LiveSource != nil
 	if live {
-		if source.Review.SchemaVersion != "mulgae-review-artifact.v3" || source.Run.SchemaVersion != "mulgae-run-manifest.v3" || !source.LiveSource.Identity.Valid() || source.SourceIdentity.SourceTargetSHA256 != "" || source.CurrentIdentity.TargetSHA256 != "" || source.SourceIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() || source.CurrentIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() {
+		if source.Review.SchemaVersion != artifactwire.ReviewArtifactV3 || source.Run.SchemaVersion != artifactwire.RunManifestV3 || !source.LiveSource.Identity.Valid() || source.SourceIdentity.SourceTargetSHA256 != "" || source.CurrentIdentity.TargetSHA256 != "" || source.SourceIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() || source.CurrentIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() {
 			return fmt.Errorf("%w: live selection identity", ErrMalformedProjection)
 		}
 		if len(source.BinaryEvidence) != len(source.LiveSource.BinaryEvidence) {
@@ -45,7 +46,7 @@ func validateProjection(source VerifiedSourceProjection, options BuildOptions) e
 				return fmt.Errorf("%w: selected binary evidence", ErrMalformedProjection)
 			}
 		}
-	} else if source.Review.SchemaVersion == "mulgae-review-artifact.v3" || source.Run.SchemaVersion == "mulgae-run-manifest.v3" || source.SourceIdentity.SourceIdentitySHA256 != "" || source.CurrentIdentity.SourceIdentitySHA256 != "" || len(source.BinaryEvidence) != 0 {
+	} else if source.Review.SchemaVersion == artifactwire.ReviewArtifactV3 || source.Run.SchemaVersion == artifactwire.RunManifestV3 || source.SourceIdentity.SourceIdentitySHA256 != "" || source.CurrentIdentity.SourceIdentitySHA256 != "" || len(source.BinaryEvidence) != 0 {
 		return fmt.Errorf("%w: mixed live and historical projection", ErrMalformedProjection)
 	}
 	if !idPatterns["session"].MatchString(source.SessionID) || !idPatterns["run"].MatchString(source.RunID) || !idPatterns["review"].MatchString(source.ReviewID) {
@@ -98,8 +99,8 @@ func validateProjection(source VerifiedSourceProjection, options BuildOptions) e
 	if !sourceFindingBound {
 		return fmt.Errorf("%w: source identity does not bind exported evidence", ErrMalformedProjection)
 	}
-	compositeWithoutEvidence := (source.Review.SchemaVersion == "mulgae-composite-review-artifact.v1" || source.Review.SchemaVersion == "mulgae-composite-review-artifact.v2") &&
-		(source.Run.SchemaVersion == "mulgae-composite-run-manifest.v1" || source.Run.SchemaVersion == "mulgae-composite-run-manifest.v2") &&
+	compositeWithoutEvidence := (source.Review.SchemaVersion == artifactwire.CompositeReviewArtifactV1 || source.Review.SchemaVersion == artifactwire.CompositeReviewArtifactV2) &&
+		(source.Run.SchemaVersion == artifactwire.CompositeRunManifestV1 || source.Run.SchemaVersion == artifactwire.CompositeRunManifestV2) &&
 		source.Review.CoverageStatus == string(domain.CoverageComplete) && len(source.Evidence) == 0 &&
 		source.SourceIdentity == (SourceIdentity{SessionID: source.SessionID, RunID: source.RunID, ReviewID: source.ReviewID, SourceTargetSHA256: source.CurrentIdentity.TargetSHA256}) &&
 		source.CurrentIdentity == (CurrentIdentity{TargetSHA256: source.SourceIdentity.SourceTargetSHA256})

@@ -13,13 +13,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/app/compositesupport"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	compositeFinalSchemaAsset    = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json"
-	compositeManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json"
+	compositeFinalSchemaAsset    = artifactwire.CompositeReviewArtifactV1Schema
+	compositeManifestSchemaAsset = artifactwire.CompositeRunManifestV1Schema
 )
 
 type CompositeSourceInput struct {
@@ -365,25 +366,9 @@ func (candidate PreparedCompositeCandidate) candidateSHA256(includeSupport bool)
 	return "sha256:" + fmt.Sprintf("%x", digest.Sum(nil))
 }
 
-type compositeSourceWire struct {
-	Kind                   string `json:"kind"`
-	Role                   string `json:"role"`
-	RunID                  string `json:"run_id"`
-	ReviewID               string `json:"review_id,omitempty"`
-	AttemptID              string `json:"attempt_id"`
-	RoleReportSHA256       string `json:"role_report_sha256"`
-	RecoveryManifestSHA256 string `json:"recovery_manifest_sha256,omitempty"`
-	SourceKind             string `json:"source_kind,omitempty"`
-}
+type compositeSourceWire = artifactwire.CompositeSource
 
-type compositeCompositionWire struct {
-	Fingerprint                string                `json:"fingerprint"`
-	RootRunID                  string                `json:"root_run_id"`
-	RootReviewID               string                `json:"root_review_id,omitempty"`
-	Sources                    []compositeSourceWire `json:"sources"`
-	RootRecoveryManifestSHA256 string                `json:"root_recovery_manifest_sha256,omitempty"`
-	RootSourceKind             string                `json:"root_source_kind,omitempty"`
-}
+type compositeCompositionWire = artifactwire.CompositeComposition
 
 type compositeRoleWire struct {
 	Role                                     string
@@ -395,18 +380,7 @@ type compositeRoleWire struct {
 }
 
 func (value compositeRoleWire) MarshalJSON() ([]byte, error) {
-	type wire struct {
-		Role                         string   `json:"role"`
-		Required                     bool     `json:"required"`
-		Outcome                      string   `json:"outcome"`
-		AttemptID                    string   `json:"attempt_id"`
-		ProviderInstance             string   `json:"provider_instance"`
-		ValidFindingIDs              []string `json:"valid_finding_ids"`
-		SourceRunID                  string   `json:"source_run_id"`
-		SourceReviewID               string   `json:"source_review_id,omitempty"`
-		SourceRecoveryManifestSHA256 string   `json:"source_recovery_manifest_sha256,omitempty"`
-		SourceKind                   string   `json:"source_kind,omitempty"`
-	}
+	type wire = artifactwire.CompositeRole
 	return marshalCanonical(wire(value))
 }
 
@@ -417,27 +391,9 @@ type compositeFindingWire struct {
 }
 
 func (value compositeFindingWire) MarshalJSON() ([]byte, error) {
-	type source struct {
-		RunID                  string `json:"run_id"`
-		ReviewID               string `json:"review_id,omitempty"`
-		AttemptID              string `json:"attempt_id"`
-		FindingID              string `json:"finding_id"`
-		RecoveryManifestSHA256 string `json:"recovery_manifest_sha256,omitempty"`
-		SourceKind             string `json:"source_kind,omitempty"`
-	}
-	type wire struct {
-		ID             string `json:"id"`
-		Fingerprint    string `json:"fingerprint"`
-		Role           string `json:"role"`
-		Severity       string `json:"severity"`
-		Title          string `json:"title"`
-		Description    string `json:"description"`
-		Recommendation string `json:"recommendation"`
-		Confidence     string `json:"confidence"`
-		Lifecycle      string `json:"lifecycle"`
-		Source         source `json:"source"`
-	}
-	return marshalCanonical(wire{value.ID, value.Fingerprint, value.Role, value.Severity, value.Title, value.Description, value.Recommendation, value.Confidence, value.Lifecycle, source(value.Source)})
+	type source = artifactwire.CompositeFindingSource
+	type wire = artifactwire.CompositeFinding
+	return marshalCanonical(wire{ID: value.ID, Fingerprint: value.Fingerprint, Role: value.Role, Severity: value.Severity, Title: value.Title, Description: value.Description, Recommendation: value.Recommendation, Confidence: value.Confidence, Lifecycle: value.Lifecycle, Source: source(value.Source)})
 }
 
 type compositeFinalWire struct {
@@ -481,14 +437,7 @@ func (value compositeFinalWire) MarshalJSON() ([]byte, error) {
 	return marshalCanonical(wire(value))
 }
 
-type compositeManifestRoleWire struct {
-	Role        string `json:"role"`
-	Path        string `json:"path"`
-	SHA256      string `json:"sha256"`
-	ByteLength  int    `json:"byte_length"`
-	AttemptID   string `json:"attempt_id"`
-	SourceRunID string `json:"source_run_id"`
-}
+type compositeManifestRoleWire = artifactwire.CompositeManifestRole
 
 type compositeManifestWire struct {
 	SchemaVersion              string                      `json:"schema_version"`
@@ -525,9 +474,9 @@ type compositeManifestWire struct {
 func (candidate PreparedCompositeCandidate) compositionWire() compositeCompositionWire {
 	sources := make([]compositeSourceWire, len(candidate.input.Sources))
 	for i, source := range candidate.input.Sources {
-		sources[i] = compositeSourceWire{source.Kind, string(source.Role), source.RunID.String(), source.ReviewID.String(), source.AttemptID.String(), source.RoleReportSHA256, source.RecoveryManifestSHA256, compositeSourceKind(candidate.input.RootRecoveryManifestSHA256, source.RecoveryManifestSHA256)}
+		sources[i] = compositeSourceWire{Kind: source.Kind, Role: string(source.Role), RunID: source.RunID.String(), ReviewID: source.ReviewID.String(), AttemptID: source.AttemptID.String(), RoleReportSHA256: source.RoleReportSHA256, RecoveryManifestSHA256: source.RecoveryManifestSHA256, SourceKind: compositeSourceKind(candidate.input.RootRecoveryManifestSHA256, source.RecoveryManifestSHA256)}
 	}
-	return compositeCompositionWire{candidate.input.Fingerprint.String(), candidate.input.RootRunID.String(), candidate.input.RootReviewID.String(), sources, candidate.input.RootRecoveryManifestSHA256, compositeSourceKind(candidate.input.RootRecoveryManifestSHA256, candidate.input.RootRecoveryManifestSHA256)}
+	return compositeCompositionWire{Fingerprint: candidate.input.Fingerprint.String(), RootRunID: candidate.input.RootRunID.String(), RootReviewID: candidate.input.RootReviewID.String(), Sources: sources, RootRecoveryManifestSHA256: candidate.input.RootRecoveryManifestSHA256, RootSourceKind: compositeSourceKind(candidate.input.RootRecoveryManifestSHA256, candidate.input.RootRecoveryManifestSHA256)}
 }
 
 func (candidate PreparedCompositeCandidate) Build(ctx context.Context, validator SchemaValidator, reviewID domain.ReviewID, createdAt time.Time, epoch uint64) (PublicationBundle, error) {
@@ -581,7 +530,7 @@ func (candidate PreparedCompositeCandidate) Build(ctx context.Context, validator
 		findings[i] = compositeFindingWire{finding.ID, finding.Fingerprint, string(finding.Role), string(finding.Severity), finding.Title, finding.Description, finding.Recommendation, string(finding.Confidence), string(finding.Lifecycle), compositeFindingSourceWire{finding.SourceRunID.String(), finding.SourceReviewID.String(), finding.SourceAttemptID.String(), finding.SourceFindingID, finding.SourceRecoveryManifestSHA256, compositeSourceKind(candidate.input.RootRecoveryManifestSHA256, finding.SourceRecoveryManifestSHA256)}}
 	}
 	composition := candidate.compositionWire()
-	finalBytes, err := marshalCanonical(compositeFinalWire{lineageVersion("mulgae-composite-review-artifact.v1", optionalString(candidate.input.RootRecoveryManifestSHA256)), candidate.input.SessionID.String(), candidate.input.RunID.String(), reviewID.String(), string(domain.RunTypeComposite), created, compositeTargetWire{ContentSHA256: "sha256:" + candidate.input.Target.SHA256(), ManifestPath: targetManifestPath}, composition, string(candidate.input.ContentVerdict), string(candidate.input.CoverageStatus), string(candidate.input.ExtractionStatus), string(domain.PublicationCommitted), string(candidate.input.CIDecision), candidate.input.CIReasonCodes, severityThresholdWire{RequestChangesAtOrAbove: string(candidate.input.Threshold), PolicySource: "root_review"}, roles, findings, []string{}})
+	finalBytes, err := marshalCanonical(compositeFinalWire{lineageVersion(artifactwire.CompositeReviewArtifactV1, optionalString(candidate.input.RootRecoveryManifestSHA256)), candidate.input.SessionID.String(), candidate.input.RunID.String(), reviewID.String(), string(domain.RunTypeComposite), created, compositeTargetWire{ContentSHA256: "sha256:" + candidate.input.Target.SHA256(), ManifestPath: targetManifestPath}, composition, string(candidate.input.ContentVerdict), string(candidate.input.CoverageStatus), string(candidate.input.ExtractionStatus), string(domain.PublicationCommitted), string(candidate.input.CIDecision), candidate.input.CIReasonCodes, severityThresholdWire{RequestChangesAtOrAbove: string(candidate.input.Threshold), PolicySource: "root_review"}, roles, findings, []string{}})
 	if err != nil {
 		return PublicationBundle{}, err
 	}
@@ -618,10 +567,10 @@ func (candidate PreparedCompositeCandidate) Build(ctx context.Context, validator
 	if candidate.input.CIDecision == domain.CIFail {
 		exit = int(domain.ExitCommittedCIRejected)
 	}
-	recovery := recoveryJournalWire{ExpectedStaged: artifactIdentityWire{paths.staged.String(), final.Identity().SHA256()}, ExpectedFinal: artifactIdentityWire{final.Identity().Path().String(), final.Identity().SHA256()}, ValidatedCandidateSHA256: candidate.ValidatedCandidateSHA256()}
-	identity := compositeIdentityWire{pathPointerWire{paths.manifest.String()}, artifactIdentityWire{edge.Path().String(), edge.SHA256()}, pathPointerWire{paths.epoch.String()}, artifactIdentityWire{index.Path().String(), index.SHA256()}}
+	recovery := recoveryJournalWire{ExpectedStaged: artifactIdentityWire{Path: paths.staged.String(), SHA256: final.Identity().SHA256()}, ExpectedFinal: artifactIdentityWire{Path: final.Identity().Path().String(), SHA256: final.Identity().SHA256()}, ValidatedCandidateSHA256: candidate.ValidatedCandidateSHA256()}
+	identity := compositeIdentityWire{pathPointerWire{Path: paths.manifest.String()}, artifactIdentityWire{Path: edge.Path().String(), SHA256: edge.SHA256()}, pathPointerWire{Path: paths.epoch.String()}, artifactIdentityWire{Path: index.Path().String(), SHA256: index.SHA256()}}
 	lineage := immutableLineageWire{LineageEdgePath: edge.Path().String(), LineageEdgeSHA256: edge.SHA256()}
-	manifestBytes, err := marshalCanonical(compositeManifestWire{lineageVersion("mulgae-composite-run-manifest.v1", optionalString(candidate.input.RootRecoveryManifestSHA256)), candidate.input.SessionID.String(), candidate.input.RunID.String(), string(domain.RunTypeComposite), string(domain.RunCompleted), true, created, created, manifestTargetWire{ManifestPath: targetManifestPath, ContentSHA256: "sha256:" + candidate.input.Target.SHA256()}, lineage, composition, selected, required, string(candidate.input.ContentVerdict), string(candidate.input.CoverageStatus), string(candidate.input.ExtractionStatus), string(domain.PublicationCommitted), string(candidate.input.CIDecision), candidate.input.CIReasonCodes, string(domain.JournalManifestCommitted), string(domain.DurableObservationP2Committed), string(domain.PublicationCommitted), string(domain.PublicationAuthorityP2), recovery, identity, string(domain.RecoveryActionReconstructCompletedStatus), finalReviewIdentityWire{reviewID.String(), final.Identity().Path().String(), final.Identity().SHA256()}, reportWires, exit})
+	manifestBytes, err := marshalCanonical(compositeManifestWire{lineageVersion(artifactwire.CompositeRunManifestV1, optionalString(candidate.input.RootRecoveryManifestSHA256)), candidate.input.SessionID.String(), candidate.input.RunID.String(), string(domain.RunTypeComposite), string(domain.RunCompleted), true, created, created, manifestTargetWire{ManifestPath: targetManifestPath, ContentSHA256: "sha256:" + candidate.input.Target.SHA256()}, lineage, composition, selected, required, string(candidate.input.ContentVerdict), string(candidate.input.CoverageStatus), string(candidate.input.ExtractionStatus), string(domain.PublicationCommitted), string(candidate.input.CIDecision), candidate.input.CIReasonCodes, string(domain.JournalManifestCommitted), string(domain.DurableObservationP2Committed), string(domain.PublicationCommitted), string(domain.PublicationAuthorityP2), recovery, identity, string(domain.RecoveryActionReconstructCompletedStatus), finalReviewIdentityWire{ReviewID: reviewID.String(), Path: final.Identity().Path().String(), SHA256: final.Identity().SHA256()}, reportWires, exit})
 	if err != nil {
 		return PublicationBundle{}, err
 	}
@@ -633,7 +582,7 @@ func (candidate PreparedCompositeCandidate) Build(ctx context.Context, validator
 	if err != nil {
 		return PublicationBundle{}, err
 	}
-	epochBytes, _ := marshalCanonical(publicationEpochWire{publicationEpochV1, epoch, artifactIdentityWire{manifest.Path().String(), manifest.SHA256()}, artifactIdentityWire{edge.Path().String(), edge.SHA256()}, artifactIdentityWire{final.Identity().Path().String(), final.Identity().SHA256()}})
+	epochBytes, _ := marshalCanonical(publicationEpochWire{SchemaVersion: publicationEpochV1, StoreEpoch: epoch, Manifest: artifactIdentityWire{Path: manifest.Path().String(), SHA256: manifest.SHA256()}, LineageEdge: artifactIdentityWire{Path: edge.Path().String(), SHA256: edge.SHA256()}, FinalReview: artifactIdentityWire{Path: final.Identity().Path().String(), SHA256: final.Identity().SHA256()}})
 	epochArtifact, err := immutableArtifact(paths.epoch, epochBytes)
 	if err != nil {
 		return PublicationBundle{}, err
@@ -642,10 +591,10 @@ func (candidate PreparedCompositeCandidate) Build(ctx context.Context, validator
 	if err != nil {
 		return PublicationBundle{}, err
 	}
-	restart := restartStateWire{candidate.input.SessionID.String(), candidate.input.RunID.String(), string(domain.JournalManifestCommitted), recovery.ExpectedStaged, recovery.ExpectedFinal, candidate.ValidatedCandidateSHA256(), epoch, exit, manifest.Path().String(), edge.Path().String(), epochArtifact.Path().String()}
-	journalBytes, _ := marshalCanonical(publicationJournalWire{publicationJournalV1, restart})
+	restart := restartStateWire{SessionID: candidate.input.SessionID.String(), RunID: candidate.input.RunID.String(), PersistedJournalState: string(domain.JournalManifestCommitted), ExpectedStaged: recovery.ExpectedStaged, ExpectedFinal: recovery.ExpectedFinal, ValidatedCandidateSHA256: candidate.ValidatedCandidateSHA256(), StoreEpoch: epoch, NormalExit: exit, ManifestPath: manifest.Path().String(), LineageEdgePath: edge.Path().String(), EpochPath: epochArtifact.Path().String()}
+	journalBytes, _ := marshalCanonical(publicationJournalWire{SchemaVersion: publicationJournalV1, RestartState: restart})
 	journal, _ := mutableDocument(paths.journal, journalBytes)
-	statusBytes, _ := marshalCanonical(publicationStatusWire{publicationStatusV1, string(domain.PublicationCommitted), string(domain.PublicationAuthorityP2), restart})
+	statusBytes, _ := marshalCanonical(publicationStatusWire{SchemaVersion: publicationStatusV1, PublicationStatus: string(domain.PublicationCommitted), PublicationAuthority: string(domain.PublicationAuthorityP2), RestartState: restart})
 	status, _ := mutableDocument(paths.status, statusBytes)
 	return PublicationBundle{final: final, manifest: manifest, lineageEdge: edge, epoch: publicationEpoch, staged: staged, journal: journal, status: status, excerpts: support}, nil
 }
@@ -671,7 +620,7 @@ func (candidate PreparedCompositeCandidate) buildCompositeSupport(paths publicat
 		path, _ := ports.NewSafeRelativePath(prefix + "target/captured-review.json")
 		artifact, _ := immutableArtifact(path, archive.Manifest())
 		artifacts = append(artifacts, artifact)
-		value := artifactIdentityWire{artifact.Path().String(), artifact.SHA256()}
+		value := artifactIdentityWire{Path: artifact.Path().String(), SHA256: artifact.SHA256()}
 		archiveIdentity = &value
 		for _, blob := range archive.Blobs() {
 			path, _ := ports.NewSafeRelativePath(prefix + "target/" + blob.Path().String())
@@ -680,7 +629,7 @@ func (candidate PreparedCompositeCandidate) buildCompositeSupport(paths publicat
 		}
 	}
 	manifestPath, _ := ports.NewSafeRelativePath(prefix + targetManifestPath)
-	manifestBytes, err := marshalCanonical(runtimeTargetManifestWire{SchemaVersion: "mulgae-runtime-target-manifest.v1", Target: artifactIdentityWire{target.Path().String(), target.SHA256()}, CapturedArchive: archiveIdentity, TargetKind: string(candidate.input.Target.Kind()), RepositoryID: candidate.input.Target.RepositoryID(), BaseObjectID: candidate.input.Target.BaseObjectID(), HeadObjectID: candidate.input.Target.HeadObjectID(), HeadTreeObjectID: candidate.input.Target.HeadTreeObjectID(), IndexTreeObjectID: candidate.input.Target.IndexTreeObjectID(), GitMode: string(candidate.input.Target.GitMode()), Prompts: []artifactIdentityWire{}, SelectedReplayPrompts: []selectedReplayPromptWire{}})
+	manifestBytes, err := marshalCanonical(runtimeTargetManifestWire{SchemaVersion: artifactwire.RuntimeTargetManifestV1, Target: artifactIdentityWire{Path: target.Path().String(), SHA256: target.SHA256()}, CapturedArchive: archiveIdentity, TargetKind: string(candidate.input.Target.Kind()), RepositoryID: candidate.input.Target.RepositoryID(), BaseObjectID: candidate.input.Target.BaseObjectID(), HeadObjectID: candidate.input.Target.HeadObjectID(), HeadTreeObjectID: candidate.input.Target.HeadTreeObjectID(), IndexTreeObjectID: candidate.input.Target.IndexTreeObjectID(), GitMode: string(candidate.input.Target.GitMode()), Prompts: []artifactIdentityWire{}, SelectedReplayPrompts: []selectedReplayPromptWire{}})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -690,11 +639,11 @@ func (candidate PreparedCompositeCandidate) buildCompositeSupport(paths publicat
 	sort.Slice(reports, func(i, j int) bool { return roleOrdinal(reports[i].Role) < roleOrdinal(reports[j].Role) })
 	wires := make([]compositeManifestRoleWire, len(reports))
 	for i, report := range reports {
-		relative := "role-reports/" + string(report.Role) + ".md"
+		relative := artifactwire.RoleReportPath(string(report.Role))
 		path, _ := ports.NewSafeRelativePath(prefix + relative)
 		artifact, _ := immutableArtifact(path, report.Bytes)
 		artifacts = append(artifacts, artifact)
-		wires[i] = compositeManifestRoleWire{string(report.Role), relative, artifact.SHA256(), len(report.Bytes), report.AttemptID.String(), report.SourceRunID.String()}
+		wires[i] = compositeManifestRoleWire{Role: string(report.Role), Path: relative, SHA256: artifact.SHA256(), ByteLength: len(report.Bytes), AttemptID: report.AttemptID.String(), SourceRunID: report.SourceRunID.String()}
 	}
 	if len(candidate.input.SourceSupport) > 0 {
 		copied, err := compositesupport.Build(candidate.input.SessionID, candidate.input.RunID, candidate.input.SourceSupport)
@@ -724,7 +673,7 @@ func validateCompositeBundleSemantics(bundle PublicationBundle) error {
 	if err := json.Unmarshal(bundle.final.Bytes(), &final); err != nil {
 		return err
 	}
-	if (final.SchemaVersion != "mulgae-composite-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v2") || final.RunType != string(domain.RunTypeComposite) {
+	if (final.SchemaVersion != artifactwire.CompositeReviewArtifactV1 && final.SchemaVersion != artifactwire.CompositeReviewArtifactV2) || final.RunType != string(domain.RunTypeComposite) {
 		return fmt.Errorf("invalid composite final")
 	}
 	var manifest struct {
@@ -740,10 +689,10 @@ func validateCompositeBundleSemantics(bundle PublicationBundle) error {
 	if err := json.Unmarshal(bundle.manifest.Bytes(), &manifest); err != nil {
 		return err
 	}
-	if (final.SchemaVersion == "mulgae-composite-review-artifact.v1") != (manifest.SchemaVersion == "mulgae-composite-run-manifest.v1") {
+	if (final.SchemaVersion == artifactwire.CompositeReviewArtifactV1) != (manifest.SchemaVersion == artifactwire.CompositeRunManifestV1) {
 		return fmt.Errorf("composite final and manifest versions differ")
 	}
-	if (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2") || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || manifest.RunType != final.RunType || manifest.FinalReview.SHA256 != bundle.final.Identity().SHA256() || manifest.CompositeIdentity.SupportIndex.SHA256 == "" {
+	if (manifest.SchemaVersion != artifactwire.CompositeRunManifestV1 && manifest.SchemaVersion != artifactwire.CompositeRunManifestV2) || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || manifest.RunType != final.RunType || manifest.FinalReview.SHA256 != bundle.final.Identity().SHA256() || manifest.CompositeIdentity.SupportIndex.SHA256 == "" {
 		return fmt.Errorf("invalid composite manifest binding")
 	}
 	session, err := domain.ParseSessionID(final.SessionID)
@@ -773,7 +722,7 @@ func validateCompositeBundleSemantics(bundle PublicationBundle) error {
 	if err := unmarshalCanonicalPublicationRecord(index.Bytes(), &support, "composite support index"); err != nil {
 		return err
 	}
-	if support.SchemaVersion != "mulgae-run-support-index.v1" && support.SchemaVersion != "mulgae-run-support-index.v2" {
+	if support.SchemaVersion != artifactwire.SupportIndexV1 && support.SchemaVersion != artifactwire.SupportIndexV2 {
 		return fmt.Errorf("invalid composite support version")
 	}
 	seen := map[string]bool{indexIdentity.Path: true}
@@ -787,14 +736,14 @@ func validateCompositeBundleSemantics(bundle PublicationBundle) error {
 		if err != nil {
 			return err
 		}
-		if support.SchemaVersion == "mulgae-run-support-index.v1" && (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) {
+		if support.SchemaVersion == artifactwire.SupportIndexV1 && (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) {
 			return fmt.Errorf("composite provenance requires support v2")
 		}
 	}
 	if len(seen) != len(artifacts) {
 		return fmt.Errorf("unbound composite support artifact")
 	}
-	if support.SchemaVersion == "mulgae-run-support-index.v2" {
+	if support.SchemaVersion == artifactwire.SupportIndexV2 {
 		doc, err := compositesupport.Verify(session, run, final.Target.ContentSHA256, artifacts)
 		if err != nil {
 			return err
@@ -842,10 +791,10 @@ func validateCompositeMaterial(
 	if err := json.Unmarshal(epochArtifact.Record().Bytes(), &epoch); err != nil {
 		return 0, err
 	}
-	if (final.SchemaVersion == "mulgae-composite-review-artifact.v1") != (manifest.SchemaVersion == "mulgae-composite-run-manifest.v1") {
+	if (final.SchemaVersion == artifactwire.CompositeReviewArtifactV1) != (manifest.SchemaVersion == artifactwire.CompositeRunManifestV1) {
 		return 0, fmt.Errorf("composite final and manifest versions differ")
 	}
-	if (final.SchemaVersion != "mulgae-composite-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v2") || (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2") || final.SessionID != run.SessionID().String() || final.RunID != run.RunID().String() || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || final.RunType != string(domain.RunTypeComposite) || manifest.RunType != final.RunType || manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) || manifest.FinalReview.SHA256 != finalArtifact.Identity().SHA256() || manifest.FinalReview.Path != finalArtifact.Identity().Path().String() || manifest.CompositeIdentity.Manifest.Path != manifestArtifact.Path().String() || manifest.CompositeIdentity.LineageEdge.SHA256 != lineageArtifact.SHA256() || manifest.CompositeIdentity.Epoch.Path != epochArtifact.Record().Path().String() || edge.Child.ReviewID != final.ReviewID || edge.ParentRunID != nil || edge.SourceRunID != nil || epoch.StoreEpoch != epochArtifact.Value() || epoch.Manifest.SHA256 != manifestArtifact.SHA256() || epoch.FinalReview.SHA256 != finalArtifact.Identity().SHA256() {
+	if (final.SchemaVersion != artifactwire.CompositeReviewArtifactV1 && final.SchemaVersion != artifactwire.CompositeReviewArtifactV2) || (manifest.SchemaVersion != artifactwire.CompositeRunManifestV1 && manifest.SchemaVersion != artifactwire.CompositeRunManifestV2) || final.SessionID != run.SessionID().String() || final.RunID != run.RunID().String() || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || final.RunType != string(domain.RunTypeComposite) || manifest.RunType != final.RunType || manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) || manifest.FinalReview.SHA256 != finalArtifact.Identity().SHA256() || manifest.FinalReview.Path != finalArtifact.Identity().Path().String() || manifest.CompositeIdentity.Manifest.Path != manifestArtifact.Path().String() || manifest.CompositeIdentity.LineageEdge.SHA256 != lineageArtifact.SHA256() || manifest.CompositeIdentity.Epoch.Path != epochArtifact.Record().Path().String() || edge.Child.ReviewID != final.ReviewID || edge.ParentRunID != nil || edge.SourceRunID != nil || epoch.StoreEpoch != epochArtifact.Value() || epoch.Manifest.SHA256 != manifestArtifact.SHA256() || epoch.FinalReview.SHA256 != finalArtifact.Identity().SHA256() {
 		return 0, fmt.Errorf("composite committed snapshot bindings are invalid")
 	}
 	exit := domain.OperationalExitCode(manifest.ExitCode)

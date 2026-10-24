@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 )
 
 const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v21.schema.json"
@@ -15,14 +16,14 @@ const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests
 const fixedCommandSpecCount = 19
 
 const (
-	failedRunRecoveryContractURI        = "https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json"
-	recoveryRunManifestContractURI      = "https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json"
-	recoveryReviewArtifactContractURI   = "https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json"
-	recoveryCompositeReviewContractURI  = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json"
+	failedRunRecoveryContractURI        = artifactwire.RunRecoveryV1Schema
+	recoveryRunManifestContractURI      = artifactwire.RunManifestV2Schema
+	recoveryReviewArtifactContractURI   = artifactwire.ReviewArtifactV2Schema
+	recoveryCompositeReviewContractURI  = artifactwire.CompositeReviewArtifactV2Schema
 	doctorResultContractURI             = "https://mulgae.local/schemas/mulgae-doctor-result.v7.schema.json"
 	heartbeatResultContractURI          = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v4.schema.json"
-	runManifestContractURI              = "https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json"
-	reviewArtifactContractURI           = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
+	runManifestContractURI              = artifactwire.RunManifestV3Schema
+	reviewArtifactContractURI           = artifactwire.ReviewArtifactV3Schema
 	reviewPreflightContractURI          = "https://mulgae.local/schemas/mulgae-review-preflight.v9.schema.json"
 	providerContractEvidenceContractURI = "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v4.schema.json"
 	cleanPlanContractURI                = "https://mulgae.local/schemas/mulgae-clean-plan.v1.schema.json"

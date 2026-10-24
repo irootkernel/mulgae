@@ -9,10 +9,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
-const capturedReviewArchiveManifestVersion = "mulgae-captured-review-archive.v2"
+const capturedReviewArchiveManifestVersion = artifactwire.CapturedReviewArchiveV2
 
 const capturedReviewBundleMagic = "MULGAE-CAPTURE-BUNDLE-V2\n"
 
@@ -195,7 +196,7 @@ func CapturedReviewArchiveBlobReferences(manifest []byte) ([]CapturedReviewArchi
 	if err != nil {
 		return nil, err
 	}
-	if version == "mulgae-captured-review-archive.v1" {
+	if version == artifactwire.CapturedReviewArchiveV1 {
 		if _, err := UnmarshalCapturedReviewMaterial(manifest); err != nil {
 			return nil, err
 		}
@@ -223,7 +224,7 @@ func CapturedReviewArchiveIsLegacy(manifest []byte) (bool, error) {
 		return false, err
 	}
 	switch version {
-	case "mulgae-captured-review-archive.v1":
+	case artifactwire.CapturedReviewArchiveV1:
 		if _, err := unmarshalCapturedReviewMaterialV1(manifest); err != nil {
 			return false, err
 		}
@@ -245,7 +246,7 @@ func RestoreCapturedReviewArchive(manifest []byte, blobs []CapturedReviewArchive
 	if err != nil {
 		return CapturedReviewMaterial{}, err
 	}
-	if version == "mulgae-captured-review-archive.v1" {
+	if version == artifactwire.CapturedReviewArchiveV1 {
 		if len(blobs) != 0 {
 			return CapturedReviewMaterial{}, fmt.Errorf("captured review archive: legacy archive has unexpected blobs")
 		}
@@ -449,7 +450,7 @@ func capturedBlobPath(sha256 string) string {
 		return ""
 	}
 	digest := strings.TrimPrefix(sha256, "sha256:")
-	return "blobs/sha256-" + digest
+	return artifactwire.CapturedBlobPath(digest)
 }
 
 func marshalCapturedReviewBundle(material CapturedReviewMaterial) ([]byte, error) {

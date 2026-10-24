@@ -1,0 +1,416 @@
+{
+  "artifactIdentityDTO/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "artifactIdentityDTO/empty": {
+    "json": "{\"path\":\"\",\"sha256\":\"\"}"
+  },
+  "artifactIdentityDTO/null root": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "artifactIdentityDTO/trailing": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "artifactIdentityDTO/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "artifactIdentityDTO/valid": {
+    "json": "{\"path\":\"café \\u003c\\u0026\\u003e\\r\\n\",\"sha256\":\"raw\"}"
+  },
+  "artifactIdentityDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field artifactIdentityDTO.path of type string",
+    "offset": 9,
+    "value": "number",
+    "type": "string",
+    "struct": "artifactIdentityDTO",
+    "field": "path"
+  },
+  "finalDTO/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "finalDTO/empty": {
+    "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\",\"run_type\":\"\",\"created_at\":\"\",\"mulgae\":{\"version\":\"\",\"commit\":null},\"immutable_lineage\":{\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null,\"lineage_edge_path\":\"\",\"lineage_edge_sha256\":\"\"},\"followup_outcome\":null,\"target\":{\"content_sha256\":\"\",\"manifest_path\":\"\",\"base_oid\":null,\"head_oid\":null},\"validation\":{\"status\":\"\",\"schema_validation\":\"\",\"semantic_validation\":\"\",\"evidence_validation\":\"\"},\"content_verdict\":\"\",\"coverage_status\":\"\",\"structured_extraction_status\":\"\",\"publication_status\":\"\",\"ci_decision\":\"\",\"ci_reason_codes\":null,\"severity_threshold\":{\"request_changes_at_or_above\":\"\",\"policy_source\":\"\"},\"role_outcomes\":null,\"findings\":null,\"limitations\":null,\"provenance\":{\"aggregation_path\":\"\",\"final_validation_path\":\"\",\"manifest_path\":\"\"}}"
+  },
+  "finalDTO/null root": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "finalDTO/trailing": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "finalDTO/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "finalDTO/valid": {
+    "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\",\"run_type\":\"\",\"created_at\":\"\",\"mulgae\":{\"version\":\"\",\"commit\":null},\"immutable_lineage\":{\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null,\"lineage_edge_path\":\"\",\"lineage_edge_sha256\":\"\"},\"followup_outcome\":null,\"target\":{\"content_sha256\":\"\",\"manifest_path\":\"\",\"base_oid\":null,\"head_oid\":null},\"validation\":{\"status\":\"\",\"schema_validation\":\"\",\"semantic_validation\":\"\",\"evidence_validation\":\"\"},\"content_verdict\":\"\",\"coverage_status\":\"\",\"structured_extraction_status\":\"\",\"publication_status\":\"\",\"ci_decision\":\"\",\"ci_reason_codes\":null,\"severity_threshold\":{\"request_changes_at_or_above\":\"\",\"policy_source\":\"\"},\"role_outcomes\":null,\"findings\":null,\"limitations\":null,\"provenance\":{\"aggregation_path\":\"\",\"final_validation_path\":\"\",\"manifest_path\":\"\"}}"
+  },
+  "finalDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.provenance.production.providers.0.family of type string",
+    "offset": 54,
+    "value": "number",
+    "type": "string",
+    "struct": "finalDTO",
+    "field": "provenance.production.providers.0.family"
+  },
+  "manifestDTO/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "manifestDTO/empty": {
+    "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"run_type\":\"\",\"state\":\"\",\"sealed\":false,\"created_at\":\"\",\"started_at\":null,\"completed_at\":null,\"mulgae_version\":\"\",\"immutable_lineage\":{\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null,\"lineage_edge_path\":\"\",\"lineage_edge_sha256\":\"\"},\"followup_outcome\":null,\"target\":{\"manifest_path\":\"\",\"content_sha256\":\"\"},\"selected_roles\":null,\"required_roles\":null,\"attempts\":null,\"content_verdict\":\"\",\"coverage_status\":\"\",\"structured_extraction_status\":\"\",\"publication_status\":\"\",\"ci_decision\":\"\",\"ci_reason_codes\":null,\"persisted_journal_state\":\"\",\"durable_observation_class\":\"\",\"derived_publication_status\":\"\",\"publication_authority\":\"\",\"recovery_journal\":{\"expected_staged\":null,\"expected_final\":null,\"validated_candidate_sha256\":null},\"composite_identity\":{\"manifest\":null,\"lineage_edge\":null,\"epoch\":null,\"support_index\":null},\"recovery_action\":\"\",\"final_review\":null,\"role_reports\":null,\"failures\":null,\"warnings\":null,\"exit_code\":0}"
+  },
+  "manifestDTO/null root": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "manifestDTO/trailing": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "manifestDTO/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "manifestDTO/valid": {
+    "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"run_type\":\"\",\"state\":\"\",\"sealed\":false,\"created_at\":\"\",\"started_at\":null,\"completed_at\":null,\"mulgae_version\":\"\",\"immutable_lineage\":{\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null,\"lineage_edge_path\":\"\",\"lineage_edge_sha256\":\"\"},\"followup_outcome\":null,\"target\":{\"manifest_path\":\"\",\"content_sha256\":\"\"},\"selected_roles\":null,\"required_roles\":null,\"attempts\":null,\"content_verdict\":\"\",\"coverage_status\":\"\",\"structured_extraction_status\":\"\",\"publication_status\":\"\",\"ci_decision\":\"\",\"ci_reason_codes\":null,\"persisted_journal_state\":\"\",\"durable_observation_class\":\"\",\"derived_publication_status\":\"\",\"publication_authority\":\"\",\"recovery_journal\":{\"expected_staged\":null,\"expected_final\":null,\"validated_candidate_sha256\":null},\"composite_identity\":{\"manifest\":null,\"lineage_edge\":null,\"epoch\":null,\"support_index\":null},\"recovery_action\":\"\",\"final_review\":null,\"role_reports\":null,\"failures\":null,\"warnings\":null,\"exit_code\":0}"
+  },
+  "manifestDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.recovery_journal.expected_final.path of type string",
+    "offset": 48,
+    "value": "number",
+    "type": "string",
+    "struct": "manifestDTO",
+    "field": "recovery_journal.expected_final.path"
+  },
+  "runtimePromptManifestDTO/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "runtimePromptManifestDTO/empty": {
+    "json": "{\"schema_version\":\"\",\"target\":{\"path\":\"\",\"sha256\":\"\"},\"stdin\":{\"path\":\"\",\"sha256\":\"\"},\"complete_stdin_sha256\":\"\",\"template_id\":\"\",\"template_version\":\"\",\"template_sha256\":\"\",\"source_invocation_id\":\"\",\"execution_invocation_id\":\"\",\"scope\":\"\",\"role\":\"\",\"adapter_profile\":\"\",\"adapter_parameters\":null}"
+  },
+  "runtimePromptManifestDTO/null root": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "runtimePromptManifestDTO/trailing": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "runtimePromptManifestDTO/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "runtimePromptManifestDTO/valid": {
+    "json": "{\"schema_version\":\"\",\"target\":{\"path\":\"\",\"sha256\":\"\"},\"stdin\":{\"path\":\"\",\"sha256\":\"\"},\"complete_stdin_sha256\":\"\",\"template_id\":\"\",\"template_version\":\"\",\"template_sha256\":\"\",\"source_invocation_id\":\"\",\"execution_invocation_id\":\"\",\"scope\":\"\",\"role\":\"\",\"adapter_profile\":\"\",\"adapter_parameters\":{\"model\":\"\\u003c\\u0026\\u003e\"}}"
+  },
+  "runtimePromptManifestDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field runtimePromptManifestDTO.adapter_parameters.model of type string",
+    "offset": 33,
+    "value": "number",
+    "type": "string",
+    "struct": "runtimePromptManifestDTO",
+    "field": "adapter_parameters.model"
+  },
+  "runtimeSupportIndexDTO/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "runtimeSupportIndexDTO/empty": {
+    "json": "{\"schema_version\":\"\",\"artifacts\":null}"
+  },
+  "runtimeSupportIndexDTO/null root": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "runtimeSupportIndexDTO/trailing": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "runtimeSupportIndexDTO/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "runtimeSupportIndexDTO/valid": {
+    "json": "{\"schema_version\":\"v\",\"artifacts\":[]}"
+  },
+  "runtimeSupportIndexDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field runtimeSupportIndexDTO.artifacts of type []query.artifactIdentityDTO",
+    "offset": 14,
+    "value": "number",
+    "type": "[]query.artifactIdentityDTO",
+    "struct": "runtimeSupportIndexDTO",
+    "field": "artifacts"
+  },
+  "runtimeTargetManifestDTO/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "runtimeTargetManifestDTO/empty": {
+    "json": "{\"schema_version\":\"\",\"target\":{\"path\":\"\",\"sha256\":\"\"},\"target_kind\":\"\",\"repository_id\":\"\",\"base_object_id\":\"\",\"head_object_id\":\"\",\"head_tree_object_id\":\"\",\"index_tree_object_id\":\"\",\"git_mode\":\"\",\"prompts\":null,\"selected_replay_prompts\":null}"
+  },
+  "runtimeTargetManifestDTO/null root": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "runtimeTargetManifestDTO/trailing": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "runtimeTargetManifestDTO/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "runtimeTargetManifestDTO/valid": {
+    "json": "{\"schema_version\":\"\",\"target\":{\"path\":\"x\",\"sha256\":\"y\"},\"artist_brief\":{\"path\":\"\",\"sha256\":\"\"},\"target_kind\":\"\",\"repository_id\":\"\",\"base_object_id\":\"\",\"head_object_id\":\"\",\"head_tree_object_id\":\"\",\"index_tree_object_id\":\"\",\"git_mode\":\"\",\"prompts\":[],\"selected_replay_prompts\":[]}"
+  },
+  "runtimeTargetManifestDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field runtimeTargetManifestDTO.target.path of type string",
+    "offset": 19,
+    "value": "number",
+    "type": "string",
+    "struct": "runtimeTargetManifestDTO",
+    "field": "target.path"
+  },
+  "selectedReplayPromptDTO/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "selectedReplayPromptDTO/empty": {
+    "json": "{\"attempt_id\":\"\",\"sequence\":0,\"purpose\":\"\",\"artifact\":{\"path\":\"\",\"sha256\":\"\"}}"
+  },
+  "selectedReplayPromptDTO/null root": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "selectedReplayPromptDTO/trailing": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "selectedReplayPromptDTO/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "selectedReplayPromptDTO/valid": {
+    "json": "{\"attempt_id\":\"\",\"sequence\":18446744073709551615,\"purpose\":\"\",\"artifact\":{\"path\":\"x\",\"sha256\":\"\"}}"
+  },
+  "selectedReplayPromptDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number -1 into Go struct field selectedReplayPromptDTO.sequence of type uint64",
+    "offset": 14,
+    "value": "number -1",
+    "type": "uint64",
+    "struct": "selectedReplayPromptDTO",
+    "field": "sequence"
+  },
+  "synthetic/NaN": {
+    "error_type": "*json.SyntaxError",
+    "message": "invalid character 'N' looking for beginning of value",
+    "offset": 10
+  },
+  "synthetic/UTF8 before syntax": {
+    "error_type": "*errors.errorString",
+    "message": "contains invalid UTF-8"
+  },
+  "synthetic/any overflow": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number 1e400 into Go struct field strictCompatibilityDTO.value of type float64",
+    "offset": 14,
+    "value": "number 1e400",
+    "type": "float64",
+    "struct": "strictCompatibilityDTO",
+    "field": "value"
+  },
+  "synthetic/array": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "synthetic/array duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"x\""
+  },
+  "synthetic/bad escape": {
+    "error_type": "*json.SyntaxError",
+    "message": "invalid escape sequence `\\q` in string",
+    "offset": 11
+  },
+  "synthetic/case alias": {
+    "json": "{\"text\":\"b\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"text\""
+  },
+  "synthetic/duplicate before type": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"integer\""
+  },
+  "synthetic/duplicate before unknown": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "synthetic/empty": {
+    "error_type": "*errors.errorString",
+    "message": "is empty"
+  },
+  "synthetic/empty object": {
+    "json": "{\"text\":\"\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/escaped duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"text\""
+  },
+  "synthetic/exponent to integer": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number 1e0 into Go struct field strictCompatibilityDTO.integer of type int64",
+    "offset": 14,
+    "value": "number 1e0",
+    "type": "int64",
+    "struct": "strictCompatibilityDTO",
+    "field": "integer"
+  },
+  "synthetic/float overflow": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number 1e400 into Go struct field strictCompatibilityDTO.float of type float64",
+    "offset": 14,
+    "value": "number 1e400",
+    "type": "float64",
+    "struct": "strictCompatibilityDTO",
+    "field": "float"
+  },
+  "synthetic/fraction to integer": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number 1.5 into Go struct field strictCompatibilityDTO.integer of type int64",
+    "offset": 14,
+    "value": "number 1.5",
+    "type": "int64",
+    "struct": "strictCompatibilityDTO",
+    "field": "integer"
+  },
+  "synthetic/integer max": {
+    "json": "{\"text\":\"\",\"integer\":9223372036854775807,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/integer overflow": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number 9223372036854775808 into Go struct field strictCompatibilityDTO.integer of type int64",
+    "offset": 30,
+    "value": "number 9223372036854775808",
+    "type": "int64",
+    "struct": "strictCompatibilityDTO",
+    "field": "integer"
+  },
+  "synthetic/invalid UTF8": {
+    "error_type": "*errors.errorString",
+    "message": "contains invalid UTF-8"
+  },
+  "synthetic/leading zero": {
+    "error_type": "*json.SyntaxError",
+    "message": "invalid character '1' after object key:value pair",
+    "offset": 13
+  },
+  "synthetic/literal escape": {
+    "json": "{\"text\":\"\\\\uD800\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/lone high": {
+    "json": "{\"text\":\"�\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/lone low": {
+    "json": "{\"text\":\"�\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/malformed escape": {
+    "error_type": "*json.SyntaxError",
+    "message": "invalid escape sequence `\\uZZZZ` in string",
+    "offset": 15
+  },
+  "synthetic/nested duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"x\""
+  },
+  "synthetic/nested type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal string into Go struct field strictCompatibilityDTO.children.0.integer of type int64",
+    "offset": 29,
+    "value": "string",
+    "type": "int64",
+    "struct": "strictCompatibilityDTO",
+    "field": "children.0.integer"
+  },
+  "synthetic/null": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "synthetic/number overflow": {
+    "json": "{\"text\":\"\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":1e400,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/overflow before duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"text\""
+  },
+  "synthetic/paired": {
+    "json": "{\"text\":\"😀\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/raw overflow": {
+    "json": "{\"text\":\"\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":1e400,\"children\":null}"
+  },
+  "synthetic/root before trailing": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "synthetic/scalar": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "synthetic/trailing before unknown": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "synthetic/trailing garbage": {
+    "error_type": "*fmt.wrapError",
+    "message": "contains trailing data: invalid character 'x' looking for beginning of value",
+    "offset": 4
+  },
+  "synthetic/trailing value": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "synthetic/unicode HTML": {
+    "json": "{\"text\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "synthetic/unsigned max": {
+    "json": "{\"text\":\"\",\"integer\":0,\"unsigned\":18446744073709551615,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/unsigned negative": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number -1 into Go struct field strictCompatibilityDTO.unsigned of type uint64",
+    "offset": 14,
+    "value": "number -1",
+    "type": "uint64",
+    "struct": "strictCompatibilityDTO",
+    "field": "unsigned"
+  },
+  "synthetic/unterminated": {
+    "error_type": "*errors.errorString",
+    "message": "unexpected EOF"
+  },
+  "synthetic/whitespace": {
+    "error_type": "*errors.errorString",
+    "message": "is empty"
+  }
+}

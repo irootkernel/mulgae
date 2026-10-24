@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
@@ -26,13 +27,13 @@ func compositeReference(runValue, reviewValue, hash, kind string) (domain.Source
 }
 
 func validateCompositeSourceReferences(final compositeFinalDTO, manifest compositeManifestDTO) error {
-	if final.SchemaVersion == "mulgae-composite-review-artifact.v1" {
-		if manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" {
+	if final.SchemaVersion == artifactwire.CompositeReviewArtifactV1 {
+		if manifest.SchemaVersion != artifactwire.CompositeRunManifestV1 {
 			return fmt.Errorf("composite schema versions differ")
 		}
 		return nil
 	}
-	if final.SchemaVersion != "mulgae-composite-review-artifact.v2" || manifest.SchemaVersion != "mulgae-composite-run-manifest.v2" {
+	if final.SchemaVersion != artifactwire.CompositeReviewArtifactV2 || manifest.SchemaVersion != artifactwire.CompositeRunManifestV2 {
 		return fmt.Errorf("composite schema version is invalid")
 	}
 	composition := final.ReviewComposition

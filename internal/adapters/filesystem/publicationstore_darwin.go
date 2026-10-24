@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
@@ -210,7 +211,7 @@ func (store *PublicationStore) ResolveRun(ctx context.Context, request ports.Res
 				}
 				manifest, err := readPublicationFile(request.Root(), publicationManifestPath(run), request.MaxReadBytes())
 				if errors.Is(err, errPublicationAbsent) {
-					path := mustPublicationSafePath(sessionName + "/" + runName + "/recovery/manifest.json")
+					path := mustPublicationSafePath(artifactwire.RunPath(sessionName, runName, artifactwire.RecoveryManifestPath))
 					recovery, recoveryErr := readPublicationFile(request.Root(), path, request.MaxReadBytes())
 					if errors.Is(recoveryErr, errPublicationAbsent) {
 						continue
@@ -218,7 +219,7 @@ func (store *PublicationStore) ResolveRun(ctx context.Context, request ports.Res
 					if recoveryErr != nil {
 						return fmt.Errorf("resolve recovery run: manifest: %w", recoveryErr)
 					}
-					schema, schemaErr := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json")
+					schema, schemaErr := ports.ParseAssetID(artifactwire.RunRecoveryV1Schema)
 					if schemaErr != nil {
 						return schemaErr
 					}
@@ -2850,19 +2851,19 @@ func (store *PublicationStore) validatePublicationSchema(
 		finalFamily := schema == store.finalSchema || schema == store.compositeFinalSchema
 		selected := ""
 		switch envelope.SchemaVersion {
-		case "mulgae-run-manifest.v2", "mulgae-run-manifest.v3", "mulgae-composite-run-manifest.v2":
+		case artifactwire.RunManifestV2, artifactwire.RunManifestV3, artifactwire.CompositeRunManifestV2:
 			if manifestFamily {
 				selected = envelope.SchemaVersion
 			}
-		case "mulgae-review-artifact.v2", "mulgae-review-artifact.v3", "mulgae-composite-review-artifact.v2":
+		case artifactwire.ReviewArtifactV2, artifactwire.ReviewArtifactV3, artifactwire.CompositeReviewArtifactV2:
 			if finalFamily {
 				selected = envelope.SchemaVersion
 			}
-		case "mulgae-composite-review-artifact.v1":
+		case artifactwire.CompositeReviewArtifactV1:
 			if finalFamily {
 				schema = store.compositeFinalSchema
 			}
-		case "mulgae-composite-run-manifest.v1":
+		case artifactwire.CompositeRunManifestV1:
 			if manifestFamily {
 				schema = store.compositeManifestSchema
 			}
@@ -3172,57 +3173,17 @@ func (store *PublicationStore) writeAuthorizedRunSupport(ctx context.Context, re
 	return writer.writeAuthorizedRunSupport(ctx, request)
 }
 
-type publicationArtifactWire struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
+type publicationArtifactWire artifactwire.ArtifactIdentity
 
-type publicationRestartWire struct {
-	SessionID                string                  `json:"session_id"`
-	RunID                    string                  `json:"run_id"`
-	PersistedJournalState    string                  `json:"persisted_journal_state"`
-	ExpectedStaged           publicationArtifactWire `json:"expected_staged"`
-	ExpectedFinal            publicationArtifactWire `json:"expected_final"`
-	ValidatedCandidateSHA256 string                  `json:"validated_candidate_sha256"`
-	StoreEpoch               uint64                  `json:"store_epoch"`
-	NormalExit               int                     `json:"normal_exit"`
-	ManifestPath             string                  `json:"manifest_path"`
-	LineageEdgePath          string                  `json:"lineage_edge_path"`
-	EpochPath                string                  `json:"epoch_path"`
-}
+type publicationRestartWire = artifactwire.RestartState
 
-type publicationJournalWire struct {
-	SchemaVersion string `json:"schema_version"`
-	publicationRestartWire
-}
+type publicationJournalWire = artifactwire.PublicationJournal
 
-type publicationEpochWire struct {
-	SchemaVersion string                  `json:"schema_version"`
-	StoreEpoch    uint64                  `json:"store_epoch"`
-	Manifest      publicationArtifactWire `json:"manifest"`
-	LineageEdge   publicationArtifactWire `json:"lineage_edge"`
-	FinalReview   publicationArtifactWire `json:"final_review"`
-}
+type publicationEpochWire = artifactwire.PublicationEpoch
 
-type publicationLineageChildWire struct {
-	SessionID string `json:"session_id"`
-	RunID     string `json:"run_id"`
-	ReviewID  string `json:"review_id"`
-}
+type publicationLineageChildWire = artifactwire.LineageChild
 
-type publicationLineageWire struct {
-	SchemaVersion                string                      `json:"schema_version"`
-	EdgeID                       string                      `json:"edge_id"`
-	Child                        publicationLineageChildWire `json:"child"`
-	ParentRunID                  *string                     `json:"parent_run_id"`
-	SourceRunID                  *string                     `json:"source_run_id"`
-	SourceReviewID               *string                     `json:"source_review_id"`
-	SourceRecoveryManifestSHA256 *string                     `json:"source_recovery_manifest_sha256,omitempty"`
-	SourceKind                   string                      `json:"source_kind,omitempty"`
-	SourceAttemptID              *string                     `json:"source_attempt_id,omitempty"`
-	SourceFindingRef             *string                     `json:"source_finding_ref"`
-	ReplayMode                   *string                     `json:"replay_mode"`
-}
+type publicationLineageWire = artifactwire.LineageEdge
 
 type publicationJournalFacts struct {
 	state                    domain.PersistedJournalState
@@ -4151,7 +4112,7 @@ func (store *PublicationStore) validateUnjournaledCandidate(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	path := mustPublicationSafePath(run.SessionID().String() + "/" + run.RunID().String() + "/review_" + reviewID.String() + ".json")
+	path := mustPublicationSafePath(artifactwire.FinalPath(run.SessionID().String(), run.RunID().String(), reviewID.String()))
 	identity, err := ports.NewFinalReviewIdentity(reviewID, path, file.sha256)
 	if err != nil {
 		return err
@@ -4249,11 +4210,10 @@ func publicationPreparedMemberCount(run ports.PublicationRun, maximum int64) (in
 }
 
 func publicationPreparedPaths(run ports.PublicationRun) []ports.SafeRelativePath {
-	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/publication/staged/"
 	return []ports.SafeRelativePath{
-		mustPublicationSafePath(prefix + "manifest.json.tmp"),
-		mustPublicationSafePath(prefix + "lineage-edge.json.tmp"),
-		mustPublicationSafePath(prefix + "epoch.json.tmp"),
+		mustPublicationSafePath(artifactwire.PreparedCompositePath(run.SessionID().String(), run.RunID().String(), "manifest")),
+		mustPublicationSafePath(artifactwire.PreparedCompositePath(run.SessionID().String(), run.RunID().String(), "lineage-edge")),
+		mustPublicationSafePath(artifactwire.PreparedCompositePath(run.SessionID().String(), run.RunID().String(), "epoch")),
 	}
 }
 
@@ -4333,15 +4293,15 @@ func publicationStagedDirectory(run ports.PublicationRun) ports.SafeRelativePath
 }
 
 func publicationJournalPath(run ports.PublicationRun) ports.SafeRelativePath {
-	return mustPublicationSafePath(run.SessionID().String() + "/" + run.RunID().String() + "/publication/journal.json")
+	return mustPublicationSafePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.JournalPath))
 }
 
 func publicationStatusPath(run ports.PublicationRun) ports.SafeRelativePath {
-	return mustPublicationSafePath(run.SessionID().String() + "/" + run.RunID().String() + "/status.json")
+	return mustPublicationSafePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.StatusPath))
 }
 
 func publicationManifestPath(run ports.PublicationRun) ports.SafeRelativePath {
-	return mustPublicationSafePath(run.SessionID().String() + "/" + run.RunID().String() + "/manifest.json")
+	return mustPublicationSafePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.ManifestPath))
 }
 
 func mustPublicationSafePath(value string) ports.SafeRelativePath {
@@ -4362,10 +4322,10 @@ func parsePublicationJournal(run ports.PublicationRun, path ports.SafeRelativePa
 	if err := strictDecodePublicationJSON(documentBytes, &wire); err != nil {
 		return ports.ObservedMutablePublicationDocument{}, publicationJournalFacts{}, err
 	}
-	if wire.SchemaVersion != "mulgae-publication-journal.v1" {
+	if wire.SchemaVersion != artifactwire.PublicationJournalV1 {
 		return ports.ObservedMutablePublicationDocument{}, publicationJournalFacts{}, errors.New("unknown journal schema")
 	}
-	facts, err := parsePublicationRestart(run, wire.publicationRestartWire)
+	facts, err := parsePublicationRestart(run, wire.RestartState)
 	if err != nil {
 		return ports.ObservedMutablePublicationDocument{}, publicationJournalFacts{}, err
 	}
@@ -4412,10 +4372,10 @@ func parsePublicationRestart(run ports.PublicationRun, wire publicationRestartWi
 	if err != nil {
 		return publicationJournalFacts{}, err
 	}
-	if stagedPath != mustPublicationSafePath(run.SessionID().String()+"/"+run.RunID().String()+"/publication/staged/review_"+reviewID.String()+".json.tmp") ||
+	if stagedPath != mustPublicationSafePath(artifactwire.StagedFinalPath(run.SessionID().String(), run.RunID().String(), reviewID.String())) ||
 		manifestPath != publicationManifestPath(run) ||
-		lineagePath != mustPublicationSafePath("store/lineage-edges/e_"+reviewID.String()+".json") ||
-		epochPath != mustPublicationSafePath(fmt.Sprintf("store/epochs/epoch_%020d.json", wire.StoreEpoch)) {
+		lineagePath != mustPublicationSafePath(artifactwire.LineageEdgePath(reviewID.String())) ||
+		epochPath != mustPublicationSafePath(artifactwire.EpochPath(wire.StoreEpoch)) {
 		return publicationJournalFacts{}, errors.New("restart path is not canonical")
 	}
 	normalExit := domain.OperationalExitCode(wire.NormalExit)
@@ -4575,7 +4535,7 @@ func parsePublicationFinalFacts(document []byte) (publicationFinalFacts, error) 
 		return publicationFinalFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-review-artifact.v1" && schema != "mulgae-review-artifact.v2" && schema != "mulgae-review-artifact.v3" && (schema != "mulgae-composite-review-artifact.v1" && schema != "mulgae-composite-review-artifact.v2") {
+	if err != nil || schema != artifactwire.ReviewArtifactV1 && schema != artifactwire.ReviewArtifactV2 && schema != artifactwire.ReviewArtifactV3 && (schema != artifactwire.CompositeReviewArtifactV1 && schema != artifactwire.CompositeReviewArtifactV2) {
 		return publicationFinalFacts{}, errors.New("invalid final review schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4608,7 +4568,7 @@ func parsePublicationManifestFacts(document []byte) (publicationManifestFacts, e
 		return publicationManifestFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != "mulgae-run-manifest.v1" && schema != "mulgae-run-manifest.v2" && schema != "mulgae-run-manifest.v3" && (schema != "mulgae-composite-run-manifest.v1" && schema != "mulgae-composite-run-manifest.v2") {
+	if err != nil || schema != artifactwire.RunManifestV1 && schema != artifactwire.RunManifestV2 && schema != artifactwire.RunManifestV3 && (schema != artifactwire.CompositeRunManifestV1 && schema != artifactwire.CompositeRunManifestV2) {
 		return publicationManifestFacts{}, errors.New("invalid manifest schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -4695,11 +4655,11 @@ func parsePublicationLineage(document []byte) (publicationLineageWire, error) {
 	if err := strictDecodePublicationJSON(document, &wire); err != nil {
 		return publicationLineageWire{}, err
 	}
-	if (wire.SchemaVersion != "mulgae-lineage-edge.v1" && wire.SchemaVersion != "mulgae-lineage-edge.v2") || wire.EdgeID == "" ||
+	if (wire.SchemaVersion != artifactwire.LineageEdgeV1 && wire.SchemaVersion != artifactwire.LineageEdgeV2) || wire.EdgeID == "" ||
 		wire.Child.SessionID == "" || wire.Child.RunID == "" || wire.Child.ReviewID == "" {
 		return publicationLineageWire{}, errors.New("invalid lineage edge")
 	}
-	if wire.SchemaVersion == "mulgae-lineage-edge.v2" {
+	if wire.SchemaVersion == artifactwire.LineageEdgeV2 {
 		if wire.SourceRunID == nil || wire.SourceReviewID != nil || wire.SourceRecoveryManifestSHA256 == nil || !validPublicationSHA256(*wire.SourceRecoveryManifestSHA256) || wire.SourceKind != "failed_run_recovery" || wire.SourceAttemptID == nil {
 			return publicationLineageWire{}, errors.New("invalid recovery lineage edge")
 		}
@@ -4723,11 +4683,11 @@ func parsePublicationEpoch(document []byte) (publicationEpochWire, error) {
 	if err := strictDecodePublicationJSON(document, &wire); err != nil {
 		return publicationEpochWire{}, err
 	}
-	if wire.SchemaVersion != "mulgae-publication-epoch.v1" || wire.StoreEpoch == 0 ||
+	if wire.SchemaVersion != artifactwire.PublicationEpochV1 || wire.StoreEpoch == 0 ||
 		!validPublicationSHA256(wire.Manifest.SHA256) || !validPublicationSHA256(wire.LineageEdge.SHA256) || !validPublicationSHA256(wire.FinalReview.SHA256) {
 		return publicationEpochWire{}, errors.New("invalid epoch record")
 	}
-	for _, artifact := range []publicationArtifactWire{wire.Manifest, wire.LineageEdge, wire.FinalReview} {
+	for _, artifact := range []artifactwire.ArtifactIdentity{wire.Manifest, wire.LineageEdge, wire.FinalReview} {
 		if _, err := ports.NewSafeRelativePath(artifact.Path); err != nil {
 			return publicationEpochWire{}, err
 		}

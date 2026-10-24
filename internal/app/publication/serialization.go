@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -225,8 +226,8 @@ func (candidate PreparedCandidate) assembleBoundMembers(
 		EpochPath:                publicationEpoch.Record().Path().String(),
 	}
 	journalBytes, err := marshalCanonical(publicationJournalWire{
-		SchemaVersion:    publicationJournalV1,
-		restartStateWire: restart,
+		SchemaVersion: publicationJournalV1,
+		RestartState:  restart,
 	})
 	if err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: serialize journal: %w", err)
@@ -239,7 +240,7 @@ func (candidate PreparedCandidate) assembleBoundMembers(
 		SchemaVersion:        publicationStatusV1,
 		PublicationStatus:    string(domain.PublicationCommitted),
 		PublicationAuthority: string(domain.PublicationAuthorityP2),
-		restartStateWire:     restart,
+		RestartState:         restart,
 	})
 	if err != nil {
 		return PublicationBundle{}, fmt.Errorf("publication build: serialize status: %w", err)
@@ -405,14 +406,14 @@ type publicationPathsSet struct {
 func publicationPaths(sessionID domain.SessionID, runID domain.RunID, reviewID domain.ReviewID, epoch uint64) (publicationPathsSet, error) {
 	prefix := sessionID.String() + "/" + runID.String()
 	return publicationPathsSet{
-		final:        mustPublicationPath(prefix + "/review_" + reviewID.String() + ".json"),
-		manifest:     mustPublicationPath(prefix + "/manifest.json"),
-		journal:      mustPublicationPath(prefix + "/publication/journal.json"),
-		status:       mustPublicationPath(prefix + "/status.json"),
-		staged:       mustPublicationPath(prefix + "/publication/staged/review_" + reviewID.String() + ".json.tmp"),
-		lineageEdge:  mustPublicationPath("store/lineage-edges/e_" + reviewID.String() + ".json"),
-		epoch:        mustPublicationPath(fmt.Sprintf("store/epochs/epoch_%020d.json", epoch)),
-		supportIndex: mustPublicationPath(prefix + "/support/index.json"),
+		final:        mustPublicationPath(artifactwire.FinalPath(sessionID.String(), runID.String(), reviewID.String())),
+		manifest:     mustPublicationPath(artifactwire.RunPath(sessionID.String(), runID.String(), artifactwire.ManifestPath)),
+		journal:      mustPublicationPath(artifactwire.RunPath(sessionID.String(), runID.String(), artifactwire.JournalPath)),
+		status:       mustPublicationPath(artifactwire.RunPath(sessionID.String(), runID.String(), artifactwire.StatusPath)),
+		staged:       mustPublicationPath(artifactwire.StagedFinalPath(sessionID.String(), runID.String(), reviewID.String())),
+		lineageEdge:  mustPublicationPath(artifactwire.LineageEdgePath(reviewID.String())),
+		epoch:        mustPublicationPath(artifactwire.EpochPath(epoch)),
+		supportIndex: mustPublicationPath(artifactwire.RunPath(sessionID.String(), runID.String(), artifactwire.SupportIndexPath)),
 		excerptsDir:  prefix + "/excerpts",
 	}, nil
 }
@@ -443,7 +444,7 @@ func (candidate PreparedCandidate) buildEvidenceExcerpts(excerptsDir string) ([]
 	excerpts := make([]ports.ImmutablePublicationArtifact, 0)
 	for _, finding := range candidate.findings {
 		for index, item := range finding.evidence {
-			path, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s_%d.md", excerptsDir, finding.id, index+1))
+			path, err := ports.NewSafeRelativePath(excerptsDir + "/" + artifactwire.EvidenceExcerptName(finding.id, index+1))
 			if err != nil {
 				return nil, fmt.Errorf("publication build: excerpt path: %w", err)
 			}
@@ -466,7 +467,7 @@ func (candidate PreparedCandidate) buildEvidenceExcerpts(excerptsDir string) ([]
 func (candidate PreparedCandidate) buildNormalizedFindingExcerpts(excerptsDir string, reviewID domain.ReviewID) ([]ports.ImmutablePublicationArtifact, error) {
 	excerpts := make([]ports.ImmutablePublicationArtifact, 0)
 	for _, finding := range candidate.finalFindings(reviewID) {
-		path, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s.json", excerptsDir, finding.ID))
+		path, err := ports.NewSafeRelativePath(excerptsDir + "/" + artifactwire.FindingName(finding.ID))
 		if err != nil {
 			return nil, fmt.Errorf("publication build: normalized finding path: %w", err)
 		}
@@ -483,10 +484,7 @@ func (candidate PreparedCandidate) buildNormalizedFindingExcerpts(excerptsDir st
 	return excerpts, nil
 }
 
-type runSupportIndexWire struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Artifacts     []artifactIdentityWire `json:"artifacts"`
-}
+type runSupportIndexWire = artifactwire.SupportIndex
 
 func buildRunSupportIndex(path ports.SafeRelativePath, artifacts []ports.ImmutablePublicationArtifact) (ports.ImmutablePublicationArtifact, error) {
 	identities := make([]artifactIdentityWire, 0, len(artifacts))
@@ -502,13 +500,13 @@ func buildRunSupportIndex(path ports.SafeRelativePath, artifacts []ports.Immutab
 		seen[key] = struct{}{}
 		identities = append(identities, artifactIdentityWire{Path: key, SHA256: artifact.SHA256()})
 	}
-	version := "mulgae-run-support-index.v1"
+	version := artifactwire.SupportIndexV1
 	for _, artifact := range artifacts {
 		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata) {
-			version = "mulgae-run-support-index.v2"
+			version = artifactwire.SupportIndexV2
 		}
 		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && kind == ports.RunSupportArtifactLiveSource {
-			version = "mulgae-run-support-index.v3"
+			version = artifactwire.SupportIndexV3
 		}
 	}
 	bytes, err := marshalCanonical(runSupportIndexWire{SchemaVersion: version, Artifacts: identities})
@@ -575,30 +573,15 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 						var err error
 						switch capture.kind {
 						case ports.AttemptArtifactInitialCandidate:
-							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
-								"%s/%s/attempts/%s/candidate.initial.json",
-								candidate.sessionID, candidate.runID, attempt.id,
-							))
+							path, err = ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.AttemptPath(attempt.id.String(), "candidate.initial.json")))
 						case ports.AttemptArtifactRetryCandidate:
-							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
-								"%s/%s/attempts/%s/candidate.retry.%03d.json",
-								candidate.sessionID, candidate.runID, attempt.id, retryOrdinal,
-							))
+							path, err = ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.AttemptPath(attempt.id.String(), artifactwire.CandidateName("retry", retryOrdinal))))
 						case ports.AttemptArtifactRepairedCandidate:
-							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
-								"%s/%s/attempts/%s/candidate.repaired.%03d.json",
-								candidate.sessionID, candidate.runID, attempt.id, repairOrdinal,
-							))
+							path, err = ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.AttemptPath(attempt.id.String(), artifactwire.CandidateName("repaired", repairOrdinal))))
 						case ports.AttemptArtifactExtractedCandidate:
-							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
-								"%s/%s/attempts/%s/candidate.extracted.%03d.json",
-								candidate.sessionID, candidate.runID, attempt.id, extractOrdinal,
-							))
+							path, err = ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.AttemptPath(attempt.id.String(), artifactwire.CandidateName("extracted", extractOrdinal))))
 						case ports.AttemptArtifactStdout, ports.AttemptArtifactStderr:
-							path, err = ports.NewSafeRelativePath(fmt.Sprintf(
-								"%s/%s/attempts/%s/invocations/%03d-%s/%s.raw",
-								candidate.sessionID, candidate.runID, attempt.id, invocation.sequence, invocation.purpose, capture.kind,
-							))
+							path, err = ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.AttemptPath(attempt.id.String(), artifactwire.InvocationPath(invocation.sequence, string(invocation.purpose), string(capture.kind)))))
 						default:
 							return nil, fmt.Errorf("publication build: unsupported attempt artifact kind %q", capture.kind)
 						}
@@ -624,9 +607,7 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 			if err != nil {
 				return nil, fmt.Errorf("publication build: attempt status: %w", err)
 			}
-			statusPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
-				"%s/%s/attempts/%s/status.json", candidate.sessionID, candidate.runID, attempt.id,
-			))
+			statusPath, err := ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.AttemptPath(attempt.id.String(), "status.json")))
 			if err != nil {
 				return nil, fmt.Errorf("publication build: attempt status path: %w", err)
 			}
@@ -641,22 +622,7 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 	return artifacts, nil
 }
 
-type runtimeTargetManifestWire struct {
-	SchemaVersion         string                     `json:"schema_version"`
-	Target                artifactIdentityWire       `json:"target"`
-	CapturedArchive       *artifactIdentityWire      `json:"captured_archive,omitempty"`
-	ArtistBrief           *artifactIdentityWire      `json:"artist_brief,omitempty"`
-	ArtistVisualAssets    *artifactIdentityWire      `json:"artist_visual_assets,omitempty"`
-	TargetKind            string                     `json:"target_kind"`
-	RepositoryID          string                     `json:"repository_id"`
-	BaseObjectID          string                     `json:"base_object_id"`
-	HeadObjectID          string                     `json:"head_object_id"`
-	HeadTreeObjectID      string                     `json:"head_tree_object_id"`
-	IndexTreeObjectID     string                     `json:"index_tree_object_id"`
-	GitMode               string                     `json:"git_mode"`
-	Prompts               []artifactIdentityWire     `json:"prompts"`
-	SelectedReplayPrompts []selectedReplayPromptWire `json:"selected_replay_prompts"`
-}
+type runtimeTargetManifestWire = artifactwire.RuntimeTargetManifest
 
 type capturedArtistInputWire struct {
 	SchemaVersion string                     `json:"schema_version"`
@@ -678,28 +644,9 @@ type publishedArtistVisualsWire struct {
 	BriefPath     string                     `json:"brief_path"`
 	VisualAssets  []capturedArtistVisualWire `json:"visual_assets"`
 }
-type selectedReplayPromptWire struct {
-	AttemptID string               `json:"attempt_id"`
-	Sequence  uint64               `json:"sequence"`
-	Purpose   string               `json:"purpose"`
-	Artifact  artifactIdentityWire `json:"artifact"`
-}
+type selectedReplayPromptWire = artifactwire.SelectedReplayPrompt
 
-type runtimePromptManifestWire struct {
-	SchemaVersion         string               `json:"schema_version"`
-	Target                artifactIdentityWire `json:"target"`
-	Stdin                 artifactIdentityWire `json:"stdin"`
-	CompleteStdinSHA256   string               `json:"complete_stdin_sha256"`
-	TemplateID            string               `json:"template_id"`
-	TemplateVersion       string               `json:"template_version"`
-	TemplateSHA256        string               `json:"template_sha256"`
-	SourceInvocationID    string               `json:"source_invocation_id"`
-	ExecutionInvocationID string               `json:"execution_invocation_id"`
-	Scope                 string               `json:"scope"`
-	Role                  string               `json:"role"`
-	AdapterProfile        string               `json:"adapter_profile"`
-	AdapterParameters     map[string]string    `json:"adapter_parameters"`
-}
+type runtimePromptManifestWire = artifactwire.RuntimePromptManifest
 
 func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePublicationArtifact, error) {
 	var target []byte
@@ -725,10 +672,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 				} else if !bytes.Equal(target, runtime.target) || !bytes.Equal(capturedArchive, runtime.capturedArchive) {
 					return nil, fmt.Errorf("publication build: runtime target bytes diverge")
 				}
-				stdinPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
-					"%s/%s/prompts/%s/%03d-%s.stdin", candidate.sessionID, candidate.runID,
-					attempt.id, invocation.sequence, invocation.purpose,
-				))
+				stdinPath, err := ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.PromptPath(attempt.id.String(), invocation.sequence, string(invocation.purpose), ".stdin")))
 				if err != nil {
 					return nil, fmt.Errorf("publication build: runtime stdin path: %w", err)
 				}
@@ -751,15 +695,12 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 				if len(artifacts) == 0 {
 					artifacts = append(artifacts, targetArtifact)
 				}
-				promptPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
-					"%s/%s/prompts/%s/%03d-%s.manifest.json", candidate.sessionID, candidate.runID,
-					attempt.id, invocation.sequence, invocation.purpose,
-				))
+				promptPath, err := ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.PromptPath(attempt.id.String(), invocation.sequence, string(invocation.purpose), ".manifest.json")))
 				if err != nil {
 					return nil, fmt.Errorf("publication build: runtime prompt path: %w", err)
 				}
 				promptBytes, err := marshalCanonical(runtimePromptManifestWire{
-					SchemaVersion:       "mulgae-runtime-prompt-manifest.v1",
+					SchemaVersion:       artifactwire.RuntimePromptManifestV1,
 					Target:              artifactIdentityWire{Path: targetArtifact.Path().String(), SHA256: targetArtifact.SHA256()},
 					Stdin:               artifactIdentityWire{Path: stdin.Path().String(), SHA256: stdin.SHA256()},
 					CompleteStdinSHA256: runtime.stdinSHA256,
@@ -845,7 +786,7 @@ func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePub
 		return nil, fmt.Errorf("publication build: runtime target manifest path: %w", err)
 	}
 	targetManifestBytes, err := marshalCanonical(runtimeTargetManifestWire{
-		SchemaVersion: "mulgae-runtime-target-manifest.v1",
+		SchemaVersion: artifactwire.RuntimeTargetManifestV1,
 		Target: artifactIdentityWire{
 			Path:   fmt.Sprintf("%s/%s/target/target.bytes", candidate.sessionID, candidate.runID),
 			SHA256: sha256Identifier(target),
@@ -956,7 +897,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		}
 	}
 	return marshalCanonical(finalReviewWire{
-		SchemaVersion: candidate.artifactVersion("mulgae-review-artifact.v1"),
+		SchemaVersion: candidate.artifactVersion(artifactwire.ReviewArtifactV1),
 		SessionID:     candidate.sessionID.String(),
 		RunID:         candidate.runID.String(),
 		ReviewID:      reviewID.String(),
@@ -1002,7 +943,7 @@ func (candidate PreparedCandidate) buildManifestBytesWithRoleReports(
 	roleReports []manifestRoleReportWire,
 ) ([]byte, error) {
 	return marshalCanonical(runManifestWire{
-		SchemaVersion:              candidate.artifactVersion("mulgae-run-manifest.v1"),
+		SchemaVersion:              candidate.artifactVersion(artifactwire.RunManifestV1),
 		SessionID:                  candidate.sessionID.String(),
 		RunID:                      candidate.runID.String(),
 		RunType:                    string(candidate.publicationLineage().runType),
@@ -1051,13 +992,12 @@ func (candidate PreparedCandidate) buildManifestBytesWithRoleReports(
 }
 
 func (candidate PreparedCandidate) buildRoleReports() ([]ports.ImmutablePublicationArtifact, error) {
-	prefix := candidate.sessionID.String() + "/" + candidate.runID.String() + "/role-reports"
 	reports := make([]ports.ImmutablePublicationArtifact, 0)
 	for _, role := range candidate.roles {
 		if !role.valid || len(role.reportMarkdown) == 0 {
 			continue
 		}
-		path, err := ports.NewSafeRelativePath(prefix + "/" + string(role.role) + ".md")
+		path, err := ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.RoleReportPath(string(role.role))))
 		if err != nil {
 			return nil, fmt.Errorf("publication build: role report path: %w", err)
 		}
@@ -1083,7 +1023,7 @@ func (candidate PreparedCandidate) manifestRoleReports() []manifestRoleReportWir
 		finalAttempt := role.attempts[len(role.attempts)-1]
 		reports = append(reports, manifestRoleReportWire{
 			Role:             string(role.role),
-			Path:             "role-reports/" + string(role.role) + ".md",
+			Path:             artifactwire.RoleReportPath(string(role.role)),
 			SHA256:           sha256Identifier(role.reportMarkdown),
 			ByteLength:       len(role.reportMarkdown),
 			ProviderInstance: finalAttempt.provider,
@@ -1138,7 +1078,7 @@ func (candidate PreparedCandidate) manifestRoleReportsFromIdentities(identities 
 		finalAttempt := role.attempts[len(role.attempts)-1]
 		reports = append(reports, manifestRoleReportWire{
 			Role:             string(role.role),
-			Path:             "role-reports/" + string(role.role) + ".md",
+			Path:             artifactwire.RoleReportPath(string(role.role)),
 			SHA256:           identity.sha256,
 			ByteLength:       identity.byteLength,
 			ProviderInstance: finalAttempt.provider,
@@ -1386,23 +1326,9 @@ func marshalCanonical(value any) ([]byte, error) {
 	return cloneBytes(buffer.Bytes()), nil
 }
 
-type mulgaeWire struct {
-	Version string  `json:"version"`
-	Commit  *string `json:"commit"`
-}
+type mulgaeWire = artifactwire.BuildMetadata
 
-type immutableLineageWire struct {
-	ParentRunID                  *string `json:"parent_run_id"`
-	SourceRunID                  *string `json:"source_run_id"`
-	SourceReviewID               *string `json:"source_review_id"`
-	SourceRecoveryManifestSHA256 *string `json:"source_recovery_manifest_sha256,omitempty"`
-	SourceKind                   string  `json:"source_kind,omitempty"`
-	SourceAttemptID              *string `json:"source_attempt_id,omitempty"`
-	SourceFindingRef             *string `json:"source_finding_ref"`
-	ReplayMode                   *string `json:"replay_mode"`
-	LineageEdgePath              string  `json:"lineage_edge_path"`
-	LineageEdgeSHA256            string  `json:"lineage_edge_sha256"`
-}
+type immutableLineageWire = artifactwire.ImmutableLineage
 
 type finalTargetWire struct {
 	ContentSHA256 string                `json:"content_sha256,omitempty"`
@@ -1418,29 +1344,11 @@ type manifestTargetWire struct {
 	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
 }
 
-type validationWire struct {
-	Status             string `json:"status"`
-	SchemaValidation   string `json:"schema_validation"`
-	SemanticValidation string `json:"semantic_validation"`
-	EvidenceValidation string `json:"evidence_validation"`
-}
+type validationWire = artifactwire.Validation
 
-type severityThresholdWire struct {
-	RequestChangesAtOrAbove string `json:"request_changes_at_or_above"`
-	PolicySource            string `json:"policy_source"`
-}
+type severityThresholdWire = artifactwire.SeverityThreshold
 
-type roleOutcomeWire struct {
-	Role             string   `json:"role"`
-	Required         bool     `json:"required"`
-	Outcome          string   `json:"outcome"`
-	AttemptID        *string  `json:"attempt_id"`
-	ProviderInstance *string  `json:"provider_instance"`
-	SelectedVia      *string  `json:"selected_via"`
-	ValidFindingIDs  []string `json:"valid_finding_ids"`
-	FailureReason    *string  `json:"failure_reason"`
-	Limitations      []string `json:"limitations"`
-}
+type roleOutcomeWire = artifactwire.RoleOutcome
 
 type finalFindingWire struct {
 	ID               string                `json:"id"`
@@ -1462,19 +1370,9 @@ type findingEvidenceWire struct {
 	Visual  *visualEvidenceWire `json:"visual,omitempty"`
 }
 
-type visualEvidenceWire struct {
-	Path         string                `json:"path"`
-	SHA256       string                `json:"sha256"`
-	BBox         visualBoundingBoxWire `json:"bbox"`
-	Verification string                `json:"verification"`
-}
+type visualEvidenceWire = artifactwire.VisualEvidence
 
-type visualBoundingBoxWire struct {
-	X      int `json:"x"`
-	Y      int `json:"y"`
-	Width  int `json:"width"`
-	Height int `json:"height"`
-}
+type visualBoundingBoxWire = artifactwire.VisualBoundingBox
 
 type sourceEvidenceWire struct {
 	SessionID            string `json:"session_id"`
@@ -1506,31 +1404,9 @@ type provenanceWire struct {
 	LiveProduction      *liveProductionProvenanceWire `json:"live_production,omitempty"`
 }
 
-type productionProvenanceWire struct {
-	BuildProduct             string                   `json:"build_product"`
-	BuildVersion             string                   `json:"build_version"`
-	BuildCommit              string                   `json:"build_commit"`
-	ObjectiveSHA256          *string                  `json:"objective_sha256"`
-	ObjectivePresent         bool                     `json:"objective_present"`
-	SnapshotManifestSHA256   string                   `json:"snapshot_manifest_sha256"`
-	WorkspaceTerminalReceipt string                   `json:"workspace_terminal_receipt"`
-	Providers                []productionProviderWire `json:"providers"`
-}
+type productionProvenanceWire = artifactwire.ProductionProvenance
 
-type productionProviderWire struct {
-	Family                    string   `json:"family"`
-	Instance                  string   `json:"instance"`
-	Version                   string   `json:"version"`
-	Executable                string   `json:"executable"`
-	ExecutableSHA256          string   `json:"executable_sha256"`
-	Launcher                  string   `json:"launcher"`
-	LauncherSHA256            string   `json:"launcher_sha256"`
-	ProfileGeneration         string   `json:"profile_generation"`
-	AdapterProfile            string   `json:"adapter_profile"`
-	QualificationReceiptIDs   []string `json:"qualification_receipt_ids"`
-	PacketTransportReceiptIDs []string `json:"packet_transport_receipt_ids"`
-	NamespaceTerminalReceipt  string   `json:"namespace_terminal_receipt"`
-}
+type productionProviderWire = artifactwire.ProductionProvider
 
 type followupOutcomeWire struct {
 	Resolution string                `json:"resolution"`
@@ -1563,33 +1439,11 @@ type finalReviewWire struct {
 	Provenance                 provenanceWire        `json:"provenance"`
 }
 
-type manifestRoleReportWire struct {
-	Role             string `json:"role"`
-	Path             string `json:"path"`
-	SHA256           string `json:"sha256"`
-	ByteLength       int    `json:"byte_length"`
-	ProviderInstance string `json:"provider_instance"`
-	AttemptID        string `json:"attempt_id"`
-	ContentType      string `json:"content_type"`
-	Transport        string `json:"transport"`
-}
+type manifestRoleReportWire = artifactwire.ManifestRoleReport
 
-type manifestAttemptWire struct {
-	AttemptID        string `json:"attempt_id"`
-	Role             string `json:"role"`
-	ProviderInstance string `json:"provider_instance"`
-	SelectedAs       string `json:"selected_as"`
-	State            string `json:"state"`
-	ParseState       string `json:"parse_state"`
-	ValidationState  string `json:"validation_state"`
-	Path             string `json:"path"`
-	InvocationCount  int    `json:"invocation_count"`
-}
+type manifestAttemptWire = artifactwire.ManifestAttempt
 
-type artifactIdentityWire struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
+type artifactIdentityWire = artifactwire.ArtifactIdentity
 
 type recoveryJournalWire struct {
 	ExpectedStaged           artifactIdentityWire `json:"expected_staged"`
@@ -1597,9 +1451,7 @@ type recoveryJournalWire struct {
 	ValidatedCandidateSHA256 string               `json:"validated_candidate_sha256"`
 }
 
-type pathPointerWire struct {
-	Path string `json:"path"`
-}
+type pathPointerWire = artifactwire.PathPointer
 
 type compositeIdentityWire struct {
 	Manifest     pathPointerWire      `json:"manifest"`
@@ -1608,18 +1460,9 @@ type compositeIdentityWire struct {
 	SupportIndex artifactIdentityWire `json:"support_index"`
 }
 
-type finalReviewIdentityWire struct {
-	ReviewID string `json:"review_id"`
-	Path     string `json:"path"`
-	SHA256   string `json:"sha256"`
-}
+type finalReviewIdentityWire = artifactwire.FinalReviewIdentity
 
-type manifestFailureWire struct {
-	Class      string  `json:"class"`
-	Stage      string  `json:"stage"`
-	ReasonCode string  `json:"reason_code"`
-	AttemptID  *string `json:"attempt_id"`
-}
+type manifestFailureWire = artifactwire.ManifestFailure
 
 type runManifestWire struct {
 	SchemaVersion              string                   `json:"schema_version"`
@@ -1658,59 +1501,17 @@ type runManifestWire struct {
 	ExitCode                   int                      `json:"exit_code"`
 }
 
-type lineageChildWire struct {
-	SessionID string `json:"session_id"`
-	RunID     string `json:"run_id"`
-	ReviewID  string `json:"review_id"`
-}
+type lineageChildWire = artifactwire.LineageChild
 
-type lineageEdgeWire struct {
-	SchemaVersion                string           `json:"schema_version"`
-	EdgeID                       string           `json:"edge_id"`
-	Child                        lineageChildWire `json:"child"`
-	ParentRunID                  *string          `json:"parent_run_id"`
-	SourceRunID                  *string          `json:"source_run_id"`
-	SourceReviewID               *string          `json:"source_review_id"`
-	SourceRecoveryManifestSHA256 *string          `json:"source_recovery_manifest_sha256,omitempty"`
-	SourceKind                   string           `json:"source_kind,omitempty"`
-	SourceAttemptID              *string          `json:"source_attempt_id,omitempty"`
-	SourceFindingRef             *string          `json:"source_finding_ref"`
-	ReplayMode                   *string          `json:"replay_mode"`
-}
+type lineageEdgeWire = artifactwire.LineageEdge
 
-type publicationEpochWire struct {
-	SchemaVersion string               `json:"schema_version"`
-	StoreEpoch    uint64               `json:"store_epoch"`
-	Manifest      artifactIdentityWire `json:"manifest"`
-	LineageEdge   artifactIdentityWire `json:"lineage_edge"`
-	FinalReview   artifactIdentityWire `json:"final_review"`
-}
+type publicationEpochWire = artifactwire.PublicationEpoch
 
 // restartStateWire is intentionally embedded verbatim in both mutable records.
 // It provides deterministic restart material without granting publication
 // authority outside the persisted record bytes.
-type restartStateWire struct {
-	SessionID                string               `json:"session_id"`
-	RunID                    string               `json:"run_id"`
-	PersistedJournalState    string               `json:"persisted_journal_state"`
-	ExpectedStaged           artifactIdentityWire `json:"expected_staged"`
-	ExpectedFinal            artifactIdentityWire `json:"expected_final"`
-	ValidatedCandidateSHA256 string               `json:"validated_candidate_sha256"`
-	StoreEpoch               uint64               `json:"store_epoch"`
-	NormalExit               int                  `json:"normal_exit"`
-	ManifestPath             string               `json:"manifest_path"`
-	LineageEdgePath          string               `json:"lineage_edge_path"`
-	EpochPath                string               `json:"epoch_path"`
-}
+type restartStateWire = artifactwire.RestartState
 
-type publicationJournalWire struct {
-	SchemaVersion string `json:"schema_version"`
-	restartStateWire
-}
+type publicationJournalWire = artifactwire.PublicationJournal
 
-type publicationStatusWire struct {
-	SchemaVersion        string `json:"schema_version"`
-	PublicationStatus    string `json:"publication_status"`
-	PublicationAuthority string `json:"publication_authority"`
-	restartStateWire
-}
+type publicationStatusWire = artifactwire.PublicationStatus

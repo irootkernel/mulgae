@@ -1,0 +1,47 @@
+{
+  "artifactIdentityDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field ArtifactIdentity.path of type string",
+    "offset": 9,
+    "value": "number",
+    "type": "string",
+    "struct": "ArtifactIdentity",
+    "field": "path"
+  },
+  "runtimeSupportIndexDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field SupportIndex.artifacts of type []artifactwire.ArtifactIdentity",
+    "offset": 14,
+    "value": "number",
+    "type": "[]artifactwire.ArtifactIdentity",
+    "struct": "SupportIndex",
+    "field": "artifacts"
+  },
+  "runtimeTargetManifestDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field RuntimeTargetManifest.target.path of type string",
+    "offset": 19,
+    "value": "number",
+    "type": "string",
+    "struct": "RuntimeTargetManifest",
+    "field": "target.path"
+  },
+  "selectedReplayPromptDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number -1 into Go struct field SelectedReplayPrompt.sequence of type uint64",
+    "offset": 14,
+    "value": "number -1",
+    "type": "uint64",
+    "struct": "SelectedReplayPrompt",
+    "field": "sequence"
+  },
+  "runtimePromptManifestDTO/wrong type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "message": "json: cannot unmarshal number into Go struct field RuntimePromptManifest.adapter_parameters.model of type string",
+    "offset": 33,
+    "value": "number",
+    "type": "string",
+    "struct": "RuntimePromptManifest",
+    "field": "adapter_parameters.model"
+  }
+}

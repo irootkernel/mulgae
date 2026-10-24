@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -52,7 +53,7 @@ func (store *PublicationStore) ReadUnjournaledCompositeCandidate(ctx context.Con
 		if err != nil {
 			return err
 		}
-		finalPath, err := ports.NewSafeRelativePath(request.Run().SessionID().String() + "/" + request.Run().RunID().String() + "/review_" + reviewID.String() + ".json")
+		finalPath, err := ports.NewSafeRelativePath(artifactwire.FinalPath(request.Run().SessionID().String(), request.Run().RunID().String(), reviewID.String()))
 		if err != nil {
 			return err
 		}

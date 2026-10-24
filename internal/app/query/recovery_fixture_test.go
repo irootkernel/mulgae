@@ -395,7 +395,7 @@ func querySetExactRerunLineage(
 ) ports.CommittedPublicationSnapshot {
 	t.Helper()
 	parent, source, review, attempt, mode := parentRunID.String(), sourceRunID.String(), sourceReviewID.String(), sourceAttemptID.String(), string(ReplayModeExact)
-	lineage := lineageDTO{ParentRunID: &parent, SourceRunID: &source, SourceReviewID: &review, SourceAttemptID: &attempt, ReplayMode: &mode, LineageEdgePath: snapshot.LineageEdge().Path().String(), LineageEdgeSHA: snapshot.LineageEdge().SHA256()}
+	lineage := lineageDTO{ParentRunID: &parent, SourceRunID: &source, SourceReviewID: &review, SourceAttemptID: &attempt, ReplayMode: &mode, LineageEdgePath: snapshot.LineageEdge().Path().String(), LineageEdgeSHA256: snapshot.LineageEdge().SHA256()}
 	final, err := decodeFinalDTO(snapshot.Final().Bytes())
 	if err != nil {
 		t.Fatal(err)

@@ -1205,7 +1205,7 @@ func TestBuildCommittedReviewRejectsMandatoryRoleAndAttemptProvenanceGaps(t *tes
 		{
 			name: "final lineage identity mutation",
 			mutate: func(final *finalDTO, _ *manifestDTO) {
-				final.ImmutableLineage.LineageEdgeSHA = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+				final.ImmutableLineage.LineageEdgeSHA256 = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 			},
 		},
 		{
@@ -3949,7 +3949,7 @@ func compositeRootFixture(
 		t.Fatal(err)
 	}
 	manifest.SessionID, manifest.RunID = run.SessionID().String(), runIDText
-	manifest.ImmutableLineage.LineageEdgePath, manifest.ImmutableLineage.LineageEdgeSHA = edgePath.String(), edge.SHA256()
+	manifest.ImmutableLineage.LineageEdgePath, manifest.ImmutableLineage.LineageEdgeSHA256 = edgePath.String(), edge.SHA256()
 	manifest.ReviewComposition = final.ReviewComposition
 	manifest.RoleReports[0].SourceRunID = sourceARunID
 	manifest.RoleReports[1].SourceRunID = sourceBRunID

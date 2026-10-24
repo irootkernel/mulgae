@@ -3,6 +3,7 @@ package query
 import (
 	"fmt"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -27,56 +28,11 @@ type compositeFinalDTO struct {
 	Limitations                []string                `json:"limitations"`
 	ReviewComposition          compositeCompositionDTO `json:"review_composition"`
 }
-type compositeRoleDTO struct {
-	Role                         string   `json:"role"`
-	Required                     bool     `json:"required"`
-	Outcome                      string   `json:"outcome"`
-	AttemptID                    string   `json:"attempt_id"`
-	ProviderInstance             string   `json:"provider_instance"`
-	ValidFindingIDs              []string `json:"valid_finding_ids"`
-	SourceRunID                  string   `json:"source_run_id"`
-	SourceReviewID               string   `json:"source_review_id,omitempty"`
-	SourceRecoveryManifestSHA256 string   `json:"source_recovery_manifest_sha256,omitempty"`
-	SourceKind                   string   `json:"source_kind,omitempty"`
-}
-type compositeFindingDTO struct {
-	ID             string                    `json:"id"`
-	Fingerprint    string                    `json:"fingerprint"`
-	Role           string                    `json:"role"`
-	Severity       string                    `json:"severity"`
-	Title          string                    `json:"title"`
-	Description    string                    `json:"description"`
-	Recommendation string                    `json:"recommendation"`
-	Confidence     string                    `json:"confidence"`
-	Lifecycle      string                    `json:"lifecycle"`
-	Source         compositeFindingSourceDTO `json:"source"`
-}
-type compositeFindingSourceDTO struct {
-	RunID                  string `json:"run_id"`
-	ReviewID               string `json:"review_id,omitempty"`
-	AttemptID              string `json:"attempt_id"`
-	FindingID              string `json:"finding_id"`
-	RecoveryManifestSHA256 string `json:"recovery_manifest_sha256,omitempty"`
-	SourceKind             string `json:"source_kind,omitempty"`
-}
-type compositeCompositionDTO struct {
-	Fingerprint                string               `json:"fingerprint"`
-	RootRunID                  string               `json:"root_run_id"`
-	RootReviewID               string               `json:"root_review_id,omitempty"`
-	Sources                    []compositeSourceDTO `json:"sources"`
-	RootRecoveryManifestSHA256 string               `json:"root_recovery_manifest_sha256,omitempty"`
-	RootSourceKind             string               `json:"root_source_kind,omitempty"`
-}
-type compositeSourceDTO struct {
-	Kind                   string `json:"kind"`
-	Role                   string `json:"role"`
-	RunID                  string `json:"run_id"`
-	ReviewID               string `json:"review_id,omitempty"`
-	AttemptID              string `json:"attempt_id"`
-	RoleReportSHA256       string `json:"role_report_sha256"`
-	RecoveryManifestSHA256 string `json:"recovery_manifest_sha256,omitempty"`
-	SourceKind             string `json:"source_kind,omitempty"`
-}
+type compositeRoleDTO = artifactwire.CompositeRole
+type compositeFindingDTO = artifactwire.CompositeFinding
+type compositeFindingSourceDTO = artifactwire.CompositeFindingSource
+type compositeCompositionDTO = artifactwire.CompositeComposition
+type compositeSourceDTO = artifactwire.CompositeSource
 type compositeManifestDTO struct {
 	SchemaVersion              string                     `json:"schema_version"`
 	SessionID                  string                     `json:"session_id"`
@@ -108,17 +64,10 @@ type compositeManifestDTO struct {
 	RoleReports                []compositeManifestRoleDTO `json:"role_reports"`
 	ExitCode                   int                        `json:"exit_code"`
 }
-type compositeManifestRoleDTO struct {
-	Role        string `json:"role"`
-	Path        string `json:"path"`
-	SHA256      string `json:"sha256"`
-	ByteLength  int    `json:"byte_length"`
-	AttemptID   string `json:"attempt_id"`
-	SourceRunID string `json:"source_run_id"`
-}
+type compositeManifestRoleDTO = artifactwire.CompositeManifestRole
 
 func buildCompositeCommittedReview(run ports.PublicationRun, decision domain.PublicationDecision, snapshot ports.CommittedPublicationSnapshot, final compositeFinalDTO, manifest compositeManifestDTO) (CommittedReview, error) {
-	if (final.SchemaVersion != "mulgae-composite-review-artifact.v1" && final.SchemaVersion != "mulgae-composite-review-artifact.v2") || (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2") || final.RunType != string(domain.RunTypeComposite) || manifest.RunType != final.RunType || final.SessionID != run.SessionID().String() || final.RunID != run.RunID().String() || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || !manifest.Sealed || manifest.State != string(domain.RunCompleted) || manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) || manifest.PublicationStatus != string(domain.PublicationCommitted) {
+	if (final.SchemaVersion != artifactwire.CompositeReviewArtifactV1 && final.SchemaVersion != artifactwire.CompositeReviewArtifactV2) || (manifest.SchemaVersion != artifactwire.CompositeRunManifestV1 && manifest.SchemaVersion != artifactwire.CompositeRunManifestV2) || final.RunType != string(domain.RunTypeComposite) || manifest.RunType != final.RunType || final.SessionID != run.SessionID().String() || final.RunID != run.RunID().String() || manifest.SessionID != final.SessionID || manifest.RunID != final.RunID || !manifest.Sealed || manifest.State != string(domain.RunCompleted) || manifest.PublicationAuthority != string(domain.PublicationAuthorityP2) || manifest.PublicationStatus != string(domain.PublicationCommitted) {
 		return CommittedReview{}, fmt.Errorf("composite identity or authority is invalid")
 	}
 	if err := validateCompositeSourceReferences(final, manifest); err != nil {

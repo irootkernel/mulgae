@@ -20,6 +20,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/app/clean"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
@@ -414,7 +415,7 @@ func (store *CleanupStore) verifyLiveCleanupSupport(ctx context.Context, run por
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return err
 	}
-	if manifest.SchemaVersion != "mulgae-run-manifest.v3" {
+	if manifest.SchemaVersion != artifactwire.RunManifestV3 {
 		return nil
 	}
 	ref := manifest.CompositeIdentity.SupportIndex
@@ -430,17 +431,11 @@ func (store *CleanupStore) verifyLiveCleanupSupport(ctx context.Context, run por
 	if err != nil || indexFile.sha256 != ref.SHA256 {
 		return errors.New("cleanup store: live support index is absent or changed")
 	}
-	var index struct {
-		SchemaVersion string `json:"schema_version"`
-		Artifacts     []struct {
-			Path   string `json:"path"`
-			SHA256 string `json:"sha256"`
-		} `json:"artifacts"`
-	}
+	var index artifactwire.SupportIndex
 	if err := strictDecodePublicationJSON(indexFile.bytes, &index); err != nil {
 		return err
 	}
-	if index.SchemaVersion != "mulgae-run-support-index.v3" || index.Artifacts == nil {
+	if index.SchemaVersion != artifactwire.SupportIndexV3 || index.Artifacts == nil {
 		return errors.New("cleanup store: invalid live support index")
 	}
 	seen := map[string]bool{indexPath.String(): true}

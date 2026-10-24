@@ -455,6 +455,97 @@ provider gates for Grok (`make test-grok`), Cursor
 (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) are explicitly deferred to the
 `v0.1.26` five-provider release gate.
 
+## Runtime wire compatibility controls
+
+`internal/app/{query,report}/strict_object_compatibility_test.go` compares fixed
+pre-move outcomes for synthetic destinations. Query also covers the actual M1
+runtime/support DTOs and containing final and manifest destinations; report
+covers its final projection.
+The owner-local `testdata/m1-strict-before.json` files preserve accepted values,
+concrete error types, complete messages, offsets and JSON field paths.
+
+The snapshots were captured once from production sources at `58bbc89` before
+the M1 DTO moves, using temporary overlay tests. No capture tool or update mode
+is retained. `testdata/m1-strict-diagnostic-moves.json` records the exact allowed
+Go struct/type-name changes caused by the moves. Its assertions permit only
+those mechanical names and the corresponding raw message substitutions;
+failure classes, reasons, repair authority and other decoder details retain
+their existing contracts.
+
+Publication and filesystem `TestSupportIndexDecoderDiagnostics` cases also
+freeze their support-index decoder names in owner-local
+`testdata/m1-support-diagnostics.json` files. The publication baseline uses
+`58bbc89`'s serializer types; the cleanup baseline uses its original anonymous
+destination. Both retain exact before/after messages and require every
+non-name diagnostic field to match. Cleanup reduces these errors to a corrupt
+observation, and publication retains its typed artifact-failure envelope.
+
+`internal/app/publication/testdata/m1-runtime-wire.json` freezes literal writer
+bytes from the same pre-move source. It covers field order, optional presence,
+null/empty collections, Unicode, HTML escaping, CRLF and terminal LF, plus real
+runtime artifact construction and support-index v1/v2/v3 selection. Expected
+bytes are loaded from the fixed file. DF-013 cases in the owning review and
+followup parsers reject lone surrogates and accept a valid pair as the exact
+Unicode scalar, while preserving validation and repair outcomes.
+
+The M2 `publication_object_compatibility_test.go` controls in query, report,
+publication and filesystem exercise the actual shared components and containing
+roots. Query also covers receipt and cursor destinations; their existing caller
+checks retain canonical encoding, identity and sentinel behavior. The fixed
+`testdata/m2-object-before.json` inputs and outcomes come from M1C1's unchanged
+production implementation. `m2-object-diagnostic-moves.json` lists each exact
+allowed name change. Assertions allow only declared Go name relocations and
+preserve every other error detail and caller prefix.
+
+`TestPublicationWireGoldenCompatibility` loads
+`testdata/m2-publication-wire.json`, captured before M2's DTO moves. It compares
+literal bytes from captured, followup, live v3 and composite builders, including
+live omission/order, lifecycle journal/status variants, corruption diagnostics
+and custom composite serialization. Binary support bytes use a literal hex
+representation so JSON cannot replace invalid UTF-8. The fixtures have no update
+mode. The path controls compare fixed pre-move owner vectors and direct leaf
+spellings; ports and recovery tests retain rejection and precedence checks.
+`TestCorruptionDiagnosticWireTypeIdentity` preserves the raw diagnostic decoder
+name at the ports boundary.
+
+`internal/strictjson/TestDecodeObjectCompatibility` uses the same 42 fixed
+synthetic inputs and outcomes previously verified through both query/report
+helpers. The full owner matrices still exercise their actual destinations and
+caller wrappers through `strictjson.DecodeObject`. Extraction preserves error
+text, concrete types, offsets, JSON field paths and ordering; it introduces no
+new diagnostic-name allowance. Keep the M1/M2 snapshots and name maps fixed.
+The shared helper does not replace provider or schema-adapter parsing. DF-013's
+owning review/followup parser cases retain exact scalar and repair assertions.
+
+Run each command on one physical line:
+
+```sh
+go test -race -count=1 ./internal/app/validation -run '^TestProviderJSONSurrogateCompatibility$'
+go test -race -count=1 ./internal/app/query -run '^TestStrictObjectCompatibility$'
+go test -race -count=1 ./internal/app/report -run '^TestStrictObjectCompatibility$'
+go test -race -count=1 ./internal/app/publication -run '^TestRuntimeWireGoldenCompatibility$'
+go test -race -count=1 ./internal/app/publication -run '^TestSupportIndexDecoderDiagnostics$'
+go test -race -count=1 ./internal/adapters/filesystem -run '^TestSupportIndexDecoderDiagnostics$'
+go test -race -count=1 ./internal/app/publication -run '^(TestRuntimeArtifactsPersistAndBindArtistInputs|TestPublicationBundleBindsCanonicalSupportIndex)$'
+go test -race -count=1 ./internal/app/publication -run '^(TestPublicationWireGoldenCompatibility|TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges)$'
+go test -race -count=1 ./internal/adapters/filesystem -run '^(TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges|TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON)$'
+go test -race -count=1 ./internal/artifactwire -run '^TestArtifactPathGrammarCompatibility$'
+go test -race -count=1 ./internal/ports -run '^(TestPublicationPathContractCompatibility|TestCorruptionDiagnosticWireTypeIdentity|TestClassifyRunSupportArtifactPathRequiresCanonicalRecoveryArtifacts|TestClassifyLiveSupportArtifactPaths)$'
+go test -race -count=1 ./internal/app/publication -run '^(TestPreparedCandidateBuildDeterministicPublicationBundle|TestManifestRoleReportRecordsTransport|TestRecoverCorruptionDiagnosticIsIdempotentByEpochAndBytes)$'
+go test -race -count=1 ./internal/app/publication -run '^(TestLivePublicationConstructsSharedSupportOnce|TestBuildCapturedPrecedenceOnForceablePairs)$'
+go test -race -count=1 ./internal/app/publication -run '^(TestRunSupportContractAcceptsOnlyCanonicalRuntimeInventoryPaths|TestPublicationVariableSizedSupportPathsUseCanonicalKindPolicy)$'
+go test -race -count=1 ./internal/strictjson -run '^TestDecodeObjectCompatibility$'
+go test -race -count=1 ./internal/app/query -run '^(TestDecodeFinalDTORejectsDuplicateUnknownAndTrailingJSON|TestPublicationReceiptBindsOneCompleteObservation|TestFindingCursorRejectsCrossSnapshotQueryAndNoncanonicalValues)$'
+go test -race -count=1 ./internal/app/report -run '^(TestDecodeReportFinalAcceptsRerunSourceAttempt|TestReportFailureReductionUsesOperationalPrecedenceInBothJoinOrders)$'
+go test -race -count=1 ./internal/adapters/jsonschema -run '^(TestValidatorAcceptsExactAuthoritativePairs|TestValidatorStrictJSONDecodeRejectsAmbiguity|TestStrictJSONDecoderDepthUnicodeAndEquivalentKeys)$'
+go test -race -count=1 ./internal/architecture -run '^(TestWireLeafDependencyDirection|TestProductionDependencyDirection|TestTestSupportDependencyDirection)$'
+```
+
+Run the historical corpus consumers below after each migrated writer/reader
+pair and after shared strict-object changes. Keep the corpus, its tests and
+provenance unchanged. The extracted query/report mechanics preserve their
+acceptance sets; other parsers and provider protocol tolerance are unchanged.
+
 ## Historical compatibility corpus
 
 `internal/testsupport/historical/testdata/corpus.json` records synthetic, fixed

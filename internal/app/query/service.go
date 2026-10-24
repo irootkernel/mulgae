@@ -16,6 +16,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -29,10 +30,10 @@ const (
 	readRuntimeTargetStage = "query.read_runtime_target"
 	readRoleReportStage    = "query.read_role_report"
 
-	finalReviewSchemaURI       = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
-	runManifestSchemaURI       = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
-	compositeFinalSchemaURI    = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json"
-	compositeManifestSchemaURI = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json"
+	finalReviewSchemaURI       = artifactwire.ReviewArtifactV1Schema
+	runManifestSchemaURI       = artifactwire.RunManifestV1Schema
+	compositeFinalSchemaURI    = artifactwire.CompositeReviewArtifactV1Schema
+	compositeManifestSchemaURI = artifactwire.CompositeRunManifestV1Schema
 )
 
 var (
@@ -109,10 +110,7 @@ type observedRun struct {
 	snapshot   ports.CommittedPublicationSnapshot
 }
 
-type runtimeSupportIndexDTO struct {
-	SchemaVersion string                `json:"schema_version"`
-	Artifacts     []artifactIdentityDTO `json:"artifacts"`
-}
+type runtimeSupportIndexDTO = artifactwire.SupportIndex
 
 // NewService constructs the shared committed-read service. The immutable target
 // reader remains an accepted dependency for source compatibility, but v2
@@ -294,7 +292,7 @@ func (context *readContext) runtimeTarget(ctx context.Context, node *contextRun)
 	if err := decodeStrictDTO(targetManifest.Bytes(), &manifest); err != nil {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest decode failed", err)
 	}
-	if manifest.SchemaVersion != "mulgae-runtime-target-manifest.v1" || !validSHA256(manifest.Target.SHA256) {
+	if manifest.SchemaVersion != artifactwire.RuntimeTargetManifestV1 || !validSHA256(manifest.Target.SHA256) {
 		return RuntimeTarget{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime target manifest is invalid", nil)
 	}
 	targetPath, err := ports.NewSafeRelativePath(manifest.Target.Path)
@@ -528,7 +526,7 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 	if promptInventoryMatches != 1 {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt is not uniquely inventoried", nil)
 	}
-	expectedSuffix := fmt.Sprintf("/%03d-%s.manifest.json", promptSelection.Sequence, promptSelection.Purpose)
+	expectedSuffix := "/" + artifactwire.PromptBase(promptSelection.Sequence, promptSelection.Purpose) + ".manifest.json"
 	expectedPrefix := run.SessionID().String() + "/" + run.RunID().String() + "/prompts/" + attemptID.String()
 	if !strings.HasPrefix(promptRef.Path, expectedPrefix) || !strings.HasSuffix(promptRef.Path, expectedSuffix) {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "selected replay prompt path does not match its binding", nil)
@@ -549,7 +547,7 @@ func (service *Service) ReadCommittedAttempt(ctx context.Context, run ports.Publ
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime prompt manifest decode failed", err)
 	}
 	promptRole := domain.Role(wire.Role)
-	if !promptRole.Valid() || wire.SchemaVersion != "mulgae-runtime-prompt-manifest.v1" || promptRole != role ||
+	if !promptRole.Valid() || wire.SchemaVersion != artifactwire.RuntimePromptManifestV1 || promptRole != role ||
 		wire.Target.Path == "" || strings.TrimPrefix(wire.Target.SHA256, "sha256:") != target.Identity().SHA256() ||
 		!validSHA256(wire.Stdin.SHA256) || wire.CompleteStdinSHA256 == "" {
 		return CommittedAttempt{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime prompt manifest binding is invalid", nil)
@@ -759,7 +757,7 @@ func (service *Service) ReadCommittedFindingSource(ctx context.Context, run port
 	if finding.ID() == "" {
 		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureArtifact, "finding is not bound to the requested run", nil)
 	}
-	normalizedPath, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/excerpts/%s.json", run.SessionID().String(), run.RunID().String(), findingID))
+	normalizedPath, err := ports.NewSafeRelativePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), "excerpts/"+artifactwire.FindingName(findingID)))
 	if err != nil {
 		return CommittedFindingSource{}, typedFailure(renderExcerptStage, domain.FailureArtifact, "normalized finding artifact path is invalid", err)
 	}
@@ -1100,13 +1098,7 @@ func excerptArtifactPath(
 	evidenceIndex int,
 ) (ports.SafeRelativePath, error) {
 	return ports.NewSafeRelativePath(
-		fmt.Sprintf(
-			"%s/%s/excerpts/%s_%d.md",
-			run.SessionID().String(),
-			run.RunID().String(),
-			findingID,
-			evidenceIndex,
-		),
+		artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), "excerpts/"+artifactwire.EvidenceExcerptName(findingID, evidenceIndex)),
 	)
 }
 
@@ -1219,19 +1211,19 @@ func (service *Service) buildSnapshotReview(
 		return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "final review envelope decode failed", err)
 	}
 	finalSchema, manifestSchema := finalReviewSchemaAsset, runManifestSchemaAsset
-	if schemaEnvelope.SchemaVersion == "mulgae-review-artifact.v2" {
-		finalSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-review-artifact.v2.schema.json")
-		manifestSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-run-manifest.v2.schema.json")
+	if schemaEnvelope.SchemaVersion == artifactwire.ReviewArtifactV2 {
+		finalSchema = requiredSchemaAsset(artifactwire.ReviewArtifactV2Schema)
+		manifestSchema = requiredSchemaAsset(artifactwire.RunManifestV2Schema)
 	}
-	if schemaEnvelope.SchemaVersion == "mulgae-review-artifact.v3" {
-		finalSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json")
-		manifestSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json")
+	if schemaEnvelope.SchemaVersion == artifactwire.ReviewArtifactV3 {
+		finalSchema = requiredSchemaAsset(artifactwire.ReviewArtifactV3Schema)
+		manifestSchema = requiredSchemaAsset(artifactwire.RunManifestV3Schema)
 	}
-	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v2" {
+	if schemaEnvelope.SchemaVersion == artifactwire.CompositeReviewArtifactV1 || schemaEnvelope.SchemaVersion == artifactwire.CompositeReviewArtifactV2 {
 		finalSchema, manifestSchema = compositeFinalSchemaAsset, compositeManifestSchemaAsset
-		if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v2" {
-			finalSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-composite-review-artifact.v2.schema.json")
-			manifestSchema = requiredSchemaAsset("https://mulgae.local/schemas/mulgae-composite-run-manifest.v2.schema.json")
+		if schemaEnvelope.SchemaVersion == artifactwire.CompositeReviewArtifactV2 {
+			finalSchema = requiredSchemaAsset(artifactwire.CompositeReviewArtifactV2Schema)
+			manifestSchema = requiredSchemaAsset(artifactwire.CompositeRunManifestV2Schema)
 		}
 	}
 	if err := service.validator.Validate(ctx, finalSchema, cloneBytes(finalBytes)); err != nil {
@@ -1252,7 +1244,7 @@ func (service *Service) buildSnapshotReview(
 			err,
 		)
 	}
-	if schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || schemaEnvelope.SchemaVersion == "mulgae-composite-review-artifact.v2" {
+	if schemaEnvelope.SchemaVersion == artifactwire.CompositeReviewArtifactV1 || schemaEnvelope.SchemaVersion == artifactwire.CompositeReviewArtifactV2 {
 		var finalRecord compositeFinalDTO
 		if err := decodeStrictDTO(finalBytes, &finalRecord); err != nil {
 			return CommittedReview{}, typedFailure(stage, domain.FailureArtifact, "composite final strict JSON decoding failed", err)
@@ -1312,17 +1304,17 @@ func buildCommittedReview(
 	manifestArtifact := snapshot.Manifest()
 	lineageArtifact := snapshot.LineageEdge()
 	epoch := snapshot.Epoch()
-	expectedFinalPath := run.SessionID().String() + "/" + run.RunID().String() + "/review_" + finalIdentity.ReviewID().String() + ".json"
+	expectedFinalPath := artifactwire.FinalPath(run.SessionID().String(), run.RunID().String(), finalIdentity.ReviewID().String())
 	if finalIdentity.Path().String() != expectedFinalPath {
 		return CommittedReview{}, fmt.Errorf("final path is not canonical")
 	}
-	expectedManifestPath := run.SessionID().String() + "/" + run.RunID().String() + "/manifest.json"
+	expectedManifestPath := artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.ManifestPath)
 	if manifestArtifact.Path().String() != expectedManifestPath {
 		return CommittedReview{}, fmt.Errorf("manifest path is not canonical")
 	}
 
-	live := final.SchemaVersion == "mulgae-review-artifact.v3"
-	if live && manifest.SchemaVersion != "mulgae-run-manifest.v3" || !live && (final.SchemaVersion != sourceLineageVersion("mulgae-review-artifact.v1", final.ImmutableLineage.SourceRecoveryManifestSHA256) || manifest.SchemaVersion != sourceLineageVersion("mulgae-run-manifest.v1", manifest.ImmutableLineage.SourceRecoveryManifestSHA256)) {
+	live := final.SchemaVersion == artifactwire.ReviewArtifactV3
+	if live && manifest.SchemaVersion != artifactwire.RunManifestV3 || !live && (final.SchemaVersion != sourceLineageVersion(artifactwire.ReviewArtifactV1, final.ImmutableLineage.SourceRecoveryManifestSHA256) || manifest.SchemaVersion != sourceLineageVersion(artifactwire.RunManifestV1, manifest.ImmutableLineage.SourceRecoveryManifestSHA256)) {
 		return CommittedReview{}, fmt.Errorf("schema version does not match committed contract")
 	}
 	sessionID, err := domain.ParseSessionID(final.SessionID)
@@ -1368,12 +1360,12 @@ func buildCommittedReview(
 		return CommittedReview{}, fmt.Errorf("target manifest path is invalid")
 	}
 	if !matchesArtifactPath(final.ImmutableLineage.LineageEdgePath, lineageArtifact.Path(), run) ||
-		final.ImmutableLineage.LineageEdgeSHA != lineageArtifact.SHA256() {
+		final.ImmutableLineage.LineageEdgeSHA256 != lineageArtifact.SHA256() {
 		return CommittedReview{}, fmt.Errorf("final lineage edge binding is invalid")
 	}
 	if !sameLineage(final.ImmutableLineage, manifest.ImmutableLineage) ||
 		!matchesArtifactPath(manifest.ImmutableLineage.LineageEdgePath, lineageArtifact.Path(), run) ||
-		manifest.ImmutableLineage.LineageEdgeSHA != lineageArtifact.SHA256() {
+		manifest.ImmutableLineage.LineageEdgeSHA256 != lineageArtifact.SHA256() {
 		return CommittedReview{}, fmt.Errorf("manifest lineage edge binding is invalid")
 	}
 	if err := validateFollowupOutcome(final, manifest); err != nil {
@@ -2428,7 +2420,7 @@ func sameLineage(first, second lineageDTO) bool {
 		sameOptionalString(first.SourceAttemptID, second.SourceAttemptID) &&
 		sameOptionalString(first.SourceFindingRef, second.SourceFindingRef) &&
 		sameOptionalString(first.ReplayMode, second.ReplayMode) &&
-		first.LineageEdgePath == second.LineageEdgePath && first.LineageEdgeSHA == second.LineageEdgeSHA
+		first.LineageEdgePath == second.LineageEdgePath && first.LineageEdgeSHA256 == second.LineageEdgeSHA256
 }
 
 func sameOptionalString(first, second *string) bool {
@@ -2479,7 +2471,7 @@ func validateManifestRoleReports(manifest manifestDTO, roles []Role) ([]RoleRepo
 	seen := make(map[string]struct{}, len(manifest.RoleReports))
 	for index, report := range manifest.RoleReports {
 		if report.Role != expectedRoles[index] ||
-			report.Path != "role-reports/"+report.Role+".md" ||
+			report.Path != artifactwire.RoleReportPath(report.Role) ||
 			report.ContentType != "text/markdown" ||
 			!domain.Role(report.Role).Valid() ||
 			!validSHA256(report.SHA256) ||

@@ -3,18 +3,16 @@
 package query
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
+	"github.com/irootkernel/mulgae/internal/strictjson"
 )
 
 // SchemaValidator validates final publication records against their consumer-owned
@@ -497,45 +495,11 @@ func (source CommittedFindingSource) Finding() Finding        { return source.fi
 func (source CommittedFindingSource) Normalized() []byte      { return cloneBytes(source.normalized) }
 func (source CommittedFindingSource) Excerpt() []byte         { return cloneBytes(source.excerpt) }
 
-type runtimeTargetManifestDTO struct {
-	SchemaVersion         string                    `json:"schema_version"`
-	Target                artifactIdentityDTO       `json:"target"`
-	CapturedArchive       *artifactIdentityDTO      `json:"captured_archive,omitempty"`
-	ArtistBrief           *artifactIdentityDTO      `json:"artist_brief,omitempty"`
-	ArtistVisualAssets    *artifactIdentityDTO      `json:"artist_visual_assets,omitempty"`
-	TargetKind            string                    `json:"target_kind"`
-	RepositoryID          string                    `json:"repository_id"`
-	BaseObjectID          string                    `json:"base_object_id"`
-	HeadObjectID          string                    `json:"head_object_id"`
-	HeadTreeObjectID      string                    `json:"head_tree_object_id"`
-	IndexTreeObjectID     string                    `json:"index_tree_object_id"`
-	GitMode               string                    `json:"git_mode"`
-	Prompts               []artifactIdentityDTO     `json:"prompts"`
-	SelectedReplayPrompts []selectedReplayPromptDTO `json:"selected_replay_prompts"`
-}
+type runtimeTargetManifestDTO = artifactwire.RuntimeTargetManifest
 
-type selectedReplayPromptDTO struct {
-	AttemptID string              `json:"attempt_id"`
-	Sequence  uint64              `json:"sequence"`
-	Purpose   string              `json:"purpose"`
-	Artifact  artifactIdentityDTO `json:"artifact"`
-}
+type selectedReplayPromptDTO = artifactwire.SelectedReplayPrompt
 
-type runtimePromptManifestDTO struct {
-	SchemaVersion         string              `json:"schema_version"`
-	Target                artifactIdentityDTO `json:"target"`
-	Stdin                 artifactIdentityDTO `json:"stdin"`
-	CompleteStdinSHA256   string              `json:"complete_stdin_sha256"`
-	TemplateID            string              `json:"template_id"`
-	TemplateVersion       string              `json:"template_version"`
-	TemplateSHA256        string              `json:"template_sha256"`
-	SourceInvocationID    string              `json:"source_invocation_id"`
-	ExecutionInvocationID string              `json:"execution_invocation_id"`
-	Scope                 string              `json:"scope"`
-	Role                  string              `json:"role"`
-	AdapterProfile        string              `json:"adapter_profile"`
-	AdapterParameters     map[string]string   `json:"adapter_parameters"`
-}
+type runtimePromptManifestDTO = artifactwire.RuntimePromptManifest
 
 // Role is the report-facing summary for one selected role.
 type Role struct {
@@ -807,23 +771,9 @@ type followupOutcomeDTO struct {
 	Evidence   []finalEvidenceDTO `json:"evidence"`
 }
 
-type finalMulgaeDTO struct {
-	Version string  `json:"version"`
-	Commit  *string `json:"commit"`
-}
+type finalMulgaeDTO = artifactwire.BuildMetadata
 
-type lineageDTO struct {
-	ParentRunID                  *string `json:"parent_run_id"`
-	SourceRunID                  *string `json:"source_run_id"`
-	SourceReviewID               *string `json:"source_review_id"`
-	SourceRecoveryManifestSHA256 *string `json:"source_recovery_manifest_sha256,omitempty"`
-	SourceKind                   string  `json:"source_kind,omitempty"`
-	SourceAttemptID              *string `json:"source_attempt_id,omitempty"`
-	SourceFindingRef             *string `json:"source_finding_ref"`
-	ReplayMode                   *string `json:"replay_mode"`
-	LineageEdgePath              string  `json:"lineage_edge_path"`
-	LineageEdgeSHA               string  `json:"lineage_edge_sha256"`
-}
+type lineageDTO = artifactwire.ImmutableLineage
 
 type finalTargetDTO struct {
 	LiveSource    *evidence.LiveSourceMetadata `json:"live_source,omitempty"`
@@ -833,29 +783,11 @@ type finalTargetDTO struct {
 	HeadOID       *string                      `json:"head_oid"`
 }
 
-type finalValidationDTO struct {
-	Status             string `json:"status"`
-	SchemaValidation   string `json:"schema_validation"`
-	SemanticValidation string `json:"semantic_validation"`
-	EvidenceValidation string `json:"evidence_validation"`
-}
+type finalValidationDTO = artifactwire.Validation
 
-type severityThresholdDTO struct {
-	RequestChangesAtOrAbove string `json:"request_changes_at_or_above"`
-	PolicySource            string `json:"policy_source"`
-}
+type severityThresholdDTO = artifactwire.SeverityThreshold
 
-type finalRoleDTO struct {
-	Role             string   `json:"role"`
-	Required         bool     `json:"required"`
-	Outcome          string   `json:"outcome"`
-	AttemptID        *string  `json:"attempt_id"`
-	ProviderInstance *string  `json:"provider_instance"`
-	SelectedVia      *string  `json:"selected_via"`
-	ValidFindingIDs  []string `json:"valid_finding_ids"`
-	FailureReason    *string  `json:"failure_reason"`
-	Limitations      []string `json:"limitations"`
-}
+type finalRoleDTO = artifactwire.RoleOutcome
 
 type finalFindingDTO struct {
 	ID               string             `json:"id"`
@@ -877,19 +809,9 @@ type finalEvidenceDTO struct {
 	Visual  *visualEvidenceDTO `json:"visual,omitempty"`
 }
 
-type visualEvidenceDTO struct {
-	Path         string        `json:"path"`
-	SHA256       string        `json:"sha256"`
-	BBox         visualBBoxDTO `json:"bbox"`
-	Verification string        `json:"verification"`
-}
+type visualEvidenceDTO = artifactwire.VisualEvidence
 
-type visualBBoxDTO struct {
-	X      int `json:"x"`
-	Y      int `json:"y"`
-	Width  int `json:"width"`
-	Height int `json:"height"`
-}
+type visualBBoxDTO = artifactwire.VisualBoundingBox
 
 type sourceEvidenceDTO struct {
 	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
@@ -921,42 +843,11 @@ type provenanceDTO struct {
 	Production          *productionProvenanceDTO     `json:"production,omitempty"`
 }
 
-type liveProductionProvenanceDTO struct {
-	BuildProduct          string                  `json:"build_product"`
-	BuildVersion          string                  `json:"build_version"`
-	BuildCommit           string                  `json:"build_commit"`
-	ObjectiveSHA256       *string                 `json:"objective_sha256"`
-	ObjectivePresent      bool                    `json:"objective_present"`
-	SourceIdentitySHA256  string                  `json:"source_identity_sha256"`
-	SourceTerminalReceipt string                  `json:"source_terminal_receipt"`
-	Providers             []productionProviderDTO `json:"providers"`
-}
+type liveProductionProvenanceDTO = artifactwire.LiveProductionProvenance
 
-type productionProvenanceDTO struct {
-	BuildProduct             string                  `json:"build_product"`
-	BuildVersion             string                  `json:"build_version"`
-	BuildCommit              string                  `json:"build_commit"`
-	ObjectiveSHA256          *string                 `json:"objective_sha256"`
-	ObjectivePresent         bool                    `json:"objective_present"`
-	SnapshotManifestSHA256   string                  `json:"snapshot_manifest_sha256"`
-	WorkspaceTerminalReceipt string                  `json:"workspace_terminal_receipt"`
-	Providers                []productionProviderDTO `json:"providers"`
-}
+type productionProvenanceDTO = artifactwire.ProductionProvenance
 
-type productionProviderDTO struct {
-	Family                    string   `json:"family"`
-	Instance                  string   `json:"instance"`
-	Version                   string   `json:"version"`
-	Executable                string   `json:"executable"`
-	ExecutableSHA256          string   `json:"executable_sha256"`
-	Launcher                  string   `json:"launcher"`
-	LauncherSHA256            string   `json:"launcher_sha256"`
-	ProfileGeneration         string   `json:"profile_generation"`
-	AdapterProfile            string   `json:"adapter_profile"`
-	QualificationReceiptIDs   []string `json:"qualification_receipt_ids"`
-	PacketTransportReceiptIDs []string `json:"packet_transport_receipt_ids"`
-	NamespaceTerminalReceipt  string   `json:"namespace_terminal_receipt"`
-}
+type productionProviderDTO = artifactwire.ProductionProvider
 
 type manifestDTO struct {
 	SchemaVersion              string                  `json:"schema_version"`
@@ -995,19 +886,7 @@ type manifestDTO struct {
 	ExitCode                   int                     `json:"exit_code"`
 }
 
-type manifestRoleReportDTO struct {
-	Role             string `json:"role"`
-	Path             string `json:"path"`
-	SHA256           string `json:"sha256"`
-	ByteLength       int    `json:"byte_length"`
-	ProviderInstance string `json:"provider_instance"`
-	AttemptID        string `json:"attempt_id"`
-	ContentType      string `json:"content_type"`
-	// Transport mirrors the required manifest field so the strict decoder keeps
-	// accepting committed manifests. Its enum is enforced by the run-manifest
-	// schema this service validates every snapshot against.
-	Transport string `json:"transport"`
-}
+type manifestRoleReportDTO = artifactwire.ManifestRoleReport
 
 type manifestTargetDTO struct {
 	SourceIdentitySHA256 string `json:"source_identity_sha256,omitempty"`
@@ -1015,17 +894,7 @@ type manifestTargetDTO struct {
 	ContentSHA256        string `json:"content_sha256"`
 }
 
-type manifestAttemptDTO struct {
-	AttemptID        string `json:"attempt_id"`
-	Role             string `json:"role"`
-	ProviderInstance string `json:"provider_instance"`
-	SelectedAs       string `json:"selected_as"`
-	State            string `json:"state"`
-	ParseState       string `json:"parse_state"`
-	ValidationState  string `json:"validation_state"`
-	Path             string `json:"path"`
-	InvocationCount  int    `json:"invocation_count"`
-}
+type manifestAttemptDTO = artifactwire.ManifestAttempt
 
 type recoveryJournalDTO struct {
 	ExpectedStaged           *artifactIdentityDTO `json:"expected_staged"`
@@ -1033,10 +902,7 @@ type recoveryJournalDTO struct {
 	ValidatedCandidateSHA256 *string              `json:"validated_candidate_sha256"`
 }
 
-type artifactIdentityDTO struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
+type artifactIdentityDTO = artifactwire.ArtifactIdentity
 
 type compositeIdentityDTO struct {
 	Manifest     *pathPointerDTO      `json:"manifest"`
@@ -1045,22 +911,11 @@ type compositeIdentityDTO struct {
 	SupportIndex *artifactIdentityDTO `json:"support_index"`
 }
 
-type pathPointerDTO struct {
-	Path string `json:"path"`
-}
+type pathPointerDTO = artifactwire.PathPointer
 
-type finalReviewDTO struct {
-	ReviewID string `json:"review_id"`
-	Path     string `json:"path"`
-	SHA256   string `json:"sha256"`
-}
+type finalReviewDTO = artifactwire.FinalReviewIdentity
 
-type manifestFailureDTO struct {
-	Class      string  `json:"class"`
-	Stage      string  `json:"stage"`
-	ReasonCode string  `json:"reason_code"`
-	AttemptID  *string `json:"attempt_id"`
-}
+type manifestFailureDTO = artifactwire.ManifestFailure
 
 func decodeFinalDTO(raw []byte) (finalDTO, error) {
 	var value finalDTO
@@ -1079,104 +934,7 @@ func decodeManifestDTO(raw []byte) (manifestDTO, error) {
 }
 
 func decodeStrictDTO(raw []byte, destination any) error {
-	if !utf8.Valid(raw) {
-		return fmt.Errorf("contains invalid UTF-8")
-	}
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return fmt.Errorf("is empty")
-	}
-	scanner := json.NewDecoder(bytes.NewReader(raw))
-	scanner.UseNumber()
-	token, err := scanner.Token()
-	if err != nil {
-		return err
-	}
-	if token != json.Delim('{') {
-		return fmt.Errorf("must be a non-null JSON object")
-	}
-	if err := consumeJSONObject(scanner); err != nil {
-		return err
-	}
-	if _, err := scanner.Token(); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("contains trailing JSON value")
-		}
-		return fmt.Errorf("contains trailing data: %w", err)
-	}
-
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("contains trailing JSON value")
-		}
-		return fmt.Errorf("contains trailing data: %w", err)
-	}
-	return nil
-}
-
-func consumeJSONObject(decoder *json.Decoder) error {
-	seen := make(map[string]struct{})
-	for decoder.More() {
-		keyToken, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return fmt.Errorf("object key is not a string")
-		}
-		if _, duplicate := seen[key]; duplicate {
-			return fmt.Errorf("contains duplicate object key %q", key)
-		}
-		seen[key] = struct{}{}
-		if err := consumeJSONValue(decoder); err != nil {
-			return err
-		}
-	}
-	end, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	if end != json.Delim('}') {
-		return fmt.Errorf("object is not terminated")
-	}
-	return nil
-}
-
-func consumeJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		return consumeJSONObject(decoder)
-	case '[':
-		for decoder.More() {
-			if err := consumeJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		end, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if end != json.Delim(']') {
-			return fmt.Errorf("array is not terminated")
-		}
-		return nil
-	default:
-		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
-	}
+	return strictjson.DecodeObject(raw, destination)
 }
 
 func cloneRoles(source []Role) []Role {

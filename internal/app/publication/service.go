@@ -13,6 +13,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/app/capture"
 	"github.com/irootkernel/mulgae/internal/app/compositesupport"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -762,7 +763,7 @@ func (service *Service) isLegacyCompositeSupport(ctx context.Context, run ports.
 	if err := unmarshalCanonicalPublicationRecord(artifact.Bytes(), &support, "committed support index"); err != nil {
 		return false, err
 	}
-	return support.SchemaVersion == "mulgae-run-support-index.v1", nil
+	return support.SchemaVersion == artifactwire.SupportIndexV1, nil
 }
 
 // Recover applies only the action selected by a fresh domain classification.
@@ -1297,7 +1298,7 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		SchemaVersion string `json:"schema_version"`
 	}
 	_ = json.Unmarshal(snapshot.Manifest().Bytes(), &envelope)
-	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2" {
+	if envelope.SchemaVersion == artifactwire.CompositeRunManifestV1 || envelope.SchemaVersion == artifactwire.CompositeRunManifestV2 {
 		var composite compositeManifestReadWire
 		if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &composite, "committed composite manifest"); err != nil {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed composite manifest is invalid", err)
@@ -1332,8 +1333,8 @@ func (service *Service) readManifestBoundSupportArtifacts(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &supportIndex, "committed support index"); err != nil {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index is invalid", err)
 	}
-	live := envelope.SchemaVersion == "mulgae-run-manifest.v3"
-	if live && supportIndex.SchemaVersion != "mulgae-run-support-index.v3" || !live && supportIndex.SchemaVersion != "mulgae-run-support-index.v1" && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
+	live := envelope.SchemaVersion == artifactwire.RunManifestV3
+	if live && supportIndex.SchemaVersion != artifactwire.SupportIndexV3 || !live && supportIndex.SchemaVersion != artifactwire.SupportIndexV1 && supportIndex.SchemaVersion != artifactwire.SupportIndexV2 {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index schema is invalid", nil)
 	}
 	captureArtifacts := make(map[string]ports.ImmutablePublicationArtifact)
@@ -1379,13 +1380,13 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		if classifyErr != nil {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support path invalid", classifyErr)
 		}
-		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && supportIndex.SchemaVersion != "mulgae-run-support-index.v2" {
+		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && supportIndex.SchemaVersion != artifactwire.SupportIndexV2 {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "capture manifest requires support v2", nil)
 		}
 		if !live && (kind == ports.RunSupportArtifactLiveSource || kind == ports.RunSupportArtifactSourceImage) {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "historical support contains live source authority", nil)
 		}
-		if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" || live {
+		if supportIndex.SchemaVersion == artifactwire.SupportIndexV2 || live {
 			captureArtifacts[path.String()] = artifact
 		}
 	}
@@ -1399,7 +1400,7 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		}
 		return identities, nil
 	}
-	if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" && (envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2") {
+	if supportIndex.SchemaVersion == artifactwire.SupportIndexV2 && (envelope.SchemaVersion == artifactwire.CompositeRunManifestV1 || envelope.SchemaVersion == artifactwire.CompositeRunManifestV2) {
 		var final struct {
 			Target struct {
 				SHA256 string `json:"content_sha256"`
@@ -1417,7 +1418,7 @@ func (service *Service) readManifestBoundSupportArtifacts(
 		}
 		return identities, nil
 	}
-	if supportIndex.SchemaVersion == "mulgae-run-support-index.v2" {
+	if supportIndex.SchemaVersion == artifactwire.SupportIndexV2 {
 		var final finalReviewWire
 		if err := unmarshalCanonicalPublicationRecord(snapshot.Final().Bytes(), &final, "committed final"); err != nil {
 			return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed final is invalid", err)
@@ -1449,7 +1450,7 @@ func (service *Service) p2RecoveryFailure(
 
 func committedSnapshotValidatedCandidateSHA256(snapshot ports.CommittedPublicationSnapshot) (string, error) {
 	var composite compositeManifestReadWire
-	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &composite, "committed composite manifest"); err == nil && (composite.SchemaVersion == "mulgae-composite-run-manifest.v1" || composite.SchemaVersion == "mulgae-composite-run-manifest.v2") {
+	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &composite, "committed composite manifest"); err == nil && (composite.SchemaVersion == artifactwire.CompositeRunManifestV1 || composite.SchemaVersion == artifactwire.CompositeRunManifestV2) {
 		if !validSHA256(composite.RecoveryJournal.ValidatedCandidateSHA256) {
 			return "", fmt.Errorf("manifest candidate binding is invalid")
 		}
@@ -1466,14 +1467,7 @@ func committedSnapshotValidatedCandidateSHA256(snapshot ports.CommittedPublicati
 	return candidateSHA256, nil
 }
 
-type compositeManifestRoleReadWire struct {
-	Role        string `json:"role"`
-	Path        string `json:"path"`
-	SHA256      string `json:"sha256"`
-	ByteLength  int    `json:"byte_length"`
-	AttemptID   string `json:"attempt_id"`
-	SourceRunID string `json:"source_run_id"`
-}
+type compositeManifestRoleReadWire = artifactwire.CompositeManifestRole
 
 type compositeManifestReadWire struct {
 	SchemaVersion              string                          `json:"schema_version"`
@@ -1588,7 +1582,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, fmt.Errorf("decode committed manifest: %w", err)
 	}
 	var canonicalValue any = manifest
-	if manifest.SchemaVersion == "mulgae-composite-run-manifest.v1" || manifest.SchemaVersion == "mulgae-composite-run-manifest.v2" {
+	if manifest.SchemaVersion == artifactwire.CompositeRunManifestV1 || manifest.SchemaVersion == artifactwire.CompositeRunManifestV2 {
 		var composite compositeManifestWire
 		if err := json.Unmarshal(manifestBytes, &composite); err != nil {
 			return PublicationDocument{}, PublicationDocument{}, fmt.Errorf("decode committed composite manifest: %w", err)
@@ -1610,7 +1604,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, err
 	}
 	normalExit := domain.OperationalExitCode(manifest.ExitCode)
-	if (manifest.SchemaVersion != "mulgae-run-manifest.v1" && manifest.SchemaVersion != "mulgae-run-manifest.v2" && manifest.SchemaVersion != "mulgae-run-manifest.v3" && (manifest.SchemaVersion != "mulgae-composite-run-manifest.v1" && manifest.SchemaVersion != "mulgae-composite-run-manifest.v2")) ||
+	if (manifest.SchemaVersion != artifactwire.RunManifestV1 && manifest.SchemaVersion != artifactwire.RunManifestV2 && manifest.SchemaVersion != artifactwire.RunManifestV3 && (manifest.SchemaVersion != artifactwire.CompositeRunManifestV1 && manifest.SchemaVersion != artifactwire.CompositeRunManifestV2)) ||
 		manifest.SessionID != run.SessionID().String() ||
 		manifest.RunID != run.RunID().String() ||
 		manifest.PersistedJournalState != string(domain.JournalManifestCommitted) ||
@@ -1652,7 +1646,7 @@ func completedRecoveryDocuments(
 		SchemaVersion:        publicationStatusV1,
 		PublicationStatus:    string(domain.PublicationCommitted),
 		PublicationAuthority: string(domain.PublicationAuthorityP2),
-		restartStateWire:     restart,
+		RestartState:         restart,
 	})
 	if err != nil {
 		return PublicationDocument{}, PublicationDocument{}, err
@@ -1664,8 +1658,8 @@ func completedRecoveryDocuments(
 
 	restart.PersistedJournalState = string(domain.JournalCompleted)
 	journalBytes, err := marshalCanonical(publicationJournalWire{
-		SchemaVersion:    publicationJournalV1,
-		restartStateWire: restart,
+		SchemaVersion: publicationJournalV1,
+		RestartState:  restart,
 	})
 	if err != nil {
 		return PublicationDocument{}, PublicationDocument{}, err
@@ -1727,7 +1721,7 @@ func (service *Service) writeDiagnostic(
 		return publicationFailure("recover.diagnostic", domain.FailureArtifact, "corruption diagnostic reasons do not match the observation", nil)
 	}
 	wire := publicationCorruptionDiagnosticWire{
-		SchemaVersion:    "mulgae-publication-corruption.v1",
+		SchemaVersion:    artifactwire.CorruptionDiagnosticV1,
 		SessionID:        run.SessionID().String(),
 		RunID:            run.RunID().String(),
 		ObservationEpoch: epoch,
@@ -1740,7 +1734,7 @@ func (service *Service) writeDiagnostic(
 	if len(bytes) == 0 || int64(len(bytes)) > service.maxBytes {
 		return publicationFailure("recover.diagnostic", domain.FailureArtifact, "corruption diagnostic exceeds configured byte limit", nil)
 	}
-	path, err := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/recovery/diagnostics/publication-corrupt_%d.json", run.SessionID().String(), run.RunID().String(), epoch))
+	path, err := ports.NewSafeRelativePath(artifactwire.CorruptionDiagnosticPath(run.SessionID().String(), run.RunID().String(), epoch))
 	if err != nil {
 		return publicationFailure("recover.diagnostic", domain.FailureInternal, "diagnostic path is invalid", err)
 	}
@@ -1776,13 +1770,7 @@ func (service *Service) writeDiagnostic(
 	return nil
 }
 
-type publicationCorruptionDiagnosticWire struct {
-	SchemaVersion    string   `json:"schema_version"`
-	SessionID        string   `json:"session_id"`
-	RunID            string   `json:"run_id"`
-	ObservationEpoch uint64   `json:"observation_epoch"`
-	ReasonCodes      []string `json:"reason_codes"`
-}
+type publicationCorruptionDiagnosticWire = artifactwire.CorruptionDiagnostic
 
 func journalForState(document PublicationDocument, state domain.PersistedJournalState) (PublicationDocument, error) {
 	var wire publicationJournalWire
@@ -2031,7 +2019,7 @@ func validateRecoveryMaterial(
 	}
 	journal := material.Journal()
 	expectedJournalPath, err := ports.NewSafeRelativePath(
-		fmt.Sprintf("%s/%s/publication/journal.json", run.SessionID().String(), run.RunID().String()),
+		artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.JournalPath),
 	)
 	if err != nil {
 		return err
@@ -2057,7 +2045,7 @@ func validateRecoveryMaterial(
 		return fmt.Errorf("recovery immutable composite: %w", err)
 	}
 	if err := validateRestartStateSemantics(
-		wire.restartStateWire,
+		wire.RestartState,
 		observation.ClassifierInput().JournalState(),
 		normalExit,
 		candidate.Identity(),
@@ -2103,7 +2091,7 @@ func expectationForObserved(document ports.ObservedMutablePublicationDocument) p
 }
 
 func canonicalStagedFinalPath(run ports.PublicationRun, final ports.FinalReviewIdentity) (ports.SafeRelativePath, error) {
-	return ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/publication/staged/review_%s.json.tmp", run.SessionID().String(), run.RunID().String(), final.ReviewID().String()))
+	return ports.NewSafeRelativePath(artifactwire.StagedFinalPath(run.SessionID().String(), run.RunID().String(), final.ReviewID().String()))
 }
 
 func mustInstallRequest(run ports.PublicationRun, staged ports.StageFinalResult) ports.InstallFinalRequest {

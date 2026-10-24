@@ -1,0 +1,1431 @@
+{
+  "publicationEpochWire/duplicate": {
+    "destination": "publicationEpochWire",
+    "input": "{\"unrecognized\":1,\"unrecognized\":2}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "duplicate JSON key \"unrecognized\""
+    }
+  },
+  "publicationEpochWire/empty": {
+    "destination": "publicationEpochWire",
+    "input": "{}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"store_epoch\":0,\"manifest\":{\"path\":\"\",\"sha256\":\"\"},\"lineage_edge\":{\"path\":\"\",\"sha256\":\"\"},\"final_review\":{\"path\":\"\",\"sha256\":\"\"}}"
+    }
+  },
+  "publicationEpochWire/root-type": {
+    "destination": "publicationEpochWire",
+    "input": "42",
+    "guard": "",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go value of type filesystem.publicationEpochWire",
+      "offset": 2,
+      "value": "number",
+      "type": "filesystem.publicationEpochWire"
+    }
+  },
+  "publicationEpochWire/trailing": {
+    "destination": "publicationEpochWire",
+    "input": "{} {}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "trailing JSON value"
+    }
+  },
+  "publicationEpochWire/type/final_review": {
+    "destination": "publicationEpochWire",
+    "input": "{\"final_review\":1}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field publicationEpochWire.final_review of type filesystem.publicationArtifactWire",
+      "offset": 17,
+      "value": "number",
+      "type": "filesystem.publicationArtifactWire",
+      "struct": "publicationEpochWire",
+      "field": "final_review"
+    }
+  },
+  "publicationEpochWire/type/final_review.path": {
+    "destination": "publicationEpochWire",
+    "input": "{\"final_review\":{\"path\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationEpochWire.final_review.path of type string",
+      "offset": 29,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationEpochWire",
+      "field": "final_review.path"
+    }
+  },
+  "publicationEpochWire/type/final_review.sha256": {
+    "destination": "publicationEpochWire",
+    "input": "{\"final_review\":{\"sha256\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationEpochWire.final_review.sha256 of type string",
+      "offset": 31,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationEpochWire",
+      "field": "final_review.sha256"
+    }
+  },
+  "publicationEpochWire/type/lineage_edge": {
+    "destination": "publicationEpochWire",
+    "input": "{\"lineage_edge\":1}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field publicationEpochWire.lineage_edge of type filesystem.publicationArtifactWire",
+      "offset": 17,
+      "value": "number",
+      "type": "filesystem.publicationArtifactWire",
+      "struct": "publicationEpochWire",
+      "field": "lineage_edge"
+    }
+  },
+  "publicationEpochWire/type/lineage_edge.path": {
+    "destination": "publicationEpochWire",
+    "input": "{\"lineage_edge\":{\"path\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationEpochWire.lineage_edge.path of type string",
+      "offset": 29,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationEpochWire",
+      "field": "lineage_edge.path"
+    }
+  },
+  "publicationEpochWire/type/lineage_edge.sha256": {
+    "destination": "publicationEpochWire",
+    "input": "{\"lineage_edge\":{\"sha256\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationEpochWire.lineage_edge.sha256 of type string",
+      "offset": 31,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationEpochWire",
+      "field": "lineage_edge.sha256"
+    }
+  },
+  "publicationEpochWire/type/manifest": {
+    "destination": "publicationEpochWire",
+    "input": "{\"manifest\":1}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field publicationEpochWire.manifest of type filesystem.publicationArtifactWire",
+      "offset": 13,
+      "value": "number",
+      "type": "filesystem.publicationArtifactWire",
+      "struct": "publicationEpochWire",
+      "field": "manifest"
+    }
+  },
+  "publicationEpochWire/type/manifest.path": {
+    "destination": "publicationEpochWire",
+    "input": "{\"manifest\":{\"path\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationEpochWire.manifest.path of type string",
+      "offset": 25,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationEpochWire",
+      "field": "manifest.path"
+    }
+  },
+  "publicationEpochWire/type/manifest.sha256": {
+    "destination": "publicationEpochWire",
+    "input": "{\"manifest\":{\"sha256\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationEpochWire.manifest.sha256 of type string",
+      "offset": 27,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationEpochWire",
+      "field": "manifest.sha256"
+    }
+  },
+  "publicationEpochWire/type/schema_version": {
+    "destination": "publicationEpochWire",
+    "input": "{\"schema_version\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationEpochWire.schema_version of type string",
+      "offset": 23,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationEpochWire",
+      "field": "schema_version"
+    }
+  },
+  "publicationEpochWire/type/store_epoch": {
+    "destination": "publicationEpochWire",
+    "input": "{\"store_epoch\":\"bad\"}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal string into Go struct field publicationEpochWire.store_epoch of type uint64",
+      "offset": 20,
+      "value": "string",
+      "type": "uint64",
+      "struct": "publicationEpochWire",
+      "field": "store_epoch"
+    }
+  },
+  "publicationEpochWire/unicode/final_review.path": {
+    "destination": "publicationEpochWire",
+    "input": "{\"final_review\":{\"path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"store_epoch\":0,\"manifest\":{\"path\":\"\",\"sha256\":\"\"},\"lineage_edge\":{\"path\":\"\",\"sha256\":\"\"},\"final_review\":{\"path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"sha256\":\"\"}}"
+    }
+  },
+  "publicationEpochWire/unicode/final_review.sha256": {
+    "destination": "publicationEpochWire",
+    "input": "{\"final_review\":{\"sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"store_epoch\":0,\"manifest\":{\"path\":\"\",\"sha256\":\"\"},\"lineage_edge\":{\"path\":\"\",\"sha256\":\"\"},\"final_review\":{\"path\":\"\",\"sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"}}"
+    }
+  },
+  "publicationEpochWire/unicode/lineage_edge.path": {
+    "destination": "publicationEpochWire",
+    "input": "{\"lineage_edge\":{\"path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"store_epoch\":0,\"manifest\":{\"path\":\"\",\"sha256\":\"\"},\"lineage_edge\":{\"path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"sha256\":\"\"},\"final_review\":{\"path\":\"\",\"sha256\":\"\"}}"
+    }
+  },
+  "publicationEpochWire/unicode/lineage_edge.sha256": {
+    "destination": "publicationEpochWire",
+    "input": "{\"lineage_edge\":{\"sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"store_epoch\":0,\"manifest\":{\"path\":\"\",\"sha256\":\"\"},\"lineage_edge\":{\"path\":\"\",\"sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"},\"final_review\":{\"path\":\"\",\"sha256\":\"\"}}"
+    }
+  },
+  "publicationEpochWire/unicode/manifest.path": {
+    "destination": "publicationEpochWire",
+    "input": "{\"manifest\":{\"path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"store_epoch\":0,\"manifest\":{\"path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"sha256\":\"\"},\"lineage_edge\":{\"path\":\"\",\"sha256\":\"\"},\"final_review\":{\"path\":\"\",\"sha256\":\"\"}}"
+    }
+  },
+  "publicationEpochWire/unicode/manifest.sha256": {
+    "destination": "publicationEpochWire",
+    "input": "{\"manifest\":{\"sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"store_epoch\":0,\"manifest\":{\"path\":\"\",\"sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"},\"lineage_edge\":{\"path\":\"\",\"sha256\":\"\"},\"final_review\":{\"path\":\"\",\"sha256\":\"\"}}"
+    }
+  },
+  "publicationEpochWire/unicode/schema_version": {
+    "destination": "publicationEpochWire",
+    "input": "{\"schema_version\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"store_epoch\":0,\"manifest\":{\"path\":\"\",\"sha256\":\"\"},\"lineage_edge\":{\"path\":\"\",\"sha256\":\"\"},\"final_review\":{\"path\":\"\",\"sha256\":\"\"}}"
+    }
+  },
+  "publicationEpochWire/unknown": {
+    "destination": "publicationEpochWire",
+    "input": "{\"unrecognized\":1}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "json: unknown field \"unrecognized\""
+    }
+  },
+  "publicationJournalWire/duplicate": {
+    "destination": "publicationJournalWire",
+    "input": "{\"unrecognized\":1,\"unrecognized\":2}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "duplicate JSON key \"unrecognized\""
+    }
+  },
+  "publicationJournalWire/empty": {
+    "destination": "publicationJournalWire",
+    "input": "{}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/root-type": {
+    "destination": "publicationJournalWire",
+    "input": "42",
+    "guard": "",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go value of type filesystem.publicationJournalWire",
+      "offset": 2,
+      "value": "number",
+      "type": "filesystem.publicationJournalWire"
+    }
+  },
+  "publicationJournalWire/trailing": {
+    "destination": "publicationJournalWire",
+    "input": "{} {}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "trailing JSON value"
+    }
+  },
+  "publicationJournalWire/type/epoch_path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"epoch_path\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.epoch_path of type string",
+      "offset": 19,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "epoch_path"
+    }
+  },
+  "publicationJournalWire/type/expected_final": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_final\":1}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field publicationJournalWire.expected_final of type filesystem.publicationArtifactWire",
+      "offset": 19,
+      "value": "number",
+      "type": "filesystem.publicationArtifactWire",
+      "struct": "publicationJournalWire",
+      "field": "expected_final"
+    }
+  },
+  "publicationJournalWire/type/expected_final.path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_final\":{\"path\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.expected_final.path of type string",
+      "offset": 31,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "expected_final.path"
+    }
+  },
+  "publicationJournalWire/type/expected_final.sha256": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_final\":{\"sha256\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.expected_final.sha256 of type string",
+      "offset": 33,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "expected_final.sha256"
+    }
+  },
+  "publicationJournalWire/type/expected_staged": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_staged\":1}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field publicationJournalWire.expected_staged of type filesystem.publicationArtifactWire",
+      "offset": 20,
+      "value": "number",
+      "type": "filesystem.publicationArtifactWire",
+      "struct": "publicationJournalWire",
+      "field": "expected_staged"
+    }
+  },
+  "publicationJournalWire/type/expected_staged.path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_staged\":{\"path\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.expected_staged.path of type string",
+      "offset": 32,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "expected_staged.path"
+    }
+  },
+  "publicationJournalWire/type/expected_staged.sha256": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_staged\":{\"sha256\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.expected_staged.sha256 of type string",
+      "offset": 34,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "expected_staged.sha256"
+    }
+  },
+  "publicationJournalWire/type/lineage_edge_path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"lineage_edge_path\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.lineage_edge_path of type string",
+      "offset": 26,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "lineage_edge_path"
+    }
+  },
+  "publicationJournalWire/type/manifest_path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"manifest_path\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.manifest_path of type string",
+      "offset": 22,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "manifest_path"
+    }
+  },
+  "publicationJournalWire/type/normal_exit": {
+    "destination": "publicationJournalWire",
+    "input": "{\"normal_exit\":\"bad\"}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal string into Go struct field publicationJournalWire.normal_exit of type int",
+      "offset": 20,
+      "value": "string",
+      "type": "int",
+      "struct": "publicationJournalWire",
+      "field": "normal_exit"
+    }
+  },
+  "publicationJournalWire/type/persisted_journal_state": {
+    "destination": "publicationJournalWire",
+    "input": "{\"persisted_journal_state\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.persisted_journal_state of type string",
+      "offset": 32,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "persisted_journal_state"
+    }
+  },
+  "publicationJournalWire/type/run_id": {
+    "destination": "publicationJournalWire",
+    "input": "{\"run_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.run_id of type string",
+      "offset": 15,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "run_id"
+    }
+  },
+  "publicationJournalWire/type/schema_version": {
+    "destination": "publicationJournalWire",
+    "input": "{\"schema_version\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.schema_version of type string",
+      "offset": 23,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "schema_version"
+    }
+  },
+  "publicationJournalWire/type/session_id": {
+    "destination": "publicationJournalWire",
+    "input": "{\"session_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.session_id of type string",
+      "offset": 19,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "session_id"
+    }
+  },
+  "publicationJournalWire/type/store_epoch": {
+    "destination": "publicationJournalWire",
+    "input": "{\"store_epoch\":\"bad\"}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal string into Go struct field publicationJournalWire.store_epoch of type uint64",
+      "offset": 20,
+      "value": "string",
+      "type": "uint64",
+      "struct": "publicationJournalWire",
+      "field": "store_epoch"
+    }
+  },
+  "publicationJournalWire/type/validated_candidate_sha256": {
+    "destination": "publicationJournalWire",
+    "input": "{\"validated_candidate_sha256\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationJournalWire.validated_candidate_sha256 of type string",
+      "offset": 35,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationJournalWire",
+      "field": "validated_candidate_sha256"
+    }
+  },
+  "publicationJournalWire/unicode/epoch_path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"epoch_path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"}"
+    }
+  },
+  "publicationJournalWire/unicode/expected_final.path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_final\":{\"path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/expected_final.sha256": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_final\":{\"sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/expected_staged.path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_staged\":{\"path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/expected_staged.sha256": {
+    "destination": "publicationJournalWire",
+    "input": "{\"expected_staged\":{\"sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/lineage_edge_path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"lineage_edge_path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/manifest_path": {
+    "destination": "publicationJournalWire",
+    "input": "{\"manifest_path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/persisted_journal_state": {
+    "destination": "publicationJournalWire",
+    "input": "{\"persisted_journal_state\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/run_id": {
+    "destination": "publicationJournalWire",
+    "input": "{\"run_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/schema_version": {
+    "destination": "publicationJournalWire",
+    "input": "{\"schema_version\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/session_id": {
+    "destination": "publicationJournalWire",
+    "input": "{\"session_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unicode/validated_candidate_sha256": {
+    "destination": "publicationJournalWire",
+    "input": "{\"validated_candidate_sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationJournalWire/unknown": {
+    "destination": "publicationJournalWire",
+    "input": "{\"unrecognized\":1}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "json: unknown field \"unrecognized\""
+    }
+  },
+  "publicationLineageChildWire/duplicate": {
+    "destination": "publicationLineageChildWire",
+    "input": "{\"unrecognized\":1,\"unrecognized\":2}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "duplicate JSON key \"unrecognized\""
+    }
+  },
+  "publicationLineageChildWire/empty": {
+    "destination": "publicationLineageChildWire",
+    "input": "{}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"}"
+    }
+  },
+  "publicationLineageChildWire/root-type": {
+    "destination": "publicationLineageChildWire",
+    "input": "42",
+    "guard": "",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go value of type filesystem.publicationLineageChildWire",
+      "offset": 2,
+      "value": "number",
+      "type": "filesystem.publicationLineageChildWire"
+    }
+  },
+  "publicationLineageChildWire/trailing": {
+    "destination": "publicationLineageChildWire",
+    "input": "{} {}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "trailing JSON value"
+    }
+  },
+  "publicationLineageChildWire/type/review_id": {
+    "destination": "publicationLineageChildWire",
+    "input": "{\"review_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageChildWire.review_id of type string",
+      "offset": 18,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageChildWire",
+      "field": "review_id"
+    }
+  },
+  "publicationLineageChildWire/type/run_id": {
+    "destination": "publicationLineageChildWire",
+    "input": "{\"run_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageChildWire.run_id of type string",
+      "offset": 15,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageChildWire",
+      "field": "run_id"
+    }
+  },
+  "publicationLineageChildWire/type/session_id": {
+    "destination": "publicationLineageChildWire",
+    "input": "{\"session_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageChildWire.session_id of type string",
+      "offset": 19,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageChildWire",
+      "field": "session_id"
+    }
+  },
+  "publicationLineageChildWire/unicode/review_id": {
+    "destination": "publicationLineageChildWire",
+    "input": "{\"review_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"}"
+    }
+  },
+  "publicationLineageChildWire/unicode/run_id": {
+    "destination": "publicationLineageChildWire",
+    "input": "{\"run_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"review_id\":\"\"}"
+    }
+  },
+  "publicationLineageChildWire/unicode/session_id": {
+    "destination": "publicationLineageChildWire",
+    "input": "{\"session_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"run_id\":\"\",\"review_id\":\"\"}"
+    }
+  },
+  "publicationLineageChildWire/unknown": {
+    "destination": "publicationLineageChildWire",
+    "input": "{\"unrecognized\":1}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "json: unknown field \"unrecognized\""
+    }
+  },
+  "publicationLineageWire/duplicate": {
+    "destination": "publicationLineageWire",
+    "input": "{\"unrecognized\":1,\"unrecognized\":2}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "duplicate JSON key \"unrecognized\""
+    }
+  },
+  "publicationLineageWire/empty": {
+    "destination": "publicationLineageWire",
+    "input": "{}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/root-type": {
+    "destination": "publicationLineageWire",
+    "input": "42",
+    "guard": "",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go value of type filesystem.publicationLineageWire",
+      "offset": 2,
+      "value": "number",
+      "type": "filesystem.publicationLineageWire"
+    }
+  },
+  "publicationLineageWire/trailing": {
+    "destination": "publicationLineageWire",
+    "input": "{} {}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "trailing JSON value"
+    }
+  },
+  "publicationLineageWire/type/child": {
+    "destination": "publicationLineageWire",
+    "input": "{\"child\":1}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field publicationLineageWire.child of type filesystem.publicationLineageChildWire",
+      "offset": 10,
+      "value": "number",
+      "type": "filesystem.publicationLineageChildWire",
+      "struct": "publicationLineageWire",
+      "field": "child"
+    }
+  },
+  "publicationLineageWire/type/child.review_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"child\":{\"review_id\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.child.review_id of type string",
+      "offset": 27,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "child.review_id"
+    }
+  },
+  "publicationLineageWire/type/child.run_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"child\":{\"run_id\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.child.run_id of type string",
+      "offset": 24,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "child.run_id"
+    }
+  },
+  "publicationLineageWire/type/child.session_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"child\":{\"session_id\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.child.session_id of type string",
+      "offset": 28,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "child.session_id"
+    }
+  },
+  "publicationLineageWire/type/edge_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"edge_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.edge_id of type string",
+      "offset": 16,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "edge_id"
+    }
+  },
+  "publicationLineageWire/type/parent_run_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"parent_run_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.parent_run_id of type string",
+      "offset": 22,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "parent_run_id"
+    }
+  },
+  "publicationLineageWire/type/replay_mode": {
+    "destination": "publicationLineageWire",
+    "input": "{\"replay_mode\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.replay_mode of type string",
+      "offset": 20,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "replay_mode"
+    }
+  },
+  "publicationLineageWire/type/schema_version": {
+    "destination": "publicationLineageWire",
+    "input": "{\"schema_version\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.schema_version of type string",
+      "offset": 23,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "schema_version"
+    }
+  },
+  "publicationLineageWire/type/source_attempt_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_attempt_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.source_attempt_id of type string",
+      "offset": 26,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "source_attempt_id"
+    }
+  },
+  "publicationLineageWire/type/source_finding_ref": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_finding_ref\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.source_finding_ref of type string",
+      "offset": 27,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "source_finding_ref"
+    }
+  },
+  "publicationLineageWire/type/source_kind": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_kind\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.source_kind of type string",
+      "offset": 20,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "source_kind"
+    }
+  },
+  "publicationLineageWire/type/source_recovery_manifest_sha256": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_recovery_manifest_sha256\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.source_recovery_manifest_sha256 of type string",
+      "offset": 40,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "source_recovery_manifest_sha256"
+    }
+  },
+  "publicationLineageWire/type/source_review_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_review_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.source_review_id of type string",
+      "offset": 25,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "source_review_id"
+    }
+  },
+  "publicationLineageWire/type/source_run_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_run_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationLineageWire.source_run_id of type string",
+      "offset": 22,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationLineageWire",
+      "field": "source_run_id"
+    }
+  },
+  "publicationLineageWire/unicode/child.review_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"child\":{\"review_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/child.run_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"child\":{\"run_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/child.session_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"child\":{\"session_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/edge_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"edge_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/parent_run_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"parent_run_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/replay_mode": {
+    "destination": "publicationLineageWire",
+    "input": "{\"replay_mode\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"}"
+    }
+  },
+  "publicationLineageWire/unicode/schema_version": {
+    "destination": "publicationLineageWire",
+    "input": "{\"schema_version\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/source_attempt_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_attempt_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_attempt_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/source_finding_ref": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_finding_ref\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_finding_ref\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/source_kind": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_kind\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_kind\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/source_recovery_manifest_sha256": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_recovery_manifest_sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":null,\"source_recovery_manifest_sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/source_review_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_review_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":null,\"source_review_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unicode/source_run_id": {
+    "destination": "publicationLineageWire",
+    "input": "{\"source_run_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"schema_version\":\"\",\"edge_id\":\"\",\"child\":{\"session_id\":\"\",\"run_id\":\"\",\"review_id\":\"\"},\"parent_run_id\":null,\"source_run_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"source_review_id\":null,\"source_finding_ref\":null,\"replay_mode\":null}"
+    }
+  },
+  "publicationLineageWire/unknown": {
+    "destination": "publicationLineageWire",
+    "input": "{\"unrecognized\":1}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "json: unknown field \"unrecognized\""
+    }
+  },
+  "publicationRestartWire/duplicate": {
+    "destination": "publicationRestartWire",
+    "input": "{\"unrecognized\":1,\"unrecognized\":2}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "duplicate JSON key \"unrecognized\""
+    }
+  },
+  "publicationRestartWire/empty": {
+    "destination": "publicationRestartWire",
+    "input": "{}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/root-type": {
+    "destination": "publicationRestartWire",
+    "input": "42",
+    "guard": "",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go value of type filesystem.publicationRestartWire",
+      "offset": 2,
+      "value": "number",
+      "type": "filesystem.publicationRestartWire"
+    }
+  },
+  "publicationRestartWire/trailing": {
+    "destination": "publicationRestartWire",
+    "input": "{} {}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "trailing JSON value"
+    }
+  },
+  "publicationRestartWire/type/epoch_path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"epoch_path\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.epoch_path of type string",
+      "offset": 19,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "epoch_path"
+    }
+  },
+  "publicationRestartWire/type/expected_final": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_final\":1}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field publicationRestartWire.expected_final of type filesystem.publicationArtifactWire",
+      "offset": 19,
+      "value": "number",
+      "type": "filesystem.publicationArtifactWire",
+      "struct": "publicationRestartWire",
+      "field": "expected_final"
+    }
+  },
+  "publicationRestartWire/type/expected_final.path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_final\":{\"path\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.expected_final.path of type string",
+      "offset": 31,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "expected_final.path"
+    }
+  },
+  "publicationRestartWire/type/expected_final.sha256": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_final\":{\"sha256\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.expected_final.sha256 of type string",
+      "offset": 33,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "expected_final.sha256"
+    }
+  },
+  "publicationRestartWire/type/expected_staged": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_staged\":1}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field publicationRestartWire.expected_staged of type filesystem.publicationArtifactWire",
+      "offset": 20,
+      "value": "number",
+      "type": "filesystem.publicationArtifactWire",
+      "struct": "publicationRestartWire",
+      "field": "expected_staged"
+    }
+  },
+  "publicationRestartWire/type/expected_staged.path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_staged\":{\"path\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.expected_staged.path of type string",
+      "offset": 32,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "expected_staged.path"
+    }
+  },
+  "publicationRestartWire/type/expected_staged.sha256": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_staged\":{\"sha256\":false}}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.expected_staged.sha256 of type string",
+      "offset": 34,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "expected_staged.sha256"
+    }
+  },
+  "publicationRestartWire/type/lineage_edge_path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"lineage_edge_path\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.lineage_edge_path of type string",
+      "offset": 26,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "lineage_edge_path"
+    }
+  },
+  "publicationRestartWire/type/manifest_path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"manifest_path\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.manifest_path of type string",
+      "offset": 22,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "manifest_path"
+    }
+  },
+  "publicationRestartWire/type/normal_exit": {
+    "destination": "publicationRestartWire",
+    "input": "{\"normal_exit\":\"bad\"}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal string into Go struct field publicationRestartWire.normal_exit of type int",
+      "offset": 20,
+      "value": "string",
+      "type": "int",
+      "struct": "publicationRestartWire",
+      "field": "normal_exit"
+    }
+  },
+  "publicationRestartWire/type/persisted_journal_state": {
+    "destination": "publicationRestartWire",
+    "input": "{\"persisted_journal_state\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.persisted_journal_state of type string",
+      "offset": 32,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "persisted_journal_state"
+    }
+  },
+  "publicationRestartWire/type/run_id": {
+    "destination": "publicationRestartWire",
+    "input": "{\"run_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.run_id of type string",
+      "offset": 15,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "run_id"
+    }
+  },
+  "publicationRestartWire/type/session_id": {
+    "destination": "publicationRestartWire",
+    "input": "{\"session_id\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.session_id of type string",
+      "offset": 19,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "session_id"
+    }
+  },
+  "publicationRestartWire/type/store_epoch": {
+    "destination": "publicationRestartWire",
+    "input": "{\"store_epoch\":\"bad\"}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal string into Go struct field publicationRestartWire.store_epoch of type uint64",
+      "offset": 20,
+      "value": "string",
+      "type": "uint64",
+      "struct": "publicationRestartWire",
+      "field": "store_epoch"
+    }
+  },
+  "publicationRestartWire/type/validated_candidate_sha256": {
+    "destination": "publicationRestartWire",
+    "input": "{\"validated_candidate_sha256\":false}",
+    "guard": "type",
+    "outcome": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal bool into Go struct field publicationRestartWire.validated_candidate_sha256 of type string",
+      "offset": 35,
+      "value": "bool",
+      "type": "string",
+      "struct": "publicationRestartWire",
+      "field": "validated_candidate_sha256"
+    }
+  },
+  "publicationRestartWire/unicode/epoch_path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"epoch_path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"}"
+    }
+  },
+  "publicationRestartWire/unicode/expected_final.path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_final\":{\"path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/expected_final.sha256": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_final\":{\"sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/expected_staged.path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_staged\":{\"path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/expected_staged.sha256": {
+    "destination": "publicationRestartWire",
+    "input": "{\"expected_staged\":{\"sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/lineage_edge_path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"lineage_edge_path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/manifest_path": {
+    "destination": "publicationRestartWire",
+    "input": "{\"manifest_path\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/persisted_journal_state": {
+    "destination": "publicationRestartWire",
+    "input": "{\"persisted_journal_state\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/run_id": {
+    "destination": "publicationRestartWire",
+    "input": "{\"run_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/session_id": {
+    "destination": "publicationRestartWire",
+    "input": "{\"session_id\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unicode/validated_candidate_sha256": {
+    "destination": "publicationRestartWire",
+    "input": "{\"validated_candidate_sha256\":\"café é 한글 \u003c\u0026\u003e\\r\\n\\ud83d\\ude00\"}",
+    "guard": "",
+    "outcome": {
+      "json": "{\"session_id\":\"\",\"run_id\":\"\",\"persisted_journal_state\":\"\",\"expected_staged\":{\"path\":\"\",\"sha256\":\"\"},\"expected_final\":{\"path\":\"\",\"sha256\":\"\"},\"validated_candidate_sha256\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n😀\",\"store_epoch\":0,\"normal_exit\":0,\"manifest_path\":\"\",\"lineage_edge_path\":\"\",\"epoch_path\":\"\"}"
+    }
+  },
+  "publicationRestartWire/unknown": {
+    "destination": "publicationRestartWire",
+    "input": "{\"unrecognized\":1}",
+    "guard": "",
+    "outcome": {
+      "error_type": "*errors.errorString",
+      "message": "json: unknown field \"unrecognized\""
+    }
+  }
+}

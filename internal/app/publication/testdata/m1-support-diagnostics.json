@@ -1,0 +1,102 @@
+{
+  "artifacts": {
+    "before": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into Go struct field runSupportIndexWire.artifacts of type []publication.artifactIdentityWire",
+      "offset": 14,
+      "value": "number",
+      "type": "[]publication.artifactIdentityWire",
+      "struct": "runSupportIndexWire",
+      "field": "artifacts"
+    },
+    "after": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into Go struct field SupportIndex.artifacts of type []artifactwire.ArtifactIdentity",
+      "offset": 14,
+      "value": "number",
+      "type": "[]artifactwire.ArtifactIdentity",
+      "struct": "SupportIndex",
+      "field": "artifacts"
+    }
+  },
+  "member": {
+    "before": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into runSupportIndexWire.artifacts.0 of type publication.artifactIdentityWire",
+      "offset": 15,
+      "value": "number",
+      "type": "publication.artifactIdentityWire",
+      "struct": "runSupportIndexWire",
+      "field": "artifacts.0"
+    },
+    "after": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into SupportIndex.artifacts.0 of type artifactwire.ArtifactIdentity",
+      "offset": 15,
+      "value": "number",
+      "type": "artifactwire.ArtifactIdentity",
+      "struct": "SupportIndex",
+      "field": "artifacts.0"
+    }
+  },
+  "path": {
+    "before": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into Go struct field runSupportIndexWire.artifacts.0.path of type string",
+      "offset": 23,
+      "value": "number",
+      "type": "string",
+      "struct": "runSupportIndexWire",
+      "field": "artifacts.0.path"
+    },
+    "after": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into Go struct field SupportIndex.artifacts.0.path of type string",
+      "offset": 23,
+      "value": "number",
+      "type": "string",
+      "struct": "SupportIndex",
+      "field": "artifacts.0.path"
+    }
+  },
+  "root": {
+    "before": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into Go value of type publication.runSupportIndexWire",
+      "offset": 1,
+      "value": "number",
+      "type": "publication.runSupportIndexWire",
+      "struct": "",
+      "field": ""
+    },
+    "after": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into Go value of type artifactwire.SupportIndex",
+      "offset": 1,
+      "value": "number",
+      "type": "artifactwire.SupportIndex",
+      "struct": "",
+      "field": ""
+    }
+  },
+  "schema": {
+    "before": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into Go struct field runSupportIndexWire.schema_version of type string",
+      "offset": 19,
+      "value": "number",
+      "type": "string",
+      "struct": "runSupportIndexWire",
+      "field": "schema_version"
+    },
+    "after": {
+      "error_type": "*fmt.wrapError",
+      "message": "decode support index: json: cannot unmarshal number into Go struct field SupportIndex.schema_version of type string",
+      "offset": 19,
+      "value": "number",
+      "type": "string",
+      "struct": "SupportIndex",
+      "field": "schema_version"
+    }
+  }
+}

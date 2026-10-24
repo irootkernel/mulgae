@@ -7,15 +7,16 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	finalReviewSchemaAsset       = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
-	runManifestSchemaAsset       = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
-	compositeFinalSchemaAsset    = "https://mulgae.local/schemas/mulgae-composite-review-artifact.v1.schema.json"
-	compositeManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-composite-run-manifest.v1.schema.json"
+	finalReviewSchemaAsset       = artifactwire.ReviewArtifactV1Schema
+	runManifestSchemaAsset       = artifactwire.RunManifestV1Schema
+	compositeFinalSchemaAsset    = artifactwire.CompositeReviewArtifactV1Schema
+	compositeManifestSchemaAsset = artifactwire.CompositeRunManifestV1Schema
 )
 
 // PublicationSchemaValidator validates the two consumer-owned publication

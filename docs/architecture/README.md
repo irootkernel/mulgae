@@ -17,6 +17,8 @@ internal/entrypoint/mulgae -> internal/app/* -> internal/domain
                                              -> internal/ports
 internal/entrypoint/mcp ----------------------> external MCP SDK
 internal/adapters/* --------------------------> internal/ports
+internal/app/*, internal/ports, internal/adapters/* -> internal/artifactwire
+internal/app/{query,report} ----------------------> internal/strictjson
 ```
 
 The domain and application packages do not depend on CLI parsing, provider
@@ -25,6 +27,45 @@ process details, or concrete storage. Adapters implement ports;
 and the root `main.go` delegates process execution to that package. Architecture
 tests enforce this direction and keep every other Go file out of the repository
 root.
+
+`internal/artifactwire` owns matching primitive persisted DTOs for runtime
+support, publication restart/journal/status, epochs, lineage and corruption
+diagnostics, plus shared ordinary and composite components. It also owns their
+format/schema identifiers and pure path spelling and lexical helpers. Its
+production import allowlist is `fmt` and `strings`.
+`TestWireLeafDependencyDirection` checks every production source file, including
+inactive build tags. Domain packages retain their existing prohibition on
+repository imports.
+
+Publication keeps serializers, field presence, version selection and custom
+composite marshal-selection behavior. Query and report keep destination DTOs, caller wrappers and
+semantic verification. Ports keep domain ID/role admission, artifact-kind
+policy, scope checks, `SafeRelativePath` construction and error ordering;
+filesystem adapters keep storage, locking and durability checks. Path helpers
+only concatenate or format strings, without cleaning or validating them.
+Positive padded ordinals remain distinct from excerpt digits, which accept zero
+and leading zeroes.
+
+Distinct final/manifest containers, optionality, canonical encodings and digest
+domains remain with their current owners. Archive codecs, failed recovery and
+copied composite support retain their validation and digest rules while using
+the shared identifiers and spellings. The filesystem's named artifact wrapper
+and ports' named corruption wrapper retain their decoder type names. DTOs and
+path strings confer no validated identity, replay or publication authority.
+
+`internal/strictjson.DecodeObject` owns only the identical query/report
+strict-object mechanics. It checks raw UTF-8, rejects empty or non-object roots,
+scans decoded keys recursively for duplicates with `UseNumber`, checks trailing
+data, then decodes into the caller's destination with `DisallowUnknownFields`
+and checks EOF again. Destination types still determine numeric and field-type
+acceptance. Escaped surrogate handling retains `encoding/json` behavior.
+
+Its production import allowlist is `bytes`, `encoding/json`, `fmt`, `io` and
+`unicode/utf8`; the leaf-import guard requires both leaf packages to exist and
+checks tagged files too. Query/report keep their local wrapper functions and
+errors. Provider review/followup, schema-adapter, filesystem, MCP, capability,
+AGY, corruption, archive, diagnostic/cleanup and protocol-line parsers retain
+their separate implementations and acceptance rules.
 
 ## Package map
 
@@ -43,6 +84,8 @@ root.
 | `internal/app/{query,report,clean,export}` | Inspection and artifact lifecycle |
 | `internal/domain` | IDs, findings, failures, states, roles, immutable values |
 | `internal/ports` | Interfaces and safe values crossing application boundaries |
+| `internal/artifactwire` | Shared persisted DTOs, format/schema identifiers, path spelling and lexical helpers |
+| `internal/strictjson` | Shared strict-object mechanics for query/report, without destination or semantic policy |
 | `internal/adapters/providercli` | Provider profiles, qualification, credentials, invocation, neutral reviewer home |
 | `internal/adapters/workspace` | Qualification fixtures and descriptor-bound roots |
 | `internal/adapters/filesystem` | Secure project-local storage and publication |

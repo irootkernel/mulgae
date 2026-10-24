@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -78,7 +79,7 @@ func ProjectRoleReportURIs(result PublicationResult) ([]RoleReportURI, error) {
 	if err := json.Unmarshal(snapshot.Manifest().Bytes(), &envelope); err != nil {
 		return nil, fmt.Errorf("publication role report URIs: committed manifest is invalid: %w", err)
 	}
-	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2" {
+	if envelope.SchemaVersion == artifactwire.CompositeRunManifestV1 || envelope.SchemaVersion == artifactwire.CompositeRunManifestV2 {
 		return projectCompositeRoleReportURIs(result, snapshot)
 	}
 	reports, err := ProjectCommittedRoleReports(snapshot)
@@ -118,7 +119,7 @@ func ProjectRoleReportURIs(result PublicationResult) ([]RoleReportURI, error) {
 	uris := make([]RoleReportURI, 0, len(reports))
 	seen := make(map[string]struct{}, len(reports))
 	for _, report := range reports {
-		if report.ContentType != "text/markdown" || report.Path != "role-reports/"+report.Role+".md" || report.ByteLength <= 0 {
+		if report.ContentType != "text/markdown" || report.Path != artifactwire.RoleReportPath(report.Role) || report.ByteLength <= 0 {
 			return nil, fmt.Errorf("publication role report URIs: invalid report metadata for %q", report.Role)
 		}
 		fullPath := sessionID.String() + "/" + runID.String() + "/" + report.Path
@@ -186,7 +187,7 @@ func projectCompositeRoleReportURIs(result PublicationResult, snapshot ports.Com
 	seen := make(map[domain.Role]struct{}, len(manifest.RoleReports))
 	for _, report := range manifest.RoleReports {
 		role := domain.Role(report.Role)
-		if !role.Valid() || report.Path != "role-reports/"+string(role)+".md" || !validSHA256(report.SHA256) || report.ByteLength <= 0 {
+		if !role.Valid() || report.Path != artifactwire.RoleReportPath(string(role)) || !validSHA256(report.SHA256) || report.ByteLength <= 0 {
 			return nil, fmt.Errorf("publication role report URIs: invalid composite report metadata for %q", report.Role)
 		}
 		if _, parseErr := domain.ParseAttemptID(report.AttemptID); parseErr != nil {

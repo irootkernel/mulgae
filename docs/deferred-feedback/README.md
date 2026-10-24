@@ -147,11 +147,12 @@ work.
   adding another composition caller, cover each partial configuration and
   prove no service starts.
 
-- `DF-013` Provider JSON surrogate tests: the lone-low-surrogate rejection
-  branch lacks a direct case; strict JSON parsing rejects malformed escapes
-  and the scanner rejects unmatched surrogates. Re-entry: before changing
-  semantic JSON parsing, add lone-low and paired-surrogate cases without
-  accepting replacement bytes.
+- `DF-013` Provider JSON surrogate tests: TASK-061 added
+  `TestProviderJSONSurrogateCompatibility` in
+  `internal/app/validation/surrogate_compatibility_test.go`. The owning review
+  and followup parsers reject lone-low and lone-high surrogates and decode a
+  valid pair as the exact Unicode scalar, preserving validation and repair
+  outcomes without accepting replacement bytes. No deferred work remains.
 
 - `DF-014` Rejected init result tests: unchanged CLI routing and renderer
   preserve the compatible JSON envelope, but direct rejected-init flag

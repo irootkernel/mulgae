@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -52,7 +53,7 @@ func validateLiveQueryTarget(final finalDTO) (evidence.LiveSourceRead, error) {
 		return evidence.LiveSourceRead{}, err
 	}
 	identity := value.Identity
-	if final.SchemaVersion != "mulgae-review-artifact.v3" || final.RunType != string(domain.RunTypeReview) || final.Target.ContentSHA256 != "" || final.Target.ManifestPath != "source/source.json" ||
+	if final.SchemaVersion != artifactwire.ReviewArtifactV3 || final.RunType != string(domain.RunTypeReview) || final.Target.ContentSHA256 != "" || final.Target.ManifestPath != "source/source.json" ||
 		!optionalObjectIDMatches(final.Target.BaseOID, identity.Target().Base().String()) || !optionalObjectIDMatches(final.Target.HeadOID, identity.Target().Head().String()) || final.Provenance.Production != nil || final.Provenance.LiveProduction == nil || final.FollowupOutcome != nil {
 		return evidence.LiveSourceRead{}, fmt.Errorf("live source final contains mixed authority")
 	}
@@ -75,7 +76,7 @@ func validateLiveQueryTarget(final finalDTO) (evidence.LiveSourceRead, error) {
 }
 
 func validateLivePublicationBinding(final finalDTO, manifest manifestDTO) (evidence.LiveSourceRead, error) {
-	if final.SchemaVersion != "mulgae-review-artifact.v3" || manifest.SchemaVersion != "mulgae-run-manifest.v3" {
+	if final.SchemaVersion != artifactwire.ReviewArtifactV3 || manifest.SchemaVersion != artifactwire.RunManifestV3 {
 		return evidence.LiveSourceRead{}, fmt.Errorf("schema version does not match committed contract")
 	}
 	value, err := validateLiveQueryTarget(final)
@@ -117,7 +118,7 @@ func verifyLiveReadSupport(run ports.PublicationRun, review CommittedReview, art
 		images[image.Side+"\x00"+image.Path] = image.SHA256
 	}
 	for _, finding := range final.Findings {
-		metadataPath := fmt.Sprintf("%s/%s/excerpts/%s.json", run.SessionID().String(), run.RunID().String(), finding.ID)
+		metadataPath := artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), "excerpts/"+artifactwire.FindingName(finding.ID))
 		metadata, ok := artifacts[metadataPath]
 		var stored finalFindingDTO
 		if !ok || decodeStrictDTO(metadata.Bytes(), &stored) != nil || !reflect.DeepEqual(stored, finding) {

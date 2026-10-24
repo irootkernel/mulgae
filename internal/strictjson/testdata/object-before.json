@@ -1,0 +1,199 @@
+{
+  "synthetic/NaN": {
+    "error_type": "*json.SyntaxError",
+    "message": "invalid character 'N' looking for beginning of value",
+    "offset": 10
+  },
+  "synthetic/UTF8 before syntax": {
+    "error_type": "*errors.errorString",
+    "message": "contains invalid UTF-8"
+  },
+  "synthetic/any overflow": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "value",
+    "message": "json: cannot unmarshal number 1e400 into Go struct field strictCompatibilityDTO.value of type float64",
+    "offset": 14,
+    "struct": "strictCompatibilityDTO",
+    "type": "float64",
+    "value": "number 1e400"
+  },
+  "synthetic/array": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "synthetic/array duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"x\""
+  },
+  "synthetic/bad escape": {
+    "error_type": "*json.SyntaxError",
+    "message": "invalid escape sequence `\\q` in string",
+    "offset": 11
+  },
+  "synthetic/case alias": {
+    "json": "{\"text\":\"b\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"text\""
+  },
+  "synthetic/duplicate before type": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"integer\""
+  },
+  "synthetic/duplicate before unknown": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"unknown\""
+  },
+  "synthetic/empty": {
+    "error_type": "*errors.errorString",
+    "message": "is empty"
+  },
+  "synthetic/empty object": {
+    "json": "{\"text\":\"\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/escaped duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"text\""
+  },
+  "synthetic/exponent to integer": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "integer",
+    "message": "json: cannot unmarshal number 1e0 into Go struct field strictCompatibilityDTO.integer of type int64",
+    "offset": 14,
+    "struct": "strictCompatibilityDTO",
+    "type": "int64",
+    "value": "number 1e0"
+  },
+  "synthetic/float overflow": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "float",
+    "message": "json: cannot unmarshal number 1e400 into Go struct field strictCompatibilityDTO.float of type float64",
+    "offset": 14,
+    "struct": "strictCompatibilityDTO",
+    "type": "float64",
+    "value": "number 1e400"
+  },
+  "synthetic/fraction to integer": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "integer",
+    "message": "json: cannot unmarshal number 1.5 into Go struct field strictCompatibilityDTO.integer of type int64",
+    "offset": 14,
+    "struct": "strictCompatibilityDTO",
+    "type": "int64",
+    "value": "number 1.5"
+  },
+  "synthetic/integer max": {
+    "json": "{\"text\":\"\",\"integer\":9223372036854775807,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/integer overflow": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "integer",
+    "message": "json: cannot unmarshal number 9223372036854775808 into Go struct field strictCompatibilityDTO.integer of type int64",
+    "offset": 30,
+    "struct": "strictCompatibilityDTO",
+    "type": "int64",
+    "value": "number 9223372036854775808"
+  },
+  "synthetic/invalid UTF8": {
+    "error_type": "*errors.errorString",
+    "message": "contains invalid UTF-8"
+  },
+  "synthetic/leading zero": {
+    "error_type": "*json.SyntaxError",
+    "message": "invalid character '1' after object key:value pair",
+    "offset": 13
+  },
+  "synthetic/literal escape": {
+    "json": "{\"text\":\"\\\\uD800\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/lone high": {
+    "json": "{\"text\":\"�\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/lone low": {
+    "json": "{\"text\":\"�\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/malformed escape": {
+    "error_type": "*json.SyntaxError",
+    "message": "invalid escape sequence `\\uZZZZ` in string",
+    "offset": 15
+  },
+  "synthetic/nested duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"x\""
+  },
+  "synthetic/nested type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "children.0.integer",
+    "message": "json: cannot unmarshal string into Go struct field strictCompatibilityDTO.children.0.integer of type int64",
+    "offset": 29,
+    "struct": "strictCompatibilityDTO",
+    "type": "int64",
+    "value": "string"
+  },
+  "synthetic/null": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "synthetic/number overflow": {
+    "json": "{\"text\":\"\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":1e400,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/overflow before duplicate": {
+    "error_type": "*errors.errorString",
+    "message": "contains duplicate object key \"text\""
+  },
+  "synthetic/paired": {
+    "json": "{\"text\":\"😀\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/raw overflow": {
+    "json": "{\"text\":\"\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":1e400,\"children\":null}"
+  },
+  "synthetic/root before trailing": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "synthetic/scalar": {
+    "error_type": "*errors.errorString",
+    "message": "must be a non-null JSON object"
+  },
+  "synthetic/trailing before unknown": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "synthetic/trailing garbage": {
+    "error_type": "*fmt.wrapError",
+    "message": "contains trailing data: invalid character 'x' looking for beginning of value",
+    "offset": 4
+  },
+  "synthetic/trailing value": {
+    "error_type": "*errors.errorString",
+    "message": "contains trailing JSON value"
+  },
+  "synthetic/unicode HTML": {
+    "json": "{\"text\":\"café é 한글 \\u003c\\u0026\\u003e\\r\\n\",\"integer\":0,\"unsigned\":0,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/unknown": {
+    "error_type": "*errors.errorString",
+    "message": "json: unknown field \"unknown\""
+  },
+  "synthetic/unsigned max": {
+    "json": "{\"text\":\"\",\"integer\":0,\"unsigned\":18446744073709551615,\"float\":0,\"number\":0,\"value\":null,\"raw\":null,\"children\":null}"
+  },
+  "synthetic/unsigned negative": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "unsigned",
+    "message": "json: cannot unmarshal number -1 into Go struct field strictCompatibilityDTO.unsigned of type uint64",
+    "offset": 14,
+    "struct": "strictCompatibilityDTO",
+    "type": "uint64",
+    "value": "number -1"
+  },
+  "synthetic/unterminated": {
+    "error_type": "*errors.errorString",
+    "message": "unexpected EOF"
+  },
+  "synthetic/whitespace": {
+    "error_type": "*errors.errorString",
+    "message": "is empty"
+  }
+}

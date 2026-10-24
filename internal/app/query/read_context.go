@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/irootkernel/mulgae/internal/app/capture"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -234,7 +235,7 @@ func (context *readContext) supportIndex(ctx context.Context, node *contextRun, 
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index decode failed", err)
 	}
 	live := review.liveSource != nil
-	if live && index.SchemaVersion != "mulgae-run-support-index.v3" || !live && index.SchemaVersion != "mulgae-run-support-index.v1" && index.SchemaVersion != "mulgae-run-support-index.v2" {
+	if live && index.SchemaVersion != artifactwire.SupportIndexV3 || !live && index.SchemaVersion != artifactwire.SupportIndexV1 && index.SchemaVersion != artifactwire.SupportIndexV2 {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index is invalid", nil)
 	}
 	// Empty artifacts is schema-valid for provider-free no-change publications.
@@ -248,7 +249,7 @@ func (context *readContext) supportIndex(ctx context.Context, node *contextRun, 
 		if classifyErr != nil {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index artifact path is invalid", classifyErr)
 		}
-		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && index.SchemaVersion != "mulgae-run-support-index.v2" {
+		if (kind == ports.RunSupportArtifactCaptureManifest || kind == ports.RunSupportArtifactCompositeMetadata || kind == ports.RunSupportArtifactSourceFinding) && index.SchemaVersion != artifactwire.SupportIndexV2 {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "capture manifest requires support index v2", nil)
 		}
 		if !live && (kind == ports.RunSupportArtifactLiveSource || kind == ports.RunSupportArtifactSourceImage) {
@@ -280,7 +281,7 @@ func (context *readContext) supportIndex(ctx context.Context, node *contextRun, 
 		node.index = identities
 		return identities, nil
 	}
-	if index.SchemaVersion == "mulgae-run-support-index.v2" && review.RunType() == domain.RunTypeComposite {
+	if index.SchemaVersion == artifactwire.SupportIndexV2 && review.RunType() == domain.RunTypeComposite {
 		if _, ok := identities[run.SessionID().String()+"/"+run.RunID().String()+"/support/composite.json"]; !ok {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "composite support metadata absent", nil)
 		}
@@ -288,7 +289,7 @@ func (context *readContext) supportIndex(ctx context.Context, node *contextRun, 
 		node.index = identities
 		return identities, nil
 	}
-	if index.SchemaVersion == "mulgae-run-support-index.v2" {
+	if index.SchemaVersion == artifactwire.SupportIndexV2 {
 		artifacts := make(map[string]ports.ImmutablePublicationArtifact)
 		for name, digest := range identities {
 			path, _ := ports.NewSafeRelativePath(name)

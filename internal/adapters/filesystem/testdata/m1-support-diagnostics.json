@@ -1,0 +1,102 @@
+{
+  "artifacts": {
+    "before": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field .artifacts of type []struct { Path string \"json:\\\"path\\\"\"; SHA256 string \"json:\\\"sha256\\\"\" }",
+      "offset": 14,
+      "value": "number",
+      "type": "[]struct { Path string \"json:\\\"path\\\"\"; SHA256 string \"json:\\\"sha256\\\"\" }",
+      "struct": "",
+      "field": "artifacts"
+    },
+    "after": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field SupportIndex.artifacts of type []artifactwire.ArtifactIdentity",
+      "offset": 14,
+      "value": "number",
+      "type": "[]artifactwire.ArtifactIdentity",
+      "struct": "SupportIndex",
+      "field": "artifacts"
+    }
+  },
+  "member": {
+    "before": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into .artifacts.0 of type struct { Path string \"json:\\\"path\\\"\"; SHA256 string \"json:\\\"sha256\\\"\" }",
+      "offset": 15,
+      "value": "number",
+      "type": "struct { Path string \"json:\\\"path\\\"\"; SHA256 string \"json:\\\"sha256\\\"\" }",
+      "struct": "",
+      "field": "artifacts.0"
+    },
+    "after": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into SupportIndex.artifacts.0 of type artifactwire.ArtifactIdentity",
+      "offset": 15,
+      "value": "number",
+      "type": "artifactwire.ArtifactIdentity",
+      "struct": "SupportIndex",
+      "field": "artifacts.0"
+    }
+  },
+  "path": {
+    "before": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field .artifacts.0.path of type string",
+      "offset": 23,
+      "value": "number",
+      "type": "string",
+      "struct": "",
+      "field": "artifacts.0.path"
+    },
+    "after": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field SupportIndex.artifacts.0.path of type string",
+      "offset": 23,
+      "value": "number",
+      "type": "string",
+      "struct": "SupportIndex",
+      "field": "artifacts.0.path"
+    }
+  },
+  "root": {
+    "before": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go value of type struct { SchemaVersion string \"json:\\\"schema_version\\\"\"; Artifacts []struct { Path string \"json:\\\"path\\\"\"; SHA256 string \"json:\\\"sha256\\\"\" } \"json:\\\"artifacts\\\"\" }",
+      "offset": 1,
+      "value": "number",
+      "type": "struct { SchemaVersion string \"json:\\\"schema_version\\\"\"; Artifacts []struct { Path string \"json:\\\"path\\\"\"; SHA256 string \"json:\\\"sha256\\\"\" } \"json:\\\"artifacts\\\"\" }",
+      "struct": "",
+      "field": ""
+    },
+    "after": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go value of type artifactwire.SupportIndex",
+      "offset": 1,
+      "value": "number",
+      "type": "artifactwire.SupportIndex",
+      "struct": "",
+      "field": ""
+    }
+  },
+  "schema": {
+    "before": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field .schema_version of type string",
+      "offset": 19,
+      "value": "number",
+      "type": "string",
+      "struct": "",
+      "field": "schema_version"
+    },
+    "after": {
+      "error_type": "*json.UnmarshalTypeError",
+      "message": "json: cannot unmarshal number into Go struct field SupportIndex.schema_version of type string",
+      "offset": 19,
+      "value": "number",
+      "type": "string",
+      "struct": "SupportIndex",
+      "field": "schema_version"
+    }
+  }
+}

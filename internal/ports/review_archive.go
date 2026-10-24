@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
@@ -60,7 +61,7 @@ func MarshalCapturedReviewMaterialV1(material CapturedReviewMaterial) ([]byte, e
 	}
 	identity := material.Target().Identity()
 	wire := capturedReviewArchiveWire{
-		SchemaVersion: "mulgae-captured-review-archive.v1",
+		SchemaVersion: artifactwire.CapturedReviewArchiveV1,
 		TargetIdentity: capturedTargetIdentityWire{
 			Kind: string(identity.Kind()), SHA256: identity.SHA256(), RepositoryID: identity.RepositoryID(),
 			BaseObjectID: identity.BaseObjectID(), HeadObjectID: identity.HeadObjectID(),
@@ -94,7 +95,7 @@ func UnmarshalCapturedReviewMaterial(bytes []byte) (CapturedReviewMaterial, erro
 
 func unmarshalCapturedReviewMaterialV1(bytes []byte) (CapturedReviewMaterial, error) {
 	var wire capturedReviewArchiveWire
-	if err := json.Unmarshal(bytes, &wire); err != nil || wire.SchemaVersion != "mulgae-captured-review-archive.v1" {
+	if err := json.Unmarshal(bytes, &wire); err != nil || wire.SchemaVersion != artifactwire.CapturedReviewArchiveV1 {
 		return CapturedReviewMaterial{}, fmt.Errorf("captured review archive: invalid encoding")
 	}
 	identity, err := domain.NewTargetIdentity(domain.TargetIdentityInput{

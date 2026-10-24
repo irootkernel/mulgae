@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
@@ -419,7 +420,7 @@ func ValidatedCandidatePath(run PublicationRun) (SafeRelativePath, error) {
 		return SafeRelativePath{}, fmt.Errorf("validated candidate path: invalid run")
 	}
 	path, err := NewSafeRelativePath(
-		run.SessionID().String() + "/" + run.RunID().String() + "/validation/final-candidate.json",
+		artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.ValidatedCandidatePath),
 	)
 	if err != nil {
 		return SafeRelativePath{}, fmt.Errorf("validated candidate path: %w", err)
@@ -562,12 +563,12 @@ func (result PersistValidatedCandidateResult) validate() error {
 }
 
 func validatedCandidatePathForFinal(final FinalReviewIdentity) (SafeRelativePath, error) {
-	suffix := "/review_" + final.ReviewID().String() + ".json"
+	suffix := "/" + artifactwire.FinalName(final.ReviewID().String())
 	prefix, ok := strings.CutSuffix(final.Path().String(), suffix)
 	if !ok {
 		return SafeRelativePath{}, fmt.Errorf("final path does not have canonical review suffix")
 	}
-	return NewSafeRelativePath(prefix + "/validation/final-candidate.json")
+	return NewSafeRelativePath(prefix + "/" + artifactwire.ValidatedCandidatePath)
 }
 
 // RunSupportArtifactStore persists and reads immutable, non-authoritative run
@@ -888,7 +889,7 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 		}
 		return "", fmt.Errorf("source image path is not canonical")
 	}
-	if relative == "support/composite.json" {
+	if relative == artifactwire.CompositeSupportPath {
 		return RunSupportArtifactCompositeMetadata, nil
 	}
 	if name, ok := strings.CutPrefix(relative, "support/findings/"); ok {
@@ -913,7 +914,7 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 		return kind, nil
 	}
 
-	if relative == "recovery/manifest.json" {
+	if relative == artifactwire.RecoveryManifestPath {
 		return RunSupportArtifactRecoveryManifest, nil
 	}
 	if digest, ok := strings.CutPrefix(relative, "recovery/blobs/sha256-"); ok {
@@ -960,7 +961,7 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 	if relative == "inputs/artist-visual-assets.json" {
 		return RunSupportArtifactArtistVisuals, nil
 	}
-	if relative == "support/index.json" {
+	if relative == artifactwire.SupportIndexPath {
 		return RunSupportArtifactSupportIndex, nil
 	}
 	if name, ok := strings.CutPrefix(relative, "prompts/"); ok {
@@ -985,17 +986,7 @@ func canonicalRoleReportName(name string) bool {
 }
 
 func canonicalExcerptName(name string) bool {
-	if strings.Contains(name, "/") || !strings.HasPrefix(name, "F") {
-		return false
-	}
-	stem := strings.TrimPrefix(name, "F")
-	if strings.HasSuffix(stem, ".json") {
-		return decimalDigits(strings.TrimSuffix(stem, ".json"), 1)
-	}
-	finding, position, ok := strings.Cut(stem, "_")
-	return ok && strings.HasSuffix(position, ".md") &&
-		decimalDigits(finding, 1) &&
-		decimalDigits(strings.TrimSuffix(position, ".md"), 1)
+	return artifactwire.CanonicalExcerptName(name)
 }
 
 func classifyCanonicalAttemptSupportPath(name string) (RunSupportArtifactKind, error) {
@@ -1055,34 +1046,11 @@ func validAttemptArtifactID(value string) bool {
 }
 
 func canonicalInvocationDirectory(value string) bool {
-	sequence, purpose, ok := strings.Cut(value, "-")
-	return ok && decimalIdentifier(sequence, 3) &&
-		(purpose == "initial" || purpose == "retry" || purpose == "repair" || purpose == "extract")
+	return artifactwire.CanonicalInvocationDirectory(value)
 }
 
 func decimalIdentifier(value string, minimumWidth int) bool {
-	if len(value) < minimumWidth || value == "" {
-		return false
-	}
-	nonZero := false
-	for _, character := range value {
-		if character < '0' || character > '9' {
-			return false
-		}
-		nonZero = nonZero || character != '0'
-	}
-	return nonZero && (value[0] != '0' || len(value) == minimumWidth)
-}
-func decimalDigits(value string, minimumWidth int) bool {
-	if len(value) < minimumWidth {
-		return false
-	}
-	for _, character := range value {
-		if character < '0' || character > '9' {
-			return false
-		}
-	}
-	return true
+	return artifactwire.DecimalIdentifier(value, minimumWidth)
 }
 
 // IssueReviewIDRequest proves which final validated candidate is about to
@@ -3205,7 +3173,7 @@ func validReviewID(id domain.ReviewID) bool {
 	return err == nil
 }
 func validateCanonicalFinalPath(run PublicationRun, final FinalReviewIdentity) error {
-	expected, err := NewSafeRelativePath(run.SessionID().String() + "/" + run.RunID().String() + "/review_" + final.ReviewID().String() + ".json")
+	expected, err := NewSafeRelativePath(artifactwire.FinalPath(run.SessionID().String(), run.RunID().String(), final.ReviewID().String()))
 	if err != nil {
 		return fmt.Errorf("canonical final path: %w", err)
 	}
@@ -3219,8 +3187,7 @@ func canonicalStagedFinalPath(run PublicationRun, final FinalReviewIdentity) (Sa
 		return SafeRelativePath{}, fmt.Errorf("invalid run or final")
 	}
 	return NewSafeRelativePath(
-		run.SessionID().String() + "/" + run.RunID().String() +
-			"/publication/staged/review_" + final.ReviewID().String() + ".json.tmp",
+		artifactwire.StagedFinalPath(run.SessionID().String(), run.RunID().String(), final.ReviewID().String()),
 	)
 }
 func canonicalStagedFinalPathForFinal(final FinalReviewIdentity) (SafeRelativePath, error) {
@@ -3229,8 +3196,7 @@ func canonicalStagedFinalPathForFinal(final FinalReviewIdentity) (SafeRelativePa
 		return SafeRelativePath{}, err
 	}
 	return NewSafeRelativePath(
-		sessionID.String() + "/" + runID.String() +
-			"/publication/staged/review_" + final.ReviewID().String() + ".json.tmp",
+		artifactwire.StagedFinalPath(sessionID.String(), runID.String(), final.ReviewID().String()),
 	)
 }
 
@@ -3244,9 +3210,9 @@ func canonicalMutablePublicationPathForFinal(
 	}
 	switch document {
 	case MutablePublicationStatus:
-		return NewSafeRelativePath(sessionID.String() + "/" + runID.String() + "/status.json")
+		return NewSafeRelativePath(artifactwire.RunPath(sessionID.String(), runID.String(), artifactwire.StatusPath))
 	case MutablePublicationJournal:
-		return NewSafeRelativePath(sessionID.String() + "/" + runID.String() + "/publication/journal.json")
+		return NewSafeRelativePath(artifactwire.RunPath(sessionID.String(), runID.String(), artifactwire.JournalPath))
 	default:
 		return SafeRelativePath{}, fmt.Errorf("invalid mutable document %q", document)
 	}
@@ -3257,7 +3223,7 @@ func publicationScopeForFinal(final FinalReviewIdentity) (domain.SessionID, doma
 		return domain.SessionID{}, domain.RunID{}, fmt.Errorf("invalid final")
 	}
 	parts := strings.Split(final.Path().String(), "/")
-	if len(parts) != 3 || parts[2] != "review_"+final.ReviewID().String()+".json" {
+	if len(parts) != 3 || parts[2] != artifactwire.FinalName(final.ReviewID().String()) {
 		return domain.SessionID{}, domain.RunID{}, fmt.Errorf("final path is not canonical")
 	}
 	sessionID, err := domain.ParseSessionID(parts[0])
@@ -3277,9 +3243,9 @@ func canonicalMutablePublicationPath(run PublicationRun, document MutablePublica
 	}
 	switch document {
 	case MutablePublicationStatus:
-		return NewSafeRelativePath(run.SessionID().String() + "/" + run.RunID().String() + "/status.json")
+		return NewSafeRelativePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.StatusPath))
 	case MutablePublicationJournal:
-		return NewSafeRelativePath(run.SessionID().String() + "/" + run.RunID().String() + "/publication/journal.json")
+		return NewSafeRelativePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.JournalPath))
 	default:
 		return SafeRelativePath{}, fmt.Errorf("invalid mutable document %q", document)
 	}
@@ -3296,15 +3262,15 @@ func canonicalCompositePaths(
 	if epoch == 0 {
 		return SafeRelativePath{}, SafeRelativePath{}, SafeRelativePath{}, fmt.Errorf("epoch must be positive")
 	}
-	manifest, err := NewSafeRelativePath(run.SessionID().String() + "/" + run.RunID().String() + "/manifest.json")
+	manifest, err := NewSafeRelativePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.ManifestPath))
 	if err != nil {
 		return SafeRelativePath{}, SafeRelativePath{}, SafeRelativePath{}, err
 	}
-	lineage, err := NewSafeRelativePath("store/lineage-edges/e_" + final.ReviewID().String() + ".json")
+	lineage, err := NewSafeRelativePath(artifactwire.LineageEdgePath(final.ReviewID().String()))
 	if err != nil {
 		return SafeRelativePath{}, SafeRelativePath{}, SafeRelativePath{}, err
 	}
-	epochPath, err := NewSafeRelativePath(fmt.Sprintf("store/epochs/epoch_%020d.json", epoch))
+	epochPath, err := NewSafeRelativePath(artifactwire.EpochPath(epoch))
 	if err != nil {
 		return SafeRelativePath{}, SafeRelativePath{}, SafeRelativePath{}, err
 	}
@@ -3315,16 +3281,15 @@ func canonicalPreparedCompositePaths(run PublicationRun) (SafeRelativePath, Safe
 	if !run.Valid() {
 		return SafeRelativePath{}, SafeRelativePath{}, SafeRelativePath{}, fmt.Errorf("invalid run")
 	}
-	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/publication/staged/"
-	manifest, err := NewSafeRelativePath(prefix + "manifest.json.tmp")
+	manifest, err := NewSafeRelativePath(artifactwire.PreparedCompositePath(run.SessionID().String(), run.RunID().String(), "manifest"))
 	if err != nil {
 		return SafeRelativePath{}, SafeRelativePath{}, SafeRelativePath{}, err
 	}
-	lineage, err := NewSafeRelativePath(prefix + "lineage-edge.json.tmp")
+	lineage, err := NewSafeRelativePath(artifactwire.PreparedCompositePath(run.SessionID().String(), run.RunID().String(), "lineage-edge"))
 	if err != nil {
 		return SafeRelativePath{}, SafeRelativePath{}, SafeRelativePath{}, err
 	}
-	epoch, err := NewSafeRelativePath(prefix + "epoch.json.tmp")
+	epoch, err := NewSafeRelativePath(artifactwire.PreparedCompositePath(run.SessionID().String(), run.RunID().String(), "epoch"))
 	if err != nil {
 		return SafeRelativePath{}, SafeRelativePath{}, SafeRelativePath{}, err
 	}
@@ -3335,21 +3300,10 @@ func canonicalCorruptionDiagnosticPath(run PublicationRun, observationEpoch uint
 	if !run.Valid() || observationEpoch == 0 {
 		return SafeRelativePath{}, fmt.Errorf("invalid run or observation epoch")
 	}
-	return NewSafeRelativePath(fmt.Sprintf(
-		"%s/%s/recovery/diagnostics/publication-corrupt_%d.json",
-		run.SessionID().String(),
-		run.RunID().String(),
-		observationEpoch,
-	))
+	return NewSafeRelativePath(artifactwire.CorruptionDiagnosticPath(run.SessionID().String(), run.RunID().String(), observationEpoch))
 }
 
-type corruptionDiagnosticWire struct {
-	SchemaVersion    string   `json:"schema_version"`
-	SessionID        string   `json:"session_id"`
-	RunID            string   `json:"run_id"`
-	ObservationEpoch uint64   `json:"observation_epoch"`
-	ReasonCodes      []string `json:"reason_codes"`
-}
+type corruptionDiagnosticWire artifactwire.CorruptionDiagnostic
 
 func validateCorruptionDiagnosticPayload(
 	payload []byte,
@@ -3369,7 +3323,7 @@ func validateCorruptionDiagnosticPayload(
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("diagnostic payload has trailing data")
 	}
-	if wire.SchemaVersion != "mulgae-publication-corruption.v1" ||
+	if wire.SchemaVersion != artifactwire.CorruptionDiagnosticV1 ||
 		wire.SessionID != run.SessionID().String() ||
 		wire.RunID != run.RunID().String() ||
 		wire.ObservationEpoch != observationEpoch {

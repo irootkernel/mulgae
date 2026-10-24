@@ -23,21 +23,22 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const (
-	finalReviewSchemaAsset = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
-	runManifestSchemaAsset = "https://mulgae.local/schemas/mulgae-run-manifest.v1.schema.json"
+	finalReviewSchemaAsset = artifactwire.ReviewArtifactV1Schema
+	runManifestSchemaAsset = artifactwire.RunManifestV1Schema
 
 	targetManifestPath   = "target/target-manifest.json"
 	aggregationPath      = "aggregation.json"
 	finalValidationPath  = "validation/final-validation.json"
-	publicationJournalV1 = "mulgae-publication-journal.v1"
-	publicationStatusV1  = "mulgae-publication-status.v1"
-	lineageEdgeV1        = "mulgae-lineage-edge.v1"
-	publicationEpochV1   = "mulgae-publication-epoch.v1"
+	publicationJournalV1 = artifactwire.PublicationJournalV1
+	publicationStatusV1  = artifactwire.PublicationStatusV1
+	lineageEdgeV1        = artifactwire.LineageEdgeV1
+	publicationEpochV1   = artifactwire.PublicationEpochV1
 )
 
 // SchemaValidator validates bytes against one embedded schema asset. It is
@@ -2376,7 +2377,7 @@ func validatePublicationBundleSemantics(bundle PublicationBundle) error {
 	var envelope struct {
 		SchemaVersion string `json:"schema_version"`
 	}
-	if err := json.Unmarshal(bundle.final.Bytes(), &envelope); err == nil && (envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || envelope.SchemaVersion == "mulgae-composite-review-artifact.v2") {
+	if err := json.Unmarshal(bundle.final.Bytes(), &envelope); err == nil && (envelope.SchemaVersion == artifactwire.CompositeReviewArtifactV1 || envelope.SchemaVersion == artifactwire.CompositeReviewArtifactV2) {
 		return validateCompositeBundleSemantics(bundle)
 	}
 	normalExit, err := validatePublicationCompositeSemantics(
@@ -2432,7 +2433,7 @@ func validatePublicationBundleSemantics(bundle PublicationBundle) error {
 		return fmt.Errorf("publication journal schema version is invalid")
 	}
 	if err := validateRestartStateSemantics(
-		journal.restartStateWire,
+		journal.RestartState,
 		domain.JournalManifestCommitted,
 		normalExit,
 		bundle.final.Identity(),
@@ -2453,7 +2454,7 @@ func validatePublicationBundleSemantics(bundle PublicationBundle) error {
 		return fmt.Errorf("publication status does not grant the exact P2 projection")
 	}
 	if err := validateRestartStateSemantics(
-		status.restartStateWire,
+		status.RestartState,
 		domain.JournalManifestCommitted,
 		normalExit,
 		bundle.final.Identity(),
@@ -2548,9 +2549,9 @@ func validateBundleSupportIndexForFormat(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &index, "support index"); err != nil {
 		return err
 	}
-	validVersion := index.SchemaVersion == "mulgae-run-support-index.v1" || index.SchemaVersion == "mulgae-run-support-index.v2"
+	validVersion := index.SchemaVersion == artifactwire.SupportIndexV1 || index.SchemaVersion == artifactwire.SupportIndexV2
 	if live != nil {
-		validVersion = index.SchemaVersion == "mulgae-run-support-index.v3"
+		validVersion = index.SchemaVersion == artifactwire.SupportIndexV3
 	}
 	if !validVersion || len(index.Artifacts) != len(expected) {
 		return fmt.Errorf("support index contents are invalid")
@@ -2558,7 +2559,7 @@ func validateBundleSupportIndexForFormat(
 	for _, item := range index.Artifacts {
 		path, pathErr := ports.NewSafeRelativePath(item.Path)
 		kind, classifyErr := ports.ClassifyRunSupportArtifactPath(session, run, path)
-		if pathErr != nil || classifyErr != nil || (kind == ports.RunSupportArtifactCaptureManifest && index.SchemaVersion != "mulgae-run-support-index.v2") {
+		if pathErr != nil || classifyErr != nil || (kind == ports.RunSupportArtifactCaptureManifest && index.SchemaVersion != artifactwire.SupportIndexV2) {
 			return fmt.Errorf("support index artifact path or version is invalid")
 		}
 		if live == nil && (kind == ports.RunSupportArtifactLiveSource || kind == ports.RunSupportArtifactSourceImage) {
@@ -2573,7 +2574,7 @@ func validateBundleSupportIndexForFormat(
 	if len(expected) != 0 {
 		return fmt.Errorf("support index omits generated artifacts")
 	}
-	if index.SchemaVersion == "mulgae-run-support-index.v2" {
+	if index.SchemaVersion == artifactwire.SupportIndexV2 {
 		byPath := make(map[string]ports.ImmutablePublicationArtifact, len(artifacts))
 		for _, artifact := range artifacts {
 			byPath[artifact.Path().String()] = artifact
@@ -2608,13 +2609,13 @@ func validatePublicationMaterialSemantics(
 	lineage ports.ImmutablePublicationArtifact,
 	epoch ports.PublicationEpoch,
 ) (domain.OperationalExitCode, error) {
-	if final.Identity().Path().String() != run.SessionID().String()+"/"+run.RunID().String()+"/review_"+final.Identity().ReviewID().String()+".json" {
+	if final.Identity().Path().String() != artifactwire.FinalPath(run.SessionID().String(), run.RunID().String(), final.Identity().ReviewID().String()) {
 		return 0, fmt.Errorf("committed final path is not canonical for the observed run")
 	}
 	var envelope struct {
 		SchemaVersion string `json:"schema_version"`
 	}
-	if err := json.Unmarshal(final.Bytes(), &envelope); err == nil && (envelope.SchemaVersion == "mulgae-composite-review-artifact.v1" || envelope.SchemaVersion == "mulgae-composite-review-artifact.v2") {
+	if err := json.Unmarshal(final.Bytes(), &envelope); err == nil && (envelope.SchemaVersion == artifactwire.CompositeReviewArtifactV1 || envelope.SchemaVersion == artifactwire.CompositeReviewArtifactV2) {
 		return validateCompositeMaterial(run, final, manifest, lineage, epoch)
 	}
 	return validatePublicationCompositeSemantics(final, manifest, lineage, epoch)
@@ -2878,7 +2879,7 @@ func validatePublicationLineage(
 	runID domain.RunID,
 	reviewID domain.ReviewID,
 ) error {
-	expectedPath := mustPublicationPath("store/lineage-edges/e_" + reviewID.String() + ".json")
+	expectedPath := mustPublicationPath(artifactwire.LineageEdgePath(reviewID.String()))
 	if edgeArtifact.Path() != expectedPath ||
 		lineage.LineageEdgePath != edgeArtifact.Path().String() || lineage.LineageEdgeSHA256 != edgeArtifact.SHA256() {
 		return fmt.Errorf("lineage does not bind the canonical immutable edge")
@@ -3277,7 +3278,7 @@ func validateManifestRoleReports(manifest runManifestWire, final finalReviewWire
 	seen := make(map[string]struct{}, len(manifest.RoleReports))
 	for index, report := range manifest.RoleReports {
 		if report.Role != expectedRoles[index] ||
-			report.Path != "role-reports/"+report.Role+".md" ||
+			report.Path != artifactwire.RoleReportPath(report.Role) ||
 			report.ContentType != "text/markdown" ||
 			!domain.Role(report.Role).Valid() ||
 			!validSHA256(report.SHA256) ||
@@ -3521,7 +3522,7 @@ func decodePublicationRecoveryJournal(raw []byte) (recoveryJournalWire, error) {
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return recoveryJournalWire{}, err
 	}
-	if envelope.SchemaVersion == "mulgae-composite-run-manifest.v1" || envelope.SchemaVersion == "mulgae-composite-run-manifest.v2" {
+	if envelope.SchemaVersion == artifactwire.CompositeRunManifestV1 || envelope.SchemaVersion == artifactwire.CompositeRunManifestV2 {
 		var wire compositeManifestWire
 		if err := unmarshalCanonicalPublicationRecord(raw, &wire, "composite run manifest"); err != nil {
 			return recoveryJournalWire{}, err

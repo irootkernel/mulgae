@@ -1,0 +1,1901 @@
+{
+  "compositeCompositionDTO/type/fingerprint": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "fingerprint",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.fingerprint of type string",
+    "offset": 20,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/root_recovery_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "root_recovery_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.root_recovery_manifest_sha256 of type string",
+    "offset": 38,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/root_review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "root_review_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.root_review_id of type string",
+    "offset": 23,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/root_run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "root_run_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.root_run_id of type string",
+    "offset": 20,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/root_source_kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "root_source_kind",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.root_source_kind of type string",
+    "offset": 25,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/sources": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources",
+    "message": "json: cannot unmarshal number into Go struct field CompositeComposition.sources of type []artifactwire.CompositeSource",
+    "offset": 12,
+    "struct": "CompositeComposition",
+    "type": "[]artifactwire.CompositeSource",
+    "value": "number"
+  },
+  "compositeCompositionDTO/type/sources[].attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources.0.attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.sources.0.attempt_id of type string",
+    "offset": 31,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/sources[].kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources.0.kind",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.sources.0.kind of type string",
+    "offset": 25,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/sources[].recovery_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources.0.recovery_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.sources.0.recovery_manifest_sha256 of type string",
+    "offset": 45,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/sources[].review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources.0.review_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.sources.0.review_id of type string",
+    "offset": 30,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/sources[].role": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources.0.role",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.sources.0.role of type string",
+    "offset": 25,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/sources[].role_report_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources.0.role_report_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.sources.0.role_report_sha256 of type string",
+    "offset": 39,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/sources[].run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources.0.run_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.sources.0.run_id of type string",
+    "offset": 27,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeCompositionDTO/type/sources[].source_kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sources.0.source_kind",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeComposition.sources.0.source_kind of type string",
+    "offset": 32,
+    "struct": "CompositeComposition",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFinalDTO/type/findings": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "findings",
+    "message": "json: cannot unmarshal number into Go struct field compositeFinalDTO.findings of type []artifactwire.CompositeFinding",
+    "offset": 13,
+    "struct": "compositeFinalDTO",
+    "type": "[]artifactwire.CompositeFinding",
+    "value": "number"
+  },
+  "compositeFinalDTO/type/findings[].source": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "findings.0.source",
+    "message": "json: cannot unmarshal number into Go struct field compositeFinalDTO.findings.0.source of type artifactwire.CompositeFindingSource",
+    "offset": 24,
+    "struct": "compositeFinalDTO",
+    "type": "artifactwire.CompositeFindingSource",
+    "value": "number"
+  },
+  "compositeFinalDTO/type/review_composition": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "review_composition",
+    "message": "json: cannot unmarshal number into Go struct field compositeFinalDTO.review_composition of type artifactwire.CompositeComposition",
+    "offset": 23,
+    "struct": "compositeFinalDTO",
+    "type": "artifactwire.CompositeComposition",
+    "value": "number"
+  },
+  "compositeFinalDTO/type/review_composition.sources": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "review_composition.sources",
+    "message": "json: cannot unmarshal number into Go struct field compositeFinalDTO.review_composition.sources of type []artifactwire.CompositeSource",
+    "offset": 34,
+    "struct": "compositeFinalDTO",
+    "type": "[]artifactwire.CompositeSource",
+    "value": "number"
+  },
+  "compositeFinalDTO/type/role_outcomes": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role_outcomes",
+    "message": "json: cannot unmarshal number into Go struct field compositeFinalDTO.role_outcomes of type []artifactwire.CompositeRole",
+    "offset": 18,
+    "struct": "compositeFinalDTO",
+    "type": "[]artifactwire.CompositeRole",
+    "value": "number"
+  },
+  "compositeFinalDTO/type/severity_threshold": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "severity_threshold",
+    "message": "json: cannot unmarshal number into Go struct field compositeFinalDTO.severity_threshold of type artifactwire.SeverityThreshold",
+    "offset": 23,
+    "struct": "compositeFinalDTO",
+    "type": "artifactwire.SeverityThreshold",
+    "value": "number"
+  },
+  "compositeFindingDTO/type/confidence": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "confidence",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.confidence of type string",
+    "offset": 19,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/description": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "description",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.description of type string",
+    "offset": 20,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/fingerprint": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "fingerprint",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.fingerprint of type string",
+    "offset": 20,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.id of type string",
+    "offset": 11,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/lifecycle": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "lifecycle",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.lifecycle of type string",
+    "offset": 18,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/recommendation": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "recommendation",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.recommendation of type string",
+    "offset": 23,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/role": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.role of type string",
+    "offset": 13,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/severity": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "severity",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.severity of type string",
+    "offset": 17,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/source": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source",
+    "message": "json: cannot unmarshal number into Go struct field CompositeFinding.source of type artifactwire.CompositeFindingSource",
+    "offset": 11,
+    "struct": "CompositeFinding",
+    "type": "artifactwire.CompositeFindingSource",
+    "value": "number"
+  },
+  "compositeFindingDTO/type/source.attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source.attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.source.attempt_id of type string",
+    "offset": 29,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/source.finding_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source.finding_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.source.finding_id of type string",
+    "offset": 29,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/source.recovery_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source.recovery_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.source.recovery_manifest_sha256 of type string",
+    "offset": 43,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/source.review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source.review_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.source.review_id of type string",
+    "offset": 28,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/source.run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source.run_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.source.run_id of type string",
+    "offset": 25,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/source.source_kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source.source_kind",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.source.source_kind of type string",
+    "offset": 30,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingDTO/type/title": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "title",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFinding.title of type string",
+    "offset": 14,
+    "struct": "CompositeFinding",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingSourceDTO/type/attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFindingSource.attempt_id of type string",
+    "offset": 19,
+    "struct": "CompositeFindingSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingSourceDTO/type/finding_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "finding_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFindingSource.finding_id of type string",
+    "offset": 19,
+    "struct": "CompositeFindingSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingSourceDTO/type/recovery_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "recovery_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFindingSource.recovery_manifest_sha256 of type string",
+    "offset": 33,
+    "struct": "CompositeFindingSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingSourceDTO/type/review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "review_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFindingSource.review_id of type string",
+    "offset": 18,
+    "struct": "CompositeFindingSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingSourceDTO/type/run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "run_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFindingSource.run_id of type string",
+    "offset": 15,
+    "struct": "CompositeFindingSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeFindingSourceDTO/type/source_kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_kind",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeFindingSource.source_kind of type string",
+    "offset": 20,
+    "struct": "CompositeFindingSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeManifestDTO/type/composite_identity.epoch": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "composite_identity.epoch",
+    "message": "json: cannot unmarshal number into Go struct field compositeManifestDTO.composite_identity.epoch of type artifactwire.PathPointer",
+    "offset": 32,
+    "struct": "compositeManifestDTO",
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "compositeManifestDTO/type/composite_identity.manifest": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "composite_identity.manifest",
+    "message": "json: cannot unmarshal number into Go struct field compositeManifestDTO.composite_identity.manifest of type artifactwire.PathPointer",
+    "offset": 35,
+    "struct": "compositeManifestDTO",
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "compositeManifestDTO/type/final_review": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "final_review",
+    "message": "json: cannot unmarshal number into Go struct field compositeManifestDTO.final_review of type artifactwire.FinalReviewIdentity",
+    "offset": 17,
+    "struct": "compositeManifestDTO",
+    "type": "artifactwire.FinalReviewIdentity",
+    "value": "number"
+  },
+  "compositeManifestDTO/type/immutable_lineage": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "immutable_lineage",
+    "message": "json: cannot unmarshal number into Go struct field compositeManifestDTO.immutable_lineage of type artifactwire.ImmutableLineage",
+    "offset": 22,
+    "struct": "compositeManifestDTO",
+    "type": "artifactwire.ImmutableLineage",
+    "value": "number"
+  },
+  "compositeManifestDTO/type/review_composition": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "review_composition",
+    "message": "json: cannot unmarshal number into Go struct field compositeManifestDTO.review_composition of type artifactwire.CompositeComposition",
+    "offset": 23,
+    "struct": "compositeManifestDTO",
+    "type": "artifactwire.CompositeComposition",
+    "value": "number"
+  },
+  "compositeManifestDTO/type/review_composition.sources": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "review_composition.sources",
+    "message": "json: cannot unmarshal number into Go struct field compositeManifestDTO.review_composition.sources of type []artifactwire.CompositeSource",
+    "offset": 34,
+    "struct": "compositeManifestDTO",
+    "type": "[]artifactwire.CompositeSource",
+    "value": "number"
+  },
+  "compositeManifestDTO/type/role_reports": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role_reports",
+    "message": "json: cannot unmarshal number into Go struct field compositeManifestDTO.role_reports of type []artifactwire.CompositeManifestRole",
+    "offset": 17,
+    "struct": "compositeManifestDTO",
+    "type": "[]artifactwire.CompositeManifestRole",
+    "value": "number"
+  },
+  "compositeManifestRoleDTO/type/attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeManifestRole.attempt_id of type string",
+    "offset": 19,
+    "struct": "CompositeManifestRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeManifestRoleDTO/type/byte_length": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "byte_length",
+    "message": "json: cannot unmarshal string into Go struct field CompositeManifestRole.byte_length of type int",
+    "offset": 20,
+    "struct": "CompositeManifestRole",
+    "type": "int",
+    "value": "string"
+  },
+  "compositeManifestRoleDTO/type/path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "path",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeManifestRole.path of type string",
+    "offset": 13,
+    "struct": "CompositeManifestRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeManifestRoleDTO/type/role": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeManifestRole.role of type string",
+    "offset": 13,
+    "struct": "CompositeManifestRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeManifestRoleDTO/type/sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeManifestRole.sha256 of type string",
+    "offset": 15,
+    "struct": "CompositeManifestRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeManifestRoleDTO/type/source_run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_run_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeManifestRole.source_run_id of type string",
+    "offset": 22,
+    "struct": "CompositeManifestRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeRole.attempt_id of type string",
+    "offset": 19,
+    "struct": "CompositeRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/outcome": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "outcome",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeRole.outcome of type string",
+    "offset": 16,
+    "struct": "CompositeRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/provider_instance": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "provider_instance",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeRole.provider_instance of type string",
+    "offset": 26,
+    "struct": "CompositeRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/required": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "required",
+    "message": "json: cannot unmarshal number into Go struct field CompositeRole.required of type bool",
+    "offset": 13,
+    "struct": "CompositeRole",
+    "type": "bool",
+    "value": "number"
+  },
+  "compositeRoleDTO/type/role": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeRole.role of type string",
+    "offset": 13,
+    "struct": "CompositeRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/source_kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_kind",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeRole.source_kind of type string",
+    "offset": 20,
+    "struct": "CompositeRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/source_recovery_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_recovery_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeRole.source_recovery_manifest_sha256 of type string",
+    "offset": 40,
+    "struct": "CompositeRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/source_review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_review_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeRole.source_review_id of type string",
+    "offset": 25,
+    "struct": "CompositeRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/source_run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_run_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeRole.source_run_id of type string",
+    "offset": 22,
+    "struct": "CompositeRole",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeRoleDTO/type/valid_finding_ids": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "valid_finding_ids",
+    "message": "json: cannot unmarshal number into Go struct field CompositeRole.valid_finding_ids of type []string",
+    "offset": 22,
+    "struct": "CompositeRole",
+    "type": "[]string",
+    "value": "number"
+  },
+  "compositeSourceDTO/type/attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeSource.attempt_id of type string",
+    "offset": 19,
+    "struct": "CompositeSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeSourceDTO/type/kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "kind",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeSource.kind of type string",
+    "offset": 13,
+    "struct": "CompositeSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeSourceDTO/type/recovery_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "recovery_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeSource.recovery_manifest_sha256 of type string",
+    "offset": 33,
+    "struct": "CompositeSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeSourceDTO/type/review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "review_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeSource.review_id of type string",
+    "offset": 18,
+    "struct": "CompositeSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeSourceDTO/type/role": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeSource.role of type string",
+    "offset": 13,
+    "struct": "CompositeSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeSourceDTO/type/role_report_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role_report_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeSource.role_report_sha256 of type string",
+    "offset": 27,
+    "struct": "CompositeSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeSourceDTO/type/run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "run_id",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeSource.run_id of type string",
+    "offset": 15,
+    "struct": "CompositeSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "compositeSourceDTO/type/source_kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_kind",
+    "message": "json: cannot unmarshal bool into Go struct field CompositeSource.source_kind of type string",
+    "offset": 20,
+    "struct": "CompositeSource",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalDTO/type/findings[].evidence[].visual": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "findings.0.evidence.0.visual",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.findings.0.evidence.0.visual of type artifactwire.VisualEvidence",
+    "offset": 37,
+    "struct": "finalDTO",
+    "type": "artifactwire.VisualEvidence",
+    "value": "number"
+  },
+  "finalDTO/type/findings[].evidence[].visual.bbox": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "findings.0.evidence.0.visual.bbox",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.findings.0.evidence.0.visual.bbox of type artifactwire.VisualBoundingBox",
+    "offset": 45,
+    "struct": "finalDTO",
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "finalDTO/type/followup_outcome.evidence[].visual": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "followup_outcome.evidence.0.visual",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.followup_outcome.evidence.0.visual of type artifactwire.VisualEvidence",
+    "offset": 44,
+    "struct": "finalDTO",
+    "type": "artifactwire.VisualEvidence",
+    "value": "number"
+  },
+  "finalDTO/type/followup_outcome.evidence[].visual.bbox": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "followup_outcome.evidence.0.visual.bbox",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.followup_outcome.evidence.0.visual.bbox of type artifactwire.VisualBoundingBox",
+    "offset": 52,
+    "struct": "finalDTO",
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "finalDTO/type/immutable_lineage": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "immutable_lineage",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.immutable_lineage of type artifactwire.ImmutableLineage",
+    "offset": 22,
+    "struct": "finalDTO",
+    "type": "artifactwire.ImmutableLineage",
+    "value": "number"
+  },
+  "finalDTO/type/mulgae": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "mulgae",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.mulgae of type artifactwire.BuildMetadata",
+    "offset": 11,
+    "struct": "finalDTO",
+    "type": "artifactwire.BuildMetadata",
+    "value": "number"
+  },
+  "finalDTO/type/provenance.live_production": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "provenance.live_production",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.provenance.live_production of type artifactwire.LiveProductionProvenance",
+    "offset": 34,
+    "struct": "finalDTO",
+    "type": "artifactwire.LiveProductionProvenance",
+    "value": "number"
+  },
+  "finalDTO/type/provenance.live_production.providers": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "provenance.live_production.providers",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.provenance.live_production.providers of type []artifactwire.ProductionProvider",
+    "offset": 47,
+    "struct": "finalDTO",
+    "type": "[]artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "finalDTO/type/provenance.production": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "provenance.production",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.provenance.production of type artifactwire.ProductionProvenance",
+    "offset": 29,
+    "struct": "finalDTO",
+    "type": "artifactwire.ProductionProvenance",
+    "value": "number"
+  },
+  "finalDTO/type/provenance.production.providers": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "provenance.production.providers",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.provenance.production.providers of type []artifactwire.ProductionProvider",
+    "offset": 42,
+    "struct": "finalDTO",
+    "type": "[]artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "finalDTO/type/role_outcomes": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role_outcomes",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.role_outcomes of type []artifactwire.RoleOutcome",
+    "offset": 18,
+    "struct": "finalDTO",
+    "type": "[]artifactwire.RoleOutcome",
+    "value": "number"
+  },
+  "finalDTO/type/severity_threshold": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "severity_threshold",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.severity_threshold of type artifactwire.SeverityThreshold",
+    "offset": 23,
+    "struct": "finalDTO",
+    "type": "artifactwire.SeverityThreshold",
+    "value": "number"
+  },
+  "finalDTO/type/validation": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "validation",
+    "message": "json: cannot unmarshal number into Go struct field finalDTO.validation of type artifactwire.Validation",
+    "offset": 15,
+    "struct": "finalDTO",
+    "type": "artifactwire.Validation",
+    "value": "number"
+  },
+  "finalMulgaeDTO/type/commit": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "commit",
+    "message": "json: cannot unmarshal bool into Go struct field BuildMetadata.commit of type string",
+    "offset": 15,
+    "struct": "BuildMetadata",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalMulgaeDTO/type/version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "version",
+    "message": "json: cannot unmarshal bool into Go struct field BuildMetadata.version of type string",
+    "offset": 16,
+    "struct": "BuildMetadata",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalReviewDTO/type/path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "path",
+    "message": "json: cannot unmarshal bool into Go struct field FinalReviewIdentity.path of type string",
+    "offset": 13,
+    "struct": "FinalReviewIdentity",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalReviewDTO/type/review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "review_id",
+    "message": "json: cannot unmarshal bool into Go struct field FinalReviewIdentity.review_id of type string",
+    "offset": 18,
+    "struct": "FinalReviewIdentity",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalReviewDTO/type/sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sha256",
+    "message": "json: cannot unmarshal bool into Go struct field FinalReviewIdentity.sha256 of type string",
+    "offset": 15,
+    "struct": "FinalReviewIdentity",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalRoleDTO/type/attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field RoleOutcome.attempt_id of type string",
+    "offset": 19,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalRoleDTO/type/failure_reason": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "failure_reason",
+    "message": "json: cannot unmarshal bool into Go struct field RoleOutcome.failure_reason of type string",
+    "offset": 23,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalRoleDTO/type/limitations": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "limitations",
+    "message": "json: cannot unmarshal number into Go struct field RoleOutcome.limitations of type []string",
+    "offset": 16,
+    "struct": "RoleOutcome",
+    "type": "[]string",
+    "value": "number"
+  },
+  "finalRoleDTO/type/outcome": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "outcome",
+    "message": "json: cannot unmarshal bool into Go struct field RoleOutcome.outcome of type string",
+    "offset": 16,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalRoleDTO/type/provider_instance": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "provider_instance",
+    "message": "json: cannot unmarshal bool into Go struct field RoleOutcome.provider_instance of type string",
+    "offset": 26,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalRoleDTO/type/required": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "required",
+    "message": "json: cannot unmarshal number into Go struct field RoleOutcome.required of type bool",
+    "offset": 13,
+    "struct": "RoleOutcome",
+    "type": "bool",
+    "value": "number"
+  },
+  "finalRoleDTO/type/role": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role",
+    "message": "json: cannot unmarshal bool into Go struct field RoleOutcome.role of type string",
+    "offset": 13,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalRoleDTO/type/selected_via": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "selected_via",
+    "message": "json: cannot unmarshal bool into Go struct field RoleOutcome.selected_via of type string",
+    "offset": 21,
+    "struct": "RoleOutcome",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalRoleDTO/type/valid_finding_ids": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "valid_finding_ids",
+    "message": "json: cannot unmarshal number into Go struct field RoleOutcome.valid_finding_ids of type []string",
+    "offset": 22,
+    "struct": "RoleOutcome",
+    "type": "[]string",
+    "value": "number"
+  },
+  "finalValidationDTO/type/evidence_validation": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "evidence_validation",
+    "message": "json: cannot unmarshal bool into Go struct field Validation.evidence_validation of type string",
+    "offset": 28,
+    "struct": "Validation",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalValidationDTO/type/schema_validation": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "schema_validation",
+    "message": "json: cannot unmarshal bool into Go struct field Validation.schema_validation of type string",
+    "offset": 26,
+    "struct": "Validation",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalValidationDTO/type/semantic_validation": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "semantic_validation",
+    "message": "json: cannot unmarshal bool into Go struct field Validation.semantic_validation of type string",
+    "offset": 28,
+    "struct": "Validation",
+    "type": "string",
+    "value": "bool"
+  },
+  "finalValidationDTO/type/status": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "status",
+    "message": "json: cannot unmarshal bool into Go struct field Validation.status of type string",
+    "offset": 15,
+    "struct": "Validation",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/lineage_edge_path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "lineage_edge_path",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.lineage_edge_path of type string",
+    "offset": 26,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/lineage_edge_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "lineage_edge_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.lineage_edge_sha256 of type string",
+    "offset": 28,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/parent_run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "parent_run_id",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.parent_run_id of type string",
+    "offset": 22,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/replay_mode": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "replay_mode",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.replay_mode of type string",
+    "offset": 20,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/source_attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.source_attempt_id of type string",
+    "offset": 26,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/source_finding_ref": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_finding_ref",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.source_finding_ref of type string",
+    "offset": 27,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/source_kind": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_kind",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.source_kind of type string",
+    "offset": 20,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/source_recovery_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_recovery_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.source_recovery_manifest_sha256 of type string",
+    "offset": 40,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/source_review_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_review_id",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.source_review_id of type string",
+    "offset": 25,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "lineageDTO/type/source_run_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_run_id",
+    "message": "json: cannot unmarshal bool into Go struct field ImmutableLineage.source_run_id of type string",
+    "offset": 22,
+    "struct": "ImmutableLineage",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/build_commit": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "build_commit",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.build_commit of type string",
+    "offset": 21,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/build_product": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "build_product",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.build_product of type string",
+    "offset": 22,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/build_version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "build_version",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.build_version of type string",
+    "offset": 22,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/objective_present": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "objective_present",
+    "message": "json: cannot unmarshal number into Go struct field LiveProductionProvenance.objective_present of type bool",
+    "offset": 22,
+    "struct": "LiveProductionProvenance",
+    "type": "bool",
+    "value": "number"
+  },
+  "liveProductionProvenanceDTO/type/objective_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "objective_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.objective_sha256 of type string",
+    "offset": 25,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers",
+    "message": "json: cannot unmarshal number into Go struct field LiveProductionProvenance.providers of type []artifactwire.ProductionProvider",
+    "offset": 14,
+    "struct": "LiveProductionProvenance",
+    "type": "[]artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "liveProductionProvenanceDTO/type/providers[].adapter_profile": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.adapter_profile",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.adapter_profile of type string",
+    "offset": 38,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].executable": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.executable",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.executable of type string",
+    "offset": 33,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].executable_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.executable_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.executable_sha256 of type string",
+    "offset": 40,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].family": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.family",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.family of type string",
+    "offset": 29,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].instance": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.instance",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.instance of type string",
+    "offset": 31,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].launcher": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.launcher",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.launcher of type string",
+    "offset": 31,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].launcher_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.launcher_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.launcher_sha256 of type string",
+    "offset": 38,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].namespace_terminal_receipt": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.namespace_terminal_receipt",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.namespace_terminal_receipt of type string",
+    "offset": 49,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].packet_transport_receipt_ids": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.packet_transport_receipt_ids",
+    "message": "json: cannot unmarshal number into Go struct field LiveProductionProvenance.providers.0.packet_transport_receipt_ids of type []string",
+    "offset": 47,
+    "struct": "LiveProductionProvenance",
+    "type": "[]string",
+    "value": "number"
+  },
+  "liveProductionProvenanceDTO/type/providers[].profile_generation": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.profile_generation",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.profile_generation of type string",
+    "offset": 41,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/providers[].qualification_receipt_ids": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.qualification_receipt_ids",
+    "message": "json: cannot unmarshal number into Go struct field LiveProductionProvenance.providers.0.qualification_receipt_ids of type []string",
+    "offset": 44,
+    "struct": "LiveProductionProvenance",
+    "type": "[]string",
+    "value": "number"
+  },
+  "liveProductionProvenanceDTO/type/providers[].version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.version",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.providers.0.version of type string",
+    "offset": 30,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/source_identity_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_identity_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.source_identity_sha256 of type string",
+    "offset": 31,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "liveProductionProvenanceDTO/type/source_terminal_receipt": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "source_terminal_receipt",
+    "message": "json: cannot unmarshal bool into Go struct field LiveProductionProvenance.source_terminal_receipt of type string",
+    "offset": 32,
+    "struct": "LiveProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptDTO/type/attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestAttempt.attempt_id of type string",
+    "offset": 19,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptDTO/type/invocation_count": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "invocation_count",
+    "message": "json: cannot unmarshal string into Go struct field ManifestAttempt.invocation_count of type int",
+    "offset": 25,
+    "struct": "ManifestAttempt",
+    "type": "int",
+    "value": "string"
+  },
+  "manifestAttemptDTO/type/parse_state": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "parse_state",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestAttempt.parse_state of type string",
+    "offset": 20,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptDTO/type/path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "path",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestAttempt.path of type string",
+    "offset": 13,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptDTO/type/provider_instance": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "provider_instance",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestAttempt.provider_instance of type string",
+    "offset": 26,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptDTO/type/role": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestAttempt.role of type string",
+    "offset": 13,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptDTO/type/selected_as": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "selected_as",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestAttempt.selected_as of type string",
+    "offset": 20,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptDTO/type/state": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "state",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestAttempt.state of type string",
+    "offset": 14,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestAttemptDTO/type/validation_state": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "validation_state",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestAttempt.validation_state of type string",
+    "offset": 25,
+    "struct": "ManifestAttempt",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestDTO/type/attempts": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempts",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.attempts of type []artifactwire.ManifestAttempt",
+    "offset": 13,
+    "struct": "manifestDTO",
+    "type": "[]artifactwire.ManifestAttempt",
+    "value": "number"
+  },
+  "manifestDTO/type/composite_identity.epoch": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "composite_identity.epoch",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.composite_identity.epoch of type artifactwire.PathPointer",
+    "offset": 32,
+    "struct": "manifestDTO",
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "manifestDTO/type/composite_identity.manifest": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "composite_identity.manifest",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.composite_identity.manifest of type artifactwire.PathPointer",
+    "offset": 35,
+    "struct": "manifestDTO",
+    "type": "artifactwire.PathPointer",
+    "value": "number"
+  },
+  "manifestDTO/type/failures": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "failures",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.failures of type []artifactwire.ManifestFailure",
+    "offset": 13,
+    "struct": "manifestDTO",
+    "type": "[]artifactwire.ManifestFailure",
+    "value": "number"
+  },
+  "manifestDTO/type/final_review": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "final_review",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.final_review of type artifactwire.FinalReviewIdentity",
+    "offset": 17,
+    "struct": "manifestDTO",
+    "type": "artifactwire.FinalReviewIdentity",
+    "value": "number"
+  },
+  "manifestDTO/type/followup_outcome.evidence[].visual": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "followup_outcome.evidence.0.visual",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.followup_outcome.evidence.0.visual of type artifactwire.VisualEvidence",
+    "offset": 44,
+    "struct": "manifestDTO",
+    "type": "artifactwire.VisualEvidence",
+    "value": "number"
+  },
+  "manifestDTO/type/followup_outcome.evidence[].visual.bbox": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "followup_outcome.evidence.0.visual.bbox",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.followup_outcome.evidence.0.visual.bbox of type artifactwire.VisualBoundingBox",
+    "offset": 52,
+    "struct": "manifestDTO",
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "manifestDTO/type/immutable_lineage": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "immutable_lineage",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.immutable_lineage of type artifactwire.ImmutableLineage",
+    "offset": 22,
+    "struct": "manifestDTO",
+    "type": "artifactwire.ImmutableLineage",
+    "value": "number"
+  },
+  "manifestDTO/type/role_reports": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role_reports",
+    "message": "json: cannot unmarshal number into Go struct field manifestDTO.role_reports of type []artifactwire.ManifestRoleReport",
+    "offset": 17,
+    "struct": "manifestDTO",
+    "type": "[]artifactwire.ManifestRoleReport",
+    "value": "number"
+  },
+  "manifestFailureDTO/type/attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestFailure.attempt_id of type string",
+    "offset": 19,
+    "struct": "ManifestFailure",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestFailureDTO/type/class": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "class",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestFailure.class of type string",
+    "offset": 14,
+    "struct": "ManifestFailure",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestFailureDTO/type/reason_code": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "reason_code",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestFailure.reason_code of type string",
+    "offset": 20,
+    "struct": "ManifestFailure",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestFailureDTO/type/stage": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "stage",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestFailure.stage of type string",
+    "offset": 14,
+    "struct": "ManifestFailure",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportDTO/type/attempt_id": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "attempt_id",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestRoleReport.attempt_id of type string",
+    "offset": 19,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportDTO/type/byte_length": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "byte_length",
+    "message": "json: cannot unmarshal string into Go struct field ManifestRoleReport.byte_length of type int",
+    "offset": 20,
+    "struct": "ManifestRoleReport",
+    "type": "int",
+    "value": "string"
+  },
+  "manifestRoleReportDTO/type/content_type": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "content_type",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestRoleReport.content_type of type string",
+    "offset": 21,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportDTO/type/path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "path",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestRoleReport.path of type string",
+    "offset": 13,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportDTO/type/provider_instance": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "provider_instance",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestRoleReport.provider_instance of type string",
+    "offset": 26,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportDTO/type/role": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "role",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestRoleReport.role of type string",
+    "offset": 13,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportDTO/type/sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestRoleReport.sha256 of type string",
+    "offset": 15,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "manifestRoleReportDTO/type/transport": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "transport",
+    "message": "json: cannot unmarshal bool into Go struct field ManifestRoleReport.transport of type string",
+    "offset": 18,
+    "struct": "ManifestRoleReport",
+    "type": "string",
+    "value": "bool"
+  },
+  "pathPointerDTO/type/path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "path",
+    "message": "json: cannot unmarshal bool into Go struct field PathPointer.path of type string",
+    "offset": 13,
+    "struct": "PathPointer",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/build_commit": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "build_commit",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.build_commit of type string",
+    "offset": 21,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/build_product": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "build_product",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.build_product of type string",
+    "offset": 22,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/build_version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "build_version",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.build_version of type string",
+    "offset": 22,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/objective_present": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "objective_present",
+    "message": "json: cannot unmarshal number into Go struct field ProductionProvenance.objective_present of type bool",
+    "offset": 22,
+    "struct": "ProductionProvenance",
+    "type": "bool",
+    "value": "number"
+  },
+  "productionProvenanceDTO/type/objective_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "objective_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.objective_sha256 of type string",
+    "offset": 25,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers",
+    "message": "json: cannot unmarshal number into Go struct field ProductionProvenance.providers of type []artifactwire.ProductionProvider",
+    "offset": 14,
+    "struct": "ProductionProvenance",
+    "type": "[]artifactwire.ProductionProvider",
+    "value": "number"
+  },
+  "productionProvenanceDTO/type/providers[].adapter_profile": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.adapter_profile",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.adapter_profile of type string",
+    "offset": 38,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].executable": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.executable",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.executable of type string",
+    "offset": 33,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].executable_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.executable_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.executable_sha256 of type string",
+    "offset": 40,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].family": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.family",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.family of type string",
+    "offset": 29,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].instance": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.instance",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.instance of type string",
+    "offset": 31,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].launcher": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.launcher",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.launcher of type string",
+    "offset": 31,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].launcher_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.launcher_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.launcher_sha256 of type string",
+    "offset": 38,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].namespace_terminal_receipt": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.namespace_terminal_receipt",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.namespace_terminal_receipt of type string",
+    "offset": 49,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].packet_transport_receipt_ids": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.packet_transport_receipt_ids",
+    "message": "json: cannot unmarshal number into Go struct field ProductionProvenance.providers.0.packet_transport_receipt_ids of type []string",
+    "offset": 47,
+    "struct": "ProductionProvenance",
+    "type": "[]string",
+    "value": "number"
+  },
+  "productionProvenanceDTO/type/providers[].profile_generation": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.profile_generation",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.profile_generation of type string",
+    "offset": 41,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/providers[].qualification_receipt_ids": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.qualification_receipt_ids",
+    "message": "json: cannot unmarshal number into Go struct field ProductionProvenance.providers.0.qualification_receipt_ids of type []string",
+    "offset": 44,
+    "struct": "ProductionProvenance",
+    "type": "[]string",
+    "value": "number"
+  },
+  "productionProvenanceDTO/type/providers[].version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "providers.0.version",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.providers.0.version of type string",
+    "offset": 30,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/snapshot_manifest_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "snapshot_manifest_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.snapshot_manifest_sha256 of type string",
+    "offset": 33,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProvenanceDTO/type/workspace_terminal_receipt": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "workspace_terminal_receipt",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvenance.workspace_terminal_receipt of type string",
+    "offset": 35,
+    "struct": "ProductionProvenance",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/adapter_profile": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "adapter_profile",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.adapter_profile of type string",
+    "offset": 24,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/executable": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "executable",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.executable of type string",
+    "offset": 19,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/executable_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "executable_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.executable_sha256 of type string",
+    "offset": 26,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/family": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "family",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.family of type string",
+    "offset": 15,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/instance": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "instance",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.instance of type string",
+    "offset": 17,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/launcher": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "launcher",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.launcher of type string",
+    "offset": 17,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/launcher_sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "launcher_sha256",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.launcher_sha256 of type string",
+    "offset": 24,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/namespace_terminal_receipt": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "namespace_terminal_receipt",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.namespace_terminal_receipt of type string",
+    "offset": 35,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/packet_transport_receipt_ids": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "packet_transport_receipt_ids",
+    "message": "json: cannot unmarshal number into Go struct field ProductionProvider.packet_transport_receipt_ids of type []string",
+    "offset": 33,
+    "struct": "ProductionProvider",
+    "type": "[]string",
+    "value": "number"
+  },
+  "productionProviderDTO/type/profile_generation": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "profile_generation",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.profile_generation of type string",
+    "offset": 27,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "productionProviderDTO/type/qualification_receipt_ids": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "qualification_receipt_ids",
+    "message": "json: cannot unmarshal number into Go struct field ProductionProvider.qualification_receipt_ids of type []string",
+    "offset": 30,
+    "struct": "ProductionProvider",
+    "type": "[]string",
+    "value": "number"
+  },
+  "productionProviderDTO/type/version": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "version",
+    "message": "json: cannot unmarshal bool into Go struct field ProductionProvider.version of type string",
+    "offset": 16,
+    "struct": "ProductionProvider",
+    "type": "string",
+    "value": "bool"
+  },
+  "severityThresholdDTO/type/policy_source": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "policy_source",
+    "message": "json: cannot unmarshal bool into Go struct field SeverityThreshold.policy_source of type string",
+    "offset": 22,
+    "struct": "SeverityThreshold",
+    "type": "string",
+    "value": "bool"
+  },
+  "severityThresholdDTO/type/request_changes_at_or_above": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "request_changes_at_or_above",
+    "message": "json: cannot unmarshal bool into Go struct field SeverityThreshold.request_changes_at_or_above of type string",
+    "offset": 36,
+    "struct": "SeverityThreshold",
+    "type": "string",
+    "value": "bool"
+  },
+  "visualBBoxDTO/type/height": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "height",
+    "message": "json: cannot unmarshal string into Go struct field VisualBoundingBox.height of type int",
+    "offset": 15,
+    "struct": "VisualBoundingBox",
+    "type": "int",
+    "value": "string"
+  },
+  "visualBBoxDTO/type/width": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "width",
+    "message": "json: cannot unmarshal string into Go struct field VisualBoundingBox.width of type int",
+    "offset": 14,
+    "struct": "VisualBoundingBox",
+    "type": "int",
+    "value": "string"
+  },
+  "visualBBoxDTO/type/x": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "x",
+    "message": "json: cannot unmarshal string into Go struct field VisualBoundingBox.x of type int",
+    "offset": 10,
+    "struct": "VisualBoundingBox",
+    "type": "int",
+    "value": "string"
+  },
+  "visualBBoxDTO/type/y": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "y",
+    "message": "json: cannot unmarshal string into Go struct field VisualBoundingBox.y of type int",
+    "offset": 10,
+    "struct": "VisualBoundingBox",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceDTO/type/bbox": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "bbox",
+    "message": "json: cannot unmarshal number into Go struct field VisualEvidence.bbox of type artifactwire.VisualBoundingBox",
+    "offset": 9,
+    "struct": "VisualEvidence",
+    "type": "artifactwire.VisualBoundingBox",
+    "value": "number"
+  },
+  "visualEvidenceDTO/type/bbox.height": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "bbox.height",
+    "message": "json: cannot unmarshal string into Go struct field VisualEvidence.bbox.height of type int",
+    "offset": 23,
+    "struct": "VisualEvidence",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceDTO/type/bbox.width": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "bbox.width",
+    "message": "json: cannot unmarshal string into Go struct field VisualEvidence.bbox.width of type int",
+    "offset": 22,
+    "struct": "VisualEvidence",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceDTO/type/bbox.x": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "bbox.x",
+    "message": "json: cannot unmarshal string into Go struct field VisualEvidence.bbox.x of type int",
+    "offset": 18,
+    "struct": "VisualEvidence",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceDTO/type/bbox.y": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "bbox.y",
+    "message": "json: cannot unmarshal string into Go struct field VisualEvidence.bbox.y of type int",
+    "offset": 18,
+    "struct": "VisualEvidence",
+    "type": "int",
+    "value": "string"
+  },
+  "visualEvidenceDTO/type/path": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "path",
+    "message": "json: cannot unmarshal bool into Go struct field VisualEvidence.path of type string",
+    "offset": 13,
+    "struct": "VisualEvidence",
+    "type": "string",
+    "value": "bool"
+  },
+  "visualEvidenceDTO/type/sha256": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "sha256",
+    "message": "json: cannot unmarshal bool into Go struct field VisualEvidence.sha256 of type string",
+    "offset": 15,
+    "struct": "VisualEvidence",
+    "type": "string",
+    "value": "bool"
+  },
+  "visualEvidenceDTO/type/verification": {
+    "error_type": "*json.UnmarshalTypeError",
+    "field": "verification",
+    "message": "json: cannot unmarshal bool into Go struct field VisualEvidence.verification of type string",
+    "offset": 21,
+    "struct": "VisualEvidence",
+    "type": "string",
+    "value": "bool"
+  }
+}

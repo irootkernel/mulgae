@@ -14,12 +14,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const SchemaVersion = "mulgae-run-recovery.v1"
-const SchemaURI = "https://mulgae.local/schemas/mulgae-run-recovery.v1.schema.json"
+const SchemaVersion = artifactwire.RunRecoveryV1
+const SchemaURI = artifactwire.RunRecoveryV1Schema
 
 // Blob binds source-sized content without imposing a product byte ceiling.
 type Blob struct {
@@ -257,13 +258,13 @@ func AddBlob(blobs map[string][]byte, value []byte) Blob {
 	return identity
 }
 func ManifestPath(run ports.PublicationRun) (ports.SafeRelativePath, error) {
-	return ports.NewSafeRelativePath(run.SessionID().String() + "/" + run.RunID().String() + "/recovery/manifest.json")
+	return ports.NewSafeRelativePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.RecoveryManifestPath))
 }
 func BlobPath(run ports.PublicationRun, blob Blob) (ports.SafeRelativePath, error) {
 	if !validDigest(blob.SHA256) {
 		return ports.SafeRelativePath{}, fmt.Errorf("recovery: invalid blob digest")
 	}
-	return ports.NewSafeRelativePath(run.SessionID().String() + "/" + run.RunID().String() + "/recovery/blobs/sha256-" + strings.TrimPrefix(blob.SHA256, "sha256:"))
+	return ports.NewSafeRelativePath(artifactwire.RunPath(run.SessionID().String(), run.RunID().String(), artifactwire.RecoveryBlobPath(blob.SHA256)))
 }
 func (document Document) Blobs() []Blob {
 	byHash := map[string]Blob{document.Target.Bytes.SHA256: document.Target.Bytes, document.Target.CapturedArchive.SHA256: document.Target.CapturedArchive}

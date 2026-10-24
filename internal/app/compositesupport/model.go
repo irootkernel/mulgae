@@ -14,12 +14,13 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/app/capture"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 const Version = "mulgae-composite-support.v1"
-const DocumentPath = "support/composite.json"
+const DocumentPath = artifactwire.CompositeSupportPath
 
 // Source is portable provenance, deliberately excluding local project binding.
 // Failed recovery sources have a manifest digest, not a P2 receipt.
@@ -103,10 +104,10 @@ func SHA256(raw []byte) string {
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
-func SourcePrefix(role domain.Role) string { return "support/sources/" + string(role) + "/target/" }
-func FindingPath(id string) string         { return "support/findings/" + id + ".json" }
+func SourcePrefix(role domain.Role) string { return artifactwire.CompositeSourcePrefix(string(role)) }
+func FindingPath(id string) string         { return artifactwire.CompositeFindingPath(id) }
 func ExcerptPath(id string, index int) string {
-	return fmt.Sprintf("excerpts/%s_%d.md", id, index+1)
+	return "excerpts/" + artifactwire.EvidenceExcerptName(id, index+1)
 }
 
 func Build(session domain.SessionID, run domain.RunID, materials []Material) ([]ports.ImmutablePublicationArtifact, error) {

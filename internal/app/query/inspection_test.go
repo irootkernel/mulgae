@@ -558,7 +558,7 @@ func TestInspectionVerifiesCompleteCaptureAndRejectsLostBlob(t *testing.T) {
 	for path, data := range additions {
 		artifact := mustQueryArtifact(t, mustQueryPath(t, path), data)
 		store.auxiliaryArtifacts[path] = artifact
-		support.Artifacts = append(support.Artifacts, artifactIdentityDTO{path, artifact.SHA256()})
+		support.Artifacts = append(support.Artifacts, artifactIdentityDTO{Path: path, SHA256: artifact.SHA256()})
 	}
 	sort.Slice(support.Artifacts, func(i, j int) bool { return support.Artifacts[i].Path < support.Artifacts[j].Path })
 	encoded, err = json.Marshal(support)
