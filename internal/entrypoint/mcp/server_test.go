@@ -1185,6 +1185,11 @@ func serveRequests(t *testing.T, requests ...string) [][]byte {
 
 func serveRequestsWithConfig(t *testing.T, config Config, requests ...string) [][]byte {
 	t.Helper()
+	return serveRequestsWithConfigResponseWait(t, config, 5*time.Second, requests...)
+}
+
+func serveRequestsWithConfigResponseWait(t *testing.T, config Config, responseWait time.Duration, requests ...string) [][]byte {
+	t.Helper()
 	reader, input := io.Pipe()
 	output := make(chan []byte, len(requests))
 	done := make(chan error, 1)
@@ -1199,7 +1204,7 @@ func serveRequestsWithConfig(t *testing.T, config Config, requests ...string) []
 		select {
 		case raw := <-output:
 			responses = append(responses, raw)
-		case <-time.After(5 * time.Second):
+		case <-time.After(responseWait):
 			t.Fatal("timed out waiting for MCP response")
 		}
 	}

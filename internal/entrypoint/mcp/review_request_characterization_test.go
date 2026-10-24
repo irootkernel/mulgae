@@ -161,9 +161,13 @@ func TestMCPLifecycleAndResultBounds(t *testing.T) {
 	// occurs once for every size, including the rejected oversized result.
 	for _, tool := range []string{toolGetContext, toolInspectReview, toolListFindings} {
 		limit, arguments := maxToolResultBytes, `{}`
+		responseWait := 5 * time.Second
 		if tool != toolGetContext {
 			limit = maxFindingPageResultBytes
 			arguments = `{"run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf"}`
+			// F-U1's loaded single-CPU -race replies measured about 6s.
+			// Allow 30s for these 32 MiB SDK cases; ordinary waits stay 5s.
+			responseWait = 30 * time.Second
 		}
 		for _, delta := range []int{-1, 0, 1} {
 			empty := ToolResult{SchemaVersion: "mulgae-mcp-tool-result.v1", Tool: tool, RequestID: "i_019f596a-cf80-7c67-b265-f37053d51ccf", Outcome: "success", Data: map[string]any{"payload": ""}}
@@ -172,7 +176,7 @@ func TestMCPLifecycleAndResultBounds(t *testing.T) {
 				t.Fatal(err)
 			}
 			backend := &oversizedResultBackend{limit: limit + delta - len(raw)}
-			responses := serveRequestsWithConfig(t, toolTestConfig(t, backend), latestRequest(1, "server/discover", `{}`), latestRequest(2, "tools/call", `{"name":"`+tool+`","arguments":`+arguments+`}`))
+			responses := serveRequestsWithConfigResponseWait(t, toolTestConfig(t, backend), responseWait, latestRequest(1, "server/discover", `{}`), latestRequest(2, "tools/call", `{"name":"`+tool+`","arguments":`+arguments+`}`))
 			response := decodeResponse(t, responses[1])
 			if backend.calls != 1 {
 				t.Fatalf("SDK backend calls=%d want=1", backend.calls)
