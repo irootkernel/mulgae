@@ -224,3 +224,61 @@ their canonical owners, verify links, and replace the Epic's Detailed SOT with
 Canonical Outcomes. Remove this dossier and its TODO entry only when its last
 consumer is closed and that removal is authorized. Master accepts the Epic;
 passing tests or technical design agreement does not provide that acceptance.
+
+### Verification profile
+
+EPIC-014 execution uses the following verification profile. It records
+verified project facts for selecting and recording checks. It grants no waiver
+and relaxes no gate. Run every completion member as a separate command, never
+with `-failfast`, on one frozen candidate. Do not overlap a member with another
+`go test` process (DF-028).
+
+```yaml
+verification_profile:
+  revision: VP-2
+  completion_suite:
+    prepare: make test-prepare
+    unit: make test-unit
+    integration: make test-int
+    release: make test-release
+    mcp_clients: make test-mcp-clients
+    tagged_compile:
+      - go vet -tags=liveprovider ./...
+      - go vet -tags="live_e2e live_grok" ./test/e2e
+      - go vet -tags="live_e2e live_cursor" ./test/e2e
+      - go vet -tags="live_e2e live_agy" ./test/e2e
+      - go vet -tags="live_e2e live_e2e_opt_in" ./test/e2e
+      - go vet -tags=releasecheck ./internal/releasecheck
+      - go vet -tags=mcpclientcheck ./internal/mcpclientcheck
+    e2e_zcode: make test-e2e
+  deferred_live_gates: # v0.1.26 five-provider release gate
+    - make test-grok
+    - make test-cursor
+    - make test-agy
+    - MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in
+  candidate_id: >-
+    tree hash through a temporary index outside the worktree
+    (git read-tree HEAD; git add -A; git write-tree); fallback is HEAD plus
+    the binary patch hash and untracked file hashes
+  shared_resources:
+    - ZCode app-server and Z.AI quota (one live run at a time)
+    - internal/adapters/process boundary tests invoke sandbox-exec and run
+      outside agent sandboxes
+  uncaptured_inputs:
+    - Go toolchain, module cache and golangci-lint through go tool
+    - ZCode.app bundle, launcher protocol and the account found by discovery
+    - resolved codex and claude client binaries for mcp_clients
+    - TMPDIR through the /private/var alias, installed-user and native-home
+      identity, effective GOFLAGS and MULGAE_* overrides, host load
+  contracts:
+    - internal/builtin/assets/** and assets/roles.yaml
+    - public JSON, typed failures, reason codes, exit codes and command grammar
+    - persisted layout, format versions, digest domains, canonical bytes and
+      historical readers, recovery and cleanup
+  normative_docs: [docs/specs/**, AGENTS.md, assets/roles.yaml, internal/builtin/assets/**, skills/**]
+  calibration: {production_files: 3, production_lines: 50}
+  known_limits:
+    - non-ZCode live provider behavior is not exercised in this Epic
+    - non-ZCode tagged E2E files are compile-checked only
+    - timing, benchmark, percentile and memory-peak results are not evidence
+```
