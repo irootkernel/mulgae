@@ -125,6 +125,13 @@ native identity and validates completed operations and final turn acceptance
 against the read plan, including operations that failed or bypassed the
 permission-request handshake.
 Structured extraction uses the outer guard without review read-plan correlation.
+Native tool path admission runs body-free through the source port: the source
+reader checks the path, protected roots, namespace, file kind and namespace
+identity through descriptors and inventories, while evidence reads keep their
+byte and stability verification. Admission therefore validates no content: a
+raster-extension file whose bytes fail the signature is admitted for a
+provider tool, but still fails closed with `unsupported_content` whenever it
+is claimed as evidence.
 ZCode also admits its existing private short socket directory by canonical
 identity; protected denials override writable-root overlap. Codex retains its
 native read-only profile with explicit credential-root denial. These controls

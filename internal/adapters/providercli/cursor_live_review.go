@@ -55,6 +55,5 @@ func (authority *cursorLiveReadAuthority) allowWorkspacePath(ctx context.Context
 	if err != nil {
 		return err
 	}
-	_, err = authority.execution.SourceReader().Read(ctx, domain.LiveSourceWorktree, selected)
-	return err
+	return authority.execution.SourceReader().AdmitPath(ctx, domain.LiveSourceWorktree, selected)
 }

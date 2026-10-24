@@ -36,6 +36,9 @@ func (reader *promptLiveReader) Read(context.Context, domain.LiveSourceSide, por
 	reader.reads++
 	return ports.LiveSourceFile{}, errors.New("prompt composition must not read source content")
 }
+func (*promptLiveReader) AdmitPath(context.Context, domain.LiveSourceSide, ports.SafeRelativePath) error {
+	return errors.New("prompt composition must not admit native paths")
+}
 func (*promptLiveReader) Close() error { return nil }
 
 type promptLiveHome struct {

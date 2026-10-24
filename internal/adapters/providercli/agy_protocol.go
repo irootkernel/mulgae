@@ -160,8 +160,7 @@ func (authority *agyLiveReadAuthority) allow(ctx context.Context, tool, operand 
 		}
 		// The source reader owns runtime/credential exclusion and path safety.
 		// This check grants no replacement policy and retains no snapshot.
-		_, err = authority.execution.SourceReader().Read(ctx, domain.LiveSourceWorktree, selected)
-		return err
+		return authority.execution.SourceReader().AdmitPath(ctx, domain.LiveSourceWorktree, selected)
 	default:
 		return fmt.Errorf("native tool is outside the live read plan")
 	}

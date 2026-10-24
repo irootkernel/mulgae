@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -1034,34 +1035,64 @@ func TestIntegrationLiveSourceSideAvailability(t *testing.T) {
 }
 
 func TestIntegrationLiveSourceConcurrentReadsAndClose(t *testing.T) {
-	root := reviewCaptureRepository(t)
-	reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
-	path, _ := ports.NewSafeRelativePath("tracked.txt")
-	start := make(chan struct{})
-	ready := make(chan struct{}, 8)
-	var group sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			<-start
-			_, err := reader.Read(context.Background(), domain.LiveSourceWorktree, path)
-			if err != nil {
-				assertLiveError(t, err, ports.LiveSourceUnavailable)
-			}
-			ready <- struct{}{}
-			_, err = reader.List(context.Background(), domain.LiveSourceWorktree)
-			if err != nil {
-				assertLiveError(t, err, ports.LiveSourceUnavailable)
-			}
-		}()
-	}
-	close(start)
-	<-ready
-	if err := reader.Close(); err != nil {
-		t.Fatal(err)
-	}
-	group.Wait()
+	t.Run("racing", func(t *testing.T) {
+		root := canonicalTestRoot(t, reviewCaptureRepository(t))
+		reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+		path, _ := ports.NewSafeRelativePath("tracked.txt")
+		start := make(chan struct{})
+		ready := make(chan struct{}, 8)
+		var group sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				<-start
+				_, err := reader.Read(context.Background(), domain.LiveSourceWorktree, path)
+				if err != nil {
+					assertLiveError(t, err, ports.LiveSourceUnavailable)
+				}
+				ready <- struct{}{}
+				if err := reader.AdmitPath(context.Background(), domain.LiveSourceWorktree, path); err != nil {
+					assertLiveError(t, err, ports.LiveSourceUnavailable)
+				}
+				_, err = reader.List(context.Background(), domain.LiveSourceWorktree)
+				if err != nil {
+					assertLiveError(t, err, ports.LiveSourceUnavailable)
+				}
+			}()
+		}
+		close(start)
+		<-ready
+		if err := reader.Close(); err != nil {
+			t.Fatal(err)
+		}
+		group.Wait()
+	})
+	t.Run("round-then-close", func(t *testing.T) {
+		root := canonicalTestRoot(t, reviewCaptureRepository(t))
+		reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+		path, _ := ports.NewSafeRelativePath("tracked.txt")
+		if err := reader.AdmitPath(context.Background(), domain.LiveSourceWorktree, path); err != nil {
+			t.Fatal(err)
+		}
+		file, err := reader.Read(context.Background(), domain.LiveSourceWorktree, path)
+		if err != nil || string(file.Bytes()) != "second\n" {
+			t.Fatalf("synchronized read round = %q %v", file.Bytes(), err)
+		}
+		if _, err := reader.List(context.Background(), domain.LiveSourceWorktree); err != nil {
+			t.Fatal(err)
+		}
+		if err := reader.Close(); err != nil {
+			t.Fatal(err)
+		}
+		_, err = reader.Read(context.Background(), domain.LiveSourceWorktree, path)
+		assertLiveError(t, err, ports.LiveSourceUnavailable)
+		err = reader.AdmitPath(context.Background(), domain.LiveSourceWorktree, path)
+		assertLiveError(t, err, ports.LiveSourceUnavailable)
+		if _, err = reader.List(context.Background(), domain.LiveSourceWorktree); err == nil {
+			t.Fatal("closed reader kept admitting workspace paths")
+		}
+	})
 }
 
 func TestIntegrationLiveSourceRejectsUnsafeAndUnavailableSources(t *testing.T) {
@@ -1241,4 +1272,421 @@ func TestWorkspaceIgnoreEscapedSeparatorsMatchGit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// canonicalTestRoot resolves a task-owned temporary root; the default macOS
+// TMPDIR crosses /var.
+func canonicalTestRoot(t *testing.T, root string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
+// Unresolvable non-branch HEAD spellings must keep the typed revision
+// rejection; resolvable detached and tag-backed HEADs stay admitted. The
+// locality attester covers the same spellings on its own side
+// (locality_darwin_test.go).
+func TestIntegrationLiveSourceNonBranchHead(t *testing.T) {
+	t.Run("missing-tag-head", func(t *testing.T) {
+		root := canonicalTestRoot(t, reviewCaptureRepository(t))
+		writeReviewFile(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/tags/missing\n")
+		adapter, _ := NewLiveSourceAdapter(NewExecRunner(), nil)
+		selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceStage, "")
+		reader, err := adapter.OpenLiveSource(context.Background(), mustAnchoredRoot(t, root), selector)
+		if reader != nil {
+			_ = reader.Close()
+		}
+		assertLiveError(t, err, ports.LiveSourceRevision)
+	})
+	t.Run("malformed-head", func(t *testing.T) {
+		root := canonicalTestRoot(t, reviewCaptureRepository(t))
+		writeReviewFile(t, filepath.Join(root, ".git", "HEAD"), "not-a-valid-head\n")
+		adapter, _ := NewLiveSourceAdapter(NewExecRunner(), nil)
+		selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceStage, "")
+		reader, err := adapter.OpenLiveSource(context.Background(), mustAnchoredRoot(t, root), selector)
+		if reader != nil {
+			_ = reader.Close()
+		}
+		// Index inventory admission runs before revision resolution and
+		// rejects the malformed repository first.
+		assertLiveError(t, err, ports.LiveSourceUnavailable)
+	})
+	t.Run("detached-head-admits", func(t *testing.T) {
+		root := canonicalTestRoot(t, reviewCaptureRepository(t))
+		reviewGit(t, root, "checkout", "--quiet", "--detach")
+		reader := openTestLiveSource(t, root, domain.LiveSourceStage, "")
+		defer reader.Close()
+		readTestLiveSource(t, reader, domain.LiveSourceIndex, "tracked.txt", "second\n")
+	})
+	t.Run("tag-head-admits", func(t *testing.T) {
+		root := canonicalTestRoot(t, reviewCaptureRepository(t))
+		reviewGit(t, root, "tag", "v1")
+		writeReviewFile(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/tags/v1\n")
+		reader := openTestLiveSource(t, root, domain.LiveSourceStage, "")
+		defer reader.Close()
+		readTestLiveSource(t, reader, domain.LiveSourceIndex, "tracked.txt", "second\n")
+	})
+}
+
+func TestIntegrationLiveSourceEmptyHeadSelector(t *testing.T) {
+	root := canonicalTestRoot(t, t.TempDir())
+	reviewGit(t, root, "init")
+	adapter, _ := NewLiveSourceAdapter(NewExecRunner(), nil)
+	selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceHead, "")
+	reader, err := adapter.OpenLiveSource(context.Background(), mustAnchoredRoot(t, root), selector)
+	if reader != nil {
+		_ = reader.Close()
+	}
+	assertLiveError(t, err, ports.LiveSourceRevision)
+}
+
+func TestIntegrationLiveSourcePreAdmissionIgnoredSymlink(t *testing.T) {
+	root := canonicalTestRoot(t, t.TempDir())
+	writeReviewFile(t, filepath.Join(root, ".gitignore"), "skipped-link\n")
+	writeReviewFile(t, filepath.Join(root, "anchor.txt"), "anchor\n")
+	if err := os.Symlink("anchor.txt", filepath.Join(root, "skipped-link")); err != nil {
+		t.Fatal(err)
+	}
+	reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+	defer reader.Close()
+	paths, err := reader.List(context.Background(), domain.LiveSourceWorktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(paths))
+	for _, path := range paths {
+		names = append(names, path.String())
+	}
+	if !reflect.DeepEqual(names, []string{".gitignore", "anchor.txt"}) {
+		t.Fatalf("ignored symlink changed workspace selection: %v", names)
+	}
+	link, _ := ports.NewSafeRelativePath("skipped-link")
+	_, err = reader.Read(context.Background(), domain.LiveSourceWorktree, link)
+	assertLiveError(t, err, ports.LiveSourceUnsafe)
+}
+
+// The two descriptor-read predicates, observed on real stat pairs: the
+// five-field stability predicate (device, inode, size, mtime, ctime) behind
+// body reads, and the two-field namespace predicate (device, inode) behind
+// path admission. Unchanged files stay stable, in-place modification breaks
+// only stability, and namespace replacement breaks both.
+func TestIntegrationLiveSourceReadStabilityGuards(t *testing.T) {
+	root := canonicalTestRoot(t, t.TempDir())
+	observed := func(name string) unix.Stat_t {
+		file, err := os.Open(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		var stat unix.Stat_t
+		if err := unix.Fstat(int(file.Fd()), &stat); err != nil {
+			t.Fatal(err)
+		}
+		return stat
+	}
+	path := filepath.Join(root, "stable.txt")
+	writeReviewFile(t, path, "first\n")
+	before := observed("stable.txt")
+	if !sameStableFile(before, observed("stable.txt")) {
+		t.Fatal("unchanged file was reported unstable")
+	}
+	writeReviewFile(t, path, "first\nsecond\n")
+	if sameStableFile(before, observed("stable.txt")) {
+		t.Fatal("in-place modification kept the stale stability verdict")
+	}
+	if !sameNamespaceFile(before, observed("stable.txt")) {
+		t.Fatal("in-place modification changed namespace identity")
+	}
+	replacement := filepath.Join(root, "replacement.txt")
+	writeReviewFile(t, replacement, "replacement\n")
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	if sameStableFile(before, observed("stable.txt")) {
+		t.Fatal("namespace replacement kept the stale stability verdict")
+	}
+	if sameNamespaceFile(before, observed("stable.txt")) {
+		t.Fatal("namespace replacement kept the stale namespace verdict")
+	}
+}
+
+// Held-descriptor semantics for descriptor reads: unlink and rename-over
+// keep the original bytes on the held descriptor while the reopened path
+// names a different state, and in-place modification is visible through the
+// held descriptor.
+func TestIntegrationLiveSourceHeldDescriptorSemantics(t *testing.T) {
+	root := canonicalTestRoot(t, t.TempDir())
+	writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n")
+	reader, ok := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "").(*liveSourceReader)
+	if !ok {
+		t.Fatal("test live source is not the production reader")
+	}
+	defer reader.Close()
+	held := func(fd int) string {
+		file := os.NewFile(uintptr(fd), "held descriptor")
+		defer file.Close()
+		data, err := io.ReadAll(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	path, _ := ports.NewSafeRelativePath("held.txt")
+
+	writeReviewFile(t, filepath.Join(root, "held.txt"), "original\n")
+	fd, err := reader.openRegular(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "held.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if got := held(fd); got != "original\n" {
+		t.Fatalf("held descriptor after unlink = %q", got)
+	}
+
+	writeReviewFile(t, filepath.Join(root, "held.txt"), "original\n")
+	writeReviewFile(t, filepath.Join(root, "next.txt"), "replacement\n")
+	fd, err = reader.openRegular(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before unix.Stat_t
+	if err := unix.Fstat(fd, &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(root, "next.txt"), filepath.Join(root, "held.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if got := held(fd); got != "original\n" {
+		t.Fatalf("held descriptor after rename-over = %q", got)
+	}
+	reopened, err := reader.openRegular(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after unix.Stat_t
+	if err := unix.Fstat(reopened, &after); err != nil {
+		t.Fatal(err)
+	}
+	_ = unix.Close(reopened)
+	if sameStableFile(before, after) {
+		t.Fatal("namespace replacement was not detected against the held descriptor")
+	}
+
+	writeReviewFile(t, filepath.Join(root, "held.txt"), "mutated\n")
+	fd, err = reader.openRegular(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Fstat(fd, &before); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, "held.txt"), "mutated\nlonger\n")
+	var mutated unix.Stat_t
+	if err := unix.Fstat(fd, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	if got := held(fd); got != "mutated\nlonger\n" {
+		t.Fatalf("held descriptor after in-place modification = %q", got)
+	}
+	if sameStableFile(before, mutated) {
+		t.Fatal("in-place modification was not detected against the held descriptor")
+	}
+}
+
+func liveSourceTypedCode(err error) (ports.LiveSourceErrorCode, bool) {
+	var typed *ports.LiveSourceError
+	if errors.As(err, &typed) {
+		return typed.Code(), true
+	}
+	return "", false
+}
+
+// For static input states, path admission and evidence reads agree on every
+// path-shaped typed outcome. The decided divergence is content validation: a
+// raster-extension file with an invalid signature is admitted for a provider
+// tool and still fails closed with unsupported_content at Read.
+func TestIntegrationLiveSourceAdmitPathParity(t *testing.T) {
+	root := canonicalTestRoot(t, reviewCaptureRepository(t))
+	if err := os.Mkdir(filepath.Join(root, "realdir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, "realdir", "inner.txt"), "inner\n")
+	writeReviewFile(t, filepath.Join(root, "mislabeled.png"), "not a raster signature\n")
+	if err := os.Mkdir(filepath.Join(root, ".mulgae"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, ".mulgae", "state.yaml"), "private\n")
+
+	protected := canonicalTestRoot(t, reviewCaptureRepository(t))
+	credential := filepath.Join(protected, "creds")
+	if err := os.Mkdir(credential, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(credential, "auth.json"), "private\n")
+	protectedAdapter, err := NewLiveSourceAdapter(NewExecRunner(), []ports.AnchoredRoot{mustAnchoredRoot(t, credential)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+	defer workspace.Close()
+	head := openTestLiveSource(t, root, domain.LiveSourceHead, "")
+	defer head.Close()
+	workspaceSelector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
+	protectedReader, err := protectedAdapter.OpenLiveSource(context.Background(), mustAnchoredRoot(t, protected), workspaceSelector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer protectedReader.Close()
+
+	// Unsafe shapes appear only after admission: workspace discovery rejects
+	// unignored symlinks and special files before a reader exists.
+	if err := os.Symlink("tracked.txt", filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("realdir", filepath.Join(root, "aliasdir")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "folder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mkfifo(filepath.Join(root, "pipe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	empty := ports.LiveSourceErrorCode("")
+	for _, test := range []struct {
+		name      string
+		reader    ports.LiveSourceReader
+		side      domain.LiveSourceSide
+		path      string
+		wantAdmit ports.LiveSourceErrorCode
+		wantRead  ports.LiveSourceErrorCode
+	}{
+		{name: "regular", reader: workspace, side: domain.LiveSourceWorktree, path: "tracked.txt"},
+		{name: "symlink", reader: workspace, side: domain.LiveSourceWorktree, path: "linked", wantAdmit: ports.LiveSourceUnsafe, wantRead: ports.LiveSourceUnsafe},
+		{name: "symlinked-component", reader: workspace, side: domain.LiveSourceWorktree, path: "aliasdir/inner.txt", wantAdmit: ports.LiveSourceUnsafe, wantRead: ports.LiveSourceUnsafe},
+		{name: "directory", reader: workspace, side: domain.LiveSourceWorktree, path: "folder", wantAdmit: ports.LiveSourceUnsafe, wantRead: ports.LiveSourceUnsafe},
+		{name: "fifo", reader: workspace, side: domain.LiveSourceWorktree, path: "pipe", wantAdmit: ports.LiveSourceUnsafe, wantRead: ports.LiveSourceUnsafe},
+		{name: "absent", reader: workspace, side: domain.LiveSourceWorktree, path: "absent.txt", wantAdmit: ports.LiveSourceUnavailable, wantRead: ports.LiveSourceUnavailable},
+		{name: "namespace", reader: workspace, side: domain.LiveSourceWorktree, path: ".mulgae/state.yaml", wantAdmit: ports.LiveSourceUnsafe, wantRead: ports.LiveSourceUnsafe},
+		{name: "protected-root", reader: protectedReader, side: domain.LiveSourceWorktree, path: "creds/auth.json", wantAdmit: ports.LiveSourceUnsafe, wantRead: ports.LiveSourceUnsafe},
+		{name: "mislabeled-raster-admitted", reader: workspace, side: domain.LiveSourceWorktree, path: "mislabeled.png", wantRead: ports.LiveSourceUnsupported},
+		{name: "committed-member", reader: head, side: domain.LiveSourceAfter, path: "tracked.txt"},
+		{name: "committed-nonmember", reader: head, side: domain.LiveSourceAfter, path: "absent.txt", wantAdmit: ports.LiveSourceUnavailable, wantRead: ports.LiveSourceUnavailable},
+		{name: "worktree-side-non-workspace-scope", reader: head, side: domain.LiveSourceWorktree, path: "tracked.txt", wantAdmit: ports.LiveSourceInvalid, wantRead: ports.LiveSourceInvalid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, pathErr := ports.NewSafeRelativePath(test.path)
+			if pathErr != nil {
+				t.Fatal(pathErr)
+			}
+			admitErr := test.reader.AdmitPath(context.Background(), test.side, path)
+			if admitCode, _ := liveSourceTypedCode(admitErr); admitCode != test.wantAdmit {
+				t.Fatalf("admission = %v, want %q", admitErr, test.wantAdmit)
+			}
+			if test.wantAdmit == empty && admitErr != nil {
+				t.Fatalf("admission = %v, want success", admitErr)
+			}
+			_, readErr := test.reader.Read(context.Background(), test.side, path)
+			if readCode, _ := liveSourceTypedCode(readErr); readCode != test.wantRead {
+				t.Fatalf("read = %v, want %q", readErr, test.wantRead)
+			}
+			if test.wantRead == empty && readErr != nil {
+				t.Fatalf("read = %v, want success", readErr)
+			}
+		})
+	}
+}
+
+// Each admission call observes what is currently at the path; no cross-call
+// identity or admitted boolean survives between calls.
+func TestIntegrationLiveSourceAdmitPathObservesCurrentPath(t *testing.T) {
+	root := canonicalTestRoot(t, t.TempDir())
+	writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\n")
+	writeReviewFile(t, filepath.Join(root, "anchor.txt"), "anchor\n")
+	writeReviewFile(t, filepath.Join(root, "target.txt"), "first\n")
+	if err := os.Mkdir(filepath.Join(root, "realdir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, "realdir", "inner.txt"), "inner\n")
+	reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+	defer reader.Close()
+	admit := func(name string) error {
+		path, err := ports.NewSafeRelativePath(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return reader.AdmitPath(context.Background(), domain.LiveSourceWorktree, path)
+	}
+	target := filepath.Join(root, "target.txt")
+
+	if err := admit("target.txt"); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, "replacement.txt"), "second\n")
+	if err := os.Rename(filepath.Join(root, "replacement.txt"), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := admit("target.txt"); err != nil {
+		t.Fatalf("regular replacement was rejected: %v", err)
+	}
+
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("anchor.txt", target); err != nil {
+		t.Fatal(err)
+	}
+	assertLiveError(t, admit("target.txt"), ports.LiveSourceUnsafe)
+
+	if err := os.Mkdir(filepath.Join(root, "component"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeReviewFile(t, filepath.Join(root, "component", "inner.txt"), "inner\n")
+	if err := admit("component/inner.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "component")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("realdir", filepath.Join(root, "component")); err != nil {
+		t.Fatal(err)
+	}
+	assertLiveError(t, admit("component/inner.txt"), ports.LiveSourceUnsafe)
+
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	assertLiveError(t, admit("target.txt"), ports.LiveSourceUnavailable)
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	assertLiveError(t, admit("target.txt"), ports.LiveSourceUnsafe)
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mkfifo(target, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertLiveError(t, admit("target.txt"), ports.LiveSourceUnsafe)
+
+	// The same path admitted just before the swap is rejected afterwards
+	// through the root identity revalidation, mirroring the Read-path
+	// replacement rejection.
+	if err := admit("anchor.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(root, root+"-replaced"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	assertLiveError(t, admit("anchor.txt"), ports.LiveSourceUnsafe)
 }

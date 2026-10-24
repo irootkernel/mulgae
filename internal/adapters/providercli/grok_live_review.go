@@ -110,8 +110,7 @@ func (authority *grokLiveReadAuthority) allow(ctx context.Context, kind, variant
 	}
 	// The source reader owns runtime/credential exclusion and path safety. This
 	// check grants no replacement policy and does not retain a source snapshot.
-	_, err = authority.execution.SourceReader().Read(ctx, domain.LiveSourceWorktree, selected)
-	return err
+	return authority.execution.SourceReader().AdmitPath(ctx, domain.LiveSourceWorktree, selected)
 }
 
 func (state *grokACPConversation) handleLiveReadPermission(ctx context.Context, exchange ports.ProviderSessionExchange, message grokACPMessage) error {

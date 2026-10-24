@@ -49,6 +49,9 @@ func (reader *liveEvidenceReader) Read(ctx context.Context, side domain.LiveSour
 	}
 	return ports.LiveSourceFile{}, ports.NewLiveSourceError(ports.LiveSourceUnavailable, nil)
 }
+func (*liveEvidenceReader) AdmitPath(context.Context, domain.LiveSourceSide, ports.SafeRelativePath) error {
+	return errors.New("unexpected path admission")
+}
 func (reader *liveEvidenceReader) Close() error { reader.closed = true; return nil }
 
 func liveEvidenceTarget(t *testing.T, scope domain.LiveSourceScope) ports.LiveSourceTarget {

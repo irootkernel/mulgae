@@ -9,6 +9,10 @@ This file records concise shipped outcomes and the planned next stable release.
 - Review text roles with AGY over stream-JSON using one default Gemini account. New projects prefer AGY for documentation when available; existing configured routes remain unchanged. Add single-account live verification with `make test-agy`.
 - Select Cursor explicitly for a text role through init, CLI, and MCP. Schemas, help, and contracts name that route. Default role preferences stay unchanged, and live Cursor certification remains opt-in.
 
+### Changed
+
+- Admit Grok, Cursor and AGY native file reads by path without reading file bodies. A provider read of a file with an image extension but invalid image content no longer fails the review; evidence that cites the file still fails with `unsupported_content`.
+
 ### Fixed
 
 - Prevent inherited file descriptors from reaching provider processes, and let protocol sessions close stdin while draining the final output.

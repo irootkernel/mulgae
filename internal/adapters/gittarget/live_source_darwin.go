@@ -703,6 +703,67 @@ func (reader *liveSourceReader) Read(ctx context.Context, side domain.LiveSource
 	return file, nil
 }
 
+// AdmitPath authorizes a path without reading its body. The worktree branch
+// keeps Read's namespace identity check: open the path through the
+// descriptor walk, stat it, reopen through the same walk, stat again, and
+// require the same device and inode. Reopen errors of the unsafe kinds
+// (ELOOP, ENOTDIR, directory, non-regular) map to unsafe_source; a
+// device/inode mismatch, or any other error including ENOENT, maps to
+// source_unavailable. For static input states the typed outcomes match
+// Read's path-shaped outcomes; only Read's content validation and body
+// stability checks are absent here.
+func (reader *liveSourceReader) AdmitPath(ctx context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) error {
+	reader.mu.Lock()
+	defer reader.mu.Unlock()
+	if !path.Valid() || reader.excluded(path.String()) {
+		return sourceError(ports.LiveSourceUnsafe, fmt.Errorf("invalid source path"))
+	}
+	if err := reader.revalidate(ctx); err != nil {
+		return err
+	}
+	if side == domain.LiveSourceWorktree && reader.target.Selector().Scope() == domain.LiveSourceWorkspace {
+		admitOpenError := func(err error) error {
+			if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) || errors.Is(err, errLiveDirectory) || errors.Is(err, errLiveNotRegular) {
+				return sourceError(ports.LiveSourceUnsafe, err)
+			}
+			return sourceError(ports.LiveSourceUnavailable, err)
+		}
+		admitted, err := reader.openRegular(path)
+		if err != nil {
+			return admitOpenError(err)
+		}
+		var before unix.Stat_t
+		if err := unix.Fstat(admitted, &before); err != nil {
+			_ = unix.Close(admitted)
+			return sourceError(ports.LiveSourceUnavailable, err)
+		}
+		reopened, err := reader.openRegular(path)
+		if err != nil {
+			_ = unix.Close(admitted)
+			return admitOpenError(err)
+		}
+		var after unix.Stat_t
+		statErr := unix.Fstat(reopened, &after)
+		_ = unix.Close(reopened)
+		_ = unix.Close(admitted)
+		if statErr != nil {
+			return sourceError(ports.LiveSourceUnavailable, statErr)
+		}
+		if !sameNamespaceFile(before, after) {
+			return sourceError(ports.LiveSourceUnavailable, fmt.Errorf("source path namespace changed during admission"))
+		}
+	} else {
+		entries, err := reader.entries(ctx, side, &path)
+		if err != nil {
+			return err
+		}
+		if _, found := entries[path.String()]; !found {
+			return sourceError(ports.LiveSourceUnavailable, fmt.Errorf("path is absent from source side"))
+		}
+	}
+	return reader.revalidate(ctx)
+}
+
 func (reader *liveSourceReader) openRegular(path ports.SafeRelativePath) (int, error) {
 	fd, err := reader.openPath(path.String(), false)
 	if err != nil {
@@ -742,6 +803,13 @@ func (reader *liveSourceReader) openPath(relative string, directory bool) (int, 
 
 func (reader *liveSourceReader) readRegular(path ports.SafeRelativePath) ([]byte, error) {
 	return reader.readRegularWithLimit(path, 0)
+}
+
+// sameNamespaceFile reports whether two stat observations name the same file
+// object. Admission checks namespace identity only; body reads additionally
+// require size and timestamps through sameStableFile.
+func sameNamespaceFile(left, right unix.Stat_t) bool {
+	return left.Dev == right.Dev && left.Ino == right.Ino
 }
 
 func (reader *liveSourceReader) readRegularWithLimit(path ports.SafeRelativePath, limit int64) ([]byte, error) {

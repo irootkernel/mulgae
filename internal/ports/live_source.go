@@ -192,6 +192,11 @@ type LiveSourceReader interface {
 	RevalidateExecution(context.Context) (ProjectBindingObservation, error)
 	List(context.Context, domain.LiveSourceSide) ([]SafeRelativePath, error)
 	Read(context.Context, domain.LiveSourceSide, SafeRelativePath) (LiveSourceFile, error)
+	// AdmitPath authorizes one native path under the reader's admission policy
+	// without reading its body. It owns the reader's path, protected-root,
+	// namespace, file-kind, side-membership and namespace-identity checks;
+	// evidence reads and their byte/stability verification remain in Read.
+	AdmitPath(context.Context, domain.LiveSourceSide, SafeRelativePath) error
 	Close() error
 }
 

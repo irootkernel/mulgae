@@ -28,6 +28,9 @@ func (reader coordinatorLiveReader) Read(_ context.Context, side domain.LiveSour
 	}
 	return ports.NewLiveSourceFile(path, []byte("observed\n"), "text/plain")
 }
+func (coordinatorLiveReader) AdmitPath(context.Context, domain.LiveSourceSide, ports.SafeRelativePath) error {
+	return fmt.Errorf("unexpected live path admission")
+}
 func (coordinatorLiveReader) Close() error { return nil }
 
 func TestCoordinatorLiveEvidencePreservesSelectionAndRejectsCapturedProof(t *testing.T) {

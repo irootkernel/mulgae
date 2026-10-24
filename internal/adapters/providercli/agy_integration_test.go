@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -368,7 +369,7 @@ func (r *agyLiveTestRunner) Converse(ctx context.Context, request ports.ProcessR
 	return currentProbeCapabilityProtocolObservation(r.t, r.fixture, []byte("transcript")), err
 }
 func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testing.T) {
-	for _, variant := range []string{"review", "extraction", "Git authority", "credential path", "policy drift", "signals", "drain unknown"} {
+	for _, variant := range []string{"review", "extraction", "Git authority", "credential path", "unsafe target", "policy drift", "signals", "drain unknown"} {
 		t.Run(variant, func(t *testing.T) {
 			ctx := context.Background()
 			lease, operator := agyTestNamespace(t)
@@ -422,9 +423,18 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 				t.Fatal(err)
 			}
 			defer source.Close()
-			execution, err := ports.NewLiveReviewExecution(ctx, source, home, []ports.AnchoredRoot{credential})
+			counted := &countingLiveSource{LiveSourceReader: source}
+			execution, err := ports.NewLiveReviewExecution(ctx, counted, home, []ports.AnchoredRoot{credential})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if variant == "unsafe target" {
+				// The workspace symlink appears after admission; the completed
+				// view_file operation on it must fail closed.
+				if err := os.Symlink(filepath.Base(target), filepath.Join(project, "link.txt")); err != nil {
+					t.Fatal(err)
+				}
+				target = filepath.Join(project, "link.txt")
 			}
 			if variant == "Git authority" {
 				plan, err := agyLiveReadPlan(ctx, execution, false)
@@ -448,6 +458,11 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 							t.Fatal("modified command gained driver authority")
 						}
 					}
+				}
+				// Admitted and rejected exact Git commands never consult the
+				// source reader.
+				if counted.reads != 0 || counted.admits != 0 {
+					t.Fatalf("Git-command admission read = %d, admitted = %d; want 0/0", counted.reads, counted.admits)
 				}
 				return
 			}
@@ -474,6 +489,36 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 				if err == nil || len(report) != 0 {
 					t.Fatal("failed live candidate returned report", err, string(report))
 				}
+				if variant == "unsafe target" || variant == "credential path" {
+					// The failure must come from the completed tool's
+					// admission, not an earlier protocol failure. The
+					// conversation wrapper hides the inner message, so the
+					// admission rejection is asserted on the unwrapped
+					// protocol error.
+					var protocol *agyProtocolError
+					if !errors.As(err, &protocol) || protocol.ProtocolFailureCause() != domain.DiagnosticCausePermissionDenied || !strings.Contains(protocol.Error(), "native tool operation rejected") {
+						t.Fatalf("%s lost the tool-admission rejection: %v", variant, err)
+					}
+					// The workspace symlink reaches the reader and is rejected
+					// there with unsafe_source; the out-of-root credential path
+					// is rejected by the driver's safe-path boundary before
+					// the reader is consulted.
+					wantAdmits := 1
+					if variant == "credential path" {
+						wantAdmits = 0
+					}
+					if counted.reads != 0 || counted.admits != wantAdmits {
+						t.Fatalf("%s body reads = %d, admissions = %d; want 0 reads and %d admissions", variant, counted.reads, counted.admits, wantAdmits)
+					}
+					var source *ports.LiveSourceError
+					if variant == "unsafe target" {
+						if !errors.As(err, &source) || source.Code() != ports.LiveSourceUnsafe {
+							t.Fatalf("unsafe target lost its typed source code: %v", err)
+						}
+					} else if errors.As(err, &source) {
+						t.Fatalf("credential path unexpectedly reached the reader: %v", err)
+					}
+				}
 				if variant == "drain unknown" {
 					agyAssertProfileRetained(t, lease)
 				}
@@ -489,6 +534,15 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 			}
 			if data, err := os.ReadFile(target); err != nil || string(data) != "original source\n" {
 				t.Fatal("source modified")
+			}
+			// The scripted review performs exactly one view_file admission
+			// and never reads the file body; extraction has no tool frames.
+			wantAdmits := 1
+			if variant == "extraction" {
+				wantAdmits = 0
+			}
+			if counted.reads != 0 || counted.admits != wantAdmits {
+				t.Fatalf("%s body reads = %d, admissions = %d; want 0 reads and %d admissions", variant, counted.reads, counted.admits, wantAdmits)
 			}
 		})
 	}

@@ -30,6 +30,9 @@ func (source *liveExecutionSource) List(_ context.Context, side domain.LiveSourc
 func (*liveExecutionSource) Read(context.Context, domain.LiveSourceSide, SafeRelativePath) (LiveSourceFile, error) {
 	return LiveSourceFile{}, errors.New("unexpected file read")
 }
+func (*liveExecutionSource) AdmitPath(context.Context, domain.LiveSourceSide, SafeRelativePath) error {
+	return errors.New("unexpected path admission")
+}
 func (*liveExecutionSource) Close() error { return nil }
 
 type liveExecutionHome struct {

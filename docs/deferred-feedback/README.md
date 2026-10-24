@@ -89,23 +89,42 @@ work.
   (`internal/entrypoint/mcp`) and `TestMCPInspectFallbackSuppressesPagedRequests`
   (`internal/composition`). No deferred work remains.
 
-- `DF-011` Live source defensive tests: direct cases remain useful for non-
-  branch HEAD, unsafe per-worktree config, post-open root/admission changes
-  and replacement during a read. Descriptor checks and canonical-file guards
-  already reject unsafe state; no accepted wrong bytes were demonstrated. Re-
-  entry: before changing the owning reader or admission guard, add
-  deterministic rejection cases; any production synchronization seam needs
-  its own bounded scope. Cover an ignore-matched symlink present before non-
-  Git admission and a synchronized successful read round before racing Close.
-  Empty non-Git workspace classification is already directly tested. Re-
-  entry also covers a truly empty HEAD and an end-to-end whole-tree no-change
+- `DF-011` Live source defensive tests: TASK-056 delivered the pre-change
+  rejection controls before separating path admission from body reads:
+  unresolvable non-branch HEAD spellings with resolvable detached and
+  tag-backed positive controls (`TestIntegrationLiveSourceNonBranchHead`;
+  the locality attester covers its own spellings in
+  `locality_darwin_test.go`), an unborn HEAD selector, an ignore-matched
+  symlink present before non-Git admission, and a synchronized successful
+  read round before Close (`TestIntegrationLiveSourceConcurrentReadsAndClose`
+  also pins `AdmitPath` against racing and synchronized Close). Unsafe
+  per-worktree config stays directly covered by
+  `TestIntegrationLiveSourceExecutionRejectsUnsafeGitConfig/worktree-config`,
+  and post-open root and config replacement for `Read` by
+  `TestIntegrationLiveSourceRejectsRootAndConfigReplacement`, and post-open
+  root replacement for `AdmitPath` by the root-swap case in
+  `TestIntegrationLiveSourceAdmitPathObservesCurrentPath`. The end-to-end
+  stage-transition no-change row keeps its read-count assertions plus
+  target-based qualification expectations pinning zero provider calls and
+  the published result (`internal/app/reviewrun`). Supporting predicate and
+  held-descriptor tests distinguish unlink/rename replacement from in-place
+  modification against the held descriptor and cover both the five-field
+  stability predicate and the two-field namespace predicate.
+  `TestIntegrationLiveSourceAdmitPathParity` and
+  `TestIntegrationLiveSourceAdmitPathObservesCurrentPath` pin the body-free
+  admission outcomes, including the decided mislabeled-raster divergence.
+  Standing re-entry rule: before changing the owning reader or admission
+  guard, add deterministic rejection cases; any production synchronization
+  seam needs its own bounded scope. Open items without such a seam:
+  mid-read replacement inside `Read`, whose guards TASK-056 left unchanged;
+  the intra-call device/inode mismatch branch of `AdmitPath`'s reopen check;
+  and `AdmitPath`'s final `revalidate`, which covers intra-call drift of the
+  root identity, namespace or Git binding. Also open: an empty-tree HEAD
+  commit (head-scope no-change) and an end-to-end whole-tree no-change
   fixture that asserts zero provider calls and the resulting publication.
-  For descriptor-read changes, distinguish path unlink/rename or namespace
-  replacement after open from in-place content modification, and assert the
-  returned body or typed rejection against the held descriptor. Before
-  changing Git inventory filtering, cover object paths whose spelling differs
-  only by case from built-in protected names on the supported case-insensitive
-  filesystem.
+  Before changing Git inventory filtering, cover object paths whose spelling
+  differs only by case from built-in protected names on the supported
+  case-insensitive filesystem.
 
 - `DF-012` MCP startup configuration: production composition supplies all
   tool fields and startup rejects incomplete configuration. Re-entry: before
