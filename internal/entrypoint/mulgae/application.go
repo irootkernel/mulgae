@@ -22,10 +22,10 @@ import (
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	apppublication "github.com/irootkernel/mulgae/internal/app/publication"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
-	"github.com/irootkernel/mulgae/internal/app/recovery"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/app/runstatus"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -55,24 +55,7 @@ type PublicationQueryService interface {
 // FinalArtifactURI and the independent outcome axes are present only after a P2
 // committed read. HasAxes makes the three axes an all-or-none projection.
 // RoleReportURIs are present only after independently verified P2 support checks.
-type RunStatusView struct {
-	FailedRunRecovery    recovery.Status
-	SessionID            string
-	RunID                string
-	RunState             domain.RunState
-	HasRunState          bool
-	PublicationState     domain.PublicationStatus
-	RecoveryAction       domain.RecoveryAction
-	FinalArtifactURI     string
-	HasFinalArtifact     bool
-	ContentVerdict       domain.ContentVerdict
-	CoverageStatus       domain.CoverageStatus
-	CIDecision           domain.CIDecision
-	HasAxes              bool
-	RoleReportURIs       []RoleReportURI
-	DiagnosticSummary    ports.RuntimeDiagnosticSummary
-	HasDiagnosticSummary bool
-}
+type RunStatusView = runstatus.PublicationStatus
 
 // PublicationReportService is the command-facing projection of the G006 report
 // renderer. SourceIDs bind a persisted report to its committed inputs.
@@ -208,10 +191,7 @@ type ReviewRunServicePreparer interface {
 }
 
 // RoleReportURI is one project-relative role-report projection.
-type RoleReportURI struct {
-	Role string
-	URI  string
-}
+type RoleReportURI = runstatus.RoleReportURI
 
 // ReviewRunResult is the immutable terminal P2 projection returned by ReviewRunService.
 type ReviewRunResult struct {
@@ -390,109 +370,48 @@ func (service policyReviewRunService) StartReviewRun(
 	request ReviewRequest,
 	root ports.AnchoredRoot,
 ) (ReviewRunResult, error) {
-	request, err := ResolveReviewPolicyRequest(request, service.enabled, service.artistInputs, service.hasArtistInputs)
+	admitted, err := reviewrun.ResolveRequest(request, service.enabled, service.artistInputs, service.hasArtistInputs)
 	if err != nil {
 		reason := "requested role is not enabled by production policy"
 		switch {
-		case errors.Is(err, errArtistInputsRequired):
+		case errors.Is(err, reviewrun.ErrArtistInputsRequired):
 			reason = "artist review inputs are required"
-		case errors.Is(err, errArtistRoleRequired):
+		case errors.Is(err, reviewrun.ErrArtistRoleRequired):
 			reason = "artist inputs require the artist role"
 		}
 		failure, _ := domain.NewFailure("review.policy", domain.FailureConfiguration, reason, err)
 		return ReviewRunResult{}, failure
 	}
-	return service.service.StartReviewRun(ctx, request, root)
-}
-
-var (
-	errRoleNotEnabled       = errors.New("requested role is not enabled by production policy")
-	errArtistInputsRequired = errors.New("artist review inputs are required")
-	errArtistRoleRequired   = errors.New("artist inputs require the artist role")
-)
-
-// ResolveReviewPolicyRequest is the shared normal-run and preflight authority
-// for enabled-role selection plus Config v1 artist defaults and request-scoped
-// overrides. The returned request is canonical and explicitly selected.
-func ResolveReviewPolicyRequest(request ReviewRequest, enabled map[domain.Role]bool, artistInputs ports.ArtistReviewInputs, hasArtistInputs bool) (ReviewRequest, error) {
-	if hasArtistInputs && !artistInputs.Valid() {
-		return ReviewRequest{}, errors.New("production artist defaults are invalid")
-	}
-	automaticRoles := !request.rolesExplicit || request.rolesDefaulted
-	selected := make(map[domain.Role]bool, len(request.roles))
-	if request.rolesExplicit {
-		for _, raw := range request.roles {
-			role := domain.Role(raw)
-			if !role.Valid() || !enabled[role] {
-				return ReviewRequest{}, errRoleNotEnabled
-			}
-			selected[role] = true
-		}
-	} else {
-		for _, role := range domain.FixedRoleOrder() {
-			if enabled[role] {
-				selected[role] = true
-			}
-		}
-	}
-	request.roles = request.roles[:0]
-	for _, role := range domain.FixedRoleOrder() {
-		if selected[role] {
-			request.roles = append(request.roles, string(role))
-		}
-	}
-	if selected[domain.RoleArtist] {
-		briefPath := ""
-		var designGlobs []string
-		if hasArtistInputs {
-			briefPath = artistInputs.BriefPath()
-			designGlobs = artistInputs.DesignSpecGlobs()
-		}
-		if request.hasArtistBrief {
-			briefPath = request.artistBriefPath
-		}
-		if len(request.artistDesignGlobs) != 0 {
-			designGlobs = cloneStrings(request.artistDesignGlobs)
-		}
-		resolved, err := ports.NewArtistReviewInputs(briefPath, designGlobs)
-		if err != nil {
-			return ReviewRequest{}, errors.Join(errArtistInputsRequired, err)
-		}
-		request.artistBriefPath, request.hasArtistBrief = resolved.BriefPath(), true
-		request.artistDesignGlobs = resolved.DesignSpecGlobs()
-		request.artistAutomatic = automaticRoles
-	} else if request.hasArtistBrief || len(request.artistDesignGlobs) != 0 {
-		return ReviewRequest{}, errArtistRoleRequired
-	}
-	request.rolesDefaulted = automaticRoles
-	request.rolesExplicit = true
-	return request, nil
+	return service.service.StartReviewRun(ctx, admitted.Request(), root)
 }
 
 func validReviewRunRequest(request ReviewRequest) bool {
-	switch request.target.kind {
+	switch request.Target().Kind() {
 	case "workspace", "stage", "head", "commit", "diff":
 	default:
 		return false
 	}
-	value := request.target.value
-	if request.target.kind == "workspace" || request.target.kind == "stage" || request.target.kind == "head" {
-		if value != "" && value != request.target.kind {
+	value := request.Target().Value()
+	if request.Target().Kind() == "workspace" || request.Target().Kind() == "stage" || request.Target().Kind() == "head" {
+		if value != "" && value != request.Target().Kind() {
 			return false
 		}
 		value = ""
 	}
-	if _, err := ports.NewLiveSourceSelector(domain.LiveSourceScope(request.target.kind), value); err != nil {
+	if _, err := ports.NewLiveSourceSelector(domain.LiveSourceScope(request.Target().Kind()), value); err != nil {
 		return false
 	}
-	if request.hasObjective && !validObjective(request.objective) || len(request.roles) == 0 {
+	roles, globs := request.Roles(), request.ArtistDesignSpecs()
+	objective, hasObjective := request.Objective()
+	if hasObjective && !validObjective(objective) || len(roles) == 0 {
 		return false
 	}
-	if request.hasArtistBrief != (request.artistBriefPath != "") || request.hasArtistBrief && !validRelativePath(request.artistBriefPath) {
+	brief, hasBrief := request.ArtistBrief()
+	if hasBrief != (brief != "") || hasBrief && !validRelativePath(brief) {
 		return false
 	}
-	seenArtistGlobs := make(map[string]struct{}, len(request.artistDesignGlobs))
-	for _, pattern := range request.artistDesignGlobs {
+	seenArtistGlobs := make(map[string]struct{}, len(globs))
+	for _, pattern := range globs {
 		if !validArtistGlob(pattern) {
 			return false
 		}
@@ -501,19 +420,19 @@ func validReviewRunRequest(request ReviewRequest) bool {
 		}
 		seenArtistGlobs[pattern] = struct{}{}
 	}
-	if len(request.artistDesignGlobs) > 16 {
+	if len(globs) > 16 {
 		return false
 	}
-	if (request.hasArtistBrief || len(request.artistDesignGlobs) != 0) && !containsString(request.roles, "artist") {
+	if (hasBrief || len(globs) != 0) && !containsString(roles, "artist") {
 		return false
 	}
-	for _, role := range request.roles {
+	for _, role := range roles {
 		if !validRole(role) {
 			return false
 		}
 	}
-	if request.hasSessionID {
-		if _, err := domain.ParseSessionID(request.sessionID); err != nil {
+	if session, present := request.SessionID(); present {
+		if _, err := domain.ParseSessionID(session); err != nil {
 			return false
 		}
 	}
@@ -1719,63 +1638,8 @@ func qualificationFailureRetryable(class domain.FailureClass) bool {
 }
 
 func reducedFailureClass(err error, fallback domain.FailureClass) domain.FailureClass {
-	classes := make([]domain.FailureClass, 0, 3)
-	var visit func(error, bool)
-	visit = func(current error, suppressRawFallback bool) {
-		if current == nil {
-			return
-		}
-		if typed, ok := current.(*domain.Failure); ok && typed != nil && typed.Class().Valid() {
-			classes = append(classes, typed.Class())
-			visit(typed.Unwrap(), true)
-			return
-		}
-		switch unwrapped := current.(type) {
-		case interface{ Unwrap() []error }:
-			nested := unwrapped.Unwrap()
-			if len(nested) == 0 {
-				if !suppressRawFallback {
-					classes = append(classes, fallback)
-				}
-				return
-			}
-			for _, child := range nested {
-				// Every errors.Join child is an independent observation, even
-				// when the join is the cause of a typed wrapper.
-				visit(child, false)
-			}
-		case interface{ Unwrap() error }:
-			nested := unwrapped.Unwrap()
-			if nested == nil {
-				if !suppressRawFallback {
-					classes = append(classes, fallback)
-				}
-				return
-			}
-			visit(nested, suppressRawFallback)
-		default:
-			if errors.Is(current, context.Canceled) || errors.Is(current, context.DeadlineExceeded) {
-				classes = append(classes, domain.FailureCancelled)
-				return
-			}
-			if !suppressRawFallback {
-				classes = append(classes, fallback)
-			}
-		}
-	}
-	visit(err, false)
-	if len(classes) == 0 {
-		classes = append(classes, fallback)
-	}
-	selected := domain.FailureInternal
-	selectedRank := -1
-	for _, class := range classes {
-		if rank := app.FailurePrecedence(class); rank > selectedRank {
-			selected = class
-			selectedRank = rank
-		}
-	}
-	return selected
+	selected, _ := app.SelectFailure(err, app.FailureCLIRawFallback, fallback)
+	return selected.Class
 }
 
 func requestedExit(class domain.FailureClass) app.ExitCode {

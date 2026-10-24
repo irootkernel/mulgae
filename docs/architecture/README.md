@@ -75,7 +75,9 @@ their separate implementations and acceptance rules.
 | `internal/composition` | Executable bootstrap, build identity, and production graph |
 | `internal/entrypoint/mulgae` | CLI grammar, dispatch, output, selector resolution |
 | `internal/entrypoint/mcp` | Attached stdio MCP grammar, protocol admission, and tool projection |
-| `internal/app/reviewrun` | Live source admission, planning, qualification, prompts, orchestration |
+| `internal/app/runstatus` | Publication-first status acquisition, missing-only fallback, session-bound diagnostic merging |
+| `internal/app` | Shared operational error-tree selection and canonical precedence |
+| `internal/app/reviewrun` | Typed review requests, role/artist selection, live source admission, planning, qualification, prompts, orchestration |
 | `internal/app/review` | Assignments, coordination, aggregation, results |
 | `internal/app/validation` | Wire parsing, trusted-field injection, checks, repair |
 | `internal/app/recovery` | Historical failed-run support validation and inspection |
@@ -112,6 +114,72 @@ order intersected with the providers it configured. Nothing resolves a
 configured value from embedded bytes, and the policy in `.mulgae/config.yaml`
 is never re-derived after init. Machine paths are independently admitted from
 the untracked `.mulgae/local.yaml` authority.
+
+## Review request ownership
+
+`internal/app/reviewrun.Request` owns the immutable review fields consumed by
+normal execution and preflight. Transports construct it from typed selectors,
+session IDs and project bindings through `NewRequest`; the constructor copies
+role and artist input slices and allocates no run or provider resources.
+`ResolveRequest` returns an `AdmittedRequest` after selecting enabled project
+roles and resolving artist defaults and request overrides. It retains whether
+the caller selected roles explicitly, including automatic artist intent after
+repeated resolution. This selection grants no source or execution authority.
+
+CLI parsing retains its flag grammar, validation order, 12000-byte objective
+bound and request JSON projection. Its `ReviewRequest` is an alias of the
+application value; the temporary syntax draft exists only while parsing flags.
+MCP validates its public JSON grammar and 4096-byte objective bound, then maps
+fields directly through `mcpentry.NewReviewRequest`. Composition passes that
+request to the existing execution or preflight bridge without constructing argv
+or parsing a CLI invocation.
+
+MCP preserves empty objective and empty role-list normalization, canonical role
+ordering, and rejection of control characters and objectives beginning with
+`--`. Public guard validation still precedes backend mapping; mapping checks
+identity, objective syntax, roles and binding in their existing order. Direct
+backend callers retain the former mapping's 12000-byte objective guard and CSV
+role normalization; the public tool handler remains bounded at 4096 bytes.
+Transport envelopes, startup-lease revalidation and deferred preparation stay
+with their existing owners. Source admission, provider construction and
+publication still require the later live execution checks.
+
+## Run status and failure selection
+
+`internal/app/runstatus` owns publication-first acquisition through a two-method
+publication query and the bounded diagnostic query port. It checks the resolved
+artifact root and run identity, falls back only for a complete missing-only
+cause tree, and merges diagnostic summaries through the resolved session/run
+lookup for noncommitted publication status. Committed status never consults
+diagnostics. Its result distinguishes publication, diagnostic-only and
+unavailable status, retaining the original error and acquisition phase for the
+transport's existing failure projection. `RunStatusView` at the CLI boundary is
+an alias of the application-owned safe publication view.
+
+A missing-only tree may contain ordinary or typed single-error wrappers,
+single-child joins and joins made entirely of missing causes. An independent
+artifact, security, internal, raw or cancellation sibling prevents fallback or
+missing-diagnostic suppression. CLI status and MCP get_run use this same policy.
+MCP's receipt-bound inspect path also uses the shared predicate while retaining
+its own coherent-read and binding revalidation sequence.
+
+CLI and MCP keep their envelopes, messages, permitted exits, retryability and
+field-presence rules. CLI diagnostic-only status accepts pending and running
+states as well as terminal failure states. MCP admits only completed failed or
+cancelled diagnostic-only records and exposes no publication authority for
+them. The CLI omits session identity from ordinary publication status; MCP
+retains session identity and its nullable status fields. MCP also preserves a
+sole diagnostic cancellation without adding an artifact wrapper.
+
+`internal/app.SelectFailure` owns depth-first error-tree class selection, with
+parents before causes and joined children in their original order. Equal ranks
+retain the first observed cause. CLI mode applies the caller's fallback to raw
+observations, suppressing it under typed single-cause wrappers but restarting
+it for each independent joined child. MCP mode ignores raw leaves. Both modes
+recognize cancellation/deadline leaves and preserve original cause identity.
+The canonical ranks remain in `FailurePrecedence`; transport-specific guard,
+read/source, preparation, publication and invocation lifecycle recognition and
+public error rendering remain with their existing owners.
 
 ## Review flow
 

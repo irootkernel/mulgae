@@ -142,10 +142,12 @@ work.
   and `AdmitPath`'s final `revalidate`, which covers intra-call drift of the
   root identity, namespace or Git binding.
 
-- `DF-012` MCP startup configuration: production composition supplies all
-  tool fields and startup rejects incomplete configuration. Re-entry: before
-  adding another composition caller, cover each partial configuration and
-  prove no service starts.
+- `DF-012` MCP startup configuration: TASK-062 added
+  `TestServePartialToolConfiguration` in
+  `internal/entrypoint/mcp/review_request_characterization_test.go`. It covers
+  all six nonempty incomplete combinations of Backend, NewRequestID and
+  ToolResultSchema, asserting the exact rejection and zero stream/backend
+  activity before server startup. No deferred work remains.
 
 - `DF-013` Provider JSON surrogate tests: TASK-061 added
   `TestProviderJSONSurrogateCompatibility` in
@@ -154,11 +156,14 @@ work.
   valid pair as the exact Unicode scalar, preserving validation and repair
   outcomes without accepting replacement bytes. No deferred work remains.
 
-- `DF-014` Rejected init result tests: unchanged CLI routing and renderer
-  preserve the compatible JSON envelope, but direct rejected-init flag
-  combinations remain useful. Re-entry: before changing init grammar or
-  result projection, assert invalid flags, duplicate JSON flags, mixed and
-  human output modes produce their documented envelope and exit code.
+- `DF-014` Rejected init result tests: TASK-062 added
+  `TestRejectedInitOutputModes` in
+  `internal/entrypoint/mulgae/review_request_characterization_test.go`. Invalid
+  init flags cover JSON, duplicate JSON, mixed output in both orders, human,
+  dangling and omitted output modes. The controls assert exit 2, exact human
+  stdout/stderr, or the schema-valid rejected-init envelope with invalid
+  request state, no attempted write and `init_selection_invalid`.
+  No deferred work remains.
 
 - `DF-015` Source-read allocation: live file reads can retain large source
   bodies without a product byte ceiling. No out-of-memory failure was
@@ -238,14 +243,16 @@ work.
   qualification or publication, and PNG, JPEG and WebP brief bodies fail as
   non-text while ordinary text briefs retain their current behavior.
 
-- `DF-024` MCP defensive tests: request-ID allocation failure, malformed
-  invocation IDs and oversized tool results already fail before the affected
-  backend or transport operation. Direct negative assertions remain useful.
-  Re-entry: before changing identity allocation, lifecycle admission or result
-  rendering, cover failed and malformed request IDs with zero backend calls,
-  malformed await/cancel IDs with no execution or cancellation, and both tool
-  output limits with under/over-boundary controls. Assert the SDK and public
-  error contracts actually reached by each case.
+- `DF-024` MCP defensive tests: TASK-062 added
+  `TestMCPRequestIdentityAdmission` and `TestMCPLifecycleAndResultBounds` in
+  `internal/entrypoint/mcp/review_request_characterization_test.go`. Failed
+  and malformed generated request IDs assert the exact SDK JSON-RPC error and
+  zero backend calls. Malformed await/cancel IDs reject without new execution
+  or cancellation of an active review, followed by a valid cancellation
+  control. Encoded results at limit-1, limit and limit+1 exercise the renderer
+  and SDK at 1 MiB and both 32 MiB tool routes. SDK cases retain one backend
+  production call, including oversized results, and assert the reached public
+  success or JSON-RPC error contract. No deferred work remains.
 
 - `DF-025` Historical capture facade: `internal/app/reviewrun/capture_identity.go`
   has no production callers; its manifest wrappers are used only by their own

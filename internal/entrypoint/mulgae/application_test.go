@@ -2351,9 +2351,9 @@ func TestPolicyReviewRunServiceUsesProjectDefaultOrExactExplicitSubset(t *testin
 		want     []string
 		wantCall bool
 	}{
-		{name: "project default", request: ReviewRequest{roles: []string{"logic", "security", "maintainability", "product", "documentation", "testing"}}, want: []string{"logic", "security", "documentation"}, wantCall: true},
-		{name: "explicit optional only", request: ReviewRequest{roles: []string{"documentation"}, rolesExplicit: true}, want: []string{"documentation"}, wantCall: true},
-		{name: "disabled explicit role", request: ReviewRequest{roles: []string{"testing"}, rolesExplicit: true}},
+		{name: "project default", request: reviewRequestSyntax{roles: []string{"logic", "security", "maintainability", "product", "documentation", "testing"}}.freeze(), want: []string{"logic", "security", "documentation"}, wantCall: true},
+		{name: "explicit optional only", request: reviewRequestSyntax{roles: []string{"documentation"}, rolesExplicit: true}.freeze(), want: []string{"documentation"}, wantCall: true},
+		{name: "disabled explicit role", request: reviewRequestSyntax{roles: []string{"testing"}, rolesExplicit: true}.freeze()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fake := &reviewRunFake{}
@@ -2378,10 +2378,10 @@ func TestPolicyReviewRunServiceResolvesArtistOverridesAgainstConfigV1Defaults(t 
 	enabled := map[domain.Role]bool{domain.RoleLogic: true, domain.RoleArtist: true}
 	fake := &reviewRunFake{}
 	service := NewPolicyReviewRunServiceWithArtistInputs(fake, nil, enabled, defaults)
-	request := ReviewRequest{
+	request := reviewRequestSyntax{
 		roles: []string{"artist"}, rolesExplicit: true,
 		artistBriefPath: "docs/roadmap.md", hasArtistBrief: true,
-	}
+	}.freeze()
 	if _, err := service.StartReviewRun(context.Background(), request, testReviewRunAnchoredRoot(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -2395,7 +2395,7 @@ func TestPolicyReviewRunServiceResolvesArtistOverridesAgainstConfigV1Defaults(t 
 
 	automaticFake := &reviewRunFake{}
 	automaticService := NewPolicyReviewRunServiceWithArtistInputs(automaticFake, nil, enabled, defaults)
-	if _, err := automaticService.StartReviewRun(context.Background(), ReviewRequest{roles: coreRoleNames()}, testReviewRunAnchoredRoot(t)); err != nil {
+	if _, err := automaticService.StartReviewRun(context.Background(), reviewRequestSyntax{roles: coreRoleNames()}.freeze(), testReviewRunAnchoredRoot(t)); err != nil {
 		t.Fatal(err)
 	}
 	if !automaticFake.request.ArtistAutomatic() || !containsString(automaticFake.request.Roles(), "artist") {
@@ -2403,7 +2403,7 @@ func TestPolicyReviewRunServiceResolvesArtistOverridesAgainstConfigV1Defaults(t 
 	}
 
 	missing := NewPolicyReviewRunService(&reviewRunFake{}, nil, enabled)
-	if _, err := missing.StartReviewRun(context.Background(), ReviewRequest{roles: []string{"artist"}, rolesExplicit: true}, testReviewRunAnchoredRoot(t)); err == nil {
+	if _, err := missing.StartReviewRun(context.Background(), reviewRequestSyntax{roles: []string{"artist"}, rolesExplicit: true}.freeze(), testReviewRunAnchoredRoot(t)); err == nil {
 		t.Fatal("artist selection without resolved inputs was accepted")
 	}
 }

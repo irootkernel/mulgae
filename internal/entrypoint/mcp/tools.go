@@ -534,41 +534,8 @@ func finalizePublicToolError(err error, tool string, failure ToolError) ToolErro
 }
 
 func reducedToolFailureClass(err error) (domain.FailureClass, bool) {
-	classes := make([]domain.FailureClass, 0, 3)
-	var visit func(error)
-	visit = func(current error) {
-		if current == nil {
-			return
-		}
-		if failure, ok := current.(*domain.Failure); ok && failure != nil && failure.Class().Valid() {
-			classes = append(classes, failure.Class())
-			visit(failure.Unwrap())
-			return
-		}
-		switch nested := current.(type) {
-		case interface{ Unwrap() []error }:
-			for _, child := range nested.Unwrap() {
-				visit(child)
-			}
-		case interface{ Unwrap() error }:
-			visit(nested.Unwrap())
-		default:
-			if errors.Is(current, context.Canceled) || errors.Is(current, context.DeadlineExceeded) {
-				classes = append(classes, domain.FailureCancelled)
-			}
-		}
-	}
-	visit(err)
-	if len(classes) == 0 {
-		return "", false
-	}
-	selected := classes[0]
-	for _, class := range classes[1:] {
-		if app.FailurePrecedence(class) > app.FailurePrecedence(selected) {
-			selected = class
-		}
-	}
-	return selected, true
+	selected, present := app.SelectFailure(err, app.FailureTypedOnly, "")
+	return selected.Class, present
 }
 
 const (

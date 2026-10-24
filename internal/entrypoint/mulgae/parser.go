@@ -733,7 +733,7 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	if err != nil {
 		return Invocation{}, err
 	}
-	request := ReviewRequest{target: target}
+	request := reviewRequestSyntax{target: target}
 	if objective, present := options["--objective"]; present {
 		if !validObjective(objective) {
 			return Invocation{}, usageError("review objective is malformed")
@@ -835,9 +835,10 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	if err != nil {
 		return Invocation{}, err
 	}
+	typedRequest := request.freeze()
 	return Invocation{
 		command: app.CommandReview, availability: AvailabilityFoundation, requestID: requestID,
-		outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, review: &request,
+		outputFormat: outputFormat, requestJSON: requestJSON, hasRequestJSON: true, review: &typedRequest,
 	}, nil
 }
 

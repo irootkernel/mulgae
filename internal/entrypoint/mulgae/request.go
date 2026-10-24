@@ -5,7 +5,9 @@ import (
 	"context"
 
 	"github.com/irootkernel/mulgae/internal/app"
+	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 // OutputFormat controls the CLI rendering selected by an invocation.
@@ -208,7 +210,7 @@ func (invocation Invocation) Review() (ReviewRequest, bool) {
 	if invocation.review == nil {
 		return ReviewRequest{}, false
 	}
-	return cloneReviewRequest(*invocation.review), true
+	return *invocation.review, true
 }
 
 // Clean returns the parsed clean fields when this is a clean invocation.
@@ -454,28 +456,17 @@ func (request SchemaRequest) ExportPath() (string, bool) {
 	return request.exportPath, request.hasExportPath
 }
 
-// TargetRequest contains one literal command-request target.
-type TargetRequest struct {
-	kind  string
-	value string
-}
+// ReviewRequest is the application-owned request projected by the CLI.
+type ReviewRequest = reviewrun.Request
 
-// Kind returns the selected live source scope: workspace, stage, head, commit, or diff.
-func (request TargetRequest) Kind() string { return request.kind }
-
-// Value returns the target value.
-func (request TargetRequest) Value() string { return request.value }
-
-// ReviewRequest contains the immutable independent-review fields.
-type ReviewRequest struct {
+// reviewRequestSyntax retains only CLI parsing state until request construction.
+type reviewRequestSyntax struct {
 	expectedProjectBinding string
 	target                 TargetRequest
 	objective              string
 	hasObjective           bool
 	roles                  []string
 	rolesExplicit          bool
-	rolesDefaulted         bool
-	artistAutomatic        bool
 	artistBriefPath        string
 	hasArtistBrief         bool
 	artistDesignGlobs      []string
@@ -484,47 +475,24 @@ type ReviewRequest struct {
 	preflight              bool
 }
 
-// Target returns the literal target request.
-func (request ReviewRequest) Target() TargetRequest { return request.target }
+type TargetRequest struct{ kind, value string }
 
-// Objective returns the optional review objective.
-func (request ReviewRequest) Objective() (string, bool) {
-	return request.objective, request.hasObjective
+func (request reviewRequestSyntax) freeze() ReviewRequest {
+	target, _ := ports.NewLiveSourceSelector(domain.LiveSourceScope(request.target.kind), request.target.value)
+	var session *domain.SessionID
+	if request.hasSessionID {
+		value, _ := domain.ParseSessionID(request.sessionID)
+		session = &value
+	}
+	binding, _ := domain.ParseProjectBinding(request.expectedProjectBinding)
+	return reviewrun.NewRequest(reviewrun.RequestInput{
+		Target: target, Objective: request.objective, HasObjective: request.hasObjective,
+		Roles: request.roles, RolesExplicit: request.rolesExplicit,
+		ArtistBriefPath: request.artistBriefPath, HasArtistBrief: request.hasArtistBrief,
+		ArtistDesignGlobs: request.artistDesignGlobs, SessionID: session,
+		Preflight: request.preflight, ExpectedProjectBinding: binding,
+	})
 }
-
-// Roles returns a caller-owned copy of the requested roles.
-func (request ReviewRequest) Roles() []string { return cloneStrings(request.roles) }
-
-// RolesExplicit reports whether --roles was supplied by the caller.
-func (request ReviewRequest) RolesExplicit() bool { return request.rolesExplicit }
-
-// RequestedRolesExplicit preserves caller intent after policy selection.
-func (request ReviewRequest) RequestedRolesExplicit() bool {
-	return request.rolesExplicit && !request.rolesDefaulted
-}
-
-// ArtistBrief returns the optional review-scoped artist brief path.
-func (request ReviewRequest) ArtistBrief() (string, bool) {
-	return request.artistBriefPath, request.hasArtistBrief
-}
-
-// ArtistDesignSpecs returns a caller-owned copy of the optional review-scoped
-// visual asset globs.
-func (request ReviewRequest) ArtistDesignSpecs() []string {
-	return cloneStrings(request.artistDesignGlobs)
-}
-func (request ReviewRequest) ArtistAutomatic() bool { return request.artistAutomatic }
-
-// SessionID returns the optional imported workflow session ID.
-func (request ReviewRequest) SessionID() (string, bool) {
-	return request.sessionID, request.hasSessionID
-}
-
-// Preflight reports whether the review is an provider-free live source, routing,
-// and budget projection.
-func (request ReviewRequest) Preflight() bool { return request.preflight }
-
-func (request ReviewRequest) ExpectedProjectBinding() string { return request.expectedProjectBinding }
 
 // CleanRequest contains one immutable cleanup selection.
 type CleanRequest struct {
@@ -561,11 +529,6 @@ func (request ExportRequest) Redacted() bool { return request.redacted }
 func cloneInitRequest(request InitRequest) InitRequest {
 	request.providerIDs = cloneStrings(request.providerIDs)
 	request.roleIDs = cloneStrings(request.roleIDs)
-	return request
-}
-
-func cloneReviewRequest(request ReviewRequest) ReviewRequest {
-	request.roles = cloneStrings(request.roles)
 	return request
 }
 

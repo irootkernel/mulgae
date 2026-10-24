@@ -31,6 +31,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	approles "github.com/irootkernel/mulgae/internal/app/roles"
+	"github.com/irootkernel/mulgae/internal/app/runstatus"
 	appschema "github.com/irootkernel/mulgae/internal/app/schema"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -1649,51 +1650,59 @@ func (application *Application) handleStatus(ctx context.Context, invocation Inv
 	if !available {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
 	}
-	_, run, err := application.resolvePublicationRun(ctx, canonicalProjectRoot, request.RunID())
+
+	_, artifactRoot, err := publicationRoots(canonicalProjectRoot)
 	if err != nil {
-		if errors.Is(err, ports.ErrPublicationRunNotFound) && !nilApplicationDependency(application.diagnosticQueries) {
-			_, artifactRoot, rootErr := publicationRoots(canonicalProjectRoot)
-			runID, idErr := domain.ParseRunID(request.RunID())
-			if rootErr == nil && idErr == nil {
-				diagnosticStatus, diagnosticErr := application.diagnosticQueries.ReadRunStatus(ctx, artifactRoot, runID)
-				if diagnosticErr == nil {
-					data, projectionErr := diagnosticStatusResultData(request, diagnosticStatus)
-					if projectionErr != nil {
-						return execution{failure: executionFailureFor(invocation.Command(), projectionErr, domain.FailureArtifact)}
-					}
-					return execution{human: diagnosticStatusHumanOutput(diagnosticStatus), data: data}
-				}
-				if !errors.Is(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound) {
-					return execution{failure: executionFailureFor(invocation.Command(), diagnosticErr, domain.FailureArtifact)}
-				}
-			}
-		}
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
-	status, err := application.publicationQueries.ReadRunStatus(ctx, run)
+	if nilApplicationDependency(application.publicationQueries) {
+		err := typedHandlerFailure("cli.query", domain.FailureArtifact, "G006 query service is unavailable", nil)
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
+	}
+	runID, err := domain.ParseRunID(request.RunID())
 	if err != nil {
-		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureConfiguration)}
 	}
-	if status.PublicationState != domain.PublicationCommitted && !nilApplicationDependency(application.diagnosticQueries) {
-		_, artifactRoot, rootErr := publicationRoots(canonicalProjectRoot)
-		if rootErr != nil {
-			return execution{failure: executionFailureFor(invocation.Command(), rootErr, domain.FailureArtifact)}
-		}
-		diagnosticStatus, diagnosticErr := application.diagnosticQueries.ReadSessionRunStatus(ctx, artifactRoot, run.SessionID(), run.RunID())
-		switch {
-		case diagnosticErr == nil:
-			if summary, ok := diagnosticStatus.DiagnosticSummary(); ok {
-				status.DiagnosticSummary, status.HasDiagnosticSummary = summary, true
-			}
-		case !errors.Is(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound):
-			return execution{failure: executionFailureFor(invocation.Command(), diagnosticErr, domain.FailureArtifact)}
-		}
+	var diagnostics ports.RuntimeDiagnosticQuery
+	if !nilApplicationDependency(application.diagnosticQueries) {
+		diagnostics = application.diagnosticQueries
 	}
+	acquired, err := runstatus.New(cliStatusPublicationQuery{application.publicationQueries}, diagnostics).Read(ctx, artifactRoot, runID)
+	if err != nil {
+		fallback := domain.FailureArtifact
+		if acquired.Phase == runstatus.Resolve {
+			fallback = domain.FailureConfiguration
+		}
+		if acquired.Phase == runstatus.ResolveScope {
+			err = typedHandlerFailure("cli.query", domain.FailureArtifact, "publication run resolution returned an invalid scope", nil)
+		}
+		return execution{failure: executionFailureFor(invocation.Command(), err, fallback)}
+	}
+	if acquired.Kind == runstatus.Diagnostic {
+		data, err := diagnosticStatusResultData(request, acquired.Diagnostic)
+		if err != nil {
+			return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
+		}
+		return execution{human: diagnosticStatusHumanOutput(acquired.Diagnostic), data: data}
+	}
+	status := acquired.Status
 	data, err := statusResultData(request, status)
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureArtifact)}
 	}
 	return execution{human: statusHumanOutput(status), data: data}
+}
+
+// CLI failure wrapping stays at the transport boundary; acquisition receives the
+// same original classified error tree that status used before extraction.
+type cliStatusPublicationQuery struct{ PublicationQueryService }
+
+func (query cliStatusPublicationQuery) ResolveRun(ctx context.Context, root ports.AnchoredRoot, runID domain.RunID) (ports.PublicationRun, error) {
+	run, err := query.PublicationQueryService.ResolveRun(ctx, root, runID)
+	if err != nil {
+		return ports.PublicationRun{}, classifyHandlerFailure("cli.query", domain.FailureArtifact, "publication run resolution failed", err)
+	}
+	return run, nil
 }
 
 func (application *Application) handleReport(ctx context.Context, invocation Invocation, canonicalProjectRoot string) execution {

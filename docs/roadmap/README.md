@@ -810,7 +810,7 @@ Goal: Consolidate application and wire-contract ownership, then remove proven re
 |---|---|---|---|
 | TASK-060 | Completed | Freeze the minimal synthetic historical compatibility corpus before writer removal. | Exact retained bytes and expected read/report/export/recovery/cleanup outcomes, including integrity negatives. |
 | TASK-061 | Completed | Share matching persisted wire shapes and strict-JSON mechanics under explicit owners. | Byte-exact corpus/schema controls, identical acceptance sets, Unicode and distinct digest-domain preservation. |
-| TASK-062 | Planned | Construct typed CLI/MCP review requests and centralize shared status/failure policy. | Existing 12000/4096 limits, binding/roles/no-change behavior, consumer envelopes and full error precedence. |
+| TASK-062 | Completed | Construct typed CLI/MCP review requests and centralize shared status/failure policy. | Existing 12000/4096 limits, binding/roles/no-change behavior, consumer envelopes and full error precedence. |
 | TASK-063 | Planned | Move doctor and common admission policy into application services with injected capabilities. | Doctor v7 states/reasons/exits, native-home/config drift, cancellation and prohibited-effect rejection. |
 | TASK-064 | Planned | Share identical provider correlation, diagnostic and read-plan mechanics. | Per-family wire/permission/cancel/EOF/exit behavior and deterministic tool diagnostic selection. |
 | TASK-065 | Planned | Remove proven retired execution/writer paths after their fixture and reader dependencies are replaced. | Caller/build-tag inventory, all retained compatibility checks, live P2 composite preservation and tagged compilation. |

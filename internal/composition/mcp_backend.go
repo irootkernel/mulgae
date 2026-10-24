@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
+	"github.com/irootkernel/mulgae/internal/app/runstatus"
 	"github.com/irootkernel/mulgae/internal/domain"
 	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
 	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
@@ -58,22 +58,13 @@ func (backend *mcpBackend) PreflightReview(
 	if err := backend.preflight(ctx); err != nil {
 		return mcpentry.BackendResult{}, err
 	}
-	arguments, err := mcpReviewArguments(input)
+	request, err := mcpentry.NewReviewRequest(input, backend.projectRoot.String(), requestID, true)
 	if err != nil {
-		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", domain.FailureConfiguration, "MCP preflight target is invalid", err)
-	}
-	arguments = append(arguments, "--preflight")
-	invocation, err := mulgaeentry.Parse(arguments, backend.projectRoot.String(), requestID)
-	if err != nil {
-		class := domain.FailureInternal
-		if errors.Is(err, mulgaeentry.ErrUsage) {
-			class = domain.FailureConfiguration
+		reason := "MCP preflight request is invalid"
+		if errors.Is(err, mcpentry.ErrReviewTargetInvalid) {
+			reason = "MCP preflight target is invalid"
 		}
-		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", class, "MCP preflight request is invalid", err)
-	}
-	request, available := invocation.Review()
-	if !available || !request.Preflight() {
-		return mcpentry.BackendResult{}, newMCPFailure("mcp.preflight", domain.FailureInternal, "MCP preflight request is unavailable", nil)
+		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", domain.FailureConfiguration, reason, err)
 	}
 	if err := backend.checkReviewProject(ctx, input.ExpectedProjectBinding); err != nil {
 		return mcpentry.BackendResult{}, err
@@ -107,21 +98,13 @@ func (backend *mcpBackend) RunReview(
 	if err := backend.preflight(ctx); err != nil {
 		return mcpentry.BackendResult{}, err
 	}
-	arguments, err := mcpReviewArguments(input)
+	request, err := mcpentry.NewReviewRequest(input, backend.projectRoot.String(), requestID, false)
 	if err != nil {
-		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", domain.FailureConfiguration, "MCP review target is invalid", err)
-	}
-	invocation, err := mulgaeentry.Parse(arguments, backend.projectRoot.String(), requestID)
-	if err != nil {
-		class := domain.FailureInternal
-		if errors.Is(err, mulgaeentry.ErrUsage) {
-			class = domain.FailureConfiguration
+		reason := "MCP review request is invalid"
+		if errors.Is(err, mcpentry.ErrReviewTargetInvalid) {
+			reason = "MCP review target is invalid"
 		}
-		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", class, "MCP review request is invalid", err)
-	}
-	request, available := invocation.Review()
-	if !available || request.Preflight() {
-		return mcpentry.BackendResult{}, fmt.Errorf("MCP review request is unavailable")
+		return mcpentry.BackendResult{}, newMCPFailure("mcp.admission", domain.FailureConfiguration, reason, err)
 	}
 	if err := backend.checkReviewProject(ctx, input.ExpectedProjectBinding); err != nil {
 		return mcpentry.BackendResult{}, err
@@ -156,31 +139,6 @@ func (backend *mcpBackend) RunReview(
 		"terminal_exit_code": int(decision.Code()), "reasons": reasons,
 		"guarded": result.Guarded(), "project_binding": result.ProjectBinding(), "source_identity_sha256": result.SourceIdentitySHA256(),
 	}}, nil
-}
-
-func mcpReviewArguments(input mcpentry.RunReviewInput) ([]string, error) {
-	if _, err := ports.NewLiveSourceSelector(domain.LiveSourceScope(input.Target.Kind), input.Target.Value); err != nil {
-		return nil, fmt.Errorf("MCP review target is invalid")
-	}
-	arguments := []string{"review"}
-	switch input.Target.Kind {
-	case "workspace", "stage", "head":
-		arguments = append(arguments, "--"+input.Target.Kind)
-	case "diff", "commit":
-		arguments = append(arguments, "--"+input.Target.Kind, input.Target.Value)
-	default:
-		return nil, fmt.Errorf("MCP review target is invalid")
-	}
-	if input.ExpectedProjectBinding != nil {
-		arguments = append(arguments, "--expected-project-binding", *input.ExpectedProjectBinding)
-	}
-	if input.Objective != "" {
-		arguments = append(arguments, "--objective", input.Objective)
-	}
-	if len(input.Roles) != 0 {
-		arguments = append(arguments, "--roles", strings.Join(input.Roles, ","))
-	}
-	return arguments, nil
 }
 
 func (backend *mcpBackend) ListRuns(ctx context.Context, input mcpentry.ListRunsInput) (map[string]any, error) {
@@ -251,81 +209,39 @@ func (backend *mcpBackend) GetRun(ctx context.Context, input mcpentry.GetRunInpu
 	if err := backend.preflight(ctx); err != nil {
 		return nil, err
 	}
-	run, err := backend.resolveRun(ctx, input.RunID)
-	if err != nil {
-		if !solelyWraps(err, ports.ErrPublicationRunNotFound) {
-			return nil, err
-		}
-		runID, parseErr := domain.ParseRunID(input.RunID)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		diagnosticStatus, diagnosticErr := backend.diagnostics.ReadRunStatus(ctx, backend.artifactRoot, runID)
-		if diagnosticErr != nil {
-			if solelyWraps(diagnosticErr, context.Canceled) || solelyWraps(diagnosticErr, context.DeadlineExceeded) {
-				return nil, diagnosticErr
-			}
-			if solelyWraps(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound) {
-				return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "run status is unavailable", mcpentry.ErrRunStatusUnavailable)
-			}
-			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is unavailable", diagnosticErr)
-		}
-		projected, projectionErr := mcpentry.ProjectDiagnosticRunStatus(diagnosticStatus, diagnosticStatus.SessionID(), runID)
-		if projectionErr != nil {
-			if errors.Is(projectionErr, mcpentry.ErrRunStatusUnavailable) {
-				return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "run status is unavailable", mcpentry.ErrRunStatusUnavailable)
-			}
-			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is invalid", projectionErr)
-		}
-		return projected, nil
-	}
-	status, err := backend.queries.ReadRunStatus(ctx, run)
+
+	runID, err := domain.ParseRunID(input.RunID)
 	if err != nil {
 		return nil, err
 	}
-	if status.PublicationState != domain.PublicationCommitted {
-		diagnosticStatus, diagnosticErr := backend.diagnostics.ReadSessionRunStatus(ctx, backend.artifactRoot, run.SessionID(), run.RunID())
-		switch {
-		case diagnosticErr == nil:
-			if summary, ok := diagnosticStatus.DiagnosticSummary(); ok {
-				status.DiagnosticSummary, status.HasDiagnosticSummary = summary, true
+	acquired, err := runstatus.New(backend.queries, backend.diagnostics).Read(ctx, backend.artifactRoot, runID)
+	if acquired.Kind == runstatus.Unavailable {
+		return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "run status is unavailable", mcpentry.ErrRunStatusUnavailable)
+	}
+	if err != nil {
+		switch acquired.Phase {
+		case runstatus.ResolveScope:
+			return nil, fmt.Errorf("MCP run scope is invalid")
+		case runstatus.DiagnosticRead, runstatus.SessionDiagnosticRead:
+			if runstatus.SolelyWraps(err, context.Canceled) || runstatus.SolelyWraps(err, context.DeadlineExceeded) {
+				return nil, err
 			}
-		case !solelyWraps(diagnosticErr, ports.ErrRuntimeDiagnosticRunNotFound):
-			if solelyWraps(diagnosticErr, context.Canceled) || solelyWraps(diagnosticErr, context.DeadlineExceeded) {
-				return nil, diagnosticErr
-			}
-			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is unavailable", diagnosticErr)
+			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is unavailable", err)
+		default:
+			return nil, err
 		}
 	}
-	return projectMCPRunStatus(status, run.SessionID(), run.RunID())
-}
-
-func solelyWraps(err, target error) bool {
-	for err != nil {
-		if err == target {
-			return true
-		}
-		if joined, ok := err.(interface{ Unwrap() []error }); ok {
-			children := joined.Unwrap()
-			matched := false
-			for _, child := range children {
-				if child == nil {
-					continue
-				}
-				if !solelyWraps(child, target) {
-					return false
-				}
-				matched = true
+	if acquired.Kind == runstatus.Diagnostic {
+		projected, err := mcpentry.ProjectDiagnosticRunStatus(acquired.Diagnostic, acquired.Diagnostic.SessionID(), runID)
+		if err != nil {
+			if errors.Is(err, mcpentry.ErrRunStatusUnavailable) {
+				return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "run status is unavailable", mcpentry.ErrRunStatusUnavailable)
 			}
-			return matched
+			return nil, newMCPFailure("mcp.get-run", domain.FailureArtifact, "diagnostic run status is invalid", err)
 		}
-		wrapped, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = wrapped.Unwrap()
+		return projected, nil
 	}
-	return false
+	return projectMCPRunStatus(acquired.Status, acquired.Run.SessionID(), acquired.Run.RunID())
 }
 
 func (backend *mcpBackend) InspectReview(ctx context.Context, input mcpentry.ListFindingsInput) (map[string]any, error) {
@@ -344,7 +260,7 @@ func (backend *mcpBackend) inspect(ctx context.Context, input mcpentry.ListFindi
 	}
 	run, err := backend.resolveRun(ctx, input.RunID)
 	if err != nil {
-		if kind == "inspect" && input.Cursor == "" && input.ExpectedPublicationReceipt == "" && solelyWraps(err, ports.ErrPublicationRunNotFound) {
+		if kind == "inspect" && input.Cursor == "" && input.ExpectedPublicationReceipt == "" && runstatus.SolelyWraps(err, ports.ErrPublicationRunNotFound) {
 			runID, _ := domain.ParseRunID(input.RunID)
 			status, e := backend.diagnostics.ReadRunStatus(ctx, backend.artifactRoot, runID)
 			if e != nil {
@@ -354,7 +270,7 @@ func (backend *mcpBackend) inspect(ctx context.Context, input mcpentry.ListFindi
 			if e != nil {
 				return nil, e
 			}
-			if _, e = backend.resolveRun(ctx, input.RunID); !solelyWraps(e, ports.ErrPublicationRunNotFound) {
+			if _, e = backend.resolveRun(ctx, input.RunID); !runstatus.SolelyWraps(e, ports.ErrPublicationRunNotFound) {
 				return nil, newMCPFailure("query.inspect", domain.FailureArtifact, "publication changed during diagnostic inspection", e)
 			}
 			if _, e = backend.readBinding(ctx, input.ExpectedProjectBinding); e != nil {

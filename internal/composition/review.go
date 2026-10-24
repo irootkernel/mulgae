@@ -273,10 +273,11 @@ func resolvePreflightSelection(request mulgae.ReviewRequest, policy productionRu
 		}
 		hasDefaults = true
 	}
-	resolved, err := mulgae.ResolveReviewPolicyRequest(request, policy.enabledRoles, defaults, hasDefaults)
+	admitted, err := reviewrun.ResolveRequest(request, policy.enabledRoles, defaults, hasDefaults)
 	if err != nil {
 		return nil, ports.ArtistReviewInputs{}, false, err
 	}
+	resolved := admitted.Request()
 	rawRoles := resolved.Roles()
 	roles := make([]domain.Role, len(rawRoles))
 	artist := false

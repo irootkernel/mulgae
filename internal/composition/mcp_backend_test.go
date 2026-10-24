@@ -29,20 +29,17 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestMCPReviewArgumentsReuseCanonicalCLIGrammar(t *testing.T) {
-	arguments, err := mcpReviewArguments(mcpentry.RunReviewInput{
-		Target:    mcpentry.ReviewTarget{Kind: "diff", Value: "origin/main...HEAD"},
-		Objective: "Review the boundary.", Roles: []string{"logic", "security"},
-	})
+func TestMCPReviewRequestUsesApplicationFields(t *testing.T) {
+	request, err := mcpentry.NewReviewRequest(mcpentry.RunReviewInput{Target: mcpentry.ReviewTarget{Kind: "diff", Value: "origin/main...HEAD"}, Objective: "Review the boundary.", Roles: []string{"logic", "security"}}, "/fixture", "i_019f596a-cf80-7c67-b265-f37053d51ccf", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"review", "--diff", "origin/main...HEAD", "--objective", "Review the boundary.", "--roles", "logic,security"}
-	if !reflect.DeepEqual(arguments, want) {
-		t.Fatalf("review arguments = %q, want %q", arguments, want)
+	objective, present := request.Objective()
+	if request.Target().Kind() != "diff" || request.Target().Value() != "origin/main...HEAD" || !present || objective != "Review the boundary." || !request.RequestedRolesExplicit() || !reflect.DeepEqual(request.Roles(), []string{"logic", "security"}) {
+		t.Fatalf("mapped request = %+v", request)
 	}
-	if _, err := mcpReviewArguments(mcpentry.RunReviewInput{Target: mcpentry.ReviewTarget{Kind: "stdin"}}); err == nil {
-		t.Fatal("MCP review arguments accepted transport stdin as a review target")
+	if _, err := mcpentry.NewReviewRequest(mcpentry.RunReviewInput{Target: mcpentry.ReviewTarget{Kind: "stdin"}}, "/fixture", "i_019f596a-cf80-7c67-b265-f37053d51ccf", false); err == nil {
+		t.Fatal("MCP mapping accepted transport stdin as a review target")
 	}
 }
 

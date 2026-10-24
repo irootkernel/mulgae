@@ -257,6 +257,159 @@ If Gaori is unavailable, run the corresponding Make target directly and report
 that evidence compression was unavailable. Never skip a required check because
 its optional wrapper is unavailable.
 
+## Review request compatibility controls
+
+The request characterization tests keep literal expectations for CLI and MCP
+behavior. They cover objective byte boundaries (12000 for CLI, 4096 for public
+MCP), multibyte input, omitted and explicit roles, and competing invalid inputs.
+Malformed binding combined with newline or leading-`--` objectives exercises
+the different validation order at the public MCP handler and backend mapping.
+Call counts distinguish entrypoint rejection from a dispatched backend request
+that fails before review execution. Keep those boundaries when changing a
+transport; moving every rejection to the first validator changes behavior.
+
+`reviewrun.TestReviewRequestAdmissionCompatibility` checks configured selection,
+artist defaults and overrides, repeated automatic selection, and ownership of
+mutable input slices. Existing live-service no-change tests retain admission
+and publication checks with zero provider qualification or review calls.
+The startup and rejected-init controls cover incomplete tool configuration and
+unambiguous JSON intent, including duplicate and mixed output flags. MCP identity
+and lifecycle controls check the actual SDK-facing errors; result controls
+measure encoded envelopes at, below and above both output limits.
+
+The frozen verified-consumer fixtures remain independent decoder compatibility
+samples. They do not freeze complete producer failure envelopes. Preserve those
+fixtures and run the request/output controls alongside them. Characterization
+establishes current behavior before movement; an intentionally changed behavior
+needs a separately identified regression and its intended-behavior source.
+
+Run each focused command on one physical line:
+
+```sh
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestReviewRequestTransportCharacterization$'
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestReviewPolicyRepeatedResolutionCharacterization$'
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestRejectedInitOutputModes$'
+go test -count=1 ./internal/entrypoint/mcp -run '^TestReviewToolTransportCharacterization$'
+go test -count=1 ./internal/entrypoint/mcp -run '^TestServePartialToolConfiguration$'
+go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPRequestIdentityAdmission$'
+go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPLifecycleAndResultBounds$'
+go test -count=1 ./internal/entrypoint/mcp -run '^TestReviewMappingDirectCompatibility$'
+go test -count=1 ./internal/composition -run '^TestMCPReviewRequestMappingCompatibility$'
+go test -count=1 ./internal/app/reviewrun -run '^TestReviewRequestAdmissionCompatibility$'
+go test -count=1 ./test/e2e -run '^TestVerifiedWorkflowFrozenConsumers$'
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationHistoricalCorpusConsumers$'
+```
+
+## Status acquisition and failure selection controls
+
+`runstatus.Service` acquires publication status before diagnostics. Test exact
+root/run scope, original error identity, diagnostic-only fallback, unavailable
+status, committed reads with zero diagnostic calls, and session-bound summary
+merging. Diagnostic projection eligibility remains a transport decision: CLI
+accepts pending/running diagnostic-only status; MCP requires a completed failed
+or cancelled record. A shared use case must not narrow CLI or widen MCP.
+
+The literal operational precedence oracle is:
+
+| Rank | Classes |
+|---|---|
+| 7 | internal |
+| 6 | security policy |
+| 5 | artifact |
+| 4 | cancellation |
+| 3 | configuration |
+| 2 | provider unavailable, timeout, authentication, quota, rate limit |
+| 1 | invalid provider output |
+| 0 | unknown/default |
+
+Use this literal ordering for all unequal-class pairs in both orders and retain
+the first observation for equal-ranked ties. Do not calculate expected ranks
+through the reducer being tested. Include parent-before-cause ties, nested
+joins, ordinary/typed wrappers, raw leaves, empty multi-unwrap and nil
+single-unwrap. CLI raw fallback is suppressed beneath a typed single cause;
+each joined child is independent. MCP ignores raw leaves. Preparation,
+diagnostic-persistence and invocation lifecycle controls must still exercise
+their specialized public projections.
+
+CLI status uses missing-only semantics at all three branches: publication
+absence before diagnostic fallback, diagnostic absence after sole publication
+absence, and session diagnostic absence during noncommitted status enrichment.
+Ordinary and typed artifact wrappers around a sole missing cause, single-child
+joins and missing-only joins remain eligible. For each branch, test both join
+orders with artifact/security/internal, raw, cancellation and deadline siblings.
+Assert the complete JSON output and reasons, human stdout/stderr, exit, and
+both diagnostic lookup counts. Preserve original causes in application tests.
+
+The authorized correction intentionally changes these public outcomes:
+
+- Every mixed publication error now preserves the original publication error
+  without any diagnostic lookup. This replaces the earlier diagnostic success,
+  diagnostic failure or diagnostic projection failure. Error-to-error changes
+  can alter human output and public JSON failure fields: publication absence
+  joined with security, followed by diagnostic artifact failure, changes from
+  artifact/exit 7 to security/exit 8; publication absence joined with artifact,
+  followed by diagnostic security failure, changes from security/exit 8 to
+  artifact/exit 7.
+- After sole publication absence, mixed diagnostic failure now reports that
+  diagnostic error instead of the earlier publication error. Reasons and exits
+  may change, including artifact 7 to security 8 or internal 10.
+- Mixed session diagnostic enrichment failure now returns status_failed or
+  human failure instead of successful status_read/exit 0.
+- Some mixed cases keep identical sanitized output and exit despite corrected
+  causal handling. A cancellation sibling does not universally mean exit 9:
+  raw missing leaves, typed artifact wrappers and protected siblings still
+  participate in the existing precedence reducer.
+
+`TestStatusMissingErrorCharacterization` recorded the previous three CLI
+branches before extraction. Its mixed-security expectations changed under the
+approved correction; the pre-change execution remains separate evidence.
+`TestStatusStrictMissingOnlyRegression` was written and failed before repair,
+then passed with the shared missing-only policy. Keep its pure-wrapper and
+single-join controls. `TestStatusMixedPublicationFailureRegression` separately
+covers both join orders when bypassed diagnostics would fail or return a valid
+record for the wrong run ID. It checks the complete JSON/human output, exit and
+zero diagnostic lookups against the predecessor's observed error-to-error
+transitions. The correction preserves legitimate success, committed reads, MCP
+behavior and the frozen verified-consumer fixtures.
+
+DF-024 controls exercise malformed await/cancel IDs while a real session-local
+invocation remains active, followed by a valid cancellation control. Generated
+request-ID failures remain JSON-RPC internal errors before backend activity.
+Encoded tool results exercise limit-1, limit and limit+1 directly and through
+the actual SDK: 1 MiB normally, 32 MiB for inspect_review/list_findings. Every
+SDK size invokes the backend once; oversized output fails after production.
+Argument and incoming-frame limits remain separate.
+
+Run each focused command on one physical line:
+
+```sh
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusMissingErrorCharacterization$'
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusStrictMissingOnlyRegression$'
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusMixedPublicationFailureRegression$'
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestG006OperationalFailureExitPrecedence$'
+go test -count=1 ./internal/app -run '^TestFailurePrecedenceIsExactAndClosed$'
+go test -count=1 ./internal/app -run '^TestFailureSelectionCompatibility$'
+go test -count=1 ./internal/app/runstatus -run '^TestStatusAcquisitionCompatibility$'
+go test -count=1 ./internal/app/reviewrun -run '^TestReviewPreparationClassificationDefersToDiagnosticPersistenceFailure$'
+go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus$'
+go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunMergesSessionBoundDiagnosticSummary$'
+go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity$'
+go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunPreservesSoleDiagnosticCancellation$'
+go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusDiagnosticEligibilityCompatibility$'
+go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPLifecycleAndResultBounds$'
+go test -count=1 ./internal/entrypoint/mcp -run '^TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation$'
+go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPStatusFailureCharacterization$'
+go test -count=1 ./internal/composition -run '^TestMCPStatusAcquisitionCharacterization$'
+go test -race -count=1 ./internal/architecture -run '^TestProductionDependencyDirection$'
+go test -race -count=1 ./internal/architecture -run '^TestMCPContractProjectionOwnership$'
+go test -race -count=1 ./internal/architecture -run '^TestWireLeafDependencyDirection$'
+```
+
+Inspect new application imports directly for forbidden entrypoint, adapter and
+OS dependencies. Current architecture tests complement this inspection; they
+do not replace it. Keep both shared-leaf import allowlists and the historical
+corpus unchanged.
+
 ## Changing embedded assets
 
 Runtime assets live in `internal/builtin/assets` and are embedded directly.
