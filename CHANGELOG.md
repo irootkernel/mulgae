@@ -12,6 +12,7 @@ This file records concise shipped outcomes and the planned next stable release.
 ### Changed
 
 - Admit Grok, Cursor and AGY native file reads by path without reading file bodies. A provider read of a file with an image extension but invalid image content no longer fails the review; evidence that cites the file still fails with `unsupported_content`.
+- Qualify distinct provider families concurrently; probes of the same family stay sequential, and qualification probes are not counted against `max_active_lanes`. When several families fail in one batch, the run waits for every started family and reports the highest-precedence failure. A panic during a family's qualification now fails the run with a typed internal failure instead of crashing Mulgae.
 
 ### Fixed
 

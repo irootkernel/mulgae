@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	coreapp "github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -267,17 +268,39 @@ func mergeFamilyGroupAdmissions(parts []familyGroupAdmission) familyGroupAdmissi
 	return merged
 }
 
+// scheduleFamilyQualificationGroups cuts original-order batches that each
+// contain at most one group per family. A batch stops at the first repeated
+// family rather than moving groups past an earlier unresolved group, so
+// same-family groups never overlap; within a group, per-candidate namespace
+// qualification stays sequential.
 func scheduleFamilyQualificationGroups(groups []familyQualificationGroup) [][]familyQualificationGroup {
 	if len(groups) == 0 {
 		return nil
 	}
 	batches := make([][]familyQualificationGroup, 0, len(groups))
+	seen := make(map[Family]struct{}, len(groups))
+	current := make([]familyQualificationGroup, 0, len(groups))
 	for _, group := range groups {
-		batches = append(batches, []familyQualificationGroup{group})
+		if _, repeated := seen[group.family]; repeated {
+			batches = append(batches, current)
+			current = make([]familyQualificationGroup, 0, len(groups))
+			seen = make(map[Family]struct{}, len(groups))
+		}
+		seen[group.family] = struct{}{}
+		current = append(current, group)
 	}
-	return batches
+	return append(batches, current)
 }
 
+// runFamilyQualificationBatches runs each batch's distinct-family groups
+// concurrently and the batches themselves in original order. A fatal group
+// failure prevents later batches from starting. Public routes, evidence,
+// failures and observations reduce in original group order through the first
+// failed group, while cleanup ownership merges from every started group,
+// including groups after that failure. Among the failing batch's errors the
+// one with the highest canonical failure precedence over its full cause tree
+// wins, original group order breaks ties, and the selected original error is
+// returned unjoined.
 func runFamilyQualificationBatches(
 	ctx context.Context,
 	batches [][]familyQualificationGroup,
@@ -289,14 +312,6 @@ func runFamilyQualificationBatches(
 		closedReceipt: make(map[string]ports.ProviderRunTerminalReceipt),
 	}
 	for _, batch := range batches {
-		if len(batch) == 1 {
-			part, err := admit(ctx, batch[0])
-			if err != nil {
-				return mergeFamilyGroupAdmissions([]familyGroupAdmission{merged, part}), err
-			}
-			merged = mergeFamilyGroupAdmissions([]familyGroupAdmission{merged, part})
-			continue
-		}
 		parts := make([]familyGroupAdmission, len(batch))
 		errs := make([]error, len(batch))
 		var wait sync.WaitGroup
@@ -310,12 +325,51 @@ func runFamilyQualificationBatches(
 			}(index, group)
 		}
 		wait.Wait()
+		firstFailed := -1
 		for index := range batch {
-			merged = mergeFamilyGroupAdmissions([]familyGroupAdmission{merged, parts[index]})
 			if errs[index] != nil {
-				return merged, errs[index]
+				firstFailed = index
+				break
 			}
 		}
+		for index := range batch {
+			if firstFailed < 0 || index <= firstFailed {
+				merged = mergeFamilyGroupAdmissions([]familyGroupAdmission{merged, parts[index]})
+			} else {
+				mergeFamilyGroupCleanup(&merged, parts[index])
+			}
+		}
+		if firstFailed < 0 {
+			continue
+		}
+		selected := firstFailed
+		selectedRank := coreapp.FailurePrecedence(runtimeDiagnosticFailureClass(errs[firstFailed]))
+		for index := firstFailed + 1; index < len(batch); index++ {
+			if errs[index] == nil {
+				continue
+			}
+			if rank := coreapp.FailurePrecedence(runtimeDiagnosticFailureClass(errs[index])); rank > selectedRank {
+				selected = index
+				selectedRank = rank
+			}
+		}
+		return merged, errs[selected]
 	}
 	return merged, nil
+}
+
+// mergeFamilyGroupCleanup merges only the cleanup-owned fields of one part so
+// groups scheduled after a failed group keep their acquisitions visible to
+// closeAdmitted.
+func mergeFamilyGroupCleanup(merged *familyGroupAdmission, part familyGroupAdmission) {
+	for instance, registry := range part.admitted {
+		merged.admitted[instance] = registry
+	}
+	for instance, generation := range part.generations {
+		merged.generations[instance] = generation
+	}
+	merged.instances = append(merged.instances, part.instances...)
+	for instance, receipt := range part.closedReceipt {
+		merged.closedReceipt[instance] = receipt
+	}
 }

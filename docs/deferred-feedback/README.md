@@ -191,11 +191,28 @@ work.
   wire contract. Re-entry: before changing a variant or invocation purpose,
   assert its own input field and retain the existing rejection controls.
 
-- `DF-020` Qualification guard tests: the production loop checks each
-  successful observation; direct cases for multiple observations and
-  duplicated malformed payloads would strengthen regression detection. Re-
-  entry: before changing qualification aggregation or guard ownership, assert
-  both first and later invalid observations fail closed.
+- `DF-020` Qualification guard tests: the receipt-loop controls now show
+  position independence, with the first and a later invalid entry both
+  failing closed. Covered by `TestCurrentProbeAppReceiptsRejectsInvalidFirstAndLaterReceipts`
+  (unrecognized kind, zero expiry, expiry mismatch, duplicate of the first and
+  of a later receipt, with a positive all-valid control; each case asserts it
+  is rejected by its intended check),
+  `TestValidateQualificationRejectsInvalidFirstAndLaterReceipts`
+  (duplicate kind, non-pass state, an all-at-once expired set, and identity
+  mismatch, each asserting its own decision reason so no other check can mask
+  it), the
+  observation-bearing aggregation controls
+  `TestQualifiedRunOperationalInvalidOutputObservationKeepsRemainingRoutes`
+  (rejected observations stay in the ordered sequence) and
+  `TestQualifiedRunFatalCapabilityStageFailsClosed`, the selected-observations
+  control `TestQualifiedRunFatalSelectionReportsOnlySelectedObservations`
+  (only the selected fatal error's observations are reported), and the labeled
+  candidate fallback characterization
+  `TestCapabilityEvidenceCandidatesFallbackCharacterization` (which asserts
+  the actual candidate count per case). Duplicated malformed JSON payloads
+  remain covered by `TestValidateProbeEvidenceRequiresPositiveCapabilityOnly`.
+  The original re-entry rule was applied before the TASK-058 aggregation
+  change; no deferred work remains.
 
 - `DF-021` Native tool lifecycle tests: current terminal gates reject
   incomplete tools. Direct cases for a statusless update after terminal

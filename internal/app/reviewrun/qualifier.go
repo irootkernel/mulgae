@@ -262,12 +262,27 @@ func (factory *QualifiedRunFactory) newQualifiedRunAttempt(ctx context.Context, 
 	}, nil
 }
 
-func (factory *QualifiedRunFactory) admitFamilyQualificationGroup(ctx context.Context, group familyQualificationGroup, now time.Time) (familyGroupAdmission, error) {
-	admission := familyGroupAdmission{
+func (factory *QualifiedRunFactory) admitFamilyQualificationGroup(ctx context.Context, group familyQualificationGroup, now time.Time) (admission familyGroupAdmission, err error) {
+	admission = familyGroupAdmission{
 		admitted:      make(map[string]QualifiedRunRegistry, len(group.candidates)),
 		generations:   make(map[string]string, len(group.candidates)),
 		closedReceipt: make(map[string]ports.ProviderRunTerminalReceipt, len(group.candidates)),
 	}
+	// A panic anywhere below must not leak the namespaces this group already
+	// acquired: recover here, where the partial admission is still owned, and
+	// convert the panic into one payload-free typed internal failure. The
+	// partial admission is returned so every recorded acquisition still reaches
+	// closeAdmitted.
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			failure, failureErr := domain.NewFailure("reviewrun.qualification", domain.FailureInternal, "qualification worker failed", nil)
+			if failureErr != nil {
+				err = fmt.Errorf("review run: qualification worker failed")
+			} else {
+				err = failure
+			}
+		}
+	}()
 	if len(group.candidates) > 0 && group.candidates[group.representative].Profile.Family() == FamilyZCode &&
 		(group.candidates[group.representative].Profile.ApplicationVersionClassification() == VersionRed ||
 			group.candidates[group.representative].Profile.ApplicationVersionClassification() == VersionUnknown) {

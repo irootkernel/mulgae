@@ -286,6 +286,17 @@ slot preserves the existing two-invocation ceiling. There is no user-global capa
 concurrency or rate limits remain provider outcomes, and operators choose the
 number of Mulgae processes they run.
 
+Provider qualification runs in original-order batches that hold at most one
+group per family, so only distinct families overlap and same-family groups
+wait for a later batch. The batch runner merges route, evidence, failure and
+observation contributions in original group order through the first failed
+group, while cleanup ownership merges from every started group, including
+groups after that failure. A panic inside group admission becomes a
+payload-free typed internal failure, and the group's recorded acquisitions
+stay owned for cleanup. Qualification probes are not counted against the
+process-wide `max_active_lanes` capacity, which bounds review invocations;
+the coordinator wave barrier and that capacity are unchanged.
+
 Role-path deadlines are calculated from initial-to-second-invocation dependencies and the
 process capacity. Before an invocation starts, the runtime still requires
 enough enclosing budget for the provider's complete configured timeout window;

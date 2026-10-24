@@ -209,8 +209,10 @@ examples.
 ## Execution budgets and failure reduction
 
 Config v5 retains `resources.max_active_lanes` as the explicit number of
-provider invocations one Mulgae process may run at once. It is not a provider
-identity and does not coordinate another process or project. Current
+review provider invocations one Mulgae process may run at once. It is not a
+provider identity and does not coordinate another process or project.
+Provider qualification probes are not counted against it; each qualification
+batch runs at most one concurrent probe per distinct provider family. Current
 command-result v21 and review-preflight v9 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
@@ -1039,9 +1041,22 @@ authority. Their provider instances use `codex-<profile>-<role>`. Legacy Codex
 configuration retains `codex-<role>`.
 Codex qualification takes evidence from its correlated final assistant
 message rather than the raw protocol transcript. Required family probes,
-including Codex, run sequentially in the implemented scheduler; concurrent
-probe scheduling is a later change owned by TASK-058 together with this
-contract sentence. Capability readiness is decided by bound
+including Codex, are scheduled in original group order in batches that
+contain at most one group per family; a batch ends before the first repeated
+family, so no group moves past an earlier unresolved group. Distinct families
+within a batch may qualify concurrently. Same-family probes never overlap,
+and within each group per-candidate namespace qualification stays sequential
+with independent namespace authority. A fatal group failure prevents later
+batches from starting, and every started group's acquired namespaces are
+drained or explicitly retained exactly once. When no group fails fatally,
+routes, retained evidence and observations keep their original group order,
+and nonfatal qualification failures keep the existing nonfatal admission
+policy and canonical failure projection. A fatal qualification returns no
+qualified run or routes. Its failure is the
+started group's original error with the highest canonical failure precedence
+over its full cause tree, with original group order breaking ties; other
+group errors are not joined into it, and only the selected error's
+qualification observations are reported. Capability readiness is decided by bound
 immutable fixture evidence: free-form or narrated
 provider output is accepted when it proves immutable fixture nonce/input binding
 together with transport, lifecycle, authentication, version, and required
