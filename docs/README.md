@@ -66,13 +66,18 @@ the final acceptance of EPIC-010 and EPIC-011.
 has completed its member Tasks (`TASK-046` through `TASK-052`), the
 deterministic gates, and ZCode-only live certification, with its durable
 outcomes promoted to the canonical documents and roadmap; Master accepted the
-completed Epic result on 2026-10-22. The
-remaining structural improvement sequence is
-[EPIC-013 verified operation reuse](todo/EPIC-013-verified-operation-reuse.md), then
+completed Epic result on 2026-10-22.
+[EPIC-013 verified operation reuse](roadmap/README.md#epic-013-verified-operation-reuse)
+has completed its member Tasks (`TASK-053` through `TASK-059`), the
+deterministic gates, ZCode-only live certification and a cross-version
+comparison against the EPIC-012 baseline, with its durable outcomes promoted
+to the canonical documents and roadmap; the final Epic status awaits
+Master's explicit acceptance of the completed result. The remaining
+structural improvement sequence is
 [EPIC-014 application and contract ownership](todo/EPIC-014-application-and-contract-ownership.md).
-These dossiers describe the remaining implementation and verification;
-current runtime contracts remain unchanged. The roadmap owns their dependencies
-and status.
+That dossier describes the remaining implementation and verification; current
+runtime contracts remain unchanged. The roadmap owns its dependencies and
+status.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The

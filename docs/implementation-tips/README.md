@@ -312,6 +312,26 @@ the inherited `TMPDIR` and a custom symlinked temporary parent, then run the
 complete gate. A pass using only a short canonical `TMPDIR` does not verify the
 default environment.
 
+EPIC-013 proves its reuse rules with deterministic counts and call traces,
+never timing. Count digest, defensive-copy, construction and whole-support
+traversal work through the disabled-by-default in-package seams
+(`beginVerificationCounting` in `internal/ports`, `beginPublicationCounting`
+in `internal/app/publication`) or through a package's own port fakes and
+counting helpers, such as `supportIndexReads`, `liveCommandCount`,
+`executionConfigParses` and `countingLiveSource`. Do not export test-only API
+to read another package's seam, and recheck count-armed tests whenever a
+change alters a count they assert. Resolve each task-owned temporary root
+once, at creation, through one helper such as `canonicalTestRoot`. A
+concurrency control first proves that the code under test ran, for example
+with synchronized rounds before a racing `Close`; it proves overlap with
+barriers that have bounded escapes, and mutual exclusion with a deliberately
+unsynchronized cell inside the guarded section, which `-race` reports if two
+guarded sections overlap. Benchmarks, percentiles, speedup estimates and
+memory-peak gates are not acceptance evidence. Cross-version certification
+runs the baseline and the candidate binary against the same frozen harness
+and fixtures and compares normalized public outputs, stored members and
+recovery outcomes.
+
 EPIC-009's internal neutral execution fixtures live in
 `internal/adapters/providercli` under the `liveprovider` build tag. The focused
 groups `TestLiveNeutralReviewReports`, `TestLiveNeutralExtractionReports`,

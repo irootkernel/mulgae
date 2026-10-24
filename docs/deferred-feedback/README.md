@@ -266,5 +266,28 @@ work.
   change, distinguish unsupported versions and point to `mulgae help config`.
   Review compatibility of machine reasons and retain fail-closed admission.
 
+- `DF-028` Load-sensitive protected-directory control: under concurrent
+  multi-process `-race` load, the positive control read of `tracked.txt`
+  in `TestIntegrationLiveSourceRejectsProtectedGitDirectory/{git,common}`
+  intermittently fails with `unsafe_source`. It reproduces at the EPIC-012
+  baseline `cf377d4` (three concurrent `-race -count=30` processes, two
+  rounds: 5–11 failures per process per round) and on EPIC-013 trees; the
+  serialized `make test-int` gate passes. The failure is fail-closed and its
+  cause is not established. Re-entry: before changing the protected-directory
+  predicate, the reader's stability or namespace checks, or this fixture,
+  reproduce with that load recipe, determine whether the positive read's
+  precondition races the reader's revalidation or the fixture state, and
+  either make the precondition explicit or correct the predicate; never
+  loosen the `unsafe_source` rejection.
+
+- `DF-029` Qualification fakes on worker goroutines: since TASK-058 runs
+  distinct-family qualification concurrently, `t.Fatal` calls in existing
+  fakes (`familyDerivingQualifier` and `syntheticDerivedFamilyRoute` in
+  `internal/app/reviewrun/family_qualification_test.go`, and
+  `authorityProbeRunner` in `current_qualifier_test.go`) can run on worker
+  goroutines, where they stop only that goroutine; the test still fails,
+  but its message can mislead. Re-entry: when these fakes next change,
+  report failures through return values checked on the test goroutine.
+
 Promote an epic-sized finding to a TODO candidate or an adopted roadmap work
 unit. Do not use this index as a second roadmap or status authority.

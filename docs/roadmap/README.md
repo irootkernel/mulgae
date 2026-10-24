@@ -46,11 +46,12 @@ EPIC-007 or block EPIC-010 or EPIC-011.
 
 EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-22.
-EPIC-013 -> EPIC-014 are the remaining
-improvement sequence: each requires explicit acceptance of its
-predecessor; none depends on Deferred EPIC-008. Under Master's
-quota-preservation decision,
-development and epic acceptance across EPIC-013 through EPIC-014 run the
+EPIC-013 is `In Progress`: TASK-053 through TASK-059 are completed and
+certified, and the Epic awaits Master's explicit acceptance of the completed
+Epic result. EPIC-014 is the remaining planned improvement step: it requires
+explicit acceptance of EPIC-013 and does not depend on Deferred EPIC-008. Under
+Master's quota-preservation decision, development and epic acceptance of
+EPIC-014 run the
 deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`,
 and `make test-release`), `make test-mcp-clients` when MCP consumer paths
 change, and ZCode-only live verification (`TestLiveZCodeCapability` and
@@ -755,36 +756,44 @@ Master accepted the completed Epic result on 2026-10-22.
 
 ## EPIC-013: Verified operation reuse
 
-Status: In Progress
+Status: In Progress (awaiting Master's explicit acceptance of the completed
+Epic result)
 
 Depends on: completed and explicitly accepted EPIC-012. No EPIC-008 dependency.
 
-Detailed SOT: [EPIC-013 execution dossier](../todo/EPIC-013-verified-operation-reuse.md).
+Canonical Outcomes:
+
+- [Immutable value lifetime and proof ownership](../architecture/README.md#immutable-value-lifetime-and-proof-ownership): constructor-proven packets and publication artifacts (`183ea39`), review-independent live publication support built once per publication (`d9894a8`), one verified read context per query call (`38915f5`), and reader-local Git inventory and configuration-parse retention (`71d4f37`).
+- [Live reviewer execution](../architecture/README.md#live-reviewer-execution): body-free native path admission through the source port (`4dd4909`).
+- [Concurrency, cancellation, and storage](../architecture/README.md#concurrency-cancellation-and-storage) and [provider qualification readiness](../specs/contracts.md#provider-qualification-readiness): distinct-family qualification batches with original-order four-field reduction through the first failed group; fatal selection is batch-scoped, uses canonical precedence with original-order ties, and returns the selected original error unjoined; a fatal qualification returns no run and no routes and reports only the selected error's observations; every started group's acquisitions are drained or explicitly retained; successful ordering and nonfatal admission and projection are unchanged (`278cae4`).
+- [Execution budgets and failure reduction](../specs/contracts.md#execution-budgets-and-failure-reduction) (`278cae4`) and [lossless report and evidence reads](../specs/contracts.md#lossless-report-and-evidence-reads) (`38915f5`).
+- [Deferred feedback](../deferred-feedback/README.md#deferred-feedback): DF-003, DF-010 and DF-020 resolved; DF-008 and DF-011 remain open with their standing rules; DF-028 and DF-029 record the load-sensitive protected-directory control and the qualification fakes on worker goroutines (`38915f5`, `4dd4909`, `71d4f37`, `278cae4`, and this closeout change).
+- [Verification for the adopted review Epics](../implementation-tips/README.md#verification-for-the-adopted-review-epics): deterministic counting, canonical temporary roots, deliberate `-race` probes, no timing targets, and cross-version baseline certification (this closeout change).
 
 Goal: Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-053 | Completed | Reuse constructor-proven immutable packet and publication values without repeated hashing/copying. | Zero values, digest mismatch, nested clone/getter independence and unchanged bytes. |
-| TASK-054 | Completed | Build review-independent publication support once and preserve pre-issuance validation. | Byte equality, zero ID issuance on preflight failure, interrupted/resumed candidate binding and durable commit. |
-| TASK-055 | Completed | Share one verified read context across query, status, excerpts and report rendering. | DF-010 interleavings, corrupt-status/error preservation, fresh next-request verification and no repeated whole-support pass per excerpt. |
-| TASK-056 | Completed | Separate native path admission from source-body reads through the source port. | DF-011 and late-tool mutation controls, descriptor/protected-path safety, Close and zero admission body reads. |
-| TASK-057 | Completed | Reuse fixed commit path/OID inventories and identical successful config-byte parsing. | Fresh descriptor checks, changed/appearing/disappearing config, bounded reader-local state and unchanged mutable-source behavior. |
-| TASK-058 | Completed | Run distinct-family qualification groups concurrently with ordered outcomes and complete cleanup ownership. | Barrier/oracle tests, canonical fatal-failure precedence with original-order ties, complete cleanup and exact namespace/profile authority. |
-| TASK-059 | Planned | Certify reuse against the accepted correctness baseline and document lifetime rules. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), ZCode live verification, wire/error/failure-recovery compatibility, deferred non-ZCode live gates recorded for `v0.1.26`, and explicit Epic acceptance. |
+| TASK-053 | Completed | Reuse constructor-proven immutable packet and publication values without repeated hashing/copying. | Zero values, digest mismatch, nested clone/getter independence and unchanged bytes (`183ea39`). |
+| TASK-054 | Completed | Build review-independent publication support once and preserve pre-issuance validation. | Byte equality, zero ID issuance on preflight failure, interrupted/resumed candidate binding and durable commit (`d9894a8`). |
+| TASK-055 | Completed | Share one verified read context across query, status, excerpts and report rendering. | DF-010 interleavings, corrupt-status/error preservation, fresh next-request verification and no repeated whole-support pass per excerpt (`38915f5`). |
+| TASK-056 | Completed | Separate native path admission from source-body reads through the source port. | DF-011 and late-tool mutation controls, descriptor/protected-path safety, Close and zero admission body reads (`4dd4909`). |
+| TASK-057 | Completed | Reuse fixed commit path/OID inventories and identical successful config-byte parsing. | Fresh descriptor checks, changed/appearing/disappearing config, bounded reader-local state and unchanged mutable-source behavior (`71d4f37`). |
+| TASK-058 | Completed | Run distinct-family qualification groups concurrently with ordered outcomes and complete cleanup ownership. | Barrier/oracle tests, canonical fatal-failure precedence with original-order ties, complete cleanup and exact namespace/profile authority (`278cae4`). |
+| TASK-059 | Completed | Certify reuse against the accepted correctness baseline and document lifetime rules. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), ZCode live verification, wire/error/failure-recovery compatibility, deferred non-ZCode live gates recorded for `v0.1.26`, and canonical outcome promotion; final Epic status awaits Master's explicit acceptance. |
 
-Tasks run in the listed order; each Task after the first depends on its
-predecessor. The dossier owns scope, implementation decisions, negative tests,
-compatibility, prohibited actions and handoff details. Planning does not start
-implementation or grant delivery/runtime authority.
+Tasks ran in the listed order; each Task after the first depended on its
+predecessor. Scope, implementation decisions, negative tests, compatibility,
+prohibited actions and handoff details were owned by the retired execution
+dossier; durable outcomes are the canonical commits and documents above.
 
 ### Epic acceptance
 
-- [ ] Every member Task has implementation and verification evidence for the exact candidate.
-- [ ] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
-- [ ] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass.
-- [ ] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`) and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
-- [ ] Durable outcomes are promoted and dossier/index/roadmap links are reconciled under the documented lifecycle.
+- [x] Every member Task has implementation and verification evidence for the exact candidate (`183ea39`, `d9894a8`, `38915f5`, `4dd4909`, `71d4f37`, `278cae4`, and this closeout change).
+- [x] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved (consolidated `cf377d4..278cae4` diff audit; embedded assets, `test/e2e`, `internal/releasecheck` and every testdata fixture byte-identical to the EPIC-012 baseline; binaries built from `cf377d4` and `278cae4` give byte-identical CLI and MCP output over the same stored bytes once paths and per-invocation request IDs and times are replaced, identical typed errors, exits and corrupt-status projections, byte-identical export bundles, and identical publication members and digest-reference graphs under an injective identity mapping with times elided; runtime diagnostics, whose same-family qualification order varies between projects in both versions, match as order-insensitive structural content; fixed-input interrupted-publication states are byte-identical and recover identically across versions; historical read families green; the intentional behavior changes are TASK-056's path-only native admission and TASK-058's concurrent distinct-family qualification and fatal selection, recorded in `CHANGELOG.md` and their canonical documents).
+- [x] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass (reuse is proved by disabled-by-default counting seams, deterministic call traces and `-race` barrier controls, never by timing).
+- [x] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`) and ZCode live verification pass through one complete `make test` gate on the frozen closeout candidate; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
+- [x] Durable outcomes are promoted to `architecture/README.md`, `contracts.md`, `deferred-feedback/README.md` and `implementation-tips/README.md`, and the dossier and its index entry are retired under Master's explicit closeout authorization in the approved execution plan.
 - [ ] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.
 
 ## EPIC-014: Application and contract ownership

@@ -343,6 +343,18 @@ application policies; copied private content does not enter exports implicitly.
 
 ## Immutable value lifetime and proof ownership
 
+Verified operation reuse keeps verification at the real input, filesystem,
+process and provider boundaries. A value proven inside one verified operation
+is reused only within the lifetime that proved it: one in-memory value
+(provider packets and immutable publication artifacts), one publication
+invocation (a live candidate's review-independent support), one public query
+call (its read context), or one live Git source reader (fixed commit-side
+inventories and, for each execution Git configuration file, the digest of the
+last successfully parsed bytes). A new request, including an MCP continuation
+chunk, verifies afresh. There is no process-wide cache, stat-only security
+shortcut, source snapshot or new provider-content byte ceiling, and
+deterministic call and traversal counts, never timing, prove the reuse.
+
 Provider packets and immutable publication artifacts (`ImmutablePublicationArtifact`
 and `FinalReviewArtifact` in `internal/ports`) verify their exact-byte digest once,
 over exactly the bytes they retain, in their validating constructors. The

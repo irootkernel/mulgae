@@ -16,7 +16,6 @@ task identity, ordering, dependencies, and status.
   develops structured requirements review, bounded batch followup, and exact-run
   comparison as a preserved design held for redesign after EPIC-009 acceptance.
 
-- [EPIC-013: Verified operation reuse](EPIC-013-verified-operation-reuse.md) defines the execution contract for this stage of the improvement sequence.
 - [EPIC-014: Application and contract ownership](EPIC-014-application-and-contract-ownership.md) defines the planning-only execution contract for this stage of the improvement sequence.
 
 Execute the Epics and their Tasks in the order owned by the
