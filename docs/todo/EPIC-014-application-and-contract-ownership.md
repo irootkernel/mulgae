@@ -68,6 +68,16 @@ Keep missing/tampered/rebound/cross-run and wrong-lineage controls, including
 DF-022. Verify read/report/export/recovery/cleanup outcomes as applicable.
 No source archive, transcript, user credential or real review is fixture input.
 
+Inputs from EPIC-013: the base query fixtures behind
+`queryValidator` in `internal/app/query/service_test.go` are
+schema-invalid, so those tests prove orchestration rather than
+schema acceptance; this corpus should exercise real-schema
+acceptance for the read families it covers. EPIC-013 certified
+compatibility by comparing baseline and candidate binaries through
+the frozen `test/e2e` helpers, as
+[verification for the adopted review Epics](../implementation-tips/README.md#verification-for-the-adopted-review-epics)
+describes.
+
 ### TASK-061: Consolidate matching wire and strict-JSON mechanics
 
 Introduce a small leaf owner for shared persisted DTOs, format-version constants

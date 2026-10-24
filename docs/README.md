@@ -71,9 +71,8 @@ completed Epic result on 2026-10-22.
 has completed its member Tasks (`TASK-053` through `TASK-059`), the
 deterministic gates, ZCode-only live certification and a cross-version
 comparison against the EPIC-012 baseline, with its durable outcomes promoted
-to the canonical documents and roadmap; the final Epic status awaits
-Master's explicit acceptance of the completed result. The remaining
-structural improvement sequence is
+to the canonical documents and roadmap; Master accepted the completed Epic
+result on 2026-10-24. The remaining structural improvement sequence is
 [EPIC-014 application and contract ownership](todo/EPIC-014-application-and-contract-ownership.md).
 That dossier describes the remaining implementation and verification; current
 runtime contracts remain unchanged. The roadmap owns its dependencies and

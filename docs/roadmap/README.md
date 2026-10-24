@@ -32,7 +32,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-010](#epic-010-cursor-acp-review-provider) | Completed | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
 | [EPIC-012](#epic-012-correctness-and-historical-compatibility) | Completed | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
-| [EPIC-013](#epic-013-verified-operation-reuse) | In Progress | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
+| [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Planned | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 
 ## Adopted execution order
@@ -46,9 +46,9 @@ EPIC-007 or block EPIC-010 or EPIC-011.
 
 EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-22.
-EPIC-013 is `In Progress`: TASK-053 through TASK-059 are completed and
-certified, and the Epic awaits Master's explicit acceptance of the completed
-Epic result. EPIC-014 is the remaining planned improvement step: it requires
+EPIC-013 is complete: TASK-053 through TASK-059 are completed and certified,
+and Master accepted the completed Epic result on 2026-10-24.
+EPIC-014 is the remaining planned improvement step: it requires
 explicit acceptance of EPIC-013 and does not depend on Deferred EPIC-008. Under
 Master's quota-preservation decision, development and epic acceptance of
 EPIC-014 run the
@@ -756,8 +756,7 @@ Master accepted the completed Epic result on 2026-10-22.
 
 ## EPIC-013: Verified operation reuse
 
-Status: In Progress (awaiting Master's explicit acceptance of the completed
-Epic result)
+Status: Completed
 
 Depends on: completed and explicitly accepted EPIC-012. No EPIC-008 dependency.
 
@@ -780,12 +779,13 @@ Goal: Remove repeated construction, source parsing and whole-support reads withi
 | TASK-056 | Completed | Separate native path admission from source-body reads through the source port. | DF-011 and late-tool mutation controls, descriptor/protected-path safety, Close and zero admission body reads (`4dd4909`). |
 | TASK-057 | Completed | Reuse fixed commit path/OID inventories and identical successful config-byte parsing. | Fresh descriptor checks, changed/appearing/disappearing config, bounded reader-local state and unchanged mutable-source behavior (`71d4f37`). |
 | TASK-058 | Completed | Run distinct-family qualification groups concurrently with ordered outcomes and complete cleanup ownership. | Barrier/oracle tests, canonical fatal-failure precedence with original-order ties, complete cleanup and exact namespace/profile authority (`278cae4`). |
-| TASK-059 | Completed | Certify reuse against the accepted correctness baseline and document lifetime rules. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), ZCode live verification, wire/error/failure-recovery compatibility, deferred non-ZCode live gates recorded for `v0.1.26`, and canonical outcome promotion; final Epic status awaits Master's explicit acceptance. |
+| TASK-059 | Completed | Certify reuse against the accepted correctness baseline and document lifetime rules. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), ZCode live verification, wire/error/failure-recovery compatibility, deferred non-ZCode live gates recorded for `v0.1.26`, and canonical outcome promotion. |
 
 Tasks ran in the listed order; each Task after the first depended on its
 predecessor. Scope, implementation decisions, negative tests, compatibility,
 prohibited actions and handoff details were owned by the retired execution
 dossier; durable outcomes are the canonical commits and documents above.
+Master accepted the completed Epic result on 2026-10-24.
 
 ### Epic acceptance
 
@@ -794,7 +794,7 @@ dossier; durable outcomes are the canonical commits and documents above.
 - [x] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass (reuse is proved by disabled-by-default counting seams, deterministic call traces and `-race` barrier controls, never by timing).
 - [x] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`) and ZCode live verification pass through one complete `make test` gate on the frozen closeout candidate; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
 - [x] Durable outcomes are promoted to `architecture/README.md`, `contracts.md`, `deferred-feedback/README.md` and `implementation-tips/README.md`, and the dossier and its index entry are retired under Master's explicit closeout authorization in the approved execution plan.
-- [ ] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.
+- [x] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute (accepted 2026-10-24).
 
 ## EPIC-014: Application and contract ownership
 
