@@ -420,6 +420,26 @@ the claim-verified direct read for every historical publication, with or
 without an index, as it always has.
 No content cap or source snapshot is introduced.
 
+The live Git source reader (`internal/adapters/gittarget`) carries its own
+reader-local retention, guarded by its mutex. It retains the fixed commit-side
+path-to-object inventories already admitted for the selector, each bound to
+the immutable base or head commit resolved at admission (the listing
+dereferences that commit's tree); index and worktree observations stay fresh
+on every call, and a retained inventory is reused only after the same root
+and Git metadata checks that guard a fresh inventory command. Retained
+commit-side membership does not prove that the object is currently
+available: evidence reads still fetch each blob by its bound object ID and
+fail closed when it is unavailable. For each of the two execution Git
+configuration files, the reader retains at most the digest of the last
+successfully parsed bytes. The reader skips the parse only when freshly
+verified bytes match that digest; otherwise it parses and replaces the
+digest only on success. Failures are never cached. Both forms of retention
+live inside one reader, are cleared on Close, and start fresh in a new
+reader; there is no process-wide cache, no stat-only shortcut, and no
+caching of `.mulgae` configuration admission. An unexported per-reader
+function field routes the config byte read so in-package tests can observe
+it; production always routes it to the descriptor-verified metadata read.
+
 ## Planned extension ownership
 
 EPIC-008 is held for redesign after EPIC-009. Its old capture/batch ownership

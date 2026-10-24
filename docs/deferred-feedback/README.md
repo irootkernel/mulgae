@@ -113,18 +113,34 @@ work.
   `TestIntegrationLiveSourceAdmitPathParity` and
   `TestIntegrationLiveSourceAdmitPathObservesCurrentPath` pin the body-free
   admission outcomes, including the decided mislabeled-raster divergence.
+  TASK-057 delivered its pre-change controls, which passed at the base:
+  an empty-tree HEAD commit with head-scope no-change
+  (`TestIntegrationLiveSourceEmptyTreeHeadNoChange`), protected-name case
+  variants committed through plumbing
+  (`TestIntegrationLiveSourceInventoryCaseVariants`), an end-to-end
+  whole-tree no-change fixture asserting zero provider calls and the
+  resulting publication (`TestIntegrationLiveServicePublishesWholeTreeNoChange`
+  in `internal/app/reviewrun`), and metadata rejection ahead of retained
+  inventories (`TestIntegrationLiveSourceMetadataRejectionControls`).
+  TASK-057's retention verification was delivered with the change: the
+  config-retention suite covering appearance, disappearance and identical
+  reappearance, changed unsafe bytes, same-length rewrites with the mtime
+  restored, parser failures never cached and symlink replacement
+  (`TestIntegrationLiveSourceExecutionConfigRetention`); the retention
+  state checks covering bytes re-read on every revalidation, bounded
+  reader-local state and Close clearing
+  (`TestIntegrationLiveSourceRetentionState`); the concurrency check
+  (`TestIntegrationLiveSourceRetentionConcurrency`); and the reuse counts,
+  including a second reader that starts fresh
+  (`TestIntegrationLiveSourceReusesCommitInventories` and
+  `TestIntegrationLiveSourceExecutionConfigRetention`).
   Standing re-entry rule: before changing the owning reader or admission
   guard, add deterministic rejection cases; any production synchronization
   seam needs its own bounded scope. Open items without such a seam:
   mid-read replacement inside `Read`, whose guards TASK-056 left unchanged;
   the intra-call device/inode mismatch branch of `AdmitPath`'s reopen check;
   and `AdmitPath`'s final `revalidate`, which covers intra-call drift of the
-  root identity, namespace or Git binding. Also open: an empty-tree HEAD
-  commit (head-scope no-change) and an end-to-end whole-tree no-change
-  fixture that asserts zero provider calls and the resulting publication.
-  Before changing Git inventory filtering, cover object paths whose spelling
-  differs only by case from built-in protected names on the supported
-  case-insensitive filesystem.
+  root identity, namespace or Git binding.
 
 - `DF-012` MCP startup configuration: production composition supplies all
   tool fields and startup rejects incomplete configuration. Re-entry: before

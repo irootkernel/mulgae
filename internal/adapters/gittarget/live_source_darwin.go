@@ -4,6 +4,7 @@ package gittarget
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -64,6 +65,17 @@ func NewLiveSourceAdapter(runner Runner, protectedRoots []ports.AnchoredRoot) (*
 
 var _ ports.LiveSourceOpener = (*LiveSourceAdapter)(nil)
 
+// retainedInventory is one fixed commit-side path-to-OID inventory, bound to
+// the immutable commit whose tree it was listed from.
+type retainedInventory struct {
+	object  ports.GitObjectID
+	entries map[string]ports.GitObjectID
+}
+
+// executionConfigDigest identifies the bytes behind one last successful
+// execution-config parse.
+type executionConfigDigest [sha256.Size]byte
+
 type liveSourceReader struct {
 	mu             sync.Mutex
 	runner         Runner
@@ -75,6 +87,16 @@ type liveSourceReader struct {
 	gitDir         ports.AnchoredRoot
 	protectedRoots []ports.AnchoredRoot
 	closed         bool
+	// Reader-local retention, guarded by mu and cleared by Close: the fixed
+	// commit-side inventories already admitted for the selector, and the last
+	// successful execution-config parse digest per config file. Nothing is
+	// shared across readers or processes.
+	inventories   map[domain.LiveSourceSide]retainedInventory
+	configDigests map[string]executionConfigDigest
+	// readExecutionConfig reads one execution config file through the
+	// descriptor-verified metadata walk. The field only lets in-package tests
+	// observe the read; production always uses readCanonicalGitMetadata.
+	readExecutionConfig func(string) ([]byte, error)
 }
 
 func (adapter *LiveSourceAdapter) OpenLiveSource(ctx context.Context, root ports.AnchoredRoot, selector ports.LiveSourceSelector) (ports.LiveSourceReader, error) {
@@ -92,7 +114,7 @@ func (adapter *LiveSourceAdapter) OpenLiveSource(ctx context.Context, root ports
 	if err != nil {
 		return nil, sourceError(ports.LiveSourceUnsafe, err)
 	}
-	reader := &liveSourceReader{runner: adapter.runner, root: root, protectedRoots: adapter.protectedRoots}
+	reader := &liveSourceReader{runner: adapter.runner, root: root, protectedRoots: adapter.protectedRoots, readExecutionConfig: readCanonicalGitMetadata}
 	reader.source, reader.rootDir, err = openCanonicalRepositoryRoot(root.String())
 	if err != nil {
 		return nil, sourceError(ports.LiveSourceUnsafe, err)
@@ -229,12 +251,19 @@ func (reader *liveSourceReader) admitExecutionGitConfig(ctx context.Context) err
 		filepath.Join(reader.lease.Observation().CommonDirectory.String(), "config"),
 		filepath.Join(reader.gitDir.String(), "config.worktree"),
 	} {
-		data, err := readCanonicalGitMetadata(path)
+		data, err := reader.readExecutionConfig(path)
 		if os.IsNotExist(err) {
 			continue
 		}
 		if err != nil {
 			return sourceError(ports.LiveSourceUnsafe, err)
+		}
+		// Skip parsing only when freshly verified bytes match the retained
+		// last successful digest; otherwise parse, and replace that digest
+		// only on success. Failures are never cached.
+		digest := executionConfigDigest(sha256.Sum256(data))
+		if reader.configDigests[path] == digest {
+			continue
 		}
 		// Parse descriptor-verified bytes through stdin, without discovering a
 		// repository or loading includes. Never reopen an untrusted config path
@@ -250,6 +279,10 @@ func (reader *liveSourceReader) admitExecutionGitConfig(ctx context.Context) err
 				return sourceError(ports.LiveSourceUnsafe, fmt.Errorf("unsupported provider Git configuration"))
 			}
 		}
+		if reader.configDigests == nil {
+			reader.configDigests = make(map[string]executionConfigDigest)
+		}
+		reader.configDigests[path] = digest
 	}
 	return nil
 }
@@ -571,6 +604,11 @@ func (reader *liveSourceReader) list(ctx context.Context, side domain.LiveSource
 	return liveSortedPaths(entries)
 }
 
+// entries returns the fixed commit-side path-to-OID inventory of one side.
+// The retained inventory of an already listed side is reused after the same
+// root and Git metadata checks that run() applies around a fresh command, so
+// metadata rejection keeps its position ahead of inventory use. Callers must
+// not mutate the returned map: the reader retains it for later reuse.
 func (reader *liveSourceReader) entries(ctx context.Context, side domain.LiveSourceSide, path *ports.SafeRelativePath) (map[string]ports.GitObjectID, error) {
 	scope := reader.target.Selector().Scope()
 	if side == domain.LiveSourceIndex && scope == domain.LiveSourceStage {
@@ -588,6 +626,15 @@ func (reader *liveSourceReader) entries(ctx context.Context, side domain.LiveSou
 	default:
 		return nil, sourceError(ports.LiveSourceInvalid, fmt.Errorf("side is unavailable for selector"))
 	}
+	if retained, ok := reader.inventories[side]; ok && retained.object == oid {
+		if err := reader.revalidate(ctx); err != nil {
+			return nil, err
+		}
+		if err := reader.checkGitMetadata(); err != nil {
+			return nil, err
+		}
+		return retained.entries, nil
+	}
 	args := []string{"ls-tree", "-r", "-z", "--full-tree", oid.String()}
 	if path != nil {
 		args = append(args, "--", path.String())
@@ -596,7 +643,17 @@ func (reader *liveSourceReader) entries(ctx context.Context, side domain.LiveSou
 	if err != nil {
 		return nil, sourceError(ports.LiveSourceUnavailable, err)
 	}
-	return liveObjectEntries(result.Stdout, false, reader.excluded)
+	entries, err := liveObjectEntries(result.Stdout, false, reader.excluded)
+	if err != nil {
+		return nil, err
+	}
+	if path == nil {
+		if reader.inventories == nil {
+			reader.inventories = make(map[domain.LiveSourceSide]retainedInventory)
+		}
+		reader.inventories[side] = retainedInventory{object: oid, entries: entries}
+	}
+	return entries, nil
 }
 
 func (reader *liveSourceReader) index(ctx context.Context, path *ports.SafeRelativePath) (map[string]ports.GitObjectID, error) {
@@ -856,6 +913,8 @@ func (reader *liveSourceReader) Close() error {
 		return nil
 	}
 	reader.closed = true
+	reader.inventories = nil
+	reader.configDigests = nil
 	var err error
 	if reader.lease != nil {
 		err = reader.lease.Close()
@@ -955,7 +1014,7 @@ func OpenUnboundWorkspaceRoot(ctx context.Context, root ports.AnchoredRoot) (por
 	if err != nil {
 		return nil, sourceError(ports.LiveSourceUnsafe, err)
 	}
-	reader := &liveSourceReader{root: root, source: source, rootDir: directory}
+	reader := &liveSourceReader{root: root, source: source, rootDir: directory, readExecutionConfig: readCanonicalGitMetadata}
 	var observed unix.Stat_t
 	err = unix.Fstat(int(directory.file.Fd()), &observed)
 	if err == nil {
