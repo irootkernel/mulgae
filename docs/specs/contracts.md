@@ -29,8 +29,11 @@ contracts. Published roots retain v1; failed-run recovery roots use v2.
 Reruns whose source is a recovery manifest use `mulgae-run-manifest.v2` and
 `mulgae-review-artifact.v2`. Existing
 `mulgae-run-manifest.v1` and `mulgae-review-artifact.v1` documents retain their
-ordinary review and child-run meanings and remain readable. A composite's
-`review_composition` records its exact root and role sources; it never overloads
+ordinary review and child-run meanings and remain readable. Captured archive
+v1 (single file) and v2 (manifest plus blobs) are separate format versions from
+the review/manifest pair. Runtime-target reads preserve the exact accepted v1
+archive representation; v2 reads reconstruct the retained transport bundle.
+A composite's `review_composition` records its exact root and role sources; it never overloads
 captured target `composite_identity` or child `immutable_lineage`.
 
 The stable composition failure reasons are `composite_target_mismatch`,

@@ -455,6 +455,62 @@ provider gates for Grok (`make test-grok`), Cursor
 (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) are explicitly deferred to the
 `v0.1.26` five-provider release gate.
 
+## Historical compatibility corpus
+
+`internal/testsupport/historical/testdata/corpus.json` records synthetic, fixed
+artifact bytes under `testdata/bytes/`. Each case maps logical store paths to
+content-addressed files and records format versions, operation results and
+integrity bindings. The loader checks every file's length and SHA-256 before a
+consumer sees it. No committed directory is a runtime store or has a `.mulgae`
+path segment. Inputs contain no copied source archive, transcript, credential
+or real review.
+
+| Cases | Preserved behavior |
+|---|---|
+| Ordinary archive v1/v2 | Real-schema reads, reports, exports, exact non-minified v1 bytes and v2 transport reconstruction |
+| No-change and artist | Empty findings/skipped roles; exact Unicode, CRLF brief and binary visual identities |
+| Committed attempts in ordinary and child runs | Fixed IDs, role/provider selectors, prompt/template/stdin identities and exact stdin bytes; missing, tampered, prompt-binding and complete-stdin negatives |
+| Exact/recomposed rerun, delta and four followup resolutions | Historical lineage, outcomes and source/current evidence identities |
+| Ordinary review/manifest v2 | Failed-recovery source identity without an invented source review ID |
+| Legacy composite v1 | Support-index v1 and explicit evidence unavailability |
+| Copied composite v1/v2 | Published and failed-root source receipts, copied evidence, local reads after permitted source cleanup and private-copy export exclusion |
+| Failed recovery and exact failed-rerun lineage | Verified retry inventories, ancestor binding and cleanup protection without P2 report/export authority |
+| Retired Kimi and integrity controls | Retained rejection, missing/tampered support, hash-consistent rebound/cross-run paths and wrong lineage |
+
+Archive v1/v2, ordinary review/manifest v1/v2 and composite v1/v2 are separate
+version axes. A legacy composite without copied support uses support-index v1;
+support-index v2 requires `support/composite.json`. Explicitly unavailable
+evidence remains distinct from a missing bound copy.
+
+The one-time provenance is in
+[`testdata/provenance.md`](../../internal/testsupport/historical/testdata/provenance.md).
+Expected report/export digests and reconstructed-archive digests come from
+baseline consumer reads. Tests load these fixed expectations; they have no
+update mode and invoke no historical producer to reconstruct their inputs.
+TASK-061 uses the same bytes for wire/parser changes. TASK-065 replaces the
+remaining producer-backed tests before deleting writers. Keep
+`ports.MarshalCapturedReviewMaterial`: runtime-target reads use it to reconstruct
+v2 archives, so it is a retained reader dependency.
+
+Run the focused checks with explicit packages:
+
+```sh
+go test -race -count=1 ./internal/testsupport/historical -run '^TestHistoricalCorpus(Records|RejectsChecksumMutation)$'
+go test -race -count=1 ./internal/app/query -run '^TestHistoricalCorpus(Read|Recovery|Attempts)$'
+go test -race -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationHistoricalCorpus(Consumers|Recovery|Cleanup)$'
+go test -race -count=1 ./internal/architecture -run '^TestTestSupportDependencyDirection$'
+```
+
+The loader and in-memory checks belong to the unit tier. The filesystem,
+publication reconciliation, report/export and cleanup consumers belong to the
+integration tier. They materialize only frozen files beneath owned temporary
+roots and exercise the retained application services with real schema and
+filesystem adapters. Run them with inherited `TMPDIR` and a symlinked temporary
+parent; resolve each owned root with `filepath.EvalSymlinks` before admission.
+After any consumer run, verify the complete corpus is byte-unchanged. Changing
+shared corpus bytes requires the applicable complete candidate gate in addition
+to these focused checks.
+
 ## Composite support verification
 
 For changes to self-contained composite support, cover published P2 sources and

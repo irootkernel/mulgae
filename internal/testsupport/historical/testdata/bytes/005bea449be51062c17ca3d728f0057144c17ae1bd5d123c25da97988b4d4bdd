@@ -1,0 +1,1 @@
+{"schema_version":"mulgae-provider-followup-output.v1","summary":"F001 remains open.","resolution":"partially_resolved","rationale":"The current target preserves the source finding.","evidence":[{"current":{"path":"internal/app/coordinator.go","line_start":1,"line_end":1,"side":"head","quote":"queueFallback(task)"}}],"new_findings":[],"limitations":[]}

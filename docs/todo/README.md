@@ -16,7 +16,9 @@ task identity, ordering, dependencies, and status.
   develops structured requirements review, bounded batch followup, and exact-run
   comparison as a preserved design held for redesign after EPIC-009 acceptance.
 
-- [EPIC-014: Application and contract ownership](EPIC-014-application-and-contract-ownership.md) defines the planning-only execution contract for this stage of the improvement sequence.
+- [EPIC-014: Application and contract ownership](EPIC-014-application-and-contract-ownership.md)
+  defines the remaining execution contract. Master requested EPIC-014 execution
+  on 2026-10-24; the roadmap records progress.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply

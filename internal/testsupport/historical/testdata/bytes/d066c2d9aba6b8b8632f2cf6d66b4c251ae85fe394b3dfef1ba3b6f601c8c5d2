@@ -1,0 +1,13 @@
+Return the required JSON review output.
+Mulgae-FRAMES/1
+Mulgae-UNTRUSTED/1
+scope:s_019f5a09-5eec-7001-8001-000000000001/r_019f5a09-5eec-7002-8002-000000000002/rt_019f5a09-5eee-7004-8004-000000000004/a_019f5a09-5eec-7006-8006-000000000006/i_019f5a09-5eed-7007-8007-000000000007
+section-id:94145f4dadc1d545e4da477ff5bf4990
+kind:review_target
+length:25
+sha256:5c7f970ed608861857c192b4980ae15da74b648be991b3250e9a0657d2b87599
+
+diff --git a/a.go b/a.go
+
+Mulgae-END/94145f4dadc1d545e4da477ff5bf4990
+Mulgae-FRAMES-END/1

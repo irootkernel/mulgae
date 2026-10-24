@@ -6,15 +6,15 @@ consolidates responsibility and removes retired writers without losing reads.
 ## Authority and execution boundary
 
 The [roadmap](../roadmap/README.md) alone owns IDs, order, dependencies and
-status. This dossier defines future work; it does not describe delivered
-capability. The planning baseline is `c4d717e282a426be0095533b94460c0cf40ae2db`.
+status. This dossier defines remaining work; the canonical owners describe
+delivered capability. The planning baseline is `c4d717e282a426be0095533b94460c0cf40ae2db`.
 Re-observe source, tests and contracts before each implementation task.
 
-This documentation-only design records no implementation or acceptance.
-Starting implementation requires a separate explicit request. This design does
-not authorize staging, commits, installation, configuration changes, provider
-credential changes, pushes, tags, publication or release. Provider calls and
-managed workflow effects belong to the later disclosed execution envelope.
+Master requested execution on 2026-10-24 under a separate bounded execution
+envelope. The roadmap records Task progress; that envelope owns implementation,
+checks and local commit authority. This dossier grants no installation,
+configuration or credential changes, pushes, tags, publication or release
+authority, and does not record Epic acceptance.
 
 Canonical owners remain [goals](../specs/goals.md),
 [contracts](../specs/contracts.md), [security](../specs/security.md),

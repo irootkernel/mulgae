@@ -74,9 +74,9 @@ comparison against the EPIC-012 baseline, with its durable outcomes promoted
 to the canonical documents and roadmap; Master accepted the completed Epic
 result on 2026-10-24. The remaining structural improvement sequence is
 [EPIC-014 application and contract ownership](todo/EPIC-014-application-and-contract-ownership.md).
-That dossier describes the remaining implementation and verification; current
-runtime contracts remain unchanged. The roadmap owns its dependencies and
-status.
+Master requested its execution on 2026-10-24. The frozen historical corpus
+preserves current read contracts; the dossier describes the remaining
+implementation and verification. The roadmap owns dependencies and status.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The

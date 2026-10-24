@@ -225,8 +225,10 @@ work.
   codec, while ReadRuntimeTarget preserves the original archive bytes after
   target binding. Query-service v1 fixtures now exist (TASK-050): exact v1
   bytes plus wrong-binding, missing, and tampered archive cases run alongside
-  v2 controls before the retained support reader changes. No deferred work
-  remains.
+  v2 controls before the retained support reader changes. The
+  [frozen historical corpus](../implementation-tips/README.md#historical-compatibility-corpus)
+  also retains those controls, including a non-minified v1 archive. No deferred
+  work remains.
 
 - `DF-023` Live admission and artist brief tests: canonical root mismatch is
   rejected before admission, and a binary artist brief is rejected before

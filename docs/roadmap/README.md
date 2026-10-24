@@ -33,7 +33,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
 | [EPIC-012](#epic-012-correctness-and-historical-compatibility) | Completed | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
 | [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
-| [EPIC-014](#epic-014-application-and-contract-ownership) | Planned | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
+| [EPIC-014](#epic-014-application-and-contract-ownership) | In Progress | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 
 ## Adopted execution order
 
@@ -48,8 +48,8 @@ EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-22.
 EPIC-013 is complete: TASK-053 through TASK-059 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-24.
-EPIC-014 is the remaining planned improvement step: it requires
-explicit acceptance of EPIC-013 and does not depend on Deferred EPIC-008. Under
+EPIC-014 is the remaining improvement step. Its prerequisite, explicit
+acceptance of EPIC-013, is satisfied; it does not depend on Deferred EPIC-008. Under
 Master's quota-preservation decision, development and epic acceptance of
 EPIC-014 run the
 deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`,
@@ -62,8 +62,8 @@ are explicitly deferred to the `v0.1.26` release gate (`release-handler`),
 where all five providers (`zcode`, `grok`, `cursor`, `agy`, and `codex`) must
 pass on the release candidate. Record those deferred non-ZCode live checks
 explicitly at each epic handoff without claiming live coverage for unexercised
-providers. Master requested EPIC-013 execution on 2026-10-22; EPIC-014 remains
-documentation only and requires a separate execution request.
+providers. Master requested EPIC-013 execution on 2026-10-22 and EPIC-014
+execution on 2026-10-24.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -798,7 +798,7 @@ Master accepted the completed Epic result on 2026-10-24.
 
 ## EPIC-014: Application and contract ownership
 
-Status: Planned
+Status: In Progress
 
 Depends on: completed and explicitly accepted EPIC-013. No EPIC-008 dependency.
 
@@ -808,7 +808,7 @@ Goal: Consolidate application and wire-contract ownership, then remove proven re
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-060 | Planned | Freeze the minimal synthetic historical compatibility corpus before writer removal. | Exact retained bytes and expected read/report/export/recovery/cleanup outcomes, including integrity negatives. |
+| TASK-060 | Completed | Freeze the minimal synthetic historical compatibility corpus before writer removal. | Exact retained bytes and expected read/report/export/recovery/cleanup outcomes, including integrity negatives. |
 | TASK-061 | Planned | Share matching persisted wire shapes and strict-JSON mechanics under explicit owners. | Byte-exact corpus/schema controls, identical acceptance sets, Unicode and distinct digest-domain preservation. |
 | TASK-062 | Planned | Construct typed CLI/MCP review requests and centralize shared status/failure policy. | Existing 12000/4096 limits, binding/roles/no-change behavior, consumer envelopes and full error precedence. |
 | TASK-063 | Planned | Move doctor and common admission policy into application services with injected capabilities. | Doctor v7 states/reasons/exits, native-home/config drift, cancellation and prohibited-effect rejection. |
