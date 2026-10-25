@@ -144,6 +144,47 @@ Transport envelopes, startup-lease revalidation and deferred preparation stay
 with their existing owners. Source admission, provider construction and
 publication still require the later live execution checks.
 
+## Configuration admission ownership
+
+`internal/app/config` owns the shared source, attestor, source confirmation
+sequence and native-account and native-home authority comparisons. Each caller
+keeps its dependency checks, original error causes, failure mapping and
+confirmation positions. The shared function performs no observation beyond
+those three confirmations and does not cache their results.
+
+The application-owned account observer returns lookup availability, home, raw
+UID, effective UID and lookup error. `internal/adapters/environment` performs
+the OS lookup and retains the build-bound native-home override. Config sources,
+split sources, codecs, locality attestors, environment inspectors, clocks and
+version observers retain their existing interfaces. The config adapter selects
+the filesystem locality fallback from the existing `.git` observation;
+composition injects that selection capability at the caller's former position.
+No admission policy is added to ports.
+
+Composition supplies source factories, codecs, account observers, locality
+selection and the init service constructor. Init keeps destination collision
+checks before account observation, both native-home observations around service
+construction, repeated application admission, renderer prevalidation and receipt
+checks. Config keeps resolution before account comparison. Normal review checks
+the account before configuration, while preflight continues to resolve policy
+without that account check. Target and spawn confirmations use the shared
+sequence at their existing positions.
+
+`doctor.LocalService` owns local v7 diagnosis and readiness reductions through
+injected source, codec, account, locality, inspector, version and clock
+capabilities. Composition supplies the service constructor and build platform
+metadata without another platform observation. CLI doctor and providers call
+this same service; envelopes, schema validation and human formatting remain in
+the CLI. Recorded-evidence diagnosis remains with `doctor.Service`.
+
+A final native-home mismatch clears configured IDs, provider inventory and
+assignment observations before the existing model validation. It preserves
+earlier permitted discovery/version effects and returns unsafe readiness with
+exit 8. Providers can then perform its independent recorded-evidence reads.
+Cursor's adapter-owned version observation accepts its complete calendar/hash
+tuple while the application retains date-based eligibility and exact verified
+tuple policy. The source and native-home confirmation positions are unchanged.
+
 ## Run status and failure selection
 
 `internal/app/runstatus` owns publication-first acquisition through a two-method

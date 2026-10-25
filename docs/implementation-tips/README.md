@@ -608,6 +608,119 @@ provider gates for Grok (`make test-grok`), Cursor
 (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) are explicitly deferred to the
 `v0.1.26` five-provider release gate.
 
+## Shared configuration admission controls
+
+`internal/app/config/admission.go` owns the shared source, attestor, source
+confirmation and account comparisons. Tests assert early-stop order and exact
+error identity, including cancellation, and preserve the existing account
+acceptance and rejection messages. Composition supplies the source, codec,
+account and locality capabilities; OS lookup and `.git` inspection stay in
+adapters. Application production files, including files behind build tags,
+must not import OS account, filesystem or process implementations. Inspect their
+imports directly as well as running the architecture guard.
+
+Run the focused controls on one physical line per command. Keep the doctor
+compatibility commands below alongside these checks: they pin the unchanged
+outputs and effects while admission ownership moves. The separate Q1/Q3 controls
+below cover the approved conformance corrections; no control certifies live
+providers.
+
+```sh
+go test -count=1 -v ./internal/app/config -run '^(TestLocalityAdmissionSequence|TestNativeAccountAdmissionCompatibility|TestServiceResolvesCanonicalConfigV2Pair|TestBundleSHA256BindsAuthorityOrderAndBoundaries)$'
+go test -count=1 -v ./internal/app/init -run '^(TestInitializeProjectRejectsExistingConfigBeforeDiscovery|TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem|TestInitializeProjectRejectsSameByteConfigIdentitySubstitution|TestInitializeProjectRequiresTerminalLocalityRevalidation|TestInitializeProjectRejectsConfigMutationAfterTerminalAttestation)$'
+go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestAdmissionSequenceCharacterization|TestDoctorProvidersConformanceCompatibility|TestApplicationConfigRejectsNativeAccountAndIdentityMismatch|TestApplicationNativeHomeCancellationUsesExitNine|TestRejectedInitOutputModes)$'
+go test -count=1 -v ./internal/composition -run '^(TestProductionLivePreflightPreservesIndependentBindingAndConfigIdentity|TestProductionConfigCredentialFailuresRemainSecurityFailures|TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation)$'
+go test -count=1 -v ./internal/architecture -run '^TestProductionDependencyDirection$'
+```
+
+## Doctor admission compatibility controls
+
+`internal/entrypoint/mulgae/doctor_characterization_test.go` and its fixed
+`testdata/task063-doctor-before.json` capture the production behavior at
+`41ad32adae32bca48b898b25478368e2ea5d33c8` before TASK-063 moves admission
+policy. The snapshots preserve complete command JSON, human stdout/stderr,
+process exits and ordered capability callbacks. They include provider listing
+with and without unverified profiles and recorded evidence.
+
+The fixture fixes the clock, request ID, provider identities and locality
+observations. Only the request's temporary project root and the doctor
+configuration digest are normalized. The test checks that digest against the
+admitted local file bytes before replacing it. Schema validation still receives
+the original output. Expected outputs are fixed files with no update mode.
+
+The trace records injected locality, native-home, executable, version and
+recorded-diagnosis observations. Same-byte replacement around locality callbacks
+checks the surrounding source confirmations through real configuration files.
+These traces do not claim to instrument the concrete source's internal reads or
+OS account lookup. Keep the existing native-account comparison tests alongside
+the snapshots. Review composition separately checks static, preflight, target
+and spawn locality order using the real configuration source.
+
+Two groups of immutable predecessor snapshots record the defects corrected in
+TASK-063. Final native-home replacement originally requested an internal exit
+10, projected by doctor and providers to exit 7. Doctor JSON lost the inline
+diagnosis. Cursor originally failed before launch, and the generic normalizer
+rejected its complete calendar/hash tuple. `task063-doctor-before.json` retains
+those bytes. Other characterization cases continue to compare with that file.
+
+`task063-doctor-corrected.json` contains separate fixed expectations for the
+12 Q1/Q3 cases, constructed from the predecessor controls and the approved
+corrections. `TestDoctorProvidersConformanceCompatibility` compares the corrected
+public outputs and effects.
+`TestProviderVersionObserverCursorTupleAndGenericNormalization` checks one Cursor
+launch, the full tuple and unchanged generic normalization. These controls now
+require a complete unsafe diagnosis after final native-home mismatch and an
+observed Cursor calendar/hash tuple, replacing the predecessor defect assertions.
+Model and v7 schema validation are unchanged. The Q1 regression checks the complete unsafe
+projection, both providers filtering modes and the earlier version observation
+plus independent later evidence reads. Cursor controls use synthetic executables,
+physical temporary roots, exact argv, empty cwd/home, launch markers, identity
+replacement, failure/timeout precedence and complete tuple policy cases. They
+make no live model request or use an operator provider home.
+
+`doctor.LocalService` owns local diagnosis and reduction. Its focused tests
+trace source, locality, codec, account, native-home and version calls, including
+both source confirmations around every locality confirmation. No final config
+confirmation is added after provider observation. Record red regressions before
+repair, green corrections before the policy move, and the same green controls
+afterward. Keep the original predecessor JSON immutable. DF-027 remains open;
+unsupported configuration versions retain `config_yaml_invalid`.
+
+Native-home cancellation preserves its original cause in LocalService. Doctor
+projects it to public exit 9. Providers retains its existing command envelope
+restriction: requested cancellation projects to public exit 7. The exit-9 CLI
+controls cover init, config and doctor, and do not include providers.
+
+Run each command on one physical line, and confirm that every named test runs:
+
+```sh
+go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestAdmissionSequenceCharacterization|TestDoctorProvidersConformanceCompatibility|TestProvidersCharacterization|TestAdmitConfiguredNativeAccount|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
+go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverCursorTupleAndGenericNormalization|TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestObserveNativeHomeIdentityCapturesDescriptorAndDetectsReplacement|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes)$'
+go test -count=1 -v ./internal/composition -run '^TestReviewAdmissionSequenceCharacterization$'
+```
+
+Use the standard checks after focused verification. Tagged compilation does
+not certify live provider behavior. Grok, Cursor, AGY and opt-in Codex live
+certification remain deferred to the v0.1.26 release gate.
+
+## Local doctor correction and extraction controls
+
+Run every command on one physical line. These controls cover Q1/Q3 and the
+shared LocalService used by doctor and providers; keep the earlier M1/M2
+commands alongside them.
+
+```sh
+go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorProvidersNativeHomeReplacementRegression|TestDoctorProvidersNativeHomeCancellationProjection)$'
+go test -count=1 -v ./internal/adapters/environment -run '^TestProviderVersionObserverCursorCompatibility$'
+go test -count=1 -v ./internal/entrypoint/mulgae -run '^TestDoctorProvidersProductionCursorCompatibility$'
+go test -count=1 -v ./internal/app/doctor -run '^(TestLocalDoctorAdmissionSequence|TestLocalDoctorReadinessCompatibility|TestLocalDoctorRejectsNativeHomeReplacement|TestLocalDoctorCancellationAndEffects)$'
+go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestDoctorProvidersConformanceCompatibility|TestApplicationDoctorReportsStableBinaryAvailabilityReasons|TestApplicationDoctorClassifiesProviderCLIVersionOutcomes|TestApplicationDoctorNeverInvokesLiveHeartbeatService|TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
+go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes|TestProviderVersionObserverAdmitsAgyOfflineVersion|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestSpawnVerifierRejectsZCodeProviderConfigDrift|TestApplicationMetadataObservationBindsShortVersionAndDigest)$'
+go test -count=1 -v ./internal/app/reviewrun -run '^(TestClassifyVersion|TestCursorDateHashGuidanceIgnoresHashOrder)$'
+go test -count=1 -v ./internal/architecture -run '^TestProductionDependencyDirection$'
+go test -count=1 -v ./internal/entrypoint/mulgae -run '^TestDoctorCursorProductionVersionPolicy$'
+```
+
 ## Runtime wire compatibility controls
 
 `internal/app/{query,report}/strict_object_compatibility_test.go` compares fixed

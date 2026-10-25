@@ -16,6 +16,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Report native-home replacement as a security failure in doctor and providers, and restore offline Cursor version checks.
 - Preserve independent failures when CLI status encounters a missing publication or diagnostic record, instead of reporting success or suppressing the diagnostic failure.
 - Prevent inherited file descriptors from reaching provider processes, and let protocol sessions close stdin while draining the final output.
 

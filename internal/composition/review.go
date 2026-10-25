@@ -13,6 +13,7 @@ import (
 	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
@@ -117,7 +118,7 @@ func composeReviewRuns(
 		return nil, fmt.Errorf("review composition: invalid dependencies")
 	}
 
-	graph, err := composeProductionRuntimeGraph(ctx, build, root, catalog, validator, projectReader, clock, ids, writer, publicationStore)
+	graph, err := composeProductionRuntimeGraph(ctx, build, root, catalog, validator, projectReader, clock, ids, writer, publicationStore, environment.AccountObserver{})
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +356,7 @@ type productionRunPolicy struct {
 	enabledRoles        map[domain.Role]bool
 	providerTimeouts    map[reviewrun.Family]time.Duration
 	config              adapterconfig.Config
-	source              *adapterconfig.LocalConfigSource
+	source              ports.ConfigSource
 	attestor            ports.ConfigLocalityAttestor
 	localityRequest     ports.ConfigLocalityRequest
 	locality            ports.ConfigLocalityContext
@@ -364,22 +365,26 @@ type productionRunPolicy struct {
 // resolveProductionRunPolicy admits the sole project-local configuration before
 // provider discovery. The returned values are copied into downstream authorities.
 func resolveProductionRunPolicy(ctx context.Context, root ports.AnchoredRoot, reader ports.TrustedProjectReader) (productionRunPolicy, error) {
+	return resolveProductionRunPolicyWithCapabilities(ctx, root, reader, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, adapterconfig.SelectLocality)
+}
+
+func resolveProductionRunPolicyWithCapabilities(ctx context.Context, root ports.AnchoredRoot, reader ports.TrustedProjectReader, sources ports.ConfigSourceFactory, codec appconfig.Codec, selectLocality appconfig.LocalitySelector) (productionRunPolicy, error) {
 	bindingUnsupported := false
 	attestor, ok := reader.(ports.ConfigLocalityAttestor)
 	if !ok {
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureInternal, "config locality attestor unavailable", nil)
 	}
-	if _, err := os.Lstat(filepath.Join(root.String(), ".git")); os.IsNotExist(err) {
-		bindingUnsupported = true
-		attestor = adapterconfig.NewFilesystemLocalityAttestor()
-	} else if err != nil {
-		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "project locality unavailable", err)
+	var selectErr error
+	attestor, bindingUnsupported, selectErr = selectLocality(root, attestor)
+	if selectErr != nil {
+		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "project locality unavailable", selectErr)
 	}
-	source, err := adapterconfig.NewLocalConfigSource(root, false)
+
+	source, err := sources.OpenConfigSource(root, false)
 	if err != nil {
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "local configuration unavailable", err)
 	}
-	proof, err := source.Observation().Proof()
+	proof, err := source.Proof()
 	if err != nil {
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "local configuration unsafe", err)
 	}
@@ -394,7 +399,7 @@ func resolveProductionRunPolicy(ctx context.Context, root ports.AnchoredRoot, re
 	if err := revalidateProductionLocality(ctx, source, attestor, request, locality); err != nil {
 		return productionRunPolicy{}, reviewCompositionFailure(domain.FailureSecurityPolicy, "config locality drifted", err)
 	}
-	resolution, err := appconfig.NewService(adapterconfig.YAMLCodec{}).Resolve(ctx, appconfig.ResolveRequest{Source: source})
+	resolution, err := appconfig.NewService(codec).Resolve(ctx, appconfig.ResolveRequest{Source: source})
 	if err != nil {
 		return productionRunPolicy{}, productionConfigResolutionFailure(err)
 	}
@@ -419,7 +424,7 @@ func productionConfigResolutionFailure(cause error) error {
 }
 
 type reviewLocalityBinding struct {
-	source   *adapterconfig.LocalConfigSource
+	source   ports.ConfigSource
 	attestor ports.ConfigLocalityAttestor
 	request  ports.ConfigLocalityRequest
 	expected ports.ConfigLocalityContext
@@ -429,7 +434,7 @@ type reviewLocalityContextKey struct{}
 
 type localitySpawnVerifier struct {
 	inner    providercli.SpawnVerifier
-	source   *adapterconfig.LocalConfigSource
+	source   ports.ConfigSource
 	attestor ports.ConfigLocalityAttestor
 	request  ports.ConfigLocalityRequest
 	expected ports.ConfigLocalityContext
@@ -471,7 +476,7 @@ type configuredProductionCandidateSource struct {
 	config           adapterconfig.Config
 	policyIdentities map[reviewrun.Family]string
 	providerTimeouts map[reviewrun.Family]time.Duration
-	source           *adapterconfig.LocalConfigSource
+	source           ports.ConfigSource
 	attestor         ports.ConfigLocalityAttestor
 	staticRequest    ports.ConfigLocalityRequest
 	staticContext    ports.ConfigLocalityContext
@@ -513,7 +518,7 @@ func (source *configuredProductionCandidateSource) BindLiveQualifiedRunContext(c
 	return context.WithValue(ctx, reviewLocalityContextKey{}, bound), nil
 }
 
-func bindProductionLocality(ctx context.Context, source *adapterconfig.LocalConfigSource, attestor ports.ConfigLocalityAttestor, staticRequest ports.ConfigLocalityRequest, staticContext ports.ConfigLocalityContext, config adapterconfig.Config, commits []ports.GitObjectID, target []byte) (reviewLocalityBinding, error) {
+func bindProductionLocality(ctx context.Context, source ports.ConfigSource, attestor ports.ConfigLocalityAttestor, staticRequest ports.ConfigLocalityRequest, staticContext ports.ConfigLocalityContext, config adapterconfig.Config, commits []ports.GitObjectID, target []byte) (reviewLocalityBinding, error) {
 	if ctx == nil || source == nil || attestor == nil {
 		return reviewLocalityBinding{}, fmt.Errorf("configured provider locality: invalid request")
 	}
@@ -546,17 +551,11 @@ func bindProductionLocality(ctx context.Context, source *adapterconfig.LocalConf
 	return reviewLocalityBinding{source: source, attestor: attestor, request: request, expected: expected}, nil
 }
 
-func revalidateProductionLocality(ctx context.Context, source *adapterconfig.LocalConfigSource, attestor ports.ConfigLocalityAttestor, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
+func revalidateProductionLocality(ctx context.Context, source ports.ConfigSource, attestor ports.ConfigLocalityAttestor, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
 	if source == nil || attestor == nil {
 		return fmt.Errorf("config locality unavailable")
 	}
-	if err := source.Revalidate(); err != nil {
-		return err
-	}
-	if err := attestor.Revalidate(ctx, request, expected); err != nil {
-		return err
-	}
-	return source.Revalidate()
+	return appconfig.ConfirmLocality(ctx, source, attestor, request, expected)
 }
 
 func (source *configuredProductionCandidateSource) NewLiveQualifiedRunCandidates(ctx context.Context, target ports.LiveSourceTarget, selection reviewrun.RunSelection) ([]reviewrun.QualifiedRunCandidate, error) {

@@ -11,15 +11,11 @@ import (
 	"fmt"
 	"os"
 	"os/user"
-	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/cli"
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
-	adapterenvironment "github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/app"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/doctor"
@@ -630,9 +626,9 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	if !ok {
 		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_attestor_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
 	}
-	if _, statErr := os.Lstat(filepath.Join(root.String(), ".git")); os.IsNotExist(statErr) {
-		attestor = adapterconfig.NewFilesystemLocalityAttestor()
-	} else if statErr != nil {
+	var selectErr error
+	attestor, _, selectErr = application.selectConfigLocality(root, attestor)
+	if selectErr != nil {
 		return initObservedFailure(invocation, appinit.Selection{}, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, "config_locality_unsafe", "The project-local Mulgae configuration failed locality admission.", false)
 	}
 	mode, providerIDs := request.Selection()
@@ -647,11 +643,11 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	// detects an existing pair deterministically and native failures can
 	// truthfully report an observed-absent destination. Explicit refresh proceeds
 	// against the admitted pair.
-	initialSource, err := adapterconfig.NewLocalConfigSource(root, true)
+	initialSource, err := application.configSources.OpenConfigSource(root, true)
 	if err != nil {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, configLocalityFailureCode(err, "config_locality_unsafe"), "The project-local Mulgae configuration failed locality admission.", false)
 	}
-	initialProof, err := initialSource.Observation().Proof()
+	initialProof, err := initialSource.Proof()
 	if err != nil {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationNotObserved, domain.FailureSecurityPolicy, configLocalityFailureCode(err, "config_locality_unsafe"), "The project-local Mulgae configuration failed locality admission.", false)
 	}
@@ -669,15 +665,15 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	if initialSource.Present() && !request.RefreshLocal() {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationPresent, domain.FailureConfiguration, "init_destination_exists", "The project-local Mulgae configuration already exists.", false)
 	}
-	nativeUser, err := adapterenvironment.InstalledUser()
-	if err != nil || nativeUser == nil {
+	nativeAccount := application.accounts.ObserveAccount()
+	if nativeAccount.Err != nil || !nativeAccount.Available {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureProviderUnavailable, "init_native_account_unavailable", "The native user account is unavailable.", false)
 	}
-	uid, err := strconv.ParseUint(nativeUser.Uid, 10, 32)
-	if err != nil || int(uid) != os.Geteuid() {
+	_, err = appconfig.EffectiveAccountUID(nativeAccount)
+	if err != nil {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_account_mismatch", "The native user account does not match the effective user.", false)
 	}
-	nativeHome := nativeUser.HomeDir
+	nativeHome := nativeAccount.Home
 	assertedNativeHome, nativeHomeAsserted := request.NativeHome()
 	if nativeHomeAsserted && assertedNativeHome != nativeHome {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_home_mismatch", "The asserted native home does not match the installed user.", false)
@@ -686,7 +682,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	if contextCancellation(err) {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureCancelled, "request_cancelled", "The command was cancelled.", false)
 	}
-	if err != nil || !nativeHomeAuthority.Valid() || nativeHomeAuthority.Path() != nativeHome || nativeHomeAuthority.EffectiveUID() != uint32(os.Geteuid()) {
+	if err != nil || !nativeHomeAuthority.Valid() || nativeHomeAuthority.Path() != nativeHome || nativeHomeAuthority.EffectiveUID() != uint32(nativeAccount.EffectiveUID) {
 		return initObservedFailure(invocation, selection, ports.ConfigDestinationAbsent, domain.FailureSecurityPolicy, "init_native_home_mismatch", "The installed native home failed descriptor identity admission.", false)
 	}
 	var prevalidatedCommitted []byte
@@ -732,7 +728,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 		_, err = application.renderer.Render(prevalidationContext, commandResult, requestJSON, data)
 		return err
 	})
-	service, err := appinit.NewService(installer, application.inspector, attestor, prevalidator, application.clock, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, application.catalog)
+	service, err := application.newInitService(installer, application.inspector, attestor, prevalidator, application.clock, application.configSources, application.configCodec, application.catalog)
 	if err != nil {
 		return execution{failure: &executionFailure{class: domain.FailureInternal, code: "init_service_unavailable", stage: "cli.init", exit: app.ExitCodeInternal}}
 	}
@@ -831,7 +827,7 @@ func (application *Application) handleConfig(ctx context.Context, invocation Inv
 	if !ok {
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("config locality attestor unavailable"), domain.FailureInternal)}
 	}
-	source, err := adapterconfig.NewLocalConfigSource(root, false)
+	source, err := application.configSources.OpenConfigSource(root, false)
 	if err != nil {
 		class := domain.FailureConfiguration
 		if os.IsNotExist(err) {
@@ -839,7 +835,7 @@ func (application *Application) handleConfig(ctx context.Context, invocation Inv
 		}
 		return execution{failure: executionFailureFor(invocation.Command(), err, class)}
 	}
-	proof, err := source.Observation().Proof()
+	proof, err := source.Proof()
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureSecurityPolicy)}
 	}
@@ -854,7 +850,7 @@ func (application *Application) handleConfig(ctx context.Context, invocation Inv
 	if err := revalidateConfigLocality(ctx, source, attestor, localityRequest, locality); err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureSecurityPolicy)}
 	}
-	resolved, err := appconfig.NewService(adapterconfig.YAMLCodec{}).Resolve(ctx, appconfig.ResolveRequest{Source: source})
+	resolved, err := appconfig.NewService(application.configCodec).Resolve(ctx, appconfig.ResolveRequest{Source: source})
 	if err != nil {
 		class := domain.FailureConfiguration
 		if admission, ok := adapterconfig.AsAdmissionError(err); ok && (admission.Reason() == adapterconfig.ReasonCredentialKeyDetected || admission.Reason() == adapterconfig.ReasonCredentialValueDetected) {
@@ -862,8 +858,7 @@ func (application *Application) handleConfig(ctx context.Context, invocation Inv
 		}
 		return execution{failure: executionFailureFor(invocation.Command(), err, class)}
 	}
-	installed, installedErr := adapterenvironment.InstalledUser()
-	nativeHome, effectiveUID, err := admitConfiguredNativeAccount(resolved.Config().Raw().NativeUser.Home, installed, installedErr, os.Geteuid())
+	nativeHome, effectiveUID, err := appconfig.AdmitConfiguredNativeAccount(resolved.Config().Raw().NativeUser.Home, application.accounts.ObserveAccount())
 	if err != nil {
 		return execution{failure: executionFailureFor(invocation.Command(), err, domain.FailureProviderUnavailable)}
 	}
@@ -893,14 +888,11 @@ func (application *Application) handleConfig(ctx context.Context, invocation Inv
 }
 
 func admitConfiguredNativeAccount(configuredHome string, installed *user.User, installedErr error, effectiveUID int) (string, uint32, error) {
-	if installedErr != nil || installed == nil || installed.HomeDir == "" || effectiveUID < 0 {
-		return "", 0, errors.New("native user account is unavailable")
+	account := appconfig.AccountObservation{Available: installed != nil, EffectiveUID: effectiveUID, Err: installedErr}
+	if installed != nil {
+		account.Home, account.UID = installed.HomeDir, installed.Uid
 	}
-	installedUID, err := strconv.ParseUint(installed.Uid, 10, 32)
-	if err != nil || uint64(effectiveUID) != installedUID || configuredHome != installed.HomeDir {
-		return "", 0, errors.New("configured native account does not match the effective user")
-	}
-	return installed.HomeDir, uint32(effectiveUID), nil
+	return appconfig.AdmitConfiguredNativeAccount(configuredHome, account)
 }
 
 func (application *Application) handleDoctor(ctx context.Context, invocation Invocation) execution {
@@ -980,424 +972,28 @@ func (application *Application) handleDoctor(ctx context.Context, invocation Inv
 }
 
 func (application *Application) diagnoseLocalDoctor(ctx context.Context, root ports.AnchoredRoot) (doctor.LocalDoctorResult, error) {
-	now := application.clock.Now().UTC()
-	base := doctor.LocalDoctorResult{
-		SchemaVersion: doctor.LocalSchemaVersion, CheckedAt: now, ProjectRootURI: ".",
-		Config:                doctor.LocalConfigProjection{Status: "missing", URI: adapterconfig.ConfigRelativePath, Authority: "project_local", Locality: "not_observed", TargetCommitOIDs: []string{}, ReasonCodes: []string{"config_missing"}},
-		ConfigV3:              doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{"config_missing"}},
-		LocalConfiguration:    doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
-		ProviderIdentity:      doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
-		ConfiguredProviderIDs: []string{},
-		ProviderInventory:     localUnobservedProviderInventory(),
-		Assignment:            doctor.LocalAssignmentProjection{State: "not_observed", Resilience: "not_observed"},
-		PlatformEvidence:      []doctor.LocalPlatformEvidence{{Cell: runtime.GOOS + "-" + runtime.GOARCH, Native: runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"}},
-		ToolsLock:             doctor.LocalToolsLock{State: "not_observed"},
-		Readiness:             doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"config_missing"}},
-		ConfiguredReadiness:   doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"config_missing"}},
-		RoleRouteReadiness:    doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"config_missing"}},
-		Diagnostics:           []doctor.LocalDiagnostic{{Code: "config_missing", Category: "readiness", Message: "Project-local Mulgae configuration is missing.", Redacted: true}},
-	}
-	source, err := adapterconfig.NewLocalConfigSource(root, true)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return finalizeLocalDoctor(base)
-		}
-		reason := configLocalityFailureCode(err, "config_locality_unsafe")
-		base.Config.Status, base.Config.Locality = "unsafe", "rejected"
-		base.Config.ReasonCodes = []string{reason}
-		base.ConfigV3 = doctor.LocalDiagnosticCheck{Status: "unverifiable", ReasonCodes: []string{"config_not_observed_due_to_locality"}}
-		base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration failed security admission.", Redacted: true}}
-		return finalizeLocalDoctor(base)
-	}
-	if !source.ProjectPresent() {
-		return finalizeLocalDoctor(base)
-	}
-	attestor, ok := application.projectReader.(ports.ConfigLocalityAttestor)
-	if !ok {
-		return doctor.LocalDoctorResult{}, fmt.Errorf("doctor locality attestor unavailable")
-	}
-	proof, err := source.Proof()
-	if err != nil {
-		return doctor.LocalDoctorResult{}, err
-	}
-	request, err := ports.NewConfigLocalityRequest(root, proof, nil, nil)
-	if err != nil {
-		return doctor.LocalDoctorResult{}, err
-	}
-	locality, err := attestor.Attest(ctx, request)
-	if err != nil {
-		reason := configLocalityFailureCode(err, "config_locality_unsafe")
-		base.Config.Status, base.Config.Locality = "unsafe", "rejected"
-		base.Config.ReasonCodes = []string{reason}
-		base.ConfigV3 = doctor.LocalDiagnosticCheck{Status: "unverifiable", ReasonCodes: []string{"config_not_observed_due_to_locality"}}
-		base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration failed locality admission.", Redacted: true}}
-		return finalizeLocalDoctor(base)
-	}
-	if err := revalidateConfigLocality(ctx, source, attestor, request, locality); err != nil {
-		reason := configLocalityFailureCode(err, "config_locality_drifted")
-		base.Config.Status, base.Config.Locality = "drifted", "drifted"
-		base.Config.ReasonCodes = []string{reason}
-		base.ConfigV3 = doctor.LocalDiagnosticCheck{Status: "unverifiable", ReasonCodes: []string{"config_not_observed_due_to_locality"}}
-		base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration changed during admission.", Redacted: true}}
-		return finalizeLocalDoctor(base)
-	}
-	if !source.Present() {
-		if _, err := adapterconfig.ProjectProviderIDs(source.ProjectBytes()); err != nil {
-			base = rejectDoctorConfig(base, err)
-			return finalizeLocalDoctor(base)
-		}
-		base.Config.Status, base.Config.Locality = "missing", "verified"
-		base.Config.ReasonCodes = []string{"local_config_missing"}
-		base.ConfigV3 = doctor.LocalDiagnosticCheck{Status: "unverifiable", ReasonCodes: []string{"local_config_missing"}}
-		base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{"local_config_missing"}}
-		base.ProviderIdentity = doctor.LocalDiagnosticCheck{Status: "unverifiable", ReasonCodes: []string{"local_config_missing"}}
-		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"local_config_missing"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "local_config_missing", Category: "configuration", Message: "Machine-local Mulgae configuration is missing; run mulgae init.", Redacted: true}}
-		return finalizeLocalDoctor(base)
-	}
-	data, identity, err := source.Read()
-	if err != nil {
-		base = rejectDoctorConfig(base, err)
-		return finalizeLocalDoctor(base)
-	}
-	config, err := adapterconfig.Decode(data)
-	if err != nil {
-		base = rejectDoctorConfig(base, err)
-		return finalizeLocalDoctor(base)
-	}
-	base.ConfigV3 = doctor.LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}
-	base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}
-	base.ProviderIdentity = doctor.LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}
-	if err := revalidateConfigLocality(ctx, source, attestor, request, locality); err != nil {
-		reason := configLocalityFailureCode(err, "config_locality_drifted")
-		base.Config.Status, base.Config.Locality = "drifted", "drifted"
-		base.Config.ReasonCodes = []string{reason}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration changed during admission.", Redacted: true}}
-		return finalizeLocalDoctor(base)
-	}
-	head, _ := locality.Checkout()
-	indexDigest, _, _ := locality.Index()
-	base.Config = doctor.LocalConfigProjection{Status: "ready", URI: adapterconfig.ConfigRelativePath, SHA256: identity.SHA256(), Authority: "project_local", Locality: "verified", CheckoutHeadOID: head, IndexEntriesSHA256: indexDigest, TargetCommitOIDs: append([]string{}, locality.ApplicableCommitOIDs()...), ProvenanceState: "accepted", ReasonCodes: []string{}}
-	installed, userErr := adapterenvironment.InstalledUser()
-	installedUID := uint64(0)
-	var installedUIDErr error
-	if installed != nil {
-		installedUID, installedUIDErr = strconv.ParseUint(installed.Uid, 10, 32)
-	}
-	if userErr != nil || installed == nil || installedUIDErr != nil || installed.HomeDir != config.NativeUser.Home || int(installedUID) != os.Geteuid() {
-		base.Config.Status = "unsafe"
-		base.Config.NativeHomeIdentity = "mismatch"
-		base.Config.ReasonCodes = []string{"native_home_mismatch"}
-		base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{"native_home_mismatch"}}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{"native_home_mismatch"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "native_home_mismatch", Category: "security", Message: "Configured native home does not match the installed user.", Redacted: true}}
-		return finalizeLocalDoctor(base)
-	}
-	nativeHomeAuthority, nativeHomeErr := application.inspector.ObserveNativeHomeIdentity(ctx, installed.HomeDir)
-	if contextCancellation(nativeHomeErr) {
-		return doctor.LocalDoctorResult{}, nativeHomeErr
-	}
-	if nativeHomeErr != nil || !nativeHomeAuthority.Valid() || nativeHomeAuthority.Path() != installed.HomeDir || nativeHomeAuthority.EffectiveUID() != uint32(os.Geteuid()) {
-		base.Config.Status = "unsafe"
-		base.Config.NativeHomeIdentity = "mismatch"
-		base.Config.ReasonCodes = []string{"native_home_mismatch"}
-		base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{"native_home_mismatch"}}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{"native_home_mismatch"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "native_home_mismatch", Category: "security", Message: "Configured native home failed descriptor identity admission.", Redacted: true}}
-		return finalizeLocalDoctor(base)
-	}
-	base.Config.NativeHomeIdentity = "verified"
-	base.ConfiguredProviderIDs = config.Providers.Families()
-	roleReferences := localConfiguredRoleReferences(config)
-	configured := make(map[reviewrun.Family][]string, len(base.ConfiguredProviderIDs))
-	if provider := config.Providers.ZCode; provider != nil {
-		configured[reviewrun.FamilyZCode] = []string{provider.AppBundle}
-	}
-	if provider := config.Providers.Grok; provider != nil {
-		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
-	}
-	if provider := config.Providers.Codex; provider != nil {
-		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
-	}
-	if provider := config.Providers.Cursor; provider != nil {
-		configured[reviewrun.FamilyCursor] = []string{provider.Executable}
-	}
-	if provider := config.Providers.Agy; provider != nil {
-		configured[reviewrun.FamilyAgy] = []string{provider.Executable}
-	}
-	profiles, discoveryErr := reviewrun.DiscoverConfiguredProviderProfiles(ctx, application.inspector, configured)
-	securityDiscoveryFamilies := make(map[reviewrun.Family]struct{})
-	for _, family := range reviewrun.ConfiguredProviderSecurityFamilies(discoveryErr) {
-		securityDiscoveryFamilies[family] = struct{}{}
-	}
-	if discoveryErr != nil && len(securityDiscoveryFamilies) == 0 {
-		return doctor.LocalDoctorResult{}, discoveryErr
-	}
-	profileByFamily := make(map[string]reviewrun.DiscoveredProviderProfile, len(profiles))
-	for _, profile := range profiles {
-		profileByFamily[string(profile.Family())] = profile
-	}
-	base.ProviderInventory = make([]doctor.LocalProviderInventoryRow, 0, 5)
-	eligible := 0
-	unsafeAdmission := len(securityDiscoveryFamilies) > 0
-	for _, family := range []string{"zcode", "grok", "codex", "cursor", "agy"} {
-		if _, configuredFamily := configured[reviewrun.Family(family)]; !configuredFamily {
-			base.ProviderInventory = append(base.ProviderInventory, doctor.LocalProviderInventoryRow{
-				Family: family, ReferencedByRoles: []string{}, State: "not_configured", Reason: "not_configured",
-				BinaryAvailable:       doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
-				CLICompatible:         doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
-				ApplicationCompatible: doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
-			})
-			continue
-		}
-		row := doctor.LocalProviderInventoryRow{Family: family, Configured: true, ReferencedByRoles: roleReferences[family]}
-		profile := profileByFamily[family]
-		row.ApplicationCompatible = doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}
-		if family == "zcode" {
-			row.ApplicationCompatible = localZCodeApplicationCompatibility(profile)
-		}
-		if _, unsafeIdentity := securityDiscoveryFamilies[reviewrun.Family(family)]; unsafeIdentity {
-			row.State, row.Reason = "unavailable", "provider_executable_unsafe_identity"
-			switch profile.Reason() {
-			case "launcher_security_failure":
-				row.Reason = "zcode_launcher_unsafe_identity"
-			case "provider_config_security_failure":
-				row.Reason = "zcode_provider_config_unsafe_identity"
-			case "application_metadata_security_failure":
-				row.Reason = "zcode_application_metadata_unsafe_identity"
-			}
-			row.BinaryAvailable = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{row.Reason}}
-			row.CLICompatible = doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}
-			base.ProviderInventory = append(base.ProviderInventory, row)
-			continue
-		}
-		if profile.Executable() == "" || profile.Launcher() == "" || profile.Family() == reviewrun.FamilyZCode && (profile.ZCodeProviderConfig() == "" || profile.ApplicationMetadata() == "" || profile.ApplicationVersion() == "") {
-			reason := "provider_executable_missing"
-			switch profile.Reason() {
-			case "executable_not_executable":
-				reason = "provider_executable_not_executable"
-			case "executable_observation_failed":
-				reason = "provider_binary_observation_failed"
-			case "launcher_unreadable":
-				reason = "zcode_launcher_unreadable"
-			case "launcher_observation_failed":
-				reason = "zcode_launcher_observation_failed"
-			case "launcher_not_found":
-				reason = "zcode_launcher_missing"
-			case "provider_config_not_found":
-				reason = "zcode_provider_config_missing"
-			case "provider_config_unreadable":
-				reason = "zcode_provider_config_unreadable"
-			case "provider_config_observation_failed":
-				reason = "zcode_provider_config_observation_failed"
-			case "application_metadata_unreadable":
-				reason = "zcode_application_metadata_unreadable"
-			case "application_metadata_observation_failed":
-				reason = "zcode_application_metadata_observation_failed"
-			case "application_version_malformed":
-				reason = "zcode_application_version_malformed"
-			}
-			row.State, row.Reason = "unavailable", reason
-			row.BinaryAvailable = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
-			row.CLICompatible = doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}
-			base.ProviderInventory = append(base.ProviderInventory, row)
-			continue
-		}
-		row.BinaryAvailable = doctor.LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}
-		guidance, _ := reviewrun.Guidance(reviewrun.Family(family))
-		row.CLICompatible = doctor.LocalCLICompatibility{
-			Status: "unverifiable", Eligibility: "not_evaluated", Compatibility: "not_observed",
-			MinimumVersion: guidance.Minimum, VerifiedLatest: guidance.VerifiedLatest, ReasonCode: "provider_cli_version_observation_failed",
-		}
-		if !nilApplicationDependency(application.versionObserver) {
-			argv := append(profile.Argv(), "--version")
-			observation, observeErr := application.versionObserver.ObserveProviderVersion(ctx, family, argv, ports.ProviderVersionIdentity{
-				ExecutableSHA256: profile.SHA256(), LauncherSHA256: profile.LauncherSHA256(),
-				ZCodeProviderConfig: profile.ZCodeProviderConfig(), ZCodeProviderConfigSHA256: profile.ZCodeProviderConfigSHA256(),
-				ApplicationMetadata: profile.ApplicationMetadata(), ApplicationMetadataSHA256: profile.ApplicationMetadataSHA256(),
-			})
-			if observeErr == nil {
-				row.CLICompatible = localCLICompatibility(reviewrun.Family(family), guidance, observation)
-			}
-		}
-		cliIdentityUnsafe := row.CLICompatible.ReasonCode == "provider_cli_version_unsafe_identity"
-		unsafeAdmission = unsafeAdmission || cliIdentityUnsafe
-		if row.CLICompatible.Eligibility == "eligible" && row.ApplicationCompatible.Eligibility != "ineligible" {
-			eligible++
-			row.State, row.Reason = "eligible", row.CLICompatible.ReasonCode
-			if family == "zcode" {
-				row.Reason = row.ApplicationCompatible.ReasonCode
-			}
-		} else {
-			row.State, row.Reason = "unavailable", row.CLICompatible.ReasonCode
-			if row.ApplicationCompatible.Eligibility == "ineligible" && !cliIdentityUnsafe {
-				row.Reason = row.ApplicationCompatible.ReasonCode
-			}
-		}
-		base.ProviderInventory = append(base.ProviderInventory, row)
-	}
-	nativeHomeCurrent, nativeHomeErr := application.inspector.ObserveNativeHomeIdentity(ctx, installed.HomeDir)
-	if contextCancellation(nativeHomeErr) {
-		return doctor.LocalDoctorResult{}, nativeHomeErr
-	}
-	if nativeHomeErr != nil || !sameNativeHomeAuthority(nativeHomeAuthority, nativeHomeCurrent) {
-		base.Config.Status = "unsafe"
-		base.Config.NativeHomeIdentity = "mismatch"
-		base.Config.ReasonCodes = []string{"native_home_mismatch"}
-		base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{"native_home_mismatch"}}
-		base.Assignment = doctor.LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{"native_home_mismatch"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "native_home_mismatch", Category: "security", Message: "Configured native home changed during admission.", Redacted: true}}
-		return finalizeLocalDoctor(base)
-	}
-	switch {
-	case unsafeAdmission:
-		base.Assignment = doctor.LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{"provider_security_admission_failed"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_security_admission_failed", Category: "security", Message: "A configured provider failed security admission.", Redacted: true}}
-	case eligible != len(configured):
-		base.Assignment = doctor.LocalAssignmentProjection{State: "unavailable", Resilience: "unavailable"}
-		base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_offline_readiness_failed"}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: "provider_offline_readiness_failed", Category: "readiness", Message: "At least one configured provider failed offline binary or CLI compatibility checks.", Redacted: true}}
-	default:
-		// Every role runs on exactly one provider, so one eligible family is a
-		// complete configuration, not a degraded one.
-		base.Assignment = doctor.LocalAssignmentProjection{State: "ready", Resilience: "ready"}
-		base.Readiness = doctor.LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}
-		base.Diagnostics = []doctor.LocalDiagnostic{}
-	}
-	base.ConfiguredReadiness = base.Readiness
-	base.RoleRouteReadiness = localRoleRouteReadiness(base.ProviderInventory)
-	return finalizeLocalDoctor(base)
-}
-
-func finalizeLocalDoctor(result doctor.LocalDoctorResult) (doctor.LocalDoctorResult, error) {
-	if result.ConfiguredReadiness.State == "unverified" && len(result.ConfiguredReadiness.ReasonCodes) == 1 && result.ConfiguredReadiness.ReasonCodes[0] == "config_missing" {
-		result.ConfiguredReadiness = result.Readiness
-	}
-	if result.RoleRouteReadiness.State == "unverified" && len(result.RoleRouteReadiness.ReasonCodes) == 1 && result.RoleRouteReadiness.ReasonCodes[0] == "config_missing" {
-		result.RoleRouteReadiness = result.Readiness
-	}
-	return result, result.Validate()
-}
-
-func localCLICompatibility(family reviewrun.Family, guidance reviewrun.VersionGuidance, observation ports.ProviderVersionObservation) doctor.LocalCLICompatibility {
-	result := doctor.LocalCLICompatibility{MinimumVersion: guidance.Minimum, VerifiedLatest: guidance.VerifiedLatest, Eligibility: "not_evaluated", Compatibility: "not_observed"}
-	switch observation.State() {
-	case ports.ProviderVersionObserved:
-		result.ObservedVersion = observation.Version()
-		switch reviewrun.ClassifyVersion(family, observation.Version()) {
-		case reviewrun.VersionGreen:
-			result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "verified", "eligible", "verified", "provider_cli_version_supported"
-		case reviewrun.VersionYellow:
-			result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "verified", "eligible", "newer_than_verified", "provider_cli_version_newer_than_verified"
-		case reviewrun.VersionRed:
-			result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "failed", "ineligible", "below_minimum", "provider_cli_version_below_minimum"
-		default:
-			result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "failed", "ineligible", "malformed", "provider_cli_version_malformed"
-		}
-	case ports.ProviderVersionTimedOut:
-		result.Status, result.ReasonCode = "unverifiable", "provider_cli_version_timeout"
-	case ports.ProviderVersionExecutionFailed:
-		result.Status, result.ReasonCode = "unverifiable", "provider_cli_version_command_failed"
-	case ports.ProviderVersionMalformed:
-		result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "failed", "ineligible", "malformed", "provider_cli_version_malformed"
-	case ports.ProviderVersionUnsafeIdentity:
-		result.Status, result.ReasonCode = "failed", "provider_cli_version_unsafe_identity"
-	default:
-		result.Status, result.ReasonCode = "unverifiable", "provider_cli_version_observation_failed"
-	}
-	return result
-}
-
-func localZCodeApplicationCompatibility(profile reviewrun.DiscoveredProviderProfile) doctor.LocalCLICompatibility {
-	guidance := reviewrun.ZCodeApplicationGuidance()
-	result := doctor.LocalCLICompatibility{
-		Status: "failed", ObservedVersion: profile.ApplicationVersion(), Eligibility: "ineligible", Compatibility: "malformed",
-		MinimumVersion: guidance.Minimum, VerifiedLatest: guidance.VerifiedLatest, ReasonCode: "zcode_application_version_malformed",
-	}
-	switch profile.ApplicationVersionClassification() {
-	case reviewrun.VersionGreen:
-		result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "verified", "eligible", "verified", "zcode_application_version_supported"
-	case reviewrun.VersionYellow:
-		result.Status, result.Eligibility, result.Compatibility, result.ReasonCode = "verified", "eligible", "newer_than_verified", "zcode_application_version_newer_than_verified"
-	case reviewrun.VersionRed:
-		result.Compatibility, result.ReasonCode = "below_minimum", "zcode_application_version_below_minimum"
-	}
-	return result
-}
-
-func localUnobservedProviderInventory() []doctor.LocalProviderInventoryRow {
-	rows := make([]doctor.LocalProviderInventoryRow, 0, 5)
-	for _, family := range []string{"zcode", "grok", "codex", "cursor", "agy"} {
-		rows = append(rows, doctor.LocalProviderInventoryRow{
-			Family: family, ReferencedByRoles: []string{}, State: "not_observed", Reason: "config_not_ready",
-			BinaryAvailable:       doctor.LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
-			CLICompatible:         doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
-			ApplicationCompatible: doctor.LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"},
-		})
-	}
-	return rows
-}
-
-func localConfiguredRoleReferences(config adapterconfig.Config) map[string][]string {
-	references := map[string][]string{"zcode": {}, "grok": {}, "codex": {}, "cursor": {}, "agy": {}}
-	roles := []struct {
-		name string
-		role adapterconfig.RoleConfig
-	}{
-		{"logic", config.Roles.Logic}, {"security", config.Roles.Security},
-		{"maintainability", config.Roles.Maintainability}, {"product", config.Roles.Product},
-		{"documentation", config.Roles.Documentation}, {"testing", config.Roles.Testing},
-		{"artist", config.Roles.Artist},
-	}
-	for _, candidate := range roles {
-		if candidate.role.Enabled {
-			references[candidate.role.PrimaryProvider] = append(references[candidate.role.PrimaryProvider], candidate.name)
-		}
-	}
-	return references
-}
-
-func localRoleRouteReadiness(rows []doctor.LocalProviderInventoryRow) doctor.LocalReadiness {
-	for _, row := range rows {
-		if len(row.ReferencedByRoles) > 0 && row.State != "eligible" {
-			return doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{"provider_role_route_unavailable"}}
-		}
-	}
-	return doctor.LocalReadiness{State: "ready", ExitCode: 0, ReasonCodes: []string{}}
+	attestor, _ := application.projectReader.(ports.ConfigLocalityAttestor)
+	service := application.newLocalDoctor(doctor.LocalDependencies{
+		Clock: application.clock, Sources: application.configSources, Codec: application.configCodec,
+		Accounts: application.accounts, Locality: attestor, Inspector: application.inspector,
+		Versions: application.versionObserver, Platform: application.doctorPlatform,
+	})
+	return service.DiagnoseLocal(ctx, root)
 }
 
 func sameNativeHomeAuthority(left, right ports.NativeHomeLaunchAuthority) bool {
-	return left.Valid() && right.Valid() &&
-		left.Path() == right.Path() &&
-		left.Device() == right.Device() &&
-		left.Inode() == right.Inode() &&
-		left.EffectiveUID() == right.EffectiveUID()
+	return appconfig.SameNativeHomeAuthority(left, right)
 }
 
 func contextCancellation(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func revalidateConfigLocality(ctx context.Context, source *adapterconfig.LocalConfigSource, attestor ports.ConfigLocalityAttestor, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
+func revalidateConfigLocality(ctx context.Context, source ports.ConfigSource, attestor ports.ConfigLocalityAttestor, request ports.ConfigLocalityRequest, expected ports.ConfigLocalityContext) error {
 	if source == nil || attestor == nil {
 		return fmt.Errorf("config locality unavailable")
 	}
-	if err := source.Revalidate(); err != nil {
-		return err
-	}
-	if err := attestor.Revalidate(ctx, request, expected); err != nil {
-		return err
-	}
-	return source.Revalidate()
+	return appconfig.ConfirmLocality(ctx, source, attestor, request, expected)
 }
 
 func configLocalityFailureCode(err error, fallback string) string {
@@ -1405,35 +1001,6 @@ func configLocalityFailureCode(err error, fallback string) string {
 		return string(reason)
 	}
 	return fallback
-}
-
-func rejectDoctorConfig(base doctor.LocalDoctorResult, err error) doctor.LocalDoctorResult {
-	if admission, ok := adapterconfig.AsAdmissionError(err); ok && (admission.Reason() == adapterconfig.ReasonCredentialKeyDetected || admission.Reason() == adapterconfig.ReasonCredentialValueDetected) {
-		reason := string(admission.Reason())
-		base.Config.Status, base.Config.Locality = "unsafe", "verified"
-		base.Config.ReasonCodes = []string{reason}
-		base.ConfigV3 = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
-		base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
-		base.ProviderIdentity = doctor.LocalDiagnosticCheck{Status: "unverifiable", ReasonCodes: []string{reason}}
-		base.Readiness = doctor.LocalReadiness{State: "unsafe", ExitCode: 8, ReasonCodes: []string{reason}}
-		base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "security", Message: "Project-local Mulgae configuration contains prohibited credential material.", Redacted: true}}
-		return base
-	}
-	reason := "config_yaml_invalid"
-	if admission, ok := adapterconfig.AsAdmissionError(err); ok {
-		reason = string(admission.Reason())
-	}
-	base.Config.Status, base.Config.Locality = "invalid", "verified"
-	base.Config.ReasonCodes = []string{reason}
-	base.ConfigV3 = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
-	base.LocalConfiguration = doctor.LocalDiagnosticCheck{Status: "verified", ReasonCodes: []string{}}
-	base.ProviderIdentity = doctor.LocalDiagnosticCheck{Status: "unverifiable", ReasonCodes: []string{reason}}
-	if reason == string(adapterconfig.ReasonProviderIdentityInvalid) || reason == string(adapterconfig.ReasonRoleMappingInvalid) {
-		base.ProviderIdentity = doctor.LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
-	}
-	base.Readiness = doctor.LocalReadiness{State: "unverified", ExitCode: 4, ReasonCodes: []string{reason}}
-	base.Diagnostics = []doctor.LocalDiagnostic{{Code: reason, Category: "configuration", Message: "Project-local Mulgae configuration is invalid.", Redacted: true}}
-	return base
 }
 
 func localProviderAdmission(evidence doctor.ProviderEvidenceRecord, family string) (admitted, unsafe bool) {

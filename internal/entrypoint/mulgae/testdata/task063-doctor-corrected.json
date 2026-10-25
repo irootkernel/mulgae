@@ -1,0 +1,178 @@
+{
+  "q1/doctor/identity_error/human": {
+    "exit": 8,
+    "stdout": "Readiness: unsafe\nConfiguration: unsafe\nProviders:\n- zcode: not_observed (config_not_ready)\n- grok: not_observed (config_not_ready)\n- codex: not_observed (config_not_ready)\n- cursor: not_observed (config_not_ready)\n- agy: not_observed (config_not_ready)\ncode: security_rejected\nstage: cli.doctor\nhint: run mulgae doctor\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.grok",
+      "version.grok",
+      "native.2"
+    ]
+  },
+  "q1/doctor/identity_error/json": {
+    "exit": 8,
+    "stdout": "{\"schema_version\":\"mulgae-command-result.v21\",\"command\":\"doctor\",\"request\":{\"check_platform\":true,\"check_providers\":true,\"command\":\"doctor\",\"output_format\":\"json\",\"project_root\":\"<project-root>\",\"request_id\":\"i_019f596a-cf80-7c67-b265-f37053d51ccf\"},\"completed_at\":\"2026-07-14T12:00:00.000Z\",\"exit\":{\"code\":8,\"kind\":\"security\"},\"reasons\":[{\"category\":\"security\",\"code\":\"security_rejected\",\"message\":\"The secure output policy rejected the command output. Failure at stage cli.doctor with code security_rejected; hint: run mulgae doctor.\",\"retryable\":false,\"artifact_uri\":null}],\"result\":{\"doctor\":{\"assignment\":{\"resilience\":\"not_observed\",\"state\":\"not_observed\"},\"checked_at\":\"2026-07-14T12:00:00Z\",\"config\":{\"authority\":\"project_local\",\"checkout_head_oid\":\"\",\"index_entries_sha256\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"locality\":\"verified\",\"native_home_identity\":\"mismatch\",\"provenance_state\":\"accepted\",\"reason_codes\":[\"native_home_mismatch\"],\"sha256\":\"<local-config-sha256>\",\"status\":\"unsafe\",\"target_commit_oids\":[],\"uri\":\".mulgae/config.yaml\"},\"config_v3\":{\"reason_codes\":[],\"status\":\"verified\"},\"configured_provider_ids\":[],\"configured_readiness\":{\"exit_code\":8,\"reason_codes\":[\"native_home_mismatch\"],\"state\":\"unsafe\"},\"diagnostics\":[{\"category\":\"security\",\"code\":\"native_home_mismatch\",\"message\":\"Configured native home changed during admission.\",\"redacted\":true}],\"local_configuration\":{\"reason_codes\":[\"native_home_mismatch\"],\"status\":\"failed\"},\"platform_evidence\":[{\"cell\":\"darwin-arm64\",\"native\":true}],\"project_root_uri\":\".\",\"provider_identity\":{\"reason_codes\":[],\"status\":\"verified\"},\"provider_inventory\":[{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"zcode\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"grok\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"codex\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"cursor\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"agy\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"}],\"readiness\":{\"exit_code\":8,\"reason_codes\":[\"native_home_mismatch\"],\"state\":\"unsafe\"},\"role_route_readiness\":{\"exit_code\":8,\"reason_codes\":[\"native_home_mismatch\"],\"state\":\"unsafe\"},\"schema_version\":\"mulgae-doctor-result.v7\",\"tools_lock\":{\"state\":\"not_observed\"}},\"doctor_result_uri\":null,\"kind\":\"diagnosed\",\"readiness\":\"unsafe\"}}\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.grok",
+      "version.grok",
+      "native.2"
+    ]
+  },
+  "q1/doctor/replacement/human": {
+    "exit": 8,
+    "stdout": "Readiness: unsafe\nConfiguration: unsafe\nProviders:\n- zcode: not_observed (config_not_ready)\n- grok: not_observed (config_not_ready)\n- codex: not_observed (config_not_ready)\n- cursor: not_observed (config_not_ready)\n- agy: not_observed (config_not_ready)\ncode: security_rejected\nstage: cli.doctor\nhint: run mulgae doctor\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.grok",
+      "version.grok",
+      "native.2"
+    ]
+  },
+  "q1/doctor/replacement/json": {
+    "exit": 8,
+    "stdout": "{\"schema_version\":\"mulgae-command-result.v21\",\"command\":\"doctor\",\"request\":{\"check_platform\":true,\"check_providers\":true,\"command\":\"doctor\",\"output_format\":\"json\",\"project_root\":\"<project-root>\",\"request_id\":\"i_019f596a-cf80-7c67-b265-f37053d51ccf\"},\"completed_at\":\"2026-07-14T12:00:00.000Z\",\"exit\":{\"code\":8,\"kind\":\"security\"},\"reasons\":[{\"category\":\"security\",\"code\":\"security_rejected\",\"message\":\"The secure output policy rejected the command output. Failure at stage cli.doctor with code security_rejected; hint: run mulgae doctor.\",\"retryable\":false,\"artifact_uri\":null}],\"result\":{\"doctor\":{\"assignment\":{\"resilience\":\"not_observed\",\"state\":\"not_observed\"},\"checked_at\":\"2026-07-14T12:00:00Z\",\"config\":{\"authority\":\"project_local\",\"checkout_head_oid\":\"\",\"index_entries_sha256\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"locality\":\"verified\",\"native_home_identity\":\"mismatch\",\"provenance_state\":\"accepted\",\"reason_codes\":[\"native_home_mismatch\"],\"sha256\":\"<local-config-sha256>\",\"status\":\"unsafe\",\"target_commit_oids\":[],\"uri\":\".mulgae/config.yaml\"},\"config_v3\":{\"reason_codes\":[],\"status\":\"verified\"},\"configured_provider_ids\":[],\"configured_readiness\":{\"exit_code\":8,\"reason_codes\":[\"native_home_mismatch\"],\"state\":\"unsafe\"},\"diagnostics\":[{\"category\":\"security\",\"code\":\"native_home_mismatch\",\"message\":\"Configured native home changed during admission.\",\"redacted\":true}],\"local_configuration\":{\"reason_codes\":[\"native_home_mismatch\"],\"status\":\"failed\"},\"platform_evidence\":[{\"cell\":\"darwin-arm64\",\"native\":true}],\"project_root_uri\":\".\",\"provider_identity\":{\"reason_codes\":[],\"status\":\"verified\"},\"provider_inventory\":[{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"zcode\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"grok\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"codex\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"cursor\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"agy\",\"reason\":\"config_not_ready\",\"referenced_by_roles\":[],\"state\":\"not_observed\"}],\"readiness\":{\"exit_code\":8,\"reason_codes\":[\"native_home_mismatch\"],\"state\":\"unsafe\"},\"role_route_readiness\":{\"exit_code\":8,\"reason_codes\":[\"native_home_mismatch\"],\"state\":\"unsafe\"},\"schema_version\":\"mulgae-doctor-result.v7\",\"tools_lock\":{\"state\":\"not_observed\"}},\"doctor_result_uri\":null,\"kind\":\"diagnosed\",\"readiness\":\"unsafe\"}}\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.grok",
+      "version.grok",
+      "native.2"
+    ]
+  },
+  "q1/providers/identity_error/human": {
+    "exit": 8,
+    "stdout": "no evidence-qualified provider profiles\ncode: security_rejected\nstage: cli.providers\nhint: run mulgae doctor\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.grok",
+      "version.grok",
+      "native.2",
+      "platform",
+      "permission"
+    ]
+  },
+  "q1/providers/identity_error/json": {
+    "exit": 8,
+    "stdout": "{\"schema_version\":\"mulgae-command-result.v21\",\"command\":\"providers\",\"request\":{\"command\":\"providers\",\"include_unverified\":false,\"output_format\":\"json\",\"project_root\":\"<project-root>\",\"request_id\":\"i_019f596a-cf80-7c67-b265-f37053d51ccf\"},\"completed_at\":\"2026-07-14T12:00:00.000Z\",\"exit\":{\"code\":8,\"kind\":\"security\"},\"reasons\":[{\"category\":\"security\",\"code\":\"security_rejected\",\"message\":\"The secure output policy rejected the command output. Failure at stage cli.providers with code security_rejected; hint: run mulgae doctor.\",\"retryable\":false,\"artifact_uri\":null}],\"result\":{\"kind\":\"providers_listed\",\"offline_ready_provider_count\":0,\"provider_evidence_uri\":null,\"static_evidence_ready_provider_count\":0}}\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.grok",
+      "version.grok",
+      "native.2",
+      "platform",
+      "permission"
+    ]
+  },
+  "q1/providers/replacement/human": {
+    "exit": 8,
+    "stdout": "no evidence-qualified provider profiles\ncode: security_rejected\nstage: cli.providers\nhint: run mulgae doctor\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.grok",
+      "version.grok",
+      "native.2",
+      "platform",
+      "permission"
+    ]
+  },
+  "q1/providers/replacement/json": {
+    "exit": 8,
+    "stdout": "{\"schema_version\":\"mulgae-command-result.v21\",\"command\":\"providers\",\"request\":{\"command\":\"providers\",\"include_unverified\":false,\"output_format\":\"json\",\"project_root\":\"<project-root>\",\"request_id\":\"i_019f596a-cf80-7c67-b265-f37053d51ccf\"},\"completed_at\":\"2026-07-14T12:00:00.000Z\",\"exit\":{\"code\":8,\"kind\":\"security\"},\"reasons\":[{\"category\":\"security\",\"code\":\"security_rejected\",\"message\":\"The secure output policy rejected the command output. Failure at stage cli.providers with code security_rejected; hint: run mulgae doctor.\",\"retryable\":false,\"artifact_uri\":null}],\"result\":{\"kind\":\"providers_listed\",\"offline_ready_provider_count\":0,\"provider_evidence_uri\":null,\"static_evidence_ready_provider_count\":0}}\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.grok",
+      "version.grok",
+      "native.2",
+      "platform",
+      "permission"
+    ]
+  },
+  "q3/doctor/human": {
+    "exit": 0,
+    "stdout": "Readiness: ready\nConfiguration: ready\nProviders:\n- zcode: not_configured (not_configured)\n- grok: not_configured (not_configured)\n- codex: not_configured (not_configured)\n- cursor: eligible (provider_cli_version_supported)\n- agy: not_configured (not_configured)\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.cursor",
+      "native.2"
+    ]
+  },
+  "q3/doctor/json": {
+    "exit": 0,
+    "stdout": "{\"schema_version\":\"mulgae-command-result.v21\",\"command\":\"doctor\",\"request\":{\"check_platform\":true,\"check_providers\":true,\"command\":\"doctor\",\"output_format\":\"json\",\"project_root\":\"<project-root>\",\"request_id\":\"i_019f596a-cf80-7c67-b265-f37053d51ccf\"},\"completed_at\":\"2026-07-14T12:00:00.000Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"doctor\":{\"assignment\":{\"resilience\":\"ready\",\"state\":\"ready\"},\"checked_at\":\"2026-07-14T12:00:00Z\",\"config\":{\"authority\":\"project_local\",\"checkout_head_oid\":\"\",\"index_entries_sha256\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"locality\":\"verified\",\"native_home_identity\":\"verified\",\"provenance_state\":\"accepted\",\"reason_codes\":[],\"sha256\":\"<local-config-sha256>\",\"status\":\"ready\",\"target_commit_oids\":[],\"uri\":\".mulgae/config.yaml\"},\"config_v3\":{\"reason_codes\":[],\"status\":\"verified\"},\"configured_provider_ids\":[\"cursor\"],\"configured_readiness\":{\"exit_code\":0,\"reason_codes\":[],\"state\":\"ready\"},\"diagnostics\":[],\"local_configuration\":{\"reason_codes\":[],\"status\":\"verified\"},\"platform_evidence\":[{\"cell\":\"darwin-arm64\",\"native\":true}],\"project_root_uri\":\".\",\"provider_identity\":{\"reason_codes\":[],\"status\":\"verified\"},\"provider_inventory\":[{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"zcode\",\"reason\":\"not_configured\",\"referenced_by_roles\":[],\"state\":\"not_configured\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"grok\",\"reason\":\"not_configured\",\"referenced_by_roles\":[],\"state\":\"not_configured\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"codex\",\"reason\":\"not_configured\",\"referenced_by_roles\":[],\"state\":\"not_configured\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"verified\"},\"cli_compatible\":{\"compatibility\":\"verified\",\"eligibility\":\"eligible\",\"minimum_version\":\"2026.10.14-0f9edde\",\"observed_version\":\"2026.10.14-0f9edde\",\"reason_code\":\"provider_cli_version_supported\",\"status\":\"verified\",\"verified_latest\":\"2026.10.14-0f9edde\"},\"configured\":true,\"family\":\"cursor\",\"reason\":\"provider_cli_version_supported\",\"referenced_by_roles\":[\"logic\"],\"state\":\"eligible\"},{\"application_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"binary_available\":{\"reason_codes\":[],\"status\":\"not_applicable\"},\"cli_compatible\":{\"compatibility\":\"not_observed\",\"eligibility\":\"not_evaluated\",\"minimum_version\":\"\",\"observed_version\":\"\",\"reason_code\":\"\",\"status\":\"not_applicable\",\"verified_latest\":\"\"},\"configured\":false,\"family\":\"agy\",\"reason\":\"not_configured\",\"referenced_by_roles\":[],\"state\":\"not_configured\"}],\"readiness\":{\"exit_code\":0,\"reason_codes\":[],\"state\":\"ready\"},\"role_route_readiness\":{\"exit_code\":0,\"reason_codes\":[],\"state\":\"ready\"},\"schema_version\":\"mulgae-doctor-result.v7\",\"tools_lock\":{\"state\":\"not_observed\"}},\"doctor_result_uri\":null,\"kind\":\"diagnosed\",\"readiness\":\"ready\"}}\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.cursor",
+      "native.2"
+    ]
+  },
+  "q3/providers/human": {
+    "exit": 0,
+    "stdout": "no evidence-qualified provider profiles\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.cursor",
+      "native.2",
+      "platform",
+      "permission"
+    ]
+  },
+  "q3/providers/json": {
+    "exit": 0,
+    "stdout": "{\"schema_version\":\"mulgae-command-result.v21\",\"command\":\"providers\",\"request\":{\"command\":\"providers\",\"include_unverified\":false,\"output_format\":\"json\",\"project_root\":\"<project-root>\",\"request_id\":\"i_019f596a-cf80-7c67-b265-f37053d51ccf\"},\"completed_at\":\"2026-07-14T12:00:00.000Z\",\"exit\":{\"code\":0,\"kind\":\"success\"},\"reasons\":[],\"result\":{\"kind\":\"providers_listed\",\"offline_ready_provider_count\":1,\"provider_evidence_uri\":null,\"static_evidence_ready_provider_count\":0}}\n",
+    "stderr": "",
+    "trace": [
+      "attest.1",
+      "locality.1",
+      "locality.2",
+      "native.1",
+      "binary.cursor",
+      "native.2",
+      "platform",
+      "permission"
+    ]
+  }
+}

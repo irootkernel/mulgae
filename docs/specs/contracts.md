@@ -886,6 +886,22 @@ directory. It emits the normalized observed version, current minimum and verifie
 and compatibility. A version above `verified_latest` preserves the existing
 eligible policy while using compatibility `newer_than_verified`.
 
+Cursor's local observation preserves the complete `YYYY.MM.DD-lowercasehex`
+tuple. Its minimum is the date of `2026.10.14-0f9edde`; that exact tuple is
+verified. Another valid hash on the same date or a newer date stays eligible as
+`newer_than_verified`. Invalid dates, unpadded dates, empty or uppercase hashes,
+ambiguous versions and embedded tokens remain unavailable.
+
+A native-home mismatch after permitted provider observations returns a complete
+unsafe v7 diagnosis with `native_home_mismatch` and exit 8. Configured provider
+IDs are empty, inventory rows are `not_observed`/`config_not_ready`, and both
+assignment fields are `not_observed`. Earlier observation effects are not
+reversed. Doctor keeps its inline diagnosis; providers reports zero offline-ready
+providers while retaining its independent static-evidence count and URI.
+Native-home cancellation retains its original cause: doctor projects public
+exit 9, while providers projects the requested cancellation to public exit 7
+under its unchanged permitted exit set.
+
 Top-level `readiness` and `configured_readiness` require every configured
 provider to pass binary availability and remain eligible under every applicable
 version policy.

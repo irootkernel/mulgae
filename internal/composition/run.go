@@ -10,15 +10,19 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"syscall"
 
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
+	"github.com/irootkernel/mulgae/internal/app/doctor"
+	appinit "github.com/irootkernel/mulgae/internal/app/init"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
@@ -168,7 +172,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		if buildErr != nil {
 			return nil, unavailableBuildMetadata(buildErr)
 		}
-		return composeProductionRuntimeGraph(heartbeatContext, build, heartbeatRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore)
+		return composeProductionRuntimeGraph(heartbeatContext, build, heartbeatRoot, catalog, validator, gitAdapter, clock, ids, writer, publicationStore, environment.AccountObserver{})
 	}}
 	publicationQueries := mulgae.NewPublicationQueryService(queryService)
 	publicationReports := mulgae.NewPublicationReportService(reportService)
@@ -179,6 +183,13 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		return 10
 	}
 	application, err := mulgae.NewApplication(mulgae.Dependencies{
+		NewLocalDoctor:          doctor.NewLocalService,
+		DoctorPlatform:          doctor.LocalPlatformEvidence{Cell: runtime.GOOS + "-" + runtime.GOARCH, Native: runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"},
+		ConfigSources:           adapterconfig.SourceFactory{},
+		ConfigCodec:             adapterconfig.YAMLCodec{},
+		Accounts:                environment.AccountObserver{},
+		SelectConfigLocality:    adapterconfig.SelectLocality,
+		NewInitService:          appinit.NewService,
 		ProjectContexts:         projectContexts,
 		Clock:                   clock,
 		RequestIDGenerator:      ids,

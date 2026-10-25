@@ -431,13 +431,7 @@ func (service *Service) revalidateLocality(ctx context.Context, source ports.Con
 	if service == nil || source == nil {
 		return fmt.Errorf("config locality: unavailable")
 	}
-	if err := source.Revalidate(); err != nil {
-		return err
-	}
-	if err := service.attestor.Revalidate(ctx, request, expected); err != nil {
-		return err
-	}
-	return source.Revalidate()
+	return appconfig.ConfirmLocality(ctx, source, service.attestor, request, expected)
 }
 
 func (service *Service) prevalidateMutationResults(ctx context.Context, base InitializeProjectResult) error {

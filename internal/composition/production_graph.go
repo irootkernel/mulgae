@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	"github.com/irootkernel/mulgae/internal/adapters/workspace"
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/review"
@@ -77,6 +77,7 @@ func composeProductionRuntimeGraph(
 	ids review.IdentityGenerator,
 	writer ports.SecureFileWriter,
 	publicationStore ports.PublicationStore,
+	accounts appconfig.AccountObserver,
 ) (_ *productionRuntimeGraph, err error) {
 	if !build.Valid() || ctx == nil || !root.Valid() || catalog == nil || validator == nil || projectReader == nil || clock == nil || ids == nil || writer == nil || publicationStore == nil {
 		return nil, fmt.Errorf("production graph: invalid dependencies")
@@ -84,20 +85,20 @@ func composeProductionRuntimeGraph(
 	if err := ports.ValidateResourceLimits(); err != nil {
 		return nil, fmt.Errorf("production graph: %w", err)
 	}
-	installedUser, err := environment.InstalledUser()
-	if err != nil || installedUser == nil || !filepath.IsAbs(installedUser.HomeDir) || filepath.Clean(installedUser.HomeDir) != installedUser.HomeDir {
+	installedAccount := accounts.ObserveAccount()
+	if installedAccount.Err != nil || !installedAccount.Available || !filepath.IsAbs(installedAccount.Home) || filepath.Clean(installedAccount.Home) != installedAccount.Home {
 		return nil, fmt.Errorf("production graph: installed user home")
 	}
-	installedUID, err := strconv.ParseUint(installedUser.Uid, 10, 32)
-	if err != nil || int(installedUID) != os.Geteuid() {
+	_, err = appconfig.EffectiveAccountUID(installedAccount)
+	if err != nil {
 		return nil, fmt.Errorf("production graph: installed user identity")
 	}
-	nativeHome := installedUser.HomeDir
+	nativeHome := installedAccount.Home
 	policy, err := resolveProductionRunPolicy(ctx, root, projectReader)
 	if err != nil {
 		return nil, err
 	}
-	if policy.config.NativeUser.Home != nativeHome {
+	if _, _, accountErr := appconfig.AdmitConfiguredNativeAccount(policy.config.NativeUser.Home, installedAccount); accountErr != nil {
 		return nil, reviewCompositionFailure(domain.FailureSecurityPolicy, "configured native home does not match installed user", nil)
 	}
 	tempRoot, err := startupTempRoot()

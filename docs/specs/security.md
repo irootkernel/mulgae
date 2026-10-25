@@ -114,6 +114,17 @@ credentials or project directory and sends no prompt or source. `providers`
 does not execute a live model request. Neither command starts an MCP server,
 creates a review run, or records remote logs.
 
+Local diagnosis confirms native-home identity after the permitted binary and
+version observations. A non-cancellation mismatch at that point returns unsafe
+readiness with `native_home_mismatch` and exit 8, clearing derived provider and
+assignment projections. It starts no later version process. Providers may still
+read its independent recorded evidence; those reads do not grant live review or
+publication authority. Native-home cancellation retains its original cause in
+the application service. Doctor projects public exit 9; providers retains its
+existing public exit 7 projection for requested cancellation.
+Cursor uses the same direct version argv, disposable home and identity checks;
+calendar/hash normalization does not authorize a model request.
+
 The separate `heartbeat` command crosses the live boundary only when
 `--authorize-live-request` is present. The handler rejects an unapproved request
 before composing provider infrastructure, reading credentials, or executing a

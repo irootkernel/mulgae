@@ -17,6 +17,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/cli"
 	"github.com/irootkernel/mulgae/internal/app"
+	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/doctor"
 	appheartbeat "github.com/irootkernel/mulgae/internal/app/heartbeat"
 	appinit "github.com/irootkernel/mulgae/internal/app/init"
@@ -612,11 +613,21 @@ type HeartbeatService interface {
 	ProbeProvider(context.Context, ports.AnchoredRoot, appheartbeat.Request) (appheartbeat.Result, error)
 }
 
+// InitServiceFactory binds the renderer callback without moving construction earlier.
+type InitServiceFactory func(ports.ConfigInstaller, ports.EnvironmentInspector, ports.ConfigLocalityAttestor, appinit.ResultPrevalidator, ports.Clock, ports.ConfigSourceFactory, appconfig.Codec, ports.ContractCatalog) (*appinit.Service, error)
+
 // Dependencies are the explicit inward dependencies required by Application.
 // The G006 query/report pair is optional for source compatibility, but it must
 // be supplied as one complete pair. EvidenceReader is optional and absent
 // authority evidence remains unverified.
 type Dependencies struct {
+	NewLocalDoctor          func(doctor.LocalDependencies) *doctor.LocalService
+	DoctorPlatform          doctor.LocalPlatformEvidence
+	ConfigSources           ports.ConfigSourceFactory
+	ConfigCodec             appconfig.Codec
+	Accounts                appconfig.AccountObserver
+	SelectConfigLocality    appconfig.LocalitySelector
+	NewInitService          InitServiceFactory
 	ProjectContexts         *appquery.ProjectContextService
 	Clock                   ports.Clock
 	RequestIDGenerator      RequestIDGenerator
@@ -641,26 +652,33 @@ type Dependencies struct {
 // process state and only reaches the filesystem, Git, and environment through
 // the injected ports.
 type Application struct {
-	projectContexts    *appquery.ProjectContextService
-	clock              ports.Clock
-	requestIDs         RequestIDGenerator
-	requestResolver    RequestResolver
-	catalog            ports.ContractCatalog
-	validator          cli.SchemaValidator
-	writer             ports.SecureFileWriter
-	projectReader      ports.TrustedProjectReader
-	inspector          ports.EnvironmentInspector
-	versionObserver    ports.ProviderVersionObserver
-	heartbeats         HeartbeatService
-	publicationQueries PublicationQueryService
-	diagnosticQueries  ports.RuntimeDiagnosticQuery
-	publicationReports PublicationReportService
-	reviewRuns         ReviewRunService
-	retention          RetentionService
-	exports            RedactedExportService
-	evidenceReader     doctor.EvidenceReader
-	renderer           *cli.EnvelopeRenderer
-	handlers           map[app.CommandName]applicationCommandHandler
+	newLocalDoctor       func(doctor.LocalDependencies) *doctor.LocalService
+	doctorPlatform       doctor.LocalPlatformEvidence
+	configSources        ports.ConfigSourceFactory
+	configCodec          appconfig.Codec
+	accounts             appconfig.AccountObserver
+	selectConfigLocality appconfig.LocalitySelector
+	newInitService       InitServiceFactory
+	projectContexts      *appquery.ProjectContextService
+	clock                ports.Clock
+	requestIDs           RequestIDGenerator
+	requestResolver      RequestResolver
+	catalog              ports.ContractCatalog
+	validator            cli.SchemaValidator
+	writer               ports.SecureFileWriter
+	projectReader        ports.TrustedProjectReader
+	inspector            ports.EnvironmentInspector
+	versionObserver      ports.ProviderVersionObserver
+	heartbeats           HeartbeatService
+	publicationQueries   PublicationQueryService
+	diagnosticQueries    ports.RuntimeDiagnosticQuery
+	publicationReports   PublicationReportService
+	reviewRuns           ReviewRunService
+	retention            RetentionService
+	exports              RedactedExportService
+	evidenceReader       doctor.EvidenceReader
+	renderer             *cli.EnvelopeRenderer
+	handlers             map[app.CommandName]applicationCommandHandler
 }
 
 // Result is the complete process projection of one invocation. Stdout and
@@ -806,26 +824,33 @@ func newApplication(
 		return nil, fmt.Errorf("mulgae application: command envelope renderer: %w", err)
 	}
 	application := &Application{
-		projectContexts:    dependencies.ProjectContexts,
-		clock:              dependencies.Clock,
-		requestIDs:         dependencies.RequestIDGenerator,
-		requestResolver:    dependencies.RequestResolver,
-		catalog:            dependencies.Catalog,
-		validator:          dependencies.JSONSchemaValidator,
-		writer:             dependencies.SecureWriter,
-		projectReader:      dependencies.TrustedProjectReader,
-		inspector:          dependencies.EnvironmentInspector,
-		versionObserver:    dependencies.ProviderVersionObserver,
-		heartbeats:         dependencies.Heartbeats,
-		publicationQueries: dependencies.PublicationQueries,
-		diagnosticQueries:  dependencies.DiagnosticQueries,
-		publicationReports: dependencies.PublicationReports,
-		reviewRuns:         dependencies.ReviewRuns,
-		retention:          dependencies.Retention,
-		exports:            dependencies.Exports,
-		evidenceReader:     evidenceReader,
-		renderer:           renderer,
-		handlers:           cloneApplicationHandlers(handlers),
+		newLocalDoctor:       dependencies.NewLocalDoctor,
+		doctorPlatform:       dependencies.DoctorPlatform,
+		configSources:        dependencies.ConfigSources,
+		configCodec:          dependencies.ConfigCodec,
+		accounts:             dependencies.Accounts,
+		selectConfigLocality: dependencies.SelectConfigLocality,
+		newInitService:       dependencies.NewInitService,
+		projectContexts:      dependencies.ProjectContexts,
+		clock:                dependencies.Clock,
+		requestIDs:           dependencies.RequestIDGenerator,
+		requestResolver:      dependencies.RequestResolver,
+		catalog:              dependencies.Catalog,
+		validator:            dependencies.JSONSchemaValidator,
+		writer:               dependencies.SecureWriter,
+		projectReader:        dependencies.TrustedProjectReader,
+		inspector:            dependencies.EnvironmentInspector,
+		versionObserver:      dependencies.ProviderVersionObserver,
+		heartbeats:           dependencies.Heartbeats,
+		publicationQueries:   dependencies.PublicationQueries,
+		diagnosticQueries:    dependencies.DiagnosticQueries,
+		publicationReports:   dependencies.PublicationReports,
+		reviewRuns:           dependencies.ReviewRuns,
+		retention:            dependencies.Retention,
+		exports:              dependencies.Exports,
+		evidenceReader:       evidenceReader,
+		renderer:             renderer,
+		handlers:             cloneApplicationHandlers(handlers),
 	}
 	return application, nil
 }

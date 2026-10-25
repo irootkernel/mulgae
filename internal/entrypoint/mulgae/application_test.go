@@ -4183,6 +4183,13 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	dependencies := Dependencies{
+		NewLocalDoctor:          doctor.NewLocalService,
+		DoctorPlatform:          doctor.LocalPlatformEvidence{Cell: "darwin-arm64", Native: true},
+		ConfigSources:           adapterconfig.SourceFactory{},
+		ConfigCodec:             adapterconfig.YAMLCodec{},
+		Accounts:                environment.AccountObserver{},
+		SelectConfigLocality:    adapterconfig.SelectLocality,
+		NewInitService:          appinit.NewService,
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:      fixedFoundationRequestIDs{},
 		Catalog:                 fixture.catalog,
@@ -4386,6 +4393,13 @@ func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 		t.Fatal(err)
 	}
 	application, err := NewApplication(Dependencies{
+		NewLocalDoctor:          doctor.NewLocalService,
+		DoctorPlatform:          doctor.LocalPlatformEvidence{Cell: "darwin-arm64", Native: true},
+		ConfigSources:           adapterconfig.SourceFactory{},
+		ConfigCodec:             adapterconfig.YAMLCodec{},
+		Accounts:                environment.AccountObserver{},
+		SelectConfigLocality:    adapterconfig.SelectLocality,
+		NewInitService:          appinit.NewService,
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:      fixedFoundationRequestIDs{},
 		Catalog:                 fixture.catalog,
@@ -4662,6 +4676,13 @@ func newG006FixtureWithWriter(
 	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
+		NewLocalDoctor:       doctor.NewLocalService,
+		DoctorPlatform:       doctor.LocalPlatformEvidence{Cell: "darwin-arm64", Native: true},
+		ConfigSources:        adapterconfig.SourceFactory{},
+		ConfigCodec:          adapterconfig.YAMLCodec{},
+		Accounts:             environment.AccountObserver{},
+		SelectConfigLocality: adapterconfig.SelectLocality,
+		NewInitService:       appinit.NewService,
 		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:   fixedFoundationRequestIDs{},
 		Catalog:              fixture.catalog,
@@ -4804,6 +4825,13 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
+		NewLocalDoctor:          doctor.NewLocalService,
+		DoctorPlatform:          doctor.LocalPlatformEvidence{Cell: "darwin-arm64", Native: true},
+		ConfigSources:           adapterconfig.SourceFactory{},
+		ConfigCodec:             adapterconfig.YAMLCodec{},
+		Accounts:                environment.AccountObserver{},
+		SelectConfigLocality:    adapterconfig.SelectLocality,
+		NewInitService:          appinit.NewService,
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:      fixedFoundationRequestIDs{},
 		Catalog:                 fixture.catalog,
@@ -4839,6 +4867,13 @@ func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileW
 	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
+		NewLocalDoctor:          doctor.NewLocalService,
+		DoctorPlatform:          doctor.LocalPlatformEvidence{Cell: "darwin-arm64", Native: true},
+		ConfigSources:           adapterconfig.SourceFactory{},
+		ConfigCodec:             adapterconfig.YAMLCodec{},
+		Accounts:                environment.AccountObserver{},
+		SelectConfigLocality:    adapterconfig.SelectLocality,
+		NewInitService:          appinit.NewService,
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:      fixedFoundationRequestIDs{},
 		Catalog:                 catalog,
