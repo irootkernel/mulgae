@@ -627,10 +627,12 @@ and status. The manifest reuses the constructed role-report identities instead
 of digesting the markdown again. Each binding still runs the complete build
 prologue, schema-validates the final review and manifest, and validates the
 assembled bundle. The reuse lifetime is one publication invocation: the shares
-are never cached across invocations or processes, a resumed or recovered
-publication constructs fresh, and the historical builder (`Build`) used by
-captured, followup, and composite candidates keeps its full construction on
-every call. Durable persistence, read-back, and sync behavior are unchanged.
+are never cached across invocations or processes, and a resumed or recovered
+live publication constructs fresh. The retained `Build` requires live source
+authority after its existing context, validator, candidate, review-ID, time and
+epoch checks. Historical readers and recovery retain their verification and
+encoding responsibilities. Durable persistence, read-back, and sync behavior
+are unchanged.
 
 Verified reads own a query-local, per-call read context
 (`internal/app/query`). Each public entry point — inspection, status, finding

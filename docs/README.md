@@ -72,11 +72,13 @@ has completed its member Tasks (`TASK-053` through `TASK-059`), the
 deterministic gates, ZCode-only live certification and a cross-version
 comparison against the EPIC-012 baseline, with its durable outcomes promoted
 to the canonical documents and roadmap; Master accepted the completed Epic
-result on 2026-10-24. The remaining structural improvement sequence is
-[EPIC-014 application and contract ownership](todo/EPIC-014-application-and-contract-ownership.md).
-Master requested its execution on 2026-10-24. The frozen historical corpus
-preserves current read contracts; the dossier describes the remaining
-implementation and verification. The roadmap owns dependencies and status.
+result on 2026-10-24.
+[EPIC-014 application and contract ownership](roadmap/README.md#epic-014-application-and-contract-ownership)
+consolidates wire, application and provider-mechanics ownership and removes
+retired producers under the frozen historical compatibility corpus. Its durable
+outcomes are in the canonical documents linked from the roadmap. The temporary
+execution dossier is retired; Epic integration review and Master's overall
+acceptance remain pending. The roadmap owns dependencies and status.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The

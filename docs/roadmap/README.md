@@ -56,8 +56,8 @@ deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`,
 and `make test-release`), `make test-mcp-clients` when MCP consumer paths
 change, and ZCode-only live verification (`TestLiveZCodeCapability` and
 ZCode-only live review checks). Live provider gates for Grok, Cursor, AGY, and
-Codex (`make test` / `make test-e2e` Grok leg, `make test-grok`,
-`make test-cursor`, `make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`)
+Codex (`make test-grok`, `make test-cursor`, `make test-agy`, and
+`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`)
 are explicitly deferred to the `v0.1.26` release gate (`release-handler`),
 where all five providers (`zcode`, `grok`, `cursor`, `agy`, and `codex`) must
 pass on the release candidate. Record those deferred non-ZCode live checks
@@ -802,25 +802,37 @@ Status: In Progress
 
 Depends on: completed and explicitly accepted EPIC-013. No EPIC-008 dependency.
 
-Detailed SOT: [EPIC-014 execution dossier](../todo/EPIC-014-application-and-contract-ownership.md).
+Canonical Outcomes:
+
+- [Historical compatibility corpus](../implementation-tips/README.md#historical-compatibility-corpus): fixed synthetic artifacts and real-schema read/report/export/recovery/cleanup controls independent of retired writers (`58bbc89`).
+- [Dependency direction](../architecture/README.md#dependency-direction) and [runtime wire compatibility controls](../implementation-tips/README.md#runtime-wire-compatibility-controls): shared persisted DTOs and matching strict-JSON mechanics, with caller-owned validation, separate encodings and unchanged acceptance sets (`028257e`).
+- [Review request ownership](../architecture/README.md#review-request-ownership) and [run status and failure selection](../architecture/README.md#run-status-and-failure-selection): typed CLI/MCP admission and missing-only status fallback with transport-specific limits and projections (`41ad32a`); the large MCP result-bound test harness correction is `217f813`.
+- [Configuration admission ownership](../architecture/README.md#configuration-admission-ownership), [public contracts](../specs/contracts.md#output-and-exits) and [provider isolation](../specs/security.md#provider-isolation): application-owned doctor/admission policy, native-home replacement classification and offline Cursor version checks (`31b3e18`).
+- [Live reviewer execution](../architecture/README.md#live-reviewer-execution): shared correlation, diagnostic and read-plan mechanics with family-specific authority, permission, cancellation, EOF and exit rules (`a4d14e2`).
+- [Composite support ownership](../architecture/README.md#composite-support-ownership): retired execution/writer removal with historical readers, v2 archive reconstruction, capture encoding, recovery and live multi-file P2 retained; large role-report reads preserve exact bytes and integrity (`cc4a47d`).
+- [Ownership guards](../architecture/README.md#ownership-guards), [internal file responsibilities](../architecture/README.md#internal-file-responsibilities) and [relocation checks](../implementation-tips/README.md#ownership-guard-and-relocation-checks): targeted dependency/request-route controls and three same-package pure moves (`8197922`).
+- [Deferred feedback](../deferred-feedback/README.md#deferred-feedback): DF-007, DF-012, DF-013, DF-014, DF-022, DF-024 and DF-025 have delivered resolutions. DF-026, DF-027 and DF-028 remain open; DF-029 remains with its existing owner.
+- [Verification guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics): retained compatibility controls, native serialized execution and compile-only tagged checks. Grok, Cursor, AGY and Codex live campaigns remain deferred to the `v0.1.26` five-provider release gate.
 
 Goal: Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-060 | Completed | Freeze the minimal synthetic historical compatibility corpus before writer removal. | Exact retained bytes and expected read/report/export/recovery/cleanup outcomes, including integrity negatives. |
-| TASK-061 | Completed | Share matching persisted wire shapes and strict-JSON mechanics under explicit owners. | Byte-exact corpus/schema controls, identical acceptance sets, Unicode and distinct digest-domain preservation. |
-| TASK-062 | Completed | Construct typed CLI/MCP review requests and centralize shared status/failure policy. | Existing 12000/4096 limits, binding/roles/no-change behavior, consumer envelopes and full error precedence. |
-| TASK-063 | Completed | Move doctor and common admission policy into application services with injected capabilities. | Doctor v7 states/reasons/exits, native-home/config drift, cancellation and prohibited-effect rejection. |
-| TASK-064 | Completed | Share identical provider correlation, diagnostic and read-plan mechanics. | Per-family wire/permission/cancel/EOF/exit behavior and deterministic tool diagnostic selection. |
-| TASK-065 | Completed | Remove proven retired execution/writer paths after their fixture and reader dependencies are replaced. | Caller/build-tag inventory, all retained compatibility checks, live P2 composite preservation and tagged compilation. |
-| TASK-066 | Completed | Enforce the established dependency boundaries and split changed files along ownership seams. | Architecture/import checks, pure-move equivalence and unchanged build-tag behavior. |
-| TASK-067 | Planned | Certify integrated ownership and retained compatibility, then prepare canonical closeout. | Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), `make test-mcp-clients`, ZCode live verification, historical consumers, resolved-feedback accounting, deferred non-ZCode live gates recorded for `v0.1.26`, and explicit Epic acceptance. |
+| TASK-060 | Completed | Freeze the minimal synthetic historical compatibility corpus before writer removal. | Exact retained bytes and expected read/report/export/recovery/cleanup outcomes, including integrity negatives; complete VP-2 suite (`58bbc89`). |
+| TASK-061 | Completed | Share matching persisted wire shapes and strict-JSON mechanics under explicit owners. | Byte-exact corpus/schema controls, identical acceptance sets, Unicode and distinct digest-domain preservation; complete VP-2 suite (`028257e`). |
+| TASK-062 | Completed | Construct typed CLI/MCP review requests and centralize shared status/failure policy. | Existing 12000/4096 limits, binding/roles/no-change behavior, consumer envelopes and full error precedence; complete VP-2 suite (`41ad32a`), with test-harness correction `217f813` verified in TASK-063. |
+| TASK-063 | Completed | Move doctor and common admission policy into application services with injected capabilities. | Doctor v7 states/reasons/exits, native-home/config drift, cancellation and prohibited-effect rejection; complete VP-2 suite (`31b3e18`). |
+| TASK-064 | Completed | Share identical provider correlation, diagnostic and read-plan mechanics. | Per-family wire/permission/cancel/EOF/exit behavior and deterministic tool diagnostic selection; complete VP-3 suite (`a4d14e2`). |
+| TASK-065 | Completed | Remove proven retired execution/writer paths after their fixture and reader dependencies are replaced. | Caller/build-tag inventory, retained compatibility, live P2 and large-report integrity controls; complete VP-3 suite (`cc4a47d`). |
+| TASK-066 | Completed | Enforce the established dependency boundaries and split changed files along ownership seams. | Architecture/import checks, raw declaration/import/activation equivalence for the three moves and focused native checks; complete VP-3 suite (`8197922`). |
+| TASK-067 | Completed | Promote integrated ownership and retained compatibility outcomes, retire the dossier and prepare the Epic acceptance handoff. | Exact integrated candidate requires the four deterministic Make gates, `make test-mcp-clients`, all seven tagged-vet checks and ZCode live verification, retained consumers and caller inventory, and resolved-feedback accounting. Four non-ZCode live campaigns remain deferred to `v0.1.26`; explicit Epic acceptance remains pending. |
 
-Tasks run in the listed order; each Task after the first depends on its
-predecessor. The dossier owns scope, implementation decisions, negative tests,
-compatibility, prohibited actions and handoff details. Planning does not start
-implementation or grant delivery/runtime authority.
+Tasks ran in the listed order; each Task after the first depended on its
+predecessor. Scope, implementation decisions, negative tests, compatibility,
+prohibited actions and handoff details were owned by the retired execution
+dossier, preserved in Git history. Durable outcomes are the canonical commits
+and documents above. Epic integration review and Master's
+overall acceptance remain pending; this Epic stays In Progress.
 
 ### Epic acceptance
 

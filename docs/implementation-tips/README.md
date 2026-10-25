@@ -681,6 +681,37 @@ provider gates for Grok (`make test-grok`), Cursor
 (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) are explicitly deferred to the
 `v0.1.26` five-provider release gate.
 
+### Tagged compilation and native execution
+
+Default test selections omit files behind additional build tags. Check the
+supported tagged sets from the repository root:
+
+```sh
+go vet -tags=liveprovider ./...
+go vet -tags="live_e2e live_grok" ./test/e2e
+go vet -tags="live_e2e live_cursor" ./test/e2e
+go vet -tags="live_e2e live_agy" ./test/e2e
+go vet -tags="live_e2e live_e2e_opt_in" ./test/e2e
+go vet -tags=releasecheck ./internal/releasecheck
+go vet -tags=mcpclientcheck ./internal/mcpclientcheck
+```
+
+These commands compile and type-check the tagged source without running live
+providers. They supplement the Make gates and confer no live certification.
+Run native boundary checks outside nested agent sandboxes with the inherited
+macOS `TMPDIR` and default build environment. Serialize gate members and all
+`go test` processes (DF-028). Run each member separately, retain every exit and
+continue with later members after a failure. If a recipe stops internally,
+complete its remaining mandatory cases on the same frozen candidate before
+correcting it.
+
+`TestIntegrationPublicationAcceptsTenMiBRoleReport` in
+`internal/app/publication/integration_darwin_test.go` publishes and reads exact
+10 MiB role-report bytes with publication and query services configured at
+8 MiB, then rejects same-length tampering without exposing a verified report
+URI. Preserve this integrity control and the provider-content policy without a
+product byte ceiling.
+
 ## Shared configuration admission controls
 
 `internal/app/config/admission.go` owns the shared source, attestor, source
