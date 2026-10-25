@@ -689,6 +689,19 @@ Optional diagnostic session identifiers from Cursor ACP frames are sanitized
 to the port diagnostic grammar, so an unsafe or oversized identifier is
 omitted without invalidating an otherwise valid session observation.
 
+All five families use the same diagnostic identifier grammar: at most 512
+bytes, valid UTF-8, no surrounding whitespace and no Unicode controls. Unsafe
+diagnostic identifiers become empty; native correlation retains its raw IDs.
+Grok session admission and Codex thread/turn admission still reject unsafe
+authoritative identifiers under their existing protocol rules.
+
+When multiple observed tools violate the read plan at final validation, Grok
+and Cursor select the first diagnostic by ascending raw native string ID.
+Grok validates at both prompt completion and close acknowledgement; Cursor
+validates at end turn. Each operation retains its existing check order and
+typed refusal, and an immediate event failure still terminates immediately.
+This ordering adds no diagnostic identifier to public output.
+
 Historical child lineage may contain `source_attempt_id`, replay modes, and
 staged-file transport receipts. Retained readers validate these fields without
 reconstructing a provider workspace or invoking a provider. The current CLI and

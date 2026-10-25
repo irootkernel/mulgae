@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -63,7 +64,8 @@ func (state *grokACPConversation) observeLiveTool(ctx context.Context, id, kind,
 }
 
 func (state *grokACPConversation) finishLiveTools(ctx context.Context) error {
-	for _, observed := range state.liveTools {
+	for _, id := range slices.Sorted(maps.Keys(state.liveTools)) {
+		observed := state.liveTools[id]
 		if !observed.terminal {
 			return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("live ACP tool completion is missing"))
 		}
@@ -78,12 +80,7 @@ func newGrokLiveReadAuthority(ctx context.Context, execution ports.LiveReviewExe
 	if err := execution.Revalidate(ctx); err != nil {
 		return nil, err
 	}
-	authority := &grokLiveReadAuthority{execution: execution, gitCommands: make(map[string]bool)}
-	for _, read := range execution.Reads() {
-		if read.GitCommand() != "" {
-			authority.gitCommands[read.GitCommand()] = true
-		}
-	}
+	authority := &grokLiveReadAuthority{execution: execution, gitCommands: liveReadPlanGitCommands(execution.Reads())}
 	return authority, nil
 }
 
@@ -100,17 +97,7 @@ func (authority *grokLiveReadAuthority) allow(ctx context.Context, kind, variant
 	if kind != "read" || variant != "ReadFile" || authority.execution.Target().Selector().Scope() != domain.LiveSourceWorkspace || !validCanonicalAbsolute(path) {
 		return fmt.Errorf("native operation is outside the live read plan")
 	}
-	relative, err := filepath.Rel(authority.execution.Binding().Root.String(), path)
-	if err != nil {
-		return err
-	}
-	selected, err := ports.NewSafeRelativePath(filepath.ToSlash(relative))
-	if err != nil {
-		return err
-	}
-	// The source reader owns runtime/credential exclusion and path safety. This
-	// check grants no replacement policy and does not retain a source snapshot.
-	return authority.execution.SourceReader().AdmitPath(ctx, domain.LiveSourceWorktree, selected)
+	return admitLiveWorkspaceFile(ctx, authority.execution, path)
 }
 
 func (state *grokACPConversation) handleLiveReadPermission(ctx context.Context, exchange ports.ProviderSessionExchange, message grokACPMessage) error {

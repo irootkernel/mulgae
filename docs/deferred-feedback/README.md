@@ -50,10 +50,13 @@ work.
   reducing retained bookkeeping while preserving correlation and the no-
   content-byte-ceiling policy.
 
-- `DF-007` Diagnostic order: simultaneous read-plan violations can yield a
-  different first human diagnostic because observations use map iteration.
-  Typed outcome and refusal are unchanged. Re-entry: a reproduced triage
-  ambiguity warrants a deterministic diagnostic selection assertion.
+- `DF-007` Diagnostic order: TASK-064 orders Grok and Cursor final tool
+  validation by ascending raw native string ID. Per-operation checks,
+  immediate failures, first rejection and typed refusal remain unchanged.
+  `TestProviderToolDiagnosticOrder` covers simultaneous violations after
+  successful read admission and target invalidation, opposite insertion
+  orders, numeric/Unicode IDs, admission traces and Grok late close-time
+  updates. AGY retains its identical unfinished-operation diagnostic.
 
 - `DF-008` Compound qualification failures: an operational
   persistence/artifact failure may lose a secondary qualification cause. A

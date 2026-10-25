@@ -308,12 +308,12 @@ func TestSanitizeCursorDiagnosticSessionIDGrammar(t *testing.T) {
 		{name: "trimmed valid identifier passes", value: "session-1", want: "session-1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := sanitizeCursorDiagnosticSessionID(test.value); got != test.want {
-				t.Fatalf("sanitizeCursorDiagnosticSessionID(%q) = %q, want %q", test.value, got, test.want)
+			if got := sanitizeProtocolDiagnosticIdentifier(test.value); got != test.want {
+				t.Fatalf("sanitizeProtocolDiagnosticIdentifier(%q) = %q, want %q", test.value, got, test.want)
 			}
 			observation, err := ports.NewProviderSessionObservation(ports.ProviderSessionObservationInput{
 				Phase: ports.ProviderSessionPhaseCreate, Terminal: ports.ProviderSessionCompleted,
-				ProviderSessionID: sanitizeCursorDiagnosticSessionID(test.value),
+				ProviderSessionID: sanitizeProtocolDiagnosticIdentifier(test.value),
 			})
 			if err != nil || !observation.Valid() {
 				t.Fatalf("helper output rejected by shared admission: %v", err)

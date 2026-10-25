@@ -15,8 +15,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -150,17 +148,7 @@ func (authority *agyLiveReadAuthority) allow(ctx context.Context, tool, operand 
 		if authority.execution.Target().Selector().Scope() != domain.LiveSourceWorkspace || !validCanonicalAbsolute(operand) {
 			return fmt.Errorf("native operation is outside the live read plan")
 		}
-		relative, err := filepath.Rel(authority.execution.Binding().Root.String(), operand)
-		if err != nil {
-			return err
-		}
-		selected, err := ports.NewSafeRelativePath(filepath.ToSlash(relative))
-		if err != nil {
-			return err
-		}
-		// The source reader owns runtime/credential exclusion and path safety.
-		// This check grants no replacement policy and retains no snapshot.
-		return authority.execution.SourceReader().AdmitPath(ctx, domain.LiveSourceWorktree, selected)
+		return admitLiveWorkspaceFile(ctx, authority.execution, operand)
 	default:
 		return fmt.Errorf("native tool is outside the live read plan")
 	}
@@ -317,7 +305,7 @@ func (session *agyProtocolSession) Drive(ctx context.Context, exchange ports.Pro
 		}
 		input := ports.ProviderSessionObservationInput{
 			Phase: state.phase, Terminal: terminal,
-			ProviderSessionID: safeAgyDiagnosticIdentifier(state.conversationID),
+			ProviderSessionID: sanitizeProtocolDiagnosticIdentifier(state.conversationID),
 			ProviderTurnID:    state.turnIdentifier(),
 			CreateAccepted:    state.initAccepted, SendAccepted: state.userSent,
 			TurnObserved:     state.observedStep,
@@ -619,18 +607,6 @@ func (state *agyConversation) turnIdentifier() string {
 		return ""
 	}
 	return strconv.Itoa(state.lastStepIndex)
-}
-
-func safeAgyDiagnosticIdentifier(value string) string {
-	if len(value) > 512 || !utf8.ValidString(value) || value != strings.TrimSpace(value) {
-		return ""
-	}
-	for _, character := range value {
-		if unicode.IsControl(character) {
-			return ""
-		}
-	}
-	return value
 }
 
 // agyProtocolArgv builds the family-closed static argv shared by every AGY

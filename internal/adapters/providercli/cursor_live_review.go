@@ -3,7 +3,6 @@ package providercli
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -11,7 +10,7 @@ import (
 
 // cursorLiveReadAuthority admits Cursor reads from the app-owned live plan.
 // Git execution is limited to the exact GitCommand strings on that plan.
-// Workspace bytes are read only for LiveSourceWorkspace.
+// Workspace paths are admitted without body reads only for LiveSourceWorkspace.
 type cursorLiveReadAuthority struct {
 	execution   ports.LiveReviewExecution
 	gitCommands map[string]bool
@@ -21,12 +20,7 @@ func newCursorLiveReadAuthority(ctx context.Context, execution ports.LiveReviewE
 	if err := execution.Revalidate(ctx); err != nil {
 		return nil, err
 	}
-	authority := &cursorLiveReadAuthority{execution: execution, gitCommands: map[string]bool{}}
-	for _, read := range execution.Reads() {
-		if command := read.GitCommand(); command != "" {
-			authority.gitCommands[command] = true
-		}
-	}
+	authority := &cursorLiveReadAuthority{execution: execution, gitCommands: liveReadPlanGitCommands(execution.Reads())}
 	return authority, nil
 }
 
@@ -47,13 +41,5 @@ func (authority *cursorLiveReadAuthority) allowWorkspacePath(ctx context.Context
 	if authority.execution.Target().Selector().Scope() != domain.LiveSourceWorkspace || !validCanonicalAbsolute(path) {
 		return fmt.Errorf("cursor path is outside the workspace read plan")
 	}
-	relative, err := filepath.Rel(authority.execution.Binding().Root.String(), path)
-	if err != nil {
-		return err
-	}
-	selected, err := ports.NewSafeRelativePath(filepath.ToSlash(relative))
-	if err != nil {
-		return err
-	}
-	return authority.execution.SourceReader().AdmitPath(ctx, domain.LiveSourceWorktree, selected)
+	return admitLiveWorkspaceFile(ctx, authority.execution, path)
 }

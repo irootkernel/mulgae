@@ -224,6 +224,14 @@ scratch are removed after verified provider drain.
   the namespace parent nonrecursively before closing reviewer-home/workspace
   ownership. See [AGY transport](../architecture-decision-records/agy-stream-json-transport.md).
 
+Shared provider path translation runs only after the family's existing
+authority, revalidation, scope and canonical-path checks. The source reader
+continues to own protected-root, namespace and file-kind admission, including
+its final revalidation, without reading file bodies or caching approval.
+Final Grok and Cursor tool validation uses ascending raw native string IDs
+to select a diagnostic. It preserves per-operation checks, immediate failure
+and typed refusal; sorting grants no permission and omits no final check.
+
 The outer guard denies writes outside admitted private runtime directories and
 protects source, Git and neutral-guide roots from writes. It
 also denies reads, writes, links and Unix sockets at every configured credential

@@ -929,7 +929,7 @@ func (exchange *liveSourceAdmissionExchange) ReceiveLine(ctx context.Context) ([
 		exchange.probe.grokSession = result.SessionID
 	}
 	ack := exchange.probe.wantResponse != "" && string(message.ID) == exchange.probe.wantResponse && (len(message.Error) == 0 || string(message.Error) == "null")
-	ack = ack && ((exchange.probe.method == zcodeProtocolSendMethod && result.Accepted) || (exchange.probe.method == "turn/start" && safeZcodeDiagnosticIdentifier(result.Turn.ID) != ""))
+	ack = ack && ((exchange.probe.method == zcodeProtocolSendMethod && result.Accepted) || (exchange.probe.method == "turn/start" && sanitizeProtocolDiagnosticIdentifier(result.Turn.ID) != ""))
 	if exchange.probe.grokPrompt && message.Method == grokACPSessionUpdateMethod {
 		ack = exchange.probe.grokSession != "" && message.Params.SessionID == exchange.probe.grokSession && (message.Params.Update.Type == grokACPAgentMessageChunk || message.Params.Update.Type == grokACPToolCall)
 	}

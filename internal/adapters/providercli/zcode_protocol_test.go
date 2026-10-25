@@ -611,11 +611,11 @@ func TestSafeZCodeDiagnosticIdentifierMatchesPortAdmission(t *testing.T) {
 		"embedded\ttab",
 		"embedded\u0085control",
 	} {
-		if got := safeZcodeDiagnosticIdentifier(value); got != "" {
+		if got := sanitizeProtocolDiagnosticIdentifier(value); got != "" {
 			t.Fatalf("safe identifier %q = %q, want omitted", value, got)
 		}
 	}
-	if got := safeZcodeDiagnosticIdentifier("session_safe"); got != "session_safe" {
+	if got := sanitizeProtocolDiagnosticIdentifier("session_safe"); got != "session_safe" {
 		t.Fatalf("safe identifier = %q, want session_safe", got)
 	}
 }

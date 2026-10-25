@@ -148,8 +148,8 @@ func (session *grokACPProtocolSession) Drive(ctx context.Context, exchange ports
 		}
 		observation, err := ports.NewProviderSessionObservation(ports.ProviderSessionObservationInput{
 			Phase: state.phase, Terminal: terminal,
-			ProviderSessionID: safeZcodeDiagnosticIdentifier(state.sessionID),
-			ProviderTurnID:    safeZcodeDiagnosticIdentifier(state.turnID),
+			ProviderSessionID: sanitizeProtocolDiagnosticIdentifier(state.sessionID),
+			ProviderTurnID:    sanitizeProtocolDiagnosticIdentifier(state.turnID),
 			CreateAccepted:    state.sessionCreated,
 			SendAccepted:      state.promptSent,
 			TurnObserved:      state.promptCompleted,
@@ -376,7 +376,7 @@ func (state *grokACPConversation) acceptSessionNew(result json.RawMessage) error
 	if err := json.Unmarshal(result, &payload); err != nil {
 		return fmt.Errorf("unreadable session/new result: %w", err)
 	}
-	if safeZcodeDiagnosticIdentifier(payload.SessionID) == "" {
+	if sanitizeProtocolDiagnosticIdentifier(payload.SessionID) == "" {
 		return errors.New("session/new result without a safe session id")
 	}
 	state.sessionID = payload.SessionID
@@ -686,20 +686,11 @@ func parseGrokACPMessage(line []byte) (grokACPMessage, error) {
 }
 
 func (message grokACPMessage) isResponseID(id string) bool {
-	if len(message.ID) == 0 || message.Method != "" {
-		return false
-	}
-	var decoded string
-	return json.Unmarshal(message.ID, &decoded) == nil && decoded == id
+	return protocolStringResponseMatches(message.ID, message.Method, id)
 }
 
 func (message grokACPMessage) correlatesTo(ids ...string) bool {
-	for _, id := range ids {
-		if message.isResponseID(id) {
-			return true
-		}
-	}
-	return false
+	return protocolStringResponseMatches(message.ID, message.Method, ids...)
 }
 
 func sendGrokACPRequest(ctx context.Context, exchange ports.ProviderSessionExchange, id, method string, params any) error {

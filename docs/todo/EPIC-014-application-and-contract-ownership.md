@@ -228,14 +228,19 @@ passing tests or technical design agreement does not provide that acceptance.
 ### Verification profile
 
 EPIC-014 execution uses the following verification profile. It records
-verified project facts for selecting and recording checks. It grants no waiver
+project facts for selecting and recording checks. It grants no waiver
 and relaxes no gate. Run every completion member as a separate command, never
 with `-failfast`, on one frozen candidate. Do not overlap a member with another
 `go test` process (DF-028).
 
 ```yaml
 verification_profile:
-  revision: VP-2
+  revision: VP-3
+  sources:
+    - Makefile
+    - .gaori/tester.yaml
+    - docs/implementation-tips/README.md
+    - docs/roadmap/README.md
   completion_suite:
     prepare: make test-prepare
     unit: make test-unit
@@ -251,34 +256,136 @@ verification_profile:
       - go vet -tags=releasecheck ./internal/releasecheck
       - go vet -tags=mcpclientcheck ./internal/mcpclientcheck
     e2e_zcode: make test-e2e
+  execution_rule: >-
+    Use one frozen candidate and the listed member order when possible.
+    Record order deviations, every exit and evidence quality.
+  keep_going: >-
+    Run every completion member as a separate serialized command without
+    suite-level fail-fast; retain every exit. If a Make recipe internally
+    stops, identify and execute only its remaining mandatory cases on the
+    same frozen candidate before correcting code. No overlapping go test
+    process (DF-028). Resume a paused run without duplicating completed members.
+  focused: go test -count=1 [-race] <explicit package> -run '^<anchored names>$'
+  document_checks:
+    - read back changed documents and resolve changed links and anchors
+    - git diff --check
+  embedded_assets: >-
+    When embedded assets or assets/roles.yaml change, run
+    go generate ./internal/app/init followed by go generate ./internal/builtin
+    twice; the second pass leaves the worktree unchanged.
+  default_environment: >-
+    Native macOS darwin/arm64 host shell outside nested agent sandboxes,
+    inherited native TMPDIR and GOFLAGS unset. Coordinator runs authoritative
+    focused checks and all Make targets. Writer workspace-write checks under
+    different sandbox conditions are supplemental. Record input changes and
+    reassess evidence; sandbox-exec checks run outside agent sandboxes.
+  member_semantics:
+    prepare: generation, formatting, module verification, lint, vet and architecture tests
+    unit: serialized race tests excluding architecture and TestIntegration
+    integration: serialized race tests selecting TestIntegration
+    release: isolated GOBIN install, releasecheck and release-fixture E2E
+    mcp_clients: isolated real Codex and Claude client registration, without model calls
+    tagged_compile: compile and type checks only, without live provider calls
+    e2e_zcode: exact-binary two-role review, capability and capability-evidence tests
+  delta_gate:
+    always: [prepare, tagged_compile, document_checks]
+    eligibility: >-
+      Policy H AC-14 requires a complete whole-suite anchor and no later
+      invalidator. Run every anchor failure and all tests of changed files
+      and identified consumers, including bounded shared test fixtures.
+      Unknown impact or comparability, production risk-area changes, shared
+      contracts, unbounded fixture consumers, or changed suite, inputs or
+      verification premises require a whole suite. Coordinator records the
+      classification, consumer inventory and exact selection for review.
   deferred_live_gates: # v0.1.26 five-provider release gate
     - make test-grok
     - make test-cursor
     - make test-agy
     - MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in
+  deferred_live_disposition: >-
+    These campaigns require v0.1.26 five-provider release certification.
+    Record the deferral at every Task and Epic handoff. Current tagged
+    compilation and scripted checks grant no live certification or campaign
+    execution authority for Grok, Cursor, AGY or Codex.
+  opt_in_campaigns:
+    - commands:
+        - make test-grok
+        - make test-cursor
+        - make test-agy
+        - MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in
+      status: >-
+        Deferred to v0.1.26 five-provider release gate by Master; no current
+        execution authority. Tagged compile only.
+      load_sensitive: true
   candidate_id: >-
     tree hash through a temporary index outside the worktree
     (git read-tree HEAD; git add -A; git write-tree); fallback is HEAD plus
     the binary patch hash and untracked file hashes
   shared_resources:
-    - ZCode app-server and Z.AI quota (one live run at a time)
+    - ZCode app-server and Z.AI quota (Coordinator-owned, one live run at a time)
     - internal/adapters/process boundary tests invoke sandbox-exec and run
       outside agent sandboxes
+    - shared Go build and lint caches
+    - DF-028 requires serialization of every go test process and gate member
   uncaptured_inputs:
     - Go toolchain, module cache and golangci-lint through go tool
     - ZCode.app bundle, launcher protocol and the account found by discovery
     - resolved codex and claude client binaries for mcp_clients
     - TMPDIR through the /private/var alias, installed-user and native-home
       identity, effective GOFLAGS and MULGAE_* overrides, host load
+    - per-instance agent configuration is orchestration context; native
+      provider state is read-only and never a disposable test target
+    - ignored project runtime state is not a test input or disposable target
   contracts:
     - internal/builtin/assets/** and assets/roles.yaml
     - public JSON, typed failures, reason codes, exit codes and command grammar
     - persisted layout, format versions, digest domains, canonical bytes and
       historical readers, recovery and cleanup
+    - docs/specs/contracts.md and docs/specs/security.md
+  risk_paths:
+    command_identity_and_failure_projection: >-
+      Request admission, binding, trusted result identity, failure precedence
+      and public diagnostic projection in application, entrypoints and composition.
+    configuration_and_native_authority: >-
+      Configuration, source and locality confirmation, credentials, native
+      account/home admission, constructor sequencing and doctor readiness in
+      application services, adapters and composition.
+    live_source_and_execution_authorization: >-
+      Source admission and reads, neutral cwd, protected paths, qualified
+      planning, role/provider assignment, workers and launch authority in
+      reviewrun, validation, providercli, gittarget, filesystem, workspace and process.
+    provider_protocol_and_process_lifecycle: >-
+      Correlation and IDs, read-plan translation, permission denial/codecs,
+      cancellation, EOF, exit, metadata bounds and private transcripts in
+      providercli and process.
+    persisted_state_and_integrity: >-
+      Schema, strict JSON, wire formats, digests, validation, publication,
+      verified reads, recovery, export and cleanup across artifactwire,
+      strictjson, ports, application owners, storage adapters and embedded contracts.
   normative_docs: [docs/specs/**, AGENTS.md, assets/roles.yaml, internal/builtin/assets/**, skills/**]
+  units:
+    module: Go package
+    area: same package, behavior, contract or finding lineage
+  mechanical_checks:
+    prose: unavailable; manual inspection
+    expect: unavailable
+    compile_type: go build ./..., go vet ./... and tagged_compile selections
+    format: gofmt -l
+  evidence_reuse:
+    applicability: >-
+      Inspect go list -deps and go list -test -deps, architecture checks,
+      tagged-file consumers, embedded assets and reflection consumers.
+      Record candidate, command, exit and log references locally. Import
+      graphs alone omit tagged, embedded and reflection consumers.
+    scenarios: >-
+      CLI and MCP review/read flows, retained historical query/report/export/
+      recovery/cleanup, doctor/init/config admission, and provider/process protocols.
   calibration: {production_files: 3, production_lines: 50}
+  operating_budget: {warning: null, hard_limit: null}
   known_limits:
     - non-ZCode live provider behavior is not exercised in this Epic
     - non-ZCode tagged E2E files are compile-checked only
+    - E2E coverage is not measured
     - timing, benchmark, percentile and memory-peak results are not evidence
+    - agent-sandbox execution does not satisfy native sandbox-exec obligations
 ```

@@ -265,6 +265,24 @@ reads its safe regular guide once. `reviewrun` loads the common guidance and
 Workspace reads use original paths; index and committed reads use fixed Git
 operands and a deterministic environment.
 
+Within `providercli`, `protocol_mechanics.go` owns diagnostic-ID sanitization
+for all five families and the identical string-response matching used by
+ZCode and Grok. Family adapters retain request prefixes, outstanding state,
+wire parsing and the consequences of an invalid authoritative identifier.
+Cursor textual IDs, Codex integer response IDs and AGY integer step IDs keep
+their native codecs. Cancellation, EOF and process-exit rules remain local,
+including ZCode's accepted post-turn stream end and AGY's required natural exit.
+
+`live_read_plan.go` builds the raw Git-command sets used by Grok and Cursor
+and translates admitted workspace paths to the source port's `AdmitPath`.
+Callers retain their existing authority, revalidation, scope and canonical-path
+checks. Grok trims command whitespace; Cursor compares exact command bytes;
+AGY retains its guarded-command translation. Grok's prompt and close checks,
+and Cursor's end-turn check, visit tool operations in ascending raw native
+string-ID order and return the first rejection. Immediate event failures and
+each operation's check order remain unchanged. AGY's unfinished-step check
+retains its single diagnostic.
+
 `providercli` binds the sealed invocation to a descriptor for the neutral cwd,
 retains per-invocation credential and scratch namespaces, and collects complete
 correlated assistant reports. ZCode and Grok require the process adapter's

@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -207,8 +205,8 @@ func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.P
 		}
 		input := ports.ProviderSessionObservationInput{
 			Phase: state.phase, Terminal: terminal,
-			ProviderSessionID: safeZcodeDiagnosticIdentifier(state.sessionID),
-			ProviderTurnID:    safeZcodeDiagnosticIdentifier(state.turnID),
+			ProviderSessionID: sanitizeProtocolDiagnosticIdentifier(state.sessionID),
+			ProviderTurnID:    sanitizeProtocolDiagnosticIdentifier(state.turnID),
 			CreateAccepted:    state.createAccepted, SendAccepted: state.sendAccepted, TurnObserved: state.turnObserved,
 			MessagesReceived: state.messagesReceived, CloseSent: state.closeSent, CloseAccepted: state.closeAccepted,
 			ProviderErrorCode: state.providerErrorCode, HasProviderErrorCode: state.hasProviderErrorCode,
@@ -263,18 +261,6 @@ func (session *zcodeProtocolSession) SessionObservation() (ports.ProviderSession
 		return ports.ProviderSessionObservation{}, false
 	}
 	return session.observation, true
-}
-
-func safeZcodeDiagnosticIdentifier(value string) string {
-	if len(value) > 512 || !utf8.ValidString(value) || value != strings.TrimSpace(value) {
-		return ""
-	}
-	for _, character := range value {
-		if unicode.IsControl(character) {
-			return ""
-		}
-	}
-	return value
 }
 
 // zcodeProtocolConversation tracks one conversation's request correlation and
@@ -858,22 +844,13 @@ func (failure *zcodeProtocolWireError) modelSelectionFailureCause() domain.Runti
 }
 
 func (message zcodeProtocolMessage) isResponseID(id string) bool {
-	if len(message.ID) == 0 || message.Method != "" {
-		return false
-	}
-	var decoded string
-	return json.Unmarshal(message.ID, &decoded) == nil && decoded == id
+	return protocolStringResponseMatches(message.ID, message.Method, id)
 }
 
 // correlatesTo reports whether the message is a response to one of this
 // conversation's own requests.
 func (message zcodeProtocolMessage) correlatesTo(ids ...string) bool {
-	for _, id := range ids {
-		if message.isResponseID(id) {
-			return true
-		}
-	}
-	return false
+	return protocolStringResponseMatches(message.ID, message.Method, ids...)
 }
 
 func parseZcodeProtocolMessage(line []byte) (zcodeProtocolMessage, error) {

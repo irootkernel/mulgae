@@ -109,8 +109,8 @@ func (session *codexProtocolSession) Drive(ctx context.Context, exchange ports.P
 		}
 		input := ports.ProviderSessionObservationInput{
 			Phase: state.phase, Terminal: terminal,
-			ProviderSessionID: safeZcodeDiagnosticIdentifier(state.threadID),
-			ProviderTurnID:    safeZcodeDiagnosticIdentifier(state.turnID),
+			ProviderSessionID: sanitizeProtocolDiagnosticIdentifier(state.threadID),
+			ProviderTurnID:    sanitizeProtocolDiagnosticIdentifier(state.turnID),
 			CreateAccepted:    state.threadStarted, SendAccepted: state.turnStarted,
 			TurnObserved: state.turnCompleted, MessagesReceived: state.turnCompleted && state.messageReceived,
 			ProviderErrorCode: state.errorCode, HasProviderErrorCode: state.hasErrorCode,
@@ -219,7 +219,7 @@ func (state *codexConversation) handleResponse(ctx context.Context, exchange por
 			} `json:"thread"`
 			InstructionSources []string `json:"instructionSources"`
 		}
-		if json.Unmarshal(message.Result, &result) != nil || safeZcodeDiagnosticIdentifier(result.Thread.ID) == "" || !result.Thread.Ephemeral || len(result.InstructionSources) != 0 {
+		if json.Unmarshal(message.Result, &result) != nil || sanitizeProtocolDiagnosticIdentifier(result.Thread.ID) == "" || !result.Thread.Ephemeral || len(result.InstructionSources) != 0 {
 			return codexProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("thread isolation receipt invalid"))
 		}
 		state.threadID, state.threadStarted = result.Thread.ID, true
@@ -242,7 +242,7 @@ func (state *codexConversation) handleResponse(ctx context.Context, exchange por
 				ID string `json:"id"`
 			} `json:"turn"`
 		}
-		if json.Unmarshal(message.Result, &result) != nil || safeZcodeDiagnosticIdentifier(result.Turn.ID) == "" {
+		if json.Unmarshal(message.Result, &result) != nil || sanitizeProtocolDiagnosticIdentifier(result.Turn.ID) == "" {
 			return codexProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("turn response without id"))
 		}
 		state.turnID, state.turnStarted = result.Turn.ID, true
