@@ -18,8 +18,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
-	"github.com/irootkernel/mulgae/internal/app/prompt"
-	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -86,116 +84,6 @@ func publicationLiveGoldenBundle(t *testing.T, candidate PreparedLiveCandidate) 
 		t.Fatal(err)
 	}
 	return bundle
-}
-
-func publicationFollowupGoldenCandidate(t *testing.T) PreparedCandidate {
-	t.Helper()
-	ctx := context.Background()
-	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
-	sourceRun, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
-	sourceReview, _ := domain.ParseReviewID("019f596a-d175-7321-b920-c2d312c82cc2")
-	id, _ := domain.ParseRunID("r_019f596a-cfe9-7c9c-b82e-7149158243ba")
-	attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
-	current := []byte("queueFallback(task)")
-	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{Kind: domain.TargetPatch, SHA256: bareSHA256(current)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	task, _ := domain.NewRoleTask(domain.RoleLogic, true, "zcode-logic")
-	run, err := domain.NewFollowupChildRunFromImmutableSource(id, sessionID, sourceRun, sourceRun, target, task)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := []byte(`{"schema_version":"mulgae-provider-followup-output.v1","summary":"F001 remains open.","resolution":"still_open","rationale":"The current target preserves the source finding.","evidence":[{"current":{"path":"internal/app/coordinator.go","line_start":1,"line_end":1,"side":"head","quote":"queueFallback(task)"}}],"new_findings":[{"severity":"high","title":"Retained finding","description":"The issue remains in the current target.","evidence":[{"current":{"path":"internal/app/coordinator.go","line_start":1,"line_end":1,"side":"head","quote":"queueFallback(task)"}}],"recommendation":"Fix it.","confidence":"high"}],"limitations":[]}`)
-	schemaID, _ := ports.ParseAssetID(validation.ProviderFollowupSchemaID)
-	followupValidator, err := validation.NewFollowupValidator(followupProjectionSchemaValidator{}, schemaID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceExcerptSHA256 := sha256Identifier([]byte("source excerpt"))
-	output, err := followupValidator.Validate(ctx, raw, validation.FollowupValidationScope{
-		SessionID: sessionID, SourceRunID: sourceRun, ReviewID: sourceReview, FindingID: "F001",
-		SourceTargetSHA256: "sha256:" + strings.Repeat("a", 64), SourceExcerptSHA256: sourceExcerptSHA256,
-		CurrentTargetSHA256: "sha256:" + bareSHA256(current), Role: domain.RoleLogic, ProviderInstance: "zcode-logic",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdin := []byte("followup golden fixture")
-	sourceID, executionID := "i_019f5a09-5eed-7001-8001-000000000001", "019f5a09-5eed-7002-8002-000000000002"
-	invocation, err := ports.NewProviderInvocation(domain.RoleLogic, "zcode-logic", attempt, ports.ProviderInvocationInitial, stdin, sourceID, executionID, prompt.CompleteStdinSHA256(stdin))
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, _ := ports.NewProviderResult(raw, len(stdin), invocation.CompleteStdinSHA256())
-	write, _ := ports.NewStdinWriteReceipt(int64(len(stdin)), int64(len(stdin)), invocation.CompleteStdinSHA256(), true)
-	exit := 0
-	process, err := ports.NewProcessObservation(raw, nil, &exit, ports.ProcessTerminationExited, write, publicationTestTime(), publicationTestTime())
-	if err != nil {
-		t.Fatal(err)
-	}
-	observation, err := ports.NewSuccessfulProviderExecutionObservation(invocation, result, process)
-	if err != nil {
-		t.Fatal(err)
-	}
-	normalized, _ := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactInitialCandidate, output.NormalizedRaw(), false)
-	stdout, _ := ports.NewCapturedAttemptArtifact(ports.AttemptArtifactStdout, raw, false)
-	runtime := FollowupRuntimeArtifactInput{
-		RuntimeRunID: id, RuntimeAttemptID: attempt, RuntimeSequence: 1, RuntimePurpose: domain.InvocationInitial,
-		RuntimeRole: domain.RoleLogic, RuntimeTarget: current, RuntimeTargetIdentity: target,
-		RuntimeStdin: stdin, RuntimeStdinSHA256: invocation.CompleteStdinSHA256(),
-		RuntimeTemplateID: "followup-golden", RuntimeTemplateVersion: "v1",
-		RuntimeTemplateSHA256:     sha256Identifier([]byte("followup golden template")),
-		RuntimeSourceInvocationID: sourceID, RuntimeExecutionInvocationID: executionID,
-		RuntimeScope:          sessionID.String() + "/" + id.String() + "/" + attempt.String(),
-		RuntimeAdapterProfile: "golden-fixture", RuntimeAdapterParameters: map[string]string{},
-		RuntimeCaptures: []ports.CapturedAttemptArtifact{normalized, stdout},
-	}
-	candidate, err := PrepareFollowupCandidate(FollowupCandidateInput{
-		Run: run, SourceSessionID: sessionID, SourceRunID: sourceRun, SourceReviewID: sourceReview,
-		SourceFindingID: "F001", SourceTargetSHA256: "sha256:" + strings.Repeat("a", 64),
-		SourceExcerptSHA256: sourceExcerptSHA256, AttemptID: attempt, Provider: "zcode-logic",
-		Output: output, Observation: observation, Runtime: runtime, SeverityThreshold: domain.SeverityHigh,
-		MulgaeVersion: "golden-fixture", MulgaeCommit: "0123456789abcdef",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return candidate
-}
-
-func publicationCompositeGoldenCandidate(t *testing.T) PreparedCompositeCandidate {
-	t.Helper()
-	targetBytes := []byte("diff --git a/a.go b/a.go\n")
-	target, err := domain.NewTargetIdentity(domain.TargetIdentityInput{Kind: domain.TargetPatch, SHA256: bareSHA256(targetBytes)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
-	sourceRun, _ := domain.ParseRunID("r_019f596a-cfe5-7c9c-b82e-7149158243ba")
-	sourceReview, _ := domain.ParseReviewID("019f596a-d175-7321-b920-c2d312c82cc2")
-	attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
-	session, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
-	coordinate, err := domain.NewCompositionSource(domain.RoleLogic, sourceRun, sourceReview, attempt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fingerprint, err := domain.NewCompositionFingerprint(root, []domain.CompositionSource{coordinate})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runID, _ := fingerprint.RunID()
-	report := []byte("# Logic\n\nNo findings.\n")
-	input := CompositeCandidateInput{SessionID: session, RunID: runID, Fingerprint: fingerprint, RootRunID: root, RootReviewID: publicationIssuedReviewID(t), Target: target, TargetBytes: targetBytes, Threshold: domain.SeverityHigh, ContentVerdict: domain.ContentFindingsPresent, CoverageStatus: domain.CoverageComplete, ExtractionStatus: domain.StructuredExtractionStructured, CIDecision: domain.CIPass, CIReasonCodes: []string{"policy_evaluated"}}
-	input.Sources = []CompositeSourceInput{{Kind: "recovery", Role: domain.RoleLogic, RunID: sourceRun, ReviewID: sourceReview, AttemptID: attempt, RoleReportSHA256: sha256Identifier(report)}}
-	input.Roles = []CompositeRoleInput{{Role: domain.RoleLogic, Required: true, Outcome: "completed", AttemptID: attempt, ProviderInstance: "codex-primary", SourceRunID: sourceRun, SourceReviewID: sourceReview, ValidFindingIDs: []string{"F001"}}}
-	input.Findings = []CompositeFindingInput{{ID: "F001", Fingerprint: sha256Identifier([]byte("logic finding")), Role: domain.RoleLogic, Severity: domain.SeverityLow, Title: "Logic finding", Description: "A source finding retained by composition.", Recommendation: "Address the source finding.", Confidence: domain.ConfidenceHigh, Lifecycle: domain.FindingOpen, SourceRunID: sourceRun, SourceReviewID: sourceReview, SourceAttemptID: attempt, SourceFindingID: "F007"}}
-	input.RoleReports = []CompositeRoleReportInput{{Role: domain.RoleLogic, AttemptID: attempt, ProviderInstance: "codex-primary", SHA256: sha256Identifier(report), Bytes: report, SourceRunID: sourceRun}}
-	candidate, err := PrepareCompositeCandidate(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return candidate
 }
 
 func publicationGoldenVectorLines(t *testing.T, bundle PublicationBundle) []string {
@@ -350,79 +238,6 @@ var publicationGoldenVectors = map[string][]string{
 	},
 }
 
-// TestPublicationGoldenVectorsMatchFrozenOldBuilder pins every family's
-// ordered member paths and exact byte digests against the frozen vectors of
-// the pre-refactor builder, using a fixed issued review ID that differs from
-// the preflight dummy ID.
-func TestPublicationGoldenVectorsMatchFrozenOldBuilder(t *testing.T) {
-	families := []struct {
-		name   string
-		bundle func(t *testing.T) PublicationBundle
-	}{
-		{"live-changed", func(t *testing.T) PublicationBundle {
-			return publicationLiveGoldenBundle(t, livePublicationChangedFixture(t))
-		}},
-		{"live-changed-with-attempts", func(t *testing.T) PublicationBundle {
-			return publicationLiveGoldenBundle(t, livePublicationChangedWithAttemptsFixture(t))
-		}},
-		{"live-no-change", func(t *testing.T) PublicationBundle {
-			return publicationLiveGoldenBundle(t, livePublicationNoChange(t))
-		}},
-		{"captured", func(t *testing.T) PublicationBundle {
-			bundle, err := publicationTestCandidate(t, true).Build(context.Background(), &publicationTestValidator{}, publicationIssuedReviewID(t), publicationTestTime(), 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return bundle
-		}},
-		{"captured-no-change", func(t *testing.T) PublicationBundle {
-			bundle, err := publicationCapturedNoChangeCandidate(t).Build(context.Background(), &publicationTestValidator{}, publicationIssuedReviewID(t), publicationTestTime(), 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return bundle
-		}},
-		{"runtime", func(t *testing.T) PublicationBundle {
-			bundle, err := publicationRuntimeCandidate(t).Build(context.Background(), &publicationTestValidator{}, publicationIssuedReviewID(t), publicationTestTime(), 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return bundle
-		}},
-		{"followup", func(t *testing.T) PublicationBundle {
-			bundle, err := publicationFollowupGoldenCandidate(t).Build(context.Background(), &publicationTestValidator{}, publicationIssuedReviewID(t), publicationTestTime(), 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return bundle
-		}},
-		{"composite", func(t *testing.T) PublicationBundle {
-			bundle, err := publicationCompositeGoldenCandidate(t).Build(context.Background(), &publicationTestValidator{}, publicationIssuedReviewID(t), publicationTestTime(), 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return bundle
-		}},
-	}
-	for _, family := range families {
-		family := family
-		t.Run(family.name, func(t *testing.T) {
-			t.Parallel()
-			got := publicationGoldenVectorLines(t, family.bundle(t))
-			want := publicationGoldenVectors[family.name]
-			if len(want) == 0 {
-				for _, line := range got {
-					t.Log("frozen-line " + family.name + ": `" + line + "`,")
-				}
-				t.Fatalf("frozen golden vector for %q is missing; record the logged lines once and never regenerate", family.name)
-			}
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("golden vector drifted:\ngot:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-			}
-		})
-	}
-}
-
 // publicationLiveBaselineConstructionCounts records the shared support
 // constructions of one live publication through publishCandidate. The
 // pre-refactor baseline at HEAD was two per member (two full Build calls:
@@ -432,14 +247,14 @@ func TestPublicationGoldenVectorsMatchFrozenOldBuilder(t *testing.T) {
 // findings, attempts, runtime inventory, role reports or binary receipts, so
 // its role-report digest delta is zero by construction.
 var publicationLiveBaselineConstructionCounts = map[string]publicationEstablishedConstructionCounts{
-	"changed":   {evidenceExcerpts: 1, attemptArtifacts: 0, runtimeArtifacts: 0, roleReports: 2, liveSupport: 2, captureSupport: 0},
-	"no-change": {evidenceExcerpts: 0, attemptArtifacts: 0, runtimeArtifacts: 0, roleReports: 0, liveSupport: 1, captureSupport: 0},
+	"changed":   {evidenceExcerpts: 1, attemptArtifacts: 0, roleReports: 2, liveSupport: 2},
+	"no-change": {evidenceExcerpts: 0, attemptArtifacts: 0, roleReports: 0, liveSupport: 1},
 	// The with-attempts fixture binds a stdout stream and the initial
 	// candidate to each of its two primary attempts, so buildAttemptArtifacts
 	// constructs two capture artifacts and one status artifact per attempt:
 	// six per construction. The pre-wiring baseline (two full Build calls)
 	// is therefore twelve; the wired builder constructs them once.
-	"changed-with-attempts": {evidenceExcerpts: 1, attemptArtifacts: 6, runtimeArtifacts: 0, roleReports: 2, liveSupport: 2, captureSupport: 0},
+	"changed-with-attempts": {evidenceExcerpts: 1, attemptArtifacts: 6, roleReports: 2, liveSupport: 2},
 }
 
 // publicationLiveBaselineDigestTotals records the publication digest-helper
@@ -454,9 +269,13 @@ var publicationLiveBaselineConstructionCounts = map[string]publicationEstablishe
 // internal/ports is deliberately out of view here.
 // The totals also include fixture-preparation digests because counting starts
 // before fixture.candidate(t); only the deltas are the reuse evidence.
+// TASK-065 removes four fixture-only digests from changed setup (the captured
+// target, objective, snapshot and workspace receipt) and three from no-change
+// setup (the live fixture retains its workspace receipt). Publication work and
+// the counting boundary are unchanged, yielding 63-4 and 55-3 below.
 var publicationLiveBaselineDigestTotals = map[string]int64{
-	"changed":   63,
-	"no-change": 55,
+	"changed":   59,
+	"no-change": 52,
 }
 
 // publicationEstablishedConstructionCounts records the per-family shared
@@ -466,10 +285,8 @@ var publicationLiveBaselineDigestTotals = map[string]int64{
 type publicationEstablishedConstructionCounts struct {
 	evidenceExcerpts int64
 	attemptArtifacts int64
-	runtimeArtifacts int64
 	roleReports      int64
 	liveSupport      int64
-	captureSupport   int64
 }
 
 func publicationPublishLiveCandidateThroughRealStore(t *testing.T, candidate PreparedLiveCandidate) (PublicationResult, *publicationIssueCountingStore) {
@@ -537,10 +354,8 @@ func TestLivePublicationConstructsSharedSupportOnce(t *testing.T) {
 			got := publicationEstablishedConstructionCounts{
 				evidenceExcerpts: scope.evidenceExcerpts(),
 				attemptArtifacts: scope.attemptArtifacts(),
-				runtimeArtifacts: scope.runtimeArtifacts(),
 				roleReports:      scope.roleReports(),
 				liveSupport:      scope.liveSupport(),
-				captureSupport:   scope.captureSupport(),
 			}
 			if got != fixture.want {
 				t.Fatalf("construction counts = %+v, want %+v", got, fixture.want)
@@ -971,40 +786,6 @@ func (store *publicationResumeInterruptStore) PersistValidatedCandidate(ctx cont
 		return ports.PersistValidatedCandidateResult{}, errors.New("interrupted after candidate installation")
 	}
 	return result, err
-}
-
-// TestFollowupNormalizedEvidenceRetainsSourceProvenanceOverride proves the
-// followup family exercises the retained source-provenance branch: normalized
-// evidence binds the immutable source review, not the issued review ID.
-func TestFollowupNormalizedEvidenceRetainsSourceProvenanceOverride(t *testing.T) {
-	t.Parallel()
-	candidate := publicationFollowupGoldenCandidate(t)
-	issued := publicationIssuedReviewID(t)
-	bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, issued, publicationTestTime(), 1)
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	prefix := candidate.sessionID.String() + "/" + candidate.runID.String() + "/"
-	var normalized []byte
-	for _, artifact := range bundle.SupportArtifacts() {
-		if artifact.Path().String() == prefix+"excerpts/F001.json" {
-			normalized = artifact.Bytes()
-		}
-	}
-	if normalized == nil {
-		t.Fatal("followup fixture produced no normalized finding")
-	}
-	var finding finalFindingWire
-	if err := json.Unmarshal(normalized, &finding); err != nil {
-		t.Fatal(err)
-	}
-	if len(finding.Evidence) == 0 {
-		t.Fatal("normalized followup finding has no evidence")
-	}
-	source := finding.Evidence[0].Source
-	if source.ReviewID != "019f596a-d175-7321-b920-c2d312c82cc2" || source.ReviewID == issued.String() || source.RunID != "r_019f596a-cfe4-7c9c-b82e-7149158243ba" {
-		t.Fatalf("followup evidence source = %+v, want the retained immutable source provenance", source)
-	}
 }
 
 func publicationRequireBundleEqual(t *testing.T, got, want PublicationBundle) {

@@ -200,4 +200,23 @@ func TestIntegrationG008ProviderRuntimeCapturesRepairArtifactsDeterministically(
 	if !repaired {
 		t.Fatal("repaired attempt artifact was not retained")
 	}
+	// TASK-065: retain the old service's repair/normalization/receipt properties
+	// through the current runtime and coordinator, beside all original checks.
+	findings, groups := result.Findings(), result.Evidence()
+	if len(findings) != 1 || findings[0].ID() != "F001" || result.Outcomes().ContentVerdict() != domain.ContentRequestChanges || result.Outcomes().CoverageStatus() != domain.CoverageComplete || result.Outcomes().CIDecision() != domain.CIFail || result.Outcomes().PublicationStatus() != domain.PublicationNotPublished || ids.reviewIDCalls != 0 {
+		t.Fatalf("retained repair/normalization/axes changed: findings=%#v axes=%#v", findings, result.Outcomes())
+	}
+	if _, err := review.ReduceVerifiedFindingEvidence(findings, groups, review.DefaultEvidencePolicy()); err != nil || len(groups) != 1 || len(groups[0].Receipts()) != 1 || groups[0].Receipts()[0].Status() != evidence.ReceiptVerified {
+		t.Fatalf("retained verifier receipt no longer proves the normalized finding: %v", err)
+	}
+	transcript := provider.Transcript()
+	first, last := transcript[0], transcript[len(transcript)-1]
+	if first.AttemptID != attemptID || last.AttemptID != attemptID || first.SourceInvocationID == last.SourceInvocationID || first.ExecutionInvocationID == last.ExecutionInvocationID || first.CompleteStdinSHA256 != initial.CompleteStdinSHA256() || last.CompleteStdinSHA256 != repair.CompleteStdinSHA256() {
+		t.Fatal("repair lost its fresh wire identity or original packet binding")
+	}
+	findings[0] = domain.Finding{}
+	groups[0] = review.VerifiedFindingEvidence{}
+	if result.Findings()[0].ID() != "F001" || len(result.Evidence()[0].Receipts()) != 1 {
+		t.Fatal("current result exposed caller-owned findings or evidence")
+	}
 }

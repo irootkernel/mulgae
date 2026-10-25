@@ -108,8 +108,7 @@ func livePublicationChangedInput(t *testing.T, source ports.LiveSourceReader, sc
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := publicationTestCandidate(t, false)
-	return LiveCandidateInput{Result: result, Target: source.Target(), SeverityThreshold: domain.SeverityHigh, BinaryEvidence: []evidence.LiveBinaryReceipt{image}, Provenance: LiveProductionProvenance{BuildProduct: "mulgae", BuildVersion: "0.1.0", BuildCommit: "0123456789abcdef", SourceIdentitySHA256: identity.SHA256(), SourceTerminalReceipt: "source-terminal:v1:" + sha256Identifier([]byte("closed source")), Providers: legacy.production.Providers}}, runtime
+	return LiveCandidateInput{Result: result, Target: source.Target(), SeverityThreshold: domain.SeverityHigh, BinaryEvidence: []evidence.LiveBinaryReceipt{image}, Provenance: LiveProductionProvenance{BuildProduct: "mulgae", BuildVersion: "0.1.0", BuildCommit: "0123456789abcdef", SourceIdentitySHA256: identity.SHA256(), SourceTerminalReceipt: "source-terminal:v1:" + sha256Identifier([]byte("closed source")), Providers: retainedProviderProvenance()}}, runtime
 }
 
 func TestLiveCandidateAdmissionRejectsSourceAndNoChangeMixing(t *testing.T) {

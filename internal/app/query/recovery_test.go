@@ -7,93 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
-	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
-
-func TestReadFailedRunRecoveryVerifiesReboundStagedInput(t *testing.T) {
-	for _, change := range []string{"destination only", "base template", "output contract", "adapter parameter"} {
-		t.Run(change, func(t *testing.T) {
-			document, blobs := queryRecoveryFixture(t)
-			input := &document.Attempts[1].InitialPrompt
-			stdin := blobs[input.Stdin.SHA256]
-			boundary := strings.Index(string(stdin), "\nMulgae-FRAMES/1\n")
-			base, err := prompt.NewTrustedTemplate(input.TemplateID, input.TemplateVersion, stdin[:boundary])
-			if err != nil {
-				t.Fatal(err)
-			}
-			oldDestination, _ := ports.NewStagedOutputDestination("/private/tmp/recovery-old", "role-report.md")
-			original, err := review.ComposeRootReviewOutputDestination(base, oldDestination)
-			if err != nil {
-				t.Fatal(err)
-			}
-			bind := func(template, previous prompt.TrustedTemplate, suffix string) {
-				t.Helper()
-				compiler, err := prompt.NewCompiler(template, recoveryIssuer{suffix})
-				if err != nil {
-					t.Fatal(err)
-				}
-				execution, _ := prompt.ParseExecutionInvocationID(input.ExecutionInvocationID)
-				compiled, err := compiler.ReplayStoredWithReboundTemplate(previous, blobs[input.Stdin.SHA256], execution)
-				if err != nil {
-					t.Fatal(err)
-				}
-				manifest, err := template.TrustedLayerManifestJSON()
-				if err != nil {
-					t.Fatal(err)
-				}
-				input.Stdin = recovery.AddBlob(blobs, compiled.Stdin())
-				input.TemplateID, input.TemplateVersion = template.ID(), template.Version()
-				input.TemplateSHA256 = "sha256:" + template.SHA256()
-				input.ExecutionInvocationID = compiled.Scope().ExecutionInvocationID().String()
-				input.AdapterParameters[prompt.TrustedLayerManifestAdapterParameter] = manifest
-			}
-			bind(original, base, "000000000041")
-			root, _ := ports.NewAnchoredRoot(t.TempDir())
-			observation, _ := ports.NewPublicationObservation(domain.JournalCollecting, domain.DurableObservationP0None, nil, nil, 1)
-			store := &queryStore{observation: observation}
-			parent := installQueryRecovery(t, store, root, document, blobs)
-			hash := recovery.Digest(queryRecoveryJSON(t, document))
-			document.Source = &recovery.Source{Kind: "failed_run_recovery", RunID: parent.RunID().String(), RecoveryManifestSHA256: &hash, AttemptID: document.Attempts[1].AttemptID, ReplayMode: "exact"}
-			document.RunID = "r_019f5a09-5eec-7001-8001-000000000012"
-			document.RunType = domain.RunTypeRerun
-			document.Attempts, document.Roles = document.Attempts[1:], document.Roles[1:]
-			document.Attempts[0].AttemptID = "a_019f5a09-5eec-7001-8001-000000000023"
-			document.Roles[0].AttemptID = document.Attempts[0].AttemptID
-			input = &document.Attempts[0].InitialPrompt
-			newDestination, _ := ports.NewStagedOutputDestination("/private/tmp/recovery-new", "role-report.md")
-			rebound, err := review.RebindRootReviewOutputDestination(original, newDestination)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if change == "base template" {
-				changed, _ := prompt.NewTrustedTemplate(base.ID(), base.Version(), []byte("Changed review instructions."))
-				rebound, err = review.ComposeRootReviewOutputDestination(changed, newDestination)
-			} else if change == "output contract" {
-				first, _ := prompt.NewTrustedLayer("review:original-template", "1", base.Bytes())
-				output, _ := review.OutputDestinationTrustedLayer(newDestination)
-				invalid, _ := prompt.NewTrustedLayer(output.ID(), output.Version(), append(output.Bytes(), []byte("\nExtra instructions.")...))
-				rebound, err = prompt.ComposeTrustedTemplate(original.ID(), original.Version(), first, invalid)
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			bind(rebound, original, "000000000042")
-			if change == "adapter parameter" {
-				input.AdapterParameters["model"] = "changed"
-			}
-			child := installQueryRecovery(t, store, root, document, blobs)
-			service := mustQueryService(t, store, &queryValidator{}, nil)
-			_, err = service.ReadFailedRunRecovery(context.Background(), child)
-			if change == "destination only" && err != nil || change != "destination only" && err == nil {
-				t.Fatalf("staged exact replay %s: %v", change, err)
-			}
-		})
-	}
-}
 
 func TestReadRunStatusClassifiesRecoveryReadFailuresWithoutUnverifiedStatus(t *testing.T) {
 	run, _, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)

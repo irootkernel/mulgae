@@ -48,10 +48,6 @@ func (observation LifecycleObservation) FailureDiagnostic() (FailureDiagnostic, 
 	return observation.diagnostic, true
 }
 
-type ObservedPublicationCommitter interface {
-	PublishNextObserved(context.Context, ports.AnchoredRoot, PreparedCandidate, LifecycleObserver) (PublicationResult, error)
-}
-
 type committedDiagnosticFailure struct {
 	result PublicationResult
 	cause  error

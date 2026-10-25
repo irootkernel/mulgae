@@ -53,37 +53,6 @@ func MarshalCapturedReviewMaterial(material CapturedReviewMaterial) ([]byte, err
 	return marshalCapturedReviewBundle(material)
 }
 
-// MarshalCapturedReviewMaterialV1 is retained only to build compatibility
-// fixtures for archives published before the split manifest/blob format.
-func MarshalCapturedReviewMaterialV1(material CapturedReviewMaterial) ([]byte, error) {
-	if !material.Valid() {
-		return nil, fmt.Errorf("captured review archive: invalid material")
-	}
-	identity := material.Target().Identity()
-	wire := capturedReviewArchiveWire{
-		SchemaVersion: artifactwire.CapturedReviewArchiveV1,
-		TargetIdentity: capturedTargetIdentityWire{
-			Kind: string(identity.Kind()), SHA256: identity.SHA256(), RepositoryID: identity.RepositoryID(),
-			BaseObjectID: identity.BaseObjectID(), HeadObjectID: identity.HeadObjectID(),
-			HeadTreeObjectID: identity.HeadTreeObjectID(), IndexTreeObjectID: identity.IndexTreeObjectID(),
-			GitMode: string(identity.GitMode()),
-		},
-		TargetBytes: material.Target().Bytes(), SnapshotPolicy: material.Snapshot().PolicyIdentity(),
-		Snapshot: filesToArchive(material.Snapshot().Files()), ProjectContext: material.ProjectContext(),
-		HasProjectContext: material.HasProjectContext(),
-	}
-	for _, side := range []CapturedEvidenceSide{CapturedEvidenceBase, CapturedEvidenceHead, CapturedEvidenceIndex, CapturedEvidenceWorktree} {
-		if files, ok := material.Evidence().Files(side); ok {
-			wire.Evidence = append(wire.Evidence, capturedEvidenceWire{Side: string(side), Files: filesToArchive(files)})
-		}
-	}
-	bytes, err := json.Marshal(wire)
-	if err != nil {
-		return nil, fmt.Errorf("captured review archive: encode: %w", err)
-	}
-	return bytes, nil
-}
-
 // UnmarshalCapturedReviewMaterial validates every byte and identity while
 // rebuilding constructor-owned domain objects.
 func UnmarshalCapturedReviewMaterial(bytes []byte) (CapturedReviewMaterial, error) {
@@ -142,14 +111,6 @@ func unmarshalCapturedReviewMaterialV1(bytes []byte) (CapturedReviewMaterial, er
 		}
 	}
 	return NewCapturedReviewMaterialWithEvidenceAndProjectContext(target, snapshot, wire.ProjectContext, wire.HasProjectContext, evidence)
-}
-
-func filesToArchive(files []WorkspaceSnapshotFile) []capturedFileWire {
-	result := make([]capturedFileWire, len(files))
-	for index, file := range files {
-		result[index] = capturedFileWire{Path: file.Path().String(), SHA256: file.SHA256(), Bytes: file.Bytes(), MediaType: file.MediaType()}
-	}
-	return result
 }
 
 func archiveToFiles(files []capturedFileWire) ([]WorkspaceSnapshotFile, error) {

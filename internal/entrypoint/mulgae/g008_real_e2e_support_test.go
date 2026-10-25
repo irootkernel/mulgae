@@ -353,42 +353,6 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	return fixture
 }
 
-func (fixture *g008RealE2EFixture) executeAndPublishRoot(t *testing.T) g008RealE2ERootResult {
-	t.Helper()
-	result, err := fixture.coordinator.Execute(context.Background(), fixture.target, fixture.assignments, domain.SeverityHigh, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	inventory := fixture.runtime.DrainRuntimeArtifactsForRun(result.RunID())
-	candidate, err := publication.PrepareCandidateWithRuntimeArtifacts(result, fixture.target, domain.SeverityHigh, "g008-test", "g008-test", publication.RunPublicationContext{}, inventory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	published, err := fixture.publisher.Publish(context.Background(), fixture.root, candidate, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	issued, ok := published.IssuedReviewID()
-	if !ok {
-		t.Fatal("root publication did not issue a review ID")
-	}
-	snapshot, ok := published.Snapshot()
-	if !ok {
-		t.Fatal("root publication did not return a committed snapshot")
-	}
-	terminalExit, ok := published.TerminalExit()
-	if !ok {
-		t.Fatal("root publication did not return a terminal exit")
-	}
-	return g008RealE2ERootResult{
-		SessionID: result.SessionID(), RunID: result.RunID(), ReviewID: issued.ReviewID(),
-		AttemptID: fixture.provider.Transcript()[0].AttemptID, SecurityAttemptID: fixture.provider.Transcript()[1].AttemptID,
-		RunManifestURI:    ".mulgae/" + snapshot.Manifest().Path().String(),
-		ReviewArtifactURI: ".mulgae/" + snapshot.Final().Identity().Path().String(),
-		TerminalExit:      terminalExit, Queries: fixture.queries, Transcript: fixture.provider.Transcript(),
-	}
-}
-
 type g008RealE2EInventoryEntry struct {
 	Path, SHA256 string
 	Bytes        int64

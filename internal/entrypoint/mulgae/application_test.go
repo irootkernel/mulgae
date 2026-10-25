@@ -39,6 +39,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
+	"github.com/irootkernel/mulgae/internal/testsupport/historical"
 )
 
 const (
@@ -4521,8 +4522,42 @@ func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *te
 }
 func TestIntegrationProductionRedactedExportAcceptsCommittedNoFindingsAndRejectsUnboundSource(t *testing.T) {
 	fixture := newG008RealE2EFixture(t)
-	fixture.provider.logicNoFindings = true
-	root := fixture.executeAndPublishRoot(t)
+	corpus, err := historical.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root g008RealE2ERootResult
+	for _, c := range corpus.Cases {
+		if c.ID != "no-change" {
+			continue
+		}
+		if err := c.Materialize(fixture.root.String()); err != nil {
+			t.Fatal(err)
+		}
+		root.SessionID, err = domain.ParseSessionID(c.SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root.RunID, err = domain.ParseRunID(c.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root.ReviewID, err = domain.ParseReviewID(c.ReviewID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := fixture.queries.ResolveRun(context.Background(), fixture.root, root.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		committed, err := fixture.queries.ReadCommitted(context.Background(), run)
+		if err != nil || committed.ContentVerdict() != domain.ContentNoFindings || len(committed.Findings()) != 0 {
+			t.Fatalf("fixed no-findings positive control: %v", err)
+		}
+	}
+	if root.RunID.String() == "" {
+		t.Fatal("fixed no-change export source absent")
+	}
 	installer := mustG008RealExportInstaller(t, fixture)
 	service, err := NewRedactedExportService(fixture.queries, installer, fixture.clock, fixture.ids)
 	if err != nil {

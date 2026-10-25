@@ -31,12 +31,6 @@ type Service struct {
 	maxBytes  int64
 }
 
-// PublicationCommitter is the root-bound publication boundary used by root-review
-// orchestration. It deliberately does not expose caller-selected epochs.
-type PublicationCommitter interface {
-	PublishNext(context.Context, ports.AnchoredRoot, PreparedCandidate) (PublicationResult, error)
-}
-
 type publicationCandidate interface {
 	Valid() bool
 	SessionID() domain.SessionID
@@ -160,73 +154,6 @@ func NewService(
 	return &Service{store: store, validator: validator, clock: clock, maxBytes: maxBytes}, nil
 }
 
-// PublishFollowup prepares and commits the specialized one-role followup in the
-// same P2 composite transaction used for every review publication.
-func (service *Service) PublishFollowup(
-	ctx context.Context,
-	artifactRoot ports.AnchoredRoot,
-	input FollowupCandidateInput,
-	epoch uint64,
-) (PublicationResult, error) {
-	candidate, err := PrepareFollowupCandidate(input)
-	if err != nil {
-		return PublicationResult{}, fmt.Errorf("publish followup: %w", err)
-	}
-	return service.Publish(ctx, artifactRoot, candidate, epoch)
-}
-
-// PublishFollowupNext prepares the specialized one-role followup and commits it
-// under the next root-scoped epoch selected atomically by the publication store.
-func (service *Service) PublishFollowupNext(
-	ctx context.Context,
-	artifactRoot ports.AnchoredRoot,
-	input FollowupCandidateInput,
-) (PublicationResult, error) {
-	candidate, err := PrepareFollowupCandidate(input)
-	if err != nil {
-		return PublicationResult{}, fmt.Errorf("publish followup next: %w", err)
-	}
-	return service.PublishNext(ctx, artifactRoot, candidate)
-}
-
-// PublishNext selects and commits the next root-scoped durable epoch as one
-// store-authorized transaction. It is the production entry point; Publish
-// remains available for compatibility callers that explicitly control epochs.
-func (service *Service) PublishNext(
-	ctx context.Context,
-	artifactRoot ports.AnchoredRoot,
-	candidate PreparedCandidate,
-) (PublicationResult, error) {
-	return service.publishNext(ctx, artifactRoot, candidate, nil)
-}
-
-// PublishCompositeNext commits one prevalidated composite under the same
-// root-scoped P0/P1/P2 state machine used by ordinary reviews.
-func (service *Service) PublishCompositeNext(ctx context.Context, artifactRoot ports.AnchoredRoot, candidate PreparedCompositeCandidate) (PublicationResult, error) {
-	return service.publishNextCandidate(ctx, artifactRoot, candidate, nil)
-}
-
-func (service *Service) PublishNextObserved(
-	ctx context.Context,
-	artifactRoot ports.AnchoredRoot,
-	candidate PreparedCandidate,
-	observer LifecycleObserver,
-) (PublicationResult, error) {
-	if observer == nil {
-		return PublicationResult{}, publicationFailure("publish-next.observe", domain.FailureConfiguration, "publication lifecycle observer is required", nil)
-	}
-	return service.publishNext(ctx, artifactRoot, candidate, observer)
-}
-
-func (service *Service) publishNext(
-	ctx context.Context,
-	artifactRoot ports.AnchoredRoot,
-	candidate PreparedCandidate,
-	observer LifecycleObserver,
-) (result PublicationResult, err error) {
-	return service.publishNextCandidate(ctx, artifactRoot, candidate, observer)
-}
-
 func (service *Service) publishNextCandidate(
 	ctx context.Context,
 	artifactRoot ports.AnchoredRoot,
@@ -295,28 +222,6 @@ func (service *Service) publishNextCandidate(
 	return result, nil
 }
 
-// Publish validates a candidate before issuing its ReviewID, writes all
-// recoverable material before a journal hint, and returns only after a fresh P2
-// observation and snapshot confirm publication authority.
-func (service *Service) Publish(
-	ctx context.Context,
-	artifactRoot ports.AnchoredRoot,
-	candidate PreparedCandidate,
-	epoch uint64,
-) (PublicationResult, error) {
-	return service.publish(ctx, artifactRoot, candidate, epoch, nil)
-}
-
-func (service *Service) publish(
-	ctx context.Context,
-	artifactRoot ports.AnchoredRoot,
-	candidate PreparedCandidate,
-	epoch uint64,
-	observer LifecycleObserver,
-) (PublicationResult, error) {
-	return service.publishCandidate(ctx, artifactRoot, candidate, epoch, observer)
-}
-
 func (service *Service) publishCandidate(
 	ctx context.Context,
 	artifactRoot ports.AnchoredRoot,
@@ -338,11 +243,10 @@ func (service *Service) publishCandidate(
 	if candidateHash == "" {
 		return PublicationResult{}, publicationFailure("publish.validate", domain.FailureConfiguration, "invalid validated candidate", nil)
 	}
-	_, isCompositeCandidate := candidate.(PreparedCompositeCandidate)
 	_, isLiveCandidate := candidate.(PreparedLiveCandidate)
 	var resumed ports.FinalReviewArtifact
 	var preparationStore ports.CompositePreparationStore
-	if isCompositeCandidate || isLiveCandidate {
+	if isLiveCandidate {
 		existing, decision, observeErr := service.observe(ctx, run)
 		if observeErr != nil {
 			return PublicationResult{}, observeErr
@@ -358,11 +262,7 @@ func (service *Service) publishCandidate(
 			}
 			bound, bindingErr := committedSnapshotValidatedCandidateSHA256(snapshot)
 			matches := bound == candidateHash
-			if isCompositeCandidate && bindingErr == nil && !matches && bound == candidate.(PreparedCompositeCandidate).legacyCandidateSHA256() {
-				// Only an already committed legacy mapping may retain its old
-				// binding. Interrupted and new publications bind every copied byte.
-				matches, bindingErr = service.isLegacyCompositeSupport(ctx, run, snapshot)
-			}
+
 			if bindingErr != nil || !matches {
 				return PublicationResult{}, publicationFailure("publish.validate", domain.FailureArtifact, "run identity is already bound to different composition inputs", bindingErr)
 			}
@@ -422,8 +322,7 @@ func (service *Service) publishCandidate(
 		return PublicationResult{}, publicationFailure("publish.preflight", domain.FailureInternal, "preflight review ID is invalid", err)
 	}
 	// A live candidate constructs its review-independent support once for this
-	// publication invocation and reuses it for the issued binding; every other
-	// candidate keeps the historical builder for both bindings.
+	// publication invocation and reuses it for the issued binding.
 	bind := candidate.Build
 	if live, ok := candidate.(PreparedLiveCandidate); ok {
 		builder, builderErr := newLivePublicationBuilder(live)
@@ -438,39 +337,6 @@ func (service *Service) publishCandidate(
 	}
 	if err := validatePublicationBundleSize(preflightBundle, service.maxBytes); err != nil {
 		return PublicationResult{}, publicationFailure("publish.preflight", domain.FailureArtifact, "publication bundle exceeds configured byte limits", err)
-	}
-	var pinnedSupportIndex ports.SafeRelativePath
-	if composite, ok := candidate.(PreparedCompositeCandidate); ok && len(composite.input.SourceSupport) > 0 {
-		// Pin the entire copied support inventory before candidate persistence.
-		// Final v1/v2 bytes intentionally omit evidence; they alone cannot bind
-		// an interrupted preparation to its source receipts and copied bytes.
-		for _, artifact := range preflightBundle.SupportArtifacts() {
-			kind, _ := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), artifact.Path())
-			if kind != ports.RunSupportArtifactSupportIndex {
-				continue
-			}
-			pinnedSupportIndex = artifact.Path()
-			adopted, err := preparationStore.AdoptCompositePreparationArtifact(ctx, run, artifact)
-			if err != nil {
-				return PublicationResult{}, service.storeFailure(ctx, "publish.resume", "composite support binding differs or is unsafe", err)
-			}
-			if !adopted {
-				request, err := ports.NewPersistRunSupportArtifactRequest(run, artifact)
-				if err != nil {
-					return PublicationResult{}, err
-				}
-				persisted, err := service.store.PersistAuxiliaryArtifact(ctx, request)
-				if err != nil {
-					return PublicationResult{}, service.storeFailure(ctx, "publish.persist_support", "composite support binding persistence failed", err)
-				}
-				if persisted.Durability() != ports.AuxiliaryArtifactDurable || !persistedAuxiliaryMatches(persisted, run, artifact) {
-					return PublicationResult{}, publicationFailure("publish.persist_support", domain.FailureArtifact, "composite support binding receipt differs", nil)
-				}
-			}
-		}
-		if !pinnedSupportIndex.Valid() {
-			return PublicationResult{}, publicationFailure("publish.preflight", domain.FailureInternal, "composite support index absent", nil)
-		}
 	}
 	if err := service.checkpoint(ctx, "publish.issue_review_id"); err != nil {
 		return PublicationResult{}, err
@@ -577,7 +443,7 @@ func (service *Service) publishCandidate(
 			return PublicationResult{}, err
 		}
 		adopted := false
-		if resumed.Valid() || support.Path() == pinnedSupportIndex {
+		if resumed.Valid() {
 			adopted, err = preparationStore.AdoptCompositePreparationArtifact(ctx, run, support)
 			if err != nil {
 				return PublicationResult{}, service.storeFailure(ctx, "publish.resume", "persisted support differs or is unsafe", err)
@@ -736,34 +602,6 @@ func (service *Service) publishCandidate(
 	}
 	final := bundle.Final().Identity()
 	return service.p2Result(ctx, run, &issued, &final, persistedSupportArtifacts)
-}
-
-func (service *Service) isLegacyCompositeSupport(ctx context.Context, run ports.PublicationRun, snapshot ports.CommittedPublicationSnapshot) (bool, error) {
-	var manifest compositeManifestReadWire
-	if err := unmarshalCanonicalPublicationRecord(snapshot.Manifest().Bytes(), &manifest, "committed composite manifest"); err != nil {
-		return false, err
-	}
-	index := manifest.CompositeIdentity.SupportIndex
-	path, err := ports.NewSafeRelativePath(index.Path)
-	if err != nil {
-		return false, err
-	}
-	request, err := ports.NewReadRunSupportArtifactRequest(run, path, index.SHA256, math.MaxInt64-1)
-	if err != nil {
-		return false, err
-	}
-	artifact, err := service.store.ReadAuxiliaryArtifact(ctx, request)
-	if err != nil {
-		return false, err
-	}
-	if !artifact.Valid() || artifact.Path() != path || artifact.SHA256() != index.SHA256 {
-		return false, fmt.Errorf("legacy support index binding differs")
-	}
-	var support runSupportIndexWire
-	if err := unmarshalCanonicalPublicationRecord(artifact.Bytes(), &support, "committed support index"); err != nil {
-		return false, err
-	}
-	return support.SchemaVersion == artifactwire.SupportIndexV1, nil
 }
 
 // Recover applies only the action selected by a fresh domain classification.

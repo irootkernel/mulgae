@@ -2566,7 +2566,7 @@ func queryRuntimeFixtureWithOptions(t *testing.T, options queryRuntimeFixtureOpt
 		if options.legacyArchiveWrongBinding {
 			archiveMaterial = queryAlternateCapturedMaterial(t, "query-runtime-fixture-wrong-binding", "different runtime target bytes")
 		}
-		legacyBytes, legacyErr := ports.MarshalCapturedReviewMaterialV1(archiveMaterial)
+		legacyBytes, legacyErr := queryLegacyArchiveFixture(t, archiveMaterial)
 		if legacyErr != nil {
 			t.Fatal(legacyErr)
 		}

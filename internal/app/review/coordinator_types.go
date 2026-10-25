@@ -666,3 +666,15 @@ func nilInvocationRuntime(runtime InvocationRuntime) bool {
 		return false
 	}
 }
+
+// IdentityGenerator is the consumer-owned composition used by the review
+// coordinator. It deliberately has no sequencing, scheduling, or publication
+// authority.
+type IdentityGenerator interface {
+	NewSessionID(time.Time) (domain.SessionID, error)
+	NewRunID(time.Time) (domain.RunID, error)
+	NewAttemptID(time.Time) (domain.AttemptID, error)
+	NewRoleTaskID(time.Time) (string, error)
+	NewSourceInvocationID(time.Time) (string, error)
+	NewExecutionInvocationID(time.Time) (string, error)
+}

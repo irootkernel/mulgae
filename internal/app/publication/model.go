@@ -20,7 +20,6 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/app/capture"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
-	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/artifactwire"
@@ -418,93 +417,6 @@ type AttemptArtifactInput struct {
 	Artifact           ports.CapturedAttemptArtifact
 }
 
-// FollowupRuntimeArtifactInput is the complete immutable runtime inventory for
-// the specialized followup invocation. Its fields intentionally mirror the
-// coordinator runtime inventory so followups use the same P2 retention rules.
-type FollowupRuntimeArtifactInput struct {
-	RuntimeRunID                 domain.RunID
-	RuntimeAttemptID             domain.AttemptID
-	RuntimeSequence              uint64
-	RuntimePurpose               domain.InvocationPurpose
-	RuntimeRole                  domain.Role
-	RuntimeTarget                []byte
-	RuntimeCapturedArchive       []byte
-	RuntimeTargetIdentity        domain.TargetIdentity
-	RuntimeStdin                 []byte
-	RuntimeStdinSHA256           string
-	RuntimeTemplateID            string
-	RuntimeTemplateVersion       string
-	RuntimeTemplateSHA256        string
-	RuntimeSourceInvocationID    string
-	RuntimeExecutionInvocationID string
-	RuntimeScope                 string
-	RuntimeAdapterProfile        string
-	RuntimeAdapterParameters     map[string]string
-	RuntimeCaptures              []ports.CapturedAttemptArtifact
-}
-
-type runtimeArtifactInventory interface {
-	RunID() domain.RunID
-	AttemptID() domain.AttemptID
-	Sequence() uint64
-	Purpose() domain.InvocationPurpose
-	Role() domain.Role
-	Target() []byte
-	CapturedArchive() []byte
-	TargetIdentity() domain.TargetIdentity
-	Stdin() []byte
-	StdinSHA256() string
-	TemplateID() string
-	TemplateVersion() string
-	TemplateSHA256() string
-	SourceInvocationID() string
-	ExecutionInvocationID() string
-	Scope() string
-	AdapterProfile() string
-	AdapterParameters() map[string]string
-	Captures() []ports.CapturedAttemptArtifact
-}
-
-func (input FollowupRuntimeArtifactInput) RunID() domain.RunID         { return input.RuntimeRunID }
-func (input FollowupRuntimeArtifactInput) AttemptID() domain.AttemptID { return input.RuntimeAttemptID }
-func (input FollowupRuntimeArtifactInput) Sequence() uint64            { return input.RuntimeSequence }
-func (input FollowupRuntimeArtifactInput) Purpose() domain.InvocationPurpose {
-	return input.RuntimePurpose
-}
-func (input FollowupRuntimeArtifactInput) Role() domain.Role { return input.RuntimeRole }
-func (input FollowupRuntimeArtifactInput) Target() []byte    { return cloneBytes(input.RuntimeTarget) }
-func (input FollowupRuntimeArtifactInput) CapturedArchive() []byte {
-	return cloneBytes(input.RuntimeCapturedArchive)
-}
-func (input FollowupRuntimeArtifactInput) TargetIdentity() domain.TargetIdentity {
-	return input.RuntimeTargetIdentity
-}
-func (input FollowupRuntimeArtifactInput) Stdin() []byte       { return cloneBytes(input.RuntimeStdin) }
-func (input FollowupRuntimeArtifactInput) StdinSHA256() string { return input.RuntimeStdinSHA256 }
-func (input FollowupRuntimeArtifactInput) TemplateID() string  { return input.RuntimeTemplateID }
-func (input FollowupRuntimeArtifactInput) TemplateVersion() string {
-	return input.RuntimeTemplateVersion
-}
-func (input FollowupRuntimeArtifactInput) TemplateSHA256() string { return input.RuntimeTemplateSHA256 }
-func (input FollowupRuntimeArtifactInput) SourceInvocationID() string {
-	return input.RuntimeSourceInvocationID
-}
-func (input FollowupRuntimeArtifactInput) ExecutionInvocationID() string {
-	return input.RuntimeExecutionInvocationID
-}
-func (input FollowupRuntimeArtifactInput) Scope() string          { return input.RuntimeScope }
-func (input FollowupRuntimeArtifactInput) AdapterProfile() string { return input.RuntimeAdapterProfile }
-func (input FollowupRuntimeArtifactInput) AdapterParameters() map[string]string {
-	result := make(map[string]string, len(input.RuntimeAdapterParameters))
-	for key, value := range input.RuntimeAdapterParameters {
-		result[key] = value
-	}
-	return result
-}
-func (input FollowupRuntimeArtifactInput) Captures() []ports.CapturedAttemptArtifact {
-	return append([]ports.CapturedAttemptArtifact(nil), input.RuntimeCaptures...)
-}
-
 type preparedAttemptArtifact struct {
 	kind             ports.AttemptArtifactKind
 	bytes            []byte
@@ -742,93 +654,6 @@ func (bundle PublicationBundle) Valid() bool {
 	return validatePublicationBundleSemantics(bundle) == nil
 }
 
-// PrepareCandidate validates every semantic fact available before a ReviewID is
-// issued. It preserves the root-review API and its serialized bytes.
-func PrepareCandidate(
-	result review.CoordinatorResult,
-	target domain.TargetIdentity,
-	severityThreshold domain.Severity,
-	mulgaeVersion string,
-	mulgaeCommit string,
-) (PreparedCandidate, error) {
-	return PrepareCandidateWithContext(
-		result, target, severityThreshold, mulgaeVersion, mulgaeCommit, rootPublicationContext(),
-	)
-}
-
-// PrepareNoChangeCandidate constructs the provider-free P2 candidate for an
-// empty Git capture. Patch and stdin targets are deliberately ineligible.
-func PrepareNoChangeCandidate(
-	sessionID domain.SessionID,
-	runID domain.RunID,
-	target domain.TargetIdentity,
-	selectedRoles []domain.Role,
-	severityThreshold domain.Severity,
-	provenance NoChangeProvenance,
-) (PreparedCandidate, error) {
-	if err := validateIdentity(sessionID, runID); err != nil {
-		return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: identity: %w", err)
-	}
-	if err := validateNoChangeProvenance(provenance); err != nil {
-		return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: provenance: %w", err)
-	}
-	if err := validateTarget(target); err != nil || target.Kind() != domain.TargetGit ||
-		target.SHA256() != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
-		return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: target is not an empty Git capture")
-	}
-	if severityThreshold == "" {
-		severityThreshold = domain.SeverityHigh
-	}
-	if !severityThreshold.Valid() || len(selectedRoles) == 0 {
-		return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: invalid metadata or selected roles")
-	}
-	roles := make([]preparedRole, len(selectedRoles))
-	for index, role := range selectedRoles {
-		if !role.Valid() || index > 0 && roleOrdinal(selectedRoles[index-1]) >= roleOrdinal(role) {
-			return PreparedCandidate{}, fmt.Errorf("publication no-change candidate: selected roles are invalid")
-		}
-		roles[index] = preparedRole{
-			role: role, required: role == domain.RoleLogic,
-			state: domain.RoleTaskSucceeded, valid: true, outcome: "not_applicable",
-			limitations: []string{"No Git changes were captured."},
-		}
-	}
-	copied := provenance
-	candidate := PreparedCandidate{
-		sessionID: sessionID, runID: runID, runState: domain.RunCompleted,
-		target:    preparedTarget{sha256: "sha256:" + target.SHA256(), baseOID: target.BaseObjectID(), headOID: target.HeadObjectID()},
-		threshold: severityThreshold, mulgae: preparedMulgae{version: provenance.BuildVersion, commit: provenance.BuildCommit},
-		axes: preparedAxes{
-			content: domain.ContentNoFindings, coverage: domain.CoverageComplete, ci: domain.CIPass,
-			structuredExtraction: domain.StructuredExtractionStructured,
-		},
-		roles: roles, findings: []preparedFinding{}, failures: []preparedFailure{}, limits: []string{},
-		reasons: []string{"policy_evaluated"}, exitCode: int(domain.ExitCommittedPass),
-		lineage: rootPublicationContext().lineage, noChange: true, noChangeProvenance: &copied,
-	}
-	if err := candidate.validate(); err != nil {
-		return PreparedCandidate{}, err
-	}
-	return candidate, nil
-}
-
-// PrepareCandidateWithContext validates a root or child publication candidate.
-func PrepareCandidateWithContext(
-	result review.CoordinatorResult,
-	target domain.TargetIdentity,
-	severityThreshold domain.Severity,
-	mulgaeVersion string,
-	mulgaeCommit string,
-	context RunPublicationContext,
-) (PreparedCandidate, error) {
-	if err := validateTarget(target); err != nil {
-		return PreparedCandidate{}, fmt.Errorf("publication candidate: target: %w", err)
-	}
-	return prepareTerminalCandidate(result, preparedTarget{
-		sha256: "sha256:" + target.SHA256(), baseOID: target.BaseObjectID(), headOID: target.HeadObjectID(),
-	}, publicationEvidenceTarget{captured: target}, severityThreshold, mulgaeVersion, mulgaeCommit, context)
-}
-
 func prepareTerminalCandidate(
 	result review.CoordinatorResult,
 	target preparedTarget,
@@ -900,120 +725,6 @@ func prepareTerminalCandidate(
 		return PreparedCandidate{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, err)
 	}
 	return candidate, nil
-}
-
-// PrepareCandidateWithRuntimeArtifacts binds one complete immutable runtime
-// inventory to every coordinator invocation and rejects missing source material
-// before P2 publication.
-func PrepareCandidateWithRuntimeArtifacts[T runtimeArtifactInventory](
-	result review.CoordinatorResult,
-	target domain.TargetIdentity,
-	severityThreshold domain.Severity,
-	mulgaeVersion string,
-	mulgaeCommit string,
-	context RunPublicationContext,
-	inputs []T,
-) (PreparedCandidate, error) {
-	candidate, err := PrepareCandidateWithContext(
-		result, target, severityThreshold, mulgaeVersion, mulgaeCommit, context,
-	)
-	if err != nil {
-		return PreparedCandidate{}, err
-	}
-	runtimeInputs := make([]runtimeArtifactInventory, len(inputs))
-	for index := range inputs {
-		runtimeInputs[index] = inputs[index]
-	}
-	if err := candidate.bindRuntimeArtifactInventories(runtimeInputs); err != nil {
-		return PreparedCandidate{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, err)
-	}
-	return candidate, nil
-}
-
-func (candidate *PreparedCandidate) bindRuntimeArtifactInventories(inputs []runtimeArtifactInventory) error {
-	seen := make(map[string]struct{}, len(inputs))
-	captures := make([]AttemptArtifactInput, 0)
-	for _, input := range inputs {
-		if input.RunID() != candidate.runID || input.AttemptID().String() == "" ||
-			input.Sequence() == 0 || input.Role() == "" ||
-			sha256Identifier(input.Target()) != "sha256:"+input.TargetIdentity().SHA256() ||
-			"sha256:"+input.TargetIdentity().SHA256() != candidate.target.sha256 ||
-			input.StdinSHA256() != prompt.CompleteStdinSHA256(input.Stdin()) ||
-			input.TemplateID() == "" || input.TemplateVersion() == "" ||
-			input.TemplateSHA256() == "" || input.SourceInvocationID() == "" ||
-			input.ExecutionInvocationID() == "" || input.Scope() == "" ||
-			input.AdapterProfile() == "" {
-			return fmt.Errorf("publication candidate: invalid runtime artifact inventory for run=%s attempt=%s sequence=%d role=%s target=%s/%s stdin=%s/%s template=%s/%s/%s source=%s execution=%s scope=%s profile=%s",
-				input.RunID(), input.AttemptID(), input.Sequence(), input.Role(),
-				sha256Identifier(input.Target()), input.TargetIdentity().SHA256(),
-				input.StdinSHA256(), prompt.CompleteStdinSHA256(input.Stdin()),
-				input.TemplateID(), input.TemplateVersion(), input.TemplateSHA256(),
-				input.SourceInvocationID(), input.ExecutionInvocationID(), input.Scope(), input.AdapterProfile())
-		}
-		key := input.AttemptID().String() + fmt.Sprintf("/%020d", input.Sequence())
-		if _, duplicate := seen[key]; duplicate {
-			return fmt.Errorf("publication candidate: duplicate runtime artifact inventory")
-		}
-		seen[key] = struct{}{}
-		bound := false
-		for roleIndex := range candidate.roles {
-			for attemptIndex := range candidate.roles[roleIndex].attempts {
-				attempt := &candidate.roles[roleIndex].attempts[attemptIndex]
-				if attempt.id != input.AttemptID() {
-					continue
-				}
-				for invocationIndex := range attempt.invocations {
-					invocation := &attempt.invocations[invocationIndex]
-					if invocation.sequence != input.Sequence() || invocation.purpose != input.Purpose() ||
-						candidate.roles[roleIndex].role != input.Role() {
-						continue
-					}
-					identity := input.TargetIdentity()
-					invocation.runtime = &preparedRuntimeArtifact{
-						target: input.Target(), targetSHA256: identity.SHA256(), targetKind: identity.Kind(),
-						capturedArchive:  input.CapturedArchive(),
-						targetRepository: identity.RepositoryID(), targetBaseOID: identity.BaseObjectID(),
-						targetHeadOID: identity.HeadObjectID(), stdin: input.Stdin(),
-						targetHeadTreeOID: identity.HeadTreeObjectID(), targetIndexTreeOID: identity.IndexTreeObjectID(),
-						targetGitMode: identity.GitMode(),
-						stdinSHA256:   input.StdinSHA256(), templateID: input.TemplateID(),
-						templateVersion: input.TemplateVersion(), templateSHA256: input.TemplateSHA256(),
-						sourceInvocationID: input.SourceInvocationID(), executionInvocationID: input.ExecutionInvocationID(),
-						scope: input.Scope(), role: input.Role(), adapterProfile: input.AdapterProfile(),
-						adapterParameters: input.AdapterParameters(),
-					}
-					for _, capture := range input.Captures() {
-						captures = append(captures, AttemptArtifactInput{
-							AttemptID: input.AttemptID(), InvocationSequence: input.Sequence(), Artifact: capture,
-						})
-					}
-					bound = true
-					break
-				}
-			}
-		}
-		if !bound {
-			return fmt.Errorf("publication candidate: runtime artifact does not bind an invocation")
-		}
-	}
-	for roleIndex := range candidate.roles {
-		for attemptIndex := range candidate.roles[roleIndex].attempts {
-			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
-				attempt := candidate.roles[roleIndex].attempts[attemptIndex]
-				invocation := attempt.invocations[invocationIndex]
-				if invocation.runtime == nil && (invocation.state != domain.InvocationTimedOut || invocation.runtimeArtifactsExpected) {
-					return fmt.Errorf(
-						"publication candidate: runtime artifact inventory is incomplete for role=%s attempt=%s sequence=%d purpose=%s",
-						candidate.roles[roleIndex].role, attempt.id, invocation.sequence, invocation.purpose,
-					)
-				}
-			}
-		}
-	}
-	if err := candidate.bindAttemptArtifacts(captures); err != nil {
-		return err
-	}
-	return candidate.validate()
 }
 
 func (candidate *PreparedCandidate) bindAttemptArtifacts(inputs []AttemptArtifactInput) error {
@@ -2201,18 +1912,6 @@ func validateIdentity(sessionID domain.SessionID, runID domain.RunID) error {
 	}
 	if _, err := domain.ParseRunID(runID.String()); err != nil {
 		return err
-	}
-	return nil
-}
-
-func validateTarget(target domain.TargetIdentity) error {
-	canonical, err := domain.NewTargetIdentity(domain.TargetIdentityInput{
-		Kind: target.Kind(), SHA256: target.SHA256(), RepositoryID: target.RepositoryID(), BaseObjectID: target.BaseObjectID(),
-		HeadObjectID: target.HeadObjectID(), HeadTreeObjectID: target.HeadTreeObjectID(), IndexTreeObjectID: target.IndexTreeObjectID(),
-		GitMode: target.GitMode(),
-	})
-	if err != nil || canonical != target {
-		return fmt.Errorf("target identity is invalid")
 	}
 	return nil
 }

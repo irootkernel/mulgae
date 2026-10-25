@@ -528,3 +528,20 @@ func verifiedEvidenceSide(side validation.CurrentEvidenceSide) (evidence.Side, e
 		return "", fmt.Errorf("invalid current evidence side %q", side)
 	}
 }
+
+func sameFindingIdentity(left, right domain.Finding) bool {
+	return left.Fingerprint() == right.Fingerprint() &&
+		left.Severity() == right.Severity() &&
+		left.Path() == right.Path() &&
+		left.LineStart() == right.LineStart() &&
+		left.Role() == right.Role() &&
+		left.ProviderInstance() == right.ProviderInstance() &&
+		left.Title() == right.Title() &&
+		left.Description() == right.Description() &&
+		left.Recommendation() == right.Recommendation() &&
+		left.Confidence() == right.Confidence() &&
+		left.Lifecycle() == right.Lifecycle() &&
+		left.EvidenceState() == right.EvidenceState() &&
+		left.NormalizedRuleCategory() == right.NormalizedRuleCategory() &&
+		left.NormalizedEvidenceRegion() == right.NormalizedEvidenceRegion()
+}

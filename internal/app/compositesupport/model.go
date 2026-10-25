@@ -83,23 +83,6 @@ type FindingMaterial struct {
 	Excerpts [][]byte
 }
 
-func Clone(material Material) Material {
-	material.Source.ProviderIdentities = append([]string(nil), material.Source.ProviderIdentities...)
-	material.CaptureManifest = bytes.Clone(material.CaptureManifest)
-	material.CapturedArchive = bytes.Clone(material.CapturedArchive)
-	material.Findings = append([]FindingMaterial(nil), material.Findings...)
-	for i := range material.Findings {
-		f := &material.Findings[i]
-		f.Finding.Evidence = append([]Evidence(nil), f.Finding.Evidence...)
-		f.Original = bytes.Clone(f.Original)
-		f.Excerpts = append([][]byte(nil), f.Excerpts...)
-		for j := range f.Excerpts {
-			f.Excerpts[j] = bytes.Clone(f.Excerpts[j])
-		}
-	}
-	return material
-}
-
 func SHA256(raw []byte) string {
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
@@ -108,94 +91,6 @@ func SourcePrefix(role domain.Role) string { return artifactwire.CompositeSource
 func FindingPath(id string) string         { return artifactwire.CompositeFindingPath(id) }
 func ExcerptPath(id string, index int) string {
 	return "excerpts/" + artifactwire.EvidenceExcerptName(id, index+1)
-}
-
-func Build(session domain.SessionID, run domain.RunID, materials []Material) ([]ports.ImmutablePublicationArtifact, error) {
-	if len(materials) == 0 {
-		return nil, fmt.Errorf("composite sources absent")
-	}
-	prefix := session.String() + "/" + run.String() + "/"
-	doc := Document{SchemaVersion: Version, Sources: []Source{}, Findings: []Finding{}}
-	artifacts := []ports.ImmutablePublicationArtifact{}
-	add := func(relative string, raw []byte) error {
-		path, err := ports.NewSafeRelativePath(prefix + relative)
-		if err != nil {
-			return err
-		}
-		a, err := ports.NewImmutablePublicationArtifact(path, SHA256(raw), raw)
-		if err != nil {
-			return err
-		}
-		artifacts = append(artifacts, a)
-		return nil
-	}
-	for _, material := range materials {
-		doc.Sources = append(doc.Sources, material.Source)
-		if material.Source.CaptureAvailability == "verified" {
-			if err := add(SourcePrefix(material.Source.Role)+"capture-manifest.json", material.CaptureManifest); err != nil {
-				return nil, err
-			}
-			captured, err := ports.UnmarshalCapturedReviewMaterial(material.CapturedArchive)
-			if err != nil {
-				return nil, err
-			}
-			archive, err := ports.NewCapturedReviewArchive(captured)
-			if err != nil {
-				return nil, err
-			}
-			if err = add(SourcePrefix(material.Source.Role)+"captured-review.json", archive.Manifest()); err != nil {
-				return nil, err
-			}
-			for _, blob := range archive.Blobs() {
-				if err = add(SourcePrefix(material.Source.Role)+blob.Path().String(), blob.Bytes()); err != nil {
-					return nil, err
-				}
-			}
-		} else if len(material.CaptureManifest) != 0 || len(material.CapturedArchive) != 0 {
-			return nil, fmt.Errorf("unavailable source has capture material")
-		}
-		for _, item := range material.Findings {
-			if item.Finding.Evidence == nil {
-				item.Finding.Evidence = []Evidence{}
-			}
-			doc.Findings = append(doc.Findings, item.Finding)
-			if len(item.Excerpts) != len(item.Finding.Evidence) {
-				return nil, fmt.Errorf("evidence inventory differs")
-			}
-			if err := add(FindingPath(item.Finding.ID), item.Original); err != nil {
-				return nil, err
-			}
-			for i, e := range item.Finding.Evidence {
-				if e.Availability == "verified" {
-					if err := add(ExcerptPath(item.Finding.ID, i), item.Excerpts[i]); err != nil {
-						return nil, err
-					}
-				} else if len(item.Excerpts[i]) != 0 {
-					return nil, fmt.Errorf("unavailable evidence has bytes")
-				}
-			}
-		}
-	}
-	sort.Slice(doc.Sources, func(i, j int) bool { return roleIndex(doc.Sources[i].Role) < roleIndex(doc.Sources[j].Role) })
-	sort.Slice(doc.Findings, func(i, j int) bool { return doc.Findings[i].ID < doc.Findings[j].ID })
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		return nil, err
-	}
-	if err = add(DocumentPath, append(raw, '\n')); err != nil {
-		return nil, err
-	}
-	byPath := map[string]ports.ImmutablePublicationArtifact{}
-	for _, a := range artifacts {
-		if _, ok := byPath[a.Path().String()]; ok {
-			return nil, fmt.Errorf("duplicate composite support")
-		}
-		byPath[a.Path().String()] = a
-	}
-	if _, err = Verify(session, run, doc.Sources[0].TargetSHA256, byPath); err != nil {
-		return nil, err
-	}
-	return artifacts, nil
 }
 
 func Decode(raw []byte) (Document, error) {

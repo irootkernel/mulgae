@@ -5,15 +5,10 @@ package publication
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -48,7 +43,7 @@ func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock := publicationServiceClock{now: publicationTestTime()}
-	candidate := publicationTestCandidate(t, true)
+	candidate := retainedLiveCandidate(t, true)
 	if _, err := candidate.Build(ctx, validator, publicationTestReviewID(t), publicationTestTime(), 1); err != nil {
 		t.Fatalf("real-schema candidate build: %v", err)
 	}
@@ -66,7 +61,7 @@ func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	published, err := publisher.Publish(ctx, root, candidate, 1)
+	published, err := publisher.PublishLiveNext(ctx, root, PreparedLiveCandidate{candidate: candidate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +108,16 @@ func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 	if len(findings) != 1 || findings[0].ID() != "F001" {
 		t.Fatalf("findings = %#v", findings)
 	}
-	excerpt, err := queries.RenderExcerpt(ctx, run, "F001", candidate.target.sha256)
+	if got := findings[0].Evidence(); len(got) != 1 || got[0].TargetSHA256() != "" || got[0].SourceIdentitySHA256() != candidate.target.sha256 {
+		t.Fatal("live finding lost its source selection identity or claimed captured content")
+	}
+	_, err = queries.RenderExcerpt(ctx, run, "F001", candidate.target.sha256)
+	var selectorFailure *domain.Failure
+	if !errors.As(err, &selectorFailure) || selectorFailure.Class() != domain.FailureConfiguration ||
+		selectorFailure.Reason() != "target SHA-256 does not match the committed finding" {
+		t.Fatalf("live excerpt selector failure = %v", err)
+	}
+	excerpt, err := queries.RenderExcerpt(ctx, run, "F001", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +221,7 @@ func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 	if err != nil || len(restartedFindings) != 1 || restartedFindings[0].ID() != "F001" {
 		t.Fatalf("restarted findings = (%#v, %v)", restartedFindings, err)
 	}
-	restartedExcerpt, err := restartedQueries.RenderExcerpt(ctx, run, "F001", candidate.target.sha256)
+	restartedExcerpt, err := restartedQueries.RenderExcerpt(ctx, run, "F001", "")
 	if err != nil || !bytes.Equal(restartedExcerpt, []byte("reviewed line\n")) {
 		t.Fatalf("restarted excerpt = (%q, %v)", restartedExcerpt, err)
 	}
@@ -282,7 +286,7 @@ func TestIntegrationPublicationAcceptsTenMiBRoleReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate := publicationTestCandidate(t, true)
+	candidate := retainedLiveCandidate(t, true)
 	largeReport := bytes.Repeat([]byte("a"), 10<<20)
 	candidate.roles[0].reportMarkdown = largeReport
 	if !candidate.Valid() {
@@ -302,7 +306,7 @@ func TestIntegrationPublicationAcceptsTenMiBRoleReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := publisher.Publish(ctx, root, candidate, 1); err != nil {
+	if _, err := publisher.PublishLiveNext(ctx, root, PreparedLiveCandidate{candidate: candidate}); err != nil {
 		t.Fatalf("Publish() rejected a 10 MiB role report: %v", err)
 	}
 	run, err := ports.NewPublicationRun(root, candidate.SessionID(), candidate.RunID())
@@ -320,172 +324,34 @@ func TestIntegrationPublicationAcceptsTenMiBRoleReport(t *testing.T) {
 	if len(status.RoleReportURIs()) == 0 {
 		t.Fatal("published role report URI is absent")
 	}
-}
-
-func TestIntegrationHistoricalArchivePublicationAndQueryRemainImmutable(t *testing.T) {
-	ctx := context.Background()
-	project := t.TempDir()
-	publicationArchiveGit(t, project, "init")
-	publicationArchiveGit(t, project, "config", "user.email", "test@example.invalid")
-	publicationArchiveGit(t, project, "config", "user.name", "Test")
-	publicationArchiveWrite(t, filepath.Join(project, "tracked.txt"), "base\n")
-	publicationArchiveGit(t, project, "add", "tracked.txt")
-	publicationArchiveGit(t, project, "commit", "-m", "base")
-	publicationArchiveWrite(t, filepath.Join(project, "tracked.txt"), "captured worktree\n")
-	publicationArchiveWrite(t, filepath.Join(project, "untracked.txt"), "captured untracked\n")
-
-	// Build a legacy artifact fixture without restoring a production capture path.
-	tracked, _ := ports.NewSafeRelativePath("tracked.txt")
-	untracked, _ := ports.NewSafeRelativePath("untracked.txt")
-	file := func(path ports.SafeRelativePath, raw string) ports.WorkspaceSnapshotFile {
-		sum := sha256.Sum256([]byte(raw))
-		value, err := ports.NewWorkspaceSnapshotFile(path, []byte(raw), "sha256:"+hex.EncodeToString(sum[:]))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return value
-	}
-	files := []ports.WorkspaceSnapshotFile{file(tracked, "captured worktree\n"), file(untracked, "captured untracked\n")}
-	snapshot, err := ports.NewWorkspaceSnapshotRequest(files, "historical-fixture-v1")
+	review, err := queries.ReadCommitted(ctx, run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	object, _ := ports.ParseGitObjectID(strings.Repeat("a", 40))
-	target, err := ports.NewCapturedReviewGitTargetWithMode(domain.GitTargetDirty, "repository:historical-fixture", object, object, object, &object, []byte("historical diff\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceBase: {file(tracked, "base\n")}, ports.CapturedEvidenceWorktree: files})
-	if err != nil {
-		t.Fatal(err)
-	}
-	material, err := ports.NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	archive, err := ports.MarshalCapturedReviewMaterial(material)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	candidate := publicationRuntimeCandidate(t)
-	identity := material.Target().Identity()
-	candidate.target = preparedTarget{
-		sha256:  "sha256:" + identity.SHA256(),
-		baseOID: identity.BaseObjectID(),
-		headOID: identity.HeadObjectID(),
-	}
-	for roleIndex := range candidate.roles {
-		for attemptIndex := range candidate.roles[roleIndex].attempts {
-			for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
-				runtime := candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime
-				runtime.target = material.Target().Bytes()
-				runtime.capturedArchive = append([]byte(nil), archive...)
-				runtime.targetSHA256 = identity.SHA256()
-				runtime.targetKind = identity.Kind()
-				runtime.targetRepository = identity.RepositoryID()
-				runtime.targetBaseOID = identity.BaseObjectID()
-				runtime.targetHeadOID = identity.HeadObjectID()
-				runtime.targetHeadTreeOID = identity.HeadTreeObjectID()
-				runtime.targetIndexTreeOID = identity.IndexTreeObjectID()
-				runtime.targetGitMode = identity.GitMode()
-			}
+	var logicReport appquery.RoleReport
+	for _, report := range review.RoleReports() {
+		if report.Role() == "logic" {
+			logicReport = report
 		}
 	}
-	if err := candidate.validate(); err != nil {
-		t.Fatalf("archive lifecycle candidate is invalid: %v", err)
+	if logicReport.ByteLength() != len(largeReport) {
+		t.Fatal("committed role report lost its exact byte length")
 	}
-
-	catalog := builtin.NewCatalog()
-	validator, err := jsonschema.New(ctx, catalog)
-	if err != nil {
+	content, err := queries.ReadCommittedRoleReport(ctx, run, logicReport)
+	if err != nil || !bytes.Equal(content, largeReport) {
+		t.Fatalf("large committed role report did not round-trip: %v", err)
+	}
+	tampered := append([]byte(nil), largeReport...)
+	tampered[0] = 'b'
+	reportPath := filepath.Join(rootPath, run.SessionID().String(), run.RunID().String(), filepath.FromSlash(logicReport.Path()))
+	if err := os.WriteFile(reportPath, tampered, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	publicationPath := filepath.Join(t.TempDir(), ".mulgae")
-	if err := os.Mkdir(publicationPath, 0o700); err != nil {
-		t.Fatal(err)
+	status, err = queries.ReadRunStatus(ctx, run)
+	publicationServiceRequireFailureClass(t, err, domain.FailureArtifact)
+	if len(status.RoleReportURIs()) != 0 {
+		t.Fatal("tampered large report exposed a verified report URI")
 	}
-	publicationRoot, err := ports.NewAnchoredRoot(publicationPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store, err := filesystem.NewPublicationStore(
-		validator,
-		publicationServiceClock{now: publicationTestTime()},
-		publicationIntegrationIDs{reviewID: publicationTestReviewID(t)},
-		filesystem.NewSecureWriter(),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	publisher, err := NewService(store, validator, publicationServiceClock{now: publicationTestTime()}, 8<<20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	published, err := publisher.Publish(ctx, publicationRoot, candidate, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if published.Decision().Authority() != domain.PublicationAuthorityP2 {
-		t.Fatalf("publication authority = %q, want P2", published.Decision().Authority())
-	}
-	persistedTargetRoot := filepath.Join(publicationPath, candidate.SessionID().String(), candidate.RunID().String(), "target")
-	persistedManifest, err := os.ReadFile(filepath.Join(persistedTargetRoot, "captured-review.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(persistedManifest, []byte(`"bytes"`)) || !bytes.Contains(persistedManifest, []byte(`"schema_version":"mulgae-captured-review-archive.v2"`)) {
-		t.Fatalf("persisted capture is not a reference-only v2 manifest: %s", persistedManifest)
-	}
-	blobReferences, err := ports.CapturedReviewArchiveBlobReferences(persistedManifest)
-	if err != nil || len(blobReferences) == 0 {
-		t.Fatalf("persisted capture blob references = %d, %v", len(blobReferences), err)
-	}
-	for _, reference := range blobReferences {
-		body, readErr := os.ReadFile(filepath.Join(persistedTargetRoot, filepath.FromSlash(reference.Path().String())))
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		blob, blobErr := ports.NewCapturedReviewArchiveBlob(reference.Path(), body)
-		if blobErr != nil || blob.SHA256() != reference.SHA256() {
-			t.Fatalf("persisted capture blob %q is invalid: %v", reference.Path(), blobErr)
-		}
-	}
-
-	publicationArchiveWrite(t, filepath.Join(project, "tracked.txt"), "mutated after P2\n")
-	publicationArchiveWrite(t, filepath.Join(project, "untracked.txt"), "mutated after P2\n")
-	publicationArchiveWrite(t, filepath.Join(project, "later.txt"), "created after P2\n")
-
-	queries, err := appquery.NewService(store, validator, nil, 8<<20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := ports.NewPublicationRun(publicationRoot, candidate.SessionID(), candidate.RunID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtimeTarget, err := queries.ReadRuntimeTarget(ctx, run)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtimeTarget.Identity() != identity || !bytes.Equal(runtimeTarget.Bytes(), material.Target().Bytes()) || !bytes.Equal(runtimeTarget.CapturedArchive(), archive) {
-		t.Fatal("queried runtime target changed after live worktree mutation")
-	}
-	archived, err := ports.UnmarshalCapturedReviewMaterial(runtimeTarget.CapturedArchive())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if archived.Target().Identity() != material.Target().Identity() || !bytes.Equal(archived.Target().Bytes(), material.Target().Bytes()) {
-		t.Fatal("archive did not reproduce the captured target")
-	}
-	for _, side := range []ports.CapturedEvidenceSide{ports.CapturedEvidenceBase, ports.CapturedEvidenceWorktree} {
-		want, wantOK := material.Evidence().Files(side)
-		got, gotOK := archived.Evidence().Files(side)
-		if wantOK != gotOK || !publicationArchiveFilesEqual(want, got) {
-			t.Fatalf("archive evidence side %q changed", side)
-		}
-	}
-
 }
 
 func publicationArchiveGit(t *testing.T, root string, arguments ...string) {
@@ -533,7 +399,7 @@ func TestIntegrationPublicationFilesystemRecoversP0StagedToP2(t *testing.T) {
 	}
 	clock := publicationServiceClock{now: publicationTestTime()}
 	reviewID := publicationTestReviewID(t)
-	candidate := publicationTestCandidate(t, true)
+	candidate := retainedLiveCandidate(t, true)
 	store, err := filesystem.NewPublicationStore(
 		validator,
 		clock,
@@ -745,159 +611,4 @@ func publicationIntegrationErrorChain(err error) []string {
 		err = errors.Unwrap(err)
 	}
 	return chain
-}
-
-// TestArtistRuntimeInputsPublishReadRoundTrip commits real writer bytes with
-// artist inputs and reads them back through the strict historical query
-// reader over the same committed store, in every writer input state. It is
-// the writer/reader drift guard for the retained artist manifest fields.
-func TestArtistRuntimeInputsPublishReadRoundTrip(t *testing.T) {
-	briefBytes := []byte("Check the reviewed home screen design.\n")
-	visualBytes, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
-	if err != nil {
-		t.Fatal(err)
-	}
-	visualPath, _ := ports.NewSafeRelativePath("design-specs/home.png")
-	for _, test := range []struct {
-		name       string
-		status     string
-		task       string
-		withVisual bool
-		wantBrief  bool
-	}{
-		{name: "ready", status: "ready", task: string(briefBytes), withVisual: true, wantBrief: true},
-		{name: "code_only", status: "code_only", task: string(briefBytes), withVisual: false, wantBrief: true},
-		{name: "missing", status: "missing", task: "", withVisual: true, wantBrief: false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			ctx := context.Background()
-			catalog := builtin.NewCatalog()
-			validator, err := jsonschema.New(ctx, catalog)
-			if err != nil {
-				t.Fatal(err)
-			}
-			rootPath := filepath.Join(t.TempDir(), ".mulgae")
-			if err := os.Mkdir(rootPath, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			root, err := ports.NewAnchoredRoot(rootPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			clock := publicationServiceClock{now: publicationTestTime()}
-			candidate := publicationRuntimeCandidate(t)
-			target, err := ports.NewCapturedReviewPatchTarget([]byte("reviewed line\n"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			briefWorkspacePath, _ := ports.NewSafeRelativePath("docs/roadmap.md")
-			briefFile, err := ports.NewWorkspaceSnapshotFile(briefWorkspacePath, briefBytes, sha256Identifier(briefBytes))
-			if err != nil {
-				t.Fatal(err)
-			}
-			files := []ports.WorkspaceSnapshotFile{}
-			visualAssets := []capturedArtistVisualWire{}
-			if test.withVisual {
-				visual, visualErr := ports.NewWorkspaceVisualAsset(visualPath, visualBytes, sha256Identifier(visualBytes), "image/png")
-				if visualErr != nil {
-					t.Fatal(visualErr)
-				}
-				files = append(files, visual)
-				visualAssets = append(visualAssets, capturedArtistVisualWire{Path: "current/" + visual.Path().String(), SHA256: visual.SHA256(), MediaType: visual.MediaType()})
-			}
-			// Snapshot files must stay strictly lexicographic:
-			// design-specs/... sorts before docs/...
-			files = append(files, briefFile)
-			snapshot, err := ports.NewWorkspaceSnapshotRequest(files, "artist-round-trip")
-			if err != nil {
-				t.Fatal(err)
-			}
-			evidence, err := ports.NewCapturedTargetEvidence(map[ports.CapturedEvidenceSide][]ports.WorkspaceSnapshotFile{ports.CapturedEvidenceHead: files})
-			if err != nil {
-				t.Fatal(err)
-			}
-			artistContext, err := json.Marshal(capturedArtistInputWire{
-				SchemaVersion: "mulgae-artist-inputs.v1", Status: test.status, TaskPath: "docs/roadmap.md", Task: test.task,
-				VisualAssets: visualAssets,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			material, err := ports.NewCapturedReviewMaterialWithEvidenceAndProjectContext(target, snapshot, artistContext, true, evidence)
-			if err != nil {
-				t.Fatal(err)
-			}
-			archive, err := ports.MarshalCapturedReviewMaterial(material)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for roleIndex := range candidate.roles {
-				for attemptIndex := range candidate.roles[roleIndex].attempts {
-					for invocationIndex := range candidate.roles[roleIndex].attempts[attemptIndex].invocations {
-						candidate.roles[roleIndex].attempts[attemptIndex].invocations[invocationIndex].runtime.capturedArchive = append([]byte(nil), archive...)
-					}
-				}
-			}
-			if _, err := candidate.Build(ctx, validator, publicationTestReviewID(t), publicationTestTime(), 1); err != nil {
-				t.Fatalf("artist candidate build: %v", err)
-			}
-			store, err := filesystem.NewPublicationStore(
-				validator,
-				clock,
-				publicationIntegrationIDs{reviewID: publicationTestReviewID(t)},
-				filesystem.NewSecureWriter(),
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			publisher, err := NewService(store, validator, clock, 8<<20)
-			if err != nil {
-				t.Fatal(err)
-			}
-			published, err := publisher.Publish(ctx, root, candidate, 1)
-			if err != nil {
-				t.Fatalf("artist publish: %v", err)
-			}
-			if published.Decision().Authority() != domain.PublicationAuthorityP2 || published.Decision().Status() != domain.PublicationCommitted {
-				t.Fatalf("artist publish decision = (%q, %q)", published.Decision().Authority(), published.Decision().Status())
-			}
-			run, err := ports.NewPublicationRun(root, candidate.SessionID(), candidate.RunID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			queries, err := appquery.NewService(store, validator, nil, 8<<20)
-			if err != nil {
-				t.Fatal(err)
-			}
-			read, err := queries.ReadRuntimeTarget(ctx, run)
-			if err != nil {
-				t.Fatalf("historical artist read: %v", err)
-			}
-			if string(read.Bytes()) != "reviewed line\n" || len(read.CapturedArchive()) == 0 {
-				t.Fatalf("round-trip target = %q with archive length %d", read.Bytes(), len(read.CapturedArchive()))
-			}
-			brief, briefPresent := read.ArtistBrief()
-			if briefPresent != test.wantBrief {
-				t.Fatalf("artist brief presence = %t, want %t", briefPresent, test.wantBrief)
-			}
-			if test.wantBrief && string(brief) != string(briefBytes) {
-				t.Fatalf("artist brief = %q, want the exact retained brief bytes", brief)
-			}
-			visuals, visualsPresent := read.ArtistVisualAssets()
-			if !visualsPresent {
-				t.Fatal("artist visual assets are absent in every writer input state")
-			}
-			var visualsWire publishedArtistVisualsWire
-			if err := json.Unmarshal(visuals, &visualsWire); err != nil {
-				t.Fatalf("retained visual manifest is not the writer wire: %v", err)
-			}
-			if test.withVisual {
-				if len(visualsWire.VisualAssets) == 0 || visualsWire.VisualAssets[0].SHA256 != sha256Identifier(visualBytes) {
-					t.Fatalf("retained visual manifest = %#v, want the captured visual identity", visualsWire)
-				}
-			} else if len(visualsWire.VisualAssets) != 0 {
-				t.Fatalf("code-only visual manifest = %#v, want an empty visual_assets list", visualsWire)
-			}
-		})
-	}
 }

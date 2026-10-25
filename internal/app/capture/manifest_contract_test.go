@@ -1,4 +1,4 @@
-package reviewrun
+package capture
 
 import (
 	"bytes"

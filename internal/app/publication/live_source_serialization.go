@@ -66,34 +66,19 @@ func (candidate PreparedCandidate) liveProvenanceWire() *liveProductionProvenanc
 }
 
 func (candidate PreparedCandidate) finalTargetWire() finalTargetWire {
-	target := finalTargetWire{ContentSHA256: candidate.target.sha256, ManifestPath: targetManifestPath, BaseOID: optionalString(candidate.target.baseOID), HeadOID: optionalString(candidate.target.headOID)}
-	if candidate.target.live != nil {
-		target.ContentSHA256 = ""
-		target.ManifestPath = liveSourceManifestPath
-		target.LiveSource = candidate.liveTargetWire()
-	}
-	return target
+	return finalTargetWire{ManifestPath: liveSourceManifestPath, BaseOID: optionalString(candidate.target.baseOID), HeadOID: optionalString(candidate.target.headOID), LiveSource: candidate.liveTargetWire()}
 }
 
 func (candidate PreparedCandidate) manifestTargetWire() manifestTargetWire {
-	if candidate.target.live != nil {
-		return manifestTargetWire{ManifestPath: liveSourceManifestPath, SourceIdentitySHA256: candidate.target.sha256}
-	}
-	return manifestTargetWire{ManifestPath: targetManifestPath, ContentSHA256: candidate.target.sha256}
+	return manifestTargetWire{ManifestPath: liveSourceManifestPath, SourceIdentitySHA256: candidate.target.sha256}
 }
 
 func (candidate PreparedCandidate) artifactVersion(legacy string) string {
-	if candidate.target.live != nil {
-		return strings.TrimSuffix(legacy, ".v1") + ".v3"
-	}
-	return lineageVersion(legacy, candidate.publicationLineage().sourceRecoveryManifestSHA256)
+	return strings.TrimSuffix(legacy, ".v1") + ".v3"
 }
 
 func (candidate PreparedCandidate) artifactSchema(legacy string) string {
-	if candidate.target.live != nil {
-		return strings.Replace(legacy, ".v1.schema.json", ".v3.schema.json", 1)
-	}
-	return lineageSchema(legacy, candidate.publicationLineage().sourceRecoveryManifestSHA256)
+	return strings.Replace(legacy, ".v1.schema.json", ".v3.schema.json", 1)
 }
 
 func (candidate PreparedCandidate) buildLiveSupport(existing []ports.ImmutablePublicationArtifact) ([]ports.ImmutablePublicationArtifact, error) {

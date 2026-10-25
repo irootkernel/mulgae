@@ -8,12 +8,9 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/fakeprovider"
-	adapterjsonschema "github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/review"
-	"github.com/irootkernel/mulgae/internal/app/validation"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -231,122 +228,4 @@ func e2eAssignment(t *testing.T, role domain.Role, provider string) review.Assig
 		t.Fatal(err)
 	}
 	return assignment
-}
-
-func TestIntegrationFakeProviderRepairNormalizationAndAxes(t *testing.T) {
-	ctx := context.Background()
-	common := e2eLayer(t, "common", "Common review constraints.")
-	runLayer := e2eLayer(t, "review-run", "This is a review run.")
-	jsonLayer := e2eLayer(t, "json-output", "Return JSON only.")
-	repairLayer := e2eLayer(t, "repair", "Repair only allowed fields.")
-	extractLayer := e2eLayer(t, "extract", "Transcribe the accepted report into exact finding JSON.")
-	logicLayer := e2eLayer(t, "logic", "Review logic defects.")
-	securityLayer := e2eLayer(t, "security", "Review security defects.")
-	target := e2eTarget(t)
-
-	logicTemplate, err := prompt.ComposeTrustedTemplate("review-logic", "v1", common, runLayer, logicLayer, jsonLayer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	securityTemplate, err := prompt.ComposeTrustedTemplate("review-security", "v1", common, runLayer, securityLayer, jsonLayer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	initialRaw := []byte(`{"schema_version":"mulgae-provider-review-output.v1","completeness":"complete","limitations":[],"findings":[{"severity":"high","title":"Fallback after valid negative review","description":"The coordinator must preserve valid negative review results.","evidence":[{"current":{"path":"internal/app/coordinator.go","side":"head","line_start":120,"line_end":120,"quote":"queueFallback(task)"}}],"recommendation":"Treat valid findings as successful role output.","confidence":"high"}]}`)
-	repairRaw := []byte(`{"schema_version":"mulgae-repair-patch.v1","repairs":[{"path":"/summary","value":"One high finding was identified."}]}`)
-	validNoFindings := []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"No findings were identified.","completeness":"complete","limitations":[],"findings":[]}`)
-
-	sessionID := parseE2ESession(t, 1)
-	runID := parseE2ERun(t, 2)
-	logicAttemptID := parseE2EAttempt(t, 4)
-	logicInitial := compileE2EPrompt(t, logicTemplate, sessionID, runID, parseE2ERoleTask(t, 3), logicAttemptID, parseE2ESource(t, 5), parseE2EExecution(t, 6), target.Bytes(), nil)
-	repairBase, err := prompt.NewTrustedLayer("review-repair-base", "v1", logicTemplate.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	repairConstraints, err := prompt.NewTrustedLayer("review-repair-constraints", "v1", []byte("Mulgae REPAIR CONSTRAINTS/1\nmode:fill_missing_fields\nallowed_paths:\n- /summary\nReturn only the repair form required by mode.\nDo not change role, provider identity, finding count, severity, target identity, or unrelated fields."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	repairTemplate, err := prompt.ComposeTrustedTemplate("review-repair-"+logicTemplate.ID(), "v1", repairBase, repairConstraints)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prior := prompt.NewPayload(initialRaw)
-	logicRepair := compileE2EPrompt(t, repairTemplate, sessionID, runID, parseE2ERoleTask(t, 3), logicAttemptID, parseE2ESource(t, 7), parseE2EExecution(t, 8), target.Bytes(), &prior)
-	securityAttemptID := parseE2EAttempt(t, 10)
-	securityInitial := compileE2EPrompt(t, securityTemplate, sessionID, runID, parseE2ERoleTask(t, 9), securityAttemptID, parseE2ESource(t, 11), parseE2EExecution(t, 12), target.Bytes(), nil)
-
-	provider, err := fakeprovider.New([]fakeprovider.ExpectedCall{
-		expectedE2ECall("fake.logic", domain.RoleLogic, logicAttemptID, ports.ProviderInvocationInitial, logicInitial, initialRaw),
-		expectedE2ECall("fake.logic", domain.RoleLogic, logicAttemptID, ports.ProviderInvocationRepair, logicRepair, repairRaw),
-		expectedE2ECall("fake.security", domain.RoleSecurity, securityAttemptID, ports.ProviderInvocationInitial, securityInitial, validNoFindings),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter, err := adapterjsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
-	schemaID, err := ports.ParseAssetID(validation.ProviderReviewSchemaID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewValidator, err := validation.NewReviewValidator(adapter, schemaID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reader := &e2eImmutableTargetReader{}
-	verifier, err := evidence.NewVerifier(reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ids := &e2eIDs{}
-	service, err := review.NewService(e2eClock{now: time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)}, ids, provider, reviewValidator, verifier)
-	if err != nil {
-		t.Fatal(err)
-	}
-	logic := e2eAssignment(t, domain.RoleLogic, "fake.logic")
-	security := e2eAssignment(t, domain.RoleSecurity, "fake.security")
-	templates, err := review.NewTemplateSet(common, runLayer, jsonLayer, repairLayer, extractLayer, map[domain.Role]prompt.TrustedLayer{
-		domain.RoleLogic:    logicLayer,
-		domain.RoleSecurity: securityLayer,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := service.Execute(ctx, review.NewRequest(target, []review.Assignment{logic, security}, templates, nil, ""))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(provider.Transcript()) != 3 || ids.reviewIDCalls != 0 {
-		t.Fatal("E2E review invoked an unexpected provider count or created final artifact identity")
-	}
-	if result.Outcomes().PublicationStatus() != domain.PublicationNotPublished {
-		t.Fatal("E2E review acquired publication authority")
-	}
-	findings := result.Findings()
-	if len(findings) != 1 || findings[0].ID() != "F001" || result.Outcomes().ContentVerdict() != domain.ContentRequestChanges || result.Outcomes().CoverageStatus() != domain.CoverageComplete {
-		t.Fatalf("E2E result did not prove repair, normalization, and axes: findings=%#v axes=%#v", findings, result.Outcomes())
-	}
-	evidenceGroups := result.Evidence()
-	if reader.calls != 1 || len(evidenceGroups) != 1 || !evidenceGroups[0].MatchesFinding(findings[0]) ||
-		len(evidenceGroups[0].Receipts()) != 1 || evidenceGroups[0].Receipts()[0].Status() != evidence.ReceiptVerified {
-		t.Fatalf("E2E verifier evidence = groups:%#v reads:%d", evidenceGroups, reader.calls)
-	}
-	findings[0] = domain.Finding{}
-	if copied := result.Findings(); len(copied) != 1 || copied[0].ID() != "F001" {
-		t.Fatal("E2E result findings were not defensively copied")
-	}
-
-	logicExecution := result.RoleExecutions()[0]
-	wires := logicExecution.PromptWireIdentities()
-	if !logicExecution.Repaired() || len(wires) != 2 || wires[0].SourceInvocationID() == wires[1].SourceInvocationID() || wires[0].ExecutionInvocationID() == wires[1].ExecutionInvocationID() {
-		t.Fatal("E2E repair did not retain fresh source and execution wire identities")
-	}
-	wires[0] = review.PromptWireIdentity{}
-	if restored := result.RoleExecutions()[0].PromptWireIdentities(); len(restored) != 2 || restored[0].Purpose() != ports.ProviderInvocationInitial {
-		t.Fatal("E2E result prompt wires were not defensively copied")
-	}
 }

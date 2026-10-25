@@ -1,4 +1,5 @@
-// Package review coordinates one deterministic, in-memory review run.
+// Package review owns assignments, concurrent coordination, provider runtime,
+// and accepted review results.
 package review
 
 import (
@@ -8,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -367,161 +367,15 @@ func (templates TemplateSet) RoleTemplates() map[domain.Role]prompt.TrustedLayer
 	return copied
 }
 
-// PromptWireIdentity records the exact source and execution identities of one
-// compiled provider packet. It contains no provider output.
-type PromptWireIdentity struct {
-	purpose               ports.ProviderInvocationPurpose
-	sourceInvocationID    string
-	executionInvocationID string
-	completeStdinSHA256   string
-	stdinByteLength       int
-}
-
-// Purpose returns whether this was an initial, retry, or repair invocation.
-func (identity PromptWireIdentity) Purpose() ports.ProviderInvocationPurpose { return identity.purpose }
-
-// SourceInvocationID returns the source identity framed in the packet.
-func (identity PromptWireIdentity) SourceInvocationID() string { return identity.sourceInvocationID }
-
-// ExecutionInvocationID returns the process execution identity for the packet.
-func (identity PromptWireIdentity) ExecutionInvocationID() string {
-	return identity.executionInvocationID
-}
-
-// CompleteStdinSHA256 returns the exact complete-stdin wire identity.
-func (identity PromptWireIdentity) CompleteStdinSHA256() string { return identity.completeStdinSHA256 }
-
-// StdinByteLength returns the exact number of bytes in the provider packet.
-func (identity PromptWireIdentity) StdinByteLength() int { return identity.stdinByteLength }
-
-// RoleExecution is an immutable record of one selected role. An unstarted
-// role has no attempt identity or prompt identities.
-type RoleExecution struct {
-	role         domain.Role
-	state        domain.RoleTaskState
-	attemptID    domain.AttemptID
-	hasAttempt   bool
-	attemptState domain.AttemptState
-	repaired     bool
-	promptWires  []PromptWireIdentity
-}
-
-// Role returns the selected role.
-func (execution RoleExecution) Role() domain.Role { return execution.role }
-
-// State returns the terminal role-task state.
-func (execution RoleExecution) State() domain.RoleTaskState { return execution.state }
-
-// AttemptID returns the coordinator-issued attempt ID when the role started.
-func (execution RoleExecution) AttemptID() (domain.AttemptID, bool) {
-	return execution.attemptID, execution.hasAttempt
-}
-
-// AttemptState returns the terminal attempt state when the role started.
-func (execution RoleExecution) AttemptState() (domain.AttemptState, bool) {
-	return execution.attemptState, execution.hasAttempt
-}
-
-// Repaired reports whether a repair response was accepted for this role.
-func (execution RoleExecution) Repaired() bool { return execution.repaired }
-
-// PromptWireIdentities returns caller-owned identity records in invocation
-// order. The values contain no mutable bytes.
-func (execution RoleExecution) PromptWireIdentities() []PromptWireIdentity {
-	return append([]PromptWireIdentity(nil), execution.promptWires...)
-}
-
-// ResultFindingEvidence binds one final global finding ID to its exact
-// verifier-owned receipt group. The validation proof remains private so
-// callers cannot substitute a different finding for the receipts.
-type ResultFindingEvidence struct {
-	findingID string
-	finding   domain.Finding
-	proof     VerifiedFindingEvidence
-}
-
-func newResultFindingEvidence(finding domain.Finding, proof VerifiedFindingEvidence) ResultFindingEvidence {
-	return ResultFindingEvidence{
-		findingID: finding.ID(),
-		finding:   finding,
-		proof:     cloneVerifiedFindingEvidence([]VerifiedFindingEvidence{proof})[0],
+func copyPromptLayer(layer prompt.TrustedLayer) (promptLayer, error) {
+	copied, err := prompt.NewTrustedLayer(layer.ID(), layer.Version(), layer.Bytes())
+	if err != nil {
+		return promptLayer{}, err
 	}
+	return promptLayer{id: copied.ID(), version: copied.Version(), bytes: copied.Bytes()}, nil
 }
 
-// FindingID returns the final global finding ID.
-func (group ResultFindingEvidence) FindingID() string { return group.findingID }
-
-// Finding returns the final global finding associated with the receipts.
-func (group ResultFindingEvidence) Finding() domain.Finding { return group.finding }
-
-// MatchesFinding reports whether finding is the exact final finding associated
-// with this verifier-owned receipt group.
-func (group ResultFindingEvidence) MatchesFinding(finding domain.Finding) bool {
-	return group.findingID == finding.ID() && group.finding == finding
-}
-
-// Receipts returns caller-owned verifier receipt values in validation claim order.
-func (group ResultFindingEvidence) Receipts() []evidence.CurrentReceipt {
-	return group.proof.Receipts()
-}
-
-func cloneResultFindingEvidence(source []ResultFindingEvidence) []ResultFindingEvidence {
-	copied := make([]ResultFindingEvidence, len(source))
-	for index, group := range source {
-		copied[index] = newResultFindingEvidence(group.finding, group.proof)
-	}
-	return copied
-}
-
-// Result is an immutable review-service snapshot. It intentionally exposes no
-// mutable domain.Run, provider output, publication authority, or filesystem
-// receipt.
-type Result struct {
-	sessionID      domain.SessionID
-	runID          domain.RunID
-	runState       domain.RunState
-	findings       []domain.Finding
-	evidence       []ResultFindingEvidence
-	outcomes       domain.OutcomeAxes
-	roleExecutions []RoleExecution
-}
-
-// SessionID returns the immutable review session ID.
-func (result Result) SessionID() domain.SessionID { return result.sessionID }
-
-// RunID returns the immutable review run ID.
-func (result Result) RunID() domain.RunID { return result.runID }
-
-// RunState returns the terminal state of the in-memory run.
-func (result Result) RunState() domain.RunState { return result.runState }
-
-// Findings returns a caller-owned ordered finding slice.
-func (result Result) Findings() []domain.Finding {
-	return append([]domain.Finding(nil), result.findings...)
-}
-
-// Evidence returns defensive verifier receipt-group copies in final finding
-// order.
-func (result Result) Evidence() []ResultFindingEvidence {
-	return cloneResultFindingEvidence(result.evidence)
-}
-
-// Outcomes returns the four system-owned outcome axes.
-func (result Result) Outcomes() domain.OutcomeAxes { return result.outcomes }
-
-// OutcomeAxes is an explicit alias for Outcomes.
-func (result Result) OutcomeAxes() domain.OutcomeAxes { return result.outcomes }
-
-// RoleExecutions returns caller-owned terminal role execution records.
-func (result Result) RoleExecutions() []RoleExecution {
-	return cloneRoleExecutions(result.roleExecutions)
-}
-
-func cloneRoleExecutions(source []RoleExecution) []RoleExecution {
-	copied := make([]RoleExecution, len(source))
-	for index, execution := range source {
-		copied[index] = execution
-		copied[index].promptWires = append([]PromptWireIdentity(nil), execution.promptWires...)
-	}
-	return copied
+func (layer promptLayer) trustedLayer() prompt.TrustedLayer {
+	trusted, _ := prompt.NewTrustedLayer(layer.id, layer.version, layer.bytes)
+	return trusted
 }

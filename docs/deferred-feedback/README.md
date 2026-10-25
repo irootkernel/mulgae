@@ -257,12 +257,14 @@ work.
   production call, including oversized results, and assert the reached public
   success or JSON-RPC error contract. No deferred work remains.
 
-- `DF-025` Historical capture facade: `internal/app/reviewrun/capture_identity.go`
-  has no production callers; its manifest wrappers are used only by their own
-  tests. This leaves historical contract tests under orchestration ownership.
-  Re-entry: before changing retained capture manifests, move those assertions
-  to `internal/app/capture`, remove the unused facade and helper, and verify
-  the historical encoding and integrity contracts with focused tests.
+- `DF-025` Historical capture facade: TASK-065 removed
+  `internal/app/reviewrun/capture_identity.go` after moving its complete manifest
+  contract assertions to `internal/app/capture/manifest_contract_test.go`.
+  Support/policy/context distinctions, malformed manifests, logical sides and
+  historical incomplete capture remain covered through the retained owner;
+  copied-support tests also exercise the actual `RetainCapture` encoder against
+  fixed expectations. No deferred work remains for this facade. Task acceptance
+  and completion-candidate verification remain separate delivery decisions.
 
 - `DF-026` Git hardening maintenance: source and provider adapters duplicate
   Git denial settings. No unsafe setting or policy divergence was found;
@@ -292,6 +294,10 @@ work.
   precondition races the reader's revalidation or the fixture state, and
   either make the precondition explicit or correct the predicate; never
   loosen the `unsafe_source` rejection.
+  TASK-065 also observed the same `common` positive-control failure in a
+  serialized race integration run. The test and active source paths were
+  unchanged throughout the Epic; two immediate serialized reruns on the
+  same candidate passed. The cause remains unknown and this entry stays open.
 
 - `DF-029` Qualification fakes on worker goroutines: since TASK-058 runs
   distinct-family qualification concurrently, `t.Fatal` calls in existing

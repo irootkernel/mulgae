@@ -19,10 +19,8 @@ import (
 // slice, so the counts record newly constructed immutable artifacts.
 var publicationEvidenceExcerptConstructions atomic.Int64
 var publicationAttemptArtifactConstructions atomic.Int64
-var publicationRuntimeArtifactConstructions atomic.Int64
 var publicationRoleReportConstructions atomic.Int64
 var publicationLiveSupportConstructions atomic.Int64
-var publicationCaptureSupportConstructions atomic.Int64
 
 func notePublicationConstruction(counter *atomic.Int64) {
 	if publicationVerificationCounting.Load() {
@@ -62,6 +60,9 @@ func (candidate PreparedCandidate) Build(
 	if epoch == 0 {
 		return PublicationBundle{}, fmt.Errorf("publication build: epoch must be positive")
 	}
+	if candidate.target.live == nil {
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, fmt.Errorf("publication build: live source is required"))
+	}
 
 	paths, err := publicationPaths(candidate.sessionID, candidate.runID, reviewID, epoch)
 	if err != nil {
@@ -80,22 +81,13 @@ func (candidate PreparedCandidate) Build(
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
-	runtimeArtifacts, err := candidate.buildRuntimeArtifacts()
-	if err != nil {
-		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
-	}
 	roleReports, err := candidate.buildRoleReports()
 	if err != nil {
 		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
 	}
 	excerpts = append(excerpts, attemptArtifacts...)
-	excerpts = append(excerpts, runtimeArtifacts...)
 	excerpts = append(excerpts, roleReports...)
-	if candidate.target.live != nil {
-		excerpts, err = candidate.buildLiveSupport(excerpts)
-	} else {
-		excerpts, err = candidate.buildCaptureSupport(excerpts)
-	}
+	excerpts, err = candidate.buildLiveSupport(excerpts)
 	if err != nil {
 		return PublicationBundle{}, err
 	}
@@ -328,6 +320,9 @@ func (builder *livePublicationBuilder) bind(
 	if epoch == 0 {
 		return PublicationBundle{}, fmt.Errorf("publication build: epoch must be positive")
 	}
+	if candidate.target.live == nil {
+		return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationCandidate, domain.DiagnosticCausePublicationCandidateInvalid, fmt.Errorf("publication build: live source is required"))
+	}
 
 	paths, err := publicationPaths(candidate.sessionID, candidate.runID, reviewID, epoch)
 	if err != nil {
@@ -353,29 +348,23 @@ func (builder *livePublicationBuilder) bind(
 		if err != nil {
 			return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
 		}
-		runtimeArtifacts, err := candidate.buildRuntimeArtifacts()
-		if err != nil {
-			return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
-		}
 		roleReports, err := candidate.buildRoleReports()
 		if err != nil {
 			return PublicationBundle{}, buildFailure(domain.DiagnosticPhasePublicationPersistence, domain.DiagnosticCausePublicationSerializationFailed, err)
 		}
 		// Live support receives exactly the list Build assembles before it.
-		input := make([]ports.ImmutablePublicationArtifact, 0, len(leading)+len(normalized)+len(attemptArtifacts)+len(runtimeArtifacts)+len(roleReports))
+		input := make([]ports.ImmutablePublicationArtifact, 0, len(leading)+len(normalized)+len(attemptArtifacts)+len(roleReports))
 		input = append(input, leading...)
 		input = append(input, normalized...)
 		input = append(input, attemptArtifacts...)
-		input = append(input, runtimeArtifacts...)
 		input = append(input, roleReports...)
 		result, err := candidate.buildLiveSupport(input)
 		if err != nil {
 			return PublicationBundle{}, err
 		}
 		liveSupport := result[len(input):]
-		trailing := make([]ports.ImmutablePublicationArtifact, 0, len(attemptArtifacts)+len(runtimeArtifacts)+len(roleReports)+len(liveSupport))
+		trailing := make([]ports.ImmutablePublicationArtifact, 0, len(attemptArtifacts)+len(roleReports)+len(liveSupport))
 		trailing = append(trailing, attemptArtifacts...)
-		trailing = append(trailing, runtimeArtifacts...)
 		trailing = append(trailing, roleReports...)
 		trailing = append(trailing, liveSupport...)
 		builder.support = reviewIndependentSupport{leading: leading, trailing: trailing, roleReports: candidate.roleReportIdentities(roleReports)}
@@ -622,267 +611,6 @@ func (candidate PreparedCandidate) buildAttemptArtifacts() ([]ports.ImmutablePub
 	return artifacts, nil
 }
 
-type runtimeTargetManifestWire = artifactwire.RuntimeTargetManifest
-
-type capturedArtistInputWire struct {
-	SchemaVersion string                     `json:"schema_version"`
-	Status        string                     `json:"status"`
-	TaskPath      string                     `json:"task_path"`
-	Task          string                     `json:"task"`
-	VisualAssets  []capturedArtistVisualWire `json:"visual_assets"`
-}
-
-type capturedArtistVisualWire struct {
-	Path      string `json:"path"`
-	SHA256    string `json:"sha256"`
-	MediaType string `json:"media_type"`
-	Side      string `json:"side,omitempty"`
-}
-
-type publishedArtistVisualsWire struct {
-	SchemaVersion string                     `json:"schema_version"`
-	BriefPath     string                     `json:"brief_path"`
-	VisualAssets  []capturedArtistVisualWire `json:"visual_assets"`
-}
-type selectedReplayPromptWire = artifactwire.SelectedReplayPrompt
-
-type runtimePromptManifestWire = artifactwire.RuntimePromptManifest
-
-func (candidate PreparedCandidate) buildRuntimeArtifacts() ([]ports.ImmutablePublicationArtifact, error) {
-	var target []byte
-	var capturedArchive []byte
-	prompts := make([]artifactIdentityWire, 0)
-	selectedPrompts := make([]selectedReplayPromptWire, 0)
-	var identity *preparedRuntimeArtifact
-	artifacts := make([]ports.ImmutablePublicationArtifact, 0)
-	for roleIndex := range candidate.roles {
-		role := &candidate.roles[roleIndex]
-		for attemptIndex := range role.attempts {
-			attempt := &role.attempts[attemptIndex]
-			for invocationIndex := range attempt.invocations {
-				invocation := &attempt.invocations[invocationIndex]
-				if invocation.runtime == nil {
-					continue
-				}
-				runtime := invocation.runtime
-				if target == nil {
-					target = cloneBytes(runtime.target)
-					capturedArchive = cloneBytes(runtime.capturedArchive)
-					identity = runtime
-				} else if !bytes.Equal(target, runtime.target) || !bytes.Equal(capturedArchive, runtime.capturedArchive) {
-					return nil, fmt.Errorf("publication build: runtime target bytes diverge")
-				}
-				stdinPath, err := ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.PromptPath(attempt.id.String(), invocation.sequence, string(invocation.purpose), ".stdin")))
-				if err != nil {
-					return nil, fmt.Errorf("publication build: runtime stdin path: %w", err)
-				}
-				stdin, err := immutableArtifact(stdinPath, runtime.stdin)
-				if err != nil {
-					return nil, fmt.Errorf("publication build: runtime stdin: %w", err)
-				}
-				notePublicationConstruction(&publicationRuntimeArtifactConstructions)
-				targetPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
-					"%s/%s/target/target.bytes", candidate.sessionID, candidate.runID,
-				))
-				if err != nil {
-					return nil, fmt.Errorf("publication build: runtime target path: %w", err)
-				}
-				targetArtifact, err := immutableArtifact(targetPath, runtime.target)
-				if err != nil {
-					return nil, fmt.Errorf("publication build: runtime target: %w", err)
-				}
-				notePublicationConstruction(&publicationRuntimeArtifactConstructions)
-				if len(artifacts) == 0 {
-					artifacts = append(artifacts, targetArtifact)
-				}
-				promptPath, err := ports.NewSafeRelativePath(artifactwire.RunPath(candidate.sessionID.String(), candidate.runID.String(), artifactwire.PromptPath(attempt.id.String(), invocation.sequence, string(invocation.purpose), ".manifest.json")))
-				if err != nil {
-					return nil, fmt.Errorf("publication build: runtime prompt path: %w", err)
-				}
-				promptBytes, err := marshalCanonical(runtimePromptManifestWire{
-					SchemaVersion:       artifactwire.RuntimePromptManifestV1,
-					Target:              artifactIdentityWire{Path: targetArtifact.Path().String(), SHA256: targetArtifact.SHA256()},
-					Stdin:               artifactIdentityWire{Path: stdin.Path().String(), SHA256: stdin.SHA256()},
-					CompleteStdinSHA256: runtime.stdinSHA256,
-					TemplateID:          runtime.templateID, TemplateVersion: runtime.templateVersion,
-					TemplateSHA256: runtime.templateSHA256, SourceInvocationID: runtime.sourceInvocationID,
-					ExecutionInvocationID: runtime.executionInvocationID, Scope: runtime.scope,
-					Role: string(runtime.role), AdapterProfile: runtime.adapterProfile,
-					AdapterParameters: runtime.adapterParameters,
-				})
-				if err != nil {
-					return nil, fmt.Errorf("publication build: runtime prompt manifest: %w", err)
-				}
-				promptArtifact, err := immutableArtifact(promptPath, promptBytes)
-				if err != nil {
-					return nil, fmt.Errorf("publication build: runtime prompt artifact: %w", err)
-				}
-				notePublicationConstruction(&publicationRuntimeArtifactConstructions)
-				artifacts = append(artifacts, stdin, promptArtifact)
-				promptIdentity := artifactIdentityWire{Path: promptArtifact.Path().String(), SHA256: promptArtifact.SHA256()}
-				prompts = append(prompts, promptIdentity)
-				if invocation.sequence == 1 && invocation.purpose == domain.InvocationInitial {
-					selectedPrompts = append(selectedPrompts, selectedReplayPromptWire{
-						AttemptID: attempt.id.String(), Sequence: invocation.sequence,
-						Purpose: string(invocation.purpose), Artifact: promptIdentity,
-					})
-				}
-			}
-		}
-	}
-	if len(target) == 0 {
-		return artifacts, nil
-	}
-	var capturedArchiveIdentity *artifactIdentityWire
-	var artistBriefIdentity *artifactIdentityWire
-	var artistVisualsIdentity *artifactIdentityWire
-	if len(capturedArchive) > 0 {
-		material, archiveErr := ports.UnmarshalCapturedReviewMaterial(capturedArchive)
-		if archiveErr != nil {
-			return nil, fmt.Errorf("publication build: captured archive decode: %w", archiveErr)
-		}
-		splitArchive, archiveErr := ports.NewCapturedReviewArchive(material)
-		if archiveErr != nil {
-			return nil, fmt.Errorf("publication build: captured archive split: %w", archiveErr)
-		}
-		archivePath, pathErr := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/target/captured-review.json", candidate.sessionID, candidate.runID))
-		if pathErr != nil {
-			return nil, fmt.Errorf("publication build: captured archive path: %w", pathErr)
-		}
-		archiveArtifact, artifactErr := immutableArtifact(archivePath, splitArchive.Manifest())
-		if artifactErr != nil {
-			return nil, fmt.Errorf("publication build: captured archive: %w", artifactErr)
-		}
-		notePublicationConstruction(&publicationRuntimeArtifactConstructions)
-		artifacts = append(artifacts, archiveArtifact)
-		for _, blob := range splitArchive.Blobs() {
-			blobPath, blobPathErr := ports.NewSafeRelativePath(fmt.Sprintf("%s/%s/target/%s", candidate.sessionID, candidate.runID, blob.Path().String()))
-			if blobPathErr != nil {
-				return nil, fmt.Errorf("publication build: captured blob path: %w", blobPathErr)
-			}
-			blobArtifact, blobArtifactErr := immutableArtifact(blobPath, blob.Bytes())
-			if blobArtifactErr != nil {
-				return nil, fmt.Errorf("publication build: captured blob: %w", blobArtifactErr)
-			}
-			notePublicationConstruction(&publicationRuntimeArtifactConstructions)
-			if blobArtifact.SHA256() != blob.SHA256() {
-				return nil, fmt.Errorf("publication build: captured blob identity mismatch")
-			}
-			artifacts = append(artifacts, blobArtifact)
-		}
-		value := artifactIdentityWire{Path: archiveArtifact.Path().String(), SHA256: archiveArtifact.SHA256()}
-		capturedArchiveIdentity = &value
-		artistArtifacts, briefIdentity, visualsIdentity, artistErr := candidate.buildArtistInputArtifacts(material)
-		if artistErr != nil {
-			return nil, artistErr
-		}
-		artifacts = append(artifacts, artistArtifacts...)
-		artistBriefIdentity, artistVisualsIdentity = briefIdentity, visualsIdentity
-	}
-	targetManifestArtifactPath, err := ports.NewSafeRelativePath(fmt.Sprintf(
-		"%s/%s/%s", candidate.sessionID, candidate.runID, targetManifestPath,
-	))
-	if err != nil {
-		return nil, fmt.Errorf("publication build: runtime target manifest path: %w", err)
-	}
-	targetManifestBytes, err := marshalCanonical(runtimeTargetManifestWire{
-		SchemaVersion: artifactwire.RuntimeTargetManifestV1,
-		Target: artifactIdentityWire{
-			Path:   fmt.Sprintf("%s/%s/target/target.bytes", candidate.sessionID, candidate.runID),
-			SHA256: sha256Identifier(target),
-		},
-		CapturedArchive: capturedArchiveIdentity, ArtistBrief: artistBriefIdentity, ArtistVisualAssets: artistVisualsIdentity,
-		TargetKind: string(identity.targetKind), RepositoryID: identity.targetRepository,
-		BaseObjectID: identity.targetBaseOID, HeadObjectID: identity.targetHeadOID,
-		HeadTreeObjectID: identity.targetHeadTreeOID, IndexTreeObjectID: identity.targetIndexTreeOID,
-		GitMode: string(identity.targetGitMode),
-		Prompts: prompts, SelectedReplayPrompts: selectedPrompts,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("publication build: runtime target manifest: %w", err)
-	}
-	targetManifest, err := immutableArtifact(targetManifestArtifactPath, targetManifestBytes)
-	if err != nil {
-		return nil, fmt.Errorf("publication build: runtime target manifest artifact: %w", err)
-	}
-	notePublicationConstruction(&publicationRuntimeArtifactConstructions)
-	return append(artifacts, targetManifest), nil
-}
-
-func (candidate PreparedCandidate) buildArtistInputArtifacts(material ports.CapturedReviewMaterial) ([]ports.ImmutablePublicationArtifact, *artifactIdentityWire, *artifactIdentityWire, error) {
-	if !material.Valid() || !material.HasProjectContext() {
-		return nil, nil, nil, nil
-	}
-	raw := material.ProjectContext()
-	if index := bytes.LastIndexByte(raw, '\n'); index >= 0 {
-		raw = raw[index+1:]
-	}
-	var inputs capturedArtistInputWire
-	if json.Unmarshal(raw, &inputs) != nil || inputs.SchemaVersion != "mulgae-artist-inputs.v1" {
-		return nil, nil, nil, nil
-	}
-	if inputs.Status == "missing" && inputs.Task == "" && len(inputs.VisualAssets) == 0 {
-		return nil, nil, nil, nil
-	}
-	validInputs := inputs.TaskPath != ""
-	switch inputs.Status {
-	case "ready":
-		validInputs = validInputs && inputs.Task != "" && len(inputs.VisualAssets) > 0
-	case "code_only":
-		validInputs = validInputs && inputs.Task != "" && len(inputs.VisualAssets) == 0
-	case "missing":
-		validInputs = validInputs && inputs.Task == "" && len(inputs.VisualAssets) > 0
-	default:
-		validInputs = false
-	}
-	if !validInputs {
-		return nil, nil, nil, fmt.Errorf("publication build: captured artist inputs are incomplete")
-	}
-	workspace, workspaceErr := material.ProviderWorkspace()
-	if workspaceErr != nil {
-		return nil, nil, nil, fmt.Errorf("publication build: artist workspace: %w", workspaceErr)
-	}
-	files := make(map[string]ports.WorkspaceSnapshotFile, len(workspace.Files()))
-	for _, file := range workspace.Files() {
-		files[file.Path().String()] = file
-	}
-	for _, visual := range inputs.VisualAssets {
-		file, ok := files[visual.Path]
-		if !ok || file.IsText() || file.SHA256() != visual.SHA256 || file.MediaType() != visual.MediaType {
-			return nil, nil, nil, fmt.Errorf("publication build: captured artist visual identity mismatch")
-		}
-	}
-	prefix := candidate.sessionID.String() + "/" + candidate.runID.String() + "/inputs/"
-	artifacts := make([]ports.ImmutablePublicationArtifact, 0, 2)
-	var briefIdentity *artifactIdentityWire
-	if inputs.Task != "" {
-		briefPath, err := ports.NewSafeRelativePath(prefix + "artist-brief.md")
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("publication build: artist brief path: %w", err)
-		}
-		briefArtifact, err := immutableArtifact(briefPath, []byte(inputs.Task))
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("publication build: artist brief: %w", err)
-		}
-		artifacts = append(artifacts, briefArtifact)
-		briefIdentity = &artifactIdentityWire{Path: briefArtifact.Path().String(), SHA256: briefArtifact.SHA256()}
-	}
-	visualBytes, err := marshalCanonical(publishedArtistVisualsWire{SchemaVersion: "mulgae-artist-visual-assets.v1", BriefPath: inputs.TaskPath, VisualAssets: inputs.VisualAssets})
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("publication build: artist visual manifest: %w", err)
-	}
-	visualPath, err := ports.NewSafeRelativePath(prefix + "artist-visual-assets.json")
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("publication build: artist visual manifest path: %w", err)
-	}
-	visualArtifact, err := immutableArtifact(visualPath, visualBytes)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("publication build: artist visual manifest artifact: %w", err)
-	}
-	visualIdentity := &artifactIdentityWire{Path: visualArtifact.Path().String(), SHA256: visualArtifact.SHA256()}
-	return append(artifacts, visualArtifact), briefIdentity, visualIdentity, nil
-}
-
 func (candidate PreparedCandidate) buildFinalBytes(
 	reviewID domain.ReviewID,
 	createdAt string,
@@ -908,7 +636,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 			Commit:  commit,
 		},
 		ImmutableLineage: candidate.immutableLineageWire(lineageEdge),
-		FollowupOutcome:  candidate.followupOutcomeWire(),
+		FollowupOutcome:  nil,
 		Target:           candidate.finalTargetWire(),
 		Validation: validationWire{
 			Status: status, SchemaValidation: "passed", SemanticValidation: "passed", EvidenceValidation: "passed",
@@ -927,7 +655,7 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		Limitations:  append([]string{}, candidate.limits...),
 		Provenance: provenanceWire{
 			AggregationPath: aggregationPath, FinalValidationPath: finalValidationPath, ManifestPath: "manifest.json",
-			Production: candidate.productionProvenanceWire(), LiveProduction: candidate.liveProvenanceWire(),
+			Production: nil, LiveProduction: candidate.liveProvenanceWire(),
 		},
 	})
 }
@@ -954,7 +682,7 @@ func (candidate PreparedCandidate) buildManifestBytesWithRoleReports(
 		CompletedAt:                optionalString(createdAt),
 		MulgaeVersion:              candidate.mulgae.version,
 		ImmutableLineage:           candidate.immutableLineageWire(lineageEdge),
-		FollowupOutcome:            candidate.followupOutcomeWire(),
+		FollowupOutcome:            nil,
 		Target:                     candidate.manifestTargetWire(),
 		SelectedRoles:              candidate.selectedRoles(),
 		RequiredRoles:              candidate.requiredRoles(),
@@ -1090,20 +818,6 @@ func (candidate PreparedCandidate) manifestRoleReportsFromIdentities(identities 
 	return reports
 }
 
-func (candidate PreparedCandidate) productionProvenanceWire() *productionProvenanceWire {
-	if candidate.production == nil {
-		return nil
-	}
-	value := candidate.production
-	providers := productionProvidersWire(value.Providers)
-	objective := optionalString(value.ObjectiveSHA256)
-	return &productionProvenanceWire{
-		BuildProduct: value.BuildProduct, BuildVersion: value.BuildVersion, BuildCommit: value.BuildCommit,
-		ObjectiveSHA256: objective, ObjectivePresent: value.HasObjective,
-		SnapshotManifestSHA256:   value.SnapshotManifestSHA256,
-		WorkspaceTerminalReceipt: value.WorkspaceTerminalReceipt, Providers: providers,
-	}
-}
 func (candidate PreparedCandidate) finalRoleOutcomes() []roleOutcomeWire {
 	outcomes := make([]roleOutcomeWire, len(candidate.roles))
 	for index, role := range candidate.roles {
@@ -1290,29 +1004,6 @@ func (candidate PreparedCandidate) immutableLineageWire(edge ports.ImmutablePubl
 		ReplayMode:                   lineageReplayMode(candidate.publicationLineage().replayMode),
 		LineageEdgePath:              edge.Path().String(),
 		LineageEdgeSHA256:            edge.SHA256(),
-	}
-}
-
-func (candidate PreparedCandidate) followupOutcomeWire() *followupOutcomeWire {
-	if candidate.followup == nil {
-		return nil
-	}
-	evidenceItems := make([]findingEvidenceWire, len(candidate.followup.evidence))
-	for index, item := range candidate.followup.evidence {
-		evidenceItems[index] = findingEvidenceWire{
-			Source: sourceEvidenceWire{
-				SessionID: item.sourceSessionID, RunID: item.sourceRunID, ReviewID: item.sourceReviewID,
-				FindingID: item.sourceFindingID, SourceTargetSHA256: item.sourceTargetSHA256,
-				SourceExcerptSHA256: item.sourceExcerptSHA256,
-			},
-			Current: currentEvidenceWire{
-				TargetSHA256: item.targetSHA256, Side: string(item.side), Path: item.path,
-				LineStart: item.lineStart, LineEnd: item.lineEnd, Quote: item.quote, CurrentExcerptSHA256: item.currentExcerptSHA256, Verification: "verified",
-			},
-		}
-	}
-	return &followupOutcomeWire{
-		Resolution: string(candidate.followup.resolution), Rationale: candidate.followup.rationale, Evidence: evidenceItems,
 	}
 }
 

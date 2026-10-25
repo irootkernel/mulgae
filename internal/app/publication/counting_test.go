@@ -29,10 +29,8 @@ func (scope publicationCountingScope) reset() {
 	publicationDigestHelperCalls.Store(0)
 	publicationEvidenceExcerptConstructions.Store(0)
 	publicationAttemptArtifactConstructions.Store(0)
-	publicationRuntimeArtifactConstructions.Store(0)
 	publicationRoleReportConstructions.Store(0)
 	publicationLiveSupportConstructions.Store(0)
-	publicationCaptureSupportConstructions.Store(0)
 }
 
 // digests returns exact-byte digest helper calls made since the last reset.
@@ -52,12 +50,6 @@ func (scope publicationCountingScope) attemptArtifacts() int64 {
 	return publicationAttemptArtifactConstructions.Load()
 }
 
-// runtimeArtifacts returns runtime inventory artifacts constructed since the
-// last reset.
-func (scope publicationCountingScope) runtimeArtifacts() int64 {
-	return publicationRuntimeArtifactConstructions.Load()
-}
-
 // roleReports returns role-report artifacts constructed since the last reset.
 func (scope publicationCountingScope) roleReports() int64 {
 	return publicationRoleReportConstructions.Load()
@@ -67,10 +59,4 @@ func (scope publicationCountingScope) roleReports() int64 {
 // constructed since the last reset.
 func (scope publicationCountingScope) liveSupport() int64 {
 	return publicationLiveSupportConstructions.Load()
-}
-
-// captureSupport returns retained capture artifacts constructed since the
-// last reset.
-func (scope publicationCountingScope) captureSupport() int64 {
-	return publicationCaptureSupportConstructions.Load()
 }

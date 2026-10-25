@@ -16,6 +16,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Read live role reports larger than the structured artifact limit.
 - Report simultaneous provider read-plan violations in a deterministic order.
 - Report native-home replacement as a security failure in doctor and providers, and restore offline Cursor version checks.
 - Preserve independent failures when CLI status encounters a missing publication or diagnostic record, instead of reporting success or suppressing the diagnostic failure.

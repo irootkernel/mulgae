@@ -29,13 +29,13 @@ func livePublicationEmptyTarget(t *testing.T) ports.LiveSourceTarget {
 
 func livePublicationNoChange(t *testing.T) PreparedLiveCandidate {
 	t.Helper()
-	legacy := publicationTestCandidate(t, false)
+	base := retainedLiveCandidate(t, false)
 	target := livePublicationEmptyTarget(t)
 	identity, err := evidence.NewLiveSourceIdentity(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := PrepareLiveNoChangeCandidate(legacy.SessionID(), legacy.RunID(), target, []domain.Role{domain.RoleLogic, domain.RoleSecurity}, domain.SeverityHigh, LiveProductionProvenance{
+	candidate, err := PrepareLiveNoChangeCandidate(base.SessionID(), base.RunID(), target, []domain.Role{domain.RoleLogic, domain.RoleSecurity}, domain.SeverityHigh, LiveProductionProvenance{
 		BuildProduct: "mulgae", BuildVersion: "test", BuildCommit: "0123456789abcdef", SourceIdentitySHA256: identity.SHA256(), SourceTerminalReceipt: "source-terminal:v1:sha256:" + strings.Repeat("b", 64),
 	})
 	if err != nil {
@@ -111,13 +111,13 @@ func TestPublicationRejectsMixedCapturedAndLiveTargetAuthority(t *testing.T) {
 	for _, live := range []bool{false, true} {
 		for _, field := range []string{"source identity", "production provenance"} {
 			t.Run(field+"/live="+strconv.FormatBool(live), func(t *testing.T) {
-				candidate := publicationTestCandidate(t, false)
+				bundle := retainedHistoricalFixture(t, "ordinary-v2").bundle
 				if live {
-					candidate = livePublicationNoChange(t).candidate
-				}
-				bundle, err := candidate.Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 1)
-				if err != nil {
-					t.Fatal(err)
+					var err error
+					bundle, err = livePublicationNoChange(t).Build(context.Background(), &publicationTestValidator{}, publicationTestReviewID(t), publicationTestTime(), 1)
+					if err != nil {
+						t.Fatal(err)
+					}
 				}
 				var final finalReviewWire
 				var manifest runManifestWire
@@ -150,7 +150,11 @@ func TestPublicationRejectsMixedCapturedAndLiveTargetAuthority(t *testing.T) {
 }
 
 func TestHistoricalPublicationRejectsManifestBoundLiveSupport(t *testing.T) {
-	fixture := newPublicationServiceFixture(t)
+	fixture := retainedHistoricalFixture(t, "ordinary-v2")
+	var original finalReviewWire
+	if err := json.Unmarshal(fixture.bundle.Final().Bytes(), &original); err != nil {
+		t.Fatal(err)
+	}
 	for _, suffix := range []string{"source/source.json", "evidence/images/sha256-" + strings.Repeat("a", 64) + ".png"} {
 		t.Run(suffix, func(t *testing.T) {
 			prefix := fixture.run.SessionID().String() + "/" + fixture.run.RunID().String() + "/"
@@ -166,7 +170,7 @@ func TestHistoricalPublicationRejectsManifestBoundLiveSupport(t *testing.T) {
 				t.Fatal(err)
 			}
 			identity := artifactIdentityWire{Path: index.Path().String(), SHA256: index.SHA256()}
-			if err := validateBundleSupportIndex([]ports.ImmutablePublicationArtifact{artifact, index}, identity, fixture.run.SessionID(), fixture.run.RunID(), fixture.candidate.target.sha256, nil, nil); err == nil {
+			if err := validateBundleSupportIndex([]ports.ImmutablePublicationArtifact{artifact, index}, identity, fixture.run.SessionID(), fixture.run.RunID(), original.Target.ContentSHA256, nil, nil); err == nil {
 				t.Fatal("captured bundle admitted live support")
 			}
 			var manifest runManifestWire

@@ -2,7 +2,6 @@ package ports
 
 import (
 	"bytes"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -67,94 +66,6 @@ func TestCapturedReviewArchiveSplitsAndDeduplicatesContent(t *testing.T) {
 	}
 	if _, err := RestoreCapturedReviewArchive(manifest, archive.Blobs()[:1]); err == nil || !strings.Contains(err.Error(), "blob inventory mismatch") {
 		t.Fatalf("missing blob restore error = %v", err)
-	}
-}
-
-func TestRestoreCapturedReviewArchiveAcceptsLegacyV1(t *testing.T) {
-	t.Parallel()
-
-	target, snapshot, evidence := capturedReviewMaterialParts(t)
-	material, err := NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy, err := MarshalCapturedReviewMaterialV1(material)
-	if err != nil {
-		t.Fatal(err)
-	}
-	references, err := CapturedReviewArchiveBlobReferences(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(references) != 0 {
-		t.Fatalf("legacy references = %#v", references)
-	}
-	restored, err := RestoreCapturedReviewArchive(legacy, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if restored.Target().Identity() != material.Target().Identity() {
-		t.Fatal("legacy archive target identity changed")
-	}
-}
-
-func TestCapturedReviewArchiveKeepsRepeatedLargeContentOutOfManifest(t *testing.T) {
-	contents := bytes.Repeat([]byte("x"), 1<<20)
-	digest := sha256Identifier(contents)
-	files := make([]WorkspaceSnapshotFile, 8)
-	for index := range files {
-		path, err := NewSafeRelativePath(fmt.Sprintf("fixtures/copy-%02d.bin", index))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[index], err = NewWorkspaceSnapshotFile(path, contents, digest)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	snapshot, err := NewWorkspaceSnapshotRequest(files, "large-dedup-policy")
-	if err != nil {
-		t.Fatal(err)
-	}
-	target, err := NewCapturedReviewPatchTarget([]byte("patch\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	evidence, err := NewCapturedTargetEvidence(map[CapturedEvidenceSide][]WorkspaceSnapshotFile{CapturedEvidenceHead: files})
-	if err != nil {
-		t.Fatal(err)
-	}
-	material, err := NewCapturedReviewMaterialWithEvidence(target, snapshot, nil, evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy, err := MarshalCapturedReviewMaterialV1(material)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(legacy) <= 8<<20 {
-		t.Fatalf("legacy archive size = %d, want over 8 MiB", len(legacy))
-	}
-
-	archive, err := NewCapturedReviewArchive(material)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(archive.Manifest()) >= 1<<20 {
-		t.Fatalf("reference-only manifest size = %d", len(archive.Manifest()))
-	}
-	if got := len(archive.Blobs()); got != 2 {
-		t.Fatalf("deduplicated blob count = %d, want target plus one shared blob", got)
-	}
-	bundle, err := MarshalCapturedReviewMaterial(material)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(bundle) >= 2<<20 || bytes.Contains(bundle, []byte("eHh4eHh4")) {
-		t.Fatalf("deduplicated transport bundle size = %d", len(bundle))
-	}
-	if _, err := RestoreCapturedReviewArchive(archive.Manifest(), archive.Blobs()); err != nil {
-		t.Fatal(err)
 	}
 }
 

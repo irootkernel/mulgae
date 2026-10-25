@@ -500,9 +500,26 @@ before the catalog serves any asset.
 
 ## Composite support ownership
 
-Composite creation and child/replay execution owners are retired. Historical
-`compositesupport`, capture archive decoders, recovery readers and publication
-reconciliation retain their existing integrity responsibilities. They verify
+The retired creation paths have been removed: the `reviewrun` capture facade,
+the sequential `review.Service` and its result snapshots, prompt replay issuance,
+historical captured, child and artist publication construction, followup
+preparation, composite candidate construction, their publication wrappers, and
+the v1 fixture encoder.
+`capture` owns the manifest contract and its tests. `review` retains assignments,
+templates, the coordinator, provider runtime, evidence and shared identity helpers.
+
+Ordinary `prompt.Compiler.Compile` still reserves source/execution identities and
+wire bindings. Historical replay values, parsing and validation remain readable.
+`ports` retains the v1 decoder and the dynamic v2 archive serializer used by query
+reconstruction. `compositesupport` retains capture encoding and verification.
+Publication keeps its shared live Build/validation, private durable engine,
+canonical composite recovery encoding and historical format discrimination.
+It refuses absent live authority before emitting a new bundle, after the existing
+Build input checks. Historical DTO fields and absent-marker hash contributions
+remain part of their retained contracts.
+
+Historical `compositesupport`, capture archive decoders, recovery readers and
+publication reconciliation retain their existing integrity responsibilities. They verify
 stored source receipts, findings, evidence, provider provenance and captures.
 
 Committed composite reads verify these local copies. They require no source-run

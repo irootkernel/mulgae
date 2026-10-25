@@ -26,12 +26,6 @@ func lineageVersion(version string, hash *string) string {
 	}
 	return version
 }
-func lineageSchema(uri string, hash *string) string {
-	if hash != nil {
-		return strings.Replace(uri, ".v1.schema.json", ".v2.schema.json", 1)
-	}
-	return uri
-}
 func recoverySourceKind(hash *string) string {
 	if hash != nil {
 		return "failed_run_recovery"

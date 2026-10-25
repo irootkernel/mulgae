@@ -62,7 +62,7 @@ func TestCompositeSupportExampleRequiresCopiedVerificationMaterial(t *testing.T)
 
 func TestCompositeSupportDecodeRejectsNoncanonicalFields(t *testing.T) {
 	session, run, material, _ := supportFixture(t, false)
-	artifacts := supportArtifacts(t, session, run, material)
+	artifacts := retainedSupportArtifacts(t, session, run, material)
 	canonical := string(artifacts[session.String()+"/"+run.String()+"/"+DocumentPath].Bytes())
 	cases := map[string]string{
 		"unknown":   strings.Replace(canonical, `"schema_version":`, `"unexpected":true,"schema_version":`, 1),

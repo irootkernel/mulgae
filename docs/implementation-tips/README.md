@@ -769,9 +769,12 @@ observation, and publication retains its typed artifact-failure envelope.
 
 `internal/app/publication/testdata/m1-runtime-wire.json` freezes literal writer
 bytes from the same pre-move source. It covers field order, optional presence,
-null/empty collections, Unicode, HTML escaping, CRLF and terminal LF, plus real
-runtime artifact construction and support-index v1/v2/v3 selection. Expected
-bytes are loaded from the fixed file. DF-013 cases in the owning review and
+null/empty collections, Unicode, HTML escaping, CRLF and terminal LF, plus historical
+runtime artifact outputs and support-index v1/v2/v3 selection. Expected
+bytes are loaded from the fixed file. `TestRetainedRuntimeWireBytes` exercises
+the retained DTO encoders and support-index construction. Retired runtime-writer
+rows keep their original expectations and explicit historical-consumer owners in
+`TestRetainedGoldenInventory`. DF-013 cases in the owning review and
 followup parsers reject lone surrogates and accept a valid pair as the exact
 Unicode scalar, while preserving validation and repair outcomes.
 
@@ -784,11 +787,14 @@ production implementation. `m2-object-diagnostic-moves.json` lists each exact
 allowed name change. Assertions allow only declared Go name relocations and
 preserve every other error detail and caller prefix.
 
-`TestPublicationWireGoldenCompatibility` loads
-`testdata/m2-publication-wire.json`, captured before M2's DTO moves. It compares
-literal bytes from captured, followup, live v3 and composite builders, including
-live omission/order, lifecycle journal/status variants, corruption diagnostics
-and custom composite serialization. Binary support bytes use a literal hex
+`TestRetainedPublicationDTOBytes` and `TestRetainedLiveGoldenBytes` load
+`testdata/m2-publication-wire.json`, captured before the DTO moves. They compare
+retained DTO and live v3 Build bytes, including live omission/order, lifecycle
+journal/status variants, corruption diagnostics and composite DTO serialization.
+Historical captured/followup/composite creation rows remain fixed and explicitly
+classified; actual reader/recovery tests carry their retained properties.
+`TestCompositeRecoveryReencodesFrozenCanonicalManifest` invokes the real canonical
+recovery encoder against fixed v1/v2 expectations. Binary support bytes use a literal hex
 representation so JSON cannot replace invalid UTF-8. The fixtures have no update
 mode. The path controls compare fixed pre-move owner vectors and direct leaf
 spellings; ports and recovery tests retain rejection and precedence checks.
@@ -810,16 +816,16 @@ Run each command on one physical line:
 go test -race -count=1 ./internal/app/validation -run '^TestProviderJSONSurrogateCompatibility$'
 go test -race -count=1 ./internal/app/query -run '^TestStrictObjectCompatibility$'
 go test -race -count=1 ./internal/app/report -run '^TestStrictObjectCompatibility$'
-go test -race -count=1 ./internal/app/publication -run '^TestRuntimeWireGoldenCompatibility$'
+go test -race -count=1 ./internal/app/publication -run '^(TestRetainedGoldenInventory|TestRetainedRuntimeWireBytes)$'
 go test -race -count=1 ./internal/app/publication -run '^TestSupportIndexDecoderDiagnostics$'
 go test -race -count=1 ./internal/adapters/filesystem -run '^TestSupportIndexDecoderDiagnostics$'
-go test -race -count=1 ./internal/app/publication -run '^(TestRuntimeArtifactsPersistAndBindArtistInputs|TestPublicationBundleBindsCanonicalSupportIndex)$'
-go test -race -count=1 ./internal/app/publication -run '^(TestPublicationWireGoldenCompatibility|TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges)$'
+go test -race -count=1 ./internal/app/query -run '^(TestRuntimeTargetRetainsArtistPresenceAndConfiguredLargeBriefBytes|TestReadRuntimeTargetLegacyArchiveControls)$'
+go test -race -count=1 ./internal/app/publication -run '^(TestRetainedPublicationDTOBytes|TestRetainedLiveGoldenBytes|TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges)$'
 go test -race -count=1 ./internal/adapters/filesystem -run '^(TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges|TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON)$'
 go test -race -count=1 ./internal/artifactwire -run '^TestArtifactPathGrammarCompatibility$'
 go test -race -count=1 ./internal/ports -run '^(TestPublicationPathContractCompatibility|TestCorruptionDiagnosticWireTypeIdentity|TestClassifyRunSupportArtifactPathRequiresCanonicalRecoveryArtifacts|TestClassifyLiveSupportArtifactPaths)$'
-go test -race -count=1 ./internal/app/publication -run '^(TestPreparedCandidateBuildDeterministicPublicationBundle|TestManifestRoleReportRecordsTransport|TestRecoverCorruptionDiagnosticIsIdempotentByEpochAndBytes)$'
-go test -race -count=1 ./internal/app/publication -run '^(TestLivePublicationConstructsSharedSupportOnce|TestBuildCapturedPrecedenceOnForceablePairs)$'
+go test -race -count=1 ./internal/app/publication -run '^(TestPreparedCandidateBuildDeterministicPublicationBundle|TestRetainedLiveManifestRoleReportRecordsTransport|TestRetainedLiveRecoverCorruptionDiagnosticIsIdempotentByEpochAndBytes)$'
+go test -race -count=1 ./internal/app/publication -run '^(TestLivePublicationConstructsSharedSupportOnce|TestBuildAbsentLiveRefusalPreservesProloguePrecedence|TestLiveFirstBindingProloguePrecedenceMatchesBuild|TestLiveBindingMemberPrecedenceMatchesBuild)$'
 go test -race -count=1 ./internal/app/publication -run '^(TestRunSupportContractAcceptsOnlyCanonicalRuntimeInventoryPaths|TestPublicationVariableSizedSupportPathsUseCanonicalKindPolicy)$'
 go test -race -count=1 ./internal/strictjson -run '^TestDecodeObjectCompatibility$'
 go test -race -count=1 ./internal/app/query -run '^(TestDecodeFinalDTORejectsDuplicateUnknownAndTrailingJSON|TestPublicationReceiptBindsOneCompleteObservation|TestFindingCursorRejectsCrossSnapshotQueryAndNoncanonicalValues)$'
@@ -865,10 +871,18 @@ The one-time provenance is in
 Expected report/export digests and reconstructed-archive digests come from
 baseline consumer reads. Tests load these fixed expectations; they have no
 update mode and invoke no historical producer to reconstruct their inputs.
-TASK-061 uses the same bytes for wire/parser changes. TASK-065 replaces the
-remaining producer-backed tests before deleting writers. Keep
-`ports.MarshalCapturedReviewMaterial`: runtime-target reads use it to reconstruct
+TASK-061 uses the same bytes for wire/parser changes. TASK-065 replaced the
+producer-backed setup before removing the retired writer halves. Their retained
+properties now run through live owners, fixed historical readers and actual
+recovery. Keep `ports.MarshalCapturedReviewMaterial`: runtime-target reads use it to reconstruct
 v2 archives, so it is a retained reader dependency.
+
+Keep the capture manifest tests in `internal/app/capture`; the former
+`reviewrun` facade is gone. Fresh prompt compilation and its reservation maps
+remain active, while replay issuance methods and the v1 production fixture
+encoder are removed. Legacy query-only synthetic input stays in `_test.go`;
+the corpus supplies independent fixed v1 expectations. Do not regenerate corpus,
+golden files or inline vectors to accommodate a changed implementation.
 
 Run the focused checks with explicit packages:
 
@@ -897,8 +911,11 @@ ID remapping, every evidence index, copied retirement provenance and per-source
 capture reconstruction. A common capture requires all selected roles to agree,
 including roles without findings; missing historical capture remains unavailable.
 
-Exercise missing, corrupt and unlisted support artifacts, interrupted publication
-and replay, and exact reuse of a legacy P2 composite without rewriting it. Verify
+Exercise missing, corrupt and unlisted support artifacts, interrupted stored-state
+recovery, and reads of a legacy P2 composite without rewriting it. Keep all six
+interrupted-copy read refusals, the 19 historical provenance mutations, the three
+effect boundaries crossed with four unreadable-support cases, and repaired/failed
+attempt initial-prompt selection. Verify
 receipt-bound detail, report and evidence reads using only composite-local copies
 after source cleanup permitted by native policy. Keep failed-recovery roots
 protected and check that the export allowlist omits the additional private copies.

@@ -266,7 +266,7 @@ func (context *readContext) supportIndex(ctx context.Context, node *contextRun, 
 			path, _ := ports.NewSafeRelativePath(name)
 			kind, _ := ports.ClassifyRunSupportArtifactPath(run.SessionID(), run.RunID(), path)
 			maximum := context.service.maxReadBytes
-			if kind.IsVariableSized() {
+			if kind.IsVariableSized() || kind == ports.RunSupportArtifactRoleReport {
 				maximum = math.MaxInt64 - 1
 			}
 			artifact, err := context.boundArtifact(ctx, node, path, digest, maximum)
