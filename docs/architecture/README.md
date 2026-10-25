@@ -67,6 +67,39 @@ errors. Provider review/followup, schema-adapter, filesystem, MCP, capability,
 AGY, corruption, archive, diagnostic/cleanup and protocol-line parsers retain
 their separate implementations and acceptance rules.
 
+### Ownership guards
+
+The ownership checks parse non-test Go files, including inactive and
+ignore-tagged files, outside `.git` and `vendor`. They enforce exact import
+namespaces and their descendants:
+
+- Application packages cannot import adapters, `internal/builtin`, entrypoints
+  or composition.
+- Ports cannot import application packages, adapters, entrypoints or composition.
+- Application and domain packages cannot import `os/user`.
+- Production files cannot import `internal/testsupport` or
+  `internal/adapters/fakeprovider`.
+
+The CLI package must declare exactly one `ReviewRequest`, as a direct alias
+of `internal/app/reviewrun.Request`. MCP entrypoint packages cannot import the
+CLI namespace. In `internal/composition/mcp_backend.go`, the route guard rejects
+CLI `Parse` and `ParseResolved` references, `Application.Run` method expressions,
+and direct `Run` calls or method values through identified backend Application
+fields. Protected CLI dot imports are rejected.
+
+Backend and field value matching follows parentheses, dereference and
+address-of wrappers (`ParenExpr`, `StarExpr` and `UnaryExpr` with `token.AND`),
+including mixed nesting, while retaining lexical declaration identity.
+Import-qualifier and type matching remain separate. Unrelated local and
+parameter objects retain separate identity.
+Calls, indexing, type assertions, receives and other operators stop the value
+walk. Assignment aliases, interface flow and call graphs remain outside this
+syntax check and require typed-pipeline tests and review.
+
+The general dependency check retains its existing build-ignore policy.
+Test-only fake-provider consumers and legitimate CLI dispatch elsewhere in
+composition remain supported. These guards preserve existing product contracts.
+
 ## Package map
 
 | Area | Responsibility |
@@ -98,6 +131,20 @@ their separate implementations and acceptance rules.
 | `internal/app/roleassets` | Single application-layer reader of the role document |
 | `skills` | Optional, source-distributed AI-agent operating guidance; not a runtime authority or embedded binary asset |
 | `test/e2e` | Black-box binary integration, artist fixture, and live-provider E2E tests |
+
+### Internal file responsibilities
+
+These files keep responsibilities within their existing packages. Public APIs
+and runtime behavior are unchanged.
+
+| Package | File responsibility |
+|---|---|
+| `internal/app/query` | [excerpt.go](../../internal/app/query/excerpt.go) contains committed finding excerpt reads, rendering and persisted-source access. Service orchestration and schema initializers remain in `service.go`. |
+| `internal/adapters/filesystem` | [publication_documents_darwin.go](../../internal/adapters/filesystem/publication_documents_darwin.go) contains publication document types and interpretation, retaining the filesystem's distinct JSON mechanics and Darwin/arm64 activation. Storage, locking and durability operations remain in `publicationstore_darwin.go`. |
+| `internal/entrypoint/mulgae` | [doctor_handlers.go](../../internal/entrypoint/mulgae/doctor_handlers.go) contains doctor projection, local-service wiring and human formatting. Shared constants, provider handlers and dispatch remain in `handlers.go`. |
+
+The [relocation checks](../implementation-tips/README.md#ownership-guard-and-relocation-checks)
+describe verification for these file boundaries.
 
 ## Role catalog
 

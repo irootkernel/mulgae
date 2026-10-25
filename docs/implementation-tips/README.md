@@ -410,6 +410,58 @@ OS dependencies. Current architecture tests complement this inspection; they
 do not replace it. Keep both shared-leaf import allowlists and the historical
 corpus unchanged.
 
+## Ownership guard and relocation checks
+
+Run the ownership roots to check dependency direction, the canonical request
+alias and the MCP route. The controls cover allowed and rejected syntax,
+lexical shadowing, expression boundaries and inspection failures.
+
+Use bounded relocation comparisons for the three
+[internal file boundaries](../architecture/README.md#internal-file-responsibilities). Inventory every Go file in the affected
+packages, including tests and inactive or ignore-tagged files. Compare exact
+declaration and comment bytes, reconstruct each original file's remainder, and
+verify untouched files. Account for detached and trailing comments, directives,
+package names, build headers and filename constraints. Preserve import
+qualifier-to-path bindings and the import union for each activation class.
+Keep package variables and init declarations in their original files and order,
+including lexical initialization-file order. Stop on any unaccounted change.
+
+Establish the relevant focused baseline before moving declarations. After each
+move, run its package selection below and the whole architecture package before
+continuing. Run commands from the repository root, one physical line each, and
+confirm every named root executes. Exact source comparison and native checks
+complement each other; these focused checks supplement the standard local gates.
+
+Ownership guards and their controls:
+
+```sh
+go test -p 1 -race -count=1 ./internal/architecture -run '^(TestEstablishedOwnershipDependencyDirection|TestTypedReviewRequestOwnership|TestMCPParserRouteOwnership|TestEstablishedOwnershipDependencyControls|TestTypedReviewRequestOwnershipControls|TestMCPParserRouteControls|TestOwnershipInspectionFailures|TestTestSupportDependencyControls|TestTestSupportDependencyDirection)$'
+```
+
+After the query excerpt move:
+
+```sh
+go test -p 1 -race -count=1 ./internal/app/query -run '^(TestReadCommittedListFindingsAndRenderExcerpt|TestRenderExcerptUsesPersistedArtifactAfterRestart|TestRenderExcerptFailsClosedWhenPersistedArtifactIsMissing|TestRenderExcerptRejectsPersistedArtifactCorruption|TestSyntheticExcerptLayoutCapsAggregateAllocation|TestCommittedFindingAndRuntimeSourcesBindEveryAuxiliaryDigest|TestCommittedFindingAndRuntimeSourcesRejectMissingTamperedOrReboundArtifacts|TestHistoricalCorpusRead)$'
+```
+
+After the filesystem document move:
+
+```sh
+go test -p 1 -race -count=1 ./internal/adapters/filesystem -run '^(TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON|TestPublicationSchemaSelectionPreservesArtifactFamily|TestSupportIndexDecoderDiagnostics|TestPublicationStorePreparesCommitsAndRecoversFromDisk|TestPublicationStoreResumesExactPersistedCompositeMembers|TestPublicationStoreRejectsRecoveryAmbiguityAndDestinationCollision)$'
+```
+
+After the CLI doctor move:
+
+```sh
+go test -p 1 -race -count=1 ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestDoctorProvidersConformanceCompatibility|TestProvidersCharacterization|TestDoctorProvidersNativeHomeReplacementRegression|TestDoctorProvidersNativeHomeCancellationProjection|TestLocalDoctorHumanOutputIsANSIFreeAndUsesFixedInventory)$'
+```
+
+After each move:
+
+```sh
+go test -p 1 -race -count=1 ./internal/architecture
+```
+
 ## Changing embedded assets
 
 Runtime assets live in `internal/builtin/assets` and are embedded directly.
