@@ -48,8 +48,13 @@ EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-22.
 EPIC-013 is complete: TASK-053 through TASK-059 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-24.
-EPIC-014 is complete: TASK-060 through TASK-067 are completed and certified,
-and Master accepted the completed Epic result. Its prerequisite, explicit
+EPIC-014's original scope is complete: TASK-060 through TASK-067 are completed
+and certified, and Master accepted that result. On 2026-10-27, Master adopted
+TASK-068 and TASK-069 as planned follow-ups for AGY and Grok CLI compatibility
+failures found during the deferred live certification. Implementation has not
+started; reopen the Epic when TASK-068 starts and require explicit acceptance
+of the follow-up scope before closing it again. The original acceptance and
+completed Tasks remain recorded. Its prerequisite, explicit
 acceptance of EPIC-013, was satisfied; it does not depend on Deferred EPIC-008. Under
 Master's quota-preservation decision, development and Epic acceptance of
 EPIC-014 used the
@@ -801,6 +806,11 @@ Master accepted the completed Epic result on 2026-10-24.
 
 Status: Completed
 
+The status records acceptance of the original TASK-060 through TASK-067 scope.
+TASK-068 and TASK-069 are Planned follow-ups adopted by Master on 2026-10-27.
+Reopen the Epic when their implementation starts; adoption alone does not mark
+implementation active or extend the original acceptance to these Tasks.
+
 Depends on: completed and explicitly accepted EPIC-013. No EPIC-008 dependency.
 
 Canonical Outcomes:
@@ -827,19 +837,54 @@ Goal: Consolidate application and wire-contract ownership, then remove proven re
 | TASK-065 | Completed | Remove proven retired execution/writer paths after their fixture and reader dependencies are replaced. | Caller/build-tag inventory, retained compatibility, live P2 and large-report integrity controls; complete VP-3 suite (`cc4a47d`). |
 | TASK-066 | Completed | Enforce the established dependency boundaries and split changed files along ownership seams. | Architecture/import checks, raw declaration/import/activation equivalence for the three moves and focused native checks; complete VP-3 suite (`8197922`). |
 | TASK-067 | Completed | Promote integrated ownership and retained compatibility outcomes, retire the dossier and prepare the Epic acceptance handoff. | The four deterministic Make gates, `make test-mcp-clients`, all seven tagged-vet checks and ZCode live verification pass, with retained consumers, caller inventory and resolved-feedback accounting (`e5de637`). Four non-ZCode live campaigns remain deferred to `v0.1.26`; explicit Epic acceptance is recorded below. |
+| TASK-068 | Planned | Restore AGY 1.4.7 settings-normalization compatibility while keeping native command-codec admission independently proved, exact permissions and credential denies, default model/effort omission, and single-account isolation. | Reproduce native settings omission offline; cover unsafe values, unknown fields and missing nonempty grants; run applicable repository checks and exact-candidate `make test-agy`, including source-only marker reads, natural exit, verified report/export, unchanged source/Git/token and runtime cleanup. |
+| TASK-069 | Planned | Restore Grok 1.0.70 compatibility with a native policy configuration that remains enforced across review and extraction; preserve boundary integrity and report policy drift at the failing stage. | Cover native policy retention, protected-file drift and forbidden tool/credential access; run applicable repository checks and exact-candidate `make test-grok`, including independent capability certification and the initial-review-to-extraction path on the same provider without policy restoration or bypass. |
 
-Tasks ran in the listed order; each Task after the first depended on its
-predecessor. Scope, implementation decisions, negative tests, compatibility,
-prohibited actions and handoff details were owned by the retired execution
-dossier, preserved in Git history. Durable outcomes are the canonical commits
-and documents above. Integrated verification and Epic review are complete.
-Master accepted the completed Epic result.
+TASK-060 through TASK-067 ran in the listed order; each Task after the first
+depended on its predecessor. Scope, implementation decisions, negative tests,
+compatibility, prohibited actions and handoff details were owned by the retired
+execution dossier, preserved in Git history. Durable outcomes are the canonical commits
+and documents above. Integrated verification and Epic review for that original
+scope are complete, and Master accepted the result.
+
+### Native CLI compatibility follow-ups
+
+Diagnosis against `44654c4` identified two compatibility failures with newer
+installed CLIs. AGY 1.4.7 omits default policy fields and an empty allow list
+when saving settings; the current audit accepts those omissions only for
+established codecs. Grok 1.0.70 replaces the app-authored `config.toml` and
+removes `managed_config.toml` during review, so the next invocation fails the
+immutable boundary audit. These findings establish follow-up scope; they do
+not establish that the original ownership refactor introduced either failure.
+
+TASK-068 follows completed TASK-067. TASK-069 follows TASK-068. Each follow-up
+owns its implementation, negative regression controls, applicable repository
+checks, provider-specific live gate, documentation and evidence handoff. There
+is no separate integration-verification Task. If a Task changes a shared
+boundary, it also owns the affected provider regressions. Keep the original
+public interfaces and trust boundaries unless a separately approved change is
+required; adding a version to an allowlist or restoring removed policy files
+does not by itself prove safe compatibility.
+
+The five-provider release-candidate gate remains owned by the release workflow.
+Earlier provider evidence from another candidate does not satisfy it. These
+Tasks do not authorize release publication or changes to native accounts,
+installed executables or persistent provider settings.
 
 ### Epic acceptance
 
-- [x] Every member Task has implementation and verification evidence for the exact candidate (`58bbc89`, `028257e`, `41ad32a`, correction `217f813`, `31b3e18`, `a4d14e2`, `cc4a47d`, `8197922`, and `e5de637`).
+The recorded acceptance below covers the original TASK-060 through TASK-067
+scope. Acceptance of the planned follow-ups remains pending.
+
+- [x] Every original member Task has implementation and verification evidence for the exact candidate (`58bbc89`, `028257e`, `41ad32a`, correction `217f813`, `31b3e18`, `a4d14e2`, `cc4a47d`, `8197922`, and `e5de637`).
 - [x] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
 - [x] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass.
 - [x] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), `make test-mcp-clients`, all seven tagged-vet checks, and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
 - [x] Durable outcomes are promoted and dossier/index/roadmap links are reconciled under the documented lifecycle.
 - [x] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.
+
+### Follow-up acceptance (TASK-068 and TASK-069)
+
+- [ ] TASK-068 has implementation evidence and passes its task-owned checks and exact-candidate AGY live certification.
+- [ ] TASK-069 has implementation evidence and passes its task-owned checks and exact-candidate Grok live certification.
+- [ ] Master explicitly accepts the follow-up scope before the reopened Epic returns to Completed.
