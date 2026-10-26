@@ -33,7 +33,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
 | [EPIC-012](#epic-012-correctness-and-historical-compatibility) | Completed | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
 | [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
-| [EPIC-014](#epic-014-application-and-contract-ownership) | In Progress | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
+| [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 
 ## Adopted execution order
 
@@ -48,10 +48,11 @@ EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-22.
 EPIC-013 is complete: TASK-053 through TASK-059 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-24.
-EPIC-014 is the remaining improvement step. Its prerequisite, explicit
-acceptance of EPIC-013, is satisfied; it does not depend on Deferred EPIC-008. Under
-Master's quota-preservation decision, development and epic acceptance of
-EPIC-014 run the
+EPIC-014 is complete: TASK-060 through TASK-067 are completed and certified,
+and Master accepted the completed Epic result. Its prerequisite, explicit
+acceptance of EPIC-013, was satisfied; it does not depend on Deferred EPIC-008. Under
+Master's quota-preservation decision, development and Epic acceptance of
+EPIC-014 used the
 deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`,
 and `make test-release`), `make test-mcp-clients` when MCP consumer paths
 change, and ZCode-only live verification (`TestLiveZCodeCapability` and
@@ -798,7 +799,7 @@ Master accepted the completed Epic result on 2026-10-24.
 
 ## EPIC-014: Application and contract ownership
 
-Status: In Progress
+Status: Completed
 
 Depends on: completed and explicitly accepted EPIC-013. No EPIC-008 dependency.
 
@@ -825,20 +826,20 @@ Goal: Consolidate application and wire-contract ownership, then remove proven re
 | TASK-064 | Completed | Share identical provider correlation, diagnostic and read-plan mechanics. | Per-family wire/permission/cancel/EOF/exit behavior and deterministic tool diagnostic selection; complete VP-3 suite (`a4d14e2`). |
 | TASK-065 | Completed | Remove proven retired execution/writer paths after their fixture and reader dependencies are replaced. | Caller/build-tag inventory, retained compatibility, live P2 and large-report integrity controls; complete VP-3 suite (`cc4a47d`). |
 | TASK-066 | Completed | Enforce the established dependency boundaries and split changed files along ownership seams. | Architecture/import checks, raw declaration/import/activation equivalence for the three moves and focused native checks; complete VP-3 suite (`8197922`). |
-| TASK-067 | Completed | Promote integrated ownership and retained compatibility outcomes, retire the dossier and prepare the Epic acceptance handoff. | Exact integrated candidate requires the four deterministic Make gates, `make test-mcp-clients`, all seven tagged-vet checks and ZCode live verification, retained consumers and caller inventory, and resolved-feedback accounting. Four non-ZCode live campaigns remain deferred to `v0.1.26`; explicit Epic acceptance remains pending. |
+| TASK-067 | Completed | Promote integrated ownership and retained compatibility outcomes, retire the dossier and prepare the Epic acceptance handoff. | The four deterministic Make gates, `make test-mcp-clients`, all seven tagged-vet checks and ZCode live verification pass, with retained consumers, caller inventory and resolved-feedback accounting (`e5de637`). Four non-ZCode live campaigns remain deferred to `v0.1.26`; explicit Epic acceptance is recorded below. |
 
 Tasks ran in the listed order; each Task after the first depended on its
 predecessor. Scope, implementation decisions, negative tests, compatibility,
 prohibited actions and handoff details were owned by the retired execution
 dossier, preserved in Git history. Durable outcomes are the canonical commits
-and documents above. Epic integration review and Master's
-overall acceptance remain pending; this Epic stays In Progress.
+and documents above. Integrated verification and Epic review are complete.
+Master accepted the completed Epic result.
 
 ### Epic acceptance
 
-- [ ] Every member Task has implementation and verification evidence for the exact candidate.
-- [ ] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
-- [ ] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass.
-- [ ] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), `make test-mcp-clients`, and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
-- [ ] Durable outcomes are promoted and dossier/index/roadmap links are reconciled under the documented lifecycle.
-- [ ] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.
+- [x] Every member Task has implementation and verification evidence for the exact candidate (`58bbc89`, `028257e`, `41ad32a`, correction `217f813`, `31b3e18`, `a4d14e2`, `cc4a47d`, `8197922`, and `e5de637`).
+- [x] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
+- [x] No timing/percentile/benchmark or memory-peak target is introduced; structural and behavioral checks pass.
+- [x] Deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`, `make test-release`), `make test-mcp-clients`, all seven tagged-vet checks, and ZCode live verification pass; non-ZCode live provider gates (`grok`, `cursor`, `agy`, `codex`) are explicitly recorded as deferred to the `v0.1.26` five-provider release gate.
+- [x] Durable outcomes are promoted and dossier/index/roadmap links are reconciled under the documented lifecycle.
+- [x] Master explicitly accepts this Epic; technical design agreement and completed child Tasks do not substitute.

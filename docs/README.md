@@ -77,8 +77,9 @@ result on 2026-10-24.
 consolidates wire, application and provider-mechanics ownership and removes
 retired producers under the frozen historical compatibility corpus. Its durable
 outcomes are in the canonical documents linked from the roadmap. The temporary
-execution dossier is retired; Epic integration review and Master's overall
-acceptance remain pending. The roadmap owns dependencies and status.
+execution dossier is retired. Its member Tasks, integrated verification and
+Epic review are complete, and Master accepted the completed Epic result. The
+roadmap owns dependencies and status.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The
