@@ -81,8 +81,8 @@ execution dossier is retired. Its original Tasks (`TASK-060` through
 `TASK-067`), integrated verification and Epic review are complete, and Master
 accepted that result. Master adopted AGY and Grok CLI compatibility follow-ups
 (`TASK-068` and `TASK-069`) on 2026-10-27; each owns its provider verification.
-The roadmap records their planned status and the Epic's reopening and
-acceptance conditions.
+The roadmap records follow-up execution and the Epic's separate acceptance
+conditions.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The

@@ -561,7 +561,7 @@ func (namespace retainedQualificationNamespace) recordAgyQualification(definitio
 	return nil
 }
 
-func (lease *namespaceLease) agyQualifiedCodec(definition RuntimeDefinition) (string, error) {
+func (lease *namespaceLease) agyQualifiedRuntimeVersion(definition RuntimeDefinition) (string, error) {
 	identity, err := currentProbeRuntimeDefinitionIdentity(definition)
 	if err != nil {
 		return "", err

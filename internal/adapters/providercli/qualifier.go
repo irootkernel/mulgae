@@ -511,7 +511,7 @@ func qualificationFamilyOutputCause(family string, err error) domain.RuntimeDiag
 // the namespace and fixture before launch and the fixture guard after launch.
 // A protocol capability probe converses the packet through its bound driver
 // and returns the captured assistant evidence text alongside the observation.
-func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket, codecVersion string) (observation ports.ProcessObservation, protocolEvidence []byte, effectiveArgv []string, err error) {
+func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefinition, namespace QualificationNamespace, fixture ProbeFixtureLease, argv []string, environment []ports.EnvironmentVariable, timeout time.Duration, packet *ports.ProviderPacket, observedVersion string) (observation ports.ProcessObservation, protocolEvidence []byte, effectiveArgv []string, err error) {
 	if err := namespace.ValidateForSpawn(); err != nil {
 		return ports.ProcessObservation{}, nil, nil, securityProbeFailure("namespace", "namespace validation failed", err)
 	}
@@ -567,7 +567,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			if homeErr != nil {
 				return observation, nil, nil, homeErr
 			}
-			profile, profileErr := installAgyInvocationProfile(gemini, agyPromptBoundReadPlan(), codecVersion)
+			profile, profileErr := installAgyInvocationProfile(gemini, agyPromptBoundReadPlan(), observedVersion)
 			if profileErr != nil {
 				return observation, nil, nil, securityProbeFailure("namespace", "AGY profile unavailable", profileErr)
 			}

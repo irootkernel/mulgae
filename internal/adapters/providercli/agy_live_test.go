@@ -28,9 +28,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const agyLiveCodec = "1.4.2"
-const agyLiveBinarySHA = "sha256:74935642426b5bb1fcf07a5555f847c478f4517dd002c72b9c98159cb773b932"
-
 // This opt-in sequence stops at the first failed/inconclusive native control.
 func TestLiveAgyExactCommandAdmission(t *testing.T) {
 	if os.Getenv("MULGAE_LIVE_AGY_COMMAND_PROBE") != "1" {
@@ -41,7 +38,6 @@ func TestLiveAgyExactCommandAdmission(t *testing.T) {
 	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 || !filepath.IsAbs(reports) {
 		t.Fatal("requires an existing private report directory")
 	}
-	agyRequireLiveBinary(t, filepath.Join(mustLiveGrokHome(t), ".local/bin/agy"))
 	fixture := newAgyCommandFixture(t, reports)
 	for _, mode := range []string{"baseline", "paired", "positive", "appended", "fallback", "bare"} {
 		if !t.Run(mode, func(t *testing.T) { fixture.run(t, mode) }) {
@@ -52,6 +48,7 @@ func TestLiveAgyExactCommandAdmission(t *testing.T) {
 
 type agyCommandFixture struct {
 	root, reports, operator, executable, marker, bare string
+	version, executableSHA                            string
 	matchedPrompt                                     string
 	execution                                         ports.LiveReviewExecution
 	files                                             map[string][]byte
@@ -72,7 +69,7 @@ func agyPrivateFile(t *testing.T, path string, data []byte) {
 	}
 }
 
-func agyRequireLiveBinary(t *testing.T, path string) {
+func agyLiveExecutableSHA(t *testing.T, path string) string {
 	t.Helper()
 	file, err := os.Open(path)
 	if err != nil {
@@ -81,9 +78,10 @@ func agyRequireLiveBinary(t *testing.T, path string) {
 	hash := sha256.New()
 	_, readErr := io.Copy(hash, file)
 	closeErr := file.Close()
-	if readErr != nil || closeErr != nil || "sha256:"+hex.EncodeToString(hash.Sum(nil)) != agyLiveBinarySHA {
-		t.Fatal("native binary differs from the inspected 1.4.2 codec")
+	if readErr != nil || closeErr != nil {
+		t.Fatal("native binary identity unavailable", readErr, closeErr)
 	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
 }
 
 func newAgyCommandFixture(t *testing.T, reports string) *agyCommandFixture {
@@ -95,7 +93,30 @@ func newAgyCommandFixture(t *testing.T, reports string) *agyCommandFixture {
 		t.Fatal(err)
 	}
 	f := &agyCommandFixture{root: root, reports: reports, operator: mustLiveGrokHome(t), files: make(map[string][]byte)}
-	f.executable = filepath.Join(f.operator, ".local/bin/agy")
+	candidate := os.Getenv("MULGAE_E2E_AGY_EXECUTABLE")
+	if candidate == "" {
+		candidate, err = exec.LookPath("agy")
+		if err != nil {
+			t.Fatal("requires the installed AGY executable", err)
+		}
+	}
+	f.executable, err = filepath.EvalSymlinks(candidate)
+	if err != nil || !validCanonicalAbsolute(f.executable) {
+		t.Fatal("requires a canonical absolute AGY executable", err)
+	}
+	f.executableSHA = agyLiveExecutableSHA(t, f.executable)
+	versionContext, cancelVersion := context.WithTimeout(context.Background(), currentProbeTimeout)
+	defer cancelVersion()
+	versionCommand := exec.CommandContext(versionContext, f.executable, "--version")
+	versionOutput, err := versionCommand.Output()
+	f.version = strings.TrimSpace(string(versionOutput))
+	if err != nil || !VersionAtLeast(f.version, 1, 2, 9) {
+		t.Fatal("requires AGY 1.2.9 or newer", err)
+	}
+	if agyLiveExecutableSHA(t, f.executable) != f.executableSHA {
+		t.Fatal("AGY executable changed during version observation")
+	}
+	t.Logf("AGY native controls: version=%s executable_sha256=%s", f.version, f.executableSHA)
 	project := filepath.Join(root, "source")
 	reviewer := filepath.Join(root, "reviewer")
 	for _, path := range []string{project, reviewer} {
@@ -330,7 +351,14 @@ func agyFixtureHashes(t *testing.T, root string) map[string]string {
 
 func (f *agyCommandFixture) run(t *testing.T, mode string) {
 	t.Helper()
-	agyRequireLiveBinary(t, f.executable)
+	if agyLiveExecutableSHA(t, f.executable) != f.executableSHA {
+		t.Fatal("AGY executable changed between native controls")
+	}
+	defer func() {
+		if agyLiveExecutableSHA(t, f.executable) != f.executableSHA {
+			t.Error("AGY executable changed during native control")
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	base, err := NewNamespaceFactory(filepath.Join(f.root, "namespaces"))
@@ -391,13 +419,13 @@ func (f *agyCommandFixture) run(t *testing.T, mode string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, err := NewRuntimeDefinition(FamilyAgy, "agy-command-probe", agyLiveCodec, f.executable, agyLiveBinarySHA, "agy-command-probe", []string{f.executable}, nil, f.execution.ReviewerHome().Root().String(), 3*time.Minute)
+	profile, err := NewRuntimeDefinition(FamilyAgy, "agy-command-probe", f.version, f.executable, f.executableSHA, "agy-command-probe", []string{f.executable}, nil, f.execution.ReviewerHome().Root().String(), 3*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	profile.runtimeSafetyPolicyIdentity = lease.RuntimeSafetyPolicyIdentity()
 	// This test-only selection issues no production qualification certificate.
-	if err := (retainedQualificationNamespace{lease: lease}).recordAgyQualification(profile, agyLiveCodec); err != nil {
+	if err := (retainedQualificationNamespace{lease: lease}).recordAgyQualification(profile, f.version); err != nil {
 		t.Fatal(err)
 	}
 
@@ -406,7 +434,7 @@ func (f *agyCommandFixture) run(t *testing.T, mode string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		native, err := installAgyInvocationProfile(gemini, plan, agyLiveCodec)
+		native, err := installAgyInvocationProfile(gemini, plan, f.version)
 		if err != nil {
 			t.Fatal(err)
 		}

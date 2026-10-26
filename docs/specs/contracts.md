@@ -784,6 +784,11 @@ operations, and mismatched operands fail closed. Only a completed assistant
 turn supplies report text, under the common `stdout` role-report transport.
 Success additionally requires stdin half-close, drained EOF, natural exit zero,
 valid lifecycle evidence, no requested signals and process-group absence.
+AGY `1.2.9` and newer are admitted without per-version command or settings
+allowlists. Native default omissions and an omitted expected-empty allow set
+preserve the effective app-authored policy; unsafe values and changed grants
+remain failures. Qualification remains bound to the observed executable and
+isolated runtime.
 The [transport decision](../architecture-decision-records/agy-stream-json-transport.md)
 defines the guarded command and credential boundaries.
 

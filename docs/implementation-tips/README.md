@@ -115,13 +115,19 @@ lowercase hexadecimal, with a padded month and day. The target is not part of
 `make test-agy` builds the exact current candidate release binary with the
 release version and HEAD revision linker values. It requires `darwin/arm64`,
 the installed `agy` (or `MULGAE_E2E_AGY_EXECUTABLE`) and the OS user's existing
-default Gemini token. It performs one documentation review, with model and
-effort omitted, and no automatic whole-review retry. A source-only nonce in a
+default Gemini token. It first runs the installed CLI's six native command
+controls: the default-agent MCP baseline, the paired isolated-agent read,
+the guarded read without disclosing the guard in its prompt, and appended,
+fallback and bare-command denial. The controls bind the observed version and
+executable digest for that run, accept the supported minimum `1.2.9` and newer,
+and stop at the first failed or inconclusive control. The target then performs
+one documentation review, with model and effort omitted, and no automatic
+whole-review retry. A source-only nonce in a
 parenthesized path proves a real source read. The gate checks one initial
 invocation, native protocol closure, public status/inspection/report/export,
 unchanged original source/Git/token, and removed invocation runtime roots.
-Qualification is part of that review; no redundant standalone capability
-request is added. The gate neither requires nor validates a second account.
+Qualification is part of that review; the command controls issue no production
+qualification authority. The gate neither requires nor validates a second account.
 
 The Make target retains its private fixture, exact binary hashes and candidate
 diff/untracked-file hashes under the selected temporary directory on success

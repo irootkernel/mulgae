@@ -10,7 +10,7 @@ import (
 )
 
 func TestAgyPermissionGrantPreservesNativeOperandParentheses(t *testing.T) {
-	// ParseGrantString uses this anchored grammar in the two supported codecs.
+	// Native ParseGrantString preserves the complete parenthesized operand.
 	native := regexp.MustCompile(`^([^(]+)\((.*)\)$`)
 	for _, operand := range []string{
 		"/source/project (text)/README.md",
@@ -55,19 +55,24 @@ func agyProfileTestHome(t *testing.T) string {
 	return home
 }
 
-func TestAgyCommandPolicyRequiresGuardAndKnownCodec(t *testing.T) {
+func TestAgyCommandPolicyRequiresGuardAcrossSupportedVersions(t *testing.T) {
 	const guarded = "MULGAE_READ_GUARD[1]=1 git --no-pager show 'HEAD:a b'"
 	for _, item := range []struct {
 		name, command, version string
 		wantError              bool
 	}{
 		{"guarded", guarded, "1.4.0", false},
-		{"guarded known 1.4.2", guarded, "1.4.2", false},
+		{"guarded 1.4.2", guarded, "1.4.2", false},
 		{"bare", "git --no-pager show 'HEAD:a b'", "1.4.0", true},
-		{"unknown command codec", guarded, "1.4.1", true},
-		{"minimum is not codec proof", guarded, "1.2.9", true},
-		{"command-free unknown codec", "", "1.4.1", false},
-		{"command-free floor codec", "", "1.2.9", false},
+		{"intermediate version", guarded, "1.4.1", false},
+		{"minimum version", guarded, "1.2.9", false},
+		{"current version", guarded, "1.4.7", false},
+		{"newer version", guarded, "9.0.0", false},
+		{"below minimum", guarded, "1.2.8", true},
+		{"prerelease minimum", guarded, "1.2.9-beta", true},
+		{"invalid version", guarded, "not-a-version", true},
+		{"command-free newer version", "", "9.0.0", false},
+		{"command-free floor version", "", "1.2.9", false},
 	} {
 		t.Run(item.name, func(t *testing.T) {
 			plan := agyTrustedReadPlan{}
@@ -111,15 +116,15 @@ func TestAgyCommandPolicyRequiresGuardAndKnownCodec(t *testing.T) {
 			}
 		})
 	}
-	old := runtimeSafetyPolicyWithIdentity(RuntimeSafetyPolicy{family: CredentialSourceAgy, bytes: []byte("{\"family\":\"agy\",\"protocol\":\"stream-json\",\"credential\":\"disposable-file-token\",\"permissions\":\"request-review\",\"agent_inheritance\":false}\n")})
+	old := runtimeSafetyPolicyWithIdentity(RuntimeSafetyPolicy{family: CredentialSourceAgy, bytes: []byte("{\"family\":\"agy\",\"protocol\":\"stream-json\",\"credential\":\"disposable-file-token\",\"permissions\":\"request-review\",\"agent_inheritance\":false,\"command_admission\":\"indexed-read-guard-with-fallback-deny-v1\"}\n")})
 	current, err := RuntimeSafetyPolicyForFamily(CredentialSourceAgy)
 	if err != nil || old.identity == current.identity {
 		t.Fatal("old native command admission retained qualification identity", err)
 	}
 }
 
-func TestAgyProfileAuthorsOnlyIsolatedPolicyAndAuditsSparseCodec(t *testing.T) {
-	for _, version := range []string{"1.4.0", "1.4.2", "1.4.1"} {
+func TestAgyProfileAuthorsOnlyIsolatedPolicyAndAuditsNativeDefaults(t *testing.T) {
+	for _, version := range []string{"1.2.9", "1.4.0", "1.4.1", "1.4.2", "1.4.7", "9.0.0"} {
 		t.Run(version, func(t *testing.T) {
 			home := agyProfileTestHome(t)
 			plan := agyTrustedReadPlan{files: []string{"/source/a"}}
@@ -144,17 +149,13 @@ func TestAgyProfileAuthorsOnlyIsolatedPolicyAndAuditsSparseCodec(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(home, profile.settingsPath), sparse, 0600); err != nil {
 				t.Fatal(err)
 			}
-			err = profile.validateAfterRun()
-			// Sparse omissions stay accepted only for the two established
-			// codec versions; excluded intermediates such as 1.4.1 and the
-			// 1.2.9 floor fail closed on the same drifted settings.
-			if (err == nil) != (version == "1.4.0" || version == "1.4.2") {
-				t.Fatalf("codec=%s error=%v", version, err)
+			if err := profile.validateAfterRun(); err != nil {
+				t.Fatalf("version=%s rejected equivalent native defaults: %v", version, err)
 			}
 		})
 	}
 }
-func TestAgyProfileAdmitsNative142OmittedEmptyAllowOnly(t *testing.T) {
+func TestAgyProfileAdmitsOmittedEmptyAllowOnly(t *testing.T) {
 	for _, item := range []struct {
 		name, version string
 		files         []string
@@ -163,9 +164,11 @@ func TestAgyProfileAdmitsNative142OmittedEmptyAllowOnly(t *testing.T) {
 		wantOK        bool
 	}{
 		{name: "native empty omission", version: "1.4.2", omit: true, wantOK: true},
-		{name: "old codec not established", version: "1.4.0", omit: true},
-		{name: "unknown codec", version: "1.4.1", omit: true},
-		{name: "floor is not codec", version: "1.2.9", omit: true},
+		{name: "earlier supported version", version: "1.4.0", omit: true, wantOK: true},
+		{name: "intermediate version", version: "1.4.1", omit: true, wantOK: true},
+		{name: "minimum version", version: "1.2.9", omit: true, wantOK: true},
+		{name: "current version", version: "1.4.7", omit: true, wantOK: true},
+		{name: "newer version", version: "9.0.0", omit: true, wantOK: true},
 		{name: "nonempty omission", version: "1.4.2", files: []string{"/source/README.md"}, omit: true},
 		{name: "null is not omission", version: "1.4.2"},
 		{name: "added permission", version: "1.4.2", allow: []string{"read_file(/other)"}},
@@ -202,14 +205,29 @@ func TestAgyProfileRejectsPolicyAndFileDrift(t *testing.T) {
 		"outside workspace": func(t *testing.T, p *agyInvocationProfile) {
 			agyMutatePolicy(t, p, func(m map[string]any) { m["allowNonWorkspaceAccess"] = true })
 		},
+		"null workspace": func(t *testing.T, p *agyInvocationProfile) {
+			agyMutatePolicy(t, p, func(m map[string]any) { m["allowNonWorkspaceAccess"] = nil })
+		},
 		"unknown top-level": func(t *testing.T, p *agyInvocationProfile) {
 			agyMutatePolicy(t, p, func(m map[string]any) { m["unsafe"] = true })
 		},
 		"unknown permission": func(t *testing.T, p *agyInvocationProfile) {
 			agyMutatePolicy(t, p, func(m map[string]any) { m["permissions"].(map[string]any)["ask"] = []string{"command(*)"} })
 		},
-		"missing empty allow": func(t *testing.T, p *agyInvocationProfile) {
+		"missing nonempty allow": func(t *testing.T, p *agyInvocationProfile) {
 			agyMutatePolicy(t, p, func(m map[string]any) { delete(m["permissions"].(map[string]any), "allow") })
+		},
+		"missing permissions": func(t *testing.T, p *agyInvocationProfile) {
+			agyMutatePolicy(t, p, func(m map[string]any) { delete(m, "permissions") })
+		},
+		"null permissions": func(t *testing.T, p *agyInvocationProfile) {
+			agyMutatePolicy(t, p, func(m map[string]any) { m["permissions"] = nil })
+		},
+		"missing deny": func(t *testing.T, p *agyInvocationProfile) {
+			agyMutatePolicy(t, p, func(m map[string]any) { delete(m["permissions"].(map[string]any), "deny") })
+		},
+		"null deny": func(t *testing.T, p *agyInvocationProfile) {
+			agyMutatePolicy(t, p, func(m map[string]any) { m["permissions"].(map[string]any)["deny"] = nil })
 		},
 		"null grants": func(t *testing.T, p *agyInvocationProfile) {
 			agyMutatePolicy(t, p, func(m map[string]any) { m["permissions"].(map[string]any)["allow"] = nil })
@@ -258,7 +276,11 @@ func TestAgyProfileRejectsPolicyAndFileDrift(t *testing.T) {
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
-			p, err := installAgyInvocationProfile(agyProfileTestHome(t), agyPromptBoundReadPlan(), "1.4.0")
+			plan := agyPromptBoundReadPlan()
+			if name == "missing nonempty allow" {
+				plan.files = []string{"/source/README.md"}
+			}
+			p, err := installAgyInvocationProfile(agyProfileTestHome(t), plan, "1.4.7")
 			if err != nil {
 				t.Fatal(err)
 			}

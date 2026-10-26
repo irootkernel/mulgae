@@ -240,13 +240,14 @@ plugins, and MCP configuration are not imported. Reports require a correlated
 completed turn, stdin half-close, drained EOF, natural exit zero and verified
 process-group absence. A failed AGY role stays on AGY.
 
-The version floor is `1.2.9`, with `1.4.2` verified. Native command permission
-codecs are separately pinned to `1.4.0` and `1.4.2`; another version does not
-inherit command compatibility merely by exceeding the floor.
-`make test-agy` runs one documentation review through the exact candidate
-release binary and the default account, including a source-only read marker,
-public report/export reads and cleanup checks. It retains private evidence and
-is separate from `make test`. No second account is required.
+AGY `1.2.9` and newer are supported without a version-specific command
+allowlist. Qualification binds the observed executable and isolated runtime;
+native permissions and exact tool checks still constrain each read.
+`make test-agy` checks the installed CLI's native command permissions, then runs
+one documentation review through the exact candidate release binary and the
+default account. It verifies a source-only read marker, public report/export
+reads and cleanup. The target retains private evidence and is separate from
+`make test`. No second account is required.
 
 ## Install
 

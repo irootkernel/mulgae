@@ -54,9 +54,10 @@ Live review and extraction use original source reads from a neutral cwd:
   process-group absence. An uncertain drain retains the namespace and token
   copy. AGY is text-only; failures never select another provider.
 
-AGY's version floor is `1.2.9`, with `1.4.2` verified. Command permission codecs
-are separately known for `1.4.0` and `1.4.2`; an uninspected version does not
-gain command authority from its version number. `make test-agy` exercises one
+AGY supports `1.2.9` and newer without a version-specific command allowlist.
+Qualification binds the observed executable and isolated runtime. Native
+permissions and exact tool checks constrain each read. `make test-agy` checks
+the installed CLI's native command permissions, then exercises one
 default-account documentation review and public report/export access.
 
 No live review uses staged-file role report output. Historical transport

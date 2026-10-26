@@ -47,17 +47,17 @@ reads, writes, links and Unix sockets at protected credential roots. It is not
 general process, IPC, network or read containment. Native permission controls
 and the outer guard serve distinct boundaries; neither replaces the other.
 
-The declared version floor is `1.2.9`; the latest verified binary is `1.4.2`.
-Command codecs are separately known for exactly `1.4.0` and `1.4.2`. A newer
-version cannot acquire command authority solely by satisfying the floor.
-Installed 1.4.2 native checks established positive guarded reads and rejection
-of appended, fallback and bare commands. The guarded 1.4.0 codec is statically
-checked; that is not a new native certification of 1.4.0.
+AGY `1.2.9` and newer use the same minimum-version admission policy for
+workspace and Git reads. There is no per-version command allowlist. Current
+qualification still binds the observed executable, native settings, namespace
+and credentials. Independent native controls check guarded reads and rejection
+of appended, fallback and bare commands against the installed executable.
 
-Native 1.4.2 also omits `permissions.allow` when saving an empty allow list.
-The audit accepts that omission only for 1.4.2 and an already-empty expected
-set. Explicit null, omission of nonempty grants, added grants and changed deny
-rules remain failures. This normalization grants no additional access.
+Native settings saves may omit the `request-review` and `false` defaults and
+`permissions.allow` when its expected set is empty. The audit compares the
+result with the app-authored policy independently of version. Explicit unsafe
+values, null, unknown fields, missing nonempty grants, added grants and changed
+deny rules remain failures.
 
 ## Credentials and lifetime
 
@@ -97,8 +97,14 @@ Offline doctor uses only fixed version argv. Heartbeat has a dedicated
 documentation; it still requires
 explicit live-request authorization.
 
-`make test-agy` builds the exact candidate release binary and performs one
-documentation review with the default account. A parenthesized source path
+`make test-agy` builds the exact candidate release binary and first runs the
+installed CLI's command-admission controls: a default-agent MCP baseline,
+a paired isolated-agent read, a guarded read whose prompt omits the guard,
+and appended, fallback and bare-command denial. It records the selected
+executable's observed version and digest and checks that binary remains
+unchanged throughout the controls. These test-only controls issue no production
+qualification authority. The target then performs one documentation review
+with the default account. A parenthesized source path
 contains an undisclosed marker that must appear in the report. The gate checks
 one initial invocation, protocol closure, publication, public report/query and
 export access, unchanged original token/source/Git state, and removed private

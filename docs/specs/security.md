@@ -216,6 +216,10 @@ scratch are removed after verified provider drain.
   must be a nonempty regular no-follow mode-`0600` file, user-owned and
   single-link. Native refresh may change the disposable copy. There is no
   alternate account scan, credential profile or home override.
+  The minimum supported version is `1.2.9`, with no per-version command or
+  settings allowlist. The post-invocation audit accepts omitted native
+  `request-review`/`false` defaults and an omitted expected-empty allow set;
+  unsafe values, null, unknown fields and changed grants remain failures.
   Indexed guarded commands and explicit `command(1)` denial constrain the
   native prefix codec; the driver separately verifies exact tool operands and
   correlated completions. Natural zero exit, complete input, EOF and verified

@@ -209,7 +209,7 @@ test-agy:
 	agy_root="$$(mktemp -d "$${agy_base%/}/mulgae-agy.XXXXXX")"; \
 	chmod 700 "$$agy_root"; \
 	printf '%s\n' "[test-agy] private evidence retained: $$agy_root"; \
-	mkdir -m 700 "$$agy_root/runtime" "$$agy_root/project (single account)"; \
+	mkdir -m 700 "$$agy_root/runtime" "$$agy_root/project (single account)" "$$agy_root/command-controls"; \
 	agy_binary="$$agy_root/mulgae"; \
 	agy_commit="$$(git rev-parse HEAD)"; \
 	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$agy_commit" -o "$$agy_binary" .; \
@@ -223,6 +223,10 @@ test-agy:
 	if test -s "$$agy_root/untracked.paths"; then \
 		xargs -0 shasum -a 256 -- < "$$agy_root/untracked.paths" > "$$agy_root/untracked.sha256"; \
 	else : > "$$agy_root/untracked.sha256"; fi; \
+	MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" MULGAE_LIVE_AGY_COMMAND_PROBE=1 \
+		MULGAE_LIVE_AGY_REPORT_DIR="$$agy_root/command-controls" TMPDIR="$$agy_root/runtime" \
+		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
+		-run '^TestLiveAgyExactCommandAdmission$$' ./internal/adapters/providercli; \
 	MULGAE_E2E_BINARY="$$agy_binary" MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" \
 		MULGAE_E2E_PROJECT_ROOT="$$agy_root/project (single account)" TMPDIR="$$agy_root/runtime" \
 		$(GO) test -v -tags='live_e2e live_agy' -timeout $(TEST_TIMEOUT) -count=1 \

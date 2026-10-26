@@ -16,6 +16,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Restore AGY workspace and Git reviews with supported newer CLI versions while preserving exact native read permissions.
 - Read live role reports larger than the structured artifact limit.
 - Report simultaneous provider read-plan violations in a deterministic order.
 - Report native-home replacement as a security failure in doctor and providers, and restore offline Cursor version checks.

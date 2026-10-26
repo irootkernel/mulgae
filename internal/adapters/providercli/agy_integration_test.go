@@ -129,6 +129,8 @@ type agyProbeRunner struct {
 	signaled     bool
 	drift        bool
 	drainUnknown bool
+	version      string
+	normalized   bool
 }
 
 type agyFailQualificationObserver struct{}
@@ -144,7 +146,11 @@ func (r *agyProbeRunner) Run(_ context.Context, request ports.ProcessRequest) (p
 	}
 	// Runner.Run returns the plain one-shot observation, without a protocol
 	// conversation lifecycle receipt.
-	return testProcessObservation(r.t, []byte("1.4.0\n"), nil, ports.ProcessTerminationExited, 0), nil
+	version := r.version
+	if version == "" {
+		version = "1.4.0"
+	}
+	return testProcessObservation(r.t, []byte(version+"\n"), nil, ports.ProcessTerminationExited, 0), nil
 }
 func (r *agyProbeRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
 	r.requests = append(r.requests, request)
@@ -170,6 +176,27 @@ func (r *agyProbeRunner) Converse(ctx context.Context, request ports.ProcessRequ
 	}
 	if r.drift {
 		if err := os.WriteFile(filepath.Join(gemini, "antigravity-cli/settings.json"), []byte(`{"toolPermission":"yolo"}`), 0600); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+	if r.normalized {
+		path := filepath.Join(gemini, "antigravity-cli/settings.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(data, &fields); err != nil {
+			r.t.Fatal(err)
+		}
+		delete(fields, "toolPermission")
+		delete(fields, "allowNonWorkspaceAccess")
+		delete(fields["permissions"].(map[string]any), "allow")
+		data, err = json.Marshal(fields)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
 			r.t.Fatal(err)
 		}
 	}
@@ -203,8 +230,8 @@ func TestAgyCapabilityProofRequiresOneExactJSONObject(t *testing.T) {
 	}
 }
 
-func TestAgyQualificationBindsFinalArgvCodecCredentialsAndNativeBoundary(t *testing.T) {
-	for _, variant := range []string{"success", "signaled", "policy drift", "drain unknown", "diagnostics failure"} {
+func TestAgyQualificationBindsFinalArgvVersionCredentialsAndNativeBoundary(t *testing.T) {
+	for _, variant := range []string{"success", "normalized current", "normalized newer", "signaled", "policy drift", "drain unknown", "diagnostics failure"} {
 		t.Run(variant, func(t *testing.T) {
 			lease, home := agyTestNamespace(t)
 			root, identity := testWorkspaceRoot(t)
@@ -212,6 +239,14 @@ func TestAgyQualificationBindsFinalArgvCodecCredentialsAndNativeBoundary(t *test
 			d := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyAgy, "agy-test", "", ""))
 			d.runtimeSafetyPolicyIdentity = lease.RuntimeSafetyPolicyIdentity()
 			runner := &agyProbeRunner{t: t, fixture: fixture, signaled: variant == "signaled", drift: variant == "policy drift", drainUnknown: variant == "drain unknown"}
+			expectedVersion := "1.4.0"
+			if strings.HasPrefix(variant, "normalized") {
+				expectedVersion = "1.4.7"
+				if variant == "normalized newer" {
+					expectedVersion = "9.0.0"
+				}
+				runner.version, runner.normalized = expectedVersion, true
+			}
 			probe, err := NewCurrentProbe(runner, &currentProbeVerifier{})
 			if err != nil {
 				t.Fatal(err)
@@ -222,12 +257,12 @@ func TestAgyQualificationBindsFinalArgvCodecCredentialsAndNativeBoundary(t *test
 				ctx = ports.WithQualificationProbeObserver(ctx, agyFailQualificationObserver{})
 			}
 			result, err := probe.QualifyCurrent(ctx, CurrentProbeRequest{Definition: d, Namespace: namespace, Fixture: fixture, Invocation: NativeProbeInvocation{}, Now: time.Now().UTC(), TTL: time.Hour})
-			if variant != "success" {
+			if variant != "success" && !runner.normalized {
 				if err == nil {
 					t.Fatal("failed qualification accepted")
 				}
-				if _, err := lease.agyQualifiedCodec(d); err == nil {
-					t.Fatal("failed qualification installed codec authority")
+				if _, err := lease.agyQualifiedRuntimeVersion(d); err == nil {
+					t.Fatal("failed qualification installed runtime authority")
 				}
 				if variant == "drain unknown" {
 					agyAssertProfileRetained(t, lease)
@@ -237,17 +272,17 @@ func TestAgyQualificationBindsFinalArgvCodecCredentialsAndNativeBoundary(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Version != "1.4.0" || len(runner.requests) != 2 {
+			if result.Version != expectedVersion || len(runner.requests) != 2 {
 				t.Fatal("missing version/capability")
 			}
-			codec, err := lease.agyQualifiedCodec(d)
-			if err != nil || codec != "1.4.0" {
-				t.Fatal("observed codec was not bound", err)
+			version, err := lease.agyQualifiedRuntimeVersion(d)
+			if err != nil || version != expectedVersion {
+				t.Fatal("observed version was not bound", err)
 			}
 			mutated := d
 			mutated.agyModel = "other-model"
 			mutated.agySettingsIdentity = agySettingsIdentity(mutated.agyModel, "")
-			if _, err := lease.agyQualifiedCodec(mutated); err == nil {
+			if _, err := lease.agyQualifiedRuntimeVersion(mutated); err == nil {
 				t.Fatal("changed runtime reused qualification")
 			}
 			request := runner.requests[1]
@@ -300,7 +335,7 @@ func TestAgyVersionFloorAndEnvironmentHaveNoImplicitAccountOverride(t *testing.T
 	for _, test := range []struct {
 		version string
 		ok      bool
-	}{{"1.2.8", false}, {"1.2.9-beta", false}, {"1.2.9", true}, {"1.4.0", true}} {
+	}{{"1.2.8", false}, {"1.2.9-beta", false}, {"1.2.9", true}, {"1.4.0", true}, {"1.4.1", true}, {"1.4.7", true}, {"9.0.0", true}} {
 		observation := testProcessObservation(t, []byte(test.version), nil, ports.ProcessTerminationExited, 0)
 		_, err := plainSemver(FamilyAgy, observation)
 		if (err == nil) != test.ok {

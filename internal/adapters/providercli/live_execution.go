@@ -231,11 +231,11 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 		if planErr != nil {
 			return observation, nil, fail(planErr)
 		}
-		codecVersion, codecErr := concrete.agyQualifiedCodec(RuntimeDefinition(definition))
-		if codecErr != nil {
-			return observation, nil, fail(codecErr)
+		observedVersion, versionErr := concrete.agyQualifiedRuntimeVersion(RuntimeDefinition(definition))
+		if versionErr != nil {
+			return observation, nil, fail(versionErr)
 		}
-		agyProfile, err = installAgyInvocationProfile(gemini, plan, codecVersion)
+		agyProfile, err = installAgyInvocationProfile(gemini, plan, observedVersion)
 		if err != nil {
 			return observation, nil, fail(err)
 		}

@@ -27,7 +27,7 @@ var runtimeSafetyPolicies = func() map[CredentialSourceFamily]RuntimeSafetyPolic
 		CredentialSourceGrok:   {family: CredentialSourceGrok, bytes: []byte("{\"family\":\"grok\",\"protocol\":\"acp-v1\",\"policy_scope\":\"isolated_namespace\"}\n")},
 		CredentialSourceCodex:  {family: CredentialSourceCodex, bytes: []byte("{\"family\":\"codex\",\"permissions\":{\"workspace\":\"read_only\",\"namespace\":\"deny\"}}\n")},
 		CredentialSourceCursor: {family: CredentialSourceCursor, bytes: []byte("{\"family\":\"cursor\",\"credential\":\"CURSOR_AUTH_TOKEN\",\"store\":\"memory\",\"rules\":false,\"skills\":false,\"mcp\":false}\n")},
-		CredentialSourceAgy:    {family: CredentialSourceAgy, bytes: []byte("{\"family\":\"agy\",\"protocol\":\"stream-json\",\"credential\":\"disposable-file-token\",\"permissions\":\"request-review\",\"agent_inheritance\":false,\"command_admission\":\"indexed-read-guard-with-fallback-deny-v1\"}\n")},
+		CredentialSourceAgy:    {family: CredentialSourceAgy, bytes: []byte("{\"family\":\"agy\",\"protocol\":\"stream-json\",\"credential\":\"disposable-file-token\",\"permissions\":\"request-review\",\"agent_inheritance\":false,\"command_admission\":\"indexed-read-guard-with-fallback-deny-v1\",\"settings_normalization\":\"native-defaults-v1\",\"version_admission\":\"minimum-v1\"}\n")},
 	}
 	for family, policy := range values {
 		values[family] = runtimeSafetyPolicyWithIdentity(policy)

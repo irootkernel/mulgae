@@ -21,19 +21,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// These inspected codecs use raw indexed-assignment matching and a numeric
-// grant fallback requiring a separate deny. Their sparse settings omit the
-// request-review/false defaults. The 1.2.9 version floor does not establish
-// codec compatibility; uninspected versions (including 1.4.1) stay excluded.
-func knownAgyCodecVersion(version string) bool {
-	switch version {
-	case "1.4.0", "1.4.2":
-		return true
-	default:
-		return false
-	}
-}
-
 const agyReadCommandGuard = "MULGAE_READ_GUARD[1]=1 "
 
 func agyGuardedReadCommand(command string) string { return agyReadCommandGuard + command }
@@ -120,7 +107,6 @@ type agyNativeSettings struct {
 type agyInvocationProfile struct {
 	geminiDir     string
 	agentName     string
-	codecVersion  string
 	plan          agyTrustedReadPlan
 	settingsPath  string
 	agentPath     string
@@ -239,9 +225,9 @@ func agyAgentDocument(name string) []byte {
 // and global MCP configuration inside the projected Gemini home. The home must
 // already be the disposable namespace home; the operator's native files are
 // never consulted.
-func installAgyInvocationProfile(geminiDir string, plan agyTrustedReadPlan, codecVersion string) (_ *agyInvocationProfile, resultErr error) {
-	if len(plan.commands) != 0 && !knownAgyCodecVersion(codecVersion) {
-		return nil, fmt.Errorf("agy profile: unqualified native command codec")
+func installAgyInvocationProfile(geminiDir string, plan agyTrustedReadPlan, version string) (_ *agyInvocationProfile, resultErr error) {
+	if !VersionAtLeast(version, 1, 2, 9) {
+		return nil, fmt.Errorf("agy profile: unsupported native version")
 	}
 	if !validCanonicalAbsolute(geminiDir) || geminiDir == "/" {
 		return nil, fmt.Errorf("agy profile: invalid home")
@@ -250,7 +236,7 @@ func installAgyInvocationProfile(geminiDir string, plan agyTrustedReadPlan, code
 	if err != nil {
 		return nil, err
 	}
-	profile := &agyInvocationProfile{geminiDir: geminiDir, codecVersion: codecVersion, plan: plan,
+	profile := &agyInvocationProfile{geminiDir: geminiDir, plan: plan,
 		directories: map[string]*os.File{".": root}, directoryInfo: map[string]os.FileInfo{}, created: map[string]bool{}}
 	defer func() {
 		if resultErr != nil {
@@ -381,7 +367,7 @@ func (profile *agyInvocationProfile) validateAfterRun() error {
 	if err != nil {
 		return err
 	}
-	if err := agySettingsPolicyMatches(settings, profile.plan, profile.geminiDir, profile.codecVersion); err != nil {
+	if err := agySettingsPolicyMatches(settings, profile.plan, profile.geminiDir); err != nil {
 		return err
 	}
 	agent, err := profile.read(profile.agentPath)
@@ -439,10 +425,10 @@ func (profile *agyInvocationProfile) closeDirectories() error {
 }
 
 // agySettingsPolicyMatches compares the post-run native settings against the
-// app-authored policy. Absent top-level policy fields are tolerated only for
-// an established known sparse codec version; explicit unsafe values, null
-// drift, unknown fields, and grant changes are always rejected.
-func agySettingsPolicyMatches(after []byte, plan agyTrustedReadPlan, geminiDir, codecVersion string) error {
+// app-authored policy. Native saves omit request-review/false defaults and an
+// empty allow set. Explicit unsafe values, null, unknown fields and changed
+// grants remain policy drift regardless of the admitted native version.
+func agySettingsPolicyMatches(after []byte, plan agyTrustedReadPlan, geminiDir string) error {
 	if err := rejectDuplicateJSONKeys(after); err != nil {
 		return err
 	}
@@ -457,19 +443,10 @@ func agySettingsPolicyMatches(after []byte, plan agyTrustedReadPlan, geminiDir, 
 			return fmt.Errorf("unknown settings field %q", name)
 		}
 	}
-	sparseCodec := knownAgyCodecVersion(codecVersion)
-	if raw, present := fields["toolPermission"]; !present {
-		if !sparseCodec {
-			return fmt.Errorf("permission mode omitted by an unestablished codec")
-		}
-	} else if string(raw) != `"request-review"` {
+	if raw, present := fields["toolPermission"]; present && string(raw) != `"request-review"` {
 		return fmt.Errorf("permission mode drift")
 	}
-	if raw, present := fields["allowNonWorkspaceAccess"]; !present {
-		if !sparseCodec {
-			return fmt.Errorf("workspace scope omitted by an unestablished codec")
-		}
-	} else if string(raw) != "false" {
+	if raw, present := fields["allowNonWorkspaceAccess"]; present && string(raw) != "false" {
 		return fmt.Errorf("workspace scope drift")
 	}
 	rawPermissions, present := fields["permissions"]
@@ -487,10 +464,9 @@ func agySettingsPolicyMatches(after []byte, plan agyTrustedReadPlan, geminiDir, 
 	}
 	wantAllow := plan.allowGrants()
 	_, allowPresent := permissions["allow"]
-	// Native 1.4.2 rewrites an empty allow slice by omitting it. This is
-	// equivalent only to the already-empty app-owned set; explicit null,
-	// missing nonempty grants and unestablished codecs still fail closed.
-	if allowPresent || len(wantAllow) != 0 || codecVersion != "1.4.2" {
+	// Omission is equivalent only to an already-empty app-owned set.
+	// Explicit null and missing nonempty grants remain failures.
+	if allowPresent || len(wantAllow) != 0 {
 		if err := agyGrantListMatches(permissions["allow"], wantAllow); err != nil {
 			return fmt.Errorf("allow grants drift: %w", err)
 		}
