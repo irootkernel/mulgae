@@ -5,10 +5,52 @@ Implementation status is owned only by the
 [roadmap](../roadmap/README.md). Acceptance of this design is not evidence that
 any new command, schema, or runtime behavior exists.
 
+## Reduced EPIC-008 scope
+
+Decision: Master approved the reduced scope on 2026-10-27. EPIC-008 now plans
+optional explicit requirements assessment within one ordinary original-source
+review, followed by verified result inspection. Implementation has not begun.
+
+Keep IDs, descriptions, acceptance criteria and one selected owner role per
+requirement. Input coexists with the existing objective. Normalize every item
+to met, partially_met, unmet or unverified with evidence and limitations;
+missing answers remain unverified. Every existing admitted no-change target,
+including empty-tree HEAD, retains provider-free evaluation-not-run results.
+Assessments change neither CI exits nor final acceptance authority.
+
+Public requirements-bearing execution/capability activates in TASK-029 with
+verified reads; earlier Tasks expose preflight or internal execution only.
+Preserve extraction policy and the shared additional-invocation budget.
+Requirements input cannot enable another call. Count valid provider answers,
+including unverified, separately from Mulgae-derived placeholders. The admitted
+local requirements file is invocation input independent of the reviewed Git
+objects. Keep valid finding/assessment sections independent without inferring
+success from whole-response parse failures; protected failures deny publication.
+
+Exclude batch rechecks, cross-run comparison, resolution transfer, conflict
+reduction, full Review Briefs, change/completion modes and referenced-document
+capture. Preserve the original-source execution model without snapshots,
+replay archives or capture-bound guards. Aquarium and the operator retain
+test execution, remediation and acceptance.
+
+Explicit answers or visible gaps make requirement omissions inspectable.
+Batch/comparison adds cross-run correspondence and lifecycle complexity without
+an established current need. The five member Tasks are TASK-026 through
+TASK-029 and TASK-033. TASK-030 through TASK-032 remain separate Deferred
+records outside current acceptance; RCI-004/005 remain excluded and reserved.
+
+This decision replaces the EPIC-008 redesign hold and earlier assessment/iteration
+grouping. EPIC-007 and EPIC-009 remain accepted. Exact-binary/client checks,
+the current complete Make gate and one bounded authorized live requirements
+review remain due at implementation acceptance; a batch demonstration is removed.
+See the revised [specification](../specs/review-completeness-and-iteration.md)
+and [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration).
+
 ## Later execution-order decision
 
-The 2026-10-01 live-review design places EPIC-009 after completed EPIC-007 and
-holds EPIC-008 and TASK-026 through TASK-033 for redesign after EPIC-009 acceptance.
+The 2026-10-01 live-review design placed EPIC-009 after completed EPIC-007 and
+held EPIC-008 and TASK-026 through TASK-033 for redesign after EPIC-009 acceptance.
+The reduced-scope decision above replaces that hold.
 The [roadmap](../roadmap/README.md#adopted-execution-order) owns that order and status.
 This supersedes the future execution order and capture-dependent EPIC-008
 assumptions below. It preserves the accepted EPIC-007 implementation and historical
@@ -35,6 +77,10 @@ that claim. Current behavior and limits are owned by the
 [live execution specification](../specs/live-workspace-and-git-review.md).
 
 ## Context
+
+The remaining sections preserve the original 2026-09-26 design and its
+2026-09-27 refinements as historical rationale. They do not reinstate the
+superseded EPIC-008 scope or retired execution surfaces.
 
 The adopted work combines four improvements: verified public inspection,
 structured Review Briefs and requirements assessment, selected-finding batch

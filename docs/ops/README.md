@@ -35,34 +35,38 @@ including independent project binding and verified reads:
 
 ## Planned local client behavior
 
-EPIC-008 is held for redesign; its earlier requirements remain future behavior, not commands supported by the
-current binary:
+The reduced [EPIC-008 requirements assessment](../specs/review-completeness-and-iteration.md)
+is Planned and unimplemented. It adds no command available in the current binary.
+TASK-027 will expose admission/preflight and TASK-028 internal execution;
+public requirements-bearing execution/capability will activate with verified
+CLI/MCP reads in TASK-029. Objective-only execution remains available throughout.
 
-- Batch followup does not introduce restart recovery or automatic failed-group
-  reruns; report the explicit capability limit.
-- Expose unmet/unverified requirements and unresolved/unknown recheck results
-  even when the operational command completed. A Brief with an empty Git diff
-  records evaluation not run and no_change_target; all selected requirements
-  remain unverified with no provider calls. A workspace evaluation needs an
-  explicit new target/preflight and correctly scoped references, not an automatic
-  fallback. Invalid Briefs or guards still fail before no-change publication.
-- Apply followup resolutions only to an after run with the same verified complete
-  capture, not merely the same patch digest. Request-only differences such as
-  objectives are separate provenance. Historical capture identity absence is
-  unavailable, not permission to read current source or infer equality.
-- Keep the full selected followup receipt set fixed during comparison paging.
-  If any selected run disappears, changes, or is corrupt, stop that continuation
-  with its typed read error rather than silently omitting it. A fresh comparison
-  with a revised selection is an explicit separate read request.
-- Display all conflicting eligible followup claims and after observations with
-  stable unverified reasons; do not choose the newest or first result. Inconclusive
-  claims are not negative verdicts. Non-observation is not resolution, and a
-  changed Brief does not inherit previous satisfaction.
-- Keep current installed host configuration and provider policy untouched during
-  adoption. Update public README and source-distributed skill guidance only when
-  the owning implementation has verified the new path; retain safe legacy/CLI
-  fallback where capabilities are unavailable.
+- Supply optional explicit requirements alongside the existing objective and
+  target. Requirements do not grant execution permission or enlarge source scope.
+  The local requirements file need not be in the reviewed commit; code evidence
+  still follows the selected workspace, index or resolved Git objects.
+- Display unmet/unverified items and evidence limitations independently of
+  ordinary findings, severity filters and operational success. Keep valid provider
+  unverified answers distinct from Mulgae-derived missing-answer placeholders;
+  only admitted provider answers contribute to evaluated_count.
+- Disclose disabled extraction in preflight without enabling it. A consumed
+  additional-invocation allowance is a result limitation, not permission for a
+  third call. Keep accepted primary reports on ordinary extraction failure.
+- On any existing admitted no-change target, including empty-tree HEAD,
+  preserve zero provider calls and evaluation not run, with every selected item
+  unverified/no_change_target. Invalid input still fails admission. Workspace
+  evaluation requires an explicit new request.
+- Use verified public reads after restart; distinguish historical unavailable
+  assessments and unknown counts from not-requested or not-run results.
+  Never reconstruct missing evidence from current source or treat met as final
+  approval.
+- Preserve current host configuration and provider policy. Publish usage/help
+  and source-distributed guidance only after the owning runtime path is verified.
 
-See [live workspace and Git review](../specs/live-workspace-and-git-review.md) for current
-execution and [verified review contracts](../specs/verified-review-contracts.md) for historical foundations and [review completeness and iteration](../specs/review-completeness-and-iteration.md)
-for planned behavior.
+Batch rechecks, cross-run comparison, resolution transfer and automatic
+remediation are outside this Epic. Aquarium and the operator retain test
+execution, remediation and acceptance.
+
+See [live workspace and Git review](../specs/live-workspace-and-git-review.md)
+for current execution and [verified review contracts](../specs/verified-review-contracts.md)
+for retained historical foundations.

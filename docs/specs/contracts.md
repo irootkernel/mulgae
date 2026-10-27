@@ -8,7 +8,10 @@ provider/client/release certification. The roadmap owns their lifecycle.
 [Verified review contracts](verified-review-contracts.md) preserves EPIC-007's
 pre-cutover capture/guard requirements and the verified-read foundations that
 remain supported. [Review completeness and iteration](review-completeness-and-iteration.md)
-is held for redesign and confers no current batch or comparison capability.
+plans optional explicit requirements assessment under the revised EPIC-008
+scope. Its input and result extensions are unimplemented; batch rechecks and
+cross-run comparison are excluded. This planning revision changes no shipped
+schema, command or capability.
 
 Historical ordinary, child, composite, failed and no-change artifacts retain
 their schemas and integrity rules. Historical sections below describe retained

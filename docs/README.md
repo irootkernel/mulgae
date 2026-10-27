@@ -46,8 +46,10 @@ describe the implemented model and its limits.
 
 [Review completeness and iteration](specs/review-completeness-and-iteration.md)
 and its [EPIC-008 dossier](todo/EPIC-008-review-completeness-and-iteration.md)
-are held for redesign after EPIC-009 acceptance. Their earlier planned interfaces
-remain unimplemented. Their adoption grants no current execution capability.
+define the reduced optional requirements-assessment scope approved on 2026-10-27.
+Its five Tasks are Planned; batch rechecks and cross-run comparison remain
+outside current membership and acceptance. The planned input and results are
+unimplemented and grant no current execution capability.
 
 [Cursor ACP transport](architecture-decision-records/cursor-acp-transport.md)
 records the implemented explicit-selection route for

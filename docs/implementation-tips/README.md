@@ -615,73 +615,69 @@ gate or the explicit two-home Codex certification required by TASK-039.
 
 The [verified review contracts](../specs/verified-review-contracts.md) and their
 [roadmap outcomes](../roadmap/README.md#epic-007-verified-review-contracts)
-retain EPIC-007 requirements and verification. The planned
-[EPIC-008 dossier](../todo/EPIC-008-review-completeness-and-iteration.md) defines
-its per-Task implementation, exclusions, checks, and completion conditions.
-The [roadmap](../roadmap/README.md#adopted-execution-order) owns the strictly
-sequential order. EPIC-008 remains deferred until explicit EPIC-009 acceptance and redesign of
-its capture-dependent requirements. The regression matrix below records that
-frozen design; it does not authorize retired child execution.
+retain EPIC-007's historical requirements and verification. The revised
+[EPIC-008 dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
+defines five Planned Tasks for optional requirements assessment. The
+[roadmap](../roadmap/README.md#adopted-execution-order) owns their order:
+TASK-026, TASK-027, TASK-028, TASK-029, TASK-033. Deferred TASK-030 through
+TASK-032 are outside current membership and acceptance.
 
-For each implementation Task, read current code and the nearest contract, add
-focused behavioral/negative tests, and run the applicable existing Make targets.
-Use explicit packages and anchored test names for narrow Go test selections.
-Do not add prose-only tests as a substitute for native behavior. Contract-only
-foundations need schema examples and semantic tests before production wiring;
-new capabilities remain unadvertised until their runtime path exists.
+Read current code and the nearest contract before each implementation Task.
+Add focused behavior and negative checks using explicit Go packages and
+anchored test names, then run the applicable Make targets. Contract foundations
+need paired schema examples and semantic tests before production wiring.
+TASK-027 exposes admission/preflight only. TASK-028 tests internal execution and
+publication. TASK-029 enables public requirements-bearing execution and its
+existing capability advertisement together with verified CLI/MCP reads.
+Requirements-bearing execution remains unavailable before that point;
+objective-only execution stays available throughout. Add no general feature flags.
 
-Keep provider-free guarantees observable with writer/provider spies and exact
-binary fixtures. Test root confusion and anchor replacement before qualification,
-original-source selection, receipt/cursor consistency, historical capability gaps,
-reports-only output, and immutable parent artifacts. Freeze old/new consumer
-fixtures independently of producer generators so regeneration cannot erase a
-compatibility failure. When embedded assets change, follow the two-pass generator
-procedure above.
+Use provider/writer spies and exact-binary fixtures for the provider-free
+guarantees. Preserve original-source sides, native project binding, current
+provider-call ceilings and historical consumer fixtures independent of producer
+generation. Embedded asset changes retain the two-pass generator requirement.
 
-The plan review adds four required deterministic regression groups, owned by
-existing Tasks rather than new Epics or live campaigns:
-
-| Group | Required checks |
+| Group | Required EPIC-008 checks |
 |---|---|
-| No-change Brief evaluation | Empty stage/dirty/diff in both modes with/without requirements; invalid input/guard rejection first; zero qualification/review calls; exact Brief and unverified/no_change_target results retained and readable after restart; explicit workspace remains a separate request. |
-| Complete capture identity | Keep patch bytes equal while changing unchanged support files, binary content, paths, sides, or context; identities must differ. Equal captures with different objectives/roles must remain comparable for resolution. Prove historical unavailability differs from corrupt support. |
-| All-followup receipt paging | Keep before/after fixed while only a selected followup is deleted, replaced, or corrupted between pages; fail the page, including followups used on later pages. Reject changed selection and duplicate IDs; permutations preserve scope. |
-| Conflicting claims | Test differing conclusive followup verdicts and conflicts with after observations; preserve all evidence and stable reasons. Separate unclear/missing answers from negative claims. Vary input order and timestamps without selecting a winner or increasing confidence. |
+| Input and assignment | Optional requirements with/without the objective; strict JSON/Unicode/IDs/owners; safe paths; safe untracked local requirements with staged/committed code differing from the working tree; admitted input bytes reused by prompts/publication; invalid input fails before qualification or no-change publication. |
+| Extraction availability | Valid initial structured assessments with extraction disabled; reports preserved with explicit unverified reasons when extraction is disabled, its allowance is consumed or content is missing/invalid; no extra call/config/provider change. Preflight describes known policy, not future allowance consumption. |
+| Assessment independence | Valid findings/invalid assessment and valid assessment/invalid findings retain their valid sections and primary report; omitted/duplicate/unknown/wrong-owner IDs; whole-response invalid JSON supplies no independently validated section; protected failures deny publication. |
+| Counts and origin | One met, one valid provider unverified and one missing answer yield selected_count = 3 and evaluated_count = 2. Keep placeholders distinct, unknown historical counts unavailable and requirements visible through finding severity filters. |
+| No-change evaluation | Every existing admitted no-change case, including empty-tree HEAD, with/without requirements; zero provider calls/attempts/reports/evaluated count; persistent unverified/no_change_target rows; invalid input still fails and an explicit new target remains separate. |
+| Verified results and compatibility | No public requirements-bearing execution before TASK-029; execution/read/capability activation together; restart, receipt-bound paging, support tamper, CLI/MCP count/origin/availability parity, no current-source reconstruction, export/cleanup privacy and unchanged exits. |
 
-TASK-019/021/022/024 establish the capture foundation. TASK-026 freezes the
-remaining semantics, TASK-027/028/029 cover no-change admission/publication/reads,
-TASK-030/031 retain batch current-capture identity, TASK-032 covers comparison,
-and TASK-033 verifies the integrated boundary matrix. Use existing no-change
-service/publication fixtures as compatibility anchors, not tests that assume
-all future no-change formats have an empty support index.
+TASK-026 freezes the contracts, TASK-027 admits input and preflight,
+TASK-028 validates/publishes internally, TASK-029 activates execution with
+verified reads and TASK-033 certifies the integrated feature. Use existing
+no-change publication and historical read fixtures as compatibility anchors.
+Do not restore retired
+dirty/patch/stdin selectors, full capture identity, batch execution or comparison.
 
-Run the complete `make test` gate before each Epic's integrated acceptance.
-Retain the existing mandatory live ZCode/Grok and optional Codex policy; do not
-multiply live runs to cover cases deterministic fixtures can prove. Registration
-inspection alone cannot certify an actual client invocation or await behavior.
-Record exact binary/client identities and distinguish mock, release-binary,
-actual-client, and live-provider evidence.
+Run the current complete `make test` gate before EPIC-008 integrated acceptance.
+Its mandatory live checks use ZCode; `make test-e2e-opt-in` retains its existing
+Codex opt-in/skip policy. Other provider campaigns need their applicable
+authority. Registration inspection alone is not supported-client execution
+proof. Distinguish deterministic, exact-binary, actual-client and live-provider
+evidence.
 
-EPIC-008 additionally calls for one bounded, explicitly authorized live initial
-Brief review and one selected batch recheck through existing routes. Reuse that
-campaign's outputs for provider-free inspection and comparison checks. Missing
-structured coverage is not a successful feature demonstration. A failure is a
-specific blocker/remediation item, not permission to repeat reviews until clean.
-Neither dossier authorizes credential, provider, host-config, installation, or
-release changes. Keep runtime evidence local unless a reviewed promoted-evidence
-package is explicitly required.
+EPIC-008 additionally needs one explicitly authorized bounded live
+requirements-bearing review through existing routes. Reuse that result for
+provider-free assessment inspection. Mulgae-derived unverified placeholders alone
+do not establish structured coverage. Missing structured coverage is an evidence
+gap, not a successful demonstration or permission for unlimited retries.
+No batch recheck, comparison demonstration, provider migration or installation
+is required.
 
-For this documentation-only adoption, read back changed files, validate links,
-IDs, dependencies, requirement ownership, and proposed-command labeling, and run
-`git diff --check`. No runtime gate or provider call is necessary to verify that
-planning change. Do not mark feature requirements or Tasks complete from these
-document checks.
+For this documentation-only scope revision, read back changed files, validate
+links, IDs, membership, dependencies and requirement ownership, apply the
+required final prose pass, and run `git diff --check`. No runtime gate or
+provider call is needed. Planning approval establishes Planned work without
+marking implementation requirements or Tasks complete.
 
-At Epic closeout, promote durable outcomes to canonical owners, remove its
-temporary dossier and index entry, repair all dossier links (including this
-section), and replace Detailed SOT with Canonical Outcomes before changing the
-Epic status. Stop at the accepted scope; no additional feature or unlimited
-review cycle is an acceptance condition.
+At eventual Epic closeout, promote durable outcomes, replace Detailed SOT with
+Canonical Outcomes, remove the temporary dossier and its TODO entry, repair
+links and obtain explicit Epic acceptance. Preserve the independent Deferred
+records for TASK-030 through TASK-032; they do not block closeout.
 
 Under Master's quota-preservation decision for `EPIC-012` through `EPIC-014`,
 development and Epic certification run the deterministic Make gates

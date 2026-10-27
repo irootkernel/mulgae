@@ -27,6 +27,8 @@ explain why durable choices were made.
 
 - [Native review contracts before review completeness and iteration](verified-review-iteration.md)
   records why EPIC-007 groups native binding with verified inspection, and why
-  EPIC-008 groups requirements assessment with bounded followup and comparison.
+  EPIC-008 originally grouped requirements assessment with followup and comparison.
+  Its 2026-10-27 revision narrows EPIC-008 to optional requirements assessment
+  and verified reads, preserving the earlier rationale as historical context.
   Design acceptance does not mean the new capabilities are implemented; the
   roadmap owns delivery status.

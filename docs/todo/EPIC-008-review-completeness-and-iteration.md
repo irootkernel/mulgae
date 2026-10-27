@@ -1,357 +1,208 @@
 # EPIC-008 development dossier: review completeness and iteration
 
-This is an adopted temporary development dossier, not implementation evidence.
-[Roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration) owns
-status and dependencies. Durable requirements are in
-[review completeness and iteration](../specs/review-completeness-and-iteration.md).
+This temporary dossier defines the reduced requirements-assessment work approved
+on 2026-10-27. The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
+owns identity, lifecycle, membership and order. The
+[specification](../specs/review-completeness-and-iteration.md) owns required behavior.
+Implementation has not begun.
 
-## Goal, dependency, and scope
+## Goal, dependencies and execution boundary
 
-Combine explicit requirements assessment with selected-finding rechecks and
-provider-free result comparison. Keep these features independently usable:
-ordinary reviews and batch followups need no requirements list.
+Add optional explicit requirements to one ordinary review and retain one
+inspectable assessment per item. Preserve current objective input, source
+selection, provider routing, ordinary findings, exits and attached lifecycle.
 
-The roadmap places this Epic and TASK-026 through TASK-033 under an execution
-hold until EPIC-009 is accepted and this design is revised and reapproved.
-Preserve the task detail below for redesign; its capture/replay assumptions and
-legacy-execution promises do not override the live-review transition.
-No Task in completed EPIC-007 or EPIC-009 waits for this Epic.
+The completed EPIC-007 and EPIC-009 provide verified reads and original-source
+execution. TASK-026, TASK-027, TASK-028, TASK-029 and TASK-033 run in that order;
+each depends on its predecessor. No completed Epic is reopened. Re-read current
+code and native contracts before implementation; the source layout in older
+designs is not an instruction to restore retired packages.
 
-Planning baseline: `d21e77a`. Re-read current code before implementation; the
-baseline is not a reset instruction. Existing single `followup`, `delta`,
-`rerun`, and `compose` behavior remains available. New batch and assessment
-formats do not retrospectively reinterpret their artifacts.
+The current approval covers planning documents only. The next session must
+establish an implementation envelope, verification and review route. No
+implementation review route was selected in this conversation. No provider
+call, runtime-session mutation, staging, commit, installation or release is
+authorized by this document revision.
 
-| Existing owner | Intended responsibility |
+## Exclusions and reserved identities
+
+Exclude batch rechecks, cross-run comparison, resolution transfer, conflict
+reduction, automatic remediation/retry, requirements-driven CI exits, full
+Review Briefs, change/completion modes and referenced-document capture.
+Create no source snapshots, replay archives, copied worktrees, content guards
+or new execution framework.
+
+TASK-030, TASK-031 and TASK-032 remain Deferred records outside current Epic
+membership and acceptance. Their former batch-admission, batch-execution and
+comparison purposes are preserved only in the roadmap's separate deferred
+table and historical design decision. RCI-004 and RCI-005 remain reserved and
+excluded. Reconsideration requires demonstrated need and a separately approved
+original-source design; these records do not delay the five active Tasks.
+
+## Ownership
+
+| Owner | Required responsibility |
 |---|---|
-| `internal/app/reviewrun`, `internal/ports/review_archive*.go` | Capture Brief and selected content, extend native preflight identity |
-| `internal/app/prompt`, `assets/roles.yaml` | Trusted framing of untrusted requirements, without duplicated role defaults |
-| `internal/app/validation` | Assigned-ID admission and separately verified assessment sections |
-| `internal/app/publication` | Immutable normalized assessments and batch artifacts |
-| `internal/app/{followup,childrun,review}` | Source admission, one captured target, existing bounded group execution |
-| `internal/app/{query,report}` | Snapshot-bound assessment/result inspection |
-| `internal/domain/finding.go` | Existing fingerprint and run-scoped finding identity |
-| `internal/entrypoint/{mulgae,mcp}`, `internal/composition` | Transport projection and shared use-case wiring |
+| `internal/domain` and `internal/ports` | Immutable requirement/assessment values and inward interfaces where needed |
+| `internal/app/reviewrun` and input adapters | Secure optional input admission, role assignment, preflight and original-source orchestration |
+| `internal/app/prompt`, review templates and canonical role assets | Frame requirements as untrusted data without duplicating role/provider defaults |
+| `internal/app/validation` | Assigned-ID, owner, verdict and source-evidence validation; separate assessment and finding results |
+| `internal/app/publication` | Hash-bound input and assessment support for ordinary and no-change results |
+| `internal/app/{query,report,clean,export}` | Verified reads, rendering and bounded artifact lifecycle |
+| CLI/MCP entrypoints and `internal/composition` | Parse/project the common use case and wire the existing invocation lifecycle |
 
-New use-case packages are justified only for a distinct owner such as batch
-admission or comparison. Do not create a general workflow engine or duplicate
-provider execution. No Seongge/Gamchi/Zamchi/Camchi, Aquarium, Gaori, or Gul
-repository changes are part of this Epic.
+Reuse existing boundaries and live readers. No other repository, new provider,
+configuration migration or platform is part of this Epic.
 
-## TASK-026: Freeze Brief, assessment, batch, and comparison contracts
+## TASK-026: Freeze the reduced contracts
 
-**Implement**
+- [ ] Define optional CLI `--requirements PATH` and MCP `requirements_path`
+      on existing review/preflight inputs, usable alongside the existing objective.
+- [ ] Freeze strict JSON input, assigned IDs/owner roles, four verdicts, reasons,
+      selected/evaluated counts, provider versus Mulgae-derived origin and
+      not-requested/unavailable/not-run/evaluated availability. Valid provider
+      unverified answers count as evaluated; placeholders do not.
+- [ ] Freeze reasons for disabled extraction, consumed allowance, omitted answers
+      and invalid assessment content, plus the specification's independent-section
+      outcome matrix, whole-response parse failures and protected precedence.
+- [ ] Define separate versioned assessment/publication/read contracts and the
+      old/new support matrix; preserve current objective limits and source policy.
+- [ ] Specify normal assessment results and provider-free no-change results.
+      The latter retain zero calls, no fabricated attempts/reports and one
+      `unverified/no_change_target` row per selected item for every existing
+      no-change case, including empty-tree HEAD.
+- [ ] Separate admitted local requirements bytes/digest from implementation
+      evidence selected from workspace, index or resolved Git objects. The
+      requirements file need not exist in the reviewed commit.
+- [ ] Add needed schema/example and semantic foundations without advertising
+      unimplemented execution. Do not implement batch or comparison foundations.
 
-- [ ] Record exact CLI/MCP grammar, capability discovery, schema versions,
-      structured bounds, and failure/coverage semantics from the specification.
-- [ ] Define typed Brief and assigned-requirement values, normalized assessments,
-      source-finding selections, batch outcome records, and comparison categories.
-- [ ] Define a distinct batch run/publication contract and its required-group
-      failure behavior; keep old single-followup schemas unchanged.
-- [ ] Add schema/example/semantic foundations without advertising unimplemented
-      paths. Record support by historical run type and evidence capability.
-- [ ] Specify how the EPIC-007 request digest includes new input dimensions and
-      how old guards fail rather than silently ignoring them. Keep complete
-      capture identity separate from request and source-finding identity.
-- [ ] Freeze the no-change result (`unverified`, `no_change_target`, evaluation
-      not run), full comparison receipt-set/cursor binding, and deterministic
-      followup conflict table from the specification. Map page-level read
-      failures separately from semantic unavailable or conflicting assessments.
+Verify invalid input/ownership, missing answers, trusted-field ownership, paired
+examples, historical absence and integrity distinctions. Run focused foundation
+checks and applicable generation/static checks. Finish with no unresolved
+product-scope, invocation-ceiling or compatibility decision for later Tasks.
 
-**Do not**
+## TASK-027: Admit optional requirements
 
-- [ ] Add a global issue ID, approval state, suppression database, new scheduler,
-      arbitrary provider remapping, or fuzzy semantic correspondence.
+- [ ] Read one safe project-relative regular UTF-8 JSON file from the admitted
+      local project filesystem once per request, even for staged/committed reviews.
+      Retain its exact bytes/digest; prompts and publication reuse those bytes.
+- [ ] Validate strict fields, IDs, criteria, bounds, selected-role ownership,
+      Unicode, ignore/protected paths and project binding before qualification.
+- [ ] Add provider-free CLI/MCP preflight through shared application admission,
+      showing selected items, owners, source limits, evaluation-not-run state and
+      known disabled extraction policy. Do not predict allowance consumption that
+      may occur during execution.
+- [ ] Preserve objective-only behavior and selected workspace/index/Git semantics.
+      Requirements do not widen source access or add referenced-document capture.
+- [ ] Keep public requirements-bearing execution unavailable until TASK-029
+      supplies verified reads and enables execution/capability together. Preserve
+      objective-only execution; preflight does not lock the source or input file.
 
-**Verify and complete**
+Cover invalid JSON/Unicode, duplicate keys/IDs, missing and unsafe files,
+explicit untracked input, wrong/unselected roles, objective coexistence,
+and a safe untracked requirements file with staged/committed code whose
+working-tree version differs. Cover known disabled extraction, source-side
+isolation and input errors on all no-change targets, including empty-tree HEAD.
+Prove rejected requests and preflight invoke no provider and publish nothing.
+Run focused admission/transport tests and applicable unit/integration checks.
 
-- [ ] Test schema boundaries, source/target identity separation, assigned IDs,
-      omitted assessments, legacy artifact reads, and nullable resolution.
-- [ ] Include no-change publication examples without attempts/reports, complete
-      receipt-set permutations, conflicting conclusive verdicts, and inconclusive
-      claims that are not negative verdicts. Keep the existing Task count/order.
-- [ ] Run focused foundation checks and generator/static checks when applicable.
-- [ ] Finish with an exact old/new compatibility matrix and no unresolved input,
-      invocation-ceiling, publication, or comparison-state decision.
+## TASK-028: Validate and publish assessments
 
-## TASK-027: Capture and admit structured Review Briefs
+- [ ] Frame requirements as untrusted data for exactly their assigned roles.
+      Retain valid initial structured assessments even with extraction disabled.
+      Reuse existing extraction policy and budget; never enable it from input or
+      add a call after retry/repair consumed the allowance.
+- [ ] Validate four verdicts and supporting source evidence independently from
+      ordinary findings; retain primary reports and protected failure precedence.
+- [ ] Normalize one row per selected ID. Missing answers become `unverified`;
+      duplicate, foreign or wrong-owner IDs invalidate the owning role's section.
+- [ ] Implement the independent-section outcome matrix and explicit reasons for
+      disabled extraction, consumed allowance, omission and invalid content.
+      Whole-response parse failures cannot supply independently validated sections.
+      Preserve role coverage, finding extraction status and assessment availability
+      as separate axes, including when only an assessment is valid.
+- [ ] Persist exact input, assignments, limitations and normalized results in
+      hash-bound support under the existing publication owner. Count only valid
+      provider assessments as evaluated; retain each normalized row's origin.
+- [ ] Preserve no-change zero-call publication with zero attempts/reports and
+      zero evaluated count for every existing no-change target, including empty-tree
+      HEAD. Exercise ordinary/no-change internal execution with focused tests;
+      keep public requirements-bearing execution unavailable until TASK-029.
 
-**Implement**
+Cover all verdicts, omitted/malformed sections, unsupported evidence, absence
+claims, ordinary extraction failure in either section, protected failures,
+disabled extraction, consumed allowance, whole-response invalid JSON, mixed
+provider/placeholder counts, publication interruption, corruption and restart.
+Assert provider-call ceilings, one final at most and unchanged severity/CI exits.
+Run focused prompt, validation/publication and applicable integration checks.
 
-- [ ] Admit strict UTF-8 JSON through an explicit safe project-relative file
-      selector, with duplicate-key, Unicode, reserved-path, and exclusion checks.
-- [ ] Capture exact Brief bytes once, retain source-sized prose without a new
-      content ceiling, and bind references to the selected target's captured sides.
-- [ ] Enforce role ownership, cardinality limits, valid ID uniqueness, and
-      mutual exclusion with legacy objective input.
-- [ ] Extend CLI/MCP preflight and internal guarded admission with Brief identity
-      and the complete transmission plan; use common application admission.
-- [ ] Validate Brief/reference/owner and guard inputs before no-change dispatch.
-      For empty Git diffs in either mode, disclose zero qualification/assessment
-      calls and `no_change_target`; keep exact captured `current/` references.
-      Do not advertise Brief-aware execution until TASK-028 preserves its results.
+## TASK-029: Expose verified assessment reads
 
-**Do not**
+- [ ] Extend existing inspection/JSON/report paths with requirement rows,
+      rationale, evidence, limitations, origin and selected/evaluated coverage.
+      Keep unknown historical counts unavailable instead of filling them with zero.
+- [ ] Show unmet/unverified results independently of finding count, severity
+      filters and exits. Distinguish not requested, historical unavailable,
+      not run, valid provider unverified answers and Mulgae-derived placeholders.
+- [ ] Preserve receipt-bound paging and evidence reads without provider calls,
+      current-source fallback or historical artifact rewrites.
+- [ ] Extend query/cleanup/export allowlists only for owned new support, retaining
+      export privacy, integrity checks and lineage protection.
+- [ ] Enable public requirements-bearing execution and its existing capability
+      advertisement only together with the necessary verified CLI/MCP reads.
+      Keep objective-only execution available; add no general feature-flag system.
 
-- [ ] Read references from the live tree after capture, discover remote/recursive
-      material, execute Brief content, or bypass `.mulgaeignore` for explicit input.
-- [ ] Convert an empty diff to a workspace review, rewrite reference prefixes,
-      invoke a provider for no-change completion, or let no-change hide bad input.
+Cover CLI/MCP parity, empty and large pages, reports-only output, missing owner
+answers, old artifacts, receipt changes, tamper, concurrent cleanup and no-change
+reads after restart, including empty-tree HEAD. Check count/origin parity and
+that finding severity filters do not hide requirements. Prove public execution
+stays unavailable before this Task and becomes usable with verified reads.
+Use exact-binary consumer fixtures and applicable query/report/integration checks.
+Every selected item must be inspectable through
+public reads without private artifact parsing.
 
-**Verify and complete**
+## TASK-033: Certify the reduced feature
 
-- [ ] Cover tracked and explicitly selected untracked Briefs, missing/excluded
-      references, staged-versus-worktree differences, drift, symlink swaps,
-      invalid UTF-8/Unicode, duplicate IDs, wrong roles, and legacy objective use.
-- [ ] Prove rejected/changed requests invoke no provider; prove later Brief edits
-      cannot alter admitted prompts. Include content beyond old incidental caps.
-- [ ] Cover empty stage/dirty/diff with both Brief modes, with/without requirements,
-      invalid references/owners, and mismatched guards. Assert zero provider calls
-      and no implicit target substitution; contrast an explicit workspace request.
-- [ ] Run focused capture/parser tests and applicable unit/integration gates.
-      Complete with production CLI/MCP preflight and internal admission parity;
-      Brief-aware execution remains unavailable until TASK-028, not silently empty.
+- [ ] Build a deterministic integrated fixture for requirements input, ordinary
+      findings, all assessment states, missing answers and verified reads.
+- [ ] Freeze independent historical consumer fixtures; preserve current selectors,
+      source restrictions, role routing, exits and attached start/await/cancel.
+- [ ] Verify invalid input before no-change publication, zero provider calls on
+      all existing no-change cases including empty-tree HEAD, extraction-disabled
+      and consumed-allowance outcomes, section independence/whole-response failures,
+      provider/placeholder counts, local-input/source-side separation, protected
+      failures, restart, support corruption and receipt-consistent paging.
+- [ ] Update public usage/help/examples and source-distributed client guidance
+      only after their runtime paths are verified; synchronize canonical owners.
+- [ ] Run exact-binary and actual supported-client checks plus the complete
+      current `make test` gate. State opt-in skips and unavailable evidence.
+- [ ] Under an explicit implementation envelope, perform one bounded live
+      requirements-bearing review through existing routes and inspect its result.
+      Record actual admitted provider assessments; Mulgae-derived placeholders
+      alone do not establish structured coverage. No batch recheck is required.
 
-## TASK-028: Validate and publish requirements assessments
+A failed live demonstration is an evidence gap or remediation item, not
+permission for unlimited retries or provider substitution. Keep current
+mandatory ZCode and opt-in Codex Make policy; other provider campaigns retain
+their separate authority. Run documentation/link checks and `git diff --check`,
+then inspect the complete diff and status.
 
-**Implement**
+## Integration acceptance and next-session handoff
 
-- [ ] Frame mode, requirements, ownership, and references as untrusted review
-      data while preserving trusted role and provider security instructions.
-- [ ] Extend the optional structured path with a separately validated assessment
-      section; reuse the current same-role/provider secondary invocation slot.
-- [ ] Normalize exactly one result per selected requirement. Missing claims are
-      unverified; wrong-owner/duplicate/unknown IDs invalidate the affected set.
-- [ ] Verify typed captured-support and requirement references without relaxing
-      finding evidence. Store assessments and Brief provenance in hash-bound
-      publication support; keep primary reports and ordinary findings independent.
-- [ ] Extend Brief-aware no-change publication with exact Brief, selected IDs and
-      owners, complete capture identity, and one `unverified`/`no_change_target`
-      result per requirement. Preserve zero attempts/reports and no evaluated
-      requirements; with no requirements, retain explicit evaluation-not-run state.
-- [ ] Enable Brief-aware execution only with this no-change path and its normal
-      assessment path covered; do not relabel skipped assessment as reports-only.
+Require all five Tasks and RCI-001/002/003/006/007, including production wiring,
+source/evidence restrictions, old/new compatibility, exact-binary/client proof
+and the bounded live assessment. Zero findings or a model's `met` verdict
+cannot substitute for verification. Keep all requirement checkboxes unchecked
+until their behavior is verified.
 
-**Do not**
+The documentation-only revision moves the adopted work to Planned. It does not
+start Task execution or accept the completed Epic. The next implementation
+session begins at TASK-026 under `aquarium:epic-handler`, using the canonical
+roadmap and this revised dossier, and obtains the implementation/review envelope.
 
-- [ ] Derive met from zero findings, create findings from unmet verdicts, add a
-      third model call, or turn textual agreement into test-execution proof.
-
-**Verify and complete**
-
-- [ ] Cover all four assessment states, missing and malformed sections, unsupported
-      source references, absence claims, and contradictory self-attestation.
-- [ ] Preserve valid ordinary findings on assessment-only failure and valid prose
-      on ordinary extraction failure; retain protected failure precedence.
-- [ ] Assert unchanged CI/severity exits and bounded invocation counts. Keep
-      legacy no-change fixtures readable and new Brief-aware support versioned.
-      Cover skipped assessment with zero calls, no fabricated provider fields,
-      valid workspace evaluation, and ordinary/protected failure behavior.
-- [ ] Run validation/publication/prompt regressions plus applicable integration
-      tests, including the existing no-change service and publication tests.
-- [ ] Complete when immutable assessment artifacts and provenance survive
-      restart, corruption checks, and source-file changes.
-
-## TASK-029: Expose assessment inspection and reports
-
-**Implement**
-
-- [ ] Extend EPIC-007 inspection and content resources with bounded requirements
-      pages, owner/verdict/rationale, coverage, limitations, and evidence reads.
-- [ ] Show unmet and unverified obligations prominently in rendered reports,
-      independently of finding severity and command exit. Expose no-change
-      evaluation-not-run state, selected/evaluated counts, and `no_change_target`
-      without interpreting `structured`/`no_findings` as evaluated requirements.
-      Give an explicit workspace/preflight hint, never automatic execution.
-- [ ] Extend artifact query, cleanup, and export allowlists intentionally; keep
-      local bindings and unrequested private source out of portable exports.
-- [ ] Report historical unsupported assessments explicitly, not as empty success.
-
-**Do not**
-
-- [ ] Reassess with a provider during a read, rewrite old artifacts, or interpret
-      a requirements verdict as organizational approval.
-
-**Verify and complete**
-
-- [ ] Cover complete, partial, reports-only, missing-owner, old-artifact, large-page,
-      and changed-receipt cases through both transports and exact-binary fixtures.
-      Verify Brief-aware no-change results after restart and reference-file edits,
-      with/without requirements; contrast legacy assessment-capability absence.
-- [ ] Reassemble supported content losslessly and fail closed on evidence tamper.
-- [ ] Complete when a user can inspect every requirement and its limitations
-      using public reads without parsing private runtime artifacts.
-
-## TASK-030: Admit and plan a single-capture finding batch
-
-**Implement**
-
-- [ ] Admit one exact source run and 1 to 32 unique explicit finding IDs, checking
-      supported source type, immutable receipt, and evidence capability.
-- [ ] Capture the selected new target once and create deterministic role/route
-      groups from that same capture, using current admitted model/effort policy.
-- [ ] Require source role/provider/profile consistency; expose route differences
-      as admission errors rather than silently selecting replacement providers.
-- [ ] Add provider-free CLI/MCP batch preflight with selection, source receipts,
-      complete evaluated-current-capture identity, request guard, role groups,
-      invocation ceilings, and deadline. Do not substitute the batch request
-      digest for current-capture identity.
-
-**Do not**
-
-- [ ] Execute providers, select latest, reconstruct missing legacy composite
-      evidence, or require a Review Brief for this workflow.
-
-**Verify and complete**
-
-- [ ] Cover unique/duplicate/unknown IDs, size bounds, all admitted run types,
-      historical missing evidence, source corruption/change, route/profile drift,
-      target drift, and correct grouping with at most seven role groups.
-- [ ] Use spies to prove one capture and zero invocations in preflight. Prove
-      selection and source receipts are bound into the native request identity.
-      Hold patch bytes fixed while changing a support file or context; require
-      different current-capture identity and native rejection of the stale guard.
-- [ ] Complete the source/planning tests and applicable unit/integration gates;
-      leave batch start unadvertised until TASK-031 implements it.
-
-## TASK-031: Execute and publish bounded batch followups
-
-**Implement**
-
-- [ ] Reuse coordinator lanes and child execution for the planned groups; each
-      group gets at most its existing initial-plus-one-secondary budget.
-- [ ] Validate per-finding source mapping, resolution, current evidence, and new
-      findings; normalize unanswered items without inventing provider verdicts.
-- [ ] Persist evaluated-current-capture identity and canonical verification
-      support, distinct from source identity, request digest, and model policy.
-      Verify its equality to the admitted capture when publishing and reading.
-- [ ] Publish one batch run and final only after every required group supplies
-      an accepted primary report. Keep reports-only item results explicit.
-- [ ] Preserve exact failed-run identity and diagnostics on a required-group or
-      protected failure; do not publish partial success as authoritative completion.
-- [ ] Wire guarded CLI execution and MCP `start_followup_batch` to the existing
-      invocation registry, `await_review`, and `cancel_review`.
-
-**Do not**
-
-- [ ] Retry per finding, create an automatic batch-recovery scheduler, mutate the
-      parent review, or let observer cancellation kill server-owned execution.
-
-**Verify and complete**
-
-- [ ] Cover single/multiple items, mixed roles, one shared target, malformed group
-      output, omitted results, group failure, reports-only success, cancellation,
-      lost start response, disconnect, and publication interruption.
-- [ ] Assert maximum calls, exact route/provenance, unmodified parent artifacts,
-      one final at most, safe read/cleanup/export behavior, and old followup parity.
-      Prove current-capture support survives restart and live-tree changes;
-      missing historical identity is unavailable, corrupted bound support is an error.
-- [ ] Run focused plus applicable unit/integration/release checks. Complete with
-      terminal run reconciliation, never blind restart after uncertain delivery.
-
-## TASK-032: Add provider-free run and requirements comparison
-
-**Implement**
-
-- [ ] Add one application use case reading exact before/after receipts and up to
-      32 unique explicit followup receipts, without working-tree content or provider
-      dependencies. Canonically order the selected set and reject duplicates.
-- [ ] Bind the initial page and every continuation to the project, before/after,
-      complete followup set and each publication/support receipt, filters, and
-      contract versions. Revalidate every selected receipt on every page, including
-      evidence for other pages or semantically ineligible claims.
-- [ ] Implement conservative unique observation matching and scope/coverage
-      checks. Preserve newly observed versus newly introduced distinctions.
-- [ ] Require exact source-finding binding and equal complete evaluated-current
-      and after capture identities for resolution. Compare different before/after
-      captures normally; never require equal request digests across workflows.
-- [ ] Implement the specification's order-independent conflict table. Conflicting
-      conclusive followups yield `unverified`/`followup_resolution_conflict`;
-      conflict with an after observation yields `followup_observation_conflict`.
-      Preserve all claims, observation evidence, and both reasons when applicable.
-- [ ] Keep `unclear`/missing answers distinct from negative verdicts. Surface
-      ineligible-target and historical-identity reasons; unreadable or corrupted
-      selected publications fail the whole page rather than shrinking the set.
-- [ ] Compare requirements only under matching Brief identity and requirement
-      IDs. Expose changed-contract and unavailable states explicitly.
-- [ ] Wire paginated CLI `compare` and MCP `compare_reviews` using shared query
-      and cursor contracts, without persisting a second review authority.
-
-**Do not**
-
-- [ ] Treat not-observed as resolved, match by run-local F-number or patch hash
-      alone, use model consensus/latest time/input order, merge fuzzy duplicates,
-      drop a selected followup during paging, or carry met across changed Briefs.
-
-**Verify and complete**
-
-- [ ] Cover one-to-one/duplicate/changed-title matches, differing roles and scope,
-      narrow delta, reports-only after results, missing evidence, foreign roots,
-      wrong-target followups, conflicts, changed Briefs, and corrupted receipts.
-- [ ] Hold patch bytes fixed and vary support file content/path, binary content,
-      logical side, or context between followup and after; reject resolution
-      transfer. Identical captures with different objectives/roles remain eligible.
-- [ ] Keep before/after fixed and delete, replace, corrupt, or change only a
-      selected followup between pages, including one used on a later page.
-      Require a typed page failure; changed selection fails and permutations agree.
-- [ ] Cover resolved/still-open, resolved/partial, partial/still-open, identical
-      conclusive claims, resolved/unclear, reports-only items, simultaneous conflict
-      types, and different-target ineligibility. Permute inputs and timestamps;
-      preserve all provenance without confidence inflation or winner selection.
-- [ ] Prove no provider, mutation, or hidden live-tree content read, and no mixed
-      receipt pages under concurrent cleanup. Run query and transport regressions.
-- [ ] Complete with every result attributable to the two exact selected reviews
-      and optional explicitly selected resolution evidence.
-
-## TASK-033: Certify the complete bounded review iteration
-
-**Implement**
-
-- [ ] Build an isolated end-to-end fixture: Brief and initial review, missing
-      requirement plus findings, a code change, selected batch followup, and
-      provider-free comparison with explicit residual uncertainty.
-- [ ] Add immutable consumer fixtures independent from producer regeneration;
-      cover old ordinary/single-followup/composite artifacts and new contracts.
-- [ ] Update public README, embedded help/examples, `skills/use-mulgae`, canonical
-      specifications, architecture, security, and operator guidance.
-- [ ] Verify requirement checkboxes from behavior, not model self-report or
-      completed code scaffolding. Add deterministic integrated regressions for
-      no-change unverified publication/reads, equal-patch unequal-capture rejection,
-      followup-only continuation drift, and order-independent conflicting claims.
-
-**Do not**
-
-- [ ] Add automatic remediation, force unrelated repositories to adopt the APIs,
-      require zero findings for acceptance, or repeat reviews until a clean result.
-
-**Verify and complete**
-
-- [ ] Run the complete `make test` gate. Preserve mandatory ZCode/Grok and opt-in
-      Codex rules; use deterministic fixtures for exhaustive failure scenarios.
-- [ ] Perform one explicitly authorized isolated exact-binary live Brief/recheck
-      workflow through already configured routes, where deterministic tests cannot
-      establish provider handling. Record exact requested and actually observed
-      structured coverage; a missing assessment is not a passing demonstration.
-- [ ] Limit that added live workflow to its initial review and one batch recheck,
-      under existing per-group invocation bounds. A failed check is a reported
-      blocker/remediation item, not permission for an unbounded retry campaign.
-- [ ] Verify actual supported-client batch start/await behavior, distinguish
-      registration checks from execution, and record unavailable evidence.
-- [ ] Run `git diff --check`, inspect the complete diff and status, and report
-      candidate identity, passes, skips, and blockers without unauthorized release.
-
-## Epic acceptance and dossier retirement
-
-Require RCI-001 through RCI-007, TASK-026 through TASK-033, legacy compatibility,
-negative matrices, exact-binary/client evidence, bounded live evidence, and the
-complete repository gate. The four feedback boundaries must pass through real
-application/transport fixtures, not prose checks: no-change assessment, full
-capture equality, all-followup receipt paging, and conflicting claims. Exhaustive
-cases remain deterministic and do not add live retries. This is explicit
-integrated acceptance, not automatic acceptance when all child statuses change.
-
-Before closeout, promote implementation outcomes to canonical owners and update
-cross-references. Remove this dossier and its TODO entry, replace Detailed SOT
-with Canonical Outcomes in the roadmap, remove the specification's dossier link,
-and then record Epic acceptance. Keep unresolved independent future ideas out
-of acceptance. Stop when the agreed criteria are satisfied.
+Before eventual Epic closeout, promote durable outcomes to their canonical
+owners, replace this Epic's Detailed SOT with Canonical Outcomes, remove this
+dossier and its TODO index entry, repair links and obtain explicit Epic
+acceptance. Retain the independent deferred Task records in the roadmap;
+they are not dossier consumers or current completion blockers.

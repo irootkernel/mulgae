@@ -396,60 +396,60 @@ reused unchanged and gain no evidence through an implicit upgrade.
 
 ## Adopted extension security requirements
 
-The following requirements record the frozen pre-cutover
-[verified review contracts](verified-review-contracts.md) and deferred
-[review completeness and iteration](review-completeness-and-iteration.md).
 Current execution follows [live workspace and Git review](live-workspace-and-git-review.md).
-Capture, Brief, batch-followup and comparison requirements need redesign after
-EPIC-009 acceptance; they do not authorize retired execution.
+[Verified review contracts](verified-review-contracts.md) retains historical
+capture/guard and composite-support obligations. The reduced
+[EPIC-008 design](review-completeness-and-iteration.md) plans optional requirements
+assessment and adds no current runtime capability.
 
-- Native binding must distinguish equal-content worktrees using independently
-  established local identity. A server's own response is not its own proof of
-  matching the requested root. Revalidate the anchored root and keep absolute
-  paths and credentials out of public receipts and portable exports.
-- Guard comparison must precede qualification and every provider transmission.
-  Compare and execute the same admitted immutable capture/plan; preserve existing
-  spawn-time isolation checks. A matching guard does not authorize duplicate
-  starts or authenticate a malicious host.
-- Keep complete capture identity separate from the existing patch digest and
-  request identity. Bind target kinds/sides, all file paths and exact digests,
-  capture policy, and support context to retained verification material. Missing
-  historical support is unavailable, not permission to compare patches alone;
-  damaged bound support remains an integrity error.
-- Verified inspection and continuations must remain bound to exact publication
-  identities and fail on corruption, replacement, or cleanup. New reads cannot
-  write reports, repair old artifacts, or invoke a provider. Per-page limits
-  cannot become source, prompt, or report-content ceilings.
-- New composite evidence must be hash-bound and self-contained. Historical
-  evidence absence cannot authorize a read of current files or an implicit
-  upgrade. Export redaction remains separate from local evidence-read access.
-- Review Briefs and criteria are untrusted data. Validate Unicode, duplicate IDs,
-  role ownership, paths, exclusions, and captured-side references. Explicit file
-  selection does not bypass ignore or control-path restrictions. No test,
-  command, network fetch, or provider permission follows from Brief prose.
-- Assessment and batch output cannot assign trusted identity, manufacture
-  verification, or promote missing evidence to success. Keep malformed optional
-  assessment sections isolated from valid ordinary findings, while protected
-  failures retain their current publication-denial precedence.
-- Empty Git diffs with a Brief must still validate inputs and guards, then retain
-  zero provider calls and explicit unverified/no_change_target results. Persist
-  the exact Brief and selected requirements without fabricated attempts/reports.
-  Never silently select workspace, rewrite references, or infer met from no findings.
-- Batch execution reuses one target and existing invocation ceilings; observer
-  cancellation stays separate from execution cancellation. No per-finding retry
-  loop, provider substitution, implicit recovery, or parent-artifact mutation.
-- Comparison verifies exact source-finding binding and full evaluated-current/
-  after capture equality before transferring a followup resolution. Before and
-  after may differ; distinct review objectives do not require distinct captures.
-- Bind every comparison continuation to before/after and the complete selected
-  followup ID/receipt set, filters, and contract versions. Revalidate all of it on
-  every page; deletion, replacement, or corruption fails the page rather than
-  silently dropping evidence or returning a semantic unverified row.
-- Preserve conflicting intact followup verdicts and after observations under
-  stable unverified conflict reasons. Do not settle them by ordering, recency,
-  provider preference, or votes; distinguish inconclusive claims from negative
-  verdicts. Non-observation, changed requirements, absent extraction, and
-  ambiguous correspondence cannot silently become resolved or met.
+- Keep independent project binding and anchored-root revalidation before
+  qualification or provider transmission. Local identity is not a content
+  fingerprint or authentication against a malicious host.
+- Admit requirements through the existing secure project-relative regular-file
+  boundary. Validate strict JSON, Unicode, duplicate IDs, selected-role ownership
+  and protected/ignore policies before qualification or no-change publication.
+  Requirements remain untrusted data and grant no tool, test, network or
+  filesystem permissions.
+- Retain exact admitted input bytes and their digest as invocation data.
+  Read that file from the admitted local project filesystem; it need not exist
+  in the reviewed commit. Prompts/publication reuse the admitted bytes without
+  reopening the file. Quoted code or paths in requirements are not implementation
+  evidence and grant no different source side.
+  Keep original-source target sides and evidence verification; create no source
+  snapshot, full inventory, captured-reference archive or mutable-content guard.
+  Workspace/index consistency remains caller-maintained.
+- Providers cannot assign trusted requirement identity, owner, verification,
+  coverage or publication state. Missing answers/evidence are unverified.
+  Keep ordinary findings and optional assessment validation independent while
+  preserving protected failure precedence and current provider-call ceilings.
+- Requirements cannot enable extraction, rewrite policy or add an invocation
+  after retry/repair consumed the shared allowance. A valid initial structured
+  answer remains eligible with extraction disabled; unavailable extraction
+  produces explicit unverified reasons. Whole-response parse failure cannot
+  establish independently validated sections or zero findings.
+- Every existing admitted no-change target, including empty-tree HEAD, retains
+  zero provider calls and explicit evaluation-not-run plus
+  unverified/no_change_target results. Persist input/assignments/results
+  without fabricated attempts, reports or provider claims. Never select workspace
+  automatically or infer satisfaction from zero findings.
+- Bind new support and every result page to verified publication authority.
+  Damaged bound support fails integrity checks; intact historical capability
+  absence is explicit unavailability. Reads cannot invoke providers, rewrite
+  results or reconstruct evidence from current source.
+- Admit public requirements-bearing execution only with verified CLI/MCP reads
+  in TASK-029. Keep provider assessments, Mulgae-derived placeholders and unknown
+  historical counts distinct; assessment success grants no finding coverage or
+  final acceptance authority.
+- Preserve historical capture and self-contained composite integrity under their
+  original contracts, including unavailable versus corrupt support. New assessment
+  support does not restore retired producers or implicitly upgrade old results.
+- Keep native paths, credentials, raw requirements and private evidence out of
+  unrequested public diagnostics and portable exports. Response bounds must not
+  become source, prompt, requirement-prose or provider-report byte ceilings.
+
+Batch execution, cross-run comparison, resolution transfer and conflict
+reduction are outside this Epic. Requirements assessment grants no issue
+disposition, CI-policy change, remediation or final acceptance authority.
 
 ## Reporting vulnerabilities
 

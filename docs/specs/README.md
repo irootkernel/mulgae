@@ -15,15 +15,16 @@ behavior and durable product contracts.
 - [Verified review contracts](verified-review-contracts.md) defines native
   project/preflight guards and coherent, bounded result inspection for EPIC-007.
 - [Review completeness and iteration](review-completeness-and-iteration.md)
-  defines immutable Briefs, requirements assessment, selected-finding batch
-  followup, and provider-free comparison preserved for EPIC-008 redesign.
+  defines optional requirements input, role-owned assessments and verified
+  results for the reduced EPIC-008 scope. Batch rechecks and cross-run comparison
+  are excluded.
 - [Live workspace and Git review](live-workspace-and-git-review.md) defines
   snapshot-free targets, neutral reviewer execution, and historical compatibility
   for EPIC-009.
 
 Checked requirements in the EPIC-007 and EPIC-009 specifications denote verified
-behavior and compatibility. EPIC-008 remains under a redesign hold; its unchecked
-requirements do not claim implemented behavior.
+behavior and compatibility. EPIC-008's reduced design is approved and Planned;
+its unchecked requirements do not claim implemented behavior.
 The [roadmap](../roadmap/README.md) alone owns Task/Epic lifecycle and execution
 order.
 

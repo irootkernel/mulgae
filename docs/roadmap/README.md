@@ -27,7 +27,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 | [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
-| [EPIC-008](#epic-008-review-completeness-and-iteration) | Deferred | Redesign requirements assessment, selected-finding rechecks, and comparison after the live-review model is accepted. |
+| [EPIC-008](#epic-008-review-completeness-and-iteration) | Planned | Add optional explicit requirements assessment to one ordinary review and expose its results through existing verified reads. |
 | [EPIC-009](#epic-009-live-workspace-and-git-review) | Completed | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
 | [EPIC-010](#epic-010-cursor-acp-review-provider) | Completed | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
@@ -39,10 +39,11 @@ not complete an epic without explicit epic acceptance.
 
 EPIC-007, EPIC-009, EPIC-010 and EPIC-011 are complete.
 EPIC-010 and EPIC-011 both depend on completed EPIC-009 and do not depend on
-each other. EPIC-008 and TASK-026 through TASK-033 remain Deferred until their
-capture-dependent contracts are redesigned and reapproved. Preserve their
-identities; this hold does not reopen
-EPIC-007 or block EPIC-010 or EPIC-011.
+each other. Master approved EPIC-008's reduced requirements-assessment scope on
+2026-10-27. Its five Planned Tasks execute as TASK-026, TASK-027, TASK-028,
+TASK-029 and TASK-033. TASK-030 through TASK-032 remain separate Deferred records
+outside current membership and acceptance. This revision starts no implementation
+and does not reopen EPIC-007 or block another Epic.
 
 EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-22.
@@ -54,7 +55,7 @@ TASK-068 and TASK-069 as follow-ups for AGY and Grok CLI compatibility
 failures found during the deferred live certification. Both Tasks are complete,
 and Master accepted the follow-up scope after integrated verification. The
 original acceptance and completed Tasks remain recorded. Its prerequisite, explicit
-acceptance of EPIC-013, was satisfied; it does not depend on Deferred EPIC-008. Under
+acceptance of EPIC-013, was satisfied; it does not depend on EPIC-008. Under
 Master's quota-preservation decision, development and Epic acceptance of
 EPIC-014 used the
 deterministic gates (`make test-prepare`, `make test-unit`, `make test-int`,
@@ -75,7 +76,8 @@ goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
 EPIC-011 have no EPIC-008 dependency. Deferred TASK-004 is not a prerequisite
 and remains unchanged.
 
-Task/Epic status changes require implementation and evidence. The specs'
+Planned records an approved work definition; active and completed Task/Epic
+states require implementation and evidence. The specs'
 requirement checkboxes track verified requirements only and do not create a
 second status authority. Completion does not authorize configuration,
 credential, installation, or release changes.
@@ -365,8 +367,10 @@ advisory role or introducing another orchestrator.
 Capture identity is a complete target-and-support contract, distinct from the
 existing patch-only target digest, request identity, and publication receipt.
 TASK-019 defines it, TASK-021 publishes its verification support, TASK-022 exposes
-it, and TASK-024 preserves composite source provenance. EPIC-008 consumes this
-completed capability; it does not supply a missing identity implementation.
+it, and TASK-024 preserves composite source provenance. Historical readers retain
+this completed capability. The reduced EPIC-008 scope uses original-source review
+without restoring capture identity or extending it into cross-run resolution
+authority.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
@@ -409,49 +413,59 @@ completed capability; it does not supply a missing identity implementation.
 
 ## EPIC-008: Review completeness and iteration
 
-Status: Deferred
+Status: Planned
 
-Resume only after explicit EPIC-009 acceptance and a separately approved redesign
-of the capture-dependent Brief, replay, and comparison contracts. TASK-026 through
-TASK-033 share this hold. The preserved design below records the earlier plan;
-it must not authorize implementation against the retired capture model.
-Completed EPIC-007 remains accepted.
+Master approved the reduced requirements-assessment scope on 2026-10-27.
+This replaces the earlier capture-dependent redesign hold. Implementation has
+not started; the current revision changes planning documents only.
+
+Depends on: completed and accepted EPIC-007 and EPIC-009.
 
 Detailed SOT: [EPIC-008 development dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
 
-Required Outcomes: [review completeness and iteration](../specs/review-completeness-and-iteration.md)
-and the [accepted two-Epic design](../architecture-decision-records/verified-review-iteration.md).
-These are adopted requirements, not implemented runtime claims.
+Required Outcomes: [requirements assessment](../specs/review-completeness-and-iteration.md)
+and the [revised design decision](../architecture-decision-records/verified-review-iteration.md#reduced-epic-008-scope).
 
-Goal: connect explicit Review Briefs and requirement assessments to bounded
-selected-finding rechecks and exact, provider-free comparisons. Keep ordinary
-review and batch followup independent of requirements input. Do not move Epic
-approval, remediation orchestration, or issue-tracker ownership into Mulgae.
+Goal: add optional explicit requirements to one ordinary review, retain one
+assessment per selected item, and expose it through existing verified reads.
+Preserve objective-only review and keep test execution, remediation and final
+acceptance with Aquarium and the operator.
 
-### Review boundary decisions
-
-| Boundary | Adopted rule | Owning Tasks |
-|---|---|---|
-| Empty Git diff with a Brief | Keep provider-free no-change behavior; persist each requirement as unverified/no_change_target and expose evaluation not run. Workspace assessment needs an explicit new target/preflight. | TASK-026 through TASK-029 |
-| Resolution transfer | Require equal complete evaluated-current and after capture identities, not equal patch hashes or equal request digests. | TASK-026, TASK-030 through TASK-032; consumes EPIC-007 |
-| Comparison continuation | Bind and revalidate before, after, the complete selected followup set and every receipt, filters, and versions on each page. Read damage fails the page. | TASK-026, TASK-032 |
-| Followup conflict | Preserve all eligible claims and observation evidence; conflicting conclusive claims produce unverified with stable reasons, without ordering, time, or majority selection. | TASK-026, TASK-032 |
-
-TASK-033 verifies all four boundaries with deterministic integrated fixtures;
-these clarifications do not add Epics, Tasks, or extra live retry campaigns.
+Exclude batch rechecks, cross-run comparison, resolution transfer, conflict
+reduction, full Review Briefs, change/completion modes, referenced-document
+capture, requirements-driven CI exits and automatic review loops. Source
+snapshots, copied checkouts, replay archives and capture-bound guards remain
+retired. The requirement file is invocation input, not a source snapshot.
 
 ### Tasks
 
+The five member Tasks run in this order; each depends on its predecessor.
+
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-026 | Deferred | Freeze Brief, no-change assessment, batch-run, full receipt-set comparison, conflict rules, and historical support contracts. | Assigned IDs, skipped/nullable outcomes, complete capture versus request identity, receipt permutations, conclusive versus inconclusive claims, legacy fixtures, and generators. |
-| TASK-027 | Deferred | Capture strict JSON Briefs and references; expose preflight/internal guarded admission with explicit no-change evaluation-not-run state. Enable Brief execution only with TASK-028. | Empty stage/dirty/diff in both modes with/without requirements, invalid input before no-change dispatch, exact current-side references, zero provider calls, no workspace substitution, Unicode, exclusions, and guards. |
-| TASK-028 | Deferred | Validate and publish owned assessments and Brief provenance; enable Brief execution with provider-free no-change unverified results. | Every selected requirement retained with no_change_target, zero attempts/reports, all verdicts, support integrity, legacy no-change readers/exits, reports-only/protected failures, and call ceilings. |
-| TASK-029 | Deferred | Expose requirement pages, evidence, coverage, unmet/unverified and no-change evaluation-not-run reporting through verified reads. | No-change counts and reasons after restart, explicit workspace hint without execution, historical absence, transport parity, paging/tamper, export/cleanup, and exact-binary fixtures. |
-| TASK-030 | Deferred | Admit source findings, capture one new target, and produce provider-free batch preflight with complete current-capture identity and request guards. | Selection/source capability checks, same-patch support/context drift, route/profile mismatch, one capture, zero provider calls, grouping, and budgets. |
-| TASK-031 | Deferred | Publish one bounded followup_batch with verified current-capture support; expose guarded CLI/MCP start with existing await/cancel. | Per-item outcomes, missing/malformed groups, call ceilings, source/current identity separation, support persistence/tamper, parent immutability, uncertain starts, cancellation, and recovery. |
-| TASK-032 | Deferred | Add provider-free exact-run comparison with full-capture resolution eligibility, complete receipt-set paging, deterministic conflicts, and Brief-bound requirements. | Equal-patch unequal-support rejection, same-capture different-request eligibility, followup-only deletion/replacement/corruption between pages, selection permutations, conclusive/inconclusive conflicts, historical absence, and no provider/write/live-tree content access. |
-| TASK-033 | Deferred | Certify initial assessment, one batch recheck, comparison, and the four reviewed boundary rules; finalize guidance and acceptance evidence. | Deterministic no-change/capture/receipt/conflict regressions and compatibility, exact binary/clients, bounded authorized live workflow, complete `make test`, and docs/diff checks. |
+| TASK-026 | Planned | Freeze optional requirements input, assigned-ID assessments, count/origin/availability, extraction-policy outcomes, independent section failures and no-change/historical contracts. | Strict input/ownership, local-input/source-evidence separation, valid provider versus placeholder counts, disabled/consumed extraction allowance, whole-response/protected failures, empty-tree HEAD, schema examples/semantics and unchanged budgets/exits. |
+| TASK-027 | Planned | Admit a local requirements file alongside the existing objective and expose provider-free CLI/MCP preflight; keep public requirements-bearing execution unavailable until TASK-029. | Safe input paths/Unicode/IDs/owners, untracked local input with staged/committed evidence, known disabled-extraction disclosure, invalid input on all no-change targets, zero provider calls and no target substitution. |
+| TASK-028 | Planned | Implement internal execution, validation and publication of role-owned assessments and exact input provenance; public activation remains with TASK-029. | Four verdicts, direct structured output with extraction disabled, consumed allowance, independent section outcomes, counts/origin, whole-response/protected failures, all no-change cases, integrity and restart. |
+| TASK-029 | Planned | Expose assessments through verified CLI/MCP reads and enable public requirements-bearing execution/capability together. | Count/origin/availability parity, historical unknown counts, severity-filter independence, pre-activation rejection, paging/tamper, restart, export/cleanup privacy and exact-binary consumer fixtures. |
+| TASK-033 | Planned | Certify the integrated requirements-assessment feature and prepare explicit Epic acceptance. | Deterministic failure/compatibility matrix, exact binary/clients, one bounded authorized live requirements review, complete current Make gate, documentation and diff checks. |
+
+TASK-027 exposes admission/preflight, TASK-028 exercises internal execution,
+and TASK-029 alone activates public requirements-bearing execution with verified
+reads and the existing capability mechanism. Objective-only execution stays
+available throughout; no general feature-flag system is introduced.
+
+### Deferred work outside current membership
+
+These records preserve the original IDs and purposes. They are not current
+member Tasks, predecessors, acceptance criteria or consumers of this dossier.
+All three remain Deferred pending demonstrated need and a separately approved
+original-source design. No replacement Epic or implementation is adopted here.
+
+| Task | Status | Original purpose | Re-entry condition |
+|---|---|---|---|
+| TASK-030 | Deferred | Admit source findings and plan a bounded selected-finding batch. | Repeated operator workflows establish value beyond ordinary review; approve a new original-source admission design. |
+| TASK-031 | Deferred | Execute and publish bounded batch rechecks. | Adopt the batch scope and its lifecycle/call-budget contracts, including TASK-030's admission prerequisite. |
+| TASK-032 | Deferred | Compare exact reviews and explicitly selected resolution evidence without a provider call. | Demonstrate a consumer need and approve honest comparability/resolution semantics without immutable live-source claims. |
 
 ### Requirement ownership
 
@@ -459,32 +473,36 @@ these clarifications do not add Epics, Tasks, or extra live retry campaigns.
 |---|---|
 | RCI-001 | TASK-026, TASK-027 |
 | RCI-002, RCI-003 | TASK-028, TASK-029 |
-| RCI-004 | TASK-030, TASK-031 |
-| RCI-005 | TASK-032 |
-| RCI-006, RCI-007 | TASK-026 through TASK-033, integrated in TASK-033 |
+| RCI-006, RCI-007 | TASK-026, TASK-027, TASK-028, TASK-029, integrated in TASK-033 |
+
+RCI-004 (batch rechecks) and RCI-005 (comparison) are excluded and reserved;
+their IDs are not reused. Their earlier scope and rationale remain in the
+[historical design](../architecture-decision-records/verified-review-iteration.md).
 
 ### Epic acceptance
 
-- [ ] All RCI requirements and eight Tasks have supported behavior and legacy
-      compatibility evidence, not only schema or model self-attestation.
-- [ ] Requirements are explicit, immutable, individually owned, and assessed
-      without equating zero findings, met, and approval. Empty Git diffs preserve
-      zero provider calls and publish no_change_target/unverified for every
-      selected requirement, with evaluation-not-run state visible after restart.
-- [ ] A selected batch uses one new target, bounded existing role execution,
-      per-finding outcomes, and no automatic per-finding retry or recovery loop.
-- [ ] Comparison distinguishes observation from resolution, requires equal full
-      current/after captures, and never transfers met across changed Briefs.
-- [ ] Every comparison page revalidates the complete selected followup receipt
-      set. Read damage fails the page; conflicting intact claims preserve their
-      evidence with stable unverified reasons, independent of input order or time.
-- [ ] The exact candidate passes the complete gate, supported-client checks,
-      and the bounded authorized live demonstration specified in the dossier.
-      A failed demonstration is a blocker, not an unlimited retry instruction.
-- [ ] Promote durable outcomes, remove the dossier and TODO entry, repair links,
-      replace Detailed SOT with Canonical Outcomes, and explicitly accept the
-      Epic. No autonomous remediation, provider migration, or other-repository
-      implementation is required for closeout.
+- [ ] All five member Tasks and RCI-001/002/003/006/007 have production behavior,
+      evidence and historical compatibility checks.
+- [ ] Optional requirements coexist with the objective; each selected item has
+      one owned assessment or an explicit unverified result, with evidence and
+      limitations. Zero findings does not imply requirement satisfaction.
+- [ ] Every existing admitted no-change target, including empty-tree HEAD,
+      retains zero provider calls, zero attempts/reports and zero evaluated count,
+      with persistent evaluation-not-run plus unverified/no_change_target results.
+- [ ] Verified CLI/MCP reads preserve input/result integrity, restart behavior,
+      bounded paging, privacy and explicit historical capability absence.
+      Counts distinguish valid provider answers from Mulgae-derived placeholders;
+      severity filters do not hide assessments. Public activation occurs only
+      with verified reads in TASK-029. Ordinary review, source selection,
+      extraction policy, role budgets and exits remain compatible.
+- [ ] The exact candidate passes the current complete Make gate, exact-binary
+      and supported-client checks and one explicitly authorized bounded live
+      requirements review with admitted provider assessments; placeholders alone
+      are not structured coverage. No batch/comparison demonstration is required.
+- [ ] Promote durable outcomes, remove the dossier and its TODO entry, repair
+      links, replace Detailed SOT with Canonical Outcomes and obtain explicit
+      Epic acceptance. Deferred TASK-030 through TASK-032 remain independent
+      records and do not block this closeout.
 
 ## EPIC-009: Live workspace and Git review
 
