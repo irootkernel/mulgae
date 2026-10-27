@@ -68,6 +68,11 @@ func DecodeRequirementsSupport(ctx context.Context, validator SchemaValidator, r
 	if err := validator.Validate(ctx, id, raw); err != nil {
 		return domain.RequirementEvaluation{}, nil, err
 	}
+	return decodeRequirementsSupport(raw, input, requirements, noChange)
+}
+
+func decodeRequirementsSupport(raw, input []byte, requirements []domain.Requirement, noChange bool) (domain.RequirementEvaluation, []RequirementContentReference, error) {
+	var err error
 	var support requirementsSupportWire
 	if err := json.Unmarshal(raw, &support); err != nil || support.SchemaVersion != RequirementsSupportVersion || support.InputPath != RequirementsInputPath || support.InputByteLength != int64(len(input)) || support.InputSHA256 != sha256Identifier(input) || len(support.Items) != len(requirements) {
 		return domain.RequirementEvaluation{}, nil, fmt.Errorf("requirements support: input or selected-set mismatch")

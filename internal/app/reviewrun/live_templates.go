@@ -41,3 +41,13 @@ func readLivePromptAsset(ctx context.Context, catalog ports.ContractCatalog, sou
 	}
 	return raw, nil
 }
+
+// LoadRequirementsPrompt loads the internal assessment contract. Public
+// requirements execution remains guarded until verified reads are activated.
+func LoadRequirementsPrompt(ctx context.Context, catalog ports.ContractCatalog) (prompt.TrustedLayer, error) {
+	raw, err := readLivePromptAsset(ctx, catalog, "prompts/live-review/requirements.v1.txt")
+	if err != nil {
+		return prompt.TrustedLayer{}, err
+	}
+	return prompt.NewTrustedLayer("builtin:review/requirements", "1", []byte(strings.TrimRight(string(raw), "\n")))
+}

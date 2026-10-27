@@ -465,7 +465,7 @@ func (store *PublicationStore) PersistAuxiliaryArtifact(ctx context.Context, req
 
 func authorizedUnscannedRunSupportKind(kind ports.RunSupportArtifactKind) bool {
 	switch kind {
-	case ports.RunSupportArtifactRecoveryBlob, ports.RunSupportArtifactRecoveryManifest, ports.RunSupportArtifactExcerpt,
+	case ports.RunSupportArtifactRequirementsInput, ports.RunSupportArtifactRequirementsContent, ports.RunSupportArtifactRecoveryBlob, ports.RunSupportArtifactRecoveryManifest, ports.RunSupportArtifactExcerpt,
 		ports.RunSupportArtifactTargetBytes,
 		ports.RunSupportArtifactTargetManifest,
 		ports.RunSupportArtifactCapturedArchive,
@@ -2851,11 +2851,11 @@ func (store *PublicationStore) validatePublicationSchema(
 		finalFamily := schema == store.finalSchema || schema == store.compositeFinalSchema
 		selected := ""
 		switch envelope.SchemaVersion {
-		case artifactwire.RunManifestV2, artifactwire.RunManifestV3, artifactwire.CompositeRunManifestV2:
+		case artifactwire.RunManifestV2, artifactwire.RunManifestV3, artifactwire.RunManifestV4, artifactwire.CompositeRunManifestV2:
 			if manifestFamily {
 				selected = envelope.SchemaVersion
 			}
-		case artifactwire.ReviewArtifactV2, artifactwire.ReviewArtifactV3, artifactwire.CompositeReviewArtifactV2:
+		case artifactwire.ReviewArtifactV2, artifactwire.ReviewArtifactV3, artifactwire.ReviewArtifactV4, artifactwire.CompositeReviewArtifactV2:
 			if finalFamily {
 				selected = envelope.SchemaVersion
 			}

@@ -1798,7 +1798,7 @@ func (execution *coordinatorExecution) scheduleExtraction(
 	if decision.TerminalProjection() != TerminalProjectionSucceeded {
 		return nil, false, nil
 	}
-	if job.Purpose() != domain.InvocationInitial || attempt.extractUsed || !output.ReportsOnly() {
+	if job.Purpose() != domain.InvocationInitial || attempt.extractUsed || (!output.ReportsOnly() && !output.assessmentPending) {
 		return nil, false, nil
 	}
 	if len(attempt.attempt.Invocations()) != 1 {

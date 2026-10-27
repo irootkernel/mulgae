@@ -20,6 +20,8 @@ import (
 )
 
 type LiveRequest struct {
+	RequirementsPath       string
+	HasRequirements        bool
 	ProjectRoot            ports.AnchoredRoot
 	ArtifactRoot           ports.AnchoredRoot
 	Target                 ports.LiveSourceSelector
@@ -44,21 +46,22 @@ type LivePublicationCommitter interface {
 }
 
 type LiveDependencies struct {
-	Sources         ports.LiveSourceOpener
-	ReviewerHome    ports.ReviewerHome
-	CredentialRoots []ports.AnchoredRoot
-	Admission       LiveRequestAdmission
-	Clock           ports.Clock
-	IDs             review.IdentityGenerator
-	Build           BuildIdentity
-	Authority       LiveRunAuthorityFactory
-	Validator       *validation.ReviewValidator
-	Publication     LivePublicationCommitter
-	Templates       review.TemplateSet
-	Common          prompt.TrustedLayer
-	Diagnostics     ports.RuntimeDiagnosticSinkFactory
-	Detector        ports.ReviewInputContentDetector
-	ProjectContext  []byte
+	RequirementsPrompt prompt.TrustedLayer
+	Sources            ports.LiveSourceOpener
+	ReviewerHome       ports.ReviewerHome
+	CredentialRoots    []ports.AnchoredRoot
+	Admission          LiveRequestAdmission
+	Clock              ports.Clock
+	IDs                review.IdentityGenerator
+	Build              BuildIdentity
+	Authority          LiveRunAuthorityFactory
+	Validator          *validation.ReviewValidator
+	Publication        LivePublicationCommitter
+	Templates          review.TemplateSet
+	Common             prompt.TrustedLayer
+	Diagnostics        ports.RuntimeDiagnosticSinkFactory
+	Detector           ports.ReviewInputContentDetector
+	ProjectContext     []byte
 }
 
 type LiveService struct{ dependencies LiveDependencies }
@@ -159,6 +162,18 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	if err != nil {
 		return Result{}, err
 	}
+	var requirements validation.RequirementsInput
+	if request.HasRequirements {
+		if service.dependencies.RequirementsPrompt.ID() == "" {
+			return Result{}, fmt.Errorf("live review: requirements prompt unavailable")
+		}
+		requirements, err = AdmitRequirementsInput(ctx, source, request.RequirementsPath, request.Selection.Roles())
+		if err != nil {
+			return Result{}, err
+		}
+	} else if request.RequirementsPath != "" {
+		return Result{}, fmt.Errorf("live review: unadmitted requirements path")
+	}
 	receipt, err := validatePlan(plan, request.Selection.Roles())
 	if err != nil {
 		return Result{}, err
@@ -178,6 +193,7 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	}
 	var terminal QualifiedRunTerminalReceipt
 	var attempts []publication.AttemptArtifactInput
+	var requirementResults validation.RequirementResults
 	var artist liveArtistContext
 	if request.HasArtistInputs && !source.Target().NoChange() {
 		artist, err = prepareLiveArtistContext(ctx, source, request.ArtistInputs)
@@ -258,11 +274,17 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 		if err != nil {
 			return Result{}, classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationPromptSource, err)
 		}
+		prompts.requirements, prompts.requirementsLayer = requirements.Requirements(), service.dependencies.RequirementsPrompt
 		prompts.artist, prompts.projectContext = artist, append([]byte(nil), service.dependencies.ProjectContext...)
 		screened := &packetScreeningProvider{provider: qualified.Provider(), detector: service.dependencies.Detector}
 		runtime, err := review.NewObservedProviderInvocationRuntimeInLiveSource(screened, prompts, execution, service.dependencies.Validator, diagnostics)
 		if err != nil {
 			return Result{}, classifyReviewPreparationFailure(ctx, diagnostics, ReviewPreparationProviderRuntime, err)
+		}
+		if request.HasRequirements {
+			if err := runtime.BindRequirements(requirements, request.RequirementsPath); err != nil {
+				return Result{}, err
+			}
 		}
 		if request.HasArtistInputs {
 			if err := runtime.BindLiveArtistEvidence(artist.images, artist.ready); err != nil {
@@ -301,6 +323,12 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 		if err := CoordinatorExecutionFailure(coordinated); err != nil {
 			return Result{}, err
 		}
+		if request.HasRequirements {
+			requirementResults, err = runtime.RequirementsResult(plan.Extraction)
+			if err != nil {
+				return Result{}, err
+			}
+		}
 		for _, capture := range runtime.DrainCaptures() {
 			for _, artifact := range capture.Artifacts() {
 				attempts = append(attempts, publication.AttemptArtifactInput{AttemptID: capture.AttemptID(), InvocationSequence: capture.Sequence(), Artifact: artifact})
@@ -313,6 +341,12 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 		providersDrained = true
 		if err := execution.Revalidate(context.WithoutCancel(ctx)); err != nil {
 			return Result{}, projectAdmissionFailure(err)
+		}
+	}
+	if request.HasRequirements && source.Target().NoChange() {
+		requirementResults, err = validation.NormalizeRequirements(requirements, nil, nil, sourceIdentity.SHA256(), true)
+		if err != nil {
+			return Result{}, err
 		}
 	}
 	if _, err := source.RevalidateExecution(context.WithoutCancel(ctx)); err != nil {
@@ -334,6 +368,12 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	}
 	if err != nil {
 		return Result{}, publicationCandidateFailure(err)
+	}
+	if request.HasRequirements {
+		candidate, err = publication.WithRequirements(candidate, requirementResults)
+		if err != nil {
+			return Result{}, publicationCandidateFailure(err)
+		}
 	}
 	published, err := service.dependencies.Publication.PublishLiveNextObserved(ctx, request.ArtifactRoot, candidate, diagnostics)
 	if err != nil {

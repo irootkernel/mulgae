@@ -417,8 +417,9 @@ Status: In Progress
 
 Master approved the reduced requirements-assessment scope on 2026-10-27.
 This replaces the earlier capture-dependent redesign hold. TASK-026 contract
-foundations and TASK-027 admission/preflight are complete; public
-requirements-bearing execution is unavailable.
+foundations, TASK-027 admission/preflight and TASK-028 internal
+assessment/publication are complete; public requirements-bearing execution
+is unavailable.
 
 Depends on: completed and accepted EPIC-007 and EPIC-009.
 
@@ -446,7 +447,7 @@ The five member Tasks run in this order; each depends on its predecessor.
 |---|---|---|---|
 | TASK-026 | Completed | Freeze optional requirements input, assigned-ID assessments, count/origin/availability, extraction-policy outcomes, independent section failures and no-change/historical contracts. | Strict input/ownership, local-input/source-evidence separation, valid provider versus placeholder counts, disabled/consumed extraction allowance, whole-response/protected failures, empty-tree HEAD, schema examples/semantics and unchanged budgets/exits. |
 | TASK-027 | Completed | Admit a local requirements file alongside the existing objective and expose provider-free CLI/MCP preflight; keep public requirements-bearing execution unavailable until TASK-029. | Safe input paths/Unicode/IDs/owners, untracked local input with staged/committed evidence, known disabled-extraction disclosure, invalid input on all no-change targets, zero provider calls and no target substitution. |
-| TASK-028 | Planned | Implement internal execution, validation and publication of role-owned assessments and exact input provenance; public activation remains with TASK-029. | Four verdicts, direct structured output with extraction disabled, consumed allowance, independent section outcomes, counts/origin, whole-response/protected failures, all no-change cases, integrity and restart. |
+| TASK-028 | Completed | Implement internal execution, validation and publication of role-owned assessments and exact input provenance; public activation remains with TASK-029. | Four verdicts, direct structured output with extraction disabled, consumed allowance, independent section outcomes, counts/origin, whole-response/protected failures, all no-change cases, integrity and restart. |
 | TASK-029 | Planned | Expose assessments through verified CLI/MCP reads and enable public requirements-bearing execution/capability together. | Count/origin/availability parity, historical unknown counts, severity-filter independence, pre-activation rejection, paging/tamper, restart, export/cleanup privacy and exact-binary consumer fixtures. |
 | TASK-033 | Planned | Certify the integrated requirements-assessment feature and prepare explicit Epic acceptance. | Deterministic failure/compatibility matrix, exact binary/clients, one bounded authorized live requirements review, complete current Make gate, documentation and diff checks. |
 

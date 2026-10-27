@@ -50,6 +50,7 @@ type SchemaValidator interface {
 // It deliberately has no ReviewID. A ReviewID is supplied only after this
 // pre-publication validation has completed.
 type PreparedCandidate struct {
+	requirements       *preparedRequirements
 	capturedArchive    []byte
 	sessionID          domain.SessionID
 	runID              domain.RunID
@@ -821,6 +822,10 @@ func (candidate PreparedCandidate) ValidatedCandidateSHA256() string {
 		write(string(provenanceBytes))
 	} else {
 		write("Mulgae-PUBLICATION-CANDIDATE/1")
+	}
+	if candidate.requirements != nil {
+		write("Mulgae-REQUIREMENTS-PUBLICATION/1")
+		write(string(candidate.requirements.metadata))
 	}
 	write(candidate.sessionID.String())
 	write(candidate.runID.String())
@@ -2251,6 +2256,9 @@ func validateBundleSupportIndexForFormat(
 	validVersion := index.SchemaVersion == artifactwire.SupportIndexV1 || index.SchemaVersion == artifactwire.SupportIndexV2
 	if live != nil {
 		validVersion = index.SchemaVersion == artifactwire.SupportIndexV3
+		if live.SchemaVersion == artifactwire.ReviewArtifactV4 {
+			validVersion = index.SchemaVersion == artifactwire.SupportIndexV4
+		}
 	}
 	if !validVersion || len(index.Artifacts) != len(expected) {
 		return fmt.Errorf("support index contents are invalid")

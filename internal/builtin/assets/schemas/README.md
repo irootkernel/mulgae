@@ -83,6 +83,11 @@ Draft 2020-12 and a canonical
 | `mulgae-requirement-content.v1` | `../examples/requirement-content.v1.valid.json` |
 | `mulgae-command-result.v22` | `../examples/command-result.v22.valid.json` |
 | `mulgae-review-preflight.v10` | `../examples/review-preflight.v10.valid.json` |
+| `mulgae-provider-review-wire.v2` | `../examples/provider-review-wire.v2.valid.json` |
+| `mulgae-provider-review-output.v3` | `../examples/provider-review-output.v3.valid.json` |
+| `mulgae-review-artifact.v4` | `../examples/review-artifact.v4.valid.json` |
+| `mulgae-run-manifest.v4` | `../examples/run-manifest.v4.valid.json` |
+| `mulgae-run-support-index.v4` | `../examples/run-support-index.v4.valid.json` |
 
 Examples are structural fixtures, not evidence that a provider or platform
 contract has passed. Semantic validation, filesystem checks, cryptographic

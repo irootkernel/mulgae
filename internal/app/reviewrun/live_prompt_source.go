@@ -2,6 +2,7 @@ package reviewrun
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
@@ -12,15 +13,17 @@ import (
 )
 
 type livePromptSource struct {
-	execution      ports.LiveReviewExecution
-	identity       evidence.LiveSourceIdentity
-	templates      review.TemplateSet
-	common         prompt.TrustedLayer
-	objective      *prompt.Objective
-	ids            prompt.InvocationIDIssuer
-	roleTask       func() (prompt.RoleTaskID, error)
-	artist         liveArtistContext
-	projectContext []byte
+	execution         ports.LiveReviewExecution
+	identity          evidence.LiveSourceIdentity
+	templates         review.TemplateSet
+	common            prompt.TrustedLayer
+	objective         *prompt.Objective
+	ids               prompt.InvocationIDIssuer
+	roleTask          func() (prompt.RoleTaskID, error)
+	artist            liveArtistContext
+	projectContext    []byte
+	requirements      []domain.Requirement
+	requirementsLayer prompt.TrustedLayer
 }
 
 func newLivePromptSource(execution ports.LiveReviewExecution, templates review.TemplateSet, common prompt.TrustedLayer, objective []byte, hasObjective bool, ids prompt.InvocationIDIssuer, roleTask func() (prompt.RoleTaskID, error)) (*livePromptSource, error) {
@@ -69,6 +72,18 @@ func (source *livePromptSource) compile(ctx context.Context, job review.Invocati
 	if err != nil {
 		return review.RuntimePrompt{}, err
 	}
+	assigned := make([]map[string]any, 0)
+	for _, r := range source.requirements {
+		if r.OwnerRole() == job.Role() {
+			assigned = append(assigned, map[string]any{"id": r.ID(), "text": r.Text(), "acceptance_criteria": r.AcceptanceCriteria()})
+		}
+	}
+	if len(assigned) > 0 {
+		template, err = source.templates.ComposeRequirementsReview(template, source.requirementsLayer)
+		if err != nil {
+			return review.RuntimePrompt{}, err
+		}
+	}
 	if repair != nil {
 		template, err = source.templates.ComposeRootReviewRepair(template, repair.Plan())
 	} else if report != nil {
@@ -103,6 +118,18 @@ func (source *livePromptSource) compile(ctx context.Context, job review.Invocati
 	if job.Role() == domain.RoleArtist && len(source.artist.manifest) != 0 {
 		task, visual := prompt.NewPayload(source.artist.task), prompt.NewPayload(source.artist.manifest)
 		input.TaskRequirements, input.VisualAssetsManifest = &task, &visual
+	}
+	if len(assigned) > 0 {
+		payload := map[string]any{"requirements": assigned}
+		if input.TaskRequirements != nil {
+			payload["artist_task"] = string(source.artist.task)
+		}
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return review.RuntimePrompt{}, err
+		}
+		value := prompt.NewPayload(encoded)
+		input.TaskRequirements = &value
 	}
 	if repair != nil {
 		prior := prompt.NewPayload(repair.InitialCandidate())

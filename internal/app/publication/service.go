@@ -1171,8 +1171,12 @@ func (service *Service) readManifestBoundSupportArtifacts(
 	if err := unmarshalCanonicalPublicationRecord(indexArtifact.Bytes(), &supportIndex, "committed support index"); err != nil {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index is invalid", err)
 	}
-	live := envelope.SchemaVersion == artifactwire.RunManifestV3
-	if live && supportIndex.SchemaVersion != artifactwire.SupportIndexV3 || !live && supportIndex.SchemaVersion != artifactwire.SupportIndexV1 && supportIndex.SchemaVersion != artifactwire.SupportIndexV2 {
+	live := envelope.SchemaVersion == artifactwire.RunManifestV3 || envelope.SchemaVersion == artifactwire.RunManifestV4
+	expectedLiveIndex := artifactwire.SupportIndexV3
+	if envelope.SchemaVersion == artifactwire.RunManifestV4 {
+		expectedLiveIndex = artifactwire.SupportIndexV4
+	}
+	if live && supportIndex.SchemaVersion != expectedLiveIndex || !live && supportIndex.SchemaVersion != artifactwire.SupportIndexV1 && supportIndex.SchemaVersion != artifactwire.SupportIndexV2 {
 		return nil, publicationFailure("publication.support", domain.FailureArtifact, "committed support index schema is invalid", nil)
 	}
 	captureArtifacts := make(map[string]ports.ImmutablePublicationArtifact)
@@ -1442,7 +1446,7 @@ func completedRecoveryDocuments(
 		return PublicationDocument{}, PublicationDocument{}, err
 	}
 	normalExit := domain.OperationalExitCode(manifest.ExitCode)
-	if (manifest.SchemaVersion != artifactwire.RunManifestV1 && manifest.SchemaVersion != artifactwire.RunManifestV2 && manifest.SchemaVersion != artifactwire.RunManifestV3 && (manifest.SchemaVersion != artifactwire.CompositeRunManifestV1 && manifest.SchemaVersion != artifactwire.CompositeRunManifestV2)) ||
+	if (manifest.SchemaVersion != artifactwire.RunManifestV1 && manifest.SchemaVersion != artifactwire.RunManifestV2 && manifest.SchemaVersion != artifactwire.RunManifestV3 && manifest.SchemaVersion != artifactwire.RunManifestV4 && (manifest.SchemaVersion != artifactwire.CompositeRunManifestV1 && manifest.SchemaVersion != artifactwire.CompositeRunManifestV2)) ||
 		manifest.SessionID != run.SessionID().String() ||
 		manifest.RunID != run.RunID().String() ||
 		manifest.PersistedJournalState != string(domain.JournalManifestCommitted) ||

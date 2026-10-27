@@ -207,18 +207,19 @@ func canonicalCoordinatorRoute(route ports.ProviderRoute) (ports.ProviderRoute, 
 // provider instance, and immutable target. It has no transition, policy,
 // outcome-axis, or publication authority.
 type ValidatedRoleOutput struct {
-	role             domain.Role
-	providerInstance string
-	target           domain.TargetIdentity
-	findings         []domain.Finding
-	evidence         []VerifiedFindingEvidence
-	completeness     string
-	limitations      []string
-	reportMarkdown   []byte
-	reportsOnly      bool
-	parseState       domain.ParseState
-	validationState  domain.ValidationState
-	outputTransport  ports.ProviderOutputTransport
+	assessmentPending bool
+	role              domain.Role
+	providerInstance  string
+	target            domain.TargetIdentity
+	findings          []domain.Finding
+	evidence          []VerifiedFindingEvidence
+	completeness      string
+	limitations       []string
+	reportMarkdown    []byte
+	reportsOnly       bool
+	parseState        domain.ParseState
+	validationState   domain.ValidationState
+	outputTransport   ports.ProviderOutputTransport
 }
 
 // NewValidatedRoleOutput records a zero-finding validated role output. Finding
@@ -428,18 +429,19 @@ func (output ValidatedRoleOutput) validate() error {
 
 func (output ValidatedRoleOutput) clone() ValidatedRoleOutput {
 	return ValidatedRoleOutput{
-		role:             output.role,
-		providerInstance: output.providerInstance,
-		target:           output.Target(),
-		findings:         append([]domain.Finding(nil), output.findings...),
-		evidence:         cloneVerifiedFindingEvidence(output.evidence),
-		completeness:     output.completeness,
-		limitations:      append([]string(nil), output.limitations...),
-		reportMarkdown:   append([]byte(nil), output.reportMarkdown...),
-		reportsOnly:      output.reportsOnly,
-		parseState:       output.parseState,
-		validationState:  output.validationState,
-		outputTransport:  output.outputTransport,
+		assessmentPending: output.assessmentPending,
+		role:              output.role,
+		providerInstance:  output.providerInstance,
+		target:            output.Target(),
+		findings:          append([]domain.Finding(nil), output.findings...),
+		evidence:          cloneVerifiedFindingEvidence(output.evidence),
+		completeness:      output.completeness,
+		limitations:       append([]string(nil), output.limitations...),
+		reportMarkdown:    append([]byte(nil), output.reportMarkdown...),
+		reportsOnly:       output.reportsOnly,
+		parseState:        output.parseState,
+		validationState:   output.validationState,
+		outputTransport:   output.outputTransport,
 	}
 }
 

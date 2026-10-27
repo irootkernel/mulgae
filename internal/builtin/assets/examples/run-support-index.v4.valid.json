@@ -1,0 +1,9 @@
+{
+  "schema_version": "mulgae-run-support-index.v4",
+  "artifacts": [
+    {
+      "path": "s_01900000-0000-7000-8000-000000000001/r_01900000-0000-7000-8000-000000000002/requirements/support.json",
+      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

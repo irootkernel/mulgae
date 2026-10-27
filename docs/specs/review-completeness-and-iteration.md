@@ -8,8 +8,9 @@ The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 owns lifecycle and the five implementation Tasks. The
 [development dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
 owns their temporary execution detail. Local input admission and provider-free
-preflight are available. Assessment execution and verified reads remain
-unimplemented.
+preflight are available. Internal assessment execution, validation and publication
+are implemented; public requirements execution and verified reads remain
+unavailable.
 Current behavior remains defined by [contracts](contracts.md) and
 [live workspace and Git review](live-workspace-and-git-review.md).
 
@@ -304,9 +305,9 @@ mechanism; add no general feature-flag system.
 
 TASK-026 supplies contract values, strict byte decoders and schema/semantic
 foundations. TASK-027 implements local input admission and provider-free
-preflight. Provider integration, publication and verified assessment reads remain
-assigned to TASK-028 and TASK-029. Public requirements-bearing execution remains
-unavailable.
+preflight. TASK-028 implements internal provider integration and publication.
+TASK-029 owns verified assessment reads and public activation; public
+requirements-bearing execution remains unavailable.
 
 ### Versions and ownership
 
@@ -405,6 +406,44 @@ retry, provider substitution, or configuration override. Assessment success chan
 neither finding availability nor role coverage. Verdicts and missing assessments
 change neither severity policy nor operational exits.
 
+### Internal assessment execution
+
+`reviewrun.LiveService` admits requirements after independent project binding
+and before identity allocation, qualification or the no-change branch. It keeps
+the exact admitted bytes for publication. Each owning role receives only its
+assigned text and criteria in the existing untrusted task-requirements frame.
+The trusted requirements prompt leaves the source plan and provider policy intact.
+
+Provider wire v2 carries `schema_version: mulgae-provider-review-output.v3`
+and an optional `requirements` section using `mulgae-provider-requirements.v1`.
+The strict whole-document parser separates that prose-bearing section before
+the existing bounded findings validator runs. Assessment decoding verifies
+selected-side evidence while the original source lease remains open. At the
+input path, a verifier-owned digest of the already-read cited file rejects the
+exact invocation prose as proof. Different index or committed implementation
+bytes at the same path remain eligible. This digest is an ephemeral file
+observation; it adds no source inventory, persisted fingerprint or extra read.
+
+When both complete sections are accepted, the runtime retains a trusted
+`NormalizedRequirementsOutput` value for provider output v3. Its optional
+serialization composes the validated live findings component with verified
+assessment content without applying the generic envelope limit to the full
+body. Partial section results stay separate and never fabricate a complete
+findings envelope. Publication retains normalized item content instead of
+adding another provider-output artifact.
+
+The coordinator may use its existing second invocation for an absent assessment
+section or an accepted reports-only result when extraction is enabled. A valid
+available section owns its omissions. Retry or malformed-document repair still
+consumes that same slot. The extraction prompt remains transcription-only, and
+ordinary peer failure retains accepted findings, assessments and the primary
+report independently. Original free-form, parsed-invalid and exhausted-repair
+states remain distinct in attempt metadata. Trusted source and validator failures
+use the existing canonical failure selector, including every joined cause;
+internal, artifact, security and cancellation observations cannot become ordinary
+section success. Bare cancellation/deadline leaves retain the selector's cancelled
+classification; an explicit typed timeout retains its own class.
+
 ### Publication and historical compatibility
 
 | Publication | Assessment availability and counts | Required handling |
@@ -422,7 +461,7 @@ one while a derived placeholder contributes zero.
 
 TASK-027 introduces preflight v10 and command-result v22 together for the
 optional admission summary, including the preflight-failure version projection.
-Command-result v21 retains its embedded preflight v9 contract. TASK-028 will add
+Command-result v21 retains its embedded preflight v9 contract. TASK-028 supplies
 the internal requirements-bearing provider wire v2 and normalized provider
 output v3, plus review artifact v4, run manifest v4 and support index v4. Public
 objective-only execution continues to emit v3 artifacts until TASK-029 supplies
@@ -439,8 +478,8 @@ TASK-029 also introduces preflight v11 with command-result v23 and advertises
 `requirements_assessment=v1` with execution and verified reads. Preflight v10
 retains `requirements.execution_available: false`; v11 owns the later enabled
 execution contract. Preflight v10 and command-result v22 stay frozen, and the MCP
-lifecycle remains unchanged. The TASK-028/TASK-029 integration versions remain
-reserved decisions, not current capabilities.
+lifecycle remains unchanged. The internal TASK-028 contracts confer no public
+requirements execution or verified-read capability.
 
 ## Acceptance evidence
 
@@ -460,5 +499,5 @@ does not establish successful structured assessment. Missing structured
 assessment is an evidence gap, not permission for an unbounded retry campaign.
 
 Implementation, verification, review, commits, installation, configuration and
-release retain their separate authorization boundaries. These contract
-foundations expose no requirements-bearing runtime capability.
+release retain their separate authorization boundaries. Public requirements
+execution and verified assessment reads remain unavailable until TASK-029.

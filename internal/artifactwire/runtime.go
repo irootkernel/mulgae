@@ -5,6 +5,7 @@ package artifactwire
 const (
 	SupportIndexV1 = "mulgae-run-support-index.v1"
 	SupportIndexV2 = "mulgae-run-support-index.v2"
+	SupportIndexV4 = "mulgae-run-support-index.v4"
 	SupportIndexV3 = "mulgae-run-support-index.v3"
 )
 

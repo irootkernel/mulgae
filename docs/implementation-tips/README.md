@@ -1058,3 +1058,19 @@ input with staged/committed code, malformed input on every no-change selector,
 independent project binding, and zero provider/private-writer calls. Verify both
 preflight v10 and command-result v22, including failed preflight. Keep prose out
 of the bounded metadata projection and preserve the original v9/v21 assets.
+
+TASK-028 exercises the internal requirements producer through isolated live-source
+readers and the production runtime/publication owners. Cover complete and partial
+sections, available-section reason priority, shared retry/repair/extraction slots,
+protected joined failures, honest parse states and one normalized row per selected
+item. Verify distinct local/index/commit bytes at the same input path, exact input
+retention and unbounded rationale/limitations through v4 publication. Restart and
+corruption checks must work from retained support with the source unavailable.
+The trusted normalized provider-v3 composition needs both a small serialized-shape
+assertion and a production serialization beyond the generic envelope bound.
+
+Settle paired assets and exact catalog inventory before package-wide checks.
+Run focused owning tests, `make test-prepare`, scoped owning-package race units and
+`make test-int` for this internal execution/publication boundary. The complete
+`make test`, exact release binary, actual-client and live provider evidence remain
+TASK-033 obligations. No synthetic provider fixture establishes live certification.

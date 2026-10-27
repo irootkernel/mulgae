@@ -2,6 +2,10 @@ package artifactwire
 
 // Independent format axes; callers retain version selection.
 const (
+	ReviewArtifactV4                = "mulgae-review-artifact.v4"
+	ReviewArtifactV4Schema          = "https://mulgae.local/schemas/mulgae-review-artifact.v4.schema.json"
+	RunManifestV4                   = "mulgae-run-manifest.v4"
+	RunManifestV4Schema             = "https://mulgae.local/schemas/mulgae-run-manifest.v4.schema.json"
 	ReviewArtifactV1                = "mulgae-review-artifact.v1"
 	ReviewArtifactV1Schema          = "https://mulgae.local/schemas/mulgae-review-artifact.v1.schema.json"
 	ReviewArtifactV2                = "mulgae-review-artifact.v2"

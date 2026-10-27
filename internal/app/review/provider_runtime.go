@@ -262,19 +262,25 @@ func (capture AttemptCapture) Artifacts() []ports.CapturedAttemptArtifact {
 // provider, validation, repair, and evidence verification. It has no scheduler,
 // transition or publication authority.
 type ProviderInvocationRuntime struct {
-	provider        ports.ReviewProvider
-	observed        ports.ObservedReviewProvider
-	source          InvocationPromptSource
-	validator       *validation.ReviewValidator
-	verifier        *evidence.Verifier
-	liveExecution   ports.LiveReviewExecution
-	liveIdentity    evidence.LiveSourceIdentity
-	liveVisuals     map[string]string
-	liveArtist      bool
-	liveArtistReady bool
-	policy          EvidencePolicy
-	diagnostics     RuntimeDiagnosticSinkResolver
-	staging         ports.ProviderOutputStagingLocator
+	requirements           *validation.RequirementsInput
+	requirementsPath       string
+	requirementSections    map[domain.Role]requirementSectionState
+	requirementOutputs     map[domain.Role]ValidatedRoleOutput
+	requirementFindings    map[domain.Role]validation.ValidatedReview
+	normalizedRequirements map[domain.Role]validation.NormalizedRequirementsOutput
+	provider               ports.ReviewProvider
+	observed               ports.ObservedReviewProvider
+	source                 InvocationPromptSource
+	validator              *validation.ReviewValidator
+	verifier               *evidence.Verifier
+	liveExecution          ports.LiveReviewExecution
+	liveIdentity           evidence.LiveSourceIdentity
+	liveVisuals            map[string]string
+	liveArtist             bool
+	liveArtistReady        bool
+	policy                 EvidencePolicy
+	diagnostics            RuntimeDiagnosticSinkResolver
+	staging                ports.ProviderOutputStagingLocator
 
 	mu                sync.Mutex
 	pending           map[domain.AttemptID]InvocationRepairInput
@@ -741,6 +747,13 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	}
 	assistantContent := append([]byte(nil), stdout...)
 	contentClass, validateBytes := classifyAssistantContent(assistantContent)
+	if runtime.requirements != nil {
+		outcome = runtime.invokeRequirements(invocationCtx, job, validateBytes, assistantContent, rawStdout, stderr, transport, scope)
+		if output, ok := outcome.Output(); ok {
+			parseState, validationState = output.ParseState(), output.ValidationState()
+		}
+		return outcome
+	}
 	if job.Purpose() == domain.InvocationExtract {
 		// The role report is already accepted and committed to the outcome the
 		// coordinator retained. Every failure below is bounded to this trailer:
@@ -978,6 +991,9 @@ func cloneAdapterParameters(parameters map[string]string) map[string]string {
 func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job InvocationJob, validated validation.ValidatedReview, primaryReport []byte, transport ports.ProviderOutputTransport) AttemptOutcome {
 	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
 	if err != nil {
+		if runtime.requirements != nil {
+			return runtimeCondition(job, requirementsSourceCondition(ctx, err))
+		}
 		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
 	}
 	if paths, ok := exactEvidenceRepairPaths(verified); ok {
@@ -1047,6 +1063,9 @@ func (runtime *ProviderInvocationRuntime) acceptExtraction(
 ) AttemptOutcome {
 	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
 	if err != nil {
+		if runtime.requirements != nil {
+			return runtimeCondition(job, requirementsSourceCondition(ctx, err))
+		}
 		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
 	}
 	reduced, err := ReduceVerifiedFindingEvidence(validated.Findings(), verified, runtime.policy)

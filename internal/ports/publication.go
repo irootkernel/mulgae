@@ -587,31 +587,34 @@ type AuxiliaryArtifactStore = RunSupportArtifactStore
 type RunSupportArtifactKind string
 
 const (
-	RunSupportArtifactCompositeMetadata  RunSupportArtifactKind = "composite_metadata"
-	RunSupportArtifactSourceFinding      RunSupportArtifactKind = "source_finding"
-	RunSupportArtifactExcerpt            RunSupportArtifactKind = "excerpt"
-	RunSupportArtifactAttemptStatus      RunSupportArtifactKind = "attempt_status"
-	RunSupportArtifactInitialCandidate   RunSupportArtifactKind = "initial_candidate"
-	RunSupportArtifactRetryCandidate     RunSupportArtifactKind = "retry_candidate"
-	RunSupportArtifactRepairedCandidate  RunSupportArtifactKind = "repaired_candidate"
-	RunSupportArtifactExtractedCandidate RunSupportArtifactKind = "extracted_candidate"
-	RunSupportArtifactInvocationStdout   RunSupportArtifactKind = "invocation_stdout"
-	RunSupportArtifactInvocationStderr   RunSupportArtifactKind = "invocation_stderr"
-	RunSupportArtifactTargetBytes        RunSupportArtifactKind = "target_bytes"
-	RunSupportArtifactTargetManifest     RunSupportArtifactKind = "target_manifest"
-	RunSupportArtifactCaptureManifest    RunSupportArtifactKind = "capture_manifest"
-	RunSupportArtifactCapturedArchive    RunSupportArtifactKind = "captured_archive"
-	RunSupportArtifactCapturedBlob       RunSupportArtifactKind = "captured_blob"
-	RunSupportArtifactArtistBrief        RunSupportArtifactKind = "artist_brief"
-	RunSupportArtifactArtistVisuals      RunSupportArtifactKind = "artist_visual_assets"
-	RunSupportArtifactPromptStdin        RunSupportArtifactKind = "prompt_stdin"
-	RunSupportArtifactPromptManifest     RunSupportArtifactKind = "prompt_manifest"
-	RunSupportArtifactSupportIndex       RunSupportArtifactKind = "support_index"
-	RunSupportArtifactRoleReport         RunSupportArtifactKind = "role_report"
-	RunSupportArtifactRecoveryManifest   RunSupportArtifactKind = "recovery_manifest"
-	RunSupportArtifactRecoveryBlob       RunSupportArtifactKind = "recovery_blob"
-	RunSupportArtifactLiveSource         RunSupportArtifactKind = "live_source"
-	RunSupportArtifactSourceImage        RunSupportArtifactKind = "source_image"
+	RunSupportArtifactCompositeMetadata   RunSupportArtifactKind = "composite_metadata"
+	RunSupportArtifactSourceFinding       RunSupportArtifactKind = "source_finding"
+	RunSupportArtifactExcerpt             RunSupportArtifactKind = "excerpt"
+	RunSupportArtifactAttemptStatus       RunSupportArtifactKind = "attempt_status"
+	RunSupportArtifactInitialCandidate    RunSupportArtifactKind = "initial_candidate"
+	RunSupportArtifactRetryCandidate      RunSupportArtifactKind = "retry_candidate"
+	RunSupportArtifactRepairedCandidate   RunSupportArtifactKind = "repaired_candidate"
+	RunSupportArtifactExtractedCandidate  RunSupportArtifactKind = "extracted_candidate"
+	RunSupportArtifactInvocationStdout    RunSupportArtifactKind = "invocation_stdout"
+	RunSupportArtifactInvocationStderr    RunSupportArtifactKind = "invocation_stderr"
+	RunSupportArtifactTargetBytes         RunSupportArtifactKind = "target_bytes"
+	RunSupportArtifactTargetManifest      RunSupportArtifactKind = "target_manifest"
+	RunSupportArtifactCaptureManifest     RunSupportArtifactKind = "capture_manifest"
+	RunSupportArtifactCapturedArchive     RunSupportArtifactKind = "captured_archive"
+	RunSupportArtifactCapturedBlob        RunSupportArtifactKind = "captured_blob"
+	RunSupportArtifactArtistBrief         RunSupportArtifactKind = "artist_brief"
+	RunSupportArtifactArtistVisuals       RunSupportArtifactKind = "artist_visual_assets"
+	RunSupportArtifactPromptStdin         RunSupportArtifactKind = "prompt_stdin"
+	RunSupportArtifactPromptManifest      RunSupportArtifactKind = "prompt_manifest"
+	RunSupportArtifactSupportIndex        RunSupportArtifactKind = "support_index"
+	RunSupportArtifactRoleReport          RunSupportArtifactKind = "role_report"
+	RunSupportArtifactRecoveryManifest    RunSupportArtifactKind = "recovery_manifest"
+	RunSupportArtifactRecoveryBlob        RunSupportArtifactKind = "recovery_blob"
+	RunSupportArtifactRequirementsInput   RunSupportArtifactKind = "requirements_input"
+	RunSupportArtifactRequirementsContent RunSupportArtifactKind = "requirements_content"
+	RunSupportArtifactRequirements        RunSupportArtifactKind = "requirements"
+	RunSupportArtifactLiveSource          RunSupportArtifactKind = "live_source"
+	RunSupportArtifactSourceImage         RunSupportArtifactKind = "source_image"
 )
 
 // Valid reports whether kind is a closed run-support artifact kind.
@@ -625,7 +628,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 		RunSupportArtifactCaptureManifest, RunSupportArtifactCapturedArchive, RunSupportArtifactCapturedBlob, RunSupportArtifactArtistBrief, RunSupportArtifactArtistVisuals,
 		RunSupportArtifactPromptStdin, RunSupportArtifactPromptManifest,
 		RunSupportArtifactSupportIndex, RunSupportArtifactRoleReport, RunSupportArtifactRecoveryManifest, RunSupportArtifactRecoveryBlob,
-		RunSupportArtifactLiveSource, RunSupportArtifactSourceImage:
+		RunSupportArtifactLiveSource, RunSupportArtifactSourceImage, RunSupportArtifactRequirements, RunSupportArtifactRequirementsInput, RunSupportArtifactRequirementsContent:
 		return true
 	default:
 		return false
@@ -636,7 +639,7 @@ func (kind RunSupportArtifactKind) Valid() bool {
 // content that is not subject to a structured publication-control limit.
 func (kind RunSupportArtifactKind) IsVariableSized() bool {
 	switch kind {
-	case RunSupportArtifactCaptureManifest, RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
+	case RunSupportArtifactRequirementsInput, RunSupportArtifactRequirementsContent, RunSupportArtifactCaptureManifest, RunSupportArtifactInvocationStdout, RunSupportArtifactInvocationStderr,
 		RunSupportArtifactRecoveryBlob, RunSupportArtifactTargetBytes, RunSupportArtifactSourceImage,
 		RunSupportArtifactTargetManifest,
 		RunSupportArtifactCapturedArchive,
@@ -879,6 +882,19 @@ func classifyCanonicalRunSupportPathValues(sessionID domain.SessionID, runID dom
 		return "", fmt.Errorf("artifact path %q is outside the run", value)
 	}
 	relative := strings.TrimPrefix(value, prefix)
+	if relative == "requirements/input.json" {
+		return RunSupportArtifactRequirementsInput, nil
+	}
+	if relative == "requirements/support.json" {
+		return RunSupportArtifactRequirements, nil
+	}
+	if strings.HasPrefix(relative, "requirements/items/") {
+		name := strings.TrimPrefix(relative, "requirements/items/")
+		if len(name) == 8 && name[0] == '0' && name[1] >= '0' && name[1] <= '9' && name[2] >= '0' && name[2] <= '9' && name[3:] == ".json" {
+			return RunSupportArtifactRequirementsContent, nil
+		}
+		return "", fmt.Errorf("requirements content path is not canonical")
+	}
 	if relative == "source/source.json" {
 		return RunSupportArtifactLiveSource, nil
 	}

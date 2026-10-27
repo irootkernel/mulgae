@@ -91,6 +91,10 @@ func (candidate PreparedCandidate) Build(
 	if err != nil {
 		return PublicationBundle{}, err
 	}
+	excerpts, err = candidate.buildRequirementsSupport(excerpts)
+	if err != nil {
+		return PublicationBundle{}, err
+	}
 	return candidate.assembleBoundMembers(ctx, validator, reviewID, createdAtText, epoch, paths, lineageEdge, excerpts, candidate.manifestRoleReports)
 }
 
@@ -362,6 +366,10 @@ func (builder *livePublicationBuilder) bind(
 		if err != nil {
 			return PublicationBundle{}, err
 		}
+		result, err = candidate.buildRequirementsSupport(result)
+		if err != nil {
+			return PublicationBundle{}, err
+		}
 		liveSupport := result[len(input):]
 		trailing := make([]ports.ImmutablePublicationArtifact, 0, len(attemptArtifacts)+len(roleReports)+len(liveSupport))
 		trailing = append(trailing, attemptArtifacts...)
@@ -498,6 +506,11 @@ func buildRunSupportIndex(path ports.SafeRelativePath, artifacts []ports.Immutab
 			version = artifactwire.SupportIndexV3
 		}
 	}
+	for _, artifact := range artifacts {
+		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && kind == ports.RunSupportArtifactRequirements {
+			version = artifactwire.SupportIndexV4
+		}
+	}
 	bytes, err := marshalCanonical(runSupportIndexWire{SchemaVersion: version, Artifacts: identities})
 	if err != nil {
 		return ports.ImmutablePublicationArtifact{}, fmt.Errorf("publication build: serialize support index: %w", err)
@@ -625,12 +638,13 @@ func (candidate PreparedCandidate) buildFinalBytes(
 		}
 	}
 	return marshalCanonical(finalReviewWire{
-		SchemaVersion: candidate.artifactVersion(artifactwire.ReviewArtifactV1),
-		SessionID:     candidate.sessionID.String(),
-		RunID:         candidate.runID.String(),
-		ReviewID:      reviewID.String(),
-		RunType:       string(candidate.publicationLineage().runType),
-		CreatedAt:     createdAt,
+		RequirementsSupport: candidate.requirementsBinding(),
+		SchemaVersion:       candidate.artifactVersion(artifactwire.ReviewArtifactV1),
+		SessionID:           candidate.sessionID.String(),
+		RunID:               candidate.runID.String(),
+		ReviewID:            reviewID.String(),
+		RunType:             string(candidate.publicationLineage().runType),
+		CreatedAt:           createdAt,
 		Mulgae: mulgaeWire{
 			Version: candidate.mulgae.version,
 			Commit:  commit,
@@ -671,6 +685,7 @@ func (candidate PreparedCandidate) buildManifestBytesWithRoleReports(
 	roleReports []manifestRoleReportWire,
 ) ([]byte, error) {
 	return marshalCanonical(runManifestWire{
+		RequirementsSupport:        candidate.requirementsBinding(),
 		SchemaVersion:              candidate.artifactVersion(artifactwire.RunManifestV1),
 		SessionID:                  candidate.sessionID.String(),
 		RunID:                      candidate.runID.String(),
@@ -1106,6 +1121,7 @@ type followupOutcomeWire struct {
 }
 
 type finalReviewWire struct {
+	RequirementsSupport        *artifactIdentityWire `json:"requirements_support,omitempty"`
 	SchemaVersion              string                `json:"schema_version"`
 	SessionID                  string                `json:"session_id"`
 	RunID                      string                `json:"run_id"`
@@ -1156,6 +1172,7 @@ type finalReviewIdentityWire = artifactwire.FinalReviewIdentity
 type manifestFailureWire = artifactwire.ManifestFailure
 
 type runManifestWire struct {
+	RequirementsSupport        *artifactIdentityWire    `json:"requirements_support,omitempty"`
 	SchemaVersion              string                   `json:"schema_version"`
 	SessionID                  string                   `json:"session_id"`
 	RunID                      string                   `json:"run_id"`

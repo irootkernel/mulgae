@@ -275,7 +275,7 @@ func parsePublicationFinalFacts(document []byte) (publicationFinalFacts, error) 
 		return publicationFinalFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != artifactwire.ReviewArtifactV1 && schema != artifactwire.ReviewArtifactV2 && schema != artifactwire.ReviewArtifactV3 && (schema != artifactwire.CompositeReviewArtifactV1 && schema != artifactwire.CompositeReviewArtifactV2) {
+	if err != nil || schema != artifactwire.ReviewArtifactV1 && schema != artifactwire.ReviewArtifactV2 && schema != artifactwire.ReviewArtifactV3 && schema != artifactwire.ReviewArtifactV4 && (schema != artifactwire.CompositeReviewArtifactV1 && schema != artifactwire.CompositeReviewArtifactV2) {
 		return publicationFinalFacts{}, errors.New("invalid final review schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")
@@ -308,7 +308,7 @@ func parsePublicationManifestFacts(document []byte) (publicationManifestFacts, e
 		return publicationManifestFacts{}, err
 	}
 	schema, err := requiredPublicationJSON[string](object, "schema_version")
-	if err != nil || schema != artifactwire.RunManifestV1 && schema != artifactwire.RunManifestV2 && schema != artifactwire.RunManifestV3 && (schema != artifactwire.CompositeRunManifestV1 && schema != artifactwire.CompositeRunManifestV2) {
+	if err != nil || schema != artifactwire.RunManifestV1 && schema != artifactwire.RunManifestV2 && schema != artifactwire.RunManifestV3 && schema != artifactwire.RunManifestV4 && (schema != artifactwire.CompositeRunManifestV1 && schema != artifactwire.CompositeRunManifestV2) {
 		return publicationManifestFacts{}, errors.New("invalid manifest schema version")
 	}
 	sessionID, err := requiredPublicationJSON[string](object, "session_id")

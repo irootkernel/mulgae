@@ -4,8 +4,9 @@ This temporary dossier defines the reduced requirements-assessment work approved
 on 2026-10-27. The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 owns identity, lifecycle, membership and order. The
 [specification](../specs/review-completeness-and-iteration.md) owns required behavior.
-TASK-026 contract foundations and TASK-027 admission/preflight are complete.
-Public requirements-bearing execution remains unavailable.
+TASK-026 contract foundations, TASK-027 admission/preflight and TASK-028 internal
+assessment/publication are complete. Public requirements-bearing execution
+remains unavailable.
 
 ## Goal, dependencies and execution boundary
 
@@ -108,23 +109,23 @@ Run focused admission/transport tests and applicable unit/integration checks.
 
 ## TASK-028: Validate and publish assessments
 
-- [ ] Frame requirements as untrusted data for exactly their assigned roles.
+- [x] Frame requirements as untrusted data for exactly their assigned roles.
       Retain valid initial structured assessments even with extraction disabled.
       Reuse existing extraction policy and budget; never enable it from input or
       add a call after retry/repair consumed the allowance.
-- [ ] Validate four verdicts and supporting source evidence independently from
+- [x] Validate four verdicts and supporting source evidence independently from
       ordinary findings; retain primary reports and protected failure precedence.
-- [ ] Normalize one row per selected ID. Missing answers become `unverified`;
+- [x] Normalize one row per selected ID. Missing answers become `unverified`;
       duplicate, foreign or wrong-owner IDs invalidate the owning role's section.
-- [ ] Implement the independent-section outcome matrix and explicit reasons for
+- [x] Implement the independent-section outcome matrix and explicit reasons for
       disabled extraction, consumed allowance, omission and invalid content.
       Whole-response parse failures cannot supply independently validated sections.
       Preserve role coverage, finding extraction status and assessment availability
       as separate axes, including when only an assessment is valid.
-- [ ] Persist exact input, assignments, limitations and normalized results in
+- [x] Persist exact input, assignments, limitations and normalized results in
       hash-bound support under the existing publication owner. Count only valid
       provider assessments as evaluated; retain each normalized row's origin.
-- [ ] Preserve no-change zero-call publication with zero attempts/reports and
+- [x] Preserve no-change zero-call publication with zero attempts/reports and
       zero evaluated count for every existing no-change target, including empty-tree
       HEAD. Exercise ordinary/no-change internal execution with focused tests;
       keep public requirements-bearing execution unavailable until TASK-029.
@@ -197,8 +198,9 @@ until their behavior is verified.
 
 TASK-026 supplies the frozen contracts and tested foundations. TASK-027 delivers
 local-file admission and provider-free preflight under the approved
-`aquarium:epic-handler` envelope. Later Tasks retain their planned execution and
-acceptance obligations; the contract foundation does not accept the Epic.
+`aquarium:epic-handler` envelope. TASK-028 delivers internal assessment validation
+and publication under the same envelope. TASK-029 and TASK-033 retain their planned
+execution and acceptance obligations. Epic acceptance remains pending.
 
 Before eventual Epic closeout, promote durable outcomes to their canonical
 owners, replace this Epic's Detailed SOT with Canonical Outcomes, remove this

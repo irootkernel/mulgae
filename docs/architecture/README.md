@@ -712,7 +712,8 @@ The [revised EPIC-008 design](../architecture-decision-records/verified-review-i
 and [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 plan optional requirements assessment within the current original-source review
 path. Local input admission and provider-free preflight are implemented;
-assessment execution, publication and verified reads remain future work.
+internal assessment execution and publication are implemented. Public execution
+and verified assessment reads remain unavailable.
 
 ```text
 optional requirements input + existing objective
@@ -742,6 +743,15 @@ owns the exact bytes; CLI/MCP expose only the bounded preflight summary. The
 shared `Application.StartReviewRun` boundary rejects requirements-bearing
 execution before provider composition or private-directory writes.
 
+The internal runtime retains verifier-owned assessment content independently
+of its finding/report output. `validation` owns strict unbounded assessment
+admission and the trusted in-memory provider-output v3 composition;
+`review` owns section retention and shared-slot scheduling through the existing
+coordinator. `publication.WithRequirements` binds exact input, bounded metadata
+and per-item content to the v4 candidate, support index, final and manifest.
+The optimized live builder shares those support members across preflight and
+issued-review bindings. Source verification finishes before lease closure;
+restart uses retained hash-bound members and never consults current source.
 
 Reuse existing typed values, inward ports, live source readers, provider lanes
 and invocation ceilings. The requirements file is immutable invocation data;

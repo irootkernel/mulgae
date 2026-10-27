@@ -204,6 +204,7 @@ func main() {
 		contractPair{"schemas/mulgae-command-result.v21.schema.json", "schemas/mulgae-command-result.v22.schema.json", "examples/command-result.v21.valid.json", "examples/command-result.v22.valid.json", "mulgae-command-result.v21", "mulgae-command-result.v22"},
 		contractPair{"schemas/mulgae-review-preflight.v9.schema.json", "schemas/mulgae-review-preflight.v10.schema.json", "examples/review-preflight.v9.valid.json", "examples/review-preflight.v10.valid.json", "mulgae-review-preflight.v9", "mulgae-review-preflight.v10"},
 	)
+	catalogPairs = append(catalogPairs, contractPair{"schemas/mulgae-provider-review-wire.v1.schema.json", "schemas/mulgae-provider-review-wire.v2.schema.json", "examples/provider-review-wire.v1.valid.json", "examples/provider-review-wire.v2.valid.json", "mulgae-provider-review-wire.v1", "mulgae-provider-review-wire.v2"}, contractPair{"schemas/mulgae-provider-review-output.v2.schema.json", "schemas/mulgae-provider-review-output.v3.schema.json", "examples/provider-review-output.v2.valid.json", "examples/provider-review-output.v3.valid.json", "mulgae-provider-review-output.v2", "mulgae-provider-review-output.v3"}, contractPair{"schemas/mulgae-review-artifact.v3.schema.json", "schemas/mulgae-review-artifact.v4.schema.json", "examples/review-artifact.v3.valid.json", "examples/review-artifact.v4.valid.json", "mulgae-review-artifact.v3", "mulgae-review-artifact.v4"}, contractPair{"schemas/mulgae-run-manifest.v3.schema.json", "schemas/mulgae-run-manifest.v4.schema.json", "examples/run-manifest.v3.valid.json", "examples/run-manifest.v4.valid.json", "mulgae-run-manifest.v3", "mulgae-run-manifest.v4"})
 	if err := updateFileCatalog(assets, append(catalogPairs, agyContractPairs...)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -281,6 +282,12 @@ func updateFileCatalog(assets string, pairs []contractPair) error {
 				"consumers": []string{consumer}, "media_type": "application/json",
 				"disposition": "ADDED", "checksum_inclusion": true, "exclusion_reason": nil,
 			})
+		}
+	}
+
+	for path, pair := range map[string]string{"sot/schemas/mulgae-run-support-index.v4.schema.json": "sot/examples/run-support-index.v4.valid.json", "sot/examples/run-support-index.v4.valid.json": "sot/schemas/mulgae-run-support-index.v4.schema.json"} {
+		if _, exists := byPath[path]; !exists {
+			document.Files = append(document.Files, map[string]any{"path": path, "pair": pair, "schema_id": "https://mulgae.local/schemas/mulgae-run-support-index.v4.schema.json", "consumers": []string{"requirements-assessment"}, "media_type": "application/json", "disposition": "ADDED", "checksum_inclusion": true, "exclusion_reason": nil})
 		}
 	}
 	sort.Slice(document.Files, func(i, j int) bool {

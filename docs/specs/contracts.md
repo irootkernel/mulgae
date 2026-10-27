@@ -468,7 +468,6 @@ binds selection metadata; mutable workspace/index content has no atomic digest.
 Source closure and provider drain precede the existing P0/P1/P2 commit.
 The captured layouts below are historical and remain readable unchanged.
 
-
 The ordinary run layout below includes an optional retained recovery namespace
 for failed or cancelled runs. A top-level review file grants final-review
 authority only after a verified P2 commit.
@@ -1223,7 +1222,6 @@ schema examples remain available for explicit backward validation; current CLI
 envelopes use v22. MCP retains its v1 common envelope, whose `data` object
 carries the extended status projection.
 
-
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
@@ -1388,3 +1386,26 @@ Command-result v21 and preflight v9 remain frozen. Requirements-bearing executio
 is rejected by the common application boundary before preparing providers or
 creating the private publication directory. Objective-only execution and the MCP
 start/await/cancel lifecycle remain available.
+
+### Internal requirements producer
+
+TASK-028 implements requirements on the internal live service. Public CLI/MCP
+execution remains guarded, and objective-only requests continue to publish v3.
+Internal requirements requests publish v4 final/manifest records with a matching
+`requirements_support` binding and a v4 support index covering exact input,
+bounded support metadata and every ordinal item content body. The existing
+atomic publication owner handles interruption and restart; damaged bound support
+is an integrity failure. The input and content bodies retain no product byte
+ceiling, while metadata keeps its existing structured bounds.
+
+Provider wire v2 names provider output v3 and optionally contains a
+`mulgae-provider-requirements.v1` section under `requirements`. Runtime validation
+separates that unbounded section from the bounded finding projection. The trusted
+normalized v3 value combines accepted findings with verifier-owned assessment
+content in memory and supports unbounded serialization. A partial section result
+claims no complete normalized finding envelope. It remains available for ordered
+assessment normalization and the independent role/report/finding axes.
+
+TASK-029 must add verified v4 readers, export/cleanup policy and the explicit-null
+v4 producer for requests without requirements before public activation. Preflight
+v11 and command-result v23 own that cutover; frozen v10/v22 stay unchanged.

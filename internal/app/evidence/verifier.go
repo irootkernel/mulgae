@@ -276,11 +276,12 @@ func (code ReasonCode) Valid() bool {
 // canonical input identity. ExcerptSHA256 is populated only after source bytes
 // selected a valid line range; Excerpt exposes bytes only when verified.
 type CurrentReceipt struct {
-	claim           CurrentClaim
-	status          ReceiptStatus
-	reason          ReasonCode
-	excerptSHA256   string
-	verifiedExcerpt []byte
+	sourceFileSHA256 string
+	claim            CurrentClaim
+	status           ReceiptStatus
+	reason           ReasonCode
+	excerptSHA256    string
+	verifiedExcerpt  []byte
 }
 
 // Claim returns the canonical current claim identity that was verified.
@@ -296,6 +297,10 @@ func (receipt CurrentReceipt) ReasonCode() ReasonCode { return receipt.reason }
 // selected a valid range. A quote mismatch has a digest but never exposes its
 // selected bytes.
 func (receipt CurrentReceipt) ExcerptSHA256() string { return receipt.excerptSHA256 }
+
+// SourceFileSHA256 identifies only the cited file bytes already read for a
+// verified claim. It is an observation, not an atomic source-tree fingerprint.
+func (receipt CurrentReceipt) SourceFileSHA256() string { return receipt.sourceFileSHA256 }
 
 // Excerpt returns a defensive copy of the verified excerpt. It returns nil for
 // stale, invalid, and unverifiable receipts even if a range was selected.
@@ -376,7 +381,10 @@ func (verifier *Verifier) VerifyCurrent(ctx context.Context, claim CurrentClaim)
 	if !bytes.Equal(claim.quote, excerpt) {
 		return newReceipt(claim, ReceiptInvalid, ReasonQuoteMismatch, excerptSHA256, nil), nil
 	}
-	return newReceipt(claim, ReceiptVerified, ReasonVerified, excerptSHA256, excerpt), nil
+	receipt := newReceipt(claim, ReceiptVerified, ReasonVerified, excerptSHA256, excerpt)
+	digest := sha256.Sum256(targetBytes)
+	receipt.sourceFileSHA256 = "sha256:" + hex.EncodeToString(digest[:])
+	return receipt, nil
 }
 
 func newReceipt(claim CurrentClaim, status ReceiptStatus, reason ReasonCode, excerptSHA256 string, verifiedExcerpt []byte) CurrentReceipt {

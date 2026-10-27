@@ -400,8 +400,9 @@ Current execution follows [live workspace and Git review](live-workspace-and-git
 [Verified review contracts](verified-review-contracts.md) retains historical
 capture/guard and composite-support obligations. The reduced
 [EPIC-008 design](review-completeness-and-iteration.md) plans optional requirements
-assessment. Local input admission and provider-free preflight are implemented;
-requirements-bearing execution and verified reads remain unavailable.
+assessment. Local input admission, provider-free preflight and internal assessment
+execution/publication are implemented; public requirements execution and verified
+reads remain unavailable.
 
 - Keep independent project binding and anchored-root revalidation before
   qualification or provider transmission. Local identity is not a content
@@ -456,6 +457,20 @@ input; ordinary requirement prose remains unbounded. Only IDs, owners, counts,
 digest and fixed admission/policy states enter the preflight response. Public
 requirements execution is rejected before provider preparation or publication
 writes; malformed input on a no-change preflight does not authorize a result.
+
+Internal assessment evidence uses the selected source side while its original
+lease remains open. A comparison with the exact admitted input digest rejects
+self-prose at the input path without excluding distinct index or committed
+implementation bytes at that same path. Only the already-read cited file is
+hashed; this creates no source inventory or persisted content lock. Visual
+references must retain their selected-side binary binding.
+
+The assessment section is decoded strictly without the generic 8 MiB envelope
+limit on prose. Trusted ownership violations and source/validator failures retain
+canonical joined-error precedence and deny publication. Ordinary content failure
+in one section preserves a valid peer and its accepted primary report. Bound
+input/content bodies remain private publication support and enter no current
+public assessment read or portable export contract.
 
 Batch execution, cross-run comparison, resolution transfer and conflict
 reduction are outside this Epic. Requirements assessment grants no issue

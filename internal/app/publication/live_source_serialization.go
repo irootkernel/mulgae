@@ -74,11 +74,19 @@ func (candidate PreparedCandidate) manifestTargetWire() manifestTargetWire {
 }
 
 func (candidate PreparedCandidate) artifactVersion(legacy string) string {
-	return strings.TrimSuffix(legacy, ".v1") + ".v3"
+	version := ".v3"
+	if candidate.requirements != nil {
+		version = ".v4"
+	}
+	return strings.TrimSuffix(legacy, ".v1") + version
 }
 
 func (candidate PreparedCandidate) artifactSchema(legacy string) string {
-	return strings.Replace(legacy, ".v1.schema.json", ".v3.schema.json", 1)
+	version := ".v3.schema.json"
+	if candidate.requirements != nil {
+		version = ".v4.schema.json"
+	}
+	return strings.Replace(legacy, ".v1.schema.json", version, 1)
 }
 
 func (candidate PreparedCandidate) buildLiveSupport(existing []ports.ImmutablePublicationArtifact) ([]ports.ImmutablePublicationArtifact, error) {
@@ -135,6 +143,9 @@ func validateLiveTargetWire(target finalTargetWire) (evidence.LiveSourceIdentity
 }
 
 func validateLiveSupport(final finalReviewWire, artifacts map[string]ports.ImmutablePublicationArtifact) error {
+	if err := validatePublishedRequirements(final, artifacts); err != nil {
+		return err
+	}
 	session, err := domain.ParseSessionID(final.SessionID)
 	if err != nil {
 		return err
@@ -194,6 +205,9 @@ func publicationOptionalStringsEqual(left, right *string) bool {
 
 func finalArtifactVersion(final finalReviewWire) string {
 	if final.Target.LiveSource != nil {
+		if final.SchemaVersion == artifactwire.ReviewArtifactV4 {
+			return artifactwire.ReviewArtifactV4
+		}
 		return artifactwire.ReviewArtifactV3
 	}
 	return lineageVersion(artifactwire.ReviewArtifactV1, final.ImmutableLineage.SourceRecoveryManifestSHA256)
@@ -201,12 +215,21 @@ func finalArtifactVersion(final finalReviewWire) string {
 
 func manifestArtifactVersion(final finalReviewWire) string {
 	if final.Target.LiveSource != nil {
+		if final.SchemaVersion == artifactwire.ReviewArtifactV4 {
+			return artifactwire.RunManifestV4
+		}
 		return artifactwire.RunManifestV3
 	}
 	return lineageVersion(artifactwire.RunManifestV1, final.ImmutableLineage.SourceRecoveryManifestSHA256)
 }
 
 func validatePublicationTargetFormats(final finalReviewWire, manifest runManifestWire) error {
+	if (final.RequirementsSupport == nil) != (manifest.RequirementsSupport == nil) || final.RequirementsSupport != nil && *final.RequirementsSupport != *manifest.RequirementsSupport {
+		return fmt.Errorf("requirements publication: final/manifest binding mismatch")
+	}
+	if final.SchemaVersion != artifactwire.ReviewArtifactV4 && final.RequirementsSupport != nil {
+		return fmt.Errorf("requirements publication: legacy binding")
+	}
 	if final.Target.LiveSource == nil {
 		if final.Target.ManifestPath != targetManifestPath || !validSHA256(final.Target.ContentSHA256) || manifest.Target.SourceIdentitySHA256 != "" || final.Provenance.LiveProduction != nil {
 			return fmt.Errorf("captured publication contains live source authority")
