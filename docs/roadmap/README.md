@@ -33,7 +33,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
 | [EPIC-012](#epic-012-correctness-and-historical-compatibility) | Completed | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
 | [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
-| [EPIC-014](#epic-014-application-and-contract-ownership) | In Progress | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
+| [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 
 ## Adopted execution order
 
@@ -51,10 +51,9 @@ and Master accepted the completed Epic result on 2026-10-24.
 EPIC-014's original scope is complete: TASK-060 through TASK-067 are completed
 and certified, and Master accepted that result. On 2026-10-27, Master adopted
 TASK-068 and TASK-069 as follow-ups for AGY and Grok CLI compatibility
-failures found during the deferred live certification. Both Tasks are complete.
-Require explicit acceptance of the follow-up scope before closing the reopened
-Epic again. The original acceptance and
-completed Tasks remain recorded. Its prerequisite, explicit
+failures found during the deferred live certification. Both Tasks are complete,
+and Master accepted the follow-up scope after integrated verification. The
+original acceptance and completed Tasks remain recorded. Its prerequisite, explicit
 acceptance of EPIC-013, was satisfied; it does not depend on Deferred EPIC-008. Under
 Master's quota-preservation decision, development and Epic acceptance of
 EPIC-014 used the
@@ -804,12 +803,11 @@ Master accepted the completed Epic result on 2026-10-24.
 
 ## EPIC-014: Application and contract ownership
 
-Status: In Progress
+Status: Completed
 
 The original TASK-060 through TASK-067 scope remains accepted. Master adopted
-TASK-068 and TASK-069 on 2026-10-27. Both Tasks are complete. The Epic remains
-open until Master accepts the follow-up scope. The original acceptance does
-not extend to them.
+TASK-068 and TASK-069 on 2026-10-27. Both Tasks are complete, and Master
+accepted the follow-up scope after integrated verification.
 
 Depends on: completed and explicitly accepted EPIC-013. No EPIC-008 dependency.
 
@@ -822,6 +820,8 @@ Canonical Outcomes:
 - [Live reviewer execution](../architecture/README.md#live-reviewer-execution): shared correlation, diagnostic and read-plan mechanics with family-specific authority, permission, cancellation, EOF and exit rules (`a4d14e2`).
 - [Composite support ownership](../architecture/README.md#composite-support-ownership): retired execution/writer removal with historical readers, v2 archive reconstruction, capture encoding, recovery and live multi-file P2 retained; large role-report reads preserve exact bytes and integrity (`cc4a47d`).
 - [Ownership guards](../architecture/README.md#ownership-guards), [internal file responsibilities](../architecture/README.md#internal-file-responsibilities) and [relocation checks](../implementation-tips/README.md#ownership-guard-and-relocation-checks): targeted dependency/request-route controls and three same-package pure moves (`8197922`).
+- [AGY native policy compatibility](../architecture-decision-records/agy-stream-json-transport.md): minimum-version admission and safe settings normalization without version allowlists, with exact native command and credential restrictions (`39b7b26`).
+- [Grok native policy integrity](../specs/security.md#provider-isolation): enforced requirements retained across native bookkeeping, post-drain policy audits and same-provider extraction controls (`8d7fa2c`).
 - [Deferred feedback](../deferred-feedback/README.md#deferred-feedback): DF-007, DF-012, DF-013, DF-014, DF-022, DF-024 and DF-025 have delivered resolutions. DF-026, DF-027 and DF-028 remain open; DF-029 remains with its existing owner.
 - [Verification guidance](../implementation-tips/README.md#verification-for-the-adopted-review-epics): retained compatibility controls, native serialized execution and compile-only tagged checks. Grok, Cursor, AGY and Codex live campaigns remain deferred to the `v0.1.26` five-provider release gate.
 
@@ -874,7 +874,8 @@ installed executables or persistent provider settings.
 ### Epic acceptance
 
 The recorded acceptance below covers the original TASK-060 through TASK-067
-scope. Acceptance of the follow-up scope remains pending.
+scope. Master also accepted the completed follow-up scope after its integrated
+verification.
 
 - [x] Every original member Task has implementation and verification evidence for the exact candidate (`58bbc89`, `028257e`, `41ad32a`, correction `217f813`, `31b3e18`, `a4d14e2`, `cc4a47d`, `8197922`, and `e5de637`).
 - [x] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
@@ -887,4 +888,4 @@ scope. Acceptance of the follow-up scope remains pending.
 
 - [x] TASK-068 has implementation evidence and passes its task-owned checks and exact-candidate AGY live certification.
 - [x] TASK-069 has implementation evidence and passes its task-owned checks and exact-candidate Grok live certification.
-- [ ] Master explicitly accepts the follow-up scope before the reopened Epic returns to Completed.
+- [x] Master explicitly accepts the follow-up scope before the reopened Epic returns to Completed.
