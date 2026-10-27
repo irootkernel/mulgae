@@ -1,0 +1,611 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-requirements-read.v1.schema.json",
+  "title": "Mulgae Requirements Read v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt",
+    "availability",
+    "input_sha256",
+    "selected_count",
+    "evaluated_count",
+    "items",
+    "next_cursor"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-requirements-read.v1"
+    },
+    "receipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "project_binding",
+            "session_id",
+            "run_id",
+            "review_id",
+            "run_type",
+            "target_sha256",
+            "final_sha256",
+            "manifest_sha256",
+            "support_sha256",
+            "lineage_sha256",
+            "epoch",
+            "capture_identity",
+            "capture_availability"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": "mulgae-publication-receipt.v1"
+            },
+            "project_binding": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "session_id": {
+              "type": "string",
+              "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "run_id": {
+              "type": "string",
+              "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "review_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "run_type": {
+              "type": "string",
+              "enum": [
+                "review",
+                "followup",
+                "delta",
+                "rerun",
+                "composite"
+              ]
+            },
+            "target_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "final_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "manifest_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "support_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "lineage_sha256": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "not": {
+                    "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                  }
+                },
+                {
+                  "const": ""
+                }
+              ]
+            },
+            "epoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 18446744073709551615
+            },
+            "capture_identity": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "not": {
+                    "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                  }
+                },
+                {
+                  "const": ""
+                }
+              ]
+            },
+            "capture_availability": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "capture_identity_unavailable"
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "capture_availability": {
+                    "const": "verified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "capture_identity": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "not": {
+                      "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                    }
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "capture_identity": {
+                    "const": ""
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "project_binding",
+            "session_id",
+            "run_id",
+            "review_id",
+            "run_type",
+            "source_identity_sha256",
+            "final_sha256",
+            "manifest_sha256",
+            "support_sha256",
+            "lineage_sha256",
+            "epoch",
+            "capture_identity",
+            "capture_availability"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": "mulgae-publication-receipt.v2"
+            },
+            "project_binding": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "session_id": {
+              "type": "string",
+              "pattern": "^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "run_id": {
+              "type": "string",
+              "pattern": "^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "review_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "run_type": {
+              "const": "review"
+            },
+            "final_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "manifest_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "support_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "lineage_sha256": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "not": {
+                    "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                  }
+                },
+                {
+                  "const": ""
+                }
+              ]
+            },
+            "epoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 18446744073709551615
+            },
+            "capture_identity": {
+              "const": ""
+            },
+            "capture_availability": {
+              "const": "not_captured"
+            },
+            "source_identity_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "availability": {
+      "enum": [
+        "not_requested",
+        "unavailable",
+        "not_run",
+        "evaluated"
+      ]
+    },
+    "input_sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "selected_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evaluated_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "items": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requirement_id",
+          "owner_role",
+          "verdict",
+          "origin",
+          "reason",
+          "content_path",
+          "content_sha256",
+          "content_byte_length"
+        ],
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+          },
+          "owner_role": {
+            "enum": [
+              "logic",
+              "security",
+              "maintainability",
+              "product",
+              "documentation",
+              "testing",
+              "artist"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "met",
+              "partially_met",
+              "unmet",
+              "unverified"
+            ]
+          },
+          "origin": {
+            "enum": [
+              "provider",
+              "mulgae_derived"
+            ]
+          },
+          "reason": {
+            "enum": [
+              "",
+              "insufficient_evidence",
+              "extraction_disabled",
+              "extraction_allowance_consumed",
+              "answer_omitted",
+              "invalid_assessment",
+              "no_change_target"
+            ]
+          },
+          "content_path": {
+            "type": "string",
+            "pattern": "^requirements/items/0[0-9]{2}\\.json$"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "content_byte_length": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "origin": {
+                  "const": "mulgae_derived"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "verdict": {
+                  "const": "unverified"
+                },
+                "reason": {
+                  "enum": [
+                    "extraction_disabled",
+                    "extraction_allowance_consumed",
+                    "answer_omitted",
+                    "invalid_assessment",
+                    "no_change_target"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "if": {
+                "properties": {
+                  "verdict": {
+                    "const": "unverified"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "reason": {
+                    "const": "insufficient_evidence"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "reason": {
+                    "const": ""
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "availability": {
+            "not": {
+              "const": "unavailable"
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "receipt": {
+            "properties": {
+              "schema_version": {
+                "const": "mulgae-publication-receipt.v2"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "availability": {
+            "const": "unavailable"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "selected_count": {
+            "type": "null"
+          },
+          "evaluated_count": {
+            "type": "null"
+          },
+          "input_sha256": {
+            "type": "null"
+          },
+          "items": {
+            "maxItems": 0
+          },
+          "next_cursor": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "selected_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "evaluated_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "availability": {
+            "const": "not_requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "selected_count": {
+            "const": 0
+          },
+          "evaluated_count": {
+            "const": 0
+          },
+          "input_sha256": {
+            "type": "null"
+          },
+          "items": {
+            "maxItems": 0
+          },
+          "next_cursor": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "availability": {
+            "enum": [
+              "not_run",
+              "evaluated"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "input_sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "selected_count": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "availability": {
+            "const": "not_run"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evaluated_count": {
+            "const": 0
+          },
+          "items": {
+            "items": {
+              "properties": {
+                "origin": {
+                  "const": "mulgae_derived"
+                },
+                "reason": {
+                  "const": "no_change_target"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "items": {
+            "items": {
+              "properties": {
+                "reason": {
+                  "not": {
+                    "const": "no_change_target"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

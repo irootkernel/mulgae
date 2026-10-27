@@ -598,6 +598,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-provider-requirements.v1.schema.json",
+      "path": "sot/examples/provider-requirements.v1.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-provider-requirements.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "provider-output-validator"
       ],
       "disposition": "ADDED",
@@ -678,6 +690,54 @@
       "pair": "sot/schemas/mulgae-repair-request.v1.schema.json",
       "path": "sot/examples/repair-request.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-repair-request.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-requirement-content.v1.schema.json",
+      "path": "sot/examples/requirement-content.v1.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirement-content.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-requirements-input.v1.schema.json",
+      "path": "sot/examples/requirements-input.v1.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirements-input.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-requirements-read.v1.schema.json",
+      "path": "sot/examples/requirements-read.v1.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirements-read.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-requirements-support.v1.schema.json",
+      "path": "sot/examples/requirements-support.v1.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirements-support.v1.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -1588,6 +1648,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/examples/provider-requirements.v1.valid.json",
+      "path": "sot/schemas/mulgae-provider-requirements.v1.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-provider-requirements.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "provider-output-validator"
       ],
       "disposition": "ADDED",
@@ -1668,6 +1740,54 @@
       "pair": "sot/examples/repair-request.json",
       "path": "sot/schemas/mulgae-repair-request.v1.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-repair-request.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/examples/requirement-content.v1.valid.json",
+      "path": "sot/schemas/mulgae-requirement-content.v1.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirement-content.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/examples/requirements-input.v1.valid.json",
+      "path": "sot/schemas/mulgae-requirements-input.v1.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirements-input.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/examples/requirements-read.v1.valid.json",
+      "path": "sot/schemas/mulgae-requirements-read.v1.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirements-read.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/examples/requirements-support.v1.valid.json",
+      "path": "sot/schemas/mulgae-requirements-support.v1.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirements-support.v1.schema.json"
     },
     {
       "checksum_inclusion": true,

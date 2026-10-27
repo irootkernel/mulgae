@@ -1,0 +1,21 @@
+{
+  "schema_version": "mulgae-requirements-support.v1",
+  "input_path": "requirements/input.json",
+  "input_sha256": "sha256:069a86dd6300603e51ce3d6c658a452e28d9c76756e208053093ac992d7eec8c",
+  "input_byte_length": 287,
+  "availability": "not_run",
+  "selected_count": 1,
+  "evaluated_count": 0,
+  "items": [
+    {
+      "requirement_id": "RCI-001",
+      "owner_role": "logic",
+      "verdict": "unverified",
+      "origin": "mulgae_derived",
+      "reason": "no_change_target",
+      "content_path": "requirements/items/000.json",
+      "content_sha256": "sha256:60e1fe8e04931b408e368f2373d00d5ed2b387d2b2c99d30d57f6bc1e17f9bd8",
+      "content_byte_length": 252
+    }
+  ]
+}

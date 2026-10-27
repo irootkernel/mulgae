@@ -1,0 +1,26 @@
+{
+  "schema_version": "mulgae-provider-requirements.v1",
+  "assessments": [
+    {
+      "requirement_id": "RCI-001",
+      "verdict": "met",
+      "rationale": "The source reader opens the selected index object.",
+      "evidence": [
+        {
+          "current": {
+            "path": "reader.go",
+            "line_start": 12,
+            "line_end": 12,
+            "side": "index",
+            "quote": "readIndex(path)"
+          }
+        }
+      ],
+      "examined_scope": "reader.go index path",
+      "limitations": [
+        "Runtime behavior was not executed."
+      ],
+      "reason": ""
+    }
+  ]
+}

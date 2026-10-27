@@ -1355,3 +1355,12 @@ bytes, distinct from the domain-separated evidence identity. Empty content is
 supported by the chunk contract where the underlying item permits it; existing
 role-report and excerpt contracts require nonempty content. Legacy
 `report --output-path PATH` remains the explicit file-writing operation.
+
+## Requirements-assessment foundations
+
+The [frozen EPIC-008 contracts](review-completeness-and-iteration.md#frozen-requirements-assessment-contracts)
+own optional input, assessment accounting, bounded support/read metadata and
+unbounded retained content. TASK-026 supplies their schemas and semantic
+foundations without changing current review grammar or execution capabilities.
+Current commands still emit v21, preflight v9 and live artifacts/manifests v3;
+the owning later Tasks introduce the reserved integration versions.

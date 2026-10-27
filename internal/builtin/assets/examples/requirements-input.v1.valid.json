@@ -1,0 +1,13 @@
+{
+  "schema_version": "mulgae-requirements-input.v1",
+  "requirements": [
+    {
+      "id": "RCI-001",
+      "text": "Preserve explicitly selected source sides.",
+      "acceptance_criteria": [
+        "Staged evidence uses index bytes."
+      ],
+      "owner_role": "logic"
+    }
+  ]
+}

@@ -7,7 +7,8 @@ on 2026-10-27.
 The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 owns lifecycle and the five implementation Tasks. The
 [development dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
-owns their temporary execution detail. This feature is unimplemented.
+owns their temporary execution detail. Contract foundations are available. Public
+requirements input, execution and reads remain unimplemented.
 Current behavior remains defined by [contracts](contracts.md) and
 [live workspace and Git review](live-workspace-and-git-review.md).
 
@@ -273,6 +274,145 @@ together; provider-free preflight can precede execution.
 Objective-only execution stays available throughout. Use the existing capability
 mechanism; add no general feature-flag system.
 
+## Frozen requirements-assessment contracts
+
+TASK-026 supplies contract values, strict byte decoders and schema/semantic
+foundations. Filesystem admission, provider integration, publication and public
+reads remain assigned to TASK-027 through TASK-029. The current CLI/MCP grammar
+and execution capabilities remain unchanged at this foundation checkpoint.
+
+### Versions and ownership
+
+| Contract | Version and contents | Owner |
+|---|---|---|
+| Invocation input | `mulgae-requirements-input.v1`: `schema_version`, `requirements`; each item has `id`, `text`, `acceptance_criteria`, `owner_role` | `validation` decodes bytes; `reviewrun` admits the local file and selected roles |
+| Provider assessment section | `mulgae-provider-requirements.v1`: `schema_version`, `assessments`; each answer has `requirement_id`, `verdict`, `rationale`, `evidence`, `examined_scope`, `limitations`, `reason` | `validation`; providers supply only assigned content |
+| Publication metadata | `mulgae-requirements-support.v1`: exact input path/digest/byte length, availability, selected/evaluated counts and normalized item metadata | `publication` |
+| Per-item content | `mulgae-requirement-content.v1`: requirement ID, rationale, evidence, examined scope and limitations | `validation` checks content; `publication` retains exact bytes |
+| Verified metadata read | `mulgae-requirements-read.v1`: publication receipt, availability, input digest, nullable counts, item metadata and continuation cursor | `query`; CLI/MCP project the same result |
+
+A supplied input contains 1 through 100 requirements, each with 1 through 32
+criteria. Text must be nonblank UTF-8 without NUL. IDs retain their exact ASCII
+spelling and case. No requirement prose byte limit applies. Secure local-file
+admission must run independently of selected-source/artist admission: an untracked
+local file can accompany an index or committed target without changing the
+implementation evidence side.
+
+`origin` is `provider` or `mulgae_derived`. A provider's accepted unverified answer
+uses `reason=insufficient_evidence` and counts as evaluated. Other valid provider
+verdicts use an empty reason. Mulgae-derived rows always have verdict `unverified`
+and one of these reasons:
+
+| Reason | Condition |
+|---|---|
+| `extraction_disabled` | No assessment section is available and optional extraction is disabled. |
+| `extraction_allowance_consumed` | No assessment section is available and retry/repair already consumed the shared additional invocation. |
+| `answer_omitted` | A valid section omits an assigned ID, or an eligible extraction finishes without its answer. |
+| `invalid_assessment` | The available assessment section fails ordinary validation. |
+| `no_change_target` | Admission classified the selected original-source target as no-change. |
+
+A valid available section determines its own answers and omissions even when
+extraction is disabled. An invalid available section determines
+`invalid_assessment`; disabled-policy and consumed-allowance reasons describe
+absence of a usable section, not an otherwise valid provider answer. No-change
+classification takes the provider-free branch before any qualification or review
+call. Protected failures retain precedence over every assessment result and deny
+publication under the existing failure policy.
+
+### Unbounded content and bounded metadata
+
+The exact input is retained at `requirements/input.json`. Bounded support metadata
+is retained at `requirements/support.json`. Its `input_sha256` and
+`input_byte_length` describe the exact admitted bytes, including whitespace.
+Each metadata row contains only `requirement_id`, `owner_role`, `verdict`, `origin`,
+`reason`, `content_path`, `content_sha256` and `content_byte_length`.
+
+Content paths are `requirements/items/000.json` through
+`requirements/items/099.json` in input order. Ordinal paths keep case-sensitive IDs
+from colliding on case-insensitive filesystems. Reject duplicate or misbound paths,
+IDs or owners, missing rows, false counts, changed input bytes, and missing or
+altered referenced content. A metadata decoder needs the admitted immutable item
+set, exact input bytes and trusted selected-source no-change state.
+
+Per-item content holds unbounded rationale, examined-scope prose and limitations.
+Its dedicated strict JSON decoder does not apply the generic structured-envelope
+8 MiB limit. Source evidence retains the existing current/visual evidence fields,
+source-side rules, verification and quote bounds; binary bodies remain binary.
+A `met` or `partially_met` answer needs verified implementation evidence. An
+`unmet` answer may instead state its examined scope and at least one limitation.
+Derived rows cannot invent examined scope or evidence.
+
+Support/read envelopes contain no raw input, rationale, limitation bodies or
+quoted source. TASK-029 extends the existing verified content/chunk read owner
+for these exact support paths. Every chunk retains the publication receipt and
+complete-content digest, with the existing 16 KiB chunk bound. Metadata pages
+contain at most 100 rows and use cursors of at most 4096 bytes. A result's counts
+refer to the complete selected set, independently of page size or finding filters.
+The read path never reconstructs missing content from current source.
+Historical `unavailable` reads retain their original publication receipt v1 for
+captured ordinary/child/composite results or v2 for live results. Other availability
+states require the live v2 receipt. Never manufacture live identity for a v1
+historical publication.
+
+### Section validation and invocation policy
+
+The provider assessment section belongs to its one scheduled role and provider.
+Duplicate, foreign and wrong-owner requirement IDs reject that role's whole
+assessment section; omitted IDs receive derived rows. Providers cannot set owner,
+origin, counts, input digest, verification, publication or execution identity.
+Existing protected ownership failures remain protected. A structural or semantic
+failure confined to one ordinary section does not discard a valid other section
+or its accepted primary role report. A syntactically invalid complete response
+supplies no independently validated section. A protected failure in either section
+still denies publication.
+
+The provider section is prose-bearing input. Its strict production decoder must
+preserve unbounded rationale and limitations without passing the complete body
+through the bounded structured-envelope validator. Schema fixtures check the
+wire shape; TASK-028 supplies the production section decoder and source verifier.
+
+The initial response may supply assessments with extraction disabled. Otherwise
+assessment extraction shares the existing same-role/same-provider additional
+invocation with retry/repair. There is no assessment-specific call, per-item
+retry, provider substitution, or configuration override. Assessment success changes
+neither finding availability nor role coverage. Verdicts and missing assessments
+change neither severity policy nor operational exits.
+
+### Publication and historical compatibility
+
+| Publication | Assessment availability and counts | Required handling |
+|---|---|---|
+| Existing intact artifact without assessment support | `unavailable`; selected/evaluated counts and input digest are null | Preserve old bytes and readers; never manufacture zero coverage. |
+| New ordinary request without requirements | `not_requested`; selected/evaluated counts are zero, input digest is null | Preserve objective-only review and omit assessment support. |
+| Requirements on a no-change target | `not_run`; selected count is known and evaluated count is zero | Retain input and one derived `unverified/no_change_target` row per selected item; zero qualification/review calls, attempts and role reports. |
+| Ordinary requirements-bearing review | `evaluated`; selected count equals admitted items; evaluated count counts valid provider rows | Retain exactly one normalized row per selected item in input order, including placeholders. |
+| New artifact declares bound support that is missing or damaged | Integrity failure | Do not relabel corruption as historical absence or consult current source. |
+
+The no-change row applies to every existing admitted selector case, including
+empty-tree HEAD. No automatic workspace substitution is permitted. Counts measure
+admitted responses, not satisfaction; a valid provider unverified answer contributes
+one while a derived placeholder contributes zero.
+
+TASK-027 will introduce preflight v10 and command-result v22 together for the
+optional admission summary, including the preflight-failure version projection.
+Command-result v21 retains its embedded preflight v9 contract. TASK-028 will add
+the internal requirements-bearing provider wire v2 and normalized provider
+output v3, plus review artifact v4, run manifest v4 and support index v4. Public
+objective-only execution continues to emit v3 artifacts until TASK-029 supplies
+verified v4 readers and activates the new producer.
+
+At TASK-029 activation, every new ordinary/no-change artifact and manifest uses v4
+and contains `requirements_support`: null for a request without requirements, or
+an object with `path=requirements/support.json` and the support file `sha256`.
+Final and manifest bindings must agree and the v4 support index must cover the
+metadata, exact input and every content body. Explicit null establishes
+`not_requested`; a v3 or older artifact lacks this capability and remains
+`unavailable`. This distinction cannot be inferred from current binary version.
+TASK-029 also introduces command-result v23 and advertises
+`requirements_assessment=v1` with execution and verified reads. Existing schemas
+stay frozen and the MCP lifecycle remains unchanged. These integration versions
+are reserved decisions, not current capabilities.
+
 ## Acceptance evidence
 
 TASK-033 integrates the five Tasks against RCI-001/002/003/006/007. Cover valid
@@ -291,5 +431,5 @@ does not establish successful structured assessment. Missing structured
 assessment is an evidence gap, not permission for an unbounded retry campaign.
 
 Implementation, verification, review, commits, installation, configuration and
-release retain their separate authorization boundaries. This planning revision
-implements no runtime capability.
+release retain their separate authorization boundaries. These contract
+foundations expose no requirements-bearing runtime capability.

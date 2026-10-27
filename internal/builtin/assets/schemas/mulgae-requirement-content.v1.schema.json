@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-requirement-content.v1.schema.json",
+  "title": "Mulgae Requirement Content v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "requirement_id",
+    "rationale",
+    "evidence",
+    "examined_scope",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-requirement-content.v1"
+    },
+    "requirement_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+    },
+    "rationale": {
+      "type": "string",
+      "pattern": "^[^\\u0000]*$",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current"
+        ],
+        "properties": {
+          "current": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_identity_sha256",
+              "current_excerpt_sha256",
+              "side",
+              "path",
+              "line_start",
+              "line_end",
+              "quote",
+              "verification"
+            ],
+            "properties": {
+              "current_excerpt_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "base",
+                  "head",
+                  "worktree",
+                  "index"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "line_start": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "line_end": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "quote": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8000
+              },
+              "verification": {
+                "const": "verified"
+              },
+              "source_identity_sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          },
+          "visual": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256",
+              "bbox",
+              "verification"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "bbox": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "properties": {
+                  "x": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "y": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "verification": {
+                "const": "verified"
+              }
+            }
+          }
+        }
+      }
+    },
+    "examined_scope": {
+      "type": "string",
+      "pattern": "^[^\\u0000]*$"
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "pattern": "^[^\\u0000]*$",
+        "minLength": 1
+      }
+    }
+  }
+}

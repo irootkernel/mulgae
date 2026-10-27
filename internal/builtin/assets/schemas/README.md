@@ -76,6 +76,11 @@ Draft 2020-12 and a canonical
 | `mulgae-run-recovery.v1` | `../examples/run-recovery.v1.valid.json` |
 | `mulgae-validation-receipt.v1` | `../examples/validation-receipt.v1.valid.json` |
 | `mulgae-validation-result.v1` | `../examples/validation-result.v1.valid.json` |
+| `mulgae-requirements-input.v1` | `../examples/requirements-input.v1.valid.json` |
+| `mulgae-provider-requirements.v1` | `../examples/provider-requirements.v1.valid.json` |
+| `mulgae-requirements-support.v1` | `../examples/requirements-support.v1.valid.json` |
+| `mulgae-requirements-read.v1` | `../examples/requirements-read.v1.valid.json` |
+| `mulgae-requirement-content.v1` | `../examples/requirement-content.v1.valid.json` |
 
 Examples are structural fixtures, not evidence that a provider or platform
 contract has passed. Semantic validation, filesystem checks, cryptographic
@@ -88,3 +93,8 @@ for historical validation dependencies. Current live publications use review
 artifact v3, run manifest v3 and `mulgae-run-support-index.v3`; receipt and export v2 bind
 verified source observations. Historical ordinary, child and composite contracts
 remain readable with their original identity and integrity rules.
+
+The five requirements-assessment v1 contracts are foundations. They do not
+advertise execution support. Support/read metadata contains content references;
+raw requirements and per-item rationale/evidence content use separate retained
+files and verified content chunks under the canonical requirements specification.

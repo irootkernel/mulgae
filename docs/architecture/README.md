@@ -711,7 +711,8 @@ it; production always routes it to the descriptor-verified metadata read.
 The [revised EPIC-008 design](../architecture-decision-records/verified-review-iteration.md#reduced-epic-008-scope)
 and [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 plan optional requirements assessment within the current original-source review
-path. These additions are unimplemented.
+path. Contract foundations are available; production integration and public
+activation remain unimplemented.
 
 ```text
 optional requirements input + existing objective

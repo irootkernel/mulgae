@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mulgae.local/schemas/mulgae-provider-requirements.v1.schema.json",
+  "title": "Mulgae Provider Requirements v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "assessments"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mulgae-provider-requirements.v1"
+    },
+    "assessments": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requirement_id",
+          "verdict",
+          "rationale",
+          "evidence",
+          "examined_scope",
+          "limitations",
+          "reason"
+        ],
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+          },
+          "verdict": {
+            "enum": [
+              "met",
+              "partially_met",
+              "unmet",
+              "unverified"
+            ]
+          },
+          "rationale": {
+            "type": "string",
+            "pattern": "^[^\\u0000]*$",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "current"
+              ],
+              "properties": {
+                "current": {
+                  "description": "Provider location claim. Mulgae injects target_sha256 and verification=claimed; the provider must not supply either field.",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "line_start",
+                    "line_end",
+                    "side",
+                    "quote"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096,
+                      "pattern": "^(?!/)(?!.*//)(?!.*\\/$)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$"
+                    },
+                    "line_start": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "line_end": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": [
+                        "base",
+                        "head",
+                        "worktree",
+                        "index"
+                      ]
+                    },
+                    "quote": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "visual": {
+                  "description": "Provider claim against one captured design-spec raster.",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "path",
+                    "sha256",
+                    "bbox"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096,
+                      "pattern": "^(?!/)(?!.*//)(?!.*\\/$)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\\u0000\\r\\n]).+$"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "bbox": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "x",
+                        "y",
+                        "width",
+                        "height"
+                      ],
+                      "properties": {
+                        "x": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "y": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "width": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "height": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "examined_scope": {
+            "type": "string",
+            "pattern": "^[^\\u0000]*$"
+          },
+          "limitations": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "pattern": "^[^\\u0000]*$",
+              "minLength": 1
+            }
+          },
+          "reason": {
+            "enum": [
+              "",
+              "insufficient_evidence"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "verdict": {
+                  "enum": [
+                    "met",
+                    "partially_met"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "evidence": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "verdict": {
+                  "const": "unverified"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "reason": {
+                  "const": "insufficient_evidence"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "reason": {
+                  "const": ""
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "verdict": {
+                  "const": "unmet"
+                },
+                "evidence": {
+                  "maxItems": 0
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "examined_scope": {
+                  "minLength": 1
+                },
+                "limitations": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

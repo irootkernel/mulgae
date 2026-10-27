@@ -4,7 +4,8 @@ This temporary dossier defines the reduced requirements-assessment work approved
 on 2026-10-27. The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 owns identity, lifecycle, membership and order. The
 [specification](../specs/review-completeness-and-iteration.md) owns required behavior.
-Implementation has not begun.
+TASK-026 contract foundations are complete. Public requirements-bearing
+execution remains unavailable.
 
 ## Goal, dependencies and execution boundary
 
@@ -18,11 +19,9 @@ each depends on its predecessor. No completed Epic is reopened. Re-read current
 code and native contracts before implementation; the source layout in older
 designs is not an instruction to restore retired packages.
 
-The current approval covers planning documents only. The next session must
-establish an implementation envelope, verification and review route. No
-implementation review route was selected in this conversation. No provider
-call, runtime-session mutation, staging, commit, installation or release is
-authorized by this document revision.
+The approved Epic execution envelope governs implementation, verification and
+review. This dossier defines work and grants no separate installation, provider
+configuration or release authority.
 
 ## Exclusions and reserved identities
 
@@ -56,25 +55,25 @@ configuration migration or platform is part of this Epic.
 
 ## TASK-026: Freeze the reduced contracts
 
-- [ ] Define optional CLI `--requirements PATH` and MCP `requirements_path`
+- [x] Define optional CLI `--requirements PATH` and MCP `requirements_path`
       on existing review/preflight inputs, usable alongside the existing objective.
-- [ ] Freeze strict JSON input, assigned IDs/owner roles, four verdicts, reasons,
+- [x] Freeze strict JSON input, assigned IDs/owner roles, four verdicts, reasons,
       selected/evaluated counts, provider versus Mulgae-derived origin and
       not-requested/unavailable/not-run/evaluated availability. Valid provider
       unverified answers count as evaluated; placeholders do not.
-- [ ] Freeze reasons for disabled extraction, consumed allowance, omitted answers
+- [x] Freeze reasons for disabled extraction, consumed allowance, omitted answers
       and invalid assessment content, plus the specification's independent-section
       outcome matrix, whole-response parse failures and protected precedence.
-- [ ] Define separate versioned assessment/publication/read contracts and the
+- [x] Define separate versioned assessment/publication/read contracts and the
       old/new support matrix; preserve current objective limits and source policy.
-- [ ] Specify normal assessment results and provider-free no-change results.
+- [x] Specify normal assessment results and provider-free no-change results.
       The latter retain zero calls, no fabricated attempts/reports and one
       `unverified/no_change_target` row per selected item for every existing
       no-change case, including empty-tree HEAD.
-- [ ] Separate admitted local requirements bytes/digest from implementation
+- [x] Separate admitted local requirements bytes/digest from implementation
       evidence selected from workspace, index or resolved Git objects. The
       requirements file need not exist in the reviewed commit.
-- [ ] Add needed schema/example and semantic foundations without advertising
+- [x] Add needed schema/example and semantic foundations without advertising
       unimplemented execution. Do not implement batch or comparison foundations.
 
 Verify invalid input/ownership, missing answers, trusted-field ownership, paired
@@ -196,10 +195,10 @@ and the bounded live assessment. Zero findings or a model's `met` verdict
 cannot substitute for verification. Keep all requirement checkboxes unchecked
 until their behavior is verified.
 
-The documentation-only revision moves the adopted work to Planned. It does not
-start Task execution or accept the completed Epic. The next implementation
-session begins at TASK-026 under `aquarium:epic-handler`, using the canonical
-roadmap and this revised dossier, and obtains the implementation/review envelope.
+TASK-026 supplies the frozen contracts and tested foundations. TASK-027 continues
+with local-file admission and provider-free preflight under the approved
+`aquarium:epic-handler` envelope. Later Tasks retain their planned execution and
+acceptance obligations; the contract foundation does not accept the Epic.
 
 Before eventual Epic closeout, promote durable outcomes to their canonical
 owners, replace this Epic's Detailed SOT with Canonical Outcomes, remove this

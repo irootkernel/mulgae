@@ -1,0 +1,10 @@
+{
+  "schema_version": "mulgae-requirement-content.v1",
+  "requirement_id": "RCI-001",
+  "rationale": "The selected source contains no review candidates.",
+  "evidence": [],
+  "examined_scope": "",
+  "limitations": [
+    "Evaluation did not run."
+  ]
+}

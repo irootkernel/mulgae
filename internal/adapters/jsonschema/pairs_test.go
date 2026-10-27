@@ -261,6 +261,11 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json", "example:run-manifest.v3.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-validation-receipt.v1.schema.json", "example:validation-receipt.v1.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-validation-result.v1.schema.json", "example:validation-result.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-requirements-input.v1.schema.json", "example:requirements-input.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-provider-requirements.v1.schema.json", "example:provider-requirements.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-requirements-support.v1.schema.json", "example:requirements-support.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-requirements-read.v1.schema.json", "example:requirements-read.v1.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-requirement-content.v1.schema.json", "example:requirement-content.v1.valid.json"},
 }
 
 func TestValidatorAcceptsExactAuthoritativePairs(t *testing.T) {

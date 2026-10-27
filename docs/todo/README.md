@@ -16,7 +16,7 @@ task identity, ordering, dependencies, and status.
   plans optional explicit requirements assessment within one ordinary review,
   with verified result inspection. Its five Tasks exclude batch rechecks and
   cross-run comparison. The roadmap preserves those Deferred Task records
-  separately; implementation has not begun.
+  separately; contract foundations are complete.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply

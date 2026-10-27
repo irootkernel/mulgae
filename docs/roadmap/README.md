@@ -27,7 +27,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 | [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
-| [EPIC-008](#epic-008-review-completeness-and-iteration) | Planned | Add optional explicit requirements assessment to one ordinary review and expose its results through existing verified reads. |
+| [EPIC-008](#epic-008-review-completeness-and-iteration) | In Progress | Add optional explicit requirements assessment to one ordinary review and expose its results through existing verified reads. |
 | [EPIC-009](#epic-009-live-workspace-and-git-review) | Completed | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
 | [EPIC-010](#epic-010-cursor-acp-review-provider) | Completed | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
@@ -40,10 +40,10 @@ not complete an epic without explicit epic acceptance.
 EPIC-007, EPIC-009, EPIC-010 and EPIC-011 are complete.
 EPIC-010 and EPIC-011 both depend on completed EPIC-009 and do not depend on
 each other. Master approved EPIC-008's reduced requirements-assessment scope on
-2026-10-27. Its five Planned Tasks execute as TASK-026, TASK-027, TASK-028,
+2026-10-27. Its five member Tasks execute as TASK-026, TASK-027, TASK-028,
 TASK-029 and TASK-033. TASK-030 through TASK-032 remain separate Deferred records
-outside current membership and acceptance. This revision starts no implementation
-and does not reopen EPIC-007 or block another Epic.
+outside current membership and acceptance. TASK-026 is complete; this work
+does not reopen EPIC-007 or block another Epic.
 
 EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
 and Master accepted the completed Epic result on 2026-10-22.
@@ -413,11 +413,11 @@ authority.
 
 ## EPIC-008: Review completeness and iteration
 
-Status: Planned
+Status: In Progress
 
 Master approved the reduced requirements-assessment scope on 2026-10-27.
-This replaces the earlier capture-dependent redesign hold. Implementation has
-not started; the current revision changes planning documents only.
+This replaces the earlier capture-dependent redesign hold. TASK-026 contract
+foundations are complete; public requirements-bearing execution is unavailable.
 
 Depends on: completed and accepted EPIC-007 and EPIC-009.
 
@@ -443,7 +443,7 @@ The five member Tasks run in this order; each depends on its predecessor.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-026 | Planned | Freeze optional requirements input, assigned-ID assessments, count/origin/availability, extraction-policy outcomes, independent section failures and no-change/historical contracts. | Strict input/ownership, local-input/source-evidence separation, valid provider versus placeholder counts, disabled/consumed extraction allowance, whole-response/protected failures, empty-tree HEAD, schema examples/semantics and unchanged budgets/exits. |
+| TASK-026 | Completed | Freeze optional requirements input, assigned-ID assessments, count/origin/availability, extraction-policy outcomes, independent section failures and no-change/historical contracts. | Strict input/ownership, local-input/source-evidence separation, valid provider versus placeholder counts, disabled/consumed extraction allowance, whole-response/protected failures, empty-tree HEAD, schema examples/semantics and unchanged budgets/exits. |
 | TASK-027 | Planned | Admit a local requirements file alongside the existing objective and expose provider-free CLI/MCP preflight; keep public requirements-bearing execution unavailable until TASK-029. | Safe input paths/Unicode/IDs/owners, untracked local input with staged/committed evidence, known disabled-extraction disclosure, invalid input on all no-change targets, zero provider calls and no target substitution. |
 | TASK-028 | Planned | Implement internal execution, validation and publication of role-owned assessments and exact input provenance; public activation remains with TASK-029. | Four verdicts, direct structured output with extraction disabled, consumed allowance, independent section outcomes, counts/origin, whole-response/protected failures, all no-change cases, integrity and restart. |
 | TASK-029 | Planned | Expose assessments through verified CLI/MCP reads and enable public requirements-bearing execution/capability together. | Count/origin/availability parity, historical unknown counts, severity-filter independence, pre-activation rejection, paging/tamper, restart, export/cleanup privacy and exact-binary consumer fixtures. |

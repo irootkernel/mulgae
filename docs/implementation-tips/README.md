@@ -617,8 +617,8 @@ The [verified review contracts](../specs/verified-review-contracts.md) and their
 [roadmap outcomes](../roadmap/README.md#epic-007-verified-review-contracts)
 retain EPIC-007's historical requirements and verification. The revised
 [EPIC-008 dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
-defines five Planned Tasks for optional requirements assessment. The
-[roadmap](../roadmap/README.md#adopted-execution-order) owns their order:
+defines five member Tasks for optional requirements assessment. TASK-026 is complete.
+The [roadmap](../roadmap/README.md#adopted-execution-order) owns their order:
 TASK-026, TASK-027, TASK-028, TASK-029, TASK-033. Deferred TASK-030 through
 TASK-032 are outside current membership and acceptance.
 
@@ -668,7 +668,7 @@ gap, not a successful demonstration or permission for unlimited retries.
 No batch recheck, comparison demonstration, provider migration or installation
 is required.
 
-For this documentation-only scope revision, read back changed files, validate
+For a documentation-only scope revision, read back changed files, validate
 links, IDs, membership, dependencies and requirement ownership, apply the
 required final prose pass, and run `git diff --check`. No runtime gate or
 provider call is needed. Planning approval establishes Planned work without
@@ -1042,3 +1042,12 @@ During development, record concise user-visible outcomes under `Added`,
 
 Never tag a dirty tree or a different commit from the one exercised by the
 release gate.
+
+## Requirements-assessment contract foundations
+
+Use the [frozen contract](../specs/review-completeness-and-iteration.md#frozen-requirements-assessment-contracts)
+when wiring the later Tasks. Requirement input and per-item content use their
+strict prose-bearing decoders without the structured-envelope byte ceiling.
+Keep support/read metadata bounded and use existing publication/digest-bound
+content chunks for large prose. Foundation checks do not establish filesystem
+admission, provider execution, publication or public read availability.

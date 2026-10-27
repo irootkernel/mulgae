@@ -258,9 +258,14 @@ func updateFileCatalog(assets string, pairs []contractPair) error {
 			byPath[targetPath] = clone
 		}
 	}
-	// EPIC-007 value contracts are catalogued independently of runtime
-	// command versions. Their source schemas and examples are hand-authored.
-	for _, name := range []string{"capture-manifest", "publication-receipt", "finding-cursor", "composite-support"} {
+	// Value contracts are catalogued independently of runtime command versions.
+	// Their source schemas and examples are hand-authored.
+	for _, name := range []string{"capture-manifest", "publication-receipt", "finding-cursor", "composite-support", "requirements-input", "provider-requirements", "requirements-support", "requirements-read", "requirement-content"} {
+		consumer := "verified-review-contracts"
+		switch name {
+		case "requirements-input", "provider-requirements", "requirements-support", "requirements-read", "requirement-content":
+			consumer = "requirements-assessment"
+		}
 		schema := "sot/schemas/mulgae-" + name + ".v1.schema.json"
 		example := "sot/examples/" + name + ".v1.valid.json"
 		for path, pair := range map[string]string{schema: example, example: schema} {
@@ -269,7 +274,7 @@ func updateFileCatalog(assets string, pairs []contractPair) error {
 			}
 			document.Files = append(document.Files, map[string]any{
 				"path": path, "pair": pair, "schema_id": "https://mulgae.local/schemas/mulgae-" + name + ".v1.schema.json",
-				"consumers": []string{"verified-review-contracts"}, "media_type": "application/json",
+				"consumers": []string{consumer}, "media_type": "application/json",
 				"disposition": "ADDED", "checksum_inclusion": true, "exclusion_reason": nil,
 			})
 		}
