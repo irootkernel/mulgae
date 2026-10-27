@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -65,7 +66,13 @@ func grokBoundaryFileContents(nativeHome, liveProjectRoot string) (map[string][]
 	if !validCanonicalAbsolute(nativeHome) || !validCanonicalAbsolute(liveProjectRoot) || nativeHome == string(filepath.Separator) || liveProjectRoot == string(filepath.Separator) {
 		return nil, fmt.Errorf("grok boundary: invalid denied root")
 	}
-	config := []byte(`[compat.claude]
+	requirements := []byte(`fail_closed = true
+allow_managed_mcp_servers_only = true
+enable_all_project_mcp_servers = false
+allowed_mcp_servers = []
+plugin_auto_update = false
+
+[compat.claude]
 agents = false
 hooks = false
 mcps = false
@@ -100,18 +107,12 @@ extra_skill_dirs = []
 enabled = []
 paths = []
 `)
-	managed := []byte(`allow_managed_mcp_servers_only = true
-enable_all_project_mcp_servers = false
-allowed_mcp_servers = []
-plugin_auto_update = false
-`)
 	sandbox := []byte("[profiles.mulgae]\n" +
 		"extends = \"workspace\"\n" +
 		"deny = [" + strconv.Quote(nativeHome) + ", " + strconv.Quote(liveProjectRoot) + "]\n")
 	return map[string][]byte{
-		"config.toml":         config,
-		"managed_config.toml": managed,
-		"sandbox.toml":        sandbox,
+		"requirements.toml": requirements,
+		"sandbox.toml":      sandbox,
 	}, nil
 }
 
@@ -147,7 +148,7 @@ func installGrokBoundaryBundle(grokHome, nativeHome, liveProjectRoot string) (gr
 			return grokBoundaryBundle{}, fmt.Errorf("grok boundary: install %s", name)
 		}
 		installed, statErr := os.Lstat(path)
-		if statErr != nil || !installed.Mode().IsRegular() || installed.Mode().Perm() != 0600 || installed.Size() != int64(len(bytes)) {
+		if statErr != nil || !safeGrokBoundaryFile(installed) || installed.Size() != int64(len(bytes)) {
 			_ = os.Remove(path)
 			return grokBoundaryBundle{}, fmt.Errorf("grok boundary: verify %s", name)
 		}
@@ -158,16 +159,26 @@ func installGrokBoundaryBundle(grokHome, nativeHome, liveProjectRoot string) (gr
 }
 
 func (bundle grokBoundaryBundle) Validate() error {
-	if !validCanonicalAbsolute(bundle.root) || len(bundle.files) != 3 {
+	if !validCanonicalAbsolute(bundle.root) || len(bundle.files) != 2 {
 		return fmt.Errorf("grok boundary: incomplete bundle")
 	}
 	for _, expected := range bundle.files {
 		info, err := os.Lstat(expected.path)
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || !os.SameFile(expected.info, info) {
+		if err != nil || !safeGrokBoundaryFile(info) || !os.SameFile(expected.info, info) {
 			return fmt.Errorf("grok boundary: policy identity drift")
 		}
-		bytes, err := os.ReadFile(expected.path)
+		file, err := os.OpenFile(expected.path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 		if err != nil {
+			return fmt.Errorf("grok boundary: policy unreadable")
+		}
+		opened, statErr := file.Stat()
+		if statErr != nil || !safeGrokBoundaryFile(opened) || !os.SameFile(expected.info, opened) || opened.Size() != int64(len(expected.bytes)) {
+			_ = file.Close()
+			return fmt.Errorf("grok boundary: policy identity drift")
+		}
+		bytes, readErr := io.ReadAll(io.LimitReader(file, int64(len(expected.bytes))+1))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil {
 			return fmt.Errorf("grok boundary: policy unreadable")
 		}
 		sum := sha256.Sum256(bytes)
@@ -176,4 +187,12 @@ func (bundle grokBoundaryBundle) Validate() error {
 		}
 	}
 	return nil
+}
+
+func safeGrokBoundaryFile(info os.FileInfo) bool {
+	if info == nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Nlink == 1 && stat.Uid == uint32(os.Geteuid())
 }

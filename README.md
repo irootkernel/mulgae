@@ -171,9 +171,12 @@ provider default for that dimension; removing a generated field restores that
 behavior.
 Grok uses ACP v1. Mulgae copies its native authentication file into a
 disposable home. It suppresses project and user configuration, disables MCP
-servers, and installs an adapter-owned read policy inside the mandatory macOS
-process boundary. Review,
-qualification, and extraction accept only correlated assistant-message text;
+servers, and retains its native security policy in an adapter-owned
+`requirements.toml` with `fail_closed = true`. Native bookkeeping may update
+`config.toml` without changing that policy. Mulgae checks the protected policy
+before invocation and after verified process drain. Grok runs inside the
+mandatory macOS process boundary. Review, qualification, and extraction accept
+only correlated assistant-message text;
 providers receive no role-report file write grant. Grok does not advertise image
 prompt support, so assigning it to `artist` fails before provider execution with
 `provider_capability_unsupported` and exit 4.

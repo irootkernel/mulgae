@@ -687,6 +687,11 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
 		return observation, nil, nil, errors.Join(securityProbeFailure("fixture", "post-execution fixture drift", postErr), transcriptCleanupErr)
 	}
+	if definition.Family() == FamilyGrok && observation.ProcessGroupAbsent() {
+		if postErr := namespace.ValidateForSpawn(); postErr != nil {
+			return observation, nil, nil, errors.Join(securityProbeFailure("namespace", "post-execution Grok boundary drift", postErr), err, transcriptCleanupErr)
+		}
+	}
 	if err != nil {
 		err = errors.Join(err, transcriptCleanupErr)
 		if interruption := qualificationInterruptionFailure(observation, err); interruption != nil {

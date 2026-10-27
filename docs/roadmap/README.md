@@ -51,9 +51,9 @@ and Master accepted the completed Epic result on 2026-10-24.
 EPIC-014's original scope is complete: TASK-060 through TASK-067 are completed
 and certified, and Master accepted that result. On 2026-10-27, Master adopted
 TASK-068 and TASK-069 as follow-ups for AGY and Grok CLI compatibility
-failures found during the deferred live certification. TASK-068 is complete;
-TASK-069 follows it. Require explicit acceptance of the follow-up scope before
-closing the reopened Epic again. The original acceptance and
+failures found during the deferred live certification. Both Tasks are complete.
+Require explicit acceptance of the follow-up scope before closing the reopened
+Epic again. The original acceptance and
 completed Tasks remain recorded. Its prerequisite, explicit
 acceptance of EPIC-013, was satisfied; it does not depend on Deferred EPIC-008. Under
 Master's quota-preservation decision, development and Epic acceptance of
@@ -807,9 +807,9 @@ Master accepted the completed Epic result on 2026-10-24.
 Status: In Progress
 
 The original TASK-060 through TASK-067 scope remains accepted. Master adopted
-TASK-068 and TASK-069 on 2026-10-27. TASK-068 is complete and TASK-069 is
-planned; the Epic is reopened for these follow-ups. The original acceptance
-does not extend to them.
+TASK-068 and TASK-069 on 2026-10-27. Both Tasks are complete. The Epic remains
+open until Master accepts the follow-up scope. The original acceptance does
+not extend to them.
 
 Depends on: completed and explicitly accepted EPIC-013. No EPIC-008 dependency.
 
@@ -838,7 +838,7 @@ Goal: Consolidate application and wire-contract ownership, then remove proven re
 | TASK-066 | Completed | Enforce the established dependency boundaries and split changed files along ownership seams. | Architecture/import checks, raw declaration/import/activation equivalence for the three moves and focused native checks; complete VP-3 suite (`8197922`). |
 | TASK-067 | Completed | Promote integrated ownership and retained compatibility outcomes, retire the dossier and prepare the Epic acceptance handoff. | The four deterministic Make gates, `make test-mcp-clients`, all seven tagged-vet checks and ZCode live verification pass, with retained consumers, caller inventory and resolved-feedback accounting (`e5de637`). Four non-ZCode live campaigns remain deferred to `v0.1.26`; explicit Epic acceptance is recorded below. |
 | TASK-068 | Completed | Admit AGY versions from the existing 1.2.9 minimum onward without per-version command or settings allowlists; accept safe settings normalization while preserving exact native permissions and credential denies, default model/effort omission, and single-account isolation. | Reproduce native settings omission offline; cover minimum/newer versions, unsafe values, unknown fields and missing nonempty grants; prove exact command admission and denied command variants on the current native binary; run applicable repository checks and exact-candidate `make test-agy`, including source-only marker reads, natural exit, verified report/export, unchanged source/Git/token and runtime cleanup. |
-| TASK-069 | Planned | Restore Grok 1.0.70 compatibility with a native policy configuration that remains enforced across review and extraction; preserve boundary integrity and report policy drift at the failing stage. | Cover native policy retention, protected-file drift and forbidden tool/credential access; run applicable repository checks and exact-candidate `make test-grok`, including independent capability certification and the initial-review-to-extraction path on the same provider without policy restoration or bypass. |
+| TASK-069 | Completed | Restore Grok 1.0.70 compatibility with a native policy configuration that remains enforced across review and extraction; preserve boundary integrity and report policy drift at the failing stage. | Cover native policy retention, protected-file drift and forbidden tool/credential access; run applicable repository checks and exact-candidate `make test-grok`, including independent capability certification and the initial-review-to-extraction path on the same provider without policy restoration or bypass. |
 
 TASK-060 through TASK-067 ran in the listed order; each Task after the first
 depended on its predecessor. Scope, implementation decisions, negative tests,
@@ -874,7 +874,7 @@ installed executables or persistent provider settings.
 ### Epic acceptance
 
 The recorded acceptance below covers the original TASK-060 through TASK-067
-scope. Acceptance of the planned follow-ups remains pending.
+scope. Acceptance of the follow-up scope remains pending.
 
 - [x] Every original member Task has implementation and verification evidence for the exact candidate (`58bbc89`, `028257e`, `41ad32a`, correction `217f813`, `31b3e18`, `a4d14e2`, `cc4a47d`, `8197922`, and `e5de637`).
 - [x] Public contracts, historical consumers, fail-closed boundaries and deferred-Epic holds are preserved.
@@ -886,5 +886,5 @@ scope. Acceptance of the planned follow-ups remains pending.
 ### Follow-up acceptance (TASK-068 and TASK-069)
 
 - [x] TASK-068 has implementation evidence and passes its task-owned checks and exact-candidate AGY live certification.
-- [ ] TASK-069 has implementation evidence and passes its task-owned checks and exact-candidate Grok live certification.
+- [x] TASK-069 has implementation evidence and passes its task-owned checks and exact-candidate Grok live certification.
 - [ ] Master explicitly accepts the follow-up scope before the reopened Epic returns to Completed.

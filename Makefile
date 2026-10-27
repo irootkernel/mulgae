@@ -166,7 +166,7 @@ test-e2e-opt-in:
 
 test-grok:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-grok requires darwin/arm64" >&2; exit 1; }
-	@grok_tmp="$$(mktemp -d)"; \
+	@set -e; grok_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$grok_tmp"' EXIT; \
 	grok_binary="$$grok_tmp/mulgae"; \
 	grok_commit="$$(git rev-parse HEAD)"; \
@@ -175,10 +175,13 @@ test-grok:
 	test -n "$$grok_candidate" && test -x "$$grok_candidate" || { echo "test-grok requires the Grok executable" >&2; exit 1; }; \
 	grok_bin="$$(realpath "$$grok_candidate")"; \
 	case "$$grok_bin" in /*) ;; *) echo "test-grok requires an absolute Grok executable" >&2; exit 1;; esac; \
-	MULGAE_LIVE_GROK_BIN="$$grok_bin" \
+	grok_runtime="$$(mktemp -d)"; \
+	grok_runtime="$$(cd "$$grok_runtime" && pwd -P)"; \
+	printf '%s\n' "[test-grok] retained private runtime: $$grok_runtime"; \
+	TMPDIR="$$grok_runtime" MULGAE_LIVE_GROK_BIN="$$grok_bin" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestLiveGrokCapability$$' ./internal/adapters/providercli && \
-	MULGAE_E2E_BINARY="$$grok_binary" MULGAE_E2E_GROK_EXECUTABLE="$$grok_bin" \
+	TMPDIR="$$grok_runtime" MULGAE_E2E_BINARY="$$grok_binary" MULGAE_E2E_GROK_EXECUTABLE="$$grok_bin" \
 		$(GO) test -v -tags='live_e2e live_grok' -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestE2EGrokReleaseBinaryReview$$' ./test/e2e
 	@printf '%s\n' '[test-grok] completed'

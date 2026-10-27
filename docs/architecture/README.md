@@ -337,6 +337,13 @@ outer Seatbelt policy for both live review and extraction. It denies source,
 Git and guide writes and credential reads, writes and links. It also denies
 Unix socket access at all protected roots and permits writes to `/dev/null`.
 Grok runs with its own sandbox off inside this mandatory guard.
+Its namespace retains `requirements.toml` with `fail_closed = true` and
+`sandbox.toml` as immutable app-owned policy. Native bookkeeping files remain
+outside that policy bundle. `Registry.Observe` and `CurrentProbe.runBound`
+revalidate the namespace immediately after verified process drain, before
+accepting review/extraction output or qualification evidence. This preserves
+the failing invocation's security classification without policy restoration;
+unverified process drain stays with the existing terminal owner.
 For live review conversations, its ACP adapter retains partial tool inputs by
 native identity and validates completed operations and final turn acceptance
 against the read plan, including operations that failed or bypassed the

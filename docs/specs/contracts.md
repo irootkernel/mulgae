@@ -653,6 +653,12 @@ over stdio. Review, qualification, and extraction accept only complete,
 correlated assistant-message chunks. Tool requests that write a report file are
 denied, and Grok runs with its native sandbox disabled inside Mulgae's mandatory
 outer macOS process boundary.
+Its app-owned native requirements policy remains immutable across review and
+same-provider extraction, while native configuration bookkeeping may change.
+After verified process drain, qualification and review execution audit that
+policy before accepting the invocation result. Drift retains the existing
+typed security failure at the affected invocation rather than waiting for the
+next launch; it does not authorize repair or publication.
 Protocol negotiation, authentication, session completion, permission denial,
 and teardown failures retain typed provider causes. Optional
 `providers.grok.model` and `providers.grok.reasoning_effort` values come only

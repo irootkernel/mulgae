@@ -1178,6 +1178,15 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		}
 		processObservation, conversationEvidence, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment(), invocation.Purpose(), staging)
 	}
+	// Only a drained process leaves a stable policy to audit. Uncertain drain
+	// retains the existing process/namespace terminal ownership and failure.
+	if definition.family == FamilyGrok && processObservation.ProcessGroupAbsent() {
+		if boundaryErr := namespace.ValidateForSpawn(); boundaryErr != nil {
+			conversationEvidence = nil
+			runErr = errors.Join(providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed,
+				fmt.Errorf("provider registry: post-invocation Grok boundary: %w", boundaryErr)), runErr)
+		}
+	}
 	if runErr != nil {
 		// Boundary and cleanup failures describe a compromised observation and
 		// outrank the process's concurrent cancellation or timeout termination.
@@ -1233,7 +1242,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			)
 		}
 		var protocolFailure protocolDiagnosticFailure
-		if errors.As(runErr, &protocolFailure) && processObservation.Valid() {
+		if !protectedFailure && errors.As(runErr, &protocolFailure) && processObservation.Valid() {
 			status, diagnostic := providerFailureProjection(protocolFailure.ProtocolFailureCause())
 			cause := protocolFailure.ProtocolFailureCause()
 			// Stderr token classification remains the fallback for native

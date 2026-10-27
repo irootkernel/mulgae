@@ -100,7 +100,14 @@ replace mandatory live gates.
 
 `make test-grok` builds the exact current release binary, runs independent live
 Grok capability certification, and runs one authorized Grok review through
-ACP v1. It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and otherwise discovers
+ACP v1. The isolated review fixture enables structured extraction and disables
+repair. It requires exactly one initial review and one successful extraction
+on the same attempt and provider, with successful extraction diagnostics and
+a structured public result. A source-only marker, original source/Git,
+authentication and executable hashes, and removed runtime roots check the
+surrounding boundary. The target retains a private physical temporary directory
+so a failure cannot erase an uncertain process's protection files.
+It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and otherwise discovers
 `grok` on `PATH`. The target requires an already authenticated installation,
 does not modify native Grok configuration, and is the standalone Grok live
 provider gate outside `make test-e2e`.

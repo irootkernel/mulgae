@@ -182,6 +182,15 @@ scratch are removed after verified provider drain.
   requests, incomplete turns and protocol parse failures fail closed.
 - Grok uses ACP v1 without MCP servers or subagents and admits text roles only.
   Its native sandbox is off only inside the mandatory outer Seatbelt guard.
+  An app-owned `requirements.toml` with root `fail_closed = true` retains
+  compatibility, discovery, plugin and MCP restrictions; `sandbox.toml` retains
+  the native deny roots. Native `config.toml` and managed-cache bookkeeping are
+  not policy authority. Protected files must retain their exact bytes, inode,
+  user ownership, single link and mode `0600`. Checks run before launch and
+  after verified process drain for qualification, review and extraction.
+  Drift rejects the affected invocation through the existing security failure
+  path; policy is never restored to make a later invocation pass. An uncertain
+  drain retains the existing terminal ownership and protection files.
   In live review conversations, admitted file and Git reads remain correlated
   and bounded at the protocol boundary. Completed and failed native tool
   operations must match the read plan even when Grok omits a permission request.

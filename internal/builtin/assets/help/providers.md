@@ -28,7 +28,10 @@ Live review and extraction use original source reads from a neutral cwd:
   is not the live authentication authority.
 - Grok uses ACP v1 and correlated assistant reports, with no MCP servers. Its
   native sandbox is off inside the mandatory outer Seatbelt guard. It supports
-  text roles; artist assignment fails capability admission.
+  text roles; artist assignment fails capability admission. App-owned native
+  requirements retain security policy across review and extraction. Policy is
+  checked before invocation and after verified process drain; native bookkeeping
+  changes do not replace that authority.
 - Codex uses one app-server process and ephemeral thread per invocation, native
   read-only restrictions and a disposable `CODEX_HOME` containing only admitted
   `auth.json`. User config, rules, skills and plugins are not projected. Named
