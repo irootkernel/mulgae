@@ -71,7 +71,15 @@ func NewReviewRequest(input RunReviewInput, root, requestID string, preflight bo
 			return reviewrun.Request{}, reviewrun.ErrGuardInvalid
 		}
 	}
+	var requirementsPath string
+	if input.RequirementsPath != nil {
+		requirementsPath = *input.RequirementsPath
+		if _, err := ports.NewSafeRelativePath(requirementsPath); err != nil || strings.HasPrefix(requirementsPath, "--") {
+			return reviewrun.Request{}, fmt.Errorf("MCP requirements path is invalid")
+		}
+	}
 	return reviewrun.NewRequest(reviewrun.RequestInput{
+		RequirementsPath: requirementsPath, HasRequirements: input.RequirementsPath != nil,
 		Target: target, Objective: input.Objective, HasObjective: input.Objective != "",
 		Roles: roles, RolesExplicit: len(input.Roles) != 0, Preflight: preflight, ExpectedProjectBinding: binding,
 	}), nil

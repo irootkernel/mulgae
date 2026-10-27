@@ -82,7 +82,7 @@ func (backend *mcpBackend) PreflightReview(
 
 func summarizeMCPPreflight(result mulgaeentry.ReviewPreflightResult) (map[string]any, error) {
 	return map[string]any{
-		"schema_version": result.SchemaVersion, "status": result.Status, "qualification": result.Qualification,
+		"schema_version": result.SchemaVersion, "status": result.Status, "qualification": result.Qualification, "requirements": result.Requirements,
 		"target": result.Target, "candidate_count": result.CandidateCount, "read_count": len(result.ReadPlan),
 		"warnings": result.Warnings, "transmissions": result.Transmissions, "budget": result.Budget,
 		"project_binding": result.ProjectBinding, "configuration_sha256": result.ConfigurationSHA256,

@@ -199,7 +199,7 @@ coherent inspection and complete report/evidence reads. It checks no-change
 provenance, source selection identity and absence of source archives. Frozen
 historical projections preserve their original envelopes; the owning query
 tests establish historical artifact integrity. Current envelopes pass through
-an independently updated consumer, including command-result v21, preflight v9
+an independently updated consumer, including command-result v22, preflight v10
 and live-source/source-evidence capabilities.
 
 For actual client checks, use invocation-only MCP configuration and existing
@@ -1051,3 +1051,10 @@ strict prose-bearing decoders without the structured-envelope byte ceiling.
 Keep support/read metadata bounded and use existing publication/digest-bound
 content chunks for large prose. Foundation checks do not establish filesystem
 admission, provider execution, publication or public read availability.
+
+TASK-027 admission checks use ordinary project files and the existing live root
+lease, not private artifact-directory permission rules. Exercise untracked local
+input with staged/committed code, malformed input on every no-change selector,
+independent project binding, and zero provider/private-writer calls. Verify both
+preflight v10 and command-result v22, including failed preflight. Keep prose out
+of the bounded metadata projection and preserve the original v9/v21 assets.

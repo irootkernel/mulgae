@@ -247,6 +247,17 @@ func (service *productionReviewPreflightService) PreflightReview(ctx context.Con
 	if err != nil {
 		return result, err
 	}
+	var requirements *mulgae.RequirementsPreflightSummary
+	if path, present := request.RequirementsPath(); present {
+		input, inputErr := reviewrun.AdmitRequirementsInput(ctx, source, path, roles)
+		if inputErr != nil {
+			return result, inputErr
+		}
+		requirements, err = mulgae.NewRequirementsPreflightSummary(input.SHA256(), input.Requirements(), service.policy.planner.Extraction)
+		if err != nil {
+			return result, err
+		}
+	}
 	if hasArtistInputs && !source.Target().NoChange() {
 		if err := reviewrun.ValidateLiveArtistInputs(ctx, source, artistInputs); err != nil {
 			return result, reviewCompositionFailure(domain.FailureConfiguration, "artist inputs are unavailable", err)
@@ -260,7 +271,12 @@ func (service *productionReviewPreflightService) PreflightReview(ctx context.Con
 	if err != nil {
 		return result, err
 	}
-	return mulgae.NewLiveReviewPreflightResult(source.Target(), binding, service.policy.configurationSHA256, reads, plan, budget)
+	result, err = mulgae.NewLiveReviewPreflightResult(source.Target(), binding, service.policy.configurationSHA256, reads, plan, budget)
+	if err != nil {
+		return result, err
+	}
+	result.Requirements = requirements
+	return result, result.Validate()
 }
 
 func resolvePreflightSelection(request mulgae.ReviewRequest, policy productionRunPolicy) ([]domain.Role, ports.ArtistReviewInputs, bool, error) {

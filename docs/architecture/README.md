@@ -711,8 +711,8 @@ it; production always routes it to the descriptor-verified metadata read.
 The [revised EPIC-008 design](../architecture-decision-records/verified-review-iteration.md#reduced-epic-008-scope)
 and [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 plan optional requirements assessment within the current original-source review
-path. Contract foundations are available; production integration and public
-activation remain unimplemented.
+path. Local input admission and provider-free preflight are implemented;
+assessment execution, publication and verified reads remain future work.
 
 ```text
 optional requirements input + existing objective
@@ -734,6 +734,14 @@ TASK-027 exposes admission and provider-free preflight; TASK-028 implements
 internal execution/publication. TASK-029 enables public requirements-bearing
 execution and its capability only with the necessary verified CLI/MCP reads.
 Keep objective-only execution available and use the existing capability mechanism.
+
+The current admission path uses `ports.RequirementsInputReader` on the retained
+project lease for local invocation data. It does not call the selected-side source
+reader or inventory extra files. `reviewrun.AdmitRequirementsInput` validates and
+owns the exact bytes; CLI/MCP expose only the bounded preflight summary. The
+shared `Application.StartReviewRun` boundary rejects requirements-bearing
+execution before provider composition or private-directory writes.
+
 
 Reuse existing typed values, inward ports, live source readers, provider lanes
 and invocation ceilings. The requirements file is immutable invocation data;

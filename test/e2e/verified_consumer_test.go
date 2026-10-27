@@ -83,7 +83,7 @@ func decodeVerifiedConsumerEnvelope(raw []byte, transport, operation string, leg
 		return nil, err
 	}
 	if transport == "cli" {
-		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19" && envelope.SchemaVersion != "mulgae-command-result.v20" && envelope.SchemaVersion != "mulgae-command-result.v21") {
+		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19" && envelope.SchemaVersion != "mulgae-command-result.v20" && envelope.SchemaVersion != "mulgae-command-result.v21" && envelope.SchemaVersion != "mulgae-command-result.v22") {
 			return nil, fmt.Errorf("unsupported CLI contract")
 		}
 		if envelope.Exit == nil || envelope.Exit.Code == nil || *envelope.Exit.Code != 0 || envelope.Exit.Kind != "success" || envelope.Reasons == nil {
@@ -152,6 +152,32 @@ func consumerDigest(value string) bool {
 	}
 	_, err := hex.DecodeString(value[7:])
 	return err == nil
+}
+
+func TestVerifiedConsumerAcceptsCurrentV22WithoutUpgradingHistoricalIdentity(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "verified-consumer", "current-cli.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	envelope["schema_version"] = json.RawMessage(`"mulgae-command-result.v22"`)
+	raw, err = json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := decodeVerifiedConsumerEnvelope(raw, "cli", "inspect", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeVerifiedConsumerResult(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeVerifiedConsumerEnvelope(raw, "cli", "inspect", true); err == nil {
+		t.Fatal("current version invented historical identity")
+	}
 }
 
 func TestVerifiedWorkflowFrozenConsumers(t *testing.T) {

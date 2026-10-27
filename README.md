@@ -325,6 +325,19 @@ and enclosing budgets. It discovers and invokes no provider and creates no
 session, run, diagnostic or publication. `qualification` remains `not_run`.
 The source identity hashes selection metadata; it is not a content snapshot.
 
+You can also validate a local [requirements JSON file](internal/builtin/assets/examples/requirements-input.v1.valid.json):
+
+```bash
+mulgae review --stage --preflight --requirements requirements.json \
+  --objective "Review this change." --roles logic --output json
+```
+
+The file may be untracked or absent from the reviewed commit. Preflight reports
+selected IDs and owners, its exact input digest and the configured extraction
+policy. It exposes no requirement prose and locks neither the input nor source.
+Requirements-bearing execution is currently unavailable. Existing objective-only
+reviews remain supported.
+
 Automatic initialization configures ZCode and Grok, with ZCode as the reviewer
 for every enabled role.
 
@@ -450,6 +463,7 @@ and exits when its client closes stdin. It exposes ten bounded tools:
 - `get_context` returns the startup worktree binding and implemented capability versions.
 - `preflight_review` admits and summarizes the execution-free source selection,
   transmission plan, and budget without invoking providers or publishing a run.
+  Optional `requirements_path` adds validated local requirements metadata.
 - `run_review` completes one foreground review for `workspace`, `stage`, `head`,
   `commit`, or `diff`; stdin carries only the MCP protocol.
 - `start_review` accepts the same review arguments, admits one process-local

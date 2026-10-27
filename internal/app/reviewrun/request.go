@@ -17,6 +17,8 @@ type RequestInput struct {
 	HasObjective           bool
 	Roles                  []string
 	RolesExplicit          bool
+	RequirementsPath       string
+	HasRequirements        bool
 	ArtistBriefPath        string
 	HasArtistBrief         bool
 	ArtistDesignGlobs      []string
@@ -31,6 +33,7 @@ func NewRequest(input RequestInput) Request {
 		target:    TargetRequest{kind: string(input.Target.Scope()), value: input.Target.Value()},
 		objective: input.Objective, hasObjective: input.HasObjective,
 		roles: append([]string(nil), input.Roles...), rolesExplicit: input.RolesExplicit,
+		requirementsPath: input.RequirementsPath, hasRequirements: input.HasRequirements,
 		artistBriefPath: input.ArtistBriefPath, hasArtistBrief: input.HasArtistBrief,
 		artistDesignGlobs: append([]string(nil), input.ArtistDesignGlobs...),
 		preflight:         input.Preflight, expectedProjectBinding: input.ExpectedProjectBinding.String(),
@@ -69,6 +72,8 @@ type Request struct {
 	rolesExplicit          bool
 	rolesDefaulted         bool
 	artistAutomatic        bool
+	requirementsPath       string
+	hasRequirements        bool
 	artistBriefPath        string
 	hasArtistBrief         bool
 	artistDesignGlobs      []string
@@ -94,6 +99,11 @@ func (request Request) RolesExplicit() bool { return request.rolesExplicit }
 // RequestedRolesExplicit preserves caller intent after policy selection.
 func (request Request) RequestedRolesExplicit() bool {
 	return request.rolesExplicit && !request.rolesDefaulted
+}
+
+// RequirementsPath returns the optional local invocation input path.
+func (request Request) RequirementsPath() (string, bool) {
+	return request.requirementsPath, request.hasRequirements
 }
 
 // ArtistBrief returns the optional review-scoped artist brief path.

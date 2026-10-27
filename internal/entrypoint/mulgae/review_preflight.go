@@ -18,11 +18,11 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v9"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v10"
 
 // ReviewPreflightService admits original-source selection without invoking
-// providers or creating execution or publication state. Selected artist inputs
-// are read for validation; ordinary preflight only lists native source reads.
+// providers or creating execution or publication state. Selected artist and
+// requirements inputs are validated; source evidence is only listed.
 type ReviewPreflightService interface {
 	PreflightReview(context.Context, ReviewRequest, ports.AnchoredRoot) (ReviewPreflightResult, error)
 }
@@ -30,6 +30,7 @@ type ReviewPreflightService interface {
 // ReviewPreflightResult describes the current selection and configured routes.
 // Its source identity binds selection metadata, not mutable file contents.
 type ReviewPreflightResult struct {
+	Requirements         *RequirementsPreflightSummary  `json:"requirements"`
 	SchemaVersion        string                         `json:"schema_version"`
 	Capabilities         query.VerifiedReadCapabilities `json:"capabilities"`
 	ProjectBinding       string                         `json:"project_binding"`
@@ -143,6 +144,11 @@ func (result ReviewPreflightResult) Validate() (err error) {
 	}()
 	if result.SchemaVersion != reviewPreflightSchemaVersion || result.Qualification != "not_run" || (result.Status != "eligible" && result.Status != "no_change") || result.CandidateCount < 0 || !result.Budget.Eligible || len(result.Warnings) != 0 {
 		return fmt.Errorf("live preflight: invalid result")
+	}
+	if result.Requirements != nil {
+		if err := result.Requirements.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := result.Capabilities.Validate(); err != nil {
 		return err
@@ -377,6 +383,17 @@ func renderReviewPreflightHuman(result ReviewPreflightResult) []byte {
 		binding = "unavailable (non-Git workspace)"
 	}
 	fmt.Fprintf(&output, "review preflight: %s\nqualification: %s\nproject binding: %s\nsource identity: %s\nselection: %s\ncandidates: %d\n", result.Status, result.Qualification, binding, result.SourceIdentitySHA256, result.Target, result.CandidateCount)
+	if summary := result.Requirements; summary != nil {
+		fmt.Fprintf(&output, "requirements: %d selected; evaluation=%s; requirements execution unavailable\ninput digest: %s\nsource limit: %s\n", summary.SelectedCount, summary.EvaluationStatus, summary.InputSHA256, summary.SourceLimit)
+		for _, item := range summary.Items {
+			fmt.Fprintf(&output, "requirement: %s owner=%s\n", item.RequirementID, item.OwnerRole)
+		}
+		fmt.Fprintf(&output, "extraction policy: %s", summary.ExtractionPolicy)
+		if summary.ExtractionPolicy == "disabled" {
+			output.WriteString("; missing structured answers will remain unverified")
+		}
+		output.WriteString("\npreflight does not lock requirements or source content\n")
+	}
 	for _, read := range result.ReadPlan {
 		fmt.Fprintf(&output, "read: %s %s\n", read.Side, read.Path)
 	}

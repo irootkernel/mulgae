@@ -130,8 +130,8 @@ rejects model/effort options. `assets/roles.yaml` prefers AGY for documentation,
 then ZCode, Grok, Codex. Other text roles prefer ZCode, Grok, Codex, AGY; artist
 retains ZCode and Codex. Existing shared policy is never re-derived.
 
-Current public contracts are command-result v21, doctor v7, provider-heartbeat
-v4 and review-preflight v9. Their earlier schema/example pairs remain frozen.
+Current public contracts are command-result v22, doctor v7, provider-heartbeat
+v4 and review-preflight v10. Their earlier schema/example pairs remain frozen.
 Provider-evidence v4 remains historical and has no AGY producer or production
 reader. An injected v4 claim cannot establish AGY certification; the optional
 evidence projection leaves it unsupported/unverified.
@@ -219,7 +219,7 @@ review provider invocations one Mulgae process may run at once. It is not a
 provider identity and does not coordinate another process or project.
 Provider qualification probes are not counted against it; each qualification
 batch runs at most one concurrent probe per distinct provider family. Current
-command-result v21 and review-preflight v9 documents describe execution as
+command-result v22 and review-preflight v10 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
@@ -816,7 +816,7 @@ a documentation-only route can still use the authorized diagnostic.
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Contract-valid
-workflow requests emit command-result v21. Init's rejected-request envelope
+workflow requests emit command-result v22. Init's rejected-request envelope
 remains supported. Retired commands and capture-bound fields fail grammar before
 provider execution with usage exit 2 and human stderr, even when JSON was requested.
 No child selector resolution or compose mutation exists on the current surface.
@@ -1218,16 +1218,16 @@ a failed rerun. Cleanup validates bounded manifest metadata and confirms its
 identity without reading input or report blobs. Historical status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
-These historical records grant no new provider execution. CLI v5 through v20
+These historical records grant no new provider execution. CLI v5 through v21
 schema examples remain available for explicit backward validation; current CLI
-envelopes use v21. MCP retains its v1 common envelope, whose `data` object
+envelopes use v22. MCP retains its v1 common envelope, whose `data` object
 carries the extended status projection.
 
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v21 `result` and MCP v1
+accepts an empty argument object. CLI command-result v22 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `live_source`, `source_evidence`, `project_binding`, `inspection`,
@@ -1362,5 +1362,29 @@ The [frozen EPIC-008 contracts](review-completeness-and-iteration.md#frozen-requ
 own optional input, assessment accounting, bounded support/read metadata and
 unbounded retained content. TASK-026 supplies their schemas and semantic
 foundations without changing current review grammar or execution capabilities.
-Current commands still emit v21, preflight v9 and live artifacts/manifests v3;
-the owning later Tasks introduce the reserved integration versions.
+Current commands emit v22, preflight v10 and live artifacts/manifests v3.
+Preflight accepts optional local requirements input; requirements-bearing
+execution and verified assessment reads remain unavailable.
+
+### Optional local requirements preflight
+
+`review --preflight --requirements PATH` and MCP `preflight_review` with
+`requirements_path` admit one project-relative strict JSON input alongside the
+objective. The local file may be untracked and absent from the selected index or
+commit. Admission retains its exact bytes and SHA-256 in memory; it does not
+change the selected evidence side or create a run.
+
+Preflight v10 adds `requirements`, which is null when input is absent. Otherwise
+it contains `input_sha256`, `selected_count`, `items` (each with `requirement_id`
+and `owner_role`), `evaluation_status: not_run`, `extraction_policy` (`enabled`
+or `disabled`), `source_limit: selected_target_only`, and
+`execution_available: false`. It contains no requirement text or criteria.
+This is an admission summary, not a published assessment or a no-change verdict.
+Disabled extraction means missing structured answers would remain unverified;
+preflight cannot predict future retry/repair allowance consumption.
+
+Command-result v22 embeds preflight v10 and its failure projection together.
+Command-result v21 and preflight v9 remain frozen. Requirements-bearing execution
+is rejected by the common application boundary before preparing providers or
+creating the private publication directory. Objective-only execution and the MCP
+start/await/cancel lifecycle remain available.

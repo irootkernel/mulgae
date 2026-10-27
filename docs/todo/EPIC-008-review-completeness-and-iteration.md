@@ -4,8 +4,8 @@ This temporary dossier defines the reduced requirements-assessment work approved
 on 2026-10-27. The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 owns identity, lifecycle, membership and order. The
 [specification](../specs/review-completeness-and-iteration.md) owns required behavior.
-TASK-026 contract foundations are complete. Public requirements-bearing
-execution remains unavailable.
+TASK-026 contract foundations and TASK-027 admission/preflight are complete.
+Public requirements-bearing execution remains unavailable.
 
 ## Goal, dependencies and execution boundary
 
@@ -83,18 +83,18 @@ product-scope, invocation-ceiling or compatibility decision for later Tasks.
 
 ## TASK-027: Admit optional requirements
 
-- [ ] Read one safe project-relative regular UTF-8 JSON file from the admitted
+- [x] Read one safe project-relative regular UTF-8 JSON file from the admitted
       local project filesystem once per request, even for staged/committed reviews.
       Retain its exact bytes/digest; prompts and publication reuse those bytes.
-- [ ] Validate strict fields, IDs, criteria, bounds, selected-role ownership,
+- [x] Validate strict fields, IDs, criteria, bounds, selected-role ownership,
       Unicode, ignore/protected paths and project binding before qualification.
-- [ ] Add provider-free CLI/MCP preflight through shared application admission,
+- [x] Add provider-free CLI/MCP preflight through shared application admission,
       showing selected items, owners, source limits, evaluation-not-run state and
       known disabled extraction policy. Do not predict allowance consumption that
       may occur during execution.
-- [ ] Preserve objective-only behavior and selected workspace/index/Git semantics.
+- [x] Preserve objective-only behavior and selected workspace/index/Git semantics.
       Requirements do not widen source access or add referenced-document capture.
-- [ ] Keep public requirements-bearing execution unavailable until TASK-029
+- [x] Keep public requirements-bearing execution unavailable until TASK-029
       supplies verified reads and enables execution/capability together. Preserve
       objective-only execution; preflight does not lock the source or input file.
 
@@ -195,8 +195,8 @@ and the bounded live assessment. Zero findings or a model's `met` verdict
 cannot substitute for verification. Keep all requirement checkboxes unchecked
 until their behavior is verified.
 
-TASK-026 supplies the frozen contracts and tested foundations. TASK-027 continues
-with local-file admission and provider-free preflight under the approved
+TASK-026 supplies the frozen contracts and tested foundations. TASK-027 delivers
+local-file admission and provider-free preflight under the approved
 `aquarium:epic-handler` envelope. Later Tasks retain their planned execution and
 acceptance obligations; the contract foundation does not accept the Epic.
 

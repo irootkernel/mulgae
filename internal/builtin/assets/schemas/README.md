@@ -81,14 +81,16 @@ Draft 2020-12 and a canonical
 | `mulgae-requirements-support.v1` | `../examples/requirements-support.v1.valid.json` |
 | `mulgae-requirements-read.v1` | `../examples/requirements-read.v1.valid.json` |
 | `mulgae-requirement-content.v1` | `../examples/requirement-content.v1.valid.json` |
+| `mulgae-command-result.v22` | `../examples/command-result.v22.valid.json` |
+| `mulgae-review-preflight.v10` | `../examples/review-preflight.v10.valid.json` |
 
 Examples are structural fixtures, not evidence that a provider or platform
 contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a new schema version. Current commands emit v21 and
-review preflight emits v9. Earlier command and preflight schemas remain frozen
+Breaking changes require a new schema version. Current commands emit v22 and
+review preflight emits v10. Earlier command and preflight schemas remain frozen
 for historical validation dependencies. Current live publications use review
 artifact v3, run manifest v3 and `mulgae-run-support-index.v3`; receipt and export v2 bind
 verified source observations. Historical ordinary, child and composite contracts

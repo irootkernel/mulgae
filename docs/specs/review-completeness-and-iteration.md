@@ -7,8 +7,9 @@ on 2026-10-27.
 The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 owns lifecycle and the five implementation Tasks. The
 [development dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
-owns their temporary execution detail. Contract foundations are available. Public
-requirements input, execution and reads remain unimplemented.
+owns their temporary execution detail. Local input admission and provider-free
+preflight are available. Assessment execution and verified reads remain
+unimplemented.
 Current behavior remains defined by [contracts](contracts.md) and
 [live workspace and Git review](live-workspace-and-git-review.md).
 
@@ -54,10 +55,10 @@ Unchecked requirements are planned obligations, not implementation evidence.
 
 ## Optional requirements input
 
-Plan a project-relative `--requirements PATH` option on existing CLI review and
-preflight, with `requirements_path` on the equivalent MCP inputs. These interfaces
-are not available in the current binary. TASK-026 freezes their exact versioned
-input, result and capability contracts before production wiring.
+CLI `--requirements PATH` and MCP `requirements_path` accept a project-relative
+file for provider-free preflight. Requirements-bearing execution remains
+unavailable until TASK-029 enables it with verified assessment reads. The existing
+objective-only review path remains available.
 
 Use a strict UTF-8 JSON object with `schema_version` and a `requirements` array.
 Each item contains `id`, `text`, `acceptance_criteria` and `owner_role`.
@@ -88,6 +89,31 @@ The requirements file and objective can be supplied together. Preserve existing
 transport-specific objective limits and semantics. With no requirements file,
 preserve ordinary review behavior. Do not add a product byte ceiling for
 requirement prose, source observations, prompts or role reports.
+
+### Current admission summary
+
+Preflight v10 exposes bounded metadata under `requirements`: the exact input
+SHA-256, selected count, ordered IDs and owners, `evaluation_status: not_run`,
+known extraction policy, `source_limit: selected_target_only`, and
+`execution_available: false`. No text, criteria, assessment rows or verdicts
+enter that summary. Input absence is explicit null. CLI includes the native
+source read plan; MCP retains its existing bounded read-count projection.
+
+The local-file port uses the admitted project descriptor and no-follow regular
+file reads, independently of index or commit membership. It checks canonical
+paths, protected roots, local `.gitignore` rules and the admitted common Git
+directory's `info/exclude`, including linked worktrees.
+Ordinary project directory and file permissions remain supported. A file that
+also supplies ignore configuration must satisfy that control input's existing
+bounds; the requirements prose contract adds no body ceiling. Same-request
+control bytes are reused when the selected input itself is an ignore file.
+
+Public execution rejects the optional input at the shared application boundary
+before provider preparation, run allocation or publication-directory creation.
+Such unsupported execution requests are not admitted file requests. Every
+preflight admits input before its no-change budget branch, including empty-tree
+HEAD. A later execution will make its own admission and reuse those retained
+bytes for prompts/publication in the owning later Tasks.
 
 ## Original-source evidence
 
@@ -277,9 +303,10 @@ mechanism; add no general feature-flag system.
 ## Frozen requirements-assessment contracts
 
 TASK-026 supplies contract values, strict byte decoders and schema/semantic
-foundations. Filesystem admission, provider integration, publication and public
-reads remain assigned to TASK-027 through TASK-029. The current CLI/MCP grammar
-and execution capabilities remain unchanged at this foundation checkpoint.
+foundations. TASK-027 implements local input admission and provider-free
+preflight. Provider integration, publication and verified assessment reads remain
+assigned to TASK-028 and TASK-029. Public requirements-bearing execution remains
+unavailable.
 
 ### Versions and ownership
 
@@ -393,7 +420,7 @@ empty-tree HEAD. No automatic workspace substitution is permitted. Counts measur
 admitted responses, not satisfaction; a valid provider unverified answer contributes
 one while a derived placeholder contributes zero.
 
-TASK-027 will introduce preflight v10 and command-result v22 together for the
+TASK-027 introduces preflight v10 and command-result v22 together for the
 optional admission summary, including the preflight-failure version projection.
 Command-result v21 retains its embedded preflight v9 contract. TASK-028 will add
 the internal requirements-bearing provider wire v2 and normalized provider
@@ -408,10 +435,12 @@ Final and manifest bindings must agree and the v4 support index must cover the
 metadata, exact input and every content body. Explicit null establishes
 `not_requested`; a v3 or older artifact lacks this capability and remains
 `unavailable`. This distinction cannot be inferred from current binary version.
-TASK-029 also introduces command-result v23 and advertises
-`requirements_assessment=v1` with execution and verified reads. Existing schemas
-stay frozen and the MCP lifecycle remains unchanged. These integration versions
-are reserved decisions, not current capabilities.
+TASK-029 also introduces preflight v11 with command-result v23 and advertises
+`requirements_assessment=v1` with execution and verified reads. Preflight v10
+retains `requirements.execution_available: false`; v11 owns the later enabled
+execution contract. Preflight v10 and command-result v22 stay frozen, and the MCP
+lifecycle remains unchanged. The TASK-028/TASK-029 integration versions remain
+reserved decisions, not current capabilities.
 
 ## Acceptance evidence
 

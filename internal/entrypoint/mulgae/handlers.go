@@ -267,6 +267,9 @@ func (application *Application) StartReviewRun(
 		nilApplicationDependency(application.writer) || !projectRoot.Valid() {
 		return ReviewRunResult{}, typedHandlerFailure("review.start", domain.FailureInternal, "review application is unavailable", nil)
 	}
+	if _, present := request.RequirementsPath(); present {
+		return ReviewRunResult{}, typedHandlerFailure("review.start", domain.FailureConfiguration, "requirements execution is unavailable; use review --preflight", reviewrun.ErrContractUnsupported)
+	}
 	reviewRuns := application.reviewRuns
 	var err error
 	if preparer, ok := reviewRuns.(ReviewRunServicePreparer); ok {

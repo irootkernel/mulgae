@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -56,6 +57,7 @@ type BackendResult struct {
 
 // RunReviewInput selects original source state and optional review guidance.
 type RunReviewInput struct {
+	RequirementsPath       *string      `json:"requirements_path,omitempty"`
 	ExpectedProjectBinding *string      `json:"expected_project_binding,omitempty"`
 	Target                 ReviewTarget `json:"target"`
 	Objective              string       `json:"objective,omitempty"`
@@ -360,6 +362,11 @@ func validateRunReviewInput(input RunReviewInput) error {
 	if _, err := ports.NewLiveSourceSelector(domain.LiveSourceScope(input.Target.Kind), input.Target.Value); err != nil {
 		return errInvalidToolArguments
 	}
+	if input.RequirementsPath != nil {
+		if _, err := ports.NewSafeRelativePath(*input.RequirementsPath); err != nil || strings.HasPrefix(*input.RequirementsPath, "--") {
+			return errInvalidToolArguments
+		}
+	}
 	if len(input.Objective) > 4096 {
 		return errInvalidToolArguments
 	}
@@ -543,11 +550,11 @@ const (
 	runIDPattern     = `^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 	runCursorPattern = `^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 
-	runReviewInputSchema    = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","head"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["commit","diff"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
+	runReviewInputSchema    = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","head"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["commit","diff"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"requirements_path":{"type":"string","minLength":1,"maxLength":4096,"description":"Project-relative requirements JSON file. Preflight validates it; requirements execution is unavailable."},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
 	invocationInputSchema   = `{"type":"object","additionalProperties":false,"required":["invocation_id"],"properties":{"invocation_id":{"type":"string","pattern":"^i_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	listRunsInputSchema     = `{"type":"object","additionalProperties":false,"properties":{"limit":{"type":"integer","minimum":1,"maximum":100,"default":20},"cursor":{"type":"string","pattern":"^s_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	getRunInputSchema       = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}}}`
 	listFindingsInputSchema = `{"type":"object","additionalProperties":false,"required":["run_id"],"properties":{"run_id":{"type":"string","pattern":"^r_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},"minimum_severity":{"enum":["low","medium","high","critical","blocker"],"default":"low"},"limit":{"type":"integer","minimum":1,"maximum":1000},"cursor":{"type":"string","maxLength":4096},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expected_publication_receipt":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
 )
 
-const preflightReviewInputSchema = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","head"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["commit","diff"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`
+const preflightReviewInputSchema = `{"type":"object","additionalProperties":false,"required":["target"],"properties":{"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind"],"properties":{"kind":{"enum":["workspace","stage","head"]}}},{"type":"object","additionalProperties":false,"required":["kind","value"],"properties":{"kind":{"enum":["commit","diff"]},"value":{"type":"string","minLength":1,"maxLength":4096}}}]},"requirements_path":{"type":"string","minLength":1,"maxLength":4096,"description":"Project-relative requirements JSON file. Preflight validates it; requirements execution is unavailable."},"objective":{"type":"string","maxLength":4096},"roles":{"type":"array","maxItems":7,"uniqueItems":true,"items":{"enum":["logic","security","maintainability","product","documentation","testing","artist"]}},"expected_project_binding":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}`

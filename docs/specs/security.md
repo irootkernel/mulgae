@@ -400,7 +400,8 @@ Current execution follows [live workspace and Git review](live-workspace-and-git
 [Verified review contracts](verified-review-contracts.md) retains historical
 capture/guard and composite-support obligations. The reduced
 [EPIC-008 design](review-completeness-and-iteration.md) plans optional requirements
-assessment and adds no current runtime capability.
+assessment. Local input admission and provider-free preflight are implemented;
+requirements-bearing execution and verified reads remain unavailable.
 
 - Keep independent project binding and anchored-root revalidation before
   qualification or provider transmission. Local identity is not a content
@@ -446,6 +447,15 @@ assessment and adds no current runtime capability.
 - Keep native paths, credentials, raw requirements and private evidence out of
   unrequested public diagnostics and portable exports. Response bounds must not
   become source, prompt, requirement-prose or provider-report byte ceilings.
+
+Requirements preflight reads the selected local file through the admitted root
+and no-follow regular-file descriptors. Canonical paths, protected roots and
+local ignore rules apply independently of the reviewed Git side. Ignore-control
+files retain their existing configuration bounds even if also selected as JSON
+input; ordinary requirement prose remains unbounded. Only IDs, owners, counts,
+digest and fixed admission/policy states enter the preflight response. Public
+requirements execution is rejected before provider preparation or publication
+writes; malformed input on a no-change preflight does not authorize a result.
 
 Batch execution, cross-run comparison, resolution transfer and conflict
 reduction are outside this Epic. Requirements assessment grants no issue

@@ -87,6 +87,10 @@ func (registry *invocationRegistry) Start(id string, input RunReviewInput) (invo
 	snapshot := snapshotInvocation(entry)
 	registry.mu.Unlock()
 
+	if input.RequirementsPath != nil {
+		path := *input.RequirementsPath
+		input.RequirementsPath = &path
+	}
 	go registry.execute(executionCtx, entry, input)
 	return snapshot, nil
 }

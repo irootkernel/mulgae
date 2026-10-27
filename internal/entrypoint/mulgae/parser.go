@@ -721,7 +721,7 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		"--diff": true, "--commit": true, "--objective": true,
 		"--roles": true, "--artist-brief": true, "--artist-design-specs": true,
 		"--session": true, "--preflight": false, "--output": true,
-		"--expected-project-binding": true,
+		"--expected-project-binding": true, "--requirements": true,
 	})
 	if err != nil {
 		return Invocation{}, err
@@ -748,6 +748,12 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 		request.rolesExplicit = true
 	} else {
 		request.roles = coreRoleNames()
+	}
+	if path, present := options["--requirements"]; present {
+		if !validRelativePath(path) {
+			return Invocation{}, usageError("requirements path is not safe")
+		}
+		request.requirementsPath, request.hasRequirements = path, true
 	}
 	if artistBrief, present := options["--artist-brief"]; present {
 		if !validRelativePath(artistBrief) {
@@ -787,10 +793,13 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 	if err != nil {
 		return Invocation{}, err
 	}
-	var objective, artistBrief, sessionID *string
+	var objective, artistBrief, sessionID, requirementsPath *string
 	var expectedBinding *string
 	if hasBinding {
 		expectedBinding = &request.expectedProjectBinding
+	}
+	if request.hasRequirements {
+		requirementsPath = &request.requirementsPath
 	}
 	if request.hasObjective {
 		objective = &request.objective
@@ -817,20 +826,21 @@ func parseReview(arguments []string, requestID string) (Invocation, error) {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
 		} `json:"target"`
-		Objective       *string      `json:"objective"`
-		Roles           []string     `json:"roles"`
-		RoleSelection   string       `json:"role_selection"`
-		ArtistBrief     *string      `json:"artist_brief"`
-		ArtistDesign    []string     `json:"artist_design_specs"`
-		SessionID       *string      `json:"session_id"`
-		Preflight       *bool        `json:"preflight,omitempty"`
-		ExpectedBinding *string      `json:"expected_project_binding,omitempty"`
-		OutputFormat    OutputFormat `json:"output_format"`
+		RequirementsPath *string      `json:"requirements_path,omitempty"`
+		Objective        *string      `json:"objective"`
+		Roles            []string     `json:"roles"`
+		RoleSelection    string       `json:"role_selection"`
+		ArtistBrief      *string      `json:"artist_brief"`
+		ArtistDesign     []string     `json:"artist_design_specs"`
+		SessionID        *string      `json:"session_id"`
+		Preflight        *bool        `json:"preflight,omitempty"`
+		ExpectedBinding  *string      `json:"expected_project_binding,omitempty"`
+		OutputFormat     OutputFormat `json:"output_format"`
 	}{
 		requestID, string(app.CommandReview), struct {
 			Kind  string `json:"kind"`
 			Value string `json:"value"`
-		}{request.target.kind, request.target.value}, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, preflight, expectedBinding, outputFormat,
+		}{request.target.kind, request.target.value}, requirementsPath, objective, cloneStrings(request.roles), map[bool]string{true: "explicit", false: "project_default"}[request.rolesExplicit], artistBrief, artistDesign, sessionID, preflight, expectedBinding, outputFormat,
 	})
 	if err != nil {
 		return Invocation{}, err

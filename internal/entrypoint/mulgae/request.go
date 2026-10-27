@@ -467,6 +467,8 @@ type reviewRequestSyntax struct {
 	hasObjective           bool
 	roles                  []string
 	rolesExplicit          bool
+	requirementsPath       string
+	hasRequirements        bool
 	artistBriefPath        string
 	hasArtistBrief         bool
 	artistDesignGlobs      []string
@@ -488,6 +490,7 @@ func (request reviewRequestSyntax) freeze() ReviewRequest {
 	return reviewrun.NewRequest(reviewrun.RequestInput{
 		Target: target, Objective: request.objective, HasObjective: request.hasObjective,
 		Roles: request.roles, RolesExplicit: request.rolesExplicit,
+		RequirementsPath: request.requirementsPath, HasRequirements: request.hasRequirements,
 		ArtistBriefPath: request.artistBriefPath, HasArtistBrief: request.hasArtistBrief,
 		ArtistDesignGlobs: request.artistDesignGlobs, SessionID: session,
 		Preflight: request.preflight, ExpectedProjectBinding: binding,

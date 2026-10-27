@@ -46,7 +46,7 @@ It is not an idempotency key or a content/request digest. Retired capture-bound
 request guards, `--dirty`, `--patch`, `--stdin`, `followup`, `delta`, `rerun`, and
 `compose` are rejected before provider execution. Request no automatic fallback.
 
-Preflight v9 reports source selection identity, candidate count, native read
+Preflight v10 reports source selection identity, candidate count, native read
 plan, configured routes, timeouts and enclosing budgets. Its source identity
 hashes selection metadata, not workspace/index file contents. It discovers and
 invokes no provider and creates no run, diagnostics or publication. Ordinary
@@ -54,6 +54,21 @@ preflight lists source paths; selected artist inputs also validate the brief
 and PNG/JPEG/WebP bytes. CLI emits the full native read plan; MCP summarizes it
 with `read_count` and source-selection metadata. No source or provider-content
 byte ceiling applies.
+
+Validate optional local requirements without invoking providers:
+
+```bash
+mulgae review --stage --preflight --requirements requirements.json \
+  --objective "Review the selected change." --roles logic --output json
+```
+
+The input follows `mulgae-requirements-input.v1`: explicit IDs, text, acceptance
+criteria and one selected owner role. It may be untracked or absent from the
+reviewed commit. Preflight returns its digest, selected IDs/owners and known
+extraction policy, with evaluation not run. It exposes no requirement prose and
+locks neither source nor input. Requirements-bearing execution is currently
+unavailable; ordinary objective-only execution remains supported. MCP
+`preflight_review` accepts the same local path as `requirements_path`.
 
 A no-change selection publishes zero attempts and no provider identity. Its
 preflight has `status: no_change`, no transmissions and an eligible execution

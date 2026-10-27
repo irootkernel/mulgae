@@ -200,6 +200,10 @@ func main() {
 		contractPair{"schemas/mulgae-review-artifact.v1.schema.json", "schemas/mulgae-review-artifact.v3.schema.json", "examples/review-artifact.v1.valid.json", "examples/review-artifact.v3.valid.json", "mulgae-review-artifact.v1", "mulgae-review-artifact.v3"},
 		contractPair{"schemas/mulgae-run-manifest.v1.schema.json", "schemas/mulgae-run-manifest.v3.schema.json", "examples/run-manifest.v1.valid.json", "examples/run-manifest.v3.valid.json", "mulgae-run-manifest.v1", "mulgae-run-manifest.v3"},
 	)
+	catalogPairs = append(catalogPairs,
+		contractPair{"schemas/mulgae-command-result.v21.schema.json", "schemas/mulgae-command-result.v22.schema.json", "examples/command-result.v21.valid.json", "examples/command-result.v22.valid.json", "mulgae-command-result.v21", "mulgae-command-result.v22"},
+		contractPair{"schemas/mulgae-review-preflight.v9.schema.json", "schemas/mulgae-review-preflight.v10.schema.json", "examples/review-preflight.v9.valid.json", "examples/review-preflight.v10.valid.json", "mulgae-review-preflight.v9", "mulgae-review-preflight.v10"},
+	)
 	if err := updateFileCatalog(assets, append(catalogPairs, agyContractPairs...)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

@@ -84,7 +84,7 @@ func TestSchemaIndexCoversEveryEmbeddedSchema(t *testing.T) {
 			t.Errorf("schema row for %s references a missing example %q", base, example)
 		}
 	}
-	if !strings.Contains(index, "Current commands emit v21") || !strings.Contains(index, "preflight emits v9") {
-		t.Error("schema index current-version sentence does not name command v21 and preflight v9")
+	if !strings.Contains(index, "Current commands emit v22") || !strings.Contains(index, "preflight emits v10") {
+		t.Error("schema index current-version sentence does not name command v22 and preflight v10")
 	}
 }
