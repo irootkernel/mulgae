@@ -147,6 +147,55 @@ func requirementsExecutionApplication(t *testing.T, root ports.AnchoredRoot, rea
 	return application, backend, writer, factory
 }
 
+func TestRequirementsPreflightHumanAvailabilityMatchesMachineResult(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		git  bool
+	}{{"git", true}, {"non-Git", false}} {
+		t.Run(test.name, func(t *testing.T) {
+			root, reader := requirementsProject(t, false)
+			if !test.git {
+				if err := os.RemoveAll(filepath.Join(root.String(), ".git")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(root.String(), "requirements.json"), []byte(requirementsFixture), 0644); err != nil {
+				t.Fatal(err)
+			}
+			application, _, writer, factory := requirementsExecutionApplication(t, root, reader)
+			args := []string{"review", "--workspace", "--roles", "logic", "--preflight", "--requirements", "requirements.json"}
+			machine := application.Run(context.Background(), append(append([]string{}, args...), "--output", "json"), root.String())
+			human := application.Run(context.Background(), args, root.String())
+			if machine.ExitCode() != 0 || human.ExitCode() != 0 {
+				t.Fatalf("preflight failed: machine=%s %s human=%s %s", machine.Stdout(), machine.Stderr(), human.Stdout(), human.Stderr())
+			}
+			var envelope struct {
+				Result struct {
+					Preflight mulgaeentry.ReviewPreflightResult `json:"preflight"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(machine.Stdout(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			summary := envelope.Result.Preflight.Requirements
+			if summary == nil || summary.ExecutionAvailable != test.git || summary.EvaluationStatus != "not_run" {
+				t.Fatalf("unexpected machine availability: %+v", summary)
+			}
+			availability := "requirements execution unavailable"
+			if test.git {
+				availability = "requirements execution available"
+			}
+			output := string(human.Stdout())
+			if !strings.Contains(output, availability) || !strings.Contains(output, "evaluation=not_run") || strings.Count(output, "requirements execution ") != 1 {
+				t.Fatalf("human availability differs from machine result: %s", output)
+			}
+			if factory.calls != 0 || writer.ensures != 0 || writer.writes != 0 {
+				t.Fatalf("preflight had effects: provider=%d ensure=%d write=%d", factory.calls, writer.ensures, writer.writes)
+			}
+		})
+	}
+}
+
 func TestRequirementsPublicAdmissionRejectsBeforeEveryPublicationEffect(t *testing.T) {
 	for _, kind := range []string{"workspace", "stage", "head", "commit", "diff"} {
 		t.Run(kind, func(t *testing.T) {

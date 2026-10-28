@@ -388,7 +388,11 @@ func renderReviewPreflightHuman(result ReviewPreflightResult) []byte {
 	}
 	fmt.Fprintf(&output, "review preflight: %s\nqualification: %s\nproject binding: %s\nsource identity: %s\nselection: %s\ncandidates: %d\n", result.Status, result.Qualification, binding, result.SourceIdentitySHA256, result.Target, result.CandidateCount)
 	if summary := result.Requirements; summary != nil {
-		fmt.Fprintf(&output, "requirements: %d selected; evaluation=%s; requirements execution unavailable\ninput digest: %s\nsource limit: %s\n", summary.SelectedCount, summary.EvaluationStatus, summary.InputSHA256, summary.SourceLimit)
+		availability := "unavailable"
+		if summary.ExecutionAvailable {
+			availability = "available"
+		}
+		fmt.Fprintf(&output, "requirements: %d selected; evaluation=%s; requirements execution %s\ninput digest: %s\nsource limit: %s\n", summary.SelectedCount, summary.EvaluationStatus, availability, summary.InputSHA256, summary.SourceLimit)
 		for _, item := range summary.Items {
 			fmt.Fprintf(&output, "requirement: %s owner=%s\n", item.RequirementID, item.OwnerRole)
 		}
