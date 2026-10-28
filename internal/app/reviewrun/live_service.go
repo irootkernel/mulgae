@@ -46,6 +46,7 @@ type LivePublicationCommitter interface {
 }
 
 type LiveDependencies struct {
+	PublicationWriter  ports.SecureFileWriter
 	RequirementsPrompt prompt.TrustedLayer
 	Sources            ports.LiveSourceOpener
 	ReviewerHome       ports.ReviewerHome
@@ -164,6 +165,9 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	}
 	var requirements validation.RequirementsInput
 	if request.HasRequirements {
+		if !binding.Valid() {
+			return Result{}, guardFailure(ErrContractUnsupported)
+		}
 		if service.dependencies.RequirementsPrompt.ID() == "" {
 			return Result{}, fmt.Errorf("live review: requirements prompt unavailable")
 		}
@@ -177,6 +181,13 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	receipt, err := validatePlan(plan, request.Selection.Roles())
 	if err != nil {
 		return Result{}, err
+	}
+	if !nilInterface(service.dependencies.PublicationWriter) {
+		path, _ := ports.NewSafeRelativePath(".mulgae")
+		if err := service.dependencies.PublicationWriter.EnsurePrivateDir(request.ProjectRoot, path); err != nil {
+			failure, _ := domain.NewFailure("review.start", domain.FailureArtifact, "private publication root unavailable", err)
+			return Result{}, failure
+		}
 	}
 	identity, err := issueRootRunIdentity(service.dependencies.Clock, service.dependencies.IDs, request.Selection)
 	if err != nil {

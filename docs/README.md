@@ -47,12 +47,13 @@ describe the implemented model and its limits.
 [Review completeness and iteration](specs/review-completeness-and-iteration.md)
 and its [EPIC-008 dossier](todo/EPIC-008-review-completeness-and-iteration.md)
 define the reduced optional requirements-assessment scope approved on 2026-10-27.
-TASK-026 contract foundations, TASK-027 admission/preflight and TASK-028 internal
-assessment/publication are complete.
+TASK-026 contract foundations, TASK-027 admission/preflight, TASK-028 internal
+assessment/publication and TASK-029 verified reads/activation are complete.
 Batch rechecks and cross-run comparison remain outside current membership and
 acceptance. Local requirements admission and provider-free CLI/MCP preflight
-are available. TASK-028 implements the internal assessment and publication path;
-public requirements execution and verified result reads remain unavailable.
+are available. Git-bound requirements execution includes verified CLI/MCP pages,
+content resources and rendered reports. TASK-033 retains integrated
+full/live/client certification; explicit Epic acceptance remains pending.
 
 [Cursor ACP transport](architecture-decision-records/cursor-acp-transport.md)
 records the implemented explicit-selection route for

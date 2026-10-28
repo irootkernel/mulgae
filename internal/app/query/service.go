@@ -808,6 +808,10 @@ func (service *Service) buildSnapshotReview(
 		finalSchema = requiredSchemaAsset(artifactwire.ReviewArtifactV3Schema)
 		manifestSchema = requiredSchemaAsset(artifactwire.RunManifestV3Schema)
 	}
+	if schemaEnvelope.SchemaVersion == artifactwire.ReviewArtifactV4 {
+		finalSchema = requiredSchemaAsset(artifactwire.ReviewArtifactV4Schema)
+		manifestSchema = requiredSchemaAsset(artifactwire.RunManifestV4Schema)
+	}
 	if schemaEnvelope.SchemaVersion == artifactwire.CompositeReviewArtifactV1 || schemaEnvelope.SchemaVersion == artifactwire.CompositeReviewArtifactV2 {
 		finalSchema, manifestSchema = compositeFinalSchemaAsset, compositeManifestSchemaAsset
 		if schemaEnvelope.SchemaVersion == artifactwire.CompositeReviewArtifactV2 {
@@ -875,6 +879,7 @@ func (service *Service) buildSnapshotReview(
 			return CommittedReview{}, err
 		}
 	}
+	review.requirements = node.requirements
 	return review, nil
 }
 
@@ -902,8 +907,8 @@ func buildCommittedReview(
 		return CommittedReview{}, fmt.Errorf("manifest path is not canonical")
 	}
 
-	live := final.SchemaVersion == artifactwire.ReviewArtifactV3
-	if live && manifest.SchemaVersion != artifactwire.RunManifestV3 || !live && (final.SchemaVersion != sourceLineageVersion(artifactwire.ReviewArtifactV1, final.ImmutableLineage.SourceRecoveryManifestSHA256) || manifest.SchemaVersion != sourceLineageVersion(artifactwire.RunManifestV1, manifest.ImmutableLineage.SourceRecoveryManifestSHA256)) {
+	live := final.SchemaVersion == artifactwire.ReviewArtifactV3 || final.SchemaVersion == artifactwire.ReviewArtifactV4
+	if live && manifest.SchemaVersion != artifactwire.RunManifestV3 && manifest.SchemaVersion != artifactwire.RunManifestV4 || !live && (final.SchemaVersion != sourceLineageVersion(artifactwire.ReviewArtifactV1, final.ImmutableLineage.SourceRecoveryManifestSHA256) || manifest.SchemaVersion != sourceLineageVersion(artifactwire.RunManifestV1, manifest.ImmutableLineage.SourceRecoveryManifestSHA256)) {
 		return CommittedReview{}, fmt.Errorf("schema version does not match committed contract")
 	}
 	sessionID, err := domain.ParseSessionID(final.SessionID)

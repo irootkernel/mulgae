@@ -125,7 +125,12 @@ func composeReviewRuns(
 	if err := graph.openLiveReview(ctx, catalog); err != nil {
 		return nil, errors.Join(err, graph.cleanupRoots())
 	}
+	requirementsPrompt, err := reviewrun.LoadRequirementsPrompt(ctx, catalog)
+	if err != nil {
+		return nil, errors.Join(err, graph.cleanupRoots())
+	}
 	service, err := reviewrun.NewLiveService(reviewrun.LiveDependencies{
+		RequirementsPrompt: requirementsPrompt, PublicationWriter: writer,
 		Sources: graph.liveSources, ReviewerHome: graph.reviewerHome, CredentialRoots: graph.credentialRoots,
 		Admission: productionLiveRequestAdmission{policy: graph.policy}, Clock: clock, IDs: ids, Build: build,
 		Authority: graph.authority, Validator: graph.reviewValidator, Publication: graph.publisher,
@@ -253,7 +258,7 @@ func (service *productionReviewPreflightService) PreflightReview(ctx context.Con
 		if inputErr != nil {
 			return result, inputErr
 		}
-		requirements, err = mulgae.NewRequirementsPreflightSummary(input.SHA256(), input.Requirements(), service.policy.planner.Extraction)
+		requirements, err = mulgae.NewRequirementsPreflightSummary(input.SHA256(), input.Requirements(), service.policy.planner.Extraction, binding.Valid())
 		if err != nil {
 			return result, err
 		}

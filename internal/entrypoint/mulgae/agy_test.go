@@ -81,7 +81,7 @@ func TestApplicationInitAgyPublishesCurrentContractAndSplitPolicy(t *testing.T) 
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v22" || len(envelope.Result.Discovery) != 5 || envelope.Result.Discovery[4].Family != "agy" {
+	if envelope.SchemaVersion != "mulgae-command-result.v23" || len(envelope.Result.Discovery) != 5 || envelope.Result.Discovery[4].Family != "agy" {
 		t.Fatalf("AGY envelope: %#v", envelope)
 	}
 	diagnosed := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)

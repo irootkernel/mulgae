@@ -399,10 +399,9 @@ reused unchanged and gain no evidence through an implicit upgrade.
 Current execution follows [live workspace and Git review](live-workspace-and-git-review.md).
 [Verified review contracts](verified-review-contracts.md) retains historical
 capture/guard and composite-support obligations. The reduced
-[EPIC-008 design](review-completeness-and-iteration.md) plans optional requirements
-assessment. Local input admission, provider-free preflight and internal assessment
-execution/publication are implemented; public requirements execution and verified
-reads remain unavailable.
+[EPIC-008 design](review-completeness-and-iteration.md) defines optional requirements
+assessment. Current admission, assessment execution/publication and verified
+CLI/MCP reads use the existing owners and Git project binding.
 
 - Keep independent project binding and anchored-root revalidation before
   qualification or provider transmission. Local identity is not a content
@@ -439,7 +438,7 @@ reads remain unavailable.
   absence is explicit unavailability. Reads cannot invoke providers, rewrite
   results or reconstruct evidence from current source.
 - Admit public requirements-bearing execution only with verified CLI/MCP reads
-  in TASK-029. Keep provider assessments, Mulgae-derived placeholders and unknown
+  and an existing Git/common-directory project binding. Keep provider assessments, Mulgae-derived placeholders and unknown
   historical counts distinct; assessment success grants no finding coverage or
   final acceptance authority.
 - Preserve historical capture and self-contained composite integrity under their
@@ -454,9 +453,11 @@ and no-follow regular-file descriptors. Canonical paths, protected roots and
 local ignore rules apply independently of the reviewed Git side. Ignore-control
 files retain their existing configuration bounds even if also selected as JSON
 input; ordinary requirement prose remains unbounded. Only IDs, owners, counts,
-digest and fixed admission/policy states enter the preflight response. Public
-requirements execution is rejected before provider preparation or publication
-writes; malformed input on a no-change preflight does not authorize a result.
+digest and fixed admission/policy states enter the preflight response. Requirements execution on an unbound non-Git workspace fails with
+`contract_unsupported` before private writer effects, allocation or qualification.
+Its provider-free preflight may validate input but must disclose unavailable
+execution and an empty requirements capability. Objective-only non-Git execution
+remains supported. Malformed input on any no-change path authorizes no result.
 
 Internal assessment evidence uses the selected source side while its original
 lease remains open. A comparison with the exact admitted input digest rejects
@@ -469,8 +470,13 @@ The assessment section is decoded strictly without the generic 8 MiB envelope
 limit on prose. Trusted ownership violations and source/validator failures retain
 canonical joined-error precedence and deny publication. Ordinary content failure
 in one section preserves a valid peer and its accepted primary report. Bound
-input/content bodies remain private publication support and enter no current
-public assessment read or portable export contract.
+input/content bodies remain private publication support. Verified public content
+reads expose assessment rationale/evidence through receipt-bound chunks, without
+including the raw invocation input. Portable export admits neither body. Readers
+verify the whole selected set and every content binding before paging, then
+confirm publication authority again before returning. Concurrent cleanup or
+changed receipts fail closed. Cleanup removes run-owned copies only, never the
+original invocation file.
 
 Batch execution, cross-run comparison, resolution transfer and conflict
 reduction are outside this Epic. Requirements assessment grants no issue

@@ -46,7 +46,7 @@ It is not an idempotency key or a content/request digest. Retired capture-bound
 request guards, `--dirty`, `--patch`, `--stdin`, `followup`, `delta`, `rerun`, and
 `compose` are rejected before provider execution. Request no automatic fallback.
 
-Preflight v10 reports source selection identity, candidate count, native read
+Preflight v11 reports source selection identity, candidate count, native read
 plan, configured routes, timeouts and enclosing budgets. Its source identity
 hashes selection metadata, not workspace/index file contents. It discovers and
 invokes no provider and creates no run, diagnostics or publication. Ordinary
@@ -66,9 +66,34 @@ The input follows `mulgae-requirements-input.v1`: explicit IDs, text, acceptance
 criteria and one selected owner role. It may be untracked or absent from the
 reviewed commit. Preflight returns its digest, selected IDs/owners and known
 extraction policy, with evaluation not run. It exposes no requirement prose and
-locks neither source nor input. Requirements-bearing execution is currently
-unavailable; ordinary objective-only execution remains supported. MCP
-`preflight_review` accepts the same local path as `requirements_path`.
+locks neither source nor input. Omit `--preflight` for assessment through selected
+owner roles. Requirements execution needs the existing Git/common-directory
+binding; Git context advertises `requirements_assessment: v1`. Non-Git preflight
+validates input but reports execution unavailable and an empty capability;
+execution fails with `contract_unsupported` before private writer/provider effects.
+Objective-only non-Git reviews remain supported. MCP review/preflight inputs accept
+the same local path as `requirements_path` without changing start/await/cancel.
+
+`inspect` and `findings` return a separate `requirements` page with whole selected
+and evaluated counts, owner/verdict/reason and provider/derived origin. Use
+`--requirements-limit` (1 through 100, default 100) and `--requirements-cursor`; finding
+severity and pagination do not filter requirements. MCP `inspect_review` and
+`list_findings` use `requirements_limit` and `requirements_cursor`.
+
+```bash
+mulgae inspect --run r_... --requirements-limit 20 --output json
+mulgae read-report --run r_... --requirement RCI-001 --output json
+```
+
+Follow `requirement_content_uris` through MCP resources or read the same item
+through CLI content chunks. Preserve its publication/content digests on
+continuation. Rationale, selected-side evidence, scope and limitations have no
+prose byte ceiling. Reports include unmet/unverified and omitted answers.
+No-change assessments are not run and have zero evaluated rows. Historical
+unknown counts stay null; a new request without input has known zero counts.
+Reads use verified retained support without providers or current-source fallback.
+Portable export excludes private requirements. Cleanup removes retained run copies
+and never the original project input.
 
 A no-change selection publishes zero attempts and no provider identity. Its
 preflight has `status: no_change`, no transmissions and an eligible execution

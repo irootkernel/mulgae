@@ -231,8 +231,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 193 {
-		t.Fatalf("manifest asset count = %d, want 193", len(manifest.Assets))
+	if len(manifest.Assets) != 199 {
+		t.Fatalf("manifest asset count = %d, want 199", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -317,8 +317,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 182 {
-		t.Fatalf("authoritative runtime source count = %d, want 182", len(authoritativeSources))
+	if len(authoritativeSources) != 188 {
+		t.Fatalf("authoritative runtime source count = %d, want 188", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -632,9 +632,12 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-requirement-content.v1.schema.json", "schemas/mulgae-requirement-content.v1.schema.json", "examples/requirement-content.v1.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v22.schema.json", "schemas/mulgae-command-result.v22.schema.json", "examples/command-result.v22.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v10.schema.json", "schemas/mulgae-review-preflight.v10.schema.json", "examples/review-preflight.v10.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v23.schema.json", "schemas/mulgae-command-result.v23.schema.json", "examples/command-result.v23.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-review-preflight.v11.schema.json", "schemas/mulgae-review-preflight.v11.schema.json", "examples/review-preflight.v11.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-requirements-cursor.v1.schema.json", "schemas/mulgae-requirements-cursor.v1.schema.json", "examples/requirements-cursor.v1.valid.json"},
 	}
-	if len(expected) != 79 {
-		t.Fatalf("test pair inventory contains %d pairs, want 79", len(expected))
+	if len(expected) != 82 {
+		t.Fatalf("test pair inventory contains %d pairs, want 82", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

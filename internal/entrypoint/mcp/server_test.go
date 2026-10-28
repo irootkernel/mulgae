@@ -996,8 +996,8 @@ func TestServePreflightAndBoundedResourceTemplates(t *testing.T) {
 		t.Fatalf("preflight result = %#v, calls = %d", preflight, backend.preflightCalls)
 	}
 	templates := decodeResponse(t, responses[2])["result"].(map[string]any)["resourceTemplates"].([]any)
-	if len(templates) != 4 || templates[1].(map[string]any)["uriTemplate"] != evidenceResourceTemplate ||
-		templates[2].(map[string]any)["uriTemplate"] != reportResourceTemplate {
+	if len(templates) != 5 || templates[1].(map[string]any)["uriTemplate"] != evidenceResourceTemplate ||
+		templates[2].(map[string]any)["uriTemplate"] != reportResourceTemplate || templates[3].(map[string]any)["uriTemplate"] != "mulgae://runs/{run_id}/requirements/{requirement_id}{?project_binding,publication_receipt,content_sha256,offset}" {
 		t.Fatalf("resource templates = %#v", templates)
 	}
 	contents := decodeResponse(t, responses[3])["result"].(map[string]any)["contents"].([]any)

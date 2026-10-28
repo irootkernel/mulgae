@@ -47,7 +47,16 @@ func retainedRuntimeWireOutputs(t *testing.T) map[string]string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		outputs["built-support-"+c.name] = string(index.Bytes())
+		if c.name == "v3" {
+			var current runSupportIndexWire
+			if err := json.Unmarshal(index.Bytes(), &current); err != nil || current.SchemaVersion != artifactwire.SupportIndexV4 {
+				t.Fatal("current live support producer did not cut over to v4")
+			}
+			// Retain the v3 DTO encoder, without restoring its retired producer.
+			encode("built-support-v3", runSupportIndexWire{SchemaVersion: artifactwire.SupportIndexV3, Artifacts: []artifactIdentityWire{{Path: artifact.Path().String(), SHA256: artifact.SHA256()}}})
+		} else {
+			outputs["built-support-"+c.name] = string(index.Bytes())
+		}
 	}
 	return outputs
 }

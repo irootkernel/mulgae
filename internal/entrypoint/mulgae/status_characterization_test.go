@@ -67,8 +67,9 @@ func statusBranchFixture(t *testing.T, branch int, missing error) (foundationFix
 	return fixture, diagnostics
 }
 
-// Literal wire/output expectations were recorded on M1C2 before extraction.
-const statusWirePrefix = `{"schema_version":"mulgae-command-result.v22","command":"status","request":{"command":"status","output_format":"json","request_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf"},"completed_at":"2026-07-14T12:00:00.000Z",`
+// Payload wire expectations were recorded on M1C2; only the current envelope
+// identity advances with the TASK-029 v23 cutover.
+const statusWirePrefix = `{"schema_version":"mulgae-command-result.v23","command":"status","request":{"command":"status","output_format":"json","request_id":"i_019f596a-cf80-7c67-b265-f37053d51ccf","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf"},"completed_at":"2026-07-14T12:00:00.000Z",`
 const statusUnavailableRecovery = `{"accepted_roles":[],"available":false,"manifest_sha256":null,"retry_attempts":[],"run_id":null,"source_kind":null,"unavailable_reason":"source_not_retained"}`
 const statusDiagnosticResult = `{"completed_at":"2026-07-23T06:00:00Z","diagnostic_only":true,"dropped_events":0,"failed_run_recovery":` + statusUnavailableRecovery + `,"final_artifact_uri":null,"kind":"diagnostic_status_read","last_seq":0,"publication_authority":false,"publication_status":null,"recovery_action":"none","role_path_completed":0,"role_path_failed":0,"role_path_total":0,"run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","run_state":"failed","selected_roles":["testing"],"session_id":"s_019f596a-cfe4-7c9c-b82e-7149158243ba","started_at":"2026-07-23T06:00:00Z","terminal_cause":null,"terminal_phase":null,"updated_at":"2026-07-23T06:00:00Z"}`
 const statusPublicationResult = `{"failed_run_recovery":` + statusUnavailableRecovery + `,"final_artifact_uri":null,"kind":"status_read","publication_status":"not_published","recovery_action":"resume_collection","run_id":"r_019f596a-cf80-7c67-b265-f37053d51ccf","run_state":null}`

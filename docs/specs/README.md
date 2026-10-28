@@ -23,8 +23,8 @@ behavior and durable product contracts.
   for EPIC-009.
 
 Checked requirements in the EPIC-007 and EPIC-009 specifications denote verified
-behavior and compatibility. EPIC-008's reduced design is approved and Planned;
-its unchecked requirements do not claim implemented behavior.
+behavior and compatibility. EPIC-008's reduced implementation is in progress;
+its unchecked requirements do not claim Task or Epic acceptance.
 The [roadmap](../roadmap/README.md) alone owns Task/Epic lifecycle and execution
 order.
 

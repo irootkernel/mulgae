@@ -330,11 +330,11 @@ func TestMCPBackendListsAndReadsOnlyVerifiedPublicViews(t *testing.T) {
 		status: mulgaeentry.RunStatusView{FailedRunRecovery: recovery.UnavailableStatus("source_not_retained"),
 			SessionID: sessionID.String(), RunID: runID.String(), RunState: domain.RunCompleted, HasRunState: true,
 			PublicationState: domain.PublicationCommitted, RecoveryAction: domain.RecoveryActionReconstructCompletedStatus,
-			FinalArtifactURI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/review_test.json", HasFinalArtifact: true,
+			FinalArtifactURI: ".mulgae/" + sessionID.String() + "/" + runID.String() + "/review_019f596a-d174-7321-b920-c2d312c82cc2.json", HasFinalArtifact: true,
 			ContentVerdict: domain.ContentNoFindings, CoverageStatus: domain.CoverageComplete, CIDecision: domain.CIPass, HasAxes: true,
 		},
 		findings: mcpFixtureFindings{
-			RunID: runID.String(), ReviewArtifactURI: ".mulgae/review_test.json",
+			RunID: runID.String(), ReviewArtifactURI: ".mulgae/review_019f596a-d174-7321-b920-c2d312c82cc2.json",
 			TargetSHA256: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Findings:     []mcpFixtureFinding{{ID: "F001", Severity: domain.SeverityHigh, Title: "Boundary regression", HasEvidence: true}},
 		},

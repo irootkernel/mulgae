@@ -415,7 +415,7 @@ func (store *CleanupStore) verifyLiveCleanupSupport(ctx context.Context, run por
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		return err
 	}
-	if manifest.SchemaVersion != artifactwire.RunManifestV3 {
+	if manifest.SchemaVersion != artifactwire.RunManifestV3 && manifest.SchemaVersion != artifactwire.RunManifestV4 {
 		return nil
 	}
 	ref := manifest.CompositeIdentity.SupportIndex
@@ -435,7 +435,11 @@ func (store *CleanupStore) verifyLiveCleanupSupport(ctx context.Context, run por
 	if err := strictDecodePublicationJSON(indexFile.bytes, &index); err != nil {
 		return err
 	}
-	if index.SchemaVersion != artifactwire.SupportIndexV3 || index.Artifacts == nil {
+	expectedIndex := artifactwire.SupportIndexV3
+	if manifest.SchemaVersion == artifactwire.RunManifestV4 {
+		expectedIndex = artifactwire.SupportIndexV4
+	}
+	if index.SchemaVersion != expectedIndex || index.Artifacts == nil {
 		return errors.New("cleanup store: invalid live support index")
 	}
 	seen := map[string]bool{indexPath.String(): true}

@@ -22,17 +22,32 @@ import (
 
 func (fake *mcpQueryFake) Inspect(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, request query.InspectionRequest) (query.Inspection, error) {
 	view, err := fake.ListFindings(ctx, run, request.MinimumSeverity)
-	return fixtureInspection(view, request, err)
+	return fixtureInspection(view, run, binding, domain.RunTypeReview, request, err)
 }
 func (fake *mcpMultiQueryFake) Inspect(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, request query.InspectionRequest) (query.Inspection, error) {
 	view, err := fake.ListFindings(ctx, run, request.MinimumSeverity)
-	return fixtureInspection(view, request, err)
+	return fixtureInspection(view, run, binding, domain.RunTypeComposite, request, err)
 }
-func fixtureInspection(view mcpFixtureFindings, request query.InspectionRequest, err error) (query.Inspection, error) {
+func fixtureInspection(view mcpFixtureFindings, run ports.PublicationRun, binding domain.ProjectBinding, runType domain.RunType, request query.InspectionRequest, err error) (query.Inspection, error) {
 	if err != nil {
 		return query.Inspection{}, err
 	}
 	page := query.Inspection{FailedRunRecovery: recovery.UnavailableStatus("published_review"), RunID: view.RunID, TargetSHA256: view.TargetSHA256, ReviewArtifactURI: view.ReviewArtifactURI, FindingCount: len(view.Findings), ReturnedCount: len(view.Findings), MinimumSeverity: string(request.MinimumSeverity), Findings: []query.FindingSummary{}, RoleReports: []query.InspectionRoleReport{}}
+	reviewID := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(view.ReviewArtifactURI), "review_"), ".json")
+	target := view.TargetSHA256
+	if target == "" {
+		target = "sha256:" + strings.Repeat("a", 64)
+	}
+	receipt := query.InspectionReceipt{SchemaVersion: query.InspectionReceiptVersion, ProjectBinding: binding.String(), SessionID: run.SessionID().String(), RunID: run.RunID().String(), ReviewID: reviewID, RunType: string(runType), TargetSHA256: target, FinalSHA256: "sha256:" + strings.Repeat("b", 64), ManifestSHA256: "sha256:" + strings.Repeat("c", 64), SupportSHA256: "sha256:" + strings.Repeat("d", 64), LineageSHA256: "sha256:" + strings.Repeat("e", 64), Epoch: 1, CaptureAvailability: "capture_identity_unavailable"}
+	identity, err := receipt.Identity()
+	if err != nil {
+		return query.Inspection{}, err
+	}
+	page.SessionID, page.ReviewID, page.RunType = receipt.SessionID, receipt.ReviewID, receipt.RunType
+	page.TargetSHA256, page.CaptureAvailability = receipt.TargetSHA256, receipt.CaptureAvailability
+	page.PublicationReceipt, page.Receipt, page.Capabilities = identity.String(), &receipt, query.ImplementedReadCapabilities()
+	page.Requirements = &query.RequirementsRead{SchemaVersion: query.RequirementsReadVersion, Receipt: receipt, Availability: domain.AssessmentUnavailable, Items: []query.RequirementItem{}}
+	page.RequirementContentURIs = map[string]string{}
 	for _, f := range view.Findings {
 		var legacyURI *string
 		if f.HasEvidence {
@@ -46,9 +61,17 @@ func fixtureInspection(view mcpFixtureFindings, request query.InspectionRequest,
 	}
 	return page, nil
 }
+func (*mcpQueryFake) ReadRequirement(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected requirement content read")
+}
+
 func (*mcpQueryFake) ReadFinding(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
 	return query.ContentChunk{}, errors.New("unexpected read finding")
 }
+func (*mcpMultiQueryFake) ReadRequirement(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected requirement content read")
+}
+
 func (*mcpMultiQueryFake) ReadFinding(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
 	return query.ContentChunk{}, errors.New("unexpected read finding")
 }
@@ -153,8 +176,9 @@ func TestMCPInspectFallbackSuppressesPagedRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, input := range map[string]mcpentry.ListFindingsInput{
-		"cursor set":           {RunID: runID.String(), Cursor: "opaque"},
-		"expected receipt set": {RunID: runID.String(), ExpectedPublicationReceipt: "sha256:" + strings.Repeat("1", 64)},
+		"cursor set":              {RunID: runID.String(), Cursor: "opaque"},
+		"requirements cursor set": {RunID: runID.String(), RequirementsCursor: "opaque"},
+		"expected receipt set":    {RunID: runID.String(), ExpectedPublicationReceipt: "sha256:" + strings.Repeat("1", 64)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, inspectErr := backend.InspectReview(context.Background(), input); inspectErr == nil {

@@ -25,7 +25,7 @@ func TestRequirementsPreflightRejectsContradictorySummaryMetadata(t *testing.T) 
 		"count":               func(s *RequirementsPreflightSummary) { s.SelectedCount++ },
 		"identity":            func(s *RequirementsPreflightSummary) { s.Items[0].RequirementID = "not valid" },
 		"owner":               func(s *RequirementsPreflightSummary) { s.Items[0].OwnerRole = "unknown" },
-		"execution":           func(s *RequirementsPreflightSummary) { s.ExecutionAvailable = true },
+		"execution":           func(s *RequirementsPreflightSummary) { s.ExecutionAvailable = false },
 		"assessment":          func(s *RequirementsPreflightSummary) { s.EvaluationStatus = "evaluated" },
 		"predicted allowance": func(s *RequirementsPreflightSummary) { s.ExtractionPolicy = "extraction_allowance_consumed" },
 	} {

@@ -42,7 +42,7 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 	if !first.Valid() {
 		t.Fatal("built bundle is invalid")
 	}
-	if got, want := assetIDStrings(validator.ids), []string{strings.Replace(finalReviewSchemaAsset, ".v1.", ".v3.", 1), strings.Replace(runManifestSchemaAsset, ".v1.", ".v3.", 1)}; !reflect.DeepEqual(got, want) {
+	if got, want := assetIDStrings(validator.ids), []string{strings.Replace(finalReviewSchemaAsset, ".v1.", ".v4.", 1), strings.Replace(runManifestSchemaAsset, ".v1.", ".v4.", 1)}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("validator schema IDs = %#v, want %#v", got, want)
 	}
 	if len(validator.bytes) != 2 || !bytes.Equal(validator.bytes[0], first.Final().Bytes()) || !bytes.Equal(validator.bytes[1], first.Manifest().Bytes()) {
@@ -203,7 +203,7 @@ func TestPreparedCandidateBuildDeterministicPublicationBundle(t *testing.T) {
 	}
 }
 
-func TestFinalArtifactV3SerializesVerifiedVisualEvidence(t *testing.T) {
+func TestFinalArtifactV4SerializesVerifiedVisualEvidence(t *testing.T) {
 	t.Parallel()
 	candidate := retainedLiveCandidate(t, true)
 	candidate.findings[0].evidence[0].visual = &preparedVisualEvidence{
@@ -233,7 +233,7 @@ func TestFinalArtifactV3SerializesVerifiedVisualEvidence(t *testing.T) {
 	if err := unmarshalExact(finalBytes, &final); err != nil {
 		t.Fatal(err)
 	}
-	if final.SchemaVersion != "mulgae-review-artifact.v3" {
+	if final.SchemaVersion != "mulgae-review-artifact.v4" {
 		t.Fatalf("schema version = %q", final.SchemaVersion)
 	}
 	visual := final.Findings[0].Evidence[0].Visual
@@ -250,7 +250,7 @@ func TestPreparedCandidateBuildRejectsSchemaFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("Build accepted validator rejection")
 	}
-	if got, want := assetIDStrings(validator.ids), []string{strings.Replace(finalReviewSchemaAsset, ".v1.", ".v3.", 1)}; !reflect.DeepEqual(got, want) {
+	if got, want := assetIDStrings(validator.ids), []string{strings.Replace(finalReviewSchemaAsset, ".v1.", ".v4.", 1)}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("validator schema IDs after rejection = %#v, want %#v", got, want)
 	}
 }

@@ -10,6 +10,7 @@ import (
 )
 
 type ContentChunk struct {
+	RequirementID      string `json:"requirement_id,omitempty"`
 	PublicationReceipt string `json:"publication_receipt"`
 	ContentSHA256      string `json:"content_sha256"`
 	MediaType          string `json:"media_type"`

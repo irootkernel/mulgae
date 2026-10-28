@@ -13,6 +13,9 @@ const (
 
 var requirementIDPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,63}$`)
 
+// ValidRequirementID admits the same case-sensitive IDs in input and read selectors.
+func ValidRequirementID(id string) bool { return requirementIDPattern.MatchString(id) }
+
 // Requirement is an immutable invocation obligation, not source evidence.
 type Requirement struct {
 	id       string
@@ -22,7 +25,7 @@ type Requirement struct {
 }
 
 func NewRequirement(id, text string, criteria []string, owner Role) (Requirement, error) {
-	if !requirementIDPattern.MatchString(id) || !requirementText(text) || !owner.Valid() || len(criteria) < 1 || len(criteria) > MaxAcceptanceCriteria {
+	if !ValidRequirementID(id) || !requirementText(text) || !owner.Valid() || len(criteria) < 1 || len(criteria) > MaxAcceptanceCriteria {
 		return Requirement{}, fmt.Errorf("requirement: invalid identity, text, criteria or owner")
 	}
 	for _, criterion := range criteria {

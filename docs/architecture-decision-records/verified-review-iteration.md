@@ -9,7 +9,8 @@ any new command, schema, or runtime behavior exists.
 
 Decision: Master approved the reduced scope on 2026-10-27. EPIC-008 now plans
 optional explicit requirements assessment within one ordinary original-source
-review, followed by verified result inspection. Implementation has not begun.
+review, followed by verified result inspection. Implementation is in progress;
+the roadmap owns Task completion and Epic acceptance.
 
 Keep IDs, descriptions, acceptance criteria and one selected owner role per
 requirement. Input coexists with the existing objective. Normalize every item

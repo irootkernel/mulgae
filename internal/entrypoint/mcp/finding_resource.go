@@ -54,6 +54,9 @@ func parseVerifiedContentURI(raw string, segments []string, values url.Values) (
 	invalid := func() (ResourceRequest, error) { return ResourceRequest{}, errInvalidResourceURI }
 	request := ResourceRequest{rawURI: raw, runID: segments[0], verified: true}
 	switch {
+	case len(segments) == 3 && segments[1] == "requirements" && domain.ValidRequirementID(segments[2]):
+		request.kind = ResourceRequirement
+		request.requirementID = segments[2]
 	case len(segments) == 2 && segments[1] == "report":
 		request.kind = ResourceReport
 	case len(segments) == 2 && segments[1] == "source-image":
@@ -121,7 +124,9 @@ func parseVerifiedContentURI(raw string, segments []string, values url.Values) (
 		return ResourceRequest{}, err
 	}
 	canonical := ""
-	if request.kind == ResourceSourceImage {
+	if request.kind == ResourceRequirement {
+		canonical = query.RequirementContentURI(request.runID, request.requirementID, request.projectBinding, request.continuation.PublicationReceipt, request.continuation.ContentSHA256, request.continuation.Offset)
+	} else if request.kind == ResourceSourceImage {
 		if request.sourceIdentity == "" || request.sourceSide == "" || request.sourcePath == "" {
 			return invalid()
 		}
@@ -150,6 +155,10 @@ func projectVerifiedChunk(request ResourceRequest, content ResourceContent) (Res
 		return ResourceResult{}, fmt.Errorf("verified content chunk is invalid")
 	}
 	switch request.kind {
+	case ResourceRequirement:
+		if chunk.RequirementID != request.requirementID || chunk.FindingID != "" || chunk.Role != "" || chunk.EvidenceIndex != nil || chunk.MediaType != "application/json" || chunk.Encoding != "utf8" {
+			return ResourceResult{}, fmt.Errorf("verified requirement selector is invalid")
+		}
 	case ResourceFindingDetail:
 		if chunk.FindingID != request.findingID || chunk.MediaType != "application/json" || chunk.Encoding != "utf8" {
 			return ResourceResult{}, fmt.Errorf("verified finding selector is invalid")
@@ -200,6 +209,8 @@ func projectVerifiedChunk(request ResourceRequest, content ResourceContent) (Res
 			return ResourceResult{}, fmt.Errorf("invalid content continuation")
 		}
 		switch request.kind {
+		case ResourceRequirement:
+			next = query.RequirementContentURI(request.runID, request.requirementID, content.ProjectBinding, chunk.PublicationReceipt, chunk.ContentSHA256, *chunk.NextOffset)
 		case ResourceFindingDetail:
 			next = query.FindingDetailURI(request.runID, request.findingID, content.ProjectBinding, chunk.PublicationReceipt, chunk.ContentSHA256, *chunk.NextOffset)
 		case ResourceReport:
@@ -222,6 +233,9 @@ func projectVerifiedChunk(request ResourceRequest, content ResourceContent) (Res
 	}
 	if request.kind == ResourceSourceImage {
 		result.Meta["side"], result.Meta["path"] = request.sourceSide, request.sourcePath
+	}
+	if chunk.RequirementID != "" {
+		result.Meta["requirement_id"] = chunk.RequirementID
 	}
 	if chunk.FindingID != "" {
 		result.Meta["finding_id"] = chunk.FindingID

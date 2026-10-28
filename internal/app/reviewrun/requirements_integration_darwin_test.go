@@ -19,6 +19,8 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	adapterruntime "github.com/irootkernel/mulgae/internal/adapters/runtime"
 	"github.com/irootkernel/mulgae/internal/app/publication"
+	"github.com/irootkernel/mulgae/internal/app/query"
+	"github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/validation"
 	"github.com/irootkernel/mulgae/internal/builtin"
@@ -359,6 +361,59 @@ func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *
 			}
 			if selected != 3 || evaluated != want || len(refs) != 3 {
 				t.Fatal("dishonest selected/evaluated counts")
+			}
+			// A fresh query service consumes the actual committed store after
+			// the execution source lease has closed. Requirement inspection
+			// remains available independently of finding extraction outcomes.
+			queries, queryErr := query.NewService(store, schema, nil, ports.PublicationStructuredMemberMaxBytes)
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			contexts, queryErr := query.NewProjectContextService(gittarget.ProjectBindingObserver{})
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			observed, queryErr := contexts.Read(ctx, root)
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			binding, queryErr := domain.ParseProjectBinding(observed.ProjectBinding)
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			run, queryErr := ports.NewPublicationRun(artifacts, result.SessionID(), result.RunID())
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			page, queryErr := queries.Inspect(ctx, run, binding, query.InspectionRequest{QueryKind: "inspect", RequirementsLimit: 1, MinimumSeverity: domain.SeverityBlocker})
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if page.Requirements == nil || *page.Requirements.SelectedCount != selected || *page.Requirements.EvaluatedCount != evaluated || page.Requirements.Items[0].RequirementID != "A" || page.Requirements.NextCursor == nil {
+				t.Fatal("verified public reader lost requirements counts/order")
+			}
+			for _, id := range []string{"A", "B", "C"} {
+				chunk, readErr := queries.ReadRequirement(ctx, run, binding, id, query.ContentContinuation{PublicationReceipt: page.PublicationReceipt})
+				if readErr != nil || chunk.RequirementID != id || chunk.MediaType != "application/json" || chunk.ReturnedBytes > query.MaxVerifiedContentChunkBytes {
+					t.Fatalf("verified content %s: %v", id, readErr)
+				}
+				if mode == "large-content" && id == "A" && (chunk.TotalBytes <= 18<<20 || chunk.NextOffset == nil) {
+					t.Fatal("public large content clipped")
+				}
+			}
+			renderer, queryErr := report.NewService(queries)
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			rendered, queryErr := renderer.Render(ctx, run)
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if !bytes.Contains(rendered.Bytes(), []byte("Requirements assessment")) || !bytes.Contains(rendered.Bytes(), []byte("C — unverified")) {
+				t.Fatal("rendered report hid missing owner answer")
+			}
+			if mode == "large-content" && len(rendered.Bytes()) <= 18<<20 {
+				t.Fatal("renderer clipped unbounded rationale/limitations")
 			}
 			for i, row := range evaluation.Assessments() {
 				body, err := os.ReadFile(filepath.Join(prefix, refs[i].Path()))

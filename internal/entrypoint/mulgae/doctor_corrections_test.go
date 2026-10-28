@@ -241,6 +241,7 @@ func assertDoctorCorrected(t *testing.T, key string, actual doctorBefore) {
 		t.Fatal(err)
 	}
 	want, found := expected[key]
+	want = currentDoctorTransportExpectation(want)
 	if !found || !reflect.DeepEqual(actual, want) {
 		t.Fatalf("corrected %s differs: got=%+v want=%+v", key, actual, want)
 	}

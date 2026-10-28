@@ -199,7 +199,7 @@ coherent inspection and complete report/evidence reads. It checks no-change
 provenance, source selection identity and absence of source archives. Frozen
 historical projections preserve their original envelopes; the owning query
 tests establish historical artifact integrity. Current envelopes pass through
-an independently updated consumer, including command-result v22, preflight v10
+an independently updated consumer, including command-result v23, preflight v11
 and live-source/source-evidence capabilities.
 
 For actual client checks, use invocation-only MCP configuration and existing
@@ -881,8 +881,12 @@ preserve every other error detail and caller prefix.
 
 `TestRetainedPublicationDTOBytes` and `TestRetainedLiveGoldenBytes` load
 `testdata/m2-publication-wire.json`, captured before the DTO moves. They compare
-retained DTO and live v3 Build bytes, including live omission/order, lifecycle
-journal/status variants, corruption diagnostics and composite DTO serialization.
+retained DTO and historical live v3 wire bytes, including live omission/order,
+lifecycle journal/status variants, corruption diagnostics and composite DTO
+serialization. At the TASK-029 cutover, legacy version-bound records round-trip
+through their retained DTO encoders while unchanged support bytes remain exact.
+Current Build checks require v4, explicit-null requirements support without input
+and index v4; no legacy production emitter is retained.
 Historical captured/followup/composite creation rows remain fixed and explicitly
 classified; actual reader/recovery tests carry their retained properties.
 `TestCompositeRecoveryReencodesFrozenCanonicalManifest` invokes the real canonical
@@ -1056,7 +1060,7 @@ TASK-027 admission checks use ordinary project files and the existing live root
 lease, not private artifact-directory permission rules. Exercise untracked local
 input with staged/committed code, malformed input on every no-change selector,
 independent project binding, and zero provider/private-writer calls. Verify both
-preflight v10 and command-result v22, including failed preflight. Keep prose out
+the original preflight v10 and command-result v22, including failed preflight. Keep prose out
 of the bounded metadata projection and preserve the original v9/v21 assets.
 
 TASK-028 exercises the internal requirements producer through isolated live-source
@@ -1074,3 +1078,32 @@ Run focused owning tests, `make test-prepare`, scoped owning-package race units 
 `make test-int` for this internal execution/publication boundary. The complete
 `make test`, exact release binary, actual-client and live provider evidence remain
 TASK-033 obligations. No synthetic provider fixture establishes live certification.
+
+TASK-029 verifies the public cutover with command-result v23/preflight v11 and
+v4 final/manifest/support-index producers, including explicit-null no-input
+records. Preserve substantive old schemas/examples and extend only generated
+aggregate inventory. Requirements execution needs the existing verified Git
+binding; test non-Git CLI/MCP rejection before writer/qualification effects,
+honest unavailable preflight and objective-only non-Git compatibility.
+
+Verify whole selected-set count/order/owner/origin/input/content integrity before
+paging and final publication confirmation after reads. Exercise old unknown/null
+counts, new no-input zero counts, no-change zero evaluated rows, provider
+unverified versus derived placeholders, reports-only/missing answers, large prose,
+receipt changes, tamper and concurrent cleanup. Reuse the existing 16 KiB content
+chunk owner; never feed full requirement prose through the 8 MiB schema adapter.
+Keep the existing 8 MiB bound on legacy `report --output-path` file export; it
+does not limit retained prose, rendering or read-only report continuation.
+Keep finding filters, extraction, role coverage, assessment availability and exits
+independent. Export excludes private requirement bodies; cleanup preserves the
+original invocation file.
+
+`make test-release` explicitly selects
+`TestIntegrationIsolatedReleaseFixtureRequirements` alongside the established
+exact-binary fixtures. It exercises public execution, CLI and stdio MCP tools and
+resources, receipt-bound pages/content, rendered reports, export privacy and
+cleanup. Run the applicable owning-package race units, `make test-prepare`,
+`make test-int` and `make test-release` for this cutover. These fixture gates
+use isolated fake providers; complete `make test`, mandatory live ZCode,
+supported-client certification and a bounded live requirements demo remain
+TASK-033 obligations. Do not present fixture success as live-provider evidence.

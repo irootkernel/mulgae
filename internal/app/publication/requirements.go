@@ -14,8 +14,7 @@ type preparedRequirements struct {
 	metadata []byte
 }
 
-// WithRequirements is the internal v4 producer boundary. Public objective-only
-// requests retain v3 until the verified-read activation in TASK-029.
+// WithRequirements binds exact admitted input/results to the v4 producer.
 func WithRequirements(live PreparedLiveCandidate, result validation.RequirementResults) (PreparedLiveCandidate, error) {
 	candidate := live.candidate
 	if !candidate.Valid() || candidate.requirements != nil || !result.Valid() || result.SourceIdentitySHA256() != candidate.target.sha256 || candidate.noChange != (result.Evaluation().Availability() == domain.AssessmentNotRun) {
@@ -162,4 +161,28 @@ func validateRequirementImages(content validation.RequirementContent, images map
 		}
 	}
 	return nil
+}
+
+// Preserve absent legacy fields while requiring an explicit null declaration on
+// every new v4 result that did not request requirements.
+func (value finalReviewWire) MarshalJSON() ([]byte, error) {
+	type plain finalReviewWire
+	if value.SchemaVersion != artifactwire.ReviewArtifactV4 {
+		return marshalCanonical(plain(value))
+	}
+	return marshalCanonical(struct {
+		*plain
+		RequirementsSupport *artifactIdentityWire `json:"requirements_support"`
+	}{(*plain)(&value), value.RequirementsSupport})
+}
+
+func (value runManifestWire) MarshalJSON() ([]byte, error) {
+	type plain runManifestWire
+	if value.SchemaVersion != artifactwire.RunManifestV4 {
+		return marshalCanonical(plain(value))
+	}
+	return marshalCanonical(struct {
+		*plain
+		RequirementsSupport *artifactIdentityWire `json:"requirements_support"`
+	}{(*plain)(&value), value.RequirementsSupport})
 }

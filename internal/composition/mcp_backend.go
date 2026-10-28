@@ -260,7 +260,7 @@ func (backend *mcpBackend) inspect(ctx context.Context, input mcpentry.ListFindi
 	}
 	run, err := backend.resolveRun(ctx, input.RunID)
 	if err != nil {
-		if kind == "inspect" && input.Cursor == "" && input.ExpectedPublicationReceipt == "" && runstatus.SolelyWraps(err, ports.ErrPublicationRunNotFound) {
+		if kind == "inspect" && input.Cursor == "" && input.RequirementsCursor == "" && input.ExpectedPublicationReceipt == "" && runstatus.SolelyWraps(err, ports.ErrPublicationRunNotFound) {
 			runID, _ := domain.ParseRunID(input.RunID)
 			status, e := backend.diagnostics.ReadRunStatus(ctx, backend.artifactRoot, runID)
 			if e != nil {
@@ -280,7 +280,7 @@ func (backend *mcpBackend) inspect(ctx context.Context, input mcpentry.ListFindi
 		}
 		return nil, err
 	}
-	page, err := backend.queries.Inspect(ctx, run, binding, query.InspectionRequest{QueryKind: kind, MinimumSeverity: domain.Severity(input.MinimumSeverity), Limit: input.Limit, Cursor: input.Cursor, ExpectedPublicationReceipt: input.ExpectedPublicationReceipt})
+	page, err := backend.queries.Inspect(ctx, run, binding, query.InspectionRequest{RequirementsLimit: input.RequirementsLimit, RequirementsCursor: input.RequirementsCursor, QueryKind: kind, MinimumSeverity: domain.Severity(input.MinimumSeverity), Limit: input.Limit, Cursor: input.Cursor, ExpectedPublicationReceipt: input.ExpectedPublicationReceipt})
 	if err != nil {
 		return nil, err
 	}
@@ -325,6 +325,8 @@ func (backend *mcpBackend) ReadResource(ctx context.Context, request mcpentry.Re
 		}
 		var chunk query.ContentChunk
 		switch request.Kind() {
+		case mcpentry.ResourceRequirement:
+			chunk, err = backend.queries.ReadRequirement(ctx, run, binding, request.RequirementID(), request.Continuation())
 		case mcpentry.ResourceFindingDetail:
 			chunk, err = backend.queries.ReadFinding(ctx, run, binding, request.FindingID(), request.Continuation())
 		case mcpentry.ResourceReport:

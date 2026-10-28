@@ -205,6 +205,11 @@ func main() {
 		contractPair{"schemas/mulgae-review-preflight.v9.schema.json", "schemas/mulgae-review-preflight.v10.schema.json", "examples/review-preflight.v9.valid.json", "examples/review-preflight.v10.valid.json", "mulgae-review-preflight.v9", "mulgae-review-preflight.v10"},
 	)
 	catalogPairs = append(catalogPairs, contractPair{"schemas/mulgae-provider-review-wire.v1.schema.json", "schemas/mulgae-provider-review-wire.v2.schema.json", "examples/provider-review-wire.v1.valid.json", "examples/provider-review-wire.v2.valid.json", "mulgae-provider-review-wire.v1", "mulgae-provider-review-wire.v2"}, contractPair{"schemas/mulgae-provider-review-output.v2.schema.json", "schemas/mulgae-provider-review-output.v3.schema.json", "examples/provider-review-output.v2.valid.json", "examples/provider-review-output.v3.valid.json", "mulgae-provider-review-output.v2", "mulgae-provider-review-output.v3"}, contractPair{"schemas/mulgae-review-artifact.v3.schema.json", "schemas/mulgae-review-artifact.v4.schema.json", "examples/review-artifact.v3.valid.json", "examples/review-artifact.v4.valid.json", "mulgae-review-artifact.v3", "mulgae-review-artifact.v4"}, contractPair{"schemas/mulgae-run-manifest.v3.schema.json", "schemas/mulgae-run-manifest.v4.schema.json", "examples/run-manifest.v3.valid.json", "examples/run-manifest.v4.valid.json", "mulgae-run-manifest.v3", "mulgae-run-manifest.v4"})
+	catalogPairs = append(catalogPairs,
+		contractPair{"schemas/mulgae-command-result.v22.schema.json", "schemas/mulgae-command-result.v23.schema.json", "examples/command-result.v22.valid.json", "examples/command-result.v23.valid.json", "mulgae-command-result.v22", "mulgae-command-result.v23"},
+		contractPair{"schemas/mulgae-review-preflight.v10.schema.json", "schemas/mulgae-review-preflight.v11.schema.json", "examples/review-preflight.v10.valid.json", "examples/review-preflight.v11.valid.json", "mulgae-review-preflight.v10", "mulgae-review-preflight.v11"},
+		contractPair{"schemas/mulgae-requirements-read.v1.schema.json", "schemas/mulgae-requirements-cursor.v1.schema.json", "examples/requirements-read.v1.valid.json", "examples/requirements-cursor.v1.valid.json", "mulgae-requirements-read.v1", "mulgae-requirements-cursor.v1"},
+	)
 	if err := updateFileCatalog(assets, append(catalogPairs, agyContractPairs...)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

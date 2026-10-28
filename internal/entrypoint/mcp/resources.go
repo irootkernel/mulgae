@@ -33,6 +33,7 @@ var errInvalidResourceURI = errors.New("invalid MCP resource URI")
 type ResourceKind string
 
 const (
+	ResourceRequirement   ResourceKind = "requirement"
 	ResourceFindingDetail ResourceKind = "detail"
 	ResourceReport        ResourceKind = "report"
 	ResourceEvidence      ResourceKind = "evidence"
@@ -42,6 +43,7 @@ const (
 // ResourceRequest is one canonical project-confined resource selector parsed by
 // the MCP entrypoint. Accessors expose only values needed by the backend query.
 type ResourceRequest struct {
+	requirementID  string
 	verified       bool
 	role           string
 	evidenceIndex  int
@@ -68,6 +70,8 @@ func (request ResourceRequest) Kind() ResourceKind { return request.kind }
 func (request ResourceRequest) RunID() string { return request.runID }
 
 // FindingID returns the admitted finding identity for evidence resources.
+func (request ResourceRequest) RequirementID() string { return request.requirementID }
+
 func (request ResourceRequest) FindingID() string { return request.findingID }
 
 // TargetSHA256 returns the admitted target digest for evidence resources.
@@ -136,6 +140,7 @@ func registerResources(server *mcpsdk.Server, backend Backend) {
 			Blob: append([]byte(nil), result.Blob...), Meta: cloneMap(result.Meta),
 		}}}, nil
 	}
+	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{Name: "verified_requirement_content", Title: "Verified Mulgae requirement assessment", Description: "Read retained rationale, evidence and limitations in receipt-bound UTF-8 JSON chunks.", MIMEType: "application/json", URITemplate: "mulgae://runs/{run_id}/requirements/{requirement_id}{?project_binding,publication_receipt,content_sha256,offset}", Annotations: annotations}, handler)
 	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{Name: "verified_finding_detail", Title: "Verified Mulgae finding detail", Description: "Read complete finding JSON in receipt-bound UTF-8 chunks.", MIMEType: "application/json", URITemplate: "mulgae://runs/{run_id}/findings/{finding_id}/detail{?project_binding,publication_receipt,content_sha256,offset}", Annotations: annotations}, handler)
 	server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
 		Name: "verified_review_report", Title: "Verified Mulgae review report",
@@ -176,7 +181,7 @@ func ParseResourceURI(raw string) (ResourceRequest, error) {
 		return ResourceRequest{}, fmt.Errorf("resource URI authority is invalid")
 	}
 	segments := strings.Split(strings.TrimPrefix(parsed.EscapedPath(), "/"), "/")
-	if len(segments) != 2 && len(segments) != 4 {
+	if len(segments) != 2 && len(segments) != 3 && len(segments) != 4 {
 		return ResourceRequest{}, fmt.Errorf("resource URI path is invalid")
 	}
 	for index, segment := range segments {
@@ -192,6 +197,9 @@ func ParseResourceURI(raw string) (ResourceRequest, error) {
 	query, err := url.ParseQuery(parsed.RawQuery)
 	if err != nil {
 		return ResourceRequest{}, fmt.Errorf("resource URI query is invalid")
+	}
+	if len(segments) == 3 && segments[1] == "requirements" {
+		return parseVerifiedContentURI(raw, segments, query)
 	}
 	if len(segments) == 4 && segments[1] == "findings" && segments[3] == "detail" {
 		return parseFindingDetailURI(raw, segments[0], segments[2], query)

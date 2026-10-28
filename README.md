@@ -335,8 +335,31 @@ mulgae review --stage --preflight --requirements requirements.json \
 The file may be untracked or absent from the reviewed commit. Preflight reports
 selected IDs and owners, its exact input digest and the configured extraction
 policy. It exposes no requirement prose and locks neither the input nor source.
-Requirements-bearing execution is currently unavailable. Existing objective-only
-reviews remain supported.
+Omit `--preflight` to assess these requirements through their selected owner
+roles. Execution requires the existing Git/common-directory project binding;
+`context` advertises `requirements_assessment: v1` there. Non-Git preflight
+reports execution unavailable, and requirements execution fails before private
+writer or provider effects. Objective-only non-Git reviews remain supported.
+
+Inspect every selected item independently of finding severity:
+
+```bash
+mulgae inspect --run r_... --requirements-limit 20 --output json
+mulgae read-report --run r_... --requirement RCI-001 --output json
+```
+
+Follow `requirements.next_cursor` with `--requirements-cursor` and the same
+requirements limit and publication receipt. The nested result keeps whole-run
+selected/evaluated counts, owner, verdict, reason and provider/derived origin.
+`requirement_content_uris` supplies MCP content resources; CLI content chunks
+retain rationale, evidence, scope and limitations without a prose byte ceiling.
+Rendered reports disclose unmet/unverified and omitted owner answers. A valid
+provider unverified answer counts as evaluated; a derived placeholder does not.
+No-change targets publish explicit unverified/not-run rows without providers.
+Old intact results have unavailable assessment counts, while new requests without
+input have known zero counts. Reads use retained verified support, never current
+source. Export omits private requirements; clean removes retained run copies,
+never this original project file.
 
 Automatic initialization configures ZCode and Grok, with ZCode as the reviewer
 for every enabled role.
@@ -465,7 +488,8 @@ and exits when its client closes stdin. It exposes ten bounded tools:
   transmission plan, and budget without invoking providers or publishing a run.
   Optional `requirements_path` adds validated local requirements metadata.
 - `run_review` completes one foreground review for `workspace`, `stage`, `head`,
-  `commit`, or `diff`; stdin carries only the MCP protocol.
+  `commit`, or `diff`; optional `requirements_path` uses the same admitted local
+  input and requires a Git binding. Stdin carries only the MCP protocol.
 - `start_review` accepts the same review arguments, admits one process-local
   invocation, and returns its `i_...` identity before provider completion.
 - `await_review` waits on that exact invocation without polling or transferring
@@ -804,10 +828,12 @@ trap - EXIT
 
 ## Review results
 
-A successful publication creates `.mulgae/{session_id}/{run_id}/` with a v3
+A successful publication creates `.mulgae/{session_id}/{run_id}/` with a v4
 manifest and final review, complete accepted role reports, attempt/validation
 records, private runtime diagnostics, `source/source.json`, verified excerpts
-and selected PNG/JPEG/WebP observations. It creates no source snapshot or
+and selected PNG/JPEG/WebP observations. Requirements requests also retain exact
+input and hash-bound per-item assessment content; absent input is explicit null
+in both v4 records. It creates no source snapshot or
 full-source replay archive. Prompt payloads, reports and complete provider
 streams have no product byte ceiling. Source closure and provider drain are
 separate provenance; atomic publication retains at most one top-level final.

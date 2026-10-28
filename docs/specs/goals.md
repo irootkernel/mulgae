@@ -94,13 +94,15 @@ The adopted delivery sequence is owned by the
 - [Live workspace and Git review](live-workspace-and-git-review.md) owns current
   original-source execution through CLI and MCP.
 - [Review completeness and iteration](review-completeness-and-iteration.md)
-  plans optional explicit requirements assessment and verified reads within
+  defines optional explicit requirements assessment and verified reads within
   one ordinary review. Its reduced scope excludes batch rechecks and cross-run
   comparison.
 
-EPIC-007 is implemented; EPIC-008 requirements do not describe current binary
-capabilities. Normal review remains usable without a requirements file. A future
-requirement verdict is a reviewer assessment, not proof of correctness; a finding
+EPIC-007 is implemented. The current EPIC-008 candidate supports requirements
+assessment and verified reads through the existing Git project binding; Task and
+Epic acceptance remain separate. Normal review remains usable without a
+requirements file, including non-Git workspace review. A requirement verdict is
+a reviewer assessment, not proof of correctness; a finding
 absent from a later review is not automatically resolved. Mulgae does not acquire
 issue disposition, waiver, Epic approval, autonomous remediation, a persistent
 campaign/job scheduler, or cross-project identity ownership. Existing

@@ -53,7 +53,7 @@ func validateLiveQueryTarget(final finalDTO) (evidence.LiveSourceRead, error) {
 		return evidence.LiveSourceRead{}, err
 	}
 	identity := value.Identity
-	if final.SchemaVersion != artifactwire.ReviewArtifactV3 || final.RunType != string(domain.RunTypeReview) || final.Target.ContentSHA256 != "" || final.Target.ManifestPath != "source/source.json" ||
+	if (final.SchemaVersion != artifactwire.ReviewArtifactV3 && final.SchemaVersion != artifactwire.ReviewArtifactV4) || final.RunType != string(domain.RunTypeReview) || final.Target.ContentSHA256 != "" || final.Target.ManifestPath != "source/source.json" ||
 		!optionalObjectIDMatches(final.Target.BaseOID, identity.Target().Base().String()) || !optionalObjectIDMatches(final.Target.HeadOID, identity.Target().Head().String()) || final.Provenance.Production != nil || final.Provenance.LiveProduction == nil || final.FollowupOutcome != nil {
 		return evidence.LiveSourceRead{}, fmt.Errorf("live source final contains mixed authority")
 	}
@@ -76,8 +76,13 @@ func validateLiveQueryTarget(final finalDTO) (evidence.LiveSourceRead, error) {
 }
 
 func validateLivePublicationBinding(final finalDTO, manifest manifestDTO) (evidence.LiveSourceRead, error) {
-	if final.SchemaVersion != artifactwire.ReviewArtifactV3 || manifest.SchemaVersion != artifactwire.RunManifestV3 {
+	if final.SchemaVersion != artifactwire.ReviewArtifactV3 && final.SchemaVersion != artifactwire.ReviewArtifactV4 ||
+		final.SchemaVersion == artifactwire.ReviewArtifactV3 && manifest.SchemaVersion != artifactwire.RunManifestV3 ||
+		final.SchemaVersion == artifactwire.ReviewArtifactV4 && manifest.SchemaVersion != artifactwire.RunManifestV4 {
 		return evidence.LiveSourceRead{}, fmt.Errorf("schema version does not match committed contract")
+	}
+	if err := validateRequirementsBinding(final, manifest); err != nil {
+		return evidence.LiveSourceRead{}, err
 	}
 	value, err := validateLiveQueryTarget(final)
 	if err != nil {

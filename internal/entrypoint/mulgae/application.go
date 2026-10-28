@@ -41,6 +41,7 @@ type RequestIDGenerator interface {
 // G006 query API. It deliberately accepts an already anchored artifact root so
 // command handlers cannot discover publication files themselves.
 type PublicationQueryService interface {
+	ReadRequirement(context.Context, ports.PublicationRun, domain.ProjectBinding, string, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	ReadReport(context.Context, ports.PublicationRun, domain.ProjectBinding, string, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	ReadEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, appquery.ContentContinuation) (appquery.ContentChunk, error)
 	ReadSourceEvidence(context.Context, ports.PublicationRun, domain.ProjectBinding, string, string, int, appquery.ContentContinuation) (appquery.ContentChunk, error)

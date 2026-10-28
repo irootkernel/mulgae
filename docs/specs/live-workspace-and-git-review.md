@@ -125,8 +125,9 @@ Keep existing artifacts unchanged. Read and export ordinary, child, failed, no-c
 - [x] LWR-006: capture/replay machinery and its affected assets, configuration, docs, and guidance are removed together at cutover.
 - [x] LWR-007: exact-binary, client, and real ZCode/Grok/Codex evidence certify the integrated change.
 
-The reduced [EPIC-008 design](review-completeness-and-iteration.md) plans optional
-requirements assessment within this execution model. It does not restore source
+The reduced [EPIC-008 design](review-completeness-and-iteration.md) adds optional
+requirements assessment within this execution model, using the existing Git
+project binding for its verified public reads. It does not restore source
 capture, batch rechecks or cross-run comparison. EPIC-009 itself adds no
 requirements-assessment engine, finding tracker, automatic remediation,
 alternative provider or platform. Implementation, installation, configuration

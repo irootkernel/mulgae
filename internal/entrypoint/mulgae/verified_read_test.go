@@ -25,11 +25,25 @@ func (fake *g006QueryFake) Inspect(ctx context.Context, run ports.PublicationRun
 		return query.Inspection{}, err
 	}
 	page := query.Inspection{FailedRunRecovery: recovery.UnavailableStatus("published_review"), RunID: view.RunID, ReviewArtifactURI: view.ReviewArtifactURI, FindingCount: len(view.Findings), ReturnedCount: len(view.Findings), Findings: []query.FindingSummary{}, RoleReports: []query.InspectionRoleReport{}}
+	receipt := query.InspectionReceipt{SchemaVersion: query.InspectionReceiptVersion, ProjectBinding: binding.String(), SessionID: run.SessionID().String(), RunID: run.RunID().String(), ReviewID: "019f596a-d048-79e7-b2b7-59822f012273", RunType: string(domain.RunTypeReview), TargetSHA256: "sha256:" + strings.Repeat("a", 64), FinalSHA256: "sha256:" + strings.Repeat("b", 64), ManifestSHA256: "sha256:" + strings.Repeat("c", 64), SupportSHA256: "sha256:" + strings.Repeat("d", 64), LineageSHA256: "sha256:" + strings.Repeat("e", 64), Epoch: 1, CaptureAvailability: "capture_identity_unavailable"}
+	identity, err := receipt.Identity()
+	if err != nil {
+		return query.Inspection{}, err
+	}
+	page.SessionID, page.ReviewID, page.RunType = receipt.SessionID, receipt.ReviewID, receipt.RunType
+	page.TargetSHA256, page.CaptureAvailability = receipt.TargetSHA256, receipt.CaptureAvailability
+	page.PublicationReceipt, page.Receipt, page.Capabilities = identity.String(), &receipt, query.ImplementedReadCapabilities()
+	page.Requirements = &query.RequirementsRead{SchemaVersion: query.RequirementsReadVersion, Receipt: receipt, Availability: domain.AssessmentUnavailable, Items: []query.RequirementItem{}}
+	page.RequirementContentURIs = map[string]string{}
 	for _, f := range view.Findings {
 		page.Findings = append(page.Findings, query.FindingSummary{ID: f.ID, Title: f.Title, Severity: string(f.Severity), Evidence: []query.FindingEvidenceReference{}})
 	}
 	return page, nil
 }
+func (fake *g006QueryFake) ReadRequirement(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
+	return query.ContentChunk{}, errors.New("unexpected requirement content read")
+}
+
 func (fake *g006QueryFake) ReadFinding(context.Context, ports.PublicationRun, domain.ProjectBinding, string, query.ContentContinuation) (query.ContentChunk, error) {
 	return query.ContentChunk{}, errors.New("unexpected finding detail read")
 }
@@ -428,8 +442,9 @@ func TestPagedDiagnosticFallbackIsSuppressed(t *testing.T) {
 	}
 	fixture.application.diagnosticQueries = diagnosticQueryFake{status: status}
 	for name, argv := range map[string][]string{
-		"cursor set":           {"inspect", "--run", testRunID, "--cursor", "opaque", "--output", "json"},
-		"expected receipt set": {"inspect", "--run", testRunID, "--expected-publication-receipt", "sha256:" + strings.Repeat("1", 64), "--output", "json"},
+		"cursor set":              {"inspect", "--run", testRunID, "--cursor", "opaque", "--output", "json"},
+		"requirements cursor set": {"inspect", "--run", testRunID, "--requirements-cursor", "opaque", "--output", "json"},
+		"expected receipt set":    {"inspect", "--run", testRunID, "--expected-publication-receipt", "sha256:" + strings.Repeat("1", 64), "--output", "json"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			result := fixture.application.Run(context.Background(), argv, root)

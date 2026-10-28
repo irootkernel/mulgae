@@ -134,3 +134,23 @@ func TestLiveExportRejectsSecretsAndAbsolutePathsInsideRasterBytes(t *testing.T)
 		})
 	}
 }
+
+func TestRequirementsV4ExportPreservesPortableAllowlist(t *testing.T) {
+	source := liveExportProjection(t, nil, "", "")
+	source.Review.SchemaVersion = "mulgae-review-artifact.v4"
+	source.Run.SchemaVersion = "mulgae-run-manifest.v4"
+	source.SchemaVersions = []string{source.Review.SchemaVersion, source.Run.SchemaVersion}
+	bundle, _, err := BuildRedactedBundle(source, validOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range bundle.Members {
+		if bytes.Contains([]byte(member.Path), []byte("requirements")) {
+			t.Fatalf("private requirement member exported: %s", member.Path)
+		}
+	}
+	source.Run.SchemaVersion = "mulgae-run-manifest.v3"
+	if _, _, err := BuildRedactedBundle(source, validOptions()); !errors.Is(err, ErrMalformedProjection) {
+		t.Fatalf("mixed v4/v3 accepted: %v", err)
+	}
+}

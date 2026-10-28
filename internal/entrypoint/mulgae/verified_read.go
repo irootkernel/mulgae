@@ -17,6 +17,7 @@ import (
 )
 
 type VerifiedReadRequest struct {
+	RequirementID          string
 	RunID                  string
 	FindingID              string
 	Role                   string
@@ -35,7 +36,7 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 			allowed[key] = true
 		}
 	} else {
-		for _, key := range []string{"--severity", "--limit", "--cursor"} {
+		for _, key := range []string{"--severity", "--limit", "--cursor", "--requirements-limit", "--requirements-cursor"} {
 			allowed[key] = true
 		}
 	}
@@ -44,6 +45,7 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 	}
 	if command == app.CommandReadReport {
 		allowed["--role"] = true
+		allowed["--requirement"] = true
 	}
 	if command == app.CommandExcerpt {
 		allowed["--current-target-sha256"] = true
@@ -84,6 +86,15 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 				return Invocation{}, usageError("invalid role")
 			}
 			request.Role = role
+		}
+		if id, present := options["--requirement"]; present {
+			if !domain.ValidRequirementID(id) {
+				return Invocation{}, usageError("invalid requirement ID")
+			}
+			if _, rolePresent := options["--role"]; rolePresent {
+				return Invocation{}, usageError("read-report accepts either role or requirement")
+			}
+			request.RequirementID = id
 		}
 		if command == app.CommandExcerpt {
 			request.TargetSHA256 = options["--current-target-sha256"]
@@ -130,6 +141,17 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 			}
 			request.Page.Limit = n
 		}
+		request.Page.RequirementsCursor = options["--requirements-cursor"]
+		if len(request.Page.RequirementsCursor) > 4096 {
+			return Invocation{}, query.ErrCursorInvalid
+		}
+		if raw, ok := options["--requirements-limit"]; ok {
+			n, e := strconv.Atoi(raw)
+			if e != nil || n < 1 || n > 100 || strconv.Itoa(n) != raw {
+				return Invocation{}, usageError("invalid requirements page limit")
+			}
+			request.Page.RequirementsLimit = n
+		}
 		if len(request.Page.Cursor) > 4096 {
 			return Invocation{}, query.ErrCursorInvalid
 		}
@@ -159,7 +181,10 @@ func parseVerifiedRead(command app.CommandName, arguments []string, requestID st
 		CurrentTargetSHA256        string       `json:"current_target_sha256,omitempty"`
 		SourceIdentitySHA256       string       `json:"source_identity_sha256,omitempty"`
 		EvidenceIndex              *int         `json:"evidence_index,omitempty"`
-	}{requestID, string(command), run, string(request.Page.MinimumSeverity), request.FindingID, output, request.ExpectedProjectBinding, options["--expected-publication-receipt"], options["--expected-content-sha256"], request.Page.Limit, request.Page.Cursor, request.Continuation.Offset, request.Role, request.TargetSHA256, request.SourceIdentitySHA256, evidenceIndex})
+		RequirementID              string       `json:"requirement_id,omitempty"`
+		RequirementsLimit          int          `json:"requirements_limit,omitempty"`
+		RequirementsCursor         string       `json:"requirements_cursor,omitempty"`
+	}{requestID, string(command), run, string(request.Page.MinimumSeverity), request.FindingID, output, request.ExpectedProjectBinding, options["--expected-publication-receipt"], options["--expected-content-sha256"], request.Page.Limit, request.Page.Cursor, request.Continuation.Offset, request.Role, request.TargetSHA256, request.SourceIdentitySHA256, evidenceIndex, request.RequirementID, request.Page.RequirementsLimit, request.Page.RequirementsCursor})
 	return invocation, err
 }
 
@@ -178,6 +203,10 @@ func queryFindingID(value string) bool {
 func (adapter publicationQueryAdapter) Inspect(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, request query.InspectionRequest) (query.Inspection, error) {
 	return adapter.service.Inspect(ctx, run, binding, request)
 }
+func (adapter publicationQueryAdapter) ReadRequirement(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, id string, continuation query.ContentContinuation) (query.ContentChunk, error) {
+	return adapter.service.ReadRequirement(ctx, run, binding, id, continuation)
+}
+
 func (adapter publicationQueryAdapter) ReadFinding(ctx context.Context, run ports.PublicationRun, binding domain.ProjectBinding, id string, continuation query.ContentContinuation) (query.ContentChunk, error) {
 	return adapter.service.ReadFinding(ctx, run, binding, id, continuation)
 }
@@ -231,7 +260,7 @@ func (application *Application) handleVerifiedRead(ctx context.Context, invocati
 	}
 	_, run, err := application.resolvePublicationRun(ctx, root, request.RunID)
 	if err != nil {
-		if invocation.Command() == app.CommandInspect && request.Page.Cursor == "" && request.Page.ExpectedPublicationReceipt == "" && solelyMissingPublication(err) {
+		if invocation.Command() == app.CommandInspect && request.Page.Cursor == "" && request.Page.RequirementsCursor == "" && request.Page.ExpectedPublicationReceipt == "" && solelyMissingPublication(err) {
 			diagnostic, e := application.inspectDiagnostic(ctx, request, root)
 			if e != nil {
 				return fail(e)
@@ -252,7 +281,11 @@ func (application *Application) handleVerifiedRead(ctx context.Context, invocati
 		case app.CommandReadFinding:
 			chunk, e = application.publicationQueries.ReadFinding(ctx, run, binding, request.FindingID, request.Continuation)
 		case app.CommandReadReport:
-			chunk, e = application.publicationQueries.ReadReport(ctx, run, binding, request.Role, request.Continuation)
+			if request.RequirementID != "" {
+				chunk, e = application.publicationQueries.ReadRequirement(ctx, run, binding, request.RequirementID, request.Continuation)
+			} else {
+				chunk, e = application.publicationQueries.ReadReport(ctx, run, binding, request.Role, request.Continuation)
+			}
 		case app.CommandExcerpt:
 			if request.SourceIdentitySHA256 != "" {
 				chunk, e = application.publicationQueries.ReadSourceEvidence(ctx, run, binding, request.FindingID, request.SourceIdentitySHA256, request.EvidenceIndex, request.Continuation)
@@ -287,6 +320,23 @@ func (application *Application) handleVerifiedRead(ctx context.Context, invocati
 			query.Inspection
 		}{kind, page}
 		human = fmt.Sprintf("review_artifact_uri: %s\nfinding_count: %d", page.ReviewArtifactURI, page.FindingCount)
+		if requirements := page.Requirements; requirements != nil {
+			human += "\nrequirements_availability: " + string(requirements.Availability)
+			selected, evaluated := "unknown", "unknown"
+			if requirements.SelectedCount != nil {
+				selected = strconv.Itoa(*requirements.SelectedCount)
+			}
+			if requirements.EvaluatedCount != nil {
+				evaluated = strconv.Itoa(*requirements.EvaluatedCount)
+			}
+			human += "\nselected_requirements: " + selected + "\nevaluated_requirements: " + evaluated
+			for _, item := range requirements.Items {
+				human += fmt.Sprintf("\n%s [%s] owner=%s origin=%s reason=%s\ncontent_uri: %s", item.RequirementID, item.Verdict, item.OwnerRole, item.Origin, item.Reason, page.RequirementContentURIs[item.RequirementID])
+			}
+			if requirements.NextCursor != nil {
+				human += "\nrequirements_next_cursor: " + *requirements.NextCursor
+			}
+		}
 		if page.NextCursor != "" {
 			human += fmt.Sprintf("\nreturned_count: %d\nnext_cursor: %s", page.ReturnedCount, page.NextCursor)
 		}

@@ -6,7 +6,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
-- Validate optional local requirements JSON through provider-free CLI/MCP preflight, showing selected IDs, owners, input digest and extraction policy. Requirements assessment execution remains unavailable.
+- Assess optional local requirements through their selected owner roles in Git-backed reviews. Provider-free preflight reports admission and execution availability; verified CLI/MCP pages, content reads and reports retain every verdict, rationale, evidence and limitation, including explicit unverified no-change results.
 - Review text roles with AGY over stream-JSON using one default Gemini account. New projects prefer AGY for documentation when available; existing configured routes remain unchanged. Add single-account live verification with `make test-agy`.
 - Select Cursor explicitly for a text role through init, CLI, and MCP. Schemas, help, and contracts name that route. Default role preferences stay unchanged, and live Cursor certification remains opt-in.
 

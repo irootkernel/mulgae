@@ -17,6 +17,8 @@ import (
 
 // InspectionRequest selects one publication and a page within its canonical order.
 type InspectionRequest struct {
+	RequirementsLimit          int
+	RequirementsCursor         string
 	QueryKind                  string
 	MinimumSeverity            domain.Severity
 	Limit                      int
@@ -54,6 +56,8 @@ type InspectionRoleReport struct {
 // Inspection contains only values derived from the same verified observation.
 // Diagnostic-only observations never carry a publication receipt or content references.
 type Inspection struct {
+	Requirements               *RequirementsRead        `json:"requirements"`
+	RequirementContentURIs     map[string]string        `json:"requirement_content_uris"`
 	FailedRunRecovery          recovery.Status          `json:"failed_run_recovery"`
 	SessionID                  string                   `json:"session_id"`
 	RunID                      string                   `json:"run_id"`
@@ -85,6 +89,9 @@ type Inspection struct {
 }
 
 func (request InspectionRequest) validate() (InspectionRequest, error) {
+	if request.RequirementsLimit < 0 || request.RequirementsLimit > 100 || len(request.RequirementsCursor) > 4096 {
+		return request, ErrCursorInvalid
+	}
 	if request.QueryKind != "inspect" && request.QueryKind != "findings" {
 		return request, ErrCursorInvalid
 	}
@@ -128,7 +135,7 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 		if status.PublicationStatus() == domain.PublicationCommitted {
 			return Inspection{}, typedFailure("query.inspect", domain.FailureArtifact, "publication changed during inspection", nil)
 		}
-		if request.QueryKind != "inspect" || request.Cursor != "" || request.ExpectedPublicationReceipt != "" {
+		if request.QueryKind != "inspect" || request.Cursor != "" || request.RequirementsCursor != "" || request.ExpectedPublicationReceipt != "" {
 			return Inspection{}, typedFailure("query.inspect", domain.FailureArtifact, "committed findings are unavailable", nil)
 		}
 		state, _ := status.RunState()
@@ -164,6 +171,15 @@ func (service *Service) Inspect(ctx context.Context, run ports.PublicationRun, b
 	}
 	end := min(offset+uint64(request.Limit), uint64(len(filtered)))
 	result := Inspection{FailedRunRecovery: recovery.UnavailableStatus("published_review"), SessionID: review.SessionID().String(), RunID: review.RunID().String(), ReviewID: review.ReviewID().String(), RunType: string(review.RunType()), RunState: string(review.RunState()), PublicationState: string(domain.PublicationCommitted), PublicationAuthority: string(domain.PublicationAuthorityP2), RecoveryAction: string(node.binding.decision.Action()), ContentVerdict: string(review.ContentVerdict()), CoverageStatus: string(review.CoverageStatus()), StructuredExtractionStatus: string(review.StructuredExtractionStatus()), CIDecision: string(review.CIDecision()), TargetSHA256: review.TargetSHA256(), ReviewArtifactURI: ".mulgae/" + review.FinalPath().String(), PublicationReceipt: identity.String(), Receipt: &receipt, CaptureIdentity: receipt.CaptureIdentity, CaptureAvailability: receipt.CaptureAvailability, Capabilities: ImplementedReadCapabilities(), MinimumSeverity: string(request.MinimumSeverity), FindingCount: len(filtered), Findings: make([]FindingSummary, 0, end-offset), RoleReports: []InspectionRoleReport{}}
+	requirements, err := review.requirementsPage(receipt, request.RequirementsLimit, request.RequirementsCursor)
+	if err != nil {
+		return Inspection{}, err
+	}
+	result.Requirements = &requirements
+	result.RequirementContentURIs = map[string]string{}
+	for _, item := range requirements.Items {
+		result.RequirementContentURIs[item.RequirementID] = RequirementContentURI(run.RunID().String(), item.RequirementID, binding.String(), identity.String(), item.ContentSHA256, 0)
+	}
 	result.SourceIdentitySHA256 = review.SourceIdentitySHA256()
 	for _, report := range review.RoleReports() {
 		result.RoleReports = append(result.RoleReports, InspectionRoleReport{report.Role(), ReportContentURI(run.RunID().String(), report.Role(), binding.String(), identity.String(), report.SHA256(), 0), report.SHA256(), report.ByteLength()})

@@ -132,6 +132,7 @@ func TestRunMCPPublishesProductionToolSurface(t *testing.T) {
 		"mulgae://runs/{run_id}/findings/{finding_id}/detail{?project_binding,publication_receipt,content_sha256,offset}",
 		"mulgae://runs/{run_id}/findings/{finding_id}/evidence{?target_sha256,source_identity_sha256,evidence_index,project_binding,publication_receipt,content_sha256,offset}",
 		"mulgae://runs/{run_id}/report{?role,project_binding,publication_receipt,content_sha256,offset}",
+		"mulgae://runs/{run_id}/requirements/{requirement_id}{?project_binding,publication_receipt,content_sha256,offset}",
 		"mulgae://runs/{run_id}/source-image{?source_identity_sha256,side,path,project_binding,publication_receipt,content_sha256,offset}",
 	}
 	if strings.Join(resourceURIs, "\n") != strings.Join(wantResourceURIs, "\n") {

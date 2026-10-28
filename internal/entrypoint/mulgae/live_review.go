@@ -61,6 +61,9 @@ func (adapter liveReviewRunAdapter) StartReviewRun(ctx context.Context, request 
 	}
 	objective, present := request.Objective()
 	liveRequest := reviewrun.LiveRequest{ProjectRoot: root, ArtifactRoot: artifactRoot, Target: target, Selection: selection, Objective: []byte(objective), HasObjective: present, ExpectedProjectBinding: binding}
+	if path, present := request.RequirementsPath(); present {
+		liveRequest.RequirementsPath, liveRequest.HasRequirements = path, true
+	}
 	if containsString(request.Roles(), string(domain.RoleArtist)) {
 		brief, _ := request.ArtistBrief()
 		if request.ArtistAutomatic() {

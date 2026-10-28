@@ -706,14 +706,15 @@ caching of `.mulgae` configuration admission. An unexported per-reader
 function field routes the config byte read so in-package tests can observe
 it; production always routes it to the descriptor-verified metadata read.
 
-## Planned extension ownership
+## Requirements-assessment ownership
 
 The [revised EPIC-008 design](../architecture-decision-records/verified-review-iteration.md#reduced-epic-008-scope)
 and [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
-plan optional requirements assessment within the current original-source review
-path. Local input admission and provider-free preflight are implemented;
-internal assessment execution and publication are implemented. Public execution
-and verified assessment reads remain unavailable.
+define optional requirements assessment within the current original-source review
+path. Admission, provider-free preflight, assessment execution/publication and
+verified CLI/MCP inspection share the existing owners. Requirements execution
+requires the existing Git/common-directory binding; objective-only non-Git
+workspace execution remains supported.
 
 ```text
 optional requirements input + existing objective
@@ -740,10 +741,11 @@ The current admission path uses `ports.RequirementsInputReader` on the retained
 project lease for local invocation data. It does not call the selected-side source
 reader or inventory extra files. `reviewrun.AdmitRequirementsInput` validates and
 owns the exact bytes; CLI/MCP expose only the bounded preflight summary. The
-shared `Application.StartReviewRun` boundary rejects requirements-bearing
-execution before provider composition or private-directory writes.
+live application service completes input and binding admission before invoking
+the existing secure writer or allocating a run. CLI/MCP use this same service;
+unsupported non-Git requirements requests fail before those effects.
 
-The internal runtime retains verifier-owned assessment content independently
+The runtime retains verifier-owned assessment content independently
 of its finding/report output. `validation` owns strict unbounded assessment
 admission and the trusted in-memory provider-output v3 composition;
 `review` owns section retention and shared-slot scheduling through the existing
@@ -801,3 +803,11 @@ project that result without independently reopening final files or combining
 status and finding reads. Finding-detail chunks share query-owned digest and
 continuation policy; the MCP resource layer only maps content and continuation
 URIs to the protocol envelope.
+
+Requirements support metadata has one strict semantic decoder in `validation`.
+`publication` retains its serialization wrapper and atomic filesystem lifecycle;
+`query` verifies the complete retained input/content set and final receipt per
+call. Separate requirements cursors preserve finding filters and pagination.
+`report` consumes content through that verified snapshot. No read consults the
+current project source or provider runtime, and cleanup/export retain their
+existing run ownership, lineage and privacy boundaries.

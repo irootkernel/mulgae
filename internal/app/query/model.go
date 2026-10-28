@@ -4,6 +4,7 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/irootkernel/mulgae/internal/app/compositesupport"
@@ -24,6 +25,7 @@ type SchemaValidator interface {
 // CommittedReview is a defensive read view of a semantically verified P2 final
 // review. Exact final and manifest bytes remain available only as copies.
 type CommittedReview struct {
+	requirements       *verifiedRequirements
 	liveSource         *evidence.LiveSourceRead
 	compositeSupport   *compositesupport.Document
 	compositeArtifacts map[string]ports.ImmutablePublicationArtifact
@@ -741,6 +743,7 @@ func (status RunStatus) RoleReportURIs() []RoleReportURI {
 }
 
 type finalDTO struct {
+	RequirementsSupport        json.RawMessage      `json:"requirements_support,omitempty"`
 	SchemaVersion              string               `json:"schema_version"`
 	SessionID                  string               `json:"session_id"`
 	RunID                      string               `json:"run_id"`
@@ -850,6 +853,7 @@ type productionProvenanceDTO = artifactwire.ProductionProvenance
 type productionProviderDTO = artifactwire.ProductionProvider
 
 type manifestDTO struct {
+	RequirementsSupport        json.RawMessage         `json:"requirements_support,omitempty"`
 	SchemaVersion              string                  `json:"schema_version"`
 	SessionID                  string                  `json:"session_id"`
 	RunID                      string                  `json:"run_id"`

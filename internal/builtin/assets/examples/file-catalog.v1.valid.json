@@ -220,6 +220,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-command-result.v23.schema.json",
+      "path": "sot/examples/command-result.v23.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v23.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "command-result-validator"
       ],
       "disposition": "ADDED",
@@ -747,6 +759,18 @@
       "disposition": "ADDED",
       "exclusion_reason": null,
       "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-requirements-cursor.v1.schema.json",
+      "path": "sot/examples/requirements-cursor.v1.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirements-cursor.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
       "pair": "sot/schemas/mulgae-requirements-input.v1.schema.json",
       "path": "sot/examples/requirements-input.v1.valid.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-requirements-input.v1.schema.json"
@@ -834,6 +858,18 @@
       "pair": "sot/schemas/mulgae-review-preflight.v10.schema.json",
       "path": "sot/examples/review-preflight.v10.valid.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v10.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "review-preflight-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
+      "pair": "sot/schemas/mulgae-review-preflight.v11.schema.json",
+      "path": "sot/examples/review-preflight.v11.valid.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v11.schema.json"
     },
     {
       "checksum_inclusion": true,
@@ -1378,6 +1414,18 @@
     {
       "checksum_inclusion": true,
       "consumers": [
+        "command-result"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/command-result.v23.valid.json",
+      "path": "sot/schemas/mulgae-command-result.v23.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-command-result.v23.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
         "command-result-validator"
       ],
       "disposition": "ADDED",
@@ -1881,6 +1929,18 @@
       "disposition": "ADDED",
       "exclusion_reason": null,
       "media_type": "application/json",
+      "pair": "sot/examples/requirements-cursor.v1.valid.json",
+      "path": "sot/schemas/mulgae-requirements-cursor.v1.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-requirements-cursor.v1.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "requirements-assessment"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/json",
       "pair": "sot/examples/requirements-input.v1.valid.json",
       "path": "sot/schemas/mulgae-requirements-input.v1.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-requirements-input.v1.schema.json"
@@ -1968,6 +2028,18 @@
       "pair": "sot/examples/review-preflight.v10.valid.json",
       "path": "sot/schemas/mulgae-review-preflight.v10.schema.json",
       "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v10.schema.json"
+    },
+    {
+      "checksum_inclusion": true,
+      "consumers": [
+        "review-preflight-validator"
+      ],
+      "disposition": "ADDED",
+      "exclusion_reason": null,
+      "media_type": "application/schema+json",
+      "pair": "sot/examples/review-preflight.v11.valid.json",
+      "path": "sot/schemas/mulgae-review-preflight.v11.schema.json",
+      "schema_id": "https://mulgae.local/schemas/mulgae-review-preflight.v11.schema.json"
     },
     {
       "checksum_inclusion": true,

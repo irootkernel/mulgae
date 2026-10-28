@@ -130,8 +130,8 @@ rejects model/effort options. `assets/roles.yaml` prefers AGY for documentation,
 then ZCode, Grok, Codex. Other text roles prefer ZCode, Grok, Codex, AGY; artist
 retains ZCode and Codex. Existing shared policy is never re-derived.
 
-Current public contracts are command-result v22, doctor v7, provider-heartbeat
-v4 and review-preflight v10. Their earlier schema/example pairs remain frozen.
+Current public contracts are command-result v23, doctor v7, provider-heartbeat
+v4 and review-preflight v11. Their earlier schema/example pairs remain frozen.
 Provider-evidence v4 remains historical and has no AGY producer or production
 reader. An injected v4 claim cannot establish AGY certification; the optional
 evidence projection leaves it unsupported/unverified.
@@ -219,7 +219,7 @@ review provider invocations one Mulgae process may run at once. It is not a
 provider identity and does not coordinate another process or project.
 Provider qualification probes are not counted against it; each qualification
 batch runs at most one concurrent probe per distinct provider family. Current
-command-result v22 and review-preflight v10 documents describe execution as
+command-result v23 and review-preflight v11 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
@@ -815,7 +815,7 @@ a documentation-only route can still use the authorized diagnostic.
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Contract-valid
-workflow requests emit command-result v22. Init's rejected-request envelope
+workflow requests emit command-result v23. Init's rejected-request envelope
 remains supported. Retired commands and capture-bound fields fail grammar before
 provider execution with usage exit 2 and human stderr, even when JSON was requested.
 No child selector resolution or compose mutation exists on the current surface.
@@ -1219,13 +1219,13 @@ verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
 These historical records grant no new provider execution. CLI v5 through v21
 schema examples remain available for explicit backward validation; current CLI
-envelopes use v22. MCP retains its v1 common envelope, whose `data` object
+envelopes use v23. MCP retains its v1 common envelope, whose `data` object
 carries the extended status projection.
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v22 `result` and MCP v1
+accepts an empty argument object. CLI command-result v23 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `live_source`, `source_evidence`, `project_binding`, `inspection`,
@@ -1352,60 +1352,101 @@ last response has `next_offset: null`. The content digest hashes complete raw
 bytes, distinct from the domain-separated evidence identity. Empty content is
 supported by the chunk contract where the underlying item permits it; existing
 role-report and excerpt contracts require nonempty content. Legacy
-`report --output-path PATH` remains the explicit file-writing operation.
+`report --output-path PATH` remains an explicit file-export mutation with its
+existing 8 MiB limit. Retained prose, rendering and read-only report chunks have
+no total-content ceiling.
 
-## Requirements-assessment foundations
+## Requirements assessment
 
 The [frozen EPIC-008 contracts](review-completeness-and-iteration.md#frozen-requirements-assessment-contracts)
 own optional input, assessment accounting, bounded support/read metadata and
-unbounded retained content. TASK-026 supplies their schemas and semantic
-foundations without changing current review grammar or execution capabilities.
-Current commands emit v22, preflight v10 and live artifacts/manifests v3.
-Preflight accepts optional local requirements input; requirements-bearing
-execution and verified assessment reads remain unavailable.
+unbounded retained content. Current commands emit command-result v23, preflight
+v11 and live review artifacts/manifests v4 with support index v4. Earlier
+substantive schema/example pairs remain unchanged.
 
-### Optional local requirements preflight
+### Input admission and eligibility
 
-`review --preflight --requirements PATH` and MCP `preflight_review` with
-`requirements_path` admit one project-relative strict JSON input alongside the
-objective. The local file may be untracked and absent from the selected index or
-commit. Admission retains its exact bytes and SHA-256 in memory; it does not
-change the selected evidence side or create a run.
+`review --requirements PATH` and MCP review inputs with `requirements_path`
+admit one project-relative strict JSON input alongside the objective. The file
+may be untracked and absent from the selected index or commit. Admission retains
+its exact bytes and SHA-256 once per request; prompts and publication reuse them.
+This input does not expand the selected implementation evidence or permissions.
 
-Preflight v10 adds `requirements`, which is null when input is absent. Otherwise
-it contains `input_sha256`, `selected_count`, `items` (each with `requirement_id`
-and `owner_role`), `evaluation_status: not_run`, `extraction_policy` (`enabled`
-or `disabled`), `source_limit: selected_target_only`, and
-`execution_available: false`. It contains no requirement text or criteria.
-This is an admission summary, not a published assessment or a no-change verdict.
-Disabled extraction means missing structured answers would remain unverified;
-preflight cannot predict future retry/repair allowance consumption.
+Requirements execution requires the existing verified Git/common-directory
+project binding. Git requests work with or without an explicit expected binding.
+An unbound non-Git workspace may validate the file in preflight, but reports
+`requirements.execution_available: false` and an empty
+`capabilities.requirements_assessment`. Execution fails with
+`contract_unsupported` before private writer effects, identity allocation,
+qualification or publication. Objective-only non-Git workspace execution remains
+supported. Replacing startup root/Git anchors never retargets an attached server.
 
-Command-result v22 embeds preflight v10 and its failure projection together.
-Command-result v21 and preflight v9 remain frozen. Requirements-bearing execution
-is rejected by the common application boundary before preparing providers or
-creating the private publication directory. Objective-only execution and the MCP
-start/await/cancel lifecycle remain available.
+Malformed, unsafe or wrong-owner input fails before every no-change branch and
+before private writer effects. Ordinary instruction-like requirement prose is
+untrusted data; it does not authorize tools, source expansion or policy changes.
 
-### Internal requirements producer
+### Provider-free preflight
 
-TASK-028 implements requirements on the internal live service. Public CLI/MCP
-execution remains guarded, and objective-only requests continue to publish v3.
-Internal requirements requests publish v4 final/manifest records with a matching
-`requirements_support` binding and a v4 support index covering exact input,
-bounded support metadata and every ordinal item content body. The existing
-atomic publication owner handles interruption and restart; damaged bound support
-is an integrity failure. The input and content bodies retain no product byte
-ceiling, while metadata keeps its existing structured bounds.
+Preflight v11 includes `requirements: null` when input is absent. Otherwise the
+bounded summary contains `input_sha256`, `selected_count`, ordered `items` with
+`requirement_id` and `owner_role`, `evaluation_status: not_run`,
+`extraction_policy`, `source_limit: selected_target_only`, and conditional
+`execution_available`. It includes no requirement text, criteria or assessments.
+Git binding availability controls the execution capability; preflight invokes no
+providers and creates no run. It cannot predict future shared allowance use.
 
-Provider wire v2 names provider output v3 and optionally contains a
-`mulgae-provider-requirements.v1` section under `requirements`. Runtime validation
-separates that unbounded section from the bounded finding projection. The trusted
-normalized v3 value combines accepted findings with verifier-owned assessment
-content in memory and supports unbounded serialization. A partial section result
-claims no complete normalized finding envelope. It remains available for ordered
-assessment normalization and the independent role/report/finding axes.
+Command-result v23 embeds preflight v11 and its failure projection together.
+Frozen v10 retains `execution_available: false`, and v22 retains its v10 shape.
+MCP keeps its existing start/await/cancel lifecycle and common v1 tool envelope.
 
-TASK-029 must add verified v4 readers, export/cleanup policy and the explicit-null
-v4 producer for requests without requirements before public activation. Preflight
-v11 and command-result v23 own that cutover; frozen v10/v22 stay unchanged.
+### Publication and independent assessment
+
+Every newly produced ordinary/no-change final and manifest uses v4 and declares
+`requirements_support`: explicit null without input, or matching metadata path
+and SHA-256 with input. The v4 support index binds exact input, bounded metadata
+and every ordinal item content body. The atomic publication owner preserves
+at most one final across interruption/restart. Missing or damaged declared
+support fails closed; an intact old artifact without support remains unavailable.
+
+Provider wire v2 names output v3 and carries an optional
+`mulgae-provider-requirements.v1` section. Validation separates unbounded
+assessment prose from bounded finding structure, verifies claims on the selected
+source side while its lease is open, and retains verifier-owned content.
+Complete accepted sections form the trusted in-memory normalized v3 value and
+support unbounded serialization. Partial sections preserve their independent
+report/finding/assessment axes without claiming a complete normalized envelope.
+No-change selection makes no provider calls and derives one
+`unverified/no_change_target` row per selected item with zero evaluated count.
+
+### Verified inspection and content
+
+Git context advertises `requirements_assessment: v1`. CLI `inspect`/`findings`
+and MCP `inspect_review`/`list_findings` expose a nested
+`mulgae-requirements-read.v1` result bound to the same publication receipt.
+`--requirements-limit`/`requirements_limit` selects 1 through 100 rows (default 100),
+and `--requirements-cursor`/`requirements_cursor` continues their input order.
+This page is independent of finding severity, finding limit and finding cursor.
+Selected/evaluated counts describe the whole selected set on every page. Readers
+verify all input, counts, owners, ordered IDs, origins and content bindings,
+including items outside the requested page, before returning any result.
+
+Availability is `unavailable` with null unknown counts for old artifacts,
+`not_requested` with known zero counts for new explicit-null artifacts,
+`not_run` with zero evaluated rows for no-change, or `evaluated`. A valid provider
+unverified answer contributes one evaluated row; a derived placeholder contributes
+zero. These states do not change finding severity, role coverage, extraction
+status, CI decisions or operational exits.
+
+Each returned item has an entry in `requirement_content_uris`. CLI
+`read-report --run RUN --requirement ID` and MCP resource
+`mulgae://runs/RUN/requirements/ID` return its verified JSON content: rationale,
+selected-side evidence, examined scope and limitations. Existing receipt/content
+digest selectors, 16 KiB UTF-8 chunks and continuation rules apply. Full prose
+has no product byte ceiling. Rendered reports include every assessment, including
+unmet/unverified and missing-owner answers, independently of findings.
+
+Reads invoke no providers, reopen no current implementation source and rewrite no
+history. Final publication confirmation rejects concurrent cleanup or changed
+receipt identity. Raw invocation requirements and private assessment content stay
+out of portable export. Cleanup removes only run-owned retained copies; the
+original project input is never a cleanup target.

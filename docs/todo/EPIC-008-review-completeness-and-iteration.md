@@ -4,9 +4,10 @@ This temporary dossier defines the reduced requirements-assessment work approved
 on 2026-10-27. The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 owns identity, lifecycle, membership and order. The
 [specification](../specs/review-completeness-and-iteration.md) owns required behavior.
-TASK-026 contract foundations, TASK-027 admission/preflight and TASK-028 internal
-assessment/publication are complete. Public requirements-bearing execution
-remains unavailable.
+TASK-026 contract foundations, TASK-027 admission/preflight, TASK-028 internal
+assessment/publication and TASK-029 verified public reads with paired
+execution/capability activation are complete. TASK-033 certification and explicit
+Epic acceptance remain pending.
 
 ## Goal, dependencies and execution boundary
 
@@ -139,17 +140,17 @@ Run focused prompt, validation/publication and applicable integration checks.
 
 ## TASK-029: Expose verified assessment reads
 
-- [ ] Extend existing inspection/JSON/report paths with requirement rows,
+- [x] Extend existing inspection/JSON/report paths with requirement rows,
       rationale, evidence, limitations, origin and selected/evaluated coverage.
       Keep unknown historical counts unavailable instead of filling them with zero.
-- [ ] Show unmet/unverified results independently of finding count, severity
+- [x] Show unmet/unverified results independently of finding count, severity
       filters and exits. Distinguish not requested, historical unavailable,
       not run, valid provider unverified answers and Mulgae-derived placeholders.
-- [ ] Preserve receipt-bound paging and evidence reads without provider calls,
+- [x] Preserve receipt-bound paging and evidence reads without provider calls,
       current-source fallback or historical artifact rewrites.
-- [ ] Extend query/cleanup/export allowlists only for owned new support, retaining
+- [x] Extend query/cleanup/export allowlists only for owned new support, retaining
       export privacy, integrity checks and lineage protection.
-- [ ] Enable public requirements-bearing execution and its existing capability
+- [x] Enable public requirements-bearing execution and its existing capability
       advertisement only together with the necessary verified CLI/MCP reads.
       Keep objective-only execution available; add no general feature-flag system.
 
@@ -199,8 +200,10 @@ until their behavior is verified.
 TASK-026 supplies the frozen contracts and tested foundations. TASK-027 delivers
 local-file admission and provider-free preflight under the approved
 `aquarium:epic-handler` envelope. TASK-028 delivers internal assessment validation
-and publication under the same envelope. TASK-029 and TASK-033 retain their planned
-execution and acceptance obligations. Epic acceptance remains pending.
+and publication under the same envelope. TASK-029 delivers verified public
+assessment reads and paired execution/capability activation. TASK-033 retains
+integrated full/live/client certification; explicit Epic acceptance remains
+pending.
 
 Before eventual Epic closeout, promote durable outcomes to their canonical
 owners, replace this Epic's Detailed SOT with Canonical Outcomes, remove this

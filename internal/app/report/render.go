@@ -194,7 +194,7 @@ func decodeReportStrictObject(raw []byte, destination any) error {
 }
 
 func (final reportFinalDTO) consistentWith(review query.CommittedReview) error {
-	if final.SchemaVersion != artifactwire.ReviewArtifactV1 && final.SchemaVersion != artifactwire.ReviewArtifactV2 && !(final.SchemaVersion == artifactwire.ReviewArtifactV3 && review.SourceIdentitySHA256() != "") && (final.SchemaVersion != artifactwire.CompositeReviewArtifactV1 && final.SchemaVersion != artifactwire.CompositeReviewArtifactV2) ||
+	if final.SchemaVersion != artifactwire.ReviewArtifactV1 && final.SchemaVersion != artifactwire.ReviewArtifactV2 && !((final.SchemaVersion == artifactwire.ReviewArtifactV3 || final.SchemaVersion == artifactwire.ReviewArtifactV4) && review.SourceIdentitySHA256() != "") && (final.SchemaVersion != artifactwire.CompositeReviewArtifactV1 && final.SchemaVersion != artifactwire.CompositeReviewArtifactV2) ||
 		final.SessionID != review.SessionID().String() ||
 		final.RunID != review.RunID().String() ||
 		final.ReviewID != review.ReviewID().String() ||
@@ -599,6 +599,10 @@ func renderMarkdown(
 			writeTextBlock(&output, "Current quote", evidence.Quote())
 		}
 		writeBlankLine(&output)
+	}
+
+	if err := renderRequirements(ctx, &output, reader, run, review); err != nil {
+		return nil, err
 	}
 
 	writeHeading(&output, "Role coverage")

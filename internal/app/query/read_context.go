@@ -32,9 +32,10 @@ type readContext struct {
 
 // contextRun is one publication consumed inside a read context.
 type contextRun struct {
-	run     ports.PublicationRun
-	stage   string
-	binding observedRun
+	requirements *verifiedRequirements
+	run          ports.PublicationRun
+	stage        string
+	binding      observedRun
 
 	review        CommittedReview
 	hasReview     bool
@@ -235,7 +236,7 @@ func (context *readContext) supportIndex(ctx context.Context, node *contextRun, 
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index decode failed", err)
 	}
 	live := review.liveSource != nil
-	if live && index.SchemaVersion != artifactwire.SupportIndexV3 || !live && index.SchemaVersion != artifactwire.SupportIndexV1 && index.SchemaVersion != artifactwire.SupportIndexV2 {
+	if live && index.SchemaVersion != artifactwire.SupportIndexV3 && index.SchemaVersion != artifactwire.SupportIndexV4 || !live && index.SchemaVersion != artifactwire.SupportIndexV1 && index.SchemaVersion != artifactwire.SupportIndexV2 {
 		return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "support index is invalid", nil)
 	}
 	// Empty artifacts is schema-valid for provider-free no-change publications.
@@ -278,6 +279,11 @@ func (context *readContext) supportIndex(ctx context.Context, node *contextRun, 
 		if err := verifyLiveReadSupport(run, review, artifacts); err != nil {
 			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed source support is invalid", err)
 		}
+		requirements, err := verifyRequirementsSupport(ctx, context.service.validator, run, review, artifacts, index.SchemaVersion)
+		if err != nil {
+			return nil, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "committed requirements support is invalid", err)
+		}
+		node.requirements = requirements
 		node.index = identities
 		return identities, nil
 	}
@@ -343,7 +349,7 @@ func (context *readContext) indexedArtifact(ctx context.Context, node *contextRu
 	if !ok || !validSHA256(digest) {
 		return ports.ImmutablePublicationArtifact{}, typedFailure(readRuntimeTargetStage, domain.FailureArtifact, "runtime artifact is absent from support index", nil)
 	}
-	if kind, err := ports.ClassifyRunSupportArtifactPath(node.run.SessionID(), node.run.RunID(), path); err == nil && kind == ports.RunSupportArtifactSourceImage {
+	if kind, err := ports.ClassifyRunSupportArtifactPath(node.run.SessionID(), node.run.RunID(), path); err == nil && (kind == ports.RunSupportArtifactSourceImage || kind == ports.RunSupportArtifactRequirementsInput || kind == ports.RunSupportArtifactRequirementsContent) {
 		return context.boundArtifact(ctx, node, path, digest, math.MaxInt64-1)
 	}
 	return context.boundArtifact(ctx, node, path, digest, context.service.maxReadBytes)

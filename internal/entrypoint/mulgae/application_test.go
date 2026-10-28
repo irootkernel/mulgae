@@ -44,7 +44,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v22.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v23.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -2051,7 +2051,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	machine := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSuccess)
 	// The CLI providers result is a closed four-field summary pinned by the
-	// mulgae-command-result.v22 schema with additionalProperties: false;
+	// mulgae-command-result.v23 schema with additionalProperties: false;
 	// profiles and transports exist only in the service-layer projection.
 	var machineEnvelope struct {
 		SchemaVersion string          `json:"schema_version"`
@@ -2060,7 +2060,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	if err := json.Unmarshal(machine.Stdout(), &machineEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if machineEnvelope.SchemaVersion != "mulgae-command-result.v22" {
+	if machineEnvelope.SchemaVersion != "mulgae-command-result.v23" {
 		t.Fatalf("providers envelope schema_version = %q, want the current command schema identity", machineEnvelope.SchemaVersion)
 	}
 	var machineResult struct {
@@ -3242,6 +3242,7 @@ func TestApplicationG006CommandsHumanAndJSON(t *testing.T) {
 			want: expectedTextOutput([]byte(
 				"review_artifact_uri: " + g006ReviewArtifactURI +
 					"\nfinding_count: 2" +
+					"\nrequirements_availability: unavailable\nselected_requirements: unknown\nevaluated_requirements: unknown" +
 					"\nF002 [high] Second in query order" +
 					"\nF001 [critical] First in query order",
 			)),

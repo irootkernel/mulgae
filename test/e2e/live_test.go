@@ -29,8 +29,8 @@ import (
 )
 
 const (
-	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v3.schema.json"
-	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v3.schema.json"
+	liveManifestSchema = "https://mulgae.local/schemas/mulgae-run-manifest.v4.schema.json"
+	liveReviewSchema   = "https://mulgae.local/schemas/mulgae-review-artifact.v4.schema.json"
 )
 
 type liveE2EEnvironment struct {

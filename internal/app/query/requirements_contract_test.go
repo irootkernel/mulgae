@@ -3,6 +3,7 @@ package query
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"strings"
@@ -152,5 +153,43 @@ func TestRequirementsReadContractSeparatesHistoricalCountsAndContent(t *testing.
 	continuation.ContentSHA256 = "sha256:" + strings.Repeat("f", 64)
 	if _, err := NewContentChunk(prose, "application/json", true, identity, continuation); err == nil {
 		t.Fatal("content continuation escaped the complete-content digest")
+	}
+}
+
+func TestRequirementsCursorContractMatchesIssuedCursor(t *testing.T) {
+	service, _, run, binding := requirementsReadFixture(t, false)
+	page, err := service.Inspect(context.Background(), run, binding, InspectionRequest{QueryKind: "inspect", RequirementsLimit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Requirements.NextCursor == nil {
+		t.Fatal("cursor missing")
+	}
+	parts := strings.Split(*page.Requirements.NextCursor, ".")
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(parts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-requirements-cursor.v1.schema.json")
+	if err := validator.Validate(context.Background(), id, raw); err != nil {
+		t.Fatal(err)
+	}
+	var value requirementsCursor
+	if err := json.Unmarshal(raw, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value.SchemaVersion != requirementsCursorVersion || value.ProjectBinding != binding.String() || value.PublicationReceipt != page.PublicationReceipt || value.RunID != run.RunID().String() || value.Limit != 1 || value.Offset != 1 {
+		t.Fatal("issued cursor contract scope drifted")
+	}
+	for _, offset := range []int{0, 100} {
+		value.Offset = offset
+		invalid, _ := json.Marshal(value)
+		if err := validator.Validate(context.Background(), id, invalid); err == nil {
+			t.Fatal("cursor schema admitted out-of-selection ordinal")
+		}
 	}
 }

@@ -503,7 +503,7 @@ func buildRunSupportIndex(path ports.SafeRelativePath, artifacts []ports.Immutab
 			version = artifactwire.SupportIndexV2
 		}
 		if kind, ok := publicationSupportArtifactKind(artifact.Path()); ok && kind == ports.RunSupportArtifactLiveSource {
-			version = artifactwire.SupportIndexV3
+			version = artifactwire.SupportIndexV4
 		}
 	}
 	for _, artifact := range artifacts {

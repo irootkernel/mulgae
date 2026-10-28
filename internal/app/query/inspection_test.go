@@ -607,6 +607,11 @@ func TestInspectionNonP2CannotClaimCommittedContent(t *testing.T) {
 			if _, err = service.Inspect(context.Background(), run, binding, InspectionRequest{QueryKind: "findings"}); failureClass(t, err) != domain.FailureArtifact {
 				t.Fatal(err)
 			}
+
+			continued, err := service.Inspect(context.Background(), run, binding, InspectionRequest{QueryKind: "inspect", RequirementsCursor: "opaque"})
+			if failureClass(t, err) != domain.FailureArtifact || continued.DiagnosticOnly {
+				t.Fatal("requirements continuation downgraded to diagnostic success")
+			}
 		})
 	}
 }

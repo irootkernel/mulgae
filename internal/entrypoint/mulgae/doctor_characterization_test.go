@@ -315,6 +315,7 @@ func assertDoctorBefore(t *testing.T, key string, actual doctorBefore) {
 		t.Fatal(err)
 	}
 	want, exists := snapshots[key]
+	want = currentDoctorTransportExpectation(want)
 	if !exists || !reflect.DeepEqual(actual, want) {
 		raw, _ := json.MarshalIndent(actual, "", "  ")
 		t.Fatalf("predecessor %s changed (exists=%t):\n%s\nwant: %+v", key, exists, raw, want)
@@ -617,6 +618,31 @@ func TestProvidersCharacterization(t *testing.T) {
 					assertDoctorBefore(t, fmt.Sprintf("providers/configured=%t/evidence=%t/include=%t/%s", configured, evidence, include, format), got)
 				}
 			}
+		}
+	}
+}
+
+// The frozen predecessor stays intact. Project only its reviewed outer
+// transport marker; all payload bytes, traces, exits and human output stay exact.
+func currentDoctorTransportExpectation(want doctorBefore) doctorBefore {
+	historicalPrefix := `{"schema_version":"mulgae-command-result.v21",`
+	if strings.HasPrefix(want.Stdout, historicalPrefix) {
+		want.Stdout = `{"schema_version":"mulgae-command-result.v23",` + strings.TrimPrefix(want.Stdout, historicalPrefix)
+	}
+	return want
+}
+
+func TestDoctorTransportExpectationChangesOnlyOuterVersionPrefix(t *testing.T) {
+	original := doctorBefore{Stdout: `{"schema_version":"mulgae-command-result.v21","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`, Stderr: "exact stderr", Trace: []string{"exact effect"}}
+	want := original
+	want.Stdout = `{"schema_version":"mulgae-command-result.v23","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`
+	if got := currentDoctorTransportExpectation(original); !reflect.DeepEqual(got, want) {
+		t.Fatal("version projection changed non-version evidence")
+	}
+	for _, text := range []string{"human output", `{"schema_version":"mulgae-command-result.v22","payload":"exact"}`, `prefix {"schema_version":"mulgae-command-result.v21",`} {
+		original.Stdout = text
+		if got := currentDoctorTransportExpectation(original); !reflect.DeepEqual(got, original) {
+			t.Fatal("unexpected envelope/body normalized")
 		}
 	}
 }

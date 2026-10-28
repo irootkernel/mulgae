@@ -267,9 +267,6 @@ func (application *Application) StartReviewRun(
 		nilApplicationDependency(application.writer) || !projectRoot.Valid() {
 		return ReviewRunResult{}, typedHandlerFailure("review.start", domain.FailureInternal, "review application is unavailable", nil)
 	}
-	if _, present := request.RequirementsPath(); present {
-		return ReviewRunResult{}, typedHandlerFailure("review.start", domain.FailureConfiguration, "requirements execution is unavailable; use review --preflight", reviewrun.ErrContractUnsupported)
-	}
 	reviewRuns := application.reviewRuns
 	var err error
 	if preparer, ok := reviewRuns.(ReviewRunServicePreparer); ok {
@@ -277,13 +274,6 @@ func (application *Application) StartReviewRun(
 		if err != nil {
 			return ReviewRunResult{}, classifyHandlerFailure("review.start", domain.FailureProviderUnavailable, "review service preparation failed", err)
 		}
-	}
-	artifactDirectory, err := ports.NewSafeRelativePath(".mulgae")
-	if err != nil {
-		return ReviewRunResult{}, typedHandlerFailure("review.start", domain.FailureInternal, "private publication path is invalid", err)
-	}
-	if err := application.writer.EnsurePrivateDir(projectRoot, artifactDirectory); err != nil {
-		return ReviewRunResult{}, classifyHandlerFailure("review.start", domain.FailureArtifact, "private publication root unavailable", err)
 	}
 	result, err := reviewRuns.StartReviewRun(ctx, request, projectRoot)
 	if err != nil {

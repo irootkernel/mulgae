@@ -42,6 +42,47 @@ func (historicalIDs) NewRequestID(time.Time) (string, error) {
 }
 func historicalRawHash(raw []byte) string { sum := sha256.Sum256(raw); return fmt.Sprintf("%x", sum) }
 
+const historicalRequirementsDisclosure = "# Requirements assessment\n\n" +
+	"- **Availability:** `unavailable`\n" +
+	"- **Selected requirements:** `unavailable`\n" +
+	"- **Admitted provider assessments:** `unavailable`\n\n"
+
+func historicalReportBeforeRequirementsDisclosure(raw []byte) ([]byte, bool) {
+	const coverage = "# Role coverage\n\n"
+	boundary := []byte(historicalRequirementsDisclosure + coverage)
+	if bytes.Count(raw, []byte("# Requirements assessment\n\n")) != 1 || bytes.Count(raw, boundary) != 1 {
+		return nil, false
+	}
+	return bytes.Replace(raw, boundary, []byte(coverage), 1), true
+}
+
+func TestHistoricalReportDisclosureRetainsExactFrozenBody(t *testing.T) {
+	legacy := []byte("# Outcome axes\n\nlegacy outcome\n\n# Role coverage\n\nlegacy role and finding\n")
+	current := bytes.Replace(legacy, []byte("# Role coverage\n\n"), []byte(historicalRequirementsDisclosure+"# Role coverage\n\n"), 1)
+	projected, ok := historicalReportBeforeRequirementsDisclosure(current)
+	if !ok || !bytes.Equal(projected, legacy) {
+		t.Fatal("exact current disclosure did not preserve every frozen report byte")
+	}
+	for name, invalid := range map[string][]byte{
+		"missing":       legacy,
+		"availability":  bytes.Replace(current, []byte("`unavailable`"), []byte("`not_requested`"), 1),
+		"unknown_count": bytes.Replace(current, []byte("Selected requirements:** `unavailable`"), []byte("Selected requirements:** `0`"), 1),
+		"duplicate":     append([]byte(historicalRequirementsDisclosure), current...),
+		"moved":         append(append([]byte(nil), legacy...), []byte(historicalRequirementsDisclosure)...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, ok := historicalReportBeforeRequirementsDisclosure(invalid); ok {
+				t.Fatal("invalid current disclosure passed the frozen-body boundary")
+			}
+		})
+	}
+	tampered := bytes.Replace(current, []byte("legacy role and finding"), []byte("changed role and finding"), 1)
+	projected, ok = historicalReportBeforeRequirementsDisclosure(tampered)
+	if !ok || historicalRawHash(projected) == historicalRawHash(legacy) {
+		t.Fatal("current disclosure projection hid a change to the frozen report body")
+	}
+}
+
 type historicalConsumer struct {
 	project, root ports.AnchoredRoot
 	run           ports.PublicationRun
@@ -239,7 +280,8 @@ func TestIntegrationHistoricalCorpusConsumers(t *testing.T) {
 			if rendered.RunID != c.RunID || len(rendered.SourceIDs) != 5 || rendered.SourceIDs[0] != "report:review:"+c.ReviewID {
 				t.Fatal("CLI report identity changed")
 			}
-			if c.Expected.Report == "" || "sha256:"+historicalRawHash(rendered.Markdown) != c.Expected.Report {
+			frozenBody, disclosureValid := historicalReportBeforeRequirementsDisclosure(rendered.Markdown)
+			if !disclosureValid || c.Expected.Report == "" || "sha256:"+historicalRawHash(frozenBody) != c.Expected.Report {
 				t.Fatal("frozen report bytes changed")
 			}
 			exported, err := historicalExport(t, f, c)
@@ -414,7 +456,8 @@ func TestIntegrationHistoricalCorpusCleanup(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if "sha256:"+historicalRawHash(rendered.Bytes()) != c.Expected.Report {
+				frozenBody, disclosureValid := historicalReportBeforeRequirementsDisclosure(rendered.Bytes())
+				if !disclosureValid || "sha256:"+historicalRawHash(frozenBody) != c.Expected.Report {
 					t.Fatal("source cleanup changed report bytes")
 				}
 				exported, err := historicalExport(t, f, c)

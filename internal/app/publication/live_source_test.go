@@ -59,18 +59,22 @@ func TestLiveNoChangeBuildUsesSourceMetadataWithoutCapturedContent(t *testing.T)
 	if err := unmarshalCanonicalPublicationRecord(bundle.Manifest().Bytes(), &manifest, "manifest"); err != nil {
 		t.Fatal(err)
 	}
-	if final.SchemaVersion != "mulgae-review-artifact.v3" || manifest.SchemaVersion != "mulgae-run-manifest.v3" || final.Target.ContentSHA256 != "" || manifest.Target.ContentSHA256 != "" || final.Target.LiveSource == nil || !final.Target.LiveSource.NoChange {
+	if final.SchemaVersion != "mulgae-review-artifact.v4" || manifest.SchemaVersion != "mulgae-run-manifest.v4" || final.Target.ContentSHA256 != "" || manifest.Target.ContentSHA256 != "" || final.Target.LiveSource == nil || !final.Target.LiveSource.NoChange {
 		t.Fatal("live no-change publication claimed captured contents")
 	}
 	if final.Provenance.Production != nil || final.Provenance.LiveProduction == nil || len(final.Provenance.LiveProduction.Providers) != 0 || len(manifest.Attempts) != 0 || len(manifest.RoleReports) != 0 || len(final.Findings) != 0 {
 		t.Fatal("no-change publication contained capture or provider work")
 	}
 	for _, data := range [][]byte{bundle.Final().Bytes(), bundle.Manifest().Bytes()} {
+		var declaration map[string]json.RawMessage
+		if json.Unmarshal(data, &declaration) != nil || string(declaration["requirements_support"]) != "null" {
+			t.Fatal("new objective-only publication did not explicitly declare not requested")
+		}
 		if bytes.Contains(data, []byte("content_sha256")) || bytes.Contains(data, []byte("snapshot_manifest_sha256")) || bytes.Contains(data, []byte("workspace_terminal_receipt")) {
 			t.Fatal("live result contained an immutable-source claim")
 		}
 	}
-	if len(validator.ids) != 2 || validator.ids[0].String() != strings.Replace(finalReviewSchemaAsset, ".v1.", ".v3.", 1) || validator.ids[1].String() != strings.Replace(runManifestSchemaAsset, ".v1.", ".v3.", 1) {
+	if len(validator.ids) != 2 || validator.ids[0].String() != strings.Replace(finalReviewSchemaAsset, ".v1.", ".v4.", 1) || validator.ids[1].String() != strings.Replace(runManifestSchemaAsset, ".v1.", ".v4.", 1) {
 		t.Fatal("live format validated against a historical schema")
 	}
 	if len(bundle.Excerpts()) != 2 {
@@ -80,7 +84,7 @@ func TestLiveNoChangeBuildUsesSourceMetadataWithoutCapturedContent(t *testing.T)
 	if err := json.Unmarshal(bundle.Excerpts()[1].Bytes(), &index); err != nil {
 		t.Fatal(err)
 	}
-	if index.SchemaVersion != "mulgae-run-support-index.v3" || len(index.Artifacts) != 1 {
+	if index.SchemaVersion != "mulgae-run-support-index.v4" || len(index.Artifacts) != 1 {
 		t.Fatal("live support index claimed capture support")
 	}
 	if final.Target.LiveSource.Consistency != "caller_maintained" || final.Target.LiveSource.ReplayAvailability != "unsupported" {

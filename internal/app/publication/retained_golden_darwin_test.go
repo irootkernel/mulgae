@@ -5,12 +5,13 @@ package publication
 import (
 	"context"
 	"encoding/hex"
-	"reflect"
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
 )
 
@@ -61,8 +62,40 @@ func TestRetainedLiveGoldenBytes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(publicationGoldenVectorLines(t, bundle), publicationGoldenVectors[family.name]) {
-				t.Fatal("actual retained Build differs from original ordered golden vectors")
+			actual, want := publicationGoldenVectorLines(t, bundle), publicationGoldenVectors[family.name]
+			if len(actual) != len(want) {
+				t.Fatal("current version dropped a retained member")
+			}
+			for i, line := range actual {
+				oldFields, newFields := strings.Fields(want[i]), strings.Fields(line)
+				if len(oldFields) != 3 || len(newFields) != 3 || oldFields[0] != newFields[0] || oldFields[1] != newFields[1] {
+					t.Fatal("current version changed retained member identity/order")
+				}
+				versionBound := i < 7 || strings.HasSuffix(newFields[1], "/support/index.json")
+				if !versionBound && line != want[i] {
+					t.Fatal("unchanged retained support bytes drifted")
+				}
+			}
+			for name, raw := range map[string][]byte{"final": bundle.Final().Bytes(), "manifest": bundle.Manifest().Bytes()} {
+				var value map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &value); err != nil {
+					t.Fatal(err)
+				}
+				expected := artifactwire.ReviewArtifactV4
+				if name == "manifest" {
+					expected = artifactwire.RunManifestV4
+				}
+				if string(value["schema_version"]) != `"`+expected+`"` || string(value["requirements_support"]) != "null" {
+					t.Fatal("current producer lost v4/explicit-null expectation")
+				}
+			}
+			for _, member := range bundle.SupportArtifacts() {
+				if strings.HasSuffix(member.Path().String(), "/support/index.json") {
+					var index runSupportIndexWire
+					if err := json.Unmarshal(member.Bytes(), &index); err != nil || index.SchemaVersion != artifactwire.SupportIndexV4 {
+						t.Fatal("current support index lost v4 expectation")
+					}
+				}
 			}
 			assertNoRetiredSupport(t, bundle)
 		})
@@ -97,8 +130,39 @@ func TestRetainedLiveGoldenBytes(t *testing.T) {
 			continue
 		}
 		count++
-		if got, ok := actual[key]; !ok || got != expected[key] {
-			t.Fatalf("actual live bytes changed: %s", key)
+		got, ok := actual[key]
+		if !ok {
+			t.Fatalf("missing retained live member: %s", key)
+		}
+		// v3 is a historical wire contract after the v4 cutover. Verify its
+		// exact DTO bytes without retaining a legacy production emitter.
+		var destination any
+		switch {
+		case strings.HasSuffix(key, "/final"):
+			destination = &finalReviewWire{}
+		case strings.HasSuffix(key, "/manifest"):
+			destination = &runManifestWire{}
+		case strings.HasSuffix(key, "/journal"):
+			destination = &publicationJournalWire{}
+		case strings.HasSuffix(key, "/status"):
+			destination = &publicationStatusWire{}
+		case strings.HasSuffix(key, "/epoch"):
+			destination = &publicationEpochWire{}
+		case strings.HasSuffix(key, "/support/index.json"):
+			destination = &runSupportIndexWire{}
+		}
+		if destination != nil {
+			if err := unmarshalCanonicalPublicationRecord([]byte(expected[key]), destination, "retained historical live wire"); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := marshalCanonical(destination)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got = string(raw)
+		}
+		if got != expected[key] {
+			t.Fatalf("retained legacy DTO/support bytes changed: %s", key)
 		}
 	}
 	if count != len(actual) {

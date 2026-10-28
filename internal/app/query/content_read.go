@@ -279,3 +279,22 @@ func (reader verifiedSnapshotReader) RenderExcerptAt(ctx context.Context, run po
 	}
 	return reader.context.renderExcerptAt(ctx, reader.node, findingID, target, index)
 }
+
+// RequirementContentReader serves exact retained content within the same verified
+// snapshot used by a report renderer, without starting another public read.
+type RequirementContentReader interface {
+	ReadRequirementContent(context.Context, ports.PublicationRun, string) ([]byte, error)
+}
+
+func (snapshot contentSnapshot) ReadRequirementContent(ctx context.Context, run ports.PublicationRun, id string) ([]byte, error) {
+	if run != snapshot.run {
+		return nil, ErrCursorMismatch
+	}
+	return snapshot.context.requirementContent(ctx, snapshot.node, id)
+}
+func (reader verifiedSnapshotReader) ReadRequirementContent(ctx context.Context, run ports.PublicationRun, id string) ([]byte, error) {
+	if run != reader.node.run {
+		return nil, ErrCursorMismatch
+	}
+	return reader.context.requirementContent(ctx, reader.node, id)
+}

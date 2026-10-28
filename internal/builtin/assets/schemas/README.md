@@ -88,20 +88,24 @@ Draft 2020-12 and a canonical
 | `mulgae-review-artifact.v4` | `../examples/review-artifact.v4.valid.json` |
 | `mulgae-run-manifest.v4` | `../examples/run-manifest.v4.valid.json` |
 | `mulgae-run-support-index.v4` | `../examples/run-support-index.v4.valid.json` |
+| `mulgae-command-result.v23` | `../examples/command-result.v23.valid.json` |
+| `mulgae-review-preflight.v11` | `../examples/review-preflight.v11.valid.json` |
+| `mulgae-requirements-cursor.v1` | `../examples/requirements-cursor.v1.valid.json` |
 
 Examples are structural fixtures, not evidence that a provider or platform
 contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a new schema version. Current commands emit v22 and
-review preflight emits v10. Earlier command and preflight schemas remain frozen
+Breaking changes require a new schema version. Current commands emit v23 and
+review preflight emits v11. Earlier command and preflight schemas remain frozen
 for historical validation dependencies. Current live publications use review
-artifact v3, run manifest v3 and `mulgae-run-support-index.v3`; receipt and export v2 bind
+artifact v4, run manifest v4 and `mulgae-run-support-index.v4`; receipt and export v2 bind
 verified source observations. Historical ordinary, child and composite contracts
 remain readable with their original identity and integrity rules.
 
-The five requirements-assessment v1 contracts are foundations. They do not
-advertise execution support. Support/read metadata contains content references;
+The five requirements-assessment v1 contracts separate metadata from prose.
+Execution and verified reads advertise `requirements_assessment: v1` only with
+an existing Git/common-directory binding. Support/read metadata contains content references;
 raw requirements and per-item rationale/evidence content use separate retained
 files and verified content chunks under the canonical requirements specification.

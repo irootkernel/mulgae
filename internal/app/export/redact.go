@@ -32,7 +32,7 @@ var (
 func validateProjection(source VerifiedSourceProjection, options BuildOptions) error {
 	live := source.LiveSource != nil
 	if live {
-		if source.Review.SchemaVersion != artifactwire.ReviewArtifactV3 || source.Run.SchemaVersion != artifactwire.RunManifestV3 || !source.LiveSource.Identity.Valid() || source.SourceIdentity.SourceTargetSHA256 != "" || source.CurrentIdentity.TargetSHA256 != "" || source.SourceIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() || source.CurrentIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() {
+		if !(source.Review.SchemaVersion == artifactwire.ReviewArtifactV3 && source.Run.SchemaVersion == artifactwire.RunManifestV3 || source.Review.SchemaVersion == artifactwire.ReviewArtifactV4 && source.Run.SchemaVersion == artifactwire.RunManifestV4) || !source.LiveSource.Identity.Valid() || source.SourceIdentity.SourceTargetSHA256 != "" || source.CurrentIdentity.TargetSHA256 != "" || source.SourceIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() || source.CurrentIdentity.SourceIdentitySHA256 != source.LiveSource.Identity.SHA256() {
 			return fmt.Errorf("%w: live selection identity", ErrMalformedProjection)
 		}
 		if len(source.BinaryEvidence) != len(source.LiveSource.BinaryEvidence) {
@@ -46,7 +46,7 @@ func validateProjection(source VerifiedSourceProjection, options BuildOptions) e
 				return fmt.Errorf("%w: selected binary evidence", ErrMalformedProjection)
 			}
 		}
-	} else if source.Review.SchemaVersion == artifactwire.ReviewArtifactV3 || source.Run.SchemaVersion == artifactwire.RunManifestV3 || source.SourceIdentity.SourceIdentitySHA256 != "" || source.CurrentIdentity.SourceIdentitySHA256 != "" || len(source.BinaryEvidence) != 0 {
+	} else if source.Review.SchemaVersion == artifactwire.ReviewArtifactV3 || source.Review.SchemaVersion == artifactwire.ReviewArtifactV4 || source.Run.SchemaVersion == artifactwire.RunManifestV3 || source.Run.SchemaVersion == artifactwire.RunManifestV4 || source.SourceIdentity.SourceIdentitySHA256 != "" || source.CurrentIdentity.SourceIdentitySHA256 != "" || len(source.BinaryEvidence) != 0 {
 		return fmt.Errorf("%w: mixed live and historical projection", ErrMalformedProjection)
 	}
 	if !idPatterns["session"].MatchString(source.SessionID) || !idPatterns["run"].MatchString(source.RunID) || !idPatterns["review"].MatchString(source.ReviewID) {

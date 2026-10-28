@@ -74,19 +74,11 @@ func (candidate PreparedCandidate) manifestTargetWire() manifestTargetWire {
 }
 
 func (candidate PreparedCandidate) artifactVersion(legacy string) string {
-	version := ".v3"
-	if candidate.requirements != nil {
-		version = ".v4"
-	}
-	return strings.TrimSuffix(legacy, ".v1") + version
+	return strings.TrimSuffix(legacy, ".v1") + ".v4"
 }
 
 func (candidate PreparedCandidate) artifactSchema(legacy string) string {
-	version := ".v3.schema.json"
-	if candidate.requirements != nil {
-		version = ".v4.schema.json"
-	}
-	return strings.Replace(legacy, ".v1.schema.json", version, 1)
+	return strings.Replace(legacy, ".v1.schema.json", ".v4.schema.json", 1)
 }
 
 func (candidate PreparedCandidate) buildLiveSupport(existing []ports.ImmutablePublicationArtifact) ([]ports.ImmutablePublicationArtifact, error) {

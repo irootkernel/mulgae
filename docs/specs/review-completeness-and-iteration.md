@@ -8,9 +8,8 @@ The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
 owns lifecycle and the five implementation Tasks. The
 [development dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
 owns their temporary execution detail. Local input admission and provider-free
-preflight are available. Internal assessment execution, validation and publication
-are implemented; public requirements execution and verified reads remain
-unavailable.
+preflight, assessment execution/publication and verified CLI/MCP reads are
+implemented in the current candidate. Task and Epic acceptance remain separate.
 Current behavior remains defined by [contracts](contracts.md) and
 [live workspace and Git review](live-workspace-and-git-review.md).
 
@@ -57,9 +56,12 @@ Unchecked requirements are planned obligations, not implementation evidence.
 ## Optional requirements input
 
 CLI `--requirements PATH` and MCP `requirements_path` accept a project-relative
-file for provider-free preflight. Requirements-bearing execution remains
-unavailable until TASK-029 enables it with verified assessment reads. The existing
-objective-only review path remains available.
+file for review or provider-free preflight. Requirements execution requires the
+existing verified Git/common-directory project binding, with or without an
+explicit expected-binding guard. Objective-only non-Git workspace execution
+remains supported. Non-Git requirements preflight may validate input but discloses
+unavailable execution and an empty requirements capability; execution fails with
+`contract_unsupported` before private writer effects, allocation or qualification.
 
 Use a strict UTF-8 JSON object with `schema_version` and a `requirements` array.
 Each item contains `id`, `text`, `acceptance_criteria` and `owner_role`.
@@ -93,10 +95,10 @@ requirement prose, source observations, prompts or role reports.
 
 ### Current admission summary
 
-Preflight v10 exposes bounded metadata under `requirements`: the exact input
+Preflight v11 exposes bounded metadata under `requirements`: the exact input
 SHA-256, selected count, ordered IDs and owners, `evaluation_status: not_run`,
 known extraction policy, `source_limit: selected_target_only`, and
-`execution_available: false`. No text, criteria, assessment rows or verdicts
+conditional `execution_available` matching actual Git binding availability. No text, criteria, assessment rows or verdicts
 enter that summary. Input absence is explicit null. CLI includes the native
 source read plan; MCP retains its existing bounded read-count projection.
 
@@ -306,8 +308,8 @@ mechanism; add no general feature-flag system.
 TASK-026 supplies contract values, strict byte decoders and schema/semantic
 foundations. TASK-027 implements local input admission and provider-free
 preflight. TASK-028 implements internal provider integration and publication.
-TASK-029 owns verified assessment reads and public activation; public
-requirements-bearing execution remains unavailable.
+TASK-029 supplies verified assessment reads and the paired public activation.
+The original criteria remain governing; implementation is not final acceptance.
 
 ### Versions and ownership
 
@@ -464,8 +466,8 @@ optional admission summary, including the preflight-failure version projection.
 Command-result v21 retains its embedded preflight v9 contract. TASK-028 supplies
 the internal requirements-bearing provider wire v2 and normalized provider
 output v3, plus review artifact v4, run manifest v4 and support index v4. Public
-objective-only execution continues to emit v3 artifacts until TASK-029 supplies
-verified v4 readers and activates the new producer.
+objective-only execution used v3 until the TASK-029 cutover. New
+ordinary/no-change producers use v4 with verified readers.
 
 At TASK-029 activation, every new ordinary/no-change artifact and manifest uses v4
 and contains `requirements_support`: null for a request without requirements, or
@@ -475,11 +477,34 @@ metadata, exact input and every content body. Explicit null establishes
 `not_requested`; a v3 or older artifact lacks this capability and remains
 `unavailable`. This distinction cannot be inferred from current binary version.
 TASK-029 also introduces preflight v11 with command-result v23 and advertises
-`requirements_assessment=v1` with execution and verified reads. Preflight v10
+`requirements_assessment=v1` with execution and verified reads on roots with
+the existing Git/common-directory binding. Non-Git roots retain empty capability
+and `execution_available: false`; their requirements execution is unsupported.
+Preflight v10
 retains `requirements.execution_available: false`; v11 owns the later enabled
-execution contract. Preflight v10 and command-result v22 stay frozen, and the MCP
+execution contract with binding-dependent availability. Preflight v10 and
+command-result v22 stay frozen, and the MCP
 lifecycle remains unchanged. The internal TASK-028 contracts confer no public
 requirements execution or verified-read capability.
+
+### Verified public read projection
+
+CLI `inspect`/`findings` and MCP `inspect_review`/`list_findings` return the frozen
+requirements-read v1 metadata under `requirements`, plus a sibling
+`requirement_content_uris` map keyed by each returned ID. Requirement pagination
+uses its own limit (1 through 100, default 100) and sealed receipt/binding/run/limit/offset
+cursor. Finding severity and finding cursors do not change requirement selection.
+Whole-set counts, ordered IDs/owners/origins and every input/content binding are
+verified before any page; final receipt confirmation rejects concurrent cleanup.
+
+`read-report --requirement ID` and the corresponding
+`mulgae://runs/RUN/requirements/ID` resource reuse 16 KiB UTF-8 chunks and existing
+receipt/content-digest continuation guards. Full item JSON retains rationale,
+source evidence, scope and limitations without the bounded-envelope prose limit.
+Reports render all selected assessments independently of extraction availability.
+Reads use retained support only, with no providers or current-source fallback.
+Portable export admits no raw requirement input or assessment body. Cleanup may
+remove run-owned copies while preserving the original project input.
 
 ## Acceptance evidence
 
@@ -499,5 +524,5 @@ does not establish successful structured assessment. Missing structured
 assessment is an evidence gap, not permission for an unbounded retry campaign.
 
 Implementation, verification, review, commits, installation, configuration and
-release retain their separate authorization boundaries. Public requirements
-execution and verified assessment reads remain unavailable until TASK-029.
+release retain their separate authorization boundaries. TASK-029 implements
+public execution with verified reads; TASK-033 retains integrated certification.

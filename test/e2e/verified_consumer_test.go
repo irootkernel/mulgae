@@ -83,7 +83,7 @@ func decodeVerifiedConsumerEnvelope(raw []byte, transport, operation string, leg
 		return nil, err
 	}
 	if transport == "cli" {
-		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19" && envelope.SchemaVersion != "mulgae-command-result.v20" && envelope.SchemaVersion != "mulgae-command-result.v21" && envelope.SchemaVersion != "mulgae-command-result.v22") {
+		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19" && envelope.SchemaVersion != "mulgae-command-result.v20" && envelope.SchemaVersion != "mulgae-command-result.v21" && envelope.SchemaVersion != "mulgae-command-result.v22" && envelope.SchemaVersion != "mulgae-command-result.v23") {
 			return nil, fmt.Errorf("unsupported CLI contract")
 		}
 		if envelope.Exit == nil || envelope.Exit.Code == nil || *envelope.Exit.Code != 0 || envelope.Exit.Kind != "success" || envelope.Reasons == nil {
@@ -118,7 +118,7 @@ func decodeVerifiedConsumerResult(raw []byte) (verifiedConsumerResult, error) {
 	}
 	for name, version := range value.Capabilities {
 		switch name {
-		case "project_binding", "execution_guard", "capture_identity", "inspection", "finding_pages", "finding_details", "report_content", "indexed_evidence", "composite_evidence", "live_source", "source_evidence":
+		case "project_binding", "execution_guard", "capture_identity", "inspection", "finding_pages", "finding_details", "report_content", "indexed_evidence", "composite_evidence", "live_source", "source_evidence", "requirements_assessment":
 		default:
 			return value, fmt.Errorf("unknown capability %s", name)
 		}
@@ -219,5 +219,40 @@ func TestVerifiedWorkflowFrozenConsumers(t *testing.T) {
 				t.Fatal("integrity failure became historical unavailability")
 			}
 		})
+	}
+}
+
+func TestVerifiedConsumerAcceptsCurrentV23WithoutUpgradingHistoricalIdentity(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "verified-consumer", "current-cli.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	envelope["schema_version"] = json.RawMessage(`"mulgae-command-result.v23"`)
+	raw, err = json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := decodeVerifiedConsumerEnvelope(raw, "cli", "inspect", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatal(err)
+	}
+	result["capabilities"].(map[string]any)["requirements_assessment"] = "v1"
+	data, err = json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeVerifiedConsumerResult(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeVerifiedConsumerEnvelope(raw, "cli", "inspect", true); err == nil {
+		t.Fatal("current contract invented historical identity")
 	}
 }

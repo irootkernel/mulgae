@@ -207,7 +207,7 @@ func TestRetainedLivePublicationBundleBindsCanonicalSupportIndex(t *testing.T) {
 	if err := unmarshalExact(bundle.Excerpts()[len(bundle.Excerpts())-1].Bytes(), &index); err != nil {
 		t.Fatal(err)
 	}
-	if index.SchemaVersion != "mulgae-run-support-index.v3" || len(index.Artifacts) == 0 {
+	if index.SchemaVersion != "mulgae-run-support-index.v4" || len(index.Artifacts) == 0 {
 		t.Fatalf("support index is not canonical runtime inventory: %#v", index)
 	}
 	for _, artifact := range index.Artifacts {

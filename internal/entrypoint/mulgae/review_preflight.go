@@ -18,7 +18,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v10"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v11"
 
 // ReviewPreflightService admits original-source selection without invoking
 // providers or creating execution or publication state. Selected artist and
@@ -101,7 +101,7 @@ func NewLiveReviewPreflightResult(target ports.LiveSourceTarget, binding domain.
 		return ReviewPreflightResult{}, fmt.Errorf("live preflight: invalid admitted plan")
 	}
 	result := ReviewPreflightResult{SchemaVersion: reviewPreflightSchemaVersion,
-		Capabilities:   query.VerifiedReadCapabilities{ProjectBinding: "v1", LiveSource: "v1"},
+		Capabilities:   query.VerifiedReadCapabilities{RequirementsAssessment: "v1", ProjectBinding: "v1", LiveSource: "v1"},
 		ProjectBinding: binding.String(), ConfigurationSHA256: configurationSHA256,
 		SourceIdentitySHA256: source.SHA256(), Target: source.Bytes(), CandidateCount: len(target.Changes()),
 		Status: "eligible", Qualification: "not_run", Warnings: []string{},
@@ -109,6 +109,7 @@ func NewLiveReviewPreflightResult(target ports.LiveSourceTarget, binding domain.
 	}
 	if binding.String() == "" {
 		result.Capabilities.ProjectBinding = ""
+		result.Capabilities.RequirementsAssessment = ""
 	}
 	for _, read := range reads {
 		result.ReadPlan = append(result.ReadPlan, ReviewPreflightRead{Side: read.Side(), Path: read.Path().String()})
@@ -155,6 +156,9 @@ func (result ReviewPreflightResult) Validate() (err error) {
 	}
 	if result.Capabilities.LiveSource != "v1" || (result.Capabilities.ProjectBinding == "v1") != (result.ProjectBinding != "") || result.Capabilities.ExecutionGuard != "" || result.Capabilities.CaptureIdentity != "" {
 		return fmt.Errorf("live preflight: invalid capabilities")
+	}
+	if (result.Capabilities.RequirementsAssessment == "v1") != (result.ProjectBinding != "") || result.Requirements != nil && result.Requirements.ExecutionAvailable != (result.Capabilities.RequirementsAssessment == "v1") {
+		return fmt.Errorf("live preflight: requirements execution capability mismatch")
 	}
 	if result.ProjectBinding != "" {
 		if _, err := domain.ParseProjectBinding(result.ProjectBinding); err != nil {
