@@ -12,11 +12,7 @@ task identity, ordering, dependencies, and status.
 
 ## Adopted active dossiers
 
-- [EPIC-008: Review completeness and iteration](EPIC-008-review-completeness-and-iteration.md)
-  plans optional explicit requirements assessment within one ordinary review,
-  with verified result inspection. Its five Tasks exclude batch rechecks and
-  cross-run comparison. The roadmap preserves those Deferred Task records
-  separately; contract foundations are complete.
+None.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply

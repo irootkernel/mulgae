@@ -27,7 +27,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-005](#epic-005-codex-app-server-provider-transport) | Completed | Move Codex review and qualification from one-shot exec to an isolated app-server conversation. |
 | [EPIC-006](#epic-006-configurable-grok-model-and-reasoning-policy) | Completed | Let projects select one shared Grok model and reasoning effort while preserving provider defaults and exact qualification identity. |
 | [EPIC-007](#epic-007-verified-review-contracts) | Completed | Bind requested project and preflight input to native execution, then expose coherent verified results and self-contained composite evidence through CLI and MCP. |
-| [EPIC-008](#epic-008-review-completeness-and-iteration) | In Progress | Add optional explicit requirements assessment to one ordinary review and expose its results through existing verified reads. |
+| [EPIC-008](#epic-008-review-completeness-and-iteration) | Completed | Add optional explicit requirements assessment to one ordinary review and expose its results through existing verified reads. |
 | [EPIC-009](#epic-009-live-workspace-and-git-review) | Completed | Review original workspace and Git targets without source snapshots, using neutral reviewer execution and preserving historical results. |
 | [EPIC-010](#epic-010-cursor-acp-review-provider) | Completed | Add Cursor as an explicitly selected text-role provider through an ACP stdio adapter, without changing the ZCode, Grok, or Codex routes. |
 | [EPIC-011](#epic-011-agy-stream-json-review-provider) | Completed | Re-admit AGY over its bidirectional `stream-json` stdio wire protocol with one account and make AGY the default `documentation` provider. |
@@ -413,20 +413,19 @@ authority.
 
 ## EPIC-008: Review completeness and iteration
 
-Status: In Progress
+Status: Completed
 
 Master approved the reduced requirements-assessment scope on 2026-10-27.
 This replaces the earlier capture-dependent redesign hold. TASK-026 through
 TASK-029 are complete: contracts, local admission/preflight, internal publication
 and Git-bound public execution with verified reads. TASK-033 has completed
-integrated full/live/client certification; whole-Epic validation and explicit
-Epic acceptance remain pending.
+integrated full/live/client certification. All five member Tasks are complete.
 
 Depends on: completed and accepted EPIC-007 and EPIC-009.
 
-Detailed SOT: [EPIC-008 development dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
-
-Required Outcomes: [requirements assessment](../specs/review-completeness-and-iteration.md)
+Canonical Outcomes: [requirements assessment](../specs/review-completeness-and-iteration.md),
+[public contracts](../specs/contracts.md), [security](../specs/security.md),
+[architecture](../architecture/README.md), [verification](../implementation-tips/README.md)
 and the [revised design decision](../architecture-decision-records/verified-review-iteration.md#reduced-epic-008-scope).
 
 Goal: add optional explicit requirements to one ordinary review, retain one
@@ -484,25 +483,25 @@ their IDs are not reused. Their earlier scope and rationale remain in the
 
 ### Epic acceptance
 
-- [ ] All five member Tasks and RCI-001/002/003/006/007 have production behavior,
+- [x] All five member Tasks and RCI-001/002/003/006/007 have production behavior,
       evidence and historical compatibility checks.
-- [ ] Optional requirements coexist with the objective; each selected item has
+- [x] Optional requirements coexist with the objective; each selected item has
       one owned assessment or an explicit unverified result, with evidence and
       limitations. Zero findings does not imply requirement satisfaction.
-- [ ] Every existing admitted no-change target, including empty-tree HEAD,
+- [x] Every existing admitted no-change target, including empty-tree HEAD,
       retains zero provider calls, zero attempts/reports and zero evaluated count,
       with persistent evaluation-not-run plus unverified/no_change_target results.
-- [ ] Verified CLI/MCP reads preserve input/result integrity, restart behavior,
+- [x] Verified CLI/MCP reads preserve input/result integrity, restart behavior,
       bounded paging, privacy and explicit historical capability absence.
       Counts distinguish valid provider answers from Mulgae-derived placeholders;
       severity filters do not hide assessments. Public activation occurs only
       with verified reads in TASK-029. Ordinary review, source selection,
       extraction policy, role budgets and exits remain compatible.
-- [ ] The exact candidate passes the current complete Make gate, exact-binary
+- [x] The exact candidate passes the current complete Make gate, exact-binary
       and supported-client checks and one explicitly authorized bounded live
       requirements review with admitted provider assessments; placeholders alone
       are not structured coverage. No batch/comparison demonstration is required.
-- [ ] Promote durable outcomes, remove the dossier and its TODO entry, repair
+- [x] Promote durable outcomes, remove the dossier and its TODO entry, repair
       links, replace Detailed SOT with Canonical Outcomes and obtain explicit
       Epic acceptance. Deferred TASK-030 through TASK-032 remain independent
       records and do not block this closeout.

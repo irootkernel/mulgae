@@ -1,15 +1,15 @@
 # Review completeness and iteration
 
-EPIC-008 plans explicit requirements assessment within one ordinary review.
+EPIC-008 implements explicit requirements assessment within one ordinary review.
 Batch rechecks and cross-run comparison are outside the revised scope approved
 on 2026-10-27.
 
 The [roadmap](../roadmap/README.md#epic-008-review-completeness-and-iteration)
-owns lifecycle and the five implementation Tasks. The
-[development dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
-owns their temporary execution detail. Local input admission and provider-free
-preflight, assessment execution/publication and verified CLI/MCP reads are
-implemented in the current candidate. Task and Epic acceptance remain separate.
+owns lifecycle and the five completed implementation Tasks. The
+[verification guide](../implementation-tips/README.md) retains acceptance and
+regression checks. Local input admission and provider-free preflight, assessment
+execution/publication and verified CLI/MCP reads are implemented. Task and Epic
+acceptance remain separate.
 Current behavior remains defined by [contracts](contracts.md) and
 [live workspace and Git review](live-workspace-and-git-review.md).
 
@@ -31,18 +31,18 @@ source snapshot, copied checkout, source archive or capture-bound request guard.
 
 ## Required behavior
 
-- [ ] RCI-001: admit an optional requirements file containing explicit IDs,
+- [x] RCI-001: admit an optional requirements file containing explicit IDs,
       descriptions, acceptance criteria and one owner role per item, alongside
       the existing objective and original-source target.
-- [ ] RCI-002: retain every selected requirement with a verdict, rationale,
+- [x] RCI-002: retain every selected requirement with a verdict, rationale,
       evidence and limitations or an explicit unverified reason, including
       provider-free no-change results.
-- [ ] RCI-003: keep requirements assessment, ordinary findings, role coverage,
+- [x] RCI-003: keep requirements assessment, ordinary findings, role coverage,
       extraction, publication and operational exits separate.
-- [ ] RCI-006: preserve existing execution and historical artifact readers;
+- [x] RCI-006: preserve existing execution and historical artifact readers;
       distinguish unsupported historical assessments from an empty successful
       assessment without rewriting stored results.
-- [ ] RCI-007: expose optional input and verified results through existing CLI
+- [x] RCI-007: expose optional input and verified results through existing CLI
       and MCP review/preflight/read paths, preserving start/await/cancel.
 
 RCI-004 (batch rechecks) and RCI-005 (cross-run comparison) are excluded from
@@ -526,4 +526,3 @@ assessment is an evidence gap, not permission for an unbounded retry campaign.
 Implementation, verification, review, commits, installation, configuration and
 release retain their separate authorization boundaries. TASK-029 implements
 public execution with verified reads; TASK-033 has completed integrated certification.
-Whole-Epic validation and explicit Epic acceptance remain pending.

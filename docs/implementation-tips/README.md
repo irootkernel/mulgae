@@ -656,9 +656,9 @@ gate or the explicit two-home Codex certification required by TASK-039.
 
 The [verified review contracts](../specs/verified-review-contracts.md) and their
 [roadmap outcomes](../roadmap/README.md#epic-007-verified-review-contracts)
-retain EPIC-007's historical requirements and verification. The revised
-[EPIC-008 dossier](../todo/EPIC-008-review-completeness-and-iteration.md)
-defines five member Tasks for optional requirements assessment. TASK-026 is complete.
+retain EPIC-007's historical requirements and verification. The
+[requirements assessment specification](../specs/review-completeness-and-iteration.md)
+defines the implemented reduced scope. All five member Tasks are complete.
 The [roadmap](../roadmap/README.md#adopted-execution-order) owns their order:
 TASK-026, TASK-027, TASK-028, TASK-029, TASK-033. Deferred TASK-030 through
 TASK-032 are outside current membership and acceptance.
