@@ -8,13 +8,16 @@ invoke no provider and do not create report files.
 ## Select available contracts
 
 Use `get_context` or verified inspection `capabilities` and the host's connected
-tools/resources for read support. Preflight v9 has a narrower advertisement and
-leaves the inspection/page/content fields empty. The
+tools/resources for read support. Historical preflight v9 has a narrower
+advertisement and leaves the inspection/page/content fields empty. Current
+preflight v11 advertises binding-dependent requirements execution. The
 relevant values are `inspection`, `finding_pages`, `finding_details`,
 `report_content`, `indexed_evidence`, and `composite_evidence`, each `v1` when
 supported. Unknown or absent versions do not establish support. Binary support
 and per-artifact availability are separate: an older composite can remain
-readable while its evidence is unavailable.
+readable while its evidence is unavailable. Read `requirements_assessment: v1`
+separately when requirements are requested; capability alone does not establish
+that this artifact has assessment support.
 
 If the host cannot expose a resource but the CLI supports its read contract,
 use CLI from the independently established root with the same expected binding
@@ -79,6 +82,43 @@ combine pages from different receipts.
 Summaries omit complete explanations and report bodies. Zero extracted findings
 in `reports_only` or `mixed` output does not prove the role reports are clean.
 Read the relevant original reports and complete finding details before judgment.
+
+## Consume requirements independently
+
+`inspect_review`/`list_findings` and CLI `inspect`/`findings` return `requirements`
+metadata and `requirement_content_uris`. Preserve the input digest, owner, verdict,
+reason and origin. Selected/evaluated counts describe the complete admitted set,
+independently of finding severity, finding pages or the current requirement page.
+A valid provider `unverified` answer counts as evaluated; a derived placeholder
+does not. Unmet/unverified rows remain relevant even when the finding filter
+returns zero findings or the operational exit succeeds.
+
+Requirements use their own `requirements_limit` and `requirements_cursor` in MCP,
+or `--requirements-limit` and `--requirements-cursor` on CLI. The limit is 1 through
+100, default 100. Keep that limit, run, project binding and publication receipt
+unchanged through every continuation. Follow `requirements.next_cursor` until
+null. Do not substitute a finding cursor or combine pages from different receipts.
+
+Distinguish `not_requested` with known zero counts, historical `unavailable` with
+null unknown counts, `not_run` with zero evaluated provider answers, and
+`evaluated`. No-change rows are derived `unverified/no_change_target`; intact old
+absence is not corruption. Missing or damaged declared support fails closed and
+must not become an empty successful assessment.
+
+Use each issued requirement resource URI when the host exposes a native resource
+reader. Otherwise use the same bound CLI content route:
+
+```bash
+mulgae read-report --run "$run_id" --requirement "$requirement_id" \
+  --expected-project-binding "$project_binding" \
+  --expected-publication-receipt "$publication_receipt" --output json
+```
+
+The item JSON retains rationale, selected-side evidence, examined scope and
+limitations. Follow all 16 KiB chunks using the content guards below; there is no
+total prose ceiling. A client's ability to call inspection tools does not prove
+that it can read resources. CLI fallback proves the CLI read, not native resource
+support in that client. Reads never call providers or reconstruct current source.
 
 ## Read complete content
 

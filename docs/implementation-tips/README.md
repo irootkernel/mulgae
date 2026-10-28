@@ -45,6 +45,20 @@ certify original-source access. The complete gate then invokes the opt-in Codex
 profile target, which reports a stable skip unless `MULGAE_E2E_OPT_IN=1` is
 present.
 
+The mandatory live gate uses its existing bounded whole-review retry helper.
+The separately authorized EPIC-008 requirements demonstration must use one
+start outside that helper and outside Make's `^Test(E2E|Live)` selection. Persist
+its exact request, binary/source/input identity and admitted budget before the
+native effect; an uncertain result permits only reconciliation of that operation.
+
+For task-owned verification, `MULGAE_E2E_FUNCTIONAL_EVIDENCE_DIR` may name an
+existing canonical mode-`0700` directory. The mandatory helper writes exclusive
+per-attempt start, terminal and, when P2 exists, publication metadata there,
+preserving failed attempts, actual exits, typed reasons, source/binary digests
+and invocation counts.
+It exports no objective, provider transcript or diagnostic prose. With the
+variable unset, the helper's execution and retry policy is unchanged.
+
 Vulnerability scanning is separate from `make test` and `make test-prepare`.
 Run it manually with the module's declared tool:
 
@@ -166,8 +180,8 @@ credential mutation fails the target; the Go test never converts these states
 to a skip. This optional result does not replace mandatory ZCode
 certification.
 
-`make test-mcp-clients` is an opt-in local compatibility check and is not part
-of `make test`. It builds the exact current Mulgae binary, isolates client
+`make test-mcp-clients` is a registration-only local compatibility check and is
+not part of `make test`. It builds the exact current Mulgae binary, isolates client
 configuration in temporary directories, verifies that installed Codex can
 initialize Mulgae as a required MCP server, validates the observable Codex
 `mcp get mulgae --json` fields, and verifies that installed Claude Code reports
@@ -178,6 +192,33 @@ check does not expose or assert either client's discovered tool catalog. It also
 does not invoke a model or provider, mutate user client configuration, or prove
 a live review; deterministic MCP tests cover tool discovery, calls, resources,
 progress, and cancellation.
+
+`make test-mcp-requirements-clients` is the separate opt-in public-read check.
+It reuses that build recipe with both `mcpclientcheck` and
+`requirementsclientcheck` tags. Codex uses its native app-server MCP tool/resource
+APIs on an ephemeral thread without starting a model turn. Claude uses existing
+authentication and its configured default model to call only the allowed public
+context/inspection/page tools; the invocation supplies no model or effort
+override and permits no Mulgae review/start/cancel/preflight call. It therefore
+has model/client effects even though its Mulgae reads call no provider.
+
+The check compares every requirement page and its receipt/counts/origins with
+independent CLI reads. Codex resource bodies must also match each CLI-verified
+item's declared content digest and byte length. Claude's native event stream
+must correlate each permitted tool use with its real public result; final model
+text alone is insufficient. The selected Claude route certifies metadata pages,
+not native resource reads. Neither route certifies a long await or a release
+lifecycle. The preliminary paths were exercised with Codex 0.164.0 and Claude
+Code 2.1.312; connection minimums do not promise these client-specific APIs.
+
+By default the new check creates isolated provider-free no-change publications.
+For the authorized same-result certification, `MULGAE_MCP_REQUIREMENTS_FIXTURE`
+may name a private JSON pointer containing `project_root`, `run_id`,
+`project_binding` and `publication_receipt` for the existing publication.
+With that pointer, the check only reads the existing publication.
+`MULGAE_MCP_CLIENT_EVIDENCE_DIR` retains compact native
+call/page metadata when requested; it contains no client transcript. Keep all
+fixtures and outputs task-owned and remove unused builds after their last reader.
 
 Release evidence for the lifecycle workflow additionally requires separately
 authorized, exact-client model runs against an isolated or read-only project
@@ -697,12 +738,14 @@ supported tagged sets from the repository root:
 
 ```sh
 go vet -tags=liveprovider ./...
+go vet -tags=live_e2e ./test/e2e
 go vet -tags="live_e2e live_grok" ./test/e2e
 go vet -tags="live_e2e live_cursor" ./test/e2e
 go vet -tags="live_e2e live_agy" ./test/e2e
 go vet -tags="live_e2e live_e2e_opt_in" ./test/e2e
 go vet -tags=releasecheck ./internal/releasecheck
 go vet -tags=mcpclientcheck ./internal/mcpclientcheck
+go vet -tags="mcpclientcheck requirementsclientcheck" ./internal/mcpclientcheck
 ```
 
 These commands compile and type-check the tagged source without running live

@@ -117,6 +117,9 @@ type liveRoleReport struct {
 }
 
 type liveManifest struct {
+	Target struct {
+		SourceIdentitySHA256 string `json:"source_identity_sha256"`
+	} `json:"target"`
 	SessionID                 string           `json:"session_id"`
 	RunID                     string           `json:"run_id"`
 	RunType                   string           `json:"run_type"`
@@ -581,7 +584,9 @@ func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, en
 	t.Helper()
 	scope := beginLiveE2ELogScope(t, "attempt", fmt.Sprintf("scenario=%s attempt=%d/%d", scenario, attempt, maxAttempts))
 	defer scope.end()
+	recordLiveGateAttempt(t, environment, scenario, attempt, maxAttempts, arguments, "started", nil, nil)
 	envelope := runLiveMulgaeAllowed(t, validator, environment, project, []int{0, 1, 4, 7, 8, 9, 10}, arguments...)
+	recordLiveGateAttempt(t, environment, scenario, attempt, maxAttempts, arguments, "terminal", &envelope, nil)
 	terminalCauses := inspectLiveFailureDiagnostics(t, project, attempt, envelope)
 	if liveReasonPresent(envelope, "provider_login_required") {
 		t.Fatalf("focused live attempt %d requires provider login: %#v", attempt, envelope.Reasons)
@@ -604,6 +609,7 @@ func runLiveRecoverableAttempt(t *testing.T, validator *jsonschema.Validator, en
 		return livePublishedRun{}, scope.status, reason
 	}
 	run = loadLivePublishedWorkflow(t, validator, project, envelope, arguments[0])
+	recordLiveGateAttempt(t, environment, scenario, attempt, maxAttempts, arguments, "publication", &envelope, &run)
 	if err := validateLiveProviderQualificationHealth(project, run, expected); err != nil {
 		t.Fatalf("focused live attempt %d has invalid provider-health evidence: %v", attempt, err)
 	}

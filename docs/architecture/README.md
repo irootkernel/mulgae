@@ -434,7 +434,8 @@ Stdout is protocol-only. The MCP SDK logger is disabled and bounded public
 diagnostics use stderr. The transport exposes `preflight_review`, `run_review`,
 `start_review`, `await_review`, `cancel_review`, `list_runs`,
 `get_context`, `get_run`, `inspect_review`, and `list_findings`, plus bounded
-verified report, finding-detail, finding-evidence and source-image templates. The MCP
+verified report, finding-detail, finding-evidence, source-image and
+requirement-content templates. The MCP
 package owns strict tool and URI grammar, chunk limits, and the common result
 envelope; composition binds those
 surfaces to the same preflight, review, report, and verified publication-query

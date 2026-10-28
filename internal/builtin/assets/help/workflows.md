@@ -81,14 +81,16 @@ severity and pagination do not filter requirements. MCP `inspect_review` and
 `list_findings` use `requirements_limit` and `requirements_cursor`.
 
 ```bash
-mulgae inspect --run r_... --requirements-limit 20 --output json
-mulgae read-report --run r_... --requirement RCI-001 --output json
+mulgae inspect --run r_... --requirements-limit 20 --expected-project-binding sha256:... --output json
+mulgae read-report --run r_... --requirement RCI-001 --expected-project-binding sha256:... --expected-publication-receipt sha256:... --output json
 ```
 
 Follow `requirement_content_uris` through MCP resources or read the same item
 through CLI content chunks. Preserve its publication/content digests on
 continuation. Rationale, selected-side evidence, scope and limitations have no
 prose byte ceiling. Reports include unmet/unverified and omitted answers.
+Calling inspection tools does not establish a host's native resource support;
+use the guarded CLI content route when that resource reader is unavailable.
 No-change assessments are not run and have zero evaluated rows. Historical
 unknown counts stay null; a new request without input has known zero counts.
 Reads use verified retained support without providers or current-source fallback.

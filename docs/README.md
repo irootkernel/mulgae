@@ -52,8 +52,9 @@ assessment/publication and TASK-029 verified reads/activation are complete.
 Batch rechecks and cross-run comparison remain outside current membership and
 acceptance. Local requirements admission and provider-free CLI/MCP preflight
 are available. Git-bound requirements execution includes verified CLI/MCP pages,
-content resources and rendered reports. TASK-033 retains integrated
-full/live/client certification; explicit Epic acceptance remains pending.
+content resources and rendered reports. TASK-033 has completed integrated
+full/live/client certification; whole-Epic validation and explicit Epic
+acceptance remain pending.
 
 [Cursor ACP transport](architecture-decision-records/cursor-acp-transport.md)
 records the implemented explicit-selection route for

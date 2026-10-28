@@ -6,8 +6,8 @@ owns identity, lifecycle, membership and order. The
 [specification](../specs/review-completeness-and-iteration.md) owns required behavior.
 TASK-026 contract foundations, TASK-027 admission/preflight, TASK-028 internal
 assessment/publication and TASK-029 verified public reads with paired
-execution/capability activation are complete. TASK-033 certification and explicit
-Epic acceptance remain pending.
+execution/capability activation are complete. TASK-033 certification is complete;
+whole-Epic validation and explicit Epic acceptance remain pending.
 
 ## Goal, dependencies and execution boundary
 
@@ -165,20 +165,20 @@ public reads without private artifact parsing.
 
 ## TASK-033: Certify the reduced feature
 
-- [ ] Build a deterministic integrated fixture for requirements input, ordinary
+- [x] Build a deterministic integrated fixture for requirements input, ordinary
       findings, all assessment states, missing answers and verified reads.
-- [ ] Freeze independent historical consumer fixtures; preserve current selectors,
+- [x] Freeze independent historical consumer fixtures; preserve current selectors,
       source restrictions, role routing, exits and attached start/await/cancel.
-- [ ] Verify invalid input before no-change publication, zero provider calls on
+- [x] Verify invalid input before no-change publication, zero provider calls on
       all existing no-change cases including empty-tree HEAD, extraction-disabled
       and consumed-allowance outcomes, section independence/whole-response failures,
       provider/placeholder counts, local-input/source-side separation, protected
       failures, restart, support corruption and receipt-consistent paging.
-- [ ] Update public usage/help/examples and source-distributed client guidance
+- [x] Update public usage/help/examples and source-distributed client guidance
       only after their runtime paths are verified; synchronize canonical owners.
-- [ ] Run exact-binary and actual supported-client checks plus the complete
+- [x] Run exact-binary and actual supported-client checks plus the complete
       current `make test` gate. State opt-in skips and unavailable evidence.
-- [ ] Under an explicit implementation envelope, perform one bounded live
+- [x] Under an explicit implementation envelope, perform one bounded live
       requirements-bearing review through existing routes and inspect its result.
       Record actual admitted provider assessments; Mulgae-derived placeholders
       alone do not establish structured coverage. No batch recheck is required.
@@ -201,9 +201,9 @@ TASK-026 supplies the frozen contracts and tested foundations. TASK-027 delivers
 local-file admission and provider-free preflight under the approved
 `aquarium:epic-handler` envelope. TASK-028 delivers internal assessment validation
 and publication under the same envelope. TASK-029 delivers verified public
-assessment reads and paired execution/capability activation. TASK-033 retains
-integrated full/live/client certification; explicit Epic acceptance remains
-pending.
+assessment reads and paired execution/capability activation. TASK-033 has completed
+integrated full/live/client certification; whole-Epic validation and explicit
+Epic acceptance remain pending.
 
 Before eventual Epic closeout, promote durable outcomes to their canonical
 owners, replace this Epic's Detailed SOT with Canonical Outcomes, remove this

@@ -111,12 +111,12 @@ also supplies ignore configuration must satisfy that control input's existing
 bounds; the requirements prose contract adds no body ceiling. Same-request
 control bytes are reused when the selected input itself is an ignore file.
 
-Public execution rejects the optional input at the shared application boundary
-before provider preparation, run allocation or publication-directory creation.
-Such unsupported execution requests are not admitted file requests. Every
-preflight admits input before its no-change budget branch, including empty-tree
-HEAD. A later execution will make its own admission and reuse those retained
-bytes for prompts/publication in the owning later Tasks.
+Public execution admits the optional input through the shared application path
+before run allocation, qualification or publication-directory creation. Requests
+without the required Git/common-directory binding fail before those effects.
+Preflight and execution each admit their own input before every no-change branch,
+including empty-tree HEAD. Execution retains its admitted bytes for prompts and
+publication; an earlier preflight neither supplies those bytes nor locks the file.
 
 ## Original-source evidence
 
@@ -525,4 +525,5 @@ assessment is an evidence gap, not permission for an unbounded retry campaign.
 
 Implementation, verification, review, commits, installation, configuration and
 release retain their separate authorization boundaries. TASK-029 implements
-public execution with verified reads; TASK-033 retains integrated certification.
+public execution with verified reads; TASK-033 has completed integrated certification.
+Whole-Epic validation and explicit Epic acceptance remain pending.

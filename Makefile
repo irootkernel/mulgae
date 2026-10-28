@@ -1,9 +1,10 @@
 GO ?= go
 TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.26
+MCP_CLIENT_TAGS := mcpclientcheck
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients
+.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients
 
 test:
 	@$(MAKE) test-prepare
@@ -237,6 +238,9 @@ test-agy:
 	shasum -a 256 -c "$$agy_root/binaries.sha256"
 	@printf '%s\n' '[test-agy] completed'
 
+test-mcp-requirements-clients: MCP_CLIENT_TAGS := mcpclientcheck,requirementsclientcheck
+test-mcp-requirements-clients: test-mcp-clients
+
 test-mcp-clients:
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-mcp-clients requires darwin/arm64" >&2; exit 1; }
 	@mcp_tmp="$$(mktemp -d)"; \
@@ -253,5 +257,5 @@ test-mcp-clients:
 	MULGAE_MCP_CLIENT_BINARY="$$mcp_binary" \
 		MULGAE_MCP_CODEX_BINARY="$$codex_bin" \
 		MULGAE_MCP_CLAUDE_BINARY="$$claude_bin" \
-		$(GO) test -v -tags=mcpclientcheck -count=1 ./internal/mcpclientcheck
+		$(GO) test -v -tags=$(MCP_CLIENT_TAGS) -count=1 ./internal/mcpclientcheck
 	@printf '%s\n' '[test-mcp-clients] completed'

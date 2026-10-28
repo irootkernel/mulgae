@@ -502,13 +502,17 @@ and exits when its client closes stdin. It exposes ten bounded tools:
 - `get_run` returns verified publication state and public artifact identities,
   or a bounded diagnostic-only status when that run never published.
 - `inspect_review` returns publication state, coverage, extraction state, and a
-  finding page from one verified snapshot with its publication receipt.
+  finding page plus an independent requirements page from one verified snapshot
+  with its publication receipt.
 - `list_findings` pages through committed finding summaries at or above a
   selected severity, with a limit from 1 through 1,000 and a receipt-bound cursor.
   It does not return report or source bodies.
 
 Inspection and finding pages include `mulgae://` resource URIs for full finding
-JSON, original role reports, and each available evidence index. For the rendered
+JSON, original role reports, complete requirement items and each available
+evidence index. A client's inspection-tool support does not establish native
+resource support; the guarded CLI content route remains available when the host
+does not expose a resource reader. For the rendered
 report, use the advertised `verified_review_report` resource template with the
 exact run ID, project binding, and publication receipt, or CLI `read-report`.
 Resources return at most 16 KiB per request, with the publication receipt,

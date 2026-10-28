@@ -27,6 +27,7 @@ func TestIntegrationIsolatedReleaseFixtureRequirements(t *testing.T) {
 	binary := buildMulgaeBinary(t, source)
 	project := canonicalTestTempDir(t)
 	initializeReviewGitRepository(t, project)
+	mustWriteTestFile(t, filepath.Join(project, "review.go"), []byte("package review\n\nconst state = \"after\"\n\n// Next returns the following integer.\nfunc Next(value int) int { return value - 1 }\n"))
 	inputs := []any{}
 	for _, id := range []string{"A", "B", "C", "D", "E"} {
 		inputs = append(inputs, map[string]any{"id": id, "text": "PRIVATE_INVOCATION_" + id, "acceptance_criteria": []string{"Preserve the selected implementation."}, "owner_role": "logic"})
@@ -49,7 +50,10 @@ func TestIntegrationIsolatedReleaseFixtureRequirements(t *testing.T) {
 		}
 		answers = append(answers, map[string]any{"requirement_id": []string{"A", "B", "C", "D"}[i], "verdict": verdict, "rationale": rationale, "evidence": evidence, "examined_scope": "Selected review.go only.", "limitations": []string{"No runtime execution."}, "reason": reason})
 	}
-	wire, _ := json.Marshal(map[string]any{"schema_version": "mulgae-provider-review-output.v3", "summary": "Independent requirements assessment.", "completeness": "complete", "limitations": []any{}, "findings": []any{}, "requirements": map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": answers}})
+	const findingTitle = "Next decrements its input"
+	const findingQuote = "// Next returns the following integer.\nfunc Next(value int) int { return value - 1 }\n"
+	finding := map[string]any{"severity": "low", "title": findingTitle, "description": "Next promises the following integer but subtracts one, returning the preceding integer.", "evidence": []any{map[string]any{"current": map[string]any{"path": "review.go", "line_start": 5, "line_end": 6, "side": "worktree", "quote": findingQuote}}}, "recommendation": "Return value + 1 to match the function contract.", "confidence": "high"}
+	wire, _ := json.Marshal(map[string]any{"schema_version": "mulgae-provider-review-output.v3", "summary": "One ordinary finding and independent requirements assessments.", "completeness": "complete", "limitations": []any{}, "findings": []any{finding}, "requirements": map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": answers}})
 	body := "# Primary role report\n\nPreserve this accepted report.\n\n```json\n" + string(wire) + "\n```\n"
 	providers := canonicalTestTempDir(t)
 	providerLog := filepath.Join(canonicalTestTempDir(t), "provider.jsonl")
@@ -115,6 +119,17 @@ func TestIntegrationIsolatedReleaseFixtureRequirements(t *testing.T) {
 	}
 	review := cli(0, "review", "--workspace", "--roles", "logic", "--requirements", "requirements.json", "--expected-project-binding", binding)
 	run := review["run_id"].(string)
+	unfiltered := cli(0, "inspect", "--run", run, "--severity", "low")
+	if unfiltered["finding_count"] != float64(1) || len(unfiltered["findings"].([]any)) != 1 {
+		t.Fatal("integrated requirements fixture did not admit an ordinary finding")
+	}
+	unfilteredFinding := unfiltered["findings"].([]any)[0].(map[string]any)
+	if unfilteredFinding["title"] != findingTitle || unfilteredFinding["severity"] != "low" {
+		t.Fatal("ordinary finding changed during normalization")
+	}
+	if unfiltered["content_verdict"] != "findings_present" || unfiltered["coverage_status"] != "complete" || unfiltered["structured_extraction_status"] != "structured" || unfiltered["publication_state"] != "committed" || unfiltered["publication_authority"] != "P2" || unfiltered["ci_decision"] != "pass" || len(unfiltered["role_reports"].([]any)) != 1 {
+		t.Fatal("assessment verdicts changed independent finding/report/coverage/extraction/publication/CI axes")
+	}
 	beforeLog, err := os.ReadFile(providerLog)
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +141,19 @@ func TestIntegrationIsolatedReleaseFixtureRequirements(t *testing.T) {
 	page := cli(0, "inspect", "--run", run, "--requirements-limit", "2", "--severity", "blocker")
 	req := page["requirements"].(map[string]any)
 	receipt := page["publication_receipt"].(string)
+	if receipt != unfiltered["publication_receipt"] {
+		t.Fatal("finding severity changed publication identity")
+	}
+	findingID := unfilteredFinding["id"].(string)
+	detail := cli(0, "read-finding", "--run", run, "--finding", findingID, "--expected-project-binding", binding, "--expected-publication-receipt", receipt)
+	excerpt := cli(0, "excerpt", "--run", run, "--finding", findingID, "--source-identity-sha256", unfiltered["source_identity_sha256"].(string), "--evidence-index", "0", "--expected-project-binding", binding, "--expected-publication-receipt", receipt)
+	if detail["next_offset"] != nil || detail["publication_receipt"] != receipt || !strings.Contains(detail["content"].(string), findingTitle) || excerpt["content"] != findingQuote || excerpt["publication_receipt"] != receipt {
+		t.Fatal("ordinary finding detail/evidence lost retained source or receipt")
+	}
+	primaryReport := cli(0, "read-report", "--run", run, "--role", "logic", "--expected-project-binding", binding, "--expected-publication-receipt", receipt)
+	if !strings.HasPrefix(primaryReport["content"].(string), "# Primary role report\n\nPreserve this accepted report.") || primaryReport["publication_receipt"] != receipt {
+		t.Fatal("accepted primary report prefix was replaced by normalized assessment output")
+	}
 	inputSum := sha256.Sum256(input)
 	if req["input_sha256"] != "sha256:"+hex.EncodeToString(inputSum[:]) {
 		t.Fatal("public input provenance lost exact bytes")
@@ -256,6 +284,21 @@ func TestIntegrationIsolatedReleaseFixtureRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	cliPage := cli(0, "inspect", "--run", run, "--requirements-limit", "2", "--severity", "blocker", "--expected-publication-receipt", receipt)
+	unfilteredTool := call("tools/call", map[string]any{"name": "inspect_review", "arguments": map[string]any{"run_id": run, "minimum_severity": "low", "requirements_limit": 2, "expected_project_binding": binding, "expected_publication_receipt": receipt}})["structuredContent"].(map[string]any)
+	unfilteredData := unfilteredTool["data"].(map[string]any)
+	if unfilteredTool["outcome"] != "success" || unfilteredData["finding_count"] != float64(1) || !reflect.DeepEqual(unfilteredData["requirements"], cliPage["requirements"]) {
+		t.Fatal("ordinary finding or severity-independent requirements missing from MCP")
+	}
+	for _, item := range []struct{ uri, content string }{
+		{unfilteredFinding["detail_uri"].(string), detail["content"].(string)},
+		{unfilteredFinding["evidence"].([]any)[0].(map[string]any)["uri"].(string), findingQuote},
+	} {
+		resource := call("resources/read", map[string]any{"uri": item.uri})["contents"].([]any)[0].(map[string]any)
+		meta := resource["_meta"].(map[string]any)
+		if resource["text"] != item.content || meta["publication_receipt"] != receipt || meta["io.mulgae/nextURI"] != nil {
+			t.Fatal("CLI/MCP ordinary finding content differs")
+		}
+	}
 	toolCursor := ""
 	for index, name := range []string{"inspect_review", "list_findings", "inspect_review"} {
 		arguments := map[string]any{"run_id": run, "minimum_severity": "blocker", "requirements_limit": 2, "expected_project_binding": binding, "expected_publication_receipt": receipt}
@@ -268,7 +311,7 @@ func TestIntegrationIsolatedReleaseFixtureRequirements(t *testing.T) {
 			t.Fatalf("MCP inspection tool failed: %#v", structured)
 		}
 		data := structured["data"].(map[string]any)
-		if data["publication_receipt"] != receipt || !reflect.DeepEqual(data["requirements"], cliPage["requirements"]) || !reflect.DeepEqual(data["requirement_content_uris"], cliPage["requirement_content_uris"]) {
+		if data["finding_count"] != float64(0) || data["publication_receipt"] != receipt || !reflect.DeepEqual(data["requirements"], cliPage["requirements"]) || !reflect.DeepEqual(data["requirement_content_uris"], cliPage["requirement_content_uris"]) {
 			t.Fatalf("MCP/CLI requirements page %d differs", index)
 		}
 		next := data["requirements"].(map[string]any)["next_cursor"]
