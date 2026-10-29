@@ -75,7 +75,9 @@ Master adopted EPIC-015's development verification simplification on
 2026-10-29, and EPIC-015 is now In Progress following completed EPIC-014.
 TASK-070 is complete and activated `make test-offline`, `gaori run offline`,
 and the [development verification policy](../implementation-tips/development-verification.md);
-TASK-071 through TASK-074 remain Planned in table order.
+TASK-071 is complete and reuses proven immutable Catalog and compiled Schema
+fixtures across CLI helpers; TASK-072 through TASK-074 remain Planned in table
+order.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -913,8 +915,8 @@ Status: In Progress
 
 Master adopted this work definition on 2026-10-29. TASK-070 is complete and
 activated `make test-offline`, `gaori run offline`, and the proportional
-verification guidance together; TASK-071 through TASK-074 remain governed by
-the execution dossier.
+verification guidance together; TASK-071 is complete; TASK-072 through TASK-074
+remain governed by the execution dossier.
 
 Depends on: completed and explicitly accepted EPIC-014.
 
@@ -928,8 +930,8 @@ preserving product behavior, trust boundaries and supported historical reads.
 
 | Task | Status | Outcome | Verification |
 |---|---|---|---|
-| TASK-070 | Completed | Added the thin `make test-offline` aggregate and optional `gaori run offline` alias; updated `make test` to invoke `test-offline` once before release and live stages; activated proportional Task, integrated-candidate and release verification guidance together; and captured the focused baseline at `4beb843` (`go1.27.1 darwin/arm64`, `MULGAE_E2E_BINARY` unset, warm host `GOCACHE`). | Verified offline stage membership, order, single execution and failure short-circuiting in `internal/architecture`, preserved individual target flags and full-release stages, validated `.gaori/tester.yaml` mapping, documentation links and `git diff --check`, and recorded the focused baseline (`./internal/entrypoint/mulgae`: `62.333s`, `62.759s` initial run; `./test/e2e`: `35.318s`, `29.389s` initial run). |
-| TASK-071 | Planned | Reuse proven immutable default Catalog and compiled Schema fixtures and remove discarded Application/Git reader construction in CLI wrapper helpers; preserve independent mutable state and fresh constructor-negative cases. | Matched focused observations, existing real-schema and defensive-copy behavior, constructor failure/cancellation controls and relevant concurrent consumers under race instrumentation. |
+| TASK-070 | Completed | Added the thin `make test-offline` aggregate and optional `gaori run offline` alias; updated `make test` to invoke `test-offline` once before release and live stages; activated proportional Task, integrated-candidate and release verification guidance together; and captured the focused baseline at `4beb843` (`go1.27.1 darwin/arm64`, `MULGAE_E2E_BINARY` unset, warm host `GOCACHE`). | Verified offline stage membership, order, single execution and failure short-circuiting in `internal/architecture`, preserved individual target flags and full-release stages, validated `.gaori/tester.yaml` mapping, documentation links and `git diff --check`, and recorded the focused baseline (`./internal/entrypoint/mulgae`: `62.333s`, `62.759s` initial run; `./test/e2e`: `35.318s`, `29.389s` initial run) (`1c446eb`). |
+| TASK-071 | Completed | Reused package-shared immutable default Catalog and compiled Schema Validator fixtures via `sharedFoundationAssets` (`sync.Once`, `context.Background()`) across CLI fixture helpers (`newFoundationFixtureWithWriter`, `newFoundationFixtureWithEvidence`, `newG006FixtureWithWriter`, `newG008Fixture`, `newG008Composition`, `newG008RealE2EFixture`, `historicalValidator`, and `retainedResolverFixture`) and removed discarded intermediate `Application` and `gittarget` reader constructions while keeping mutable state per-fixture and constructor-negative cases fresh. | Matched focused CLI measurement improved from `62.333s` (`62.759s` initial) to `5.170s` (`5.567s` initial) under `-p 1 -race -count=1`; verified concurrent reuse, defensive-copy isolation and per-fixture mutable separation in `TestSharedFoundationAssetsConcurrentReuseAndIsolation`, plus CLI characterization/historical-corpus consumers, constructor-negative controls, `internal/builtin`, `internal/adapters/jsonschema`, and `internal/architecture` under `-race`. |
 | TASK-072 | Planned | Reuse compiler caches in ordinary Mulgae and fake-provider test builds while keeping output binaries, native homes and other mutable fixture state isolated. | Matched representative integration builds, cache reuse across independent fixtures, unchanged offline module settings, failed-build/cleanup controls and affected release-harness checks. |
 | TASK-073 | Planned | Remove brittle implementation-spelling and ordinary-prose assertions, synchronize affected release guidance, and assess integration/release overlap by artifact, execution conditions and the claim established. | Existing behavior coverage for retained requirements; preserved dependency/security/cleanup checks, public identifiers, waiver eligibility and exact installed-binary version checks; an explicit retain/remove rationale for overlapping scenarios, with no deletion quota. |
 | TASK-074 | Planned | Verify the integrated improvement, promote operating guidance and measured outcomes, retire the dossier and prepare Epic acceptance. | One complete native offline backstop and affected exact-release checks on the final candidate, comparable focused observations, honest remaining limits, reconciled canonical documents and explicit Epic acceptance. |

@@ -22,7 +22,6 @@ import (
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/validation"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -232,7 +231,6 @@ func (provider *g008RealE2EProvider) Transcript() []g008RealE2EProviderCall {
 
 func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	t.Helper()
-	ctx := context.Background()
 	projectRoot := testAnchoredRoot(t)
 	artifactRoot := filepath.Join(projectRoot, ".mulgae")
 	if err := os.Mkdir(artifactRoot, 0o700); err != nil {
@@ -245,11 +243,7 @@ func newG008RealE2EFixture(t *testing.T) *g008RealE2EFixture {
 	if err := os.Chmod(root.String(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	catalog := builtin.NewCatalog()
-	validator, err := adapterjsonschema.New(ctx, catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, validator := mustSharedFoundationAssets(t)
 	clock := g008RealE2EClock{now: time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)}
 	ids := &g008RealE2EIDs{}
 	writer := filesystem.NewSecureWriter()

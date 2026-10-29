@@ -45,7 +45,8 @@ func TestG008CompositionRejectsResolverForDifferentArtifactRoot(t *testing.T) {
 
 func TestG008CompositionRejectsPartialCleanAuthority(t *testing.T) {
 	composition := newG008Composition(t)
-	composition.CleanValidator = newFoundationFixture(t).validator
+	_, validator := mustSharedFoundationAssets(t)
+	composition.CleanValidator = validator
 	if _, err := NewG008Dependencies(composition); err == nil {
 		t.Fatal("partial clean authority was accepted")
 	}
@@ -53,18 +54,19 @@ func TestG008CompositionRejectsPartialCleanAuthority(t *testing.T) {
 
 func newG008Composition(t *testing.T) G008Composition {
 	t.Helper()
-	fixture := newFoundationFixture(t)
+	_, validator := mustSharedFoundationAssets(t)
+	writer := filesystem.NewSecureWriter()
 	root, err := ports.NewAnchoredRoot(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	clock := runtimeadapter.SystemClock{}
 	ids := runtimeadapter.NewUUIDv7Generator()
-	store, err := filesystem.NewPublicationStore(fixture.validator, clock, ids, fixture.writer)
+	store, err := filesystem.NewPublicationStore(validator, clock, ids, writer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queries, err := appquery.NewService(store, fixture.validator, nil, 8<<20)
+	queries, err := appquery.NewService(store, validator, nil, 8<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +74,7 @@ func newG008Composition(t *testing.T) G008Composition {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installer, err := filesystem.NewExportInstaller(fixture.writer)
+	installer, err := filesystem.NewExportInstaller(writer)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -4389,11 +4390,12 @@ func assertG008FakeRequest(t *testing.T, name string, fakes g008WorkflowFakes) {
 }
 func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 	t.Helper()
-	fixture := newFoundationFixture(t)
+	catalog, validator := mustSharedFoundationAssets(t)
 	reader, err := gittarget.New(gittarget.NewExecRunner())
 	if err != nil {
 		t.Fatal(err)
 	}
+	writer := &receiptCapturingFoundationWriter{delegate: filesystem.NewSecureWriter()}
 	application, err := NewApplication(Dependencies{
 		NewLocalDoctor:          doctor.NewLocalService,
 		DoctorPlatform:          doctor.LocalPlatformEvidence{Cell: "darwin-arm64", Native: true},
@@ -4404,9 +4406,9 @@ func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 		NewInitService:          appinit.NewService,
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:      fixedFoundationRequestIDs{},
-		Catalog:                 fixture.catalog,
-		JSONSchemaValidator:     fixture.validator,
-		SecureWriter:            fixture.writer,
+		Catalog:                 catalog,
+		JSONSchemaValidator:     validator,
+		SecureWriter:            writer,
 		TrustedProjectReader:    reader,
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
@@ -4417,8 +4419,7 @@ func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.application = application
-	return fixture
+	return foundationFixture{application: application, catalog: catalog, validator: validator, writer: writer}
 }
 func TestIntegrationProductionMulgaeCompositionFailsClosedAtLiveBoundaries(t *testing.T) {
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
@@ -4692,6 +4693,49 @@ func newG006ReportFake() *g006ReportFake {
 	}
 }
 
+var (
+	sharedFoundationAssetsOnce sync.Once
+	sharedFoundationCatalog    *builtin.Catalog
+	sharedFoundationValidator  *jsonschema.Validator
+	sharedFoundationAssetsErr  error
+)
+
+// sharedFoundationAssets returns the package-shared default embedded Catalog
+// and compiled JSON Schema Validator for ordinary CLI fixtures.
+//
+// Lifetime rules:
+//   - *builtin.Catalog and *jsonschema.Validator are immutable after
+//     construction and return defensive copies on reads.
+//   - sharedFoundationAssets uses context.Background() and never retains a
+//     caller's *testing.T, context, temporary path, or cleanup callback
+//     (DF-029).
+//   - Mutable dependencies (writer, gittarget reader, Clock, NewRequestID,
+//     NativeHome, and repositories) remain per-fixture.
+//   - Constructor-failure, cancellation, and corrupted-catalog tests must
+//     construct fresh instances instead of using this helper.
+func sharedFoundationAssets() (*builtin.Catalog, *jsonschema.Validator, error) {
+	sharedFoundationAssetsOnce.Do(func() {
+		catalog := builtin.NewCatalog()
+		validator, err := jsonschema.New(context.Background(), catalog)
+		if err != nil {
+			sharedFoundationAssetsErr = err
+			return
+		}
+		sharedFoundationCatalog = catalog
+		sharedFoundationValidator = validator
+	})
+	return sharedFoundationCatalog, sharedFoundationValidator, sharedFoundationAssetsErr
+}
+
+func mustSharedFoundationAssets(t *testing.T) (*builtin.Catalog, *jsonschema.Validator) {
+	t.Helper()
+	catalog, validator, err := sharedFoundationAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return catalog, validator
+}
+
 func newG006Fixture(t *testing.T, query PublicationQueryService, report PublicationReportService) foundationFixture {
 	t.Helper()
 	return newG006FixtureWithWriter(t, query, report, filesystem.NewSecureWriter())
@@ -4701,14 +4745,15 @@ func newG006FixtureWithWriter(
 	t *testing.T,
 	query PublicationQueryService,
 	report PublicationReportService,
-	writer ports.SecureFileWriter,
+	secureWriter ports.SecureFileWriter,
 ) foundationFixture {
 	t.Helper()
-	fixture := newFoundationFixtureWithWriter(t, writer)
+	catalog, validator := mustSharedFoundationAssets(t)
 	reader, err := gittarget.New(gittarget.NewExecRunner())
 	if err != nil {
 		t.Fatal(err)
 	}
+	writer := &receiptCapturingFoundationWriter{delegate: secureWriter}
 	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
@@ -4721,9 +4766,9 @@ func newG006FixtureWithWriter(
 		NewInitService:       appinit.NewService,
 		Clock:                fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:   fixedFoundationRequestIDs{},
-		Catalog:              fixture.catalog,
-		JSONSchemaValidator:  fixture.validator,
-		SecureWriter:         fixture.writer,
+		Catalog:              catalog,
+		JSONSchemaValidator:  validator,
+		SecureWriter:         writer,
 		TrustedProjectReader: reader,
 		EnvironmentInspector: environment.NewInspector(),
 		RequestResolver:      resolver,
@@ -4736,8 +4781,7 @@ func newG006FixtureWithWriter(
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.application = application
-	return fixture
+	return foundationFixture{application: application, catalog: catalog, validator: validator, writer: writer}
 }
 
 func commandResultKind(t *testing.T, envelope []byte) string {
@@ -4853,11 +4897,12 @@ func newFoundationFixture(t *testing.T) foundationFixture {
 
 func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceReader) foundationFixture {
 	t.Helper()
-	fixture := newFoundationFixture(t)
+	catalog, validator := mustSharedFoundationAssets(t)
 	reader, err := gittarget.New(gittarget.NewExecRunner())
 	if err != nil {
 		t.Fatal(err)
 	}
+	writer := &receiptCapturingFoundationWriter{delegate: filesystem.NewSecureWriter()}
 	retention, exports := g008Dependencies()
 	resolver := g008RequestResolver{}
 	application, err := NewApplication(Dependencies{
@@ -4870,9 +4915,9 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 		NewInitService:          appinit.NewService,
 		Clock:                   fixedFoundationClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)},
 		RequestIDGenerator:      fixedFoundationRequestIDs{},
-		Catalog:                 fixture.catalog,
-		JSONSchemaValidator:     fixture.validator,
-		SecureWriter:            fixture.writer,
+		Catalog:                 catalog,
+		JSONSchemaValidator:     validator,
+		SecureWriter:            writer,
 		TrustedProjectReader:    reader,
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
@@ -4884,17 +4929,11 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.application = application
-	return fixture
+	return foundationFixture{application: application, catalog: catalog, validator: validator, writer: writer}
 }
 func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileWriter) foundationFixture {
 	t.Helper()
-	ctx := context.Background()
-	catalog := builtin.NewCatalog()
-	validator, err := jsonschema.New(ctx, catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
+	catalog, validator := mustSharedFoundationAssets(t)
 	reader, err := gittarget.New(gittarget.NewExecRunner())
 	if err != nil {
 		t.Fatal(err)
@@ -5252,5 +5291,167 @@ func TestApplicationDoctorAcceptsVerifiedUnbornCheckout(t *testing.T) {
 	}
 	if err := diagnosis.Validate(); err != nil {
 		t.Fatalf("doctor semantics: %v", err)
+	}
+}
+
+func TestSharedFoundationAssetsConcurrentReuseAndIsolation(t *testing.T) {
+	ctx := context.Background()
+	wantCatalog, wantValidator, err := sharedFoundationAssets()
+	if err != nil {
+		t.Fatalf("sharedFoundationAssets() error = %v", err)
+	}
+	if wantCatalog == nil || wantValidator == nil {
+		t.Fatalf("sharedFoundationAssets() = (%p, %p), want non-nil assets", wantCatalog, wantValidator)
+	}
+
+	schemaID := mustFoundationAssetID(t, commandSchemaID)
+	exampleID := mustFoundationAssetID(t, "example:command-result.v23.valid.json")
+	wantMeta, wantBytes, err := wantCatalog.Read(ctx, schemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantList, err := wantCatalog.List(ctx)
+	if err != nil || len(wantList) == 0 {
+		t.Fatalf("wantCatalog.List() len=%d err=%v", len(wantList), err)
+	}
+
+	type isolatedFixtureCase struct {
+		name       string
+		fixture    foundationFixture
+		root       string
+		nativeHome string
+		argv       []string
+	}
+	cases := []isolatedFixtureCase{
+		{
+			name:       "foundation_1",
+			fixture:    newFoundationFixture(t),
+			root:       testAnchoredRoot(t),
+			nativeHome: filepath.Join(t.TempDir(), "native-home"),
+			argv:       []string{"roles", "--output", "json"},
+		},
+		{
+			name:       "foundation_2",
+			fixture:    newFoundationFixture(t),
+			root:       testAnchoredRoot(t),
+			nativeHome: filepath.Join(t.TempDir(), "native-home"),
+			argv:       []string{"help", "security", "--output", "json"},
+		},
+		{
+			name:       "evidence",
+			fixture:    newFoundationFixtureWithEvidence(t, &foundationEvidenceReader{}),
+			root:       testAnchoredRoot(t),
+			nativeHome: filepath.Join(t.TempDir(), "native-home"),
+			argv:       []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"},
+		},
+		{
+			name:       "g006",
+			fixture:    newG006Fixture(t, newG006QueryFake(), newG006ReportFake()),
+			root:       testAnchoredRoot(t),
+			nativeHome: filepath.Join(t.TempDir(), "native-home"),
+			argv:       []string{"status", "--run", testRunID, "--output", "json"},
+		},
+		{
+			name:       "g008",
+			fixture:    newG008Fixture(t, newG008WorkflowFakes(t)),
+			root:       testAnchoredRoot(t),
+			nativeHome: filepath.Join(t.TempDir(), "native-home"),
+			argv:       []string{"clean", "--all", "--dry-run", "--output", "json"},
+		},
+	}
+
+	seenApps := make(map[*Application]string, len(cases))
+	seenWriters := make(map[*receiptCapturingFoundationWriter]string, len(cases))
+	seenHomes := make(map[string]string, len(cases))
+	for _, tc := range cases {
+		if tc.fixture.catalog != wantCatalog || tc.fixture.validator != wantValidator {
+			t.Fatalf("%s shared pointers = (%p, %p), want (%p, %p)", tc.name, tc.fixture.catalog, tc.fixture.validator, wantCatalog, wantValidator)
+		}
+		if tc.fixture.application == nil || tc.fixture.writer == nil {
+			t.Fatalf("%s nil mutable fixture dependency: app=%p writer=%p", tc.name, tc.fixture.application, tc.fixture.writer)
+		}
+		if prev, dup := seenApps[tc.fixture.application]; dup {
+			t.Fatalf("%s shares Application pointer with %s", tc.name, prev)
+		}
+		seenApps[tc.fixture.application] = tc.name
+		if prev, dup := seenWriters[tc.fixture.writer]; dup {
+			t.Fatalf("%s shares writer pointer with %s", tc.name, prev)
+		}
+		seenWriters[tc.fixture.writer] = tc.name
+		if prev, dup := seenHomes[tc.nativeHome]; dup {
+			t.Fatalf("%s shares NativeHome path with %s", tc.name, prev)
+		}
+		seenHomes[tc.nativeHome] = tc.name
+	}
+
+	start := make(chan struct{})
+	errCh := make(chan error, len(cases)*2)
+	var wg sync.WaitGroup
+	for idx, tc := range cases {
+		wg.Add(2)
+		go func(worker int, tc isolatedFixtureCase) {
+			defer wg.Done()
+			<-start
+			catalog, validator, err := sharedFoundationAssets()
+			if err != nil {
+				errCh <- fmt.Errorf("worker %d sharedFoundationAssets: %w", worker, err)
+				return
+			}
+			if catalog != wantCatalog || validator != wantValidator {
+				errCh <- fmt.Errorf("worker %d shared pointers = (%p, %p), want (%p, %p)", worker, catalog, validator, wantCatalog, wantValidator)
+				return
+			}
+			_, raw, err := catalog.Read(ctx, schemaID)
+			if err != nil {
+				errCh <- fmt.Errorf("worker %d catalog.Read: %w", worker, err)
+				return
+			}
+			raw[0] ^= 0xff
+			listed, err := catalog.List(ctx)
+			if err != nil {
+				errCh <- fmt.Errorf("worker %d catalog.List: %w", worker, err)
+				return
+			}
+			listed[0] = ports.AssetMetadata{}
+			if err := validator.ValidatePair(ctx, schemaID, exampleID); err != nil {
+				errCh <- fmt.Errorf("worker %d ValidatePair: %w", worker, err)
+				return
+			}
+		}(idx*2, tc)
+
+		go func(worker int, tc isolatedFixtureCase) {
+			defer wg.Done()
+			<-start
+			result := tc.fixture.application.Run(ctx, tc.argv, tc.root)
+			if result.ExitCode() != app.ExitCodeSuccess {
+				errCh <- fmt.Errorf("worker %d (%s) exit = %d, stderr = %q", worker, tc.name, result.ExitCode(), result.Stderr())
+				return
+			}
+			if err := tc.fixture.validator.Validate(ctx, schemaID, result.Stdout()); err != nil {
+				errCh <- fmt.Errorf("worker %d (%s) envelope validate: %w", worker, tc.name, err)
+				return
+			}
+		}(idx*2+1, tc)
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
+	}
+
+	gotMeta, gotBytes, err := wantCatalog.Read(ctx, schemaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMeta != wantMeta || !bytes.Equal(gotBytes, wantBytes) {
+		t.Fatal("concurrent caller mutation altered shared Catalog.Read state")
+	}
+	gotList, err := wantCatalog.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotList, wantList) {
+		t.Fatal("concurrent caller mutation altered shared Catalog.List state")
 	}
 }

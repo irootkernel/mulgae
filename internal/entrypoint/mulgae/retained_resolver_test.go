@@ -16,10 +16,8 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/query"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"github.com/irootkernel/mulgae/internal/testsupport/historical"
@@ -156,10 +154,7 @@ func retainedResolverFixture(t *testing.T) (ports.AnchoredRoot, *query.Service, 
 			}
 		}
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, validator := mustSharedFoundationAssets(t)
 	store, err := filesystem.NewPublicationStore(validator, retainedResolverClock{}, retainedResolverIDs{}, filesystem.NewSecureWriter())
 	if err != nil {
 		t.Fatal(err)
