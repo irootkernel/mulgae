@@ -411,6 +411,10 @@ func TestRunnerRecordsProviderPacketTransport(t *testing.T) {
 }
 
 func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testing.T) {
+	// This checks content integrity, not throughput. Allow race instrumentation
+	// and file synchronization to finish before the request deadline.
+	const executionTimeout = 30 * time.Second
+
 	packet := runnerTestProviderPacket(t, []byte("packet"))
 	binding, err := ports.NewStdinProviderPacketBinding(packet)
 	if err != nil {
@@ -420,7 +424,7 @@ func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testi
 	request, err := ports.NewProviderProcessRequest(
 		binary, []string{binary, "-test.run=^TestRunnerHelperProcess$", "--", "stdout-ten-mib"},
 		[]ports.EnvironmentVariable{mustEnvironment(t, "MULGAE_PROCESS_RUNNER_HELPER", "1"), mustEnvironment(t, "GOCOVERDIR", t.TempDir())},
-		t.TempDir(), binding, processTestExecutionTimeout,
+		t.TempDir(), binding, executionTimeout,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -430,10 +434,13 @@ func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testi
 		t.Fatal(err)
 	}
 	observation := mustRun(t, newTestRunner(t), context.Background(), request)
+	assertTermination(t, observation, ports.ProcessTerminationExited)
+	assertExitCode(t, observation, 0)
 	if got := len(observation.Stdout()); got != 10<<20 || observation.StdoutTruncated() {
 		t.Fatalf("diagnostic bytes = %d truncated=%t", got, observation.StdoutTruncated())
 	}
 	artifact, ok := observation.StdoutArtifact()
+	defer closeContentArtifact(artifact)
 	if !ok || artifact.Identity().ByteLength() != 10<<20 {
 		t.Fatalf("stdout artifact = %#v, present=%t", artifact, ok)
 	}
@@ -448,7 +455,6 @@ func TestRunnerSpooledStdoutKeepsCompleteContentBeyondDiagnosticPreview(t *testi
 	if readErr != nil || closeErr != nil || read != 10<<20 || !bytes.Equal(hash.Sum(nil), expected[:]) {
 		t.Fatalf("complete stdout bytes=%d readErr=%v closeErr=%v", read, readErr, closeErr)
 	}
-	closeContentArtifact(artifact)
 }
 
 func TestRunnerSpooledPostOutputFallsBackToNaturalExitWithCompleteOutput(t *testing.T) {
