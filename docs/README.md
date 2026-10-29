@@ -89,6 +89,14 @@ accepted that result. Master adopted AGY and Grok CLI compatibility follow-ups
 The roadmap records follow-up execution and the Epic's separate acceptance
 conditions.
 
+[EPIC-015 development verification simplification](roadmap/README.md#epic-015-development-verification-simplification)
+defines the adopted work to reduce repeated fixture construction, cold test
+builds and brittle assertions. Its [execution dossier](todo/development-verification-simplification.md)
+owns the temporary delivery plan; [development verification](implementation-tips/development-verification.md)
+describes the planned operating policy. TASK-070 will activate the new offline
+entry point and guidance together. The existing Makefile and verification
+requirements remain active until then.
+
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The
 [design decision](architecture-decision-records/verified-review-iteration.md)

@@ -12,7 +12,11 @@ task identity, ordering, dependencies, and status.
 
 ## Adopted active dossiers
 
-None.
+- [Development verification simplification](development-verification-simplification.md)
+  is the execution dossier for [EPIC-015](../roadmap/README.md#epic-015-development-verification-simplification).
+  It covers fixture and compiler-cache reuse, proportional verification and
+  assertion cleanup. The roadmap owns its Task sequence and status; the
+  planned operating policy is in [development verification](../implementation-tips/development-verification.md).
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply

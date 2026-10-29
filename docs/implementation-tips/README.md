@@ -25,6 +25,16 @@ launcher value, so its minimum and verified-latest guidance remain 0.16.5.
 App releases above 3.12.3 and launcher protocol releases above 0.16.5 remain
 eligible as `newer_than_verified`; the two version axes are never substituted.
 
+## Planned verification simplification
+
+[EPIC-015](../roadmap/README.md#epic-015-development-verification-simplification)
+adopts [development verification policy](development-verification.md) and an
+[execution dossier](../todo/development-verification-simplification.md) for
+fixture reuse, compiler-cache reuse and assertion cleanup. TASK-070 will add
+and activate the offline aggregate with its matching agent and contributor
+guidance. Until that change, the commands and requirements below remain in
+force; `make test-offline` is a planned command.
+
 ## Local checks
 
 The complete gate is:

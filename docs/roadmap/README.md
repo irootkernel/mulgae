@@ -34,6 +34,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-012](#epic-012-correctness-and-historical-compatibility) | Completed | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
 | [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
+| [EPIC-015](#epic-015-development-verification-simplification) | Planned | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
 
 ## Adopted execution order
 
@@ -69,6 +70,12 @@ pass on the release candidate. Record those deferred non-ZCode live checks
 explicitly at each epic handoff without claiming live coverage for unexercised
 providers. Master requested EPIC-013 execution on 2026-10-22 and EPIC-014
 execution on 2026-10-24.
+
+Master adopted EPIC-015's development verification simplification on
+2026-10-29. TASK-070 through TASK-074 follow completed EPIC-014 and remain
+Planned. TASK-070 will activate the new offline entry point and completion
+policy; registering this work does not start implementation or change the
+current verification requirements.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -899,3 +906,67 @@ verification.
 - [x] TASK-068 has implementation evidence and passes its task-owned checks and exact-candidate AGY live certification.
 - [x] TASK-069 has implementation evidence and passes its task-owned checks and exact-candidate Grok live certification.
 - [x] Master explicitly accepts the follow-up scope before the reopened Epic returns to Completed.
+
+## EPIC-015: Development verification simplification
+
+Status: Planned
+
+Master adopted this work definition on 2026-10-29. Implementation has not
+started. The current Makefile and verification rules remain active until
+TASK-070 implements the new entry point and updates its guidance together.
+
+Depends on: completed and explicitly accepted EPIC-014.
+
+Detailed SOT: [development verification simplification dossier](../todo/development-verification-simplification.md)
+
+Planned operating policy: [development verification](../implementation-tips/development-verification.md)
+
+Goal: Reduce repeated test preparation and unnecessary assertion maintenance,
+and separate development verification from release certification while
+preserving product behavior, trust boundaries and supported historical reads.
+
+| Task | Status | Outcome | Verification |
+|---|---|---|---|
+| TASK-070 | Planned | Add a thin offline aggregate and optional Gaori alias; activate proportional Task, integrated-candidate and release verification guidance together and capture the focused baseline. | Offline stage membership, order, single execution and failure short-circuiting; preserved individual target flags and full-release stages; matching Gaori command mapping, affected harness tests and documentation checks. |
+| TASK-071 | Planned | Reuse proven immutable default Catalog and compiled Schema fixtures and remove discarded Application/Git reader construction in CLI wrapper helpers; preserve independent mutable state and fresh constructor-negative cases. | Matched focused observations, existing real-schema and defensive-copy behavior, constructor failure/cancellation controls and relevant concurrent consumers under race instrumentation. |
+| TASK-072 | Planned | Reuse compiler caches in ordinary Mulgae and fake-provider test builds while keeping output binaries, native homes and other mutable fixture state isolated. | Matched representative integration builds, cache reuse across independent fixtures, unchanged offline module settings, failed-build/cleanup controls and affected release-harness checks. |
+| TASK-073 | Planned | Remove brittle implementation-spelling and ordinary-prose assertions, synchronize affected release guidance, and assess integration/release overlap by artifact, execution conditions and the claim established. | Existing behavior coverage for retained requirements; preserved dependency/security/cleanup checks, public identifiers, waiver eligibility and exact installed-binary version checks; an explicit retain/remove rationale for overlapping scenarios, with no deletion quota. |
+| TASK-074 | Planned | Verify the integrated improvement, promote operating guidance and measured outcomes, retire the dossier and prepare Epic acceptance. | One complete native offline backstop and affected exact-release checks on the final candidate, comparable focused observations, honest remaining limits, reconciled canonical documents and explicit Epic acceptance. |
+
+TASK-070 through TASK-074 run sequentially. Each Task after the first depends
+on its predecessor. TASK-070 updates the Makefile, optional Gaori command
+mapping, AGENTS.md and contributor guidance in the same change. The planned
+`make test-offline` and `gaori run offline` commands are not available at
+registration time. The Gaori alias is an optional way to run the same gate.
+
+The offline aggregate runs preparation, unit and integration stages once.
+Existing complete unit/integration target flags remain unchanged, including
+race instrumentation and package serialization. Later Tasks use focused
+checks; TASK-074 owns the complete offline backstop on native Apple Silicon
+macOS. A correction invalidates affected evidence and requires those checks
+again; broader repetition needs a shared change or unresolved failure that
+invalidates the broader result.
+
+Preserve `make test` as the full gate, including exact release binaries,
+mandatory ZCode live checks and conditional Codex execution. The separately
+adopted `v0.1.26` five-provider release-candidate obligation remains in force.
+After TASK-070 activates the development policy, this harness-only Epic does
+not require a routine live campaign. Record live checks as unexecuted and make
+no new provider compatibility or release-readiness claim.
+
+Keep production validation, publication integrity, historical fixture bytes
+and consumers, dependency direction, credential/filesystem isolation and
+cancellation behavior. Compiler-cache reuse does not authorize sharing mutable
+native homes or weakening the confined caches in release design gates.
+DF-028 remains open; this Epic does not prescribe global parallelism.
+
+### Epic acceptance
+
+- [ ] Every member Task has implementation and scoped verification evidence; the planned command and active guidance agree.
+- [ ] Repeated fixture construction and empty-cache builds are reduced where safe, with matched focused observations and preserved behavior; historical timing samples are not used as a performance baseline.
+- [ ] Constructor-negative tests, independent mutable fixtures, real-schema checks, historical compatibility and trust boundaries remain effective.
+- [ ] Ordinary-prose and implementation-spelling assertions are simplified without losing a required behavior; justified integration/release overlap may remain.
+- [ ] One complete offline backstop and affected exact-release checks pass on the final native candidate; failures, invalidated evidence and remaining limits are reported accurately.
+- [ ] Mandatory release obligations, including the separate five-provider requirement, remain intact and unexecuted live checks are disclosed.
+- [ ] Durable guidance and concise outcomes are promoted; the dossier and its index entry are retired and the roadmap links canonical outcomes.
+- [ ] Master explicitly accepts this Epic; completing its Tasks does not substitute for Epic acceptance.
