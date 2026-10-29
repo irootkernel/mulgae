@@ -45,11 +45,10 @@ source snapshot, copied checkout, source archive or capture-bound request guard.
 - [x] RCI-007: expose optional input and verified results through existing CLI
       and MCP review/preflight/read paths, preserving start/await/cancel.
 
-RCI-004 (batch rechecks) and RCI-005 (cross-run comparison) are excluded from
-current Epic acceptance. Their IDs remain reserved for the original requirements
-and are not reassigned. TASK-030 through TASK-032 remain separate Deferred
-records in the roadmap; any future adoption needs a new scope decision and
-a design compatible with original-source review.
+Master retired the former batch-recheck and cross-run comparison plan on
+2026-10-29. RCI-004, RCI-005 and TASK-030 through TASK-032 belong to that retired
+plan. They are outside current Epic acceptance and planned or deferred work;
+their IDs remain reserved and are not reassigned.
 
 Unchecked requirements are planned obligations, not implementation evidence.
 

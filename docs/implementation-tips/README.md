@@ -660,8 +660,7 @@ retain EPIC-007's historical requirements and verification. The
 [requirements assessment specification](../specs/review-completeness-and-iteration.md)
 defines the implemented reduced scope. All five member Tasks are complete.
 The [roadmap](../roadmap/README.md#adopted-execution-order) owns their order:
-TASK-026, TASK-027, TASK-028, TASK-029, TASK-033. Deferred TASK-030 through
-TASK-032 are outside current membership and acceptance.
+TASK-026, TASK-027, TASK-028, TASK-029, TASK-033.
 
 Read current code and the nearest contract before each implementation Task.
 Add focused behavior and negative checks using explicit Go packages and
@@ -717,8 +716,7 @@ marking implementation requirements or Tasks complete.
 
 At eventual Epic closeout, promote durable outcomes, replace Detailed SOT with
 Canonical Outcomes, remove the temporary dossier and its TODO entry, repair
-links and obtain explicit Epic acceptance. Preserve the independent Deferred
-records for TASK-030 through TASK-032; they do not block closeout.
+links and obtain explicit Epic acceptance.
 
 Under Master's quota-preservation decision for `EPIC-012` through `EPIC-014`,
 development and Epic certification run the deterministic Make gates

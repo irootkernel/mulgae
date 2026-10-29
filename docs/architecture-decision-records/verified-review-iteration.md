@@ -37,8 +37,13 @@ test execution, remediation and acceptance.
 Explicit answers or visible gaps make requirement omissions inspectable.
 Batch/comparison adds cross-run correspondence and lifecycle complexity without
 an established current need. The five member Tasks are TASK-026 through
-TASK-029 and TASK-033. TASK-030 through TASK-032 remain separate Deferred
-records outside current acceptance; RCI-004/005 remain excluded and reserved.
+TASK-029 and TASK-033.
+
+On 2026-10-29, Master retired the former batch-recheck and cross-run comparison
+plan because Mulgae will not return to the earlier capture-based design.
+TASK-030 through TASK-032 are removed from planned and deferred work, and
+RCI-004/005 belong to the retired plan. Their IDs remain reserved and must not
+be reused. The earlier design below is historical rationale, not future work.
 
 This decision replaces the EPIC-008 redesign hold and earlier assessment/iteration
 grouping. EPIC-007 and EPIC-009 remain accepted. Exact-binary/client checks,

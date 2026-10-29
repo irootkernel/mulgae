@@ -41,8 +41,7 @@ EPIC-007, EPIC-009, EPIC-010 and EPIC-011 are complete.
 EPIC-010 and EPIC-011 both depend on completed EPIC-009 and do not depend on
 each other. Master approved EPIC-008's reduced requirements-assessment scope on
 2026-10-27. Its five member Tasks execute as TASK-026, TASK-027, TASK-028,
-TASK-029 and TASK-033. TASK-030 through TASK-032 remain separate Deferred records
-outside current membership and acceptance. TASK-026 through TASK-029 are complete;
+TASK-029 and TASK-033. TASK-026 through TASK-029 are complete;
 this work does not reopen EPIC-007 or block another Epic.
 
 EPIC-012 is complete: TASK-046 through TASK-052 are completed and certified,
@@ -456,18 +455,10 @@ and TASK-029 alone activates public requirements-bearing execution with verified
 reads and the existing capability mechanism. Objective-only execution stays
 available throughout; no general feature-flag system is introduced.
 
-### Deferred work outside current membership
-
-These records preserve the original IDs and purposes. They are not current
-member Tasks, predecessors, acceptance criteria or consumers of this dossier.
-All three remain Deferred pending demonstrated need and a separately approved
-original-source design. No replacement Epic or implementation is adopted here.
-
-| Task | Status | Original purpose | Re-entry condition |
-|---|---|---|---|
-| TASK-030 | Deferred | Admit source findings and plan a bounded selected-finding batch. | Repeated operator workflows establish value beyond ordinary review; approve a new original-source admission design. |
-| TASK-031 | Deferred | Execute and publish bounded batch rechecks. | Adopt the batch scope and its lifecycle/call-budget contracts, including TASK-030's admission prerequisite. |
-| TASK-032 | Deferred | Compare exact reviews and explicitly selected resolution evidence without a provider call. | Demonstrate a consumer need and approve honest comparability/resolution semantics without immutable live-source claims. |
+Master retired the former batch-recheck and cross-run comparison plan on
+2026-10-29 because Mulgae will not return to the earlier capture-based design.
+TASK-030, TASK-031 and TASK-032 are removed from planned and deferred work.
+Their IDs remain reserved and must not be reused.
 
 ### Requirement ownership
 
@@ -477,7 +468,7 @@ original-source design. No replacement Epic or implementation is adopted here.
 | RCI-002, RCI-003 | TASK-028, TASK-029 |
 | RCI-006, RCI-007 | TASK-026, TASK-027, TASK-028, TASK-029, integrated in TASK-033 |
 
-RCI-004 (batch rechecks) and RCI-005 (comparison) are excluded and reserved;
+RCI-004 (batch rechecks) and RCI-005 (comparison) belong to the retired plan;
 their IDs are not reused. Their earlier scope and rationale remain in the
 [historical design](../architecture-decision-records/verified-review-iteration.md).
 
@@ -503,8 +494,7 @@ their IDs are not reused. Their earlier scope and rationale remain in the
       are not structured coverage. No batch/comparison demonstration is required.
 - [x] Promote durable outcomes, remove the dossier and its TODO entry, repair
       links, replace Detailed SOT with Canonical Outcomes and obtain explicit
-      Epic acceptance. Deferred TASK-030 through TASK-032 remain independent
-      records and do not block this closeout.
+      Epic acceptance.
 
 ## EPIC-009: Live workspace and Git review
 
