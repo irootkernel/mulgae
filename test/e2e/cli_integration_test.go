@@ -905,7 +905,7 @@ func report(prompt string) string {
 	mustWriteTestFile(t, source, []byte(program))
 	build := exec.Command("go", "build", "-o", binary, source)
 	build.Dir = root
-	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOCACHE="+t.TempDir())
+	build.Env = goBuildEnv(os.Environ())
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build fake ZCode: %v\n%s", err, output)
 	}
@@ -975,6 +975,62 @@ func assertNullResultFields(t *testing.T, result map[string]json.RawMessage, fie
 		}
 	}
 }
+
+var (
+	fallbackGoCacheOnce sync.Once
+	fallbackGoCacheDir  string
+)
+
+func sharedFallbackGoCache() string {
+	fallbackGoCacheOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "mulgae-e2e-gocache-*")
+		if err == nil {
+			if resolved, evalErr := filepath.EvalSymlinks(dir); evalErr == nil {
+				dir = resolved
+			}
+			fallbackGoCacheDir = filepath.Clean(dir)
+		}
+	})
+	return fallbackGoCacheDir
+}
+
+// goBuildEnv and buildMulgaeBinary share compilation artifacts in GOCACHE
+// across test builds while keeping output binaries, per-fixture .native-home
+// linker overrides (buildNativeHomeOverride), repositories, and provider state
+// isolated per test. Offline module settings (GOPROXY=off, GOSUMDB=off) and
+// caller-confined GOCACHE settings (docs/gating-rules.md) are preserved; test
+// cleanup removes only owned temporary directories and never deletes a shared
+// GOCACHE. Passing -race to go test does not automatically instrument a child
+// binary built without -race.
+func goBuildEnv(base []string) []string {
+	env := make([]string, 0, len(base)+3)
+	var goCache string
+	hasGoCache := false
+	hasHome := false
+	for _, entry := range base {
+		if value, ok := strings.CutPrefix(entry, "GOCACHE="); ok {
+			hasGoCache = true
+			goCache = strings.TrimSpace(value)
+			continue
+		}
+		if value, ok := strings.CutPrefix(entry, "HOME="); ok && strings.TrimSpace(value) != "" {
+			hasHome = true
+		}
+		if strings.HasPrefix(entry, "GOPROXY=") || strings.HasPrefix(entry, "GOSUMDB=") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	if hasGoCache && goCache != "" && goCache != "off" {
+		env = append(env, "GOCACHE="+goCache)
+	} else if hasGoCache || !hasHome {
+		if fallback := sharedFallbackGoCache(); fallback != "" {
+			env = append(env, "GOCACHE="+fallback)
+		}
+	}
+	return append(env, "GOPROXY=off", "GOSUMDB=off")
+}
+
 func buildMulgaeBinary(t *testing.T, root string) string {
 	t.Helper()
 	if binary := os.Getenv("MULGAE_E2E_BINARY"); binary != "" {
@@ -995,11 +1051,149 @@ func buildMulgaeBinary(t *testing.T, root string) string {
 	ldflags := "-X main.buildVersion=v1.4.2 -X main.buildRevision=0123456789abcdef0123456789abcdef01234567 -X github.com/irootkernel/mulgae/internal/adapters/environment.buildNativeHomeOverride=" + nativeHome
 	build := exec.Command("go", "build", "-ldflags", ldflags, "-o", binary, ".")
 	build.Dir = root
-	build.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off", "GOCACHE="+t.TempDir())
+	build.Env = goBuildEnv(os.Environ())
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build Mulgae binary: %v\n%s", err, output)
 	}
 	return binary
+}
+
+func TestBuildHelpersReuseCompilerCacheAndIsolateMutableOutputs(t *testing.T) {
+	confinedCache := canonicalTestTempDir(t)
+	envFirst := goBuildEnv([]string{
+		"HOME=/tmp/home",
+		"GOCACHE=" + confinedCache,
+		"GOPROXY=https://proxy.golang.org",
+		"GOSUMDB=sum.golang.org",
+	})
+	envSecond := goBuildEnv([]string{
+		"HOME=/tmp/home",
+		"GOCACHE=" + confinedCache,
+	})
+	if got := environmentValue(t, envFirst, "GOCACHE"); got != confinedCache {
+		t.Fatalf("goBuildEnv confined GOCACHE = %q, want %q", got, confinedCache)
+	}
+	if got := environmentValue(t, envSecond, "GOCACHE"); got != confinedCache {
+		t.Fatalf("goBuildEnv repeated GOCACHE = %q, want %q", got, confinedCache)
+	}
+	if got := environmentValue(t, envFirst, "GOPROXY"); got != "off" {
+		t.Fatalf("goBuildEnv GOPROXY = %q, want off", got)
+	}
+	if got := environmentValue(t, envFirst, "GOSUMDB"); got != "off" {
+		t.Fatalf("goBuildEnv GOSUMDB = %q, want off", got)
+	}
+	fallbackOff := environmentValue(t, goBuildEnv([]string{"HOME=/tmp/home", "GOCACHE=off"}), "GOCACHE")
+	fallbackEmpty := environmentValue(t, goBuildEnv([]string{"HOME=/tmp/home", "GOCACHE="}), "GOCACHE")
+	if fallbackOff == "" || fallbackOff == "off" || fallbackOff != fallbackEmpty {
+		t.Fatalf("goBuildEnv fallback GOCACHE = %q / %q, want one shared directory", fallbackOff, fallbackEmpty)
+	}
+
+	root := repositoryRoot(t)
+	cacheDir := canonicalTestTempDir(t)
+	t.Setenv("GOCACHE", cacheDir)
+	t.Setenv("MULGAE_E2E_BINARY", "")
+
+	if initial := snapshotTestTreeMaterial(t, cacheDir); len(initial) != 0 {
+		t.Fatalf("controlled GOCACHE before first build = %d entries, want 0", len(initial))
+	}
+
+	var (
+		binaryA, nativeHomeA, zcodeA string
+		binaryB, nativeHomeB, zcodeB string
+		cacheAfterFirst              map[string]string
+		cacheAfterSecond             map[string]string
+	)
+	t.Run("independent fixture builds share cache and isolate outputs", func(t *testing.T) {
+		binaryA = buildMulgaeBinary(t, root)
+		nativeHomeA = integrationNativeHome(t, binaryA)
+		_, zcodeA, launcherA := fakeZCodeAppPaths(canonicalTestTempDir(t))
+		buildFakeZCode(t, root, zcodeA, launcherA, filepath.Join(canonicalTestTempDir(t), "zcode-a.jsonl"), "success")
+
+		cacheAfterFirst = snapshotTestTreeMaterial(t, cacheDir)
+		if len(cacheAfterFirst) == 0 {
+			t.Fatal("first fixture build did not populate controlled GOCACHE")
+		}
+
+		binaryB = buildMulgaeBinary(t, root)
+		nativeHomeB = integrationNativeHome(t, binaryB)
+		_, zcodeB, launcherB := fakeZCodeAppPaths(canonicalTestTempDir(t))
+		buildFakeZCode(t, root, zcodeB, launcherB, filepath.Join(canonicalTestTempDir(t), "zcode-b.jsonl"), "success")
+
+		cacheAfterSecond = snapshotTestTreeMaterial(t, cacheDir)
+		for path, digest := range cacheAfterFirst {
+			if got, ok := cacheAfterSecond[path]; !ok || got != digest {
+				t.Fatalf("second build did not preserve cached artifact %q: got=%q ok=%t want=%q", path, got, ok, digest)
+			}
+		}
+		addedBySecond := len(cacheAfterSecond) - len(cacheAfterFirst)
+		t.Logf("controlled GOCACHE entries: after_first=%d after_second=%d added_by_second=%d", len(cacheAfterFirst), len(cacheAfterSecond), addedBySecond)
+		if addedBySecond >= len(cacheAfterFirst) {
+			t.Fatalf("second build added %d cache entries vs %d initial entries; expected dependency cache reuse", addedBySecond, len(cacheAfterFirst))
+		}
+
+		if binaryA == binaryB || zcodeA == zcodeB || nativeHomeA == nativeHomeB {
+			t.Fatalf("fixtures shared mutable output paths: binary=%q/%q zcode=%q/%q nativeHome=%q/%q", binaryA, binaryB, zcodeA, zcodeB, nativeHomeA, nativeHomeB)
+		}
+
+		credentialsBPath := filepath.Join(nativeHomeB, ".zcode", "v2", "credentials.json")
+		beforeCredentialsB, err := os.ReadFile(credentialsBPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustWriteTestFile(t, filepath.Join(nativeHomeA, "mutable-sentinel.txt"), []byte("mutated-a"))
+		mustWriteTestFile(t, filepath.Join(nativeHomeA, ".zcode", "v2", "credentials.json"), []byte(`{"mutated":true}`))
+
+		if _, err := os.Stat(filepath.Join(nativeHomeB, "mutable-sentinel.txt")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("nativeHomeA mutation leaked into nativeHomeB: %v", err)
+		}
+		afterCredentialsB, err := os.ReadFile(credentialsBPath)
+		if err != nil || !bytes.Equal(afterCredentialsB, beforeCredentialsB) {
+			t.Fatalf("nativeHomeB credentials changed after mutating nativeHomeA: err=%v got=%q", err, afterCredentialsB)
+		}
+	})
+
+	for _, ownedPath := range []string{binaryA, nativeHomeA, zcodeA, binaryB, nativeHomeB, zcodeB} {
+		if _, err := os.Stat(ownedPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("subtest cleanup left owned fixture path %q: %v", ownedPath, err)
+		}
+	}
+	if afterSubtestCleanup := snapshotTestTreeMaterial(t, cacheDir); !reflect.DeepEqual(afterSubtestCleanup, cacheAfterSecond) {
+		t.Fatalf("subtest cleanup modified shared GOCACHE: got %d entries, want %d", len(afterSubtestCleanup), len(cacheAfterSecond))
+	}
+
+	var failedOutput, failedNativeHome string
+	t.Run("failed build removes owned temp dir and preserves shared cache", func(t *testing.T) {
+		buildDir := canonicalTestTempDir(t)
+		failedOutput = filepath.Join(buildDir, "broken-mulgae")
+		failedNativeHome = failedOutput + ".native-home"
+		if err := os.Mkdir(failedNativeHome, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		brokenSource := filepath.Join(canonicalTestTempDir(t), "broken.go")
+		mustWriteTestFile(t, brokenSource, []byte("package main\nfunc main() { undefinedSymbol() }\n"))
+
+		build := exec.Command("go", "build", "-o", failedOutput, brokenSource)
+		build.Dir = root
+		build.Env = goBuildEnv(os.Environ())
+		if output, err := build.CombinedOutput(); err == nil {
+			t.Fatalf("broken build unexpectedly succeeded:\n%s", output)
+		}
+		if _, err := os.Stat(failedOutput); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("failed build produced output binary %q: %v", failedOutput, err)
+		}
+	})
+
+	for _, ownedPath := range []string{failedOutput, failedNativeHome} {
+		if _, err := os.Stat(ownedPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("failed-build subtest cleanup left owned path %q: %v", ownedPath, err)
+		}
+	}
+	afterFailure := snapshotTestTreeMaterial(t, cacheDir)
+	for path, digest := range cacheAfterSecond {
+		if got, ok := afterFailure[path]; !ok || got != digest {
+			t.Fatalf("failed build or cleanup corrupted cached artifact %q: got=%q ok=%t want=%q", path, got, ok, digest)
+		}
+	}
 }
 
 func integrationNativeHome(t *testing.T, binary string) string {
