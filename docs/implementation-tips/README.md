@@ -28,12 +28,10 @@ eligible as `newer_than_verified`; the two version axes are never substituted.
 ## Verification simplification
 
 [EPIC-015](../roadmap/README.md#epic-015-development-verification-simplification)
-defines the active [development verification policy](development-verification.md)
-and the [execution dossier](../todo/development-verification-simplification.md)
-for fixture reuse, compiler-cache reuse and assertion cleanup. `TASK-070`
-activated `make test-offline`, `gaori run offline`, and proportional
-verification guidance; `TASK-071` through `TASK-074` continue under the
-dossier.
+delivered the [development verification policy](development-verification.md),
+including `make test-offline`, `gaori run offline`, proportional verification
+guidance, shared immutable CLI test assets, reused integration compiler caches,
+and assertion simplification.
 
 ## Local checks
 

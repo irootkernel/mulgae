@@ -1,15 +1,13 @@
 # Development verification policy
 
-This page defines the active development verification policy for
-[EPIC-015](../roadmap/README.md#epic-015-development-verification-simplification),
-activated in `TASK-070` across the [Makefile](../../Makefile), optional
-[Gaori configuration](../../.gaori/tester.yaml), [AGENTS.md](../../AGENTS.md)
+This page defines the canonical development verification policy delivered by
+[EPIC-015](../roadmap/README.md#epic-015-development-verification-simplification)
+across the [Makefile](../../Makefile), optional
+[Gaori configuration](../../.gaori/tester.yaml), [AGENTS.md](../../AGENTS.md),
 and [contributor verification guidance](README.md#local-checks).
 
-The [execution dossier](../todo/development-verification-simplification.md) owns
-the temporary implementation plan and measurement procedure for `TASK-071`
-through `TASK-074`. The [roadmap](../roadmap/README.md) owns Task order and
-status.
+The [roadmap](../roadmap/README.md#epic-015-development-verification-simplification)
+owns Task order, delivery status, and Epic acceptance.
 
 ## Purpose and scope
 
@@ -97,48 +95,64 @@ its reason, rather than silently counted as another routine Task gate.
 
 ## Test fixture ownership
 
-The default Catalog and compiled Validator are candidates for reuse inside
-the test package. Confirm the entire shared object graph, including compiled
-schemas, the regexp engine, lazy state and accessors, permits the intended
-concurrent use. If that cannot be established, share a smaller proven-immutable
-part or retain independent instances and report the remaining cost.
+In [application_test.go](../../internal/entrypoint/mulgae/application_test.go),
+`sharedFoundationAssets` initializes one package-shared default
+`*builtin.Catalog` (`builtin.NewCatalog()`) and compiled
+`*jsonschema.Validator` (`jsonschema.New(context.Background(), catalog)`) once
+via `sync.Once`. Both objects are safe for concurrent read reuse across tests:
+`builtin.Catalog` accessors return defensive copies, and `jsonschema.Validator`
+holds an unmutated map of compiled `*jschema.Schema` instances backed by
+concurrency-safe `ecmaRegexp` (`*regexp2.Regexp`) engines with no mutable
+validation state on the shared schema graph.
 
-A shared initializer must return its value or error without retaining a
-caller's `*testing.T`, cancelled context, temporary path or cleanup callback.
-Each caller handles initialization failure on its own test goroutine.
+A shared initializer must use `context.Background()` and return its value or
+error without retaining a caller's `*testing.T`, cancelled context, temporary
+path, or cleanup callback. Each caller handles initialization failure on its own
+test goroutine.
 
-Wrapper fixtures should obtain shared immutable assets directly and construct
-their `Application` and Git reader once, retaining their own mutable
-dependencies. Keep this cleanup local to the existing helpers.
+Wrapper fixtures (`newFoundationFixtureWithWriter`,
+`newFoundationFixtureWithEvidence`, `newG006FixtureWithWriter`,
+`newG008Fixture`, `newG008Composition`, `newG008RealE2EFixture`,
+`historicalValidator`, and `retainedResolverFixture`) obtain shared immutable
+assets directly and construct their `Application` and `gittarget` reader once,
+retaining their own mutable dependencies without intermediate discarded
+constructions.
 
 Keep writers, request IDs, repositories, native homes, provider state, clocks
-with mutable state and other mutable dependencies independent. Constructor
-failure, cancellation, altered-catalog and corrupt-schema tests continue to
-construct fresh objects. Preserve defensive copies, output bytes and failure
-classification. Do not move this optimization into a production singleton.
+with mutable state, and other mutable dependencies independent per test.
+Constructor-failure, cancellation, altered-catalog, and corrupt-schema tests
+continue to construct fresh `Catalog` and `Validator` instances. Preserve
+defensive copies, output bytes, and failure classification. Do not move this
+optimization into a production singleton.
 
 ## Compiler cache and binary isolation
 
-Reuse compilation artifacts across related test builds while retaining separate
-output binaries and mutable fixture roots. A private cache shared by the test
-suite is sufficient if the harness needs a controlled cache location. Keep the
-existing offline module settings.
+In [cli_integration_test.go](../../test/e2e/cli_integration_test.go),
+`buildMulgaeBinary` and `buildFakeZCodeWithReport` build through `goBuildEnv`,
+which reuses the inherited or caller-supplied `GOCACHE` when set and falls back
+to one suite-scoped temporary directory (`sharedFallbackGoCache`, initialized
+once via `sync.Once`) only when `GOCACHE` is empty, while preserving
+`GOPROXY=off` and `GOSUMDB=off`. Each fixture build retains a separate output
+binary path, per-fixture `<binary>.native-home` linker override
+(`buildNativeHomeOverride`), Git repository, and provider state. Cleanup
+removes only test-owned temporary directories and never deletes a shared
+`GOCACHE` or developer provider home.
 
-A native-home linker override can require a separate final binary without
-requiring an empty cache for every dependency build. Per-fixture linker inputs
-and generated fake-provider code can still require linking or compilation;
-account for that work when interpreting timings. Sharing output binaries or
-native homes is not required for this optimization and needs its own lifetime
-justification.
+A native-home linker override requires a separate final binary without
+requiring an empty compiler cache for every dependency build. Per-fixture
+linker inputs and generated fake-provider code still require linking or
+compilation; account for that work when interpreting timings. Sharing output
+binaries or native homes is not required for this optimization and needs its own
+lifetime justification.
 
-Keep the distinction between the Go compiler cache and cached test results.
-Also retain the existing instrumentation claim: `-race` on the Go test
-process does not automatically instrument a child binary built without that
-flag. Do not describe that child as race-instrumented.
+Keep the distinction between the Go compiler cache (`GOCACHE`) and cached test
+results (`-count=1`). Also retain the existing instrumentation claim: `-race` on
+the Go test process does not automatically instrument a child binary built
+without that flag. Do not describe that child as race-instrumented.
 
 The disposable caches specified by [release design gates](../gating-rules.md)
-have their own confinement requirements. This Epic does not remove those
-requirements merely because ordinary integration builds can reuse a cache.
+have their own confinement requirements. This policy does not remove those
+requirements merely because ordinary integration builds reuse a compiler cache.
 
 ## Assertions and repeated scenarios
 
@@ -236,29 +250,57 @@ conditions:
    `MULGAE_E2E_BINARY`.
 
 All seven scenarios are retained in `make test-release`: Step 2 proves that a
- single `-trimpath` binary stamped with the real `RELEASE_VERSION` and `HEAD`
+single `-trimpath` binary stamped with the real `RELEASE_VERSION` and `HEAD`
 commit revision (and injected via `MULGAE_E2E_BINARY`) satisfies
 `buildIdentityFrom` and every end-to-end CLI/MCP live-selector, cancellation,
 project-context, guarded-admission, verified-content, verified-workflow, and
-requirements contract without reading the operator's real `HOME`—a claim that
-neither `make test-int` (no `-trimpath`, synthetic version/revision, per-test
-builds) nor `internal/releasecheck` (version/help/buildinfo only) establishes
-alone. Reusing the single `release_fixture_binary` in `make test-release` and
-the shared compiler cache from `TASK-072` in `make test-int` already eliminates
-redundant cold-compilation overhead without reducing scenario coverage.
+requirements contract without reading the operator's real `HOME`. Neither
+`make test-int` (no `-trimpath`, synthetic version/revision, per-test builds)
+nor `internal/releasecheck` (version/help/buildinfo only) establishes that
+claim alone. Reusing the single `release_fixture_binary` in `make test-release`
+and the shared compiler cache from `TASK-072` in `make test-int` already
+eliminates redundant cold-compilation overhead without reducing scenario
+coverage.
+
+## Measured outcomes (`EPIC-015`)
+
+Matched focused measurements and final candidate gates were recorded on
+`go1.27.1 darwin/arm64` with a warm host `GOCACHE` and `MULGAE_E2E_BINARY`
+unset:
+
+| Check | Command | Baseline (`4beb843`, `TASK-070`) | Task milestone | Final candidate (`eebc6d9`, `TASK-074`) | Removed work |
+|---|---|---:|---:|---:|---|
+| Focused CLI fixture selection | `go test -p 1 -race -count=1 ./internal/entrypoint/mulgae -run '^(TestApplicationHelpAndUsageOutput\|TestApplicationG006FailureParityAcrossCommands)$'` | `62.333s` (`62.759s` initial) | `5.170s` (`5.567s` initial, `375ae33` in `TASK-071`) | `5.852s` | Repeated `builtin.NewCatalog` and 82-pair `jsonschema.New` compilation plus discarded intermediate `Application` and `gittarget` constructions per helper call |
+| Focused integration build selection | `go test -p 1 -race -count=1 ./test/e2e -run '^(TestIntegrationIsolatedReleaseFixtureProjectContext\|TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow)$'` | `35.318s` (`29.389s` initial) | `16.948s` (`229ecc8` in `TASK-072`; `2315` cache entries populated on first build and reused with `10` added on second in `TestBuildHelpersReuseCompilerCacheAndIsolateMutableOutputs`) | `19.541s` | Per-build empty `GOCACHE` directories that forced cold compilation for every `buildMulgaeBinary` and `buildFakeZCodeWithReport` call |
+| Complete deterministic offline gate | `make test-offline` (via `gaori run offline`) | — | — | `2357.1s` (`exit 0`) | Runs `test-prepare`, `test-unit`, and `test-int` once in order without invoking release or live-provider stages |
+| Exact-binary release harness gate | `make test-release` (via `gaori run release`) | — | — | `166.0s` (`exit 0`) | Verifies `internal/releasecheck` on the installed `-trimpath` `GOBIN/mulgae` binary and all seven isolated-fixture scenarios on one shared release-stamped fixture binary |
+
+Live-provider gates (`make test-e2e`, `make test-grok`, `make test-cursor`,
+`make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) were
+unexecuted under the activated harness-only `EPIC-015` policy; the mandatory
+`make test` release gate and the `v0.1.26` five-provider release-candidate
+obligations remain unchanged.
 
 ## Known limits
 
-[DF-028](../deferred-feedback/README.md#deferred-feedback) records an unresolved
-protected-directory failure under load, including a later serialized
-observation. Preserve the rejection and report any occurrence. This Epic
-neither closes DF-028 nor assumes that global parallelism is safe.
-
-The existing linter enables `govet` but excludes test files. A separate
-`go vet ./...` therefore has additional coverage. Removing it is not an
-accepted shortcut in this scope.
-
-The historical timing observations in the dossier identify where to start.
-They do not predict savings. Record comparable before/after observations and
-the removed repeated work without introducing a percentage target or a
-benchmark service.
+- **Per-subtest Git repository creation**: the focused CLI selection still runs
+  `git init` and `git commit` subprocesses per subtest to establish real Git
+  repositories.
+- **Per-fixture linking and generated fake providers**: shared compiler caches
+  (`GOCACHE`) reuse compiled packages, but each isolated integration fixture
+  still links its own binary with a per-fixture `buildNativeHomeOverride` path
+  and compiles generated fake-provider source.
+- **Open deferred feedback (`DF-028` and `DF-029`)**:
+  [DF-028](../deferred-feedback/README.md#deferred-feedback) records an
+  unresolved protected-directory failure under load, including a later
+  serialized observation; preserve the rejection, report any occurrence, and do
+  not assume that global parallelism is safe.
+  [DF-029](../deferred-feedback/README.md#deferred-feedback) remains open with
+  its standing rule that shared initialization and worker goroutines must never
+  retain or invoke a caller's `*testing.T` fatal handler.
+- **Separate `go vet ./...` coverage**: `golangci-lint` enables `govet` but
+  excludes test files. A separate `go vet ./...` in `make test-prepare`
+  therefore provides additional test-file coverage and is retained.
+- **No timing or percentage gates**: comparable before/after observations
+  document the removed repeated setup without introducing a percentage target,
+  percentile threshold, or benchmark service.

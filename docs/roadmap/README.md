@@ -34,7 +34,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-012](#epic-012-correctness-and-historical-compatibility) | Completed | Repair normalization, teardown/framing, epoch allocation and retained artist reads while preserving the current trust model. |
 | [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
-| [EPIC-015](#epic-015-development-verification-simplification) | In Progress | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
+| [EPIC-015](#epic-015-development-verification-simplification) | In Review | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
 
 ## Adopted execution order
 
@@ -72,15 +72,16 @@ providers. Master requested EPIC-013 execution on 2026-10-22 and EPIC-014
 execution on 2026-10-24.
 
 Master adopted EPIC-015's development verification simplification on
-2026-10-29, and EPIC-015 is now In Progress following completed EPIC-014.
-TASK-070 is complete and activated `make test-offline`, `gaori run offline`,
-and the [development verification policy](../implementation-tips/development-verification.md);
-TASK-071 is complete and reuses proven immutable Catalog and compiled Schema
-fixtures across CLI helpers; TASK-072 is complete and reuses compiler caches
-across ordinary Mulgae and fake-ZCode integration builds; TASK-073 is complete
-and simplified brittle implementation-spelling and ordinary-prose assertions,
-synchronized release guidance, and recorded the integration/release scenario
-overlap assessment; TASK-074 remains Planned in table order.
+2026-10-29, and EPIC-015 is now In Review following completed EPIC-014.
+TASK-070 through TASK-074 are complete: `make test-offline` and
+`gaori run offline` are active, CLI helpers reuse shared immutable Catalog and
+compiled Schema assets, ordinary Mulgae and fake-ZCode integration builds reuse
+compiler caches, brittle implementation-spelling and ordinary-prose assertions
+are simplified, the integrated candidate passed `make test-offline` and
+`make test-release`, the temporary execution dossier is retired, and durable
+outcomes are promoted to the
+[development verification policy](../implementation-tips/development-verification.md).
+Explicit Epic acceptance remains with Master.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -914,18 +915,22 @@ verification.
 
 ## EPIC-015: Development verification simplification
 
-Status: In Progress
+Status: In Review
 
-Master adopted this work definition on 2026-10-29. TASK-070 is complete and
-activated `make test-offline`, `gaori run offline`, and the proportional
-verification guidance together; TASK-071, TASK-072, and TASK-073 are complete;
-TASK-074 remains governed by the execution dossier.
+Master adopted this work definition on 2026-10-29. TASK-070 through TASK-074
+are complete, the temporary execution dossier is retired, and durable guidance
+and measured outcomes are promoted to the canonical documents below. EPIC-015
+is in `In Review` awaiting Master's explicit Epic acceptance.
 
 Depends on: completed and explicitly accepted EPIC-014.
 
-Detailed SOT: [development verification simplification dossier](../todo/development-verification-simplification.md)
+Canonical Outcomes:
 
-Operating policy: [development verification](../implementation-tips/development-verification.md)
+- [Development verification policy](../implementation-tips/development-verification.md) and [implementation and release guidance](../implementation-tips/README.md#local-checks) (`1c446eb`, `375ae33`, `229ecc8`, `eebc6d9`, and this closeout change).
+- [Makefile](../../Makefile), [Gaori configuration](../../.gaori/tester.yaml), and [agent verification rules](../../AGENTS.md) (`1c446eb`, `eebc6d9`).
+- [CLI test fixture asset reuse](../../internal/entrypoint/mulgae/application_test.go) (`375ae33`) and [integration compiler-cache reuse](../../test/e2e/cli_integration_test.go) (`229ecc8`).
+- [Architecture and catalog assertion simplification](../../internal/architecture/architecture_test.go) and [embedded help contract checks](../../internal/builtin/catalog_test.go) (`eebc6d9`).
+- [Deferred feedback](../deferred-feedback/README.md#deferred-feedback): `DF-028` and `DF-029` remain open with their standing rules.
 
 Goal: Reduce repeated test preparation and unnecessary assertion maintenance,
 and separate development verification from release certification while
@@ -936,48 +941,52 @@ preserving product behavior, trust boundaries and supported historical reads.
 | TASK-070 | Completed | Added the thin `make test-offline` aggregate and optional `gaori run offline` alias; updated `make test` to invoke `test-offline` once before release and live stages; activated proportional Task, integrated-candidate and release verification guidance together; and captured the focused baseline at `4beb843` (`go1.27.1 darwin/arm64`, `MULGAE_E2E_BINARY` unset, warm host `GOCACHE`). | Verified offline stage membership, order, single execution and failure short-circuiting in `internal/architecture`, preserved individual target flags and full-release stages, validated `.gaori/tester.yaml` mapping, documentation links and `git diff --check`, and recorded the focused baseline (`./internal/entrypoint/mulgae`: `62.333s`, `62.759s` initial run; `./test/e2e`: `35.318s`, `29.389s` initial run) (`1c446eb`). |
 | TASK-071 | Completed | Reused package-shared immutable default Catalog and compiled Schema Validator fixtures via `sharedFoundationAssets` (`sync.Once`, `context.Background()`) across CLI fixture helpers (`newFoundationFixtureWithWriter`, `newFoundationFixtureWithEvidence`, `newG006FixtureWithWriter`, `newG008Fixture`, `newG008Composition`, `newG008RealE2EFixture`, `historicalValidator`, and `retainedResolverFixture`) and removed discarded intermediate `Application` and `gittarget` reader constructions while keeping mutable state per-fixture and constructor-negative cases fresh. | Matched focused CLI measurement improved from `62.333s` (`62.759s` initial) to `5.170s` (`5.567s` initial) under `-p 1 -race -count=1`; verified concurrent reuse, defensive-copy isolation and per-fixture mutable separation in `TestSharedFoundationAssetsConcurrentReuseAndIsolation`, plus CLI characterization/historical-corpus consumers, constructor-negative controls, `internal/builtin`, `internal/adapters/jsonschema`, and `internal/architecture` under `-race` (`375ae33`). |
 | TASK-072 | Completed | Removed throwaway per-build `GOCACHE` directories from `buildMulgaeBinary` and `buildFakeZCodeWithReport` in `test/e2e/cli_integration_test.go`; added `goBuildEnv` and `sharedFallbackGoCache` to reuse inherited or caller-confined `GOCACHE` while preserving `GOPROXY=off`, `GOSUMDB=off`, and isolated per-fixture output binaries, `.native-home` linker overrides (`buildNativeHomeOverride`), repositories, and provider state. | Matched focused `./test/e2e` measurement (`TestIntegrationIsolatedReleaseFixtureProjectContext\|TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow`) improved from `35.318s` (`29.389s` initial) to `16.948s` under `-p 1 -race -count=1`; verified controlled-cache reuse (`2315` initial cache entries preserved with `10` added on the second fixture build), confined-cache and offline-module preservation, isolated output binaries and `.native-home` directories, and failed-build/cleanup controls in `TestBuildHelpersReuseCompilerCacheAndIsolateMutableOutputs`, plus `TestIntegrationIsolatedReleaseFixtureGuardedAdmission`, `TestIntegrationAgyHeartbeatAcquiresNamespaceWithDocumentationDefaults`, and `internal/architecture` under `-race` (`229ecc8`). |
-| TASK-073 | Completed | Replaced the hardcoded `RELEASE_VERSION := v0.1.26` literal and exact 7-occurrence `main.buildVersion=$(RELEASE_VERSION)` count in `TestMakefileContract` with structural `RELEASE_VERSION := v<major>.<minor>.<patch>` and per-target stamping checks across all seven exact-binary targets; removed unexported helper-name pins in `TestE2ELiveFamilyCapabilityAndNoSkipContract` and `TestMCPContractProjectionOwnership`; removed multi-line ordinary-prose and line-wrap assertions in `TestCatalogHelpCoversProjectLocalInitContract` while retaining public contract, grammar, version-rejection, and legacy-path tokens; synchronized release guidance in `AGENTS.md` and `docs/implementation-tips/README.md`; and documented the assertion coverage basis and `make test-int` versus `make test-release` scenario overlap assessment in `docs/implementation-tips/development-verification.md`. | Verified `./internal/architecture` and `./internal/builtin` under `-p 1 -race -count=1`, preserved dependency-direction, AST ownership, no-skip, and release-cleanup guards, verified `gofmt -l` and `git diff --check`, and recorded the rationale for retaining all seven isolated-release-fixture scenarios in `make test-release`. |
-| TASK-074 | Planned | Verify the integrated improvement, promote operating guidance and measured outcomes, retire the dossier and prepare Epic acceptance. | One complete native offline backstop and affected exact-release checks on the final candidate, comparable focused observations, honest remaining limits, reconciled canonical documents and explicit Epic acceptance. |
+| TASK-073 | Completed | Replaced the hardcoded `RELEASE_VERSION := v0.1.26` literal and exact 7-occurrence `main.buildVersion=$(RELEASE_VERSION)` count in `TestMakefileContract` with structural `RELEASE_VERSION := v<major>.<minor>.<patch>` and per-target stamping checks across all seven exact-binary targets; removed unexported helper-name pins in `TestE2ELiveFamilyCapabilityAndNoSkipContract` and `TestMCPContractProjectionOwnership`; removed multi-line ordinary-prose and line-wrap assertions in `TestCatalogHelpCoversProjectLocalInitContract` while retaining public contract, grammar, version-rejection, and legacy-path tokens; synchronized release guidance in `AGENTS.md` and `docs/implementation-tips/README.md`; and documented the assertion coverage basis and `make test-int` versus `make test-release` scenario overlap assessment in `docs/implementation-tips/development-verification.md`. | Verified `./internal/architecture` and `./internal/builtin` under `-p 1 -race -count=1`, preserved dependency-direction, AST ownership, no-skip, and release-cleanup guards, verified `gofmt -l` and `git diff --check`, and recorded the rationale for retaining all seven isolated-release-fixture scenarios in `make test-release` (`eebc6d9`). |
+| TASK-074 | Completed | Verified the integrated candidate (`eebc6d9`) across matched focused CLI and integration measurements, `make test-offline`, and `make test-release`; promoted fixture/cache lifetime rules, measured outcomes, and remaining limits to `docs/implementation-tips/development-verification.md`; retired the temporary execution dossier and its TODO index entry; and prepared `EPIC-015` for explicit Epic acceptance. | Matched focused measurements on `eebc6d9` (`go1.27.1 darwin/arm64`, warm host `GOCACHE`, `MULGAE_E2E_BINARY` unset: CLI `5.852s` vs `62.333s` baseline; `./test/e2e` `19.541s` vs `35.318s` baseline), complete `make test-offline` (`2357.1s`, `exit 0`), `make test-release` (`166.0s`, `exit 0`), unexecuted live-provider gates disclosed under the harness-only policy, `./internal/architecture` under `-race`, link/reference verification, and `git diff --check` (this closeout change). |
 
-TASK-070 through TASK-074 run sequentially. Each Task after the first depends
-on its predecessor. TASK-070 updated the Makefile, optional Gaori command
-mapping, AGENTS.md and contributor guidance in the same change to activate
-`make test-offline` and `gaori run offline`. The Gaori alias is an optional
-way to run the same gate. At `4beb843` on `go1.27.1 darwin/arm64` with
-`MULGAE_E2E_BINARY` unset and a warm host `GOCACHE`, the focused baseline
-commands recorded `62.333s` (`62.759s` initial run) for
+TASK-070 through TASK-074 ran in the listed order; each Task after the first
+depended on its predecessor. Scope, measurement procedure, and temporary
+execution details were owned by the retired execution dossier, preserved in Git
+history; durable outcomes are the canonical commits and documents above. At
+`4beb843` on `go1.27.1 darwin/arm64` with `MULGAE_E2E_BINARY` unset and a warm
+host `GOCACHE`, the focused baseline commands recorded `62.333s` (`62.759s`
+initial run) for
 `go test -p 1 -race -count=1 ./internal/entrypoint/mulgae -run '^(TestApplicationHelpAndUsageOutput|TestApplicationG006FailureParityAcrossCommands)$'`
 and `35.318s` (`29.389s` initial run) for
-`go test -p 1 -race -count=1 ./test/e2e -run '^(TestIntegrationIsolatedReleaseFixtureProjectContext|TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow)$'`.
+`go test -p 1 -race -count=1 ./test/e2e -run '^(TestIntegrationIsolatedReleaseFixtureProjectContext|TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow)$'`;
+on the integrated candidate `eebc6d9`, the same commands completed in `5.852s`
+and `19.541s`, respectively.
 
 The offline aggregate runs preparation, unit and integration stages once.
 Existing complete unit/integration target flags remain unchanged, including
-race instrumentation and package serialization. Later Tasks use focused
-checks; TASK-074 owns the complete offline backstop on native Apple Silicon
-macOS. A correction invalidates affected evidence and requires those checks
-again; broader repetition needs a shared change or unresolved failure that
-invalidates the broader result.
+race instrumentation and package serialization. Later Tasks used focused
+checks, and TASK-074 executed the complete `make test-offline` (`2357.1s`) and
+`make test-release` (`166.0s`) backstops on native Apple Silicon macOS. A
+correction invalidates affected evidence and requires those checks again;
+broader repetition needs a shared change or unresolved failure that invalidates
+the broader result.
 
 Preserve `make test` as the full gate, including exact release binaries,
 mandatory ZCode live checks and conditional Codex execution. The separately
 adopted `v0.1.26` five-provider release-candidate obligation remains in force.
-After TASK-070 activates the development policy, this harness-only Epic does
-not require a routine live campaign. Record live checks as unexecuted and make
-no new provider compatibility or release-readiness claim.
+Under the development policy activated in TASK-070, this harness-only Epic did
+not execute live-provider campaigns (`make test-e2e`, `make test-grok`,
+`make test-cursor`, `make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`)
+and makes no new provider compatibility or release-readiness claim.
 
 Keep production validation, publication integrity, historical fixture bytes
 and consumers, dependency direction, credential/filesystem isolation and
 cancellation behavior. Compiler-cache reuse does not authorize sharing mutable
 native homes or weakening the confined caches in release design gates.
-DF-028 remains open; this Epic does not prescribe global parallelism.
+DF-028 and DF-029 remain open; this Epic does not prescribe global parallelism.
 
 ### Epic acceptance
 
-- [ ] Every member Task has implementation and scoped verification evidence; the planned command and active guidance agree.
-- [ ] Repeated fixture construction and empty-cache builds are reduced where safe, with matched focused observations and preserved behavior; historical timing samples are not used as a performance baseline.
-- [ ] Constructor-negative tests, independent mutable fixtures, real-schema checks, historical compatibility and trust boundaries remain effective.
-- [ ] Ordinary-prose and implementation-spelling assertions are simplified without losing a required behavior; justified integration/release overlap may remain.
-- [ ] One complete offline backstop and affected exact-release checks pass on the final native candidate; failures, invalidated evidence and remaining limits are reported accurately.
-- [ ] Mandatory release obligations, including the separate five-provider requirement, remain intact and unexecuted live checks are disclosed.
-- [ ] Durable guidance and concise outcomes are promoted; the dossier and its index entry are retired and the roadmap links canonical outcomes.
+- [x] Every member Task has implementation and scoped verification evidence; the planned command and active guidance agree (`1c446eb`, `375ae33`, `229ecc8`, `eebc6d9`, and this closeout change).
+- [x] Repeated fixture construction and empty-cache builds are reduced where safe, with matched focused observations and preserved behavior; historical timing samples are not used as a performance baseline (CLI selection `62.333s` -> `5.170s` post-`TASK-071` / `5.852s` on `eebc6d9`; `./test/e2e` selection `35.318s` -> `16.948s` post-`TASK-072` / `19.541s` on `eebc6d9`, with `2315` compiler-cache entries reused across fixture builds).
+- [x] Constructor-negative tests, independent mutable fixtures, real-schema checks, historical compatibility and trust boundaries remain effective (`TestSharedFoundationAssetsConcurrentReuseAndIsolation`, `TestBuildHelpersReuseCompilerCacheAndIsolateMutableOutputs`, and full offline/release suites on `eebc6d9`).
+- [x] Ordinary-prose and implementation-spelling assertions are simplified without losing a required behavior; justified integration/release overlap may remain (`eebc6d9`; all seven isolated-release-fixture scenarios retained in `make test-release` for `-trimpath` and real `RELEASE_VERSION`/`HEAD` linker verification).
+- [x] One complete offline backstop and affected exact-release checks pass on the final native candidate; failures, invalidated evidence and remaining limits are reported accurately (`make test-offline` passed in `2357.1s` and `make test-release` passed in `166.0s` on `eebc6d9`; per-subtest `git init`/`git commit`, per-fixture linking/fake-provider generation, `DF-028`/`DF-029`, and `go vet ./...` test-file coverage documented).
+- [x] Mandatory release obligations, including the separate five-provider requirement, remain intact and unexecuted live checks are disclosed (`make test-e2e`, `make test-grok`, `make test-cursor`, `make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in` reported as unexecuted under the harness-only policy).
+- [x] Durable guidance and concise outcomes are promoted; the dossier and its index entry are retired and the roadmap links canonical outcomes (this closeout change).
 - [ ] Master explicitly accepts this Epic; completing its Tasks does not substitute for Epic acceptance.
