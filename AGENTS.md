@@ -365,13 +365,16 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   increment. Treat Master's statement as the authoritative verification waiver;
   do not require prior artifacts, reconstruct the earlier run, or rerun
   `make test`. The diff since the user-accepted result must be limited to the
-  release-version declaration, its matching test assertion, release notes, and
-  release-procedure documentation or agent guidance; it must not change runtime
-  behavior, schemas, embedded assets, dependencies, build inputs, provider
-  policy, or tool configuration. In that case run `make test-prepare`,
+  `RELEASE_VERSION` declaration in `Makefile`, release notes, and
+  release-procedure documentation or agent guidance (`TestMakefileContract`
+  checks the `RELEASE_VERSION` declaration format and `MULGAE_RELEASE_VERSION`
+  wiring without pinning a duplicated version literal); it must not change
+  runtime behavior, schemas, embedded assets, dependencies, build inputs,
+  provider policy, or tool configuration. In that case run `make test-prepare`,
   `make test-unit`, and `make test-int`, then build the exact commit into an
   isolated temporary `GOBIN` and verify both `mulgae version` and
-  `mulgae version --json` report the new version. The public version result does
+  `mulgae version --json` report the new version (alongside `internal/releasecheck`
+  when `make test-release` runs). The public version result does
   not expose the build revision. Report that Master waived a repeated full gate
   and that release-binary and live E2E targets were not rerun. If any condition
   is not satisfied, run `make test`.

@@ -1100,9 +1100,11 @@ The repository intentionally has no GitHub Actions release workflow:
 9. create and publish the GitHub Release for that exact tag as a separate
    explicit operation, using the settled changelog entries;
 10. after verifying the hosted Release, immediately open the next planned
-    release cycle in a separate change by advancing `RELEASE_VERSION` and its
-    architecture assertion and prepending an empty `Unreleased` changelog
-    section.
+    release cycle in a separate change by advancing `RELEASE_VERSION` in
+    `Makefile` and prepending an empty `Unreleased` changelog section
+    (`TestMakefileContract` checks the `RELEASE_VERSION` declaration format and
+    `MULGAE_RELEASE_VERSION` wiring, while `make test-release` verifies the
+    installed binary version).
 
 During development, record concise user-visible outcomes under `Added`,
 `Changed`, or `Fixed` in the current `Unreleased` section.

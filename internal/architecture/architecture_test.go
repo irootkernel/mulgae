@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -85,7 +86,7 @@ func TestMCPContractProjectionOwnership(t *testing.T) {
 	}
 	for path, required := range map[string][]string{
 		filepath.Join(root, "internal", "entrypoint", "mcp", "resources.go"): {
-			"func ParseResourceURI", "func projectResource", "func resourceChunkEnd",
+			"func ParseResourceURI",
 		},
 		filepath.Join(root, "internal", "entrypoint", "mcp", "projection.go"): {
 			"func ProjectRunStatus", "func ProjectInspection",
@@ -273,8 +274,8 @@ func TestMakefileContract(t *testing.T) {
 	if integrationEnd <= integrationStart || !strings.Contains(text[integrationStart:integrationEnd], "test -p 1 ") {
 		t.Fatal("test-int does not serialize race-instrumented package execution")
 	}
-	if !strings.Contains(text, "RELEASE_VERSION := v0.1.26") {
-		t.Fatal("Makefile does not declare the v0.1.26 release version")
+	if !regexp.MustCompile(`(?m)^RELEASE_VERSION := v[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(text) {
+		t.Fatal("Makefile does not declare a valid RELEASE_VERSION := v<major>.<minor>.<patch>")
 	}
 	releaseStart := integrationEnd
 	releaseEnd := strings.Index(text, "\ntest-e2e:")
@@ -303,9 +304,6 @@ func TestMakefileContract(t *testing.T) {
 	}
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
-	}
-	if strings.Count(text, "main.buildVersion=$(RELEASE_VERSION)") != 7 {
-		t.Fatal("release, mandatory E2E, opt-in E2E, Grok, Cursor, AGY, and MCP client binaries do not share RELEASE_VERSION")
 	}
 	if strings.Contains(text, "$(MAKE) test-cursor") || strings.Contains(text, "$(MAKE) test-agy") {
 		t.Fatal("the default test gate includes a standalone Cursor or AGY review")
@@ -347,11 +345,13 @@ func TestMakefileContract(t *testing.T) {
 			t.Errorf("test-e2e-opt-in missing Codex-profile token %q", required)
 		}
 	}
+	cursorStart := strings.Index(text, "\ntest-cursor:")
+	agyStart := strings.Index(text, "\ntest-agy:")
 	mcpClientStart := strings.Index(text, "\ntest-mcp-clients:")
-	if mcpClientStart <= grokStart {
-		t.Fatal("Makefile does not define the Grok gate before the MCP client gate")
+	if cursorStart <= grokStart || agyStart <= cursorStart || mcpClientStart <= agyStart {
+		t.Fatal("Makefile does not define Cursor and AGY gates between Grok and the MCP client gate")
 	}
-	grokTarget := text[grokStart:mcpClientStart]
+	grokTarget := text[grokStart:cursorStart]
 	for _, required := range []string{
 		"MULGAE_LIVE_GROK_BIN", "-tags=liveprovider", "-run '^TestLiveGrokCapability$$'",
 		"MULGAE_E2E_GROK_EXECUTABLE", "main.buildVersion=$(RELEASE_VERSION)",
@@ -366,11 +366,6 @@ func TestMakefileContract(t *testing.T) {
 	if capabilityEnd < 0 || reviewStart <= capabilityEnd {
 		t.Fatal("test-grok does not stop before the exact-binary review when capability certification fails")
 	}
-	cursorStart := strings.Index(text, "\ntest-cursor:")
-	agyStart := strings.Index(text, "\ntest-agy:")
-	if cursorStart <= grokStart || agyStart <= cursorStart || mcpClientStart <= agyStart {
-		t.Fatal("Makefile does not define Cursor and AGY gates between Grok and the MCP client gate")
-	}
 	cursorTarget := text[cursorStart:agyStart]
 	for _, required := range []string{
 		"MULGAE_E2E_CURSOR_EXECUTABLE", "CURSOR_AUTH_TOKEN", "main.buildVersion=$(RELEASE_VERSION)",
@@ -383,6 +378,21 @@ func TestMakefileContract(t *testing.T) {
 	}
 	if strings.Contains(cursorTarget, "command -v") || strings.Contains(cursorTarget, "LookPath") {
 		t.Fatal("test-cursor resolves Cursor through PATH")
+	}
+	agyTarget := text[agyStart:mcpClientStart]
+	mcpClientTarget := text[mcpClientStart:]
+	for targetName, targetSlice := range map[string]string{
+		"test-release":     releaseTarget,
+		"test-e2e":         e2eTarget,
+		"test-e2e-opt-in":  optInTarget,
+		"test-grok":        grokTarget,
+		"test-cursor":      cursorTarget,
+		"test-agy":         agyTarget,
+		"test-mcp-clients": mcpClientTarget,
+	} {
+		if !strings.Contains(targetSlice, "main.buildVersion=$(RELEASE_VERSION)") {
+			t.Errorf("%s does not stamp main.buildVersion=$(RELEASE_VERSION)", targetName)
+		}
 	}
 	capability := strings.Index(e2eTarget, "-tags=liveprovider")
 	workflow := strings.Index(e2eTarget, "-tags=live_e2e")
@@ -731,8 +741,6 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	workflowText := string(workflowData)
 	for _, required := range []string{
 		"func TestE2EZCodeGrokReviewAggregation", `"logic": "zcode-logic"`, `"security": "zcode-security"`,
-		"configureLiveMixedReview", "validateLiveSingleInvocationGate", "assertLiveRoleReportMarker", "assertLiveReportsOnlyAggregation",
-		"validateLiveProviderQualificationHealth", "validateLiveRecoverableAssignments", "validateLivePrimaryProcessTerminals",
 		"MULGAE_E2E_BINARY", "MULGAE_E2E_ZCODE_APP_BUNDLE",
 	} {
 		if !strings.Contains(workflowText, required) {
@@ -741,14 +749,6 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	if strings.Contains(workflowText, "MULGAE_E2E_AGY_EXECUTABLE") || strings.Contains(workflowText, "MULGAE_E2E_KIMI_EXECUTABLE") || strings.Contains(workflowText, "MULGAE_E2E_KIMI_DATA_HOME") {
 		t.Fatal("mandatory exact-binary workflow still requires AGY or Kimi")
-	}
-	if strings.Contains(workflowText, "validateLivePrimaryProcessOverlap") || strings.Contains(workflowText, "maxAttempts = 3") {
-		t.Fatal("exact-binary live workflow restored an obsolete overlap or three-attempt predicate")
-	}
-	for _, obsolete := range []string{"runLiveChildProductionWorkflows", "assertLiveStructuredExtraction", "assertLiveSecurityDefect"} {
-		if strings.Contains(workflowText, obsolete) {
-			t.Errorf("exact-binary live workflow still contains obsolete deep-workflow token %q", obsolete)
-		}
 	}
 	if strings.Contains(workflowText, ".Skip(") || strings.Contains(workflowText, ".Skipf(") {
 		t.Fatal("exact-binary actual-provider workflow may not skip prerequisites")

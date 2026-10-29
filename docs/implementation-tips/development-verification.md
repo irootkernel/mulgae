@@ -167,6 +167,86 @@ version/revision inputs, test instrumentation, fixture lifetimes and isolation.
 Keep repetitions that prove distinct required claims and record the rationale;
 deleting scenarios is not a completion quota.
 
+### Assertion coverage basis (`TASK-073`)
+
+- **`RELEASE_VERSION` and linker stamping (`TestMakefileContract`)**: `Makefile`
+  owns the release version literal. `TestMakefileContract` verifies that
+  `Makefile` declares a valid `RELEASE_VERSION := v<major>.<minor>.<patch>`
+  line, passes `MULGAE_RELEASE_VERSION` to `./internal/releasecheck` in
+  `test-release`, and stamps `main.buildVersion=$(RELEASE_VERSION)` in each of
+  the seven exact-binary target slices (`test-release`, `test-e2e`,
+  `test-e2e-opt-in`, `test-grok`, `test-cursor`, `test-agy`, and
+  `test-mcp-clients`). `internal/releasecheck` (`TestInstalledRootModuleContract`)
+  and the manual/waiver temporary-`GOBIN` checks verify `mulgae --version`,
+  `mulgae version`, and `mulgae version --json` on the installed binary.
+- **Live E2E and MCP projection ownership (`TestE2ELiveFamilyCapabilityAndNoSkipContract`, `TestMCPContractProjectionOwnership`)**:
+  `TestE2ELiveFamilyCapabilityAndNoSkipContract` retains the exported test
+  entrypoints (`TestLiveZCodeCapability`, `TestLiveGrokCapability`,
+  `TestE2EZCodeGrokReviewAggregation`, `TestE2EOptInCodexCredentialProfiles`),
+  `QualifyCurrent`, role/profile routing (`zcode-logic`, `zcode-security`,
+  `codex-primary-logic`, `codex-primary-security`,
+  `codex-secondary-documentation`), required and forbidden environment
+  variables, and the no-`.Skip(`/`.Skipf(` invariant across all three live test
+  files without pinning unexported helper names in `test/e2e/live_test.go`.
+  `TestMCPContractProjectionOwnership` retains the forbidden composition tokens
+  and exported MCP entrypoints (`ParseResourceURI`, `ProjectRunStatus`,
+  `ProjectInspection`) alongside the AST ownership guards in
+  `internal/architecture/ownership_boundaries_test.go`, without pinning
+  unexported helper names (`projectResource`, `resourceChunkEnd`).
+- **Embedded help and catalog contracts (`TestCatalogHelpCoversProjectLocalInitContract`, `TestCatalogDocumentationContract`)**:
+  `TestCatalogHelpCoversProjectLocalInitContract` retains the configuration
+  authority paths (`<canonical-project-root>/.mulgae/config.yaml`,
+  `<canonical-project-root>/.mulgae/local.yaml`), `--providers auto|FAMILY[,FAMILY...]`
+  grammar, the `FAMILY := zcode | grok | codex | cursor | agy` set,
+  `execution.workspace_access` and `Config v2` rejection tokens, and forbidden
+  legacy paths (`~/.config/mulgae`, `$XDG_CONFIG_HOME/mulgae`,
+  `--providers kimi`) without pinning multi-line paragraph prose or `\n` line
+  wrapping. `TestCatalogDocumentationContract` remains unchanged because it
+  exercises `Catalog.List` client-side kind filtering and `Catalog.Read`
+  context-cancellation behavior.
+
+### Integration and release scenario overlap assessment (`TASK-073`)
+
+The seven `TestIntegrationIsolatedReleaseFixture*` scenarios in
+`test/e2e/cli_integration_test.go` (`LiveSelectors`,
+`CancelsLiveReviewWithoutReplay`, `ProjectContext`, `GuardedAdmission`,
+`VerifiedContent`, `VerifiedWorkflow`, and `Requirements`) execute in both
+`make test-int` and `make test-release` under distinct build and artifact
+conditions:
+
+1. **`make test-int` (per-test unstripped development binaries)**: runs the Go
+   test binary under `-race -p 1` with `MULGAE_E2E_BINARY` unset. Each scenario
+   invokes `buildMulgaeBinary`, which builds a separate unstripped binary
+   (without `-trimpath`), stamps synthetic linker metadata
+   (`main.buildVersion=v1.4.2`,
+   `main.buildRevision=0123456789abcdef0123456789abcdef01234567`), and binds a
+   per-test `<binary>.native-home` via `buildNativeHomeOverride`.
+2. **`make test-release` Step 1 (`./internal/releasecheck` on installed `GOBIN/mulgae`)**:
+   installs the unmodified production binary with `$(GO) install -trimpath` and
+   real `RELEASE_VERSION` / `HEAD` revision linker flags (without
+   `buildNativeHomeOverride`) into an isolated mode-`0700` `GOBIN`, then verifies
+   `debug/buildinfo` (`-trimpath=true`, `vcs.revision=HEAD`),
+   `mulgae --version`, `mulgae version`, `mulgae version --json`, and help output.
+3. **`make test-release` Step 2 (shared `-trimpath` release-stamped isolated-fixture binary)**:
+   builds one shared binary **with** `-trimpath`, real
+   `main.buildVersion=$(RELEASE_VERSION)`, real
+   `main.buildRevision=$$(git rev-parse HEAD)`, and `buildNativeHomeOverride`
+   inside the guarded mode-`0700` `mulgae-release.*` temporary root, then runs
+   all seven scenarios against that single prebuilt binary via
+   `MULGAE_E2E_BINARY`.
+
+All seven scenarios are retained in `make test-release`: Step 2 proves that a
+ single `-trimpath` binary stamped with the real `RELEASE_VERSION` and `HEAD`
+commit revision (and injected via `MULGAE_E2E_BINARY`) satisfies
+`buildIdentityFrom` and every end-to-end CLI/MCP live-selector, cancellation,
+project-context, guarded-admission, verified-content, verified-workflow, and
+requirements contract without reading the operator's real `HOME`—a claim that
+neither `make test-int` (no `-trimpath`, synthetic version/revision, per-test
+builds) nor `internal/releasecheck` (version/help/buildinfo only) establishes
+alone. Reusing the single `release_fixture_binary` in `make test-release` and
+the shared compiler cache from `TASK-072` in `make test-int` already eliminates
+redundant cold-compilation overhead without reducing scenario coverage.
+
 ## Known limits
 
 [DF-028](../deferred-feedback/README.md#deferred-feedback) records an unresolved
