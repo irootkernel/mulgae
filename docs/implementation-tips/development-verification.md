@@ -1,16 +1,15 @@
 # Development verification policy
 
-This is the adopted design for [EPIC-015](../roadmap/README.md#epic-015-development-verification-simplification).
-TASK-070 will activate it by changing the Makefile, optional Gaori command
-mapping, agent guidance and contributor guidance together. Until then, the
-[current verification guidance](README.md#local-checks), [Makefile](../../Makefile)
-and [AGENTS.md](../../AGENTS.md) remain in force. The planned `make test-offline`
-and `gaori run offline` entry points are not available yet.
+This page defines the active development verification policy for
+[EPIC-015](../roadmap/README.md#epic-015-development-verification-simplification),
+activated in `TASK-070` across the [Makefile](../../Makefile), optional
+[Gaori configuration](../../.gaori/tester.yaml), [AGENTS.md](../../AGENTS.md)
+and [contributor verification guidance](README.md#local-checks).
 
 The [execution dossier](../todo/development-verification-simplification.md) owns
-the temporary implementation plan and measurement procedure. The roadmap owns
-Task order and status. This page is the destination for the operating policy
-after implementation.
+the temporary implementation plan and measurement procedure for `TASK-071`
+through `TASK-074`. The [roadmap](../roadmap/README.md) owns Task order and
+status.
 
 ## Purpose and scope
 
@@ -24,7 +23,7 @@ repository guidance. It does not change provider policy, public commands or
 schemas, production validation, publication authority, accounts or installed
 tools. A production behavior change needs its own explicit scope and evidence.
 
-## Planned command contract
+## Command contract
 
 | Entry point | Claim and execution |
 |---|---|
@@ -34,7 +33,7 @@ tools. A production behavior change needs its own explicit scope and evidence.
 | `make test` | Runs the offline stages once, followed by `test-release`, mandatory `test-e2e` and conditional `test-e2e-opt-in`. It retains the existing full-gate meaning. |
 | Standalone provider and client targets | Remain explicit checks for the provider or client contract being changed and for release obligations. |
 
-The planned `gaori run offline` alias invokes `make test-offline` through the
+The `gaori run offline` alias invokes `make test-offline` through the
 [Gaori configuration](../../.gaori/tester.yaml). Gaori remains an optional
 execution adapter for the same check and adds no acceptance step.
 
@@ -60,7 +59,7 @@ providers, including the standalone Grok, Cursor and AGY campaigns and enabled
 Codex profile checks, on the release candidate. The normal `make test` default
 alone does not discharge that additional obligation.
 
-EPIC-015 changes the development completion policy through TASK-070. Its
+EPIC-015 activated this development completion policy in TASK-070. Its
 harness-only scope does not require a routine live-provider rerun after each
 Task or at Epic closeout. Report live checks as unexecuted for this Epic and
 make no new native-provider compatibility claim. Existing release obligations,

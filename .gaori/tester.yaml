@@ -15,6 +15,11 @@ commands:
     tags: [go, integration]
     parser: go-test
     timeout_sec: 6000
+  offline:
+    command: ["make", "test-offline"]
+    tags: [go, offline]
+    parser: generic
+    timeout_sec: 15600
   release:
     command: ["make", "test-release"]
     tags: [go, release]

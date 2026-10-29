@@ -4,16 +4,20 @@ RELEASE_VERSION := v0.1.26
 MCP_CLIENT_TAGS := mcpclientcheck
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
-.PHONY: test test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients
+.PHONY: test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients
 
 test:
-	@$(MAKE) test-prepare
-	@$(MAKE) test-unit
-	@$(MAKE) test-int
+	@$(MAKE) test-offline
 	@$(MAKE) test-release
 	@$(MAKE) test-e2e
 	@$(MAKE) test-e2e-opt-in
 	@printf '%s\n' '[test] completed'
+
+test-offline:
+	@$(MAKE) test-prepare
+	@$(MAKE) test-unit
+	@$(MAKE) test-int
+	@printf '%s\n' '[test-offline] completed'
 
 test-prepare:
 	$(GO) generate ./internal/app/init

@@ -211,23 +211,57 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, target := range []string{"test:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-grok:", "test-cursor:", "test-agy:"} {
+	for _, target := range []string{"test:", "test-offline:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-grok:", "test-cursor:", "test-agy:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
 		}
 	}
-	positions := []int{
-		strings.Index(text, "$(MAKE) test-prepare"),
-		strings.Index(text, "$(MAKE) test-unit"),
-		strings.Index(text, "$(MAKE) test-int"),
-		strings.Index(text, "$(MAKE) test-release"),
-		strings.Index(text, "$(MAKE) test-e2e"),
-		strings.Index(text, "$(MAKE) test-e2e-opt-in"),
+	testStart := strings.Index(text, "\ntest:")
+	offlineStart := strings.Index(text, "\ntest-offline:")
+	prepareStart := strings.Index(text, "\ntest-prepare:")
+	if testStart < 0 || offlineStart <= testStart || prepareStart <= offlineStart {
+		t.Fatal("Makefile does not define test, test-offline, and test-prepare in order")
 	}
-	for index, position := range positions {
-		if position < 0 || index > 0 && position <= positions[index-1] {
-			t.Fatalf("Makefile test order is not sequential: %v", positions)
+	testTarget := text[testStart:offlineStart]
+	fullPositions := []int{
+		strings.Index(testTarget, "$(MAKE) test-offline"),
+		strings.Index(testTarget, "$(MAKE) test-release"),
+		strings.Index(testTarget, "$(MAKE) test-e2e"),
+		strings.Index(testTarget, "$(MAKE) test-e2e-opt-in"),
+	}
+	for index, position := range fullPositions {
+		if position < 0 || index > 0 && position <= fullPositions[index-1] {
+			t.Fatalf("Makefile test order is not sequential: %v", fullPositions)
 		}
+	}
+	for _, duplicated := range []string{"$(MAKE) test-prepare", "$(MAKE) test-unit", "$(MAKE) test-int"} {
+		if strings.Contains(testTarget, duplicated) {
+			t.Fatalf("Makefile test target duplicates offline stage %q", duplicated)
+		}
+	}
+	offlineTarget := text[offlineStart:prepareStart]
+	offlinePositions := []int{
+		strings.Index(offlineTarget, "$(MAKE) test-prepare"),
+		strings.Index(offlineTarget, "$(MAKE) test-unit"),
+		strings.Index(offlineTarget, "$(MAKE) test-int"),
+	}
+	for index, position := range offlinePositions {
+		if position < 0 || index > 0 && position <= offlinePositions[index-1] {
+			t.Fatalf("Makefile test-offline order is not sequential: %v", offlinePositions)
+		}
+	}
+	for _, forbidden := range []string{"test-release", "test-e2e", "test-e2e-opt-in", "test-grok", "test-cursor", "test-agy"} {
+		if strings.Contains(offlineTarget, forbidden) {
+			t.Fatalf("Makefile test-offline references non-offline stage %q", forbidden)
+		}
+	}
+	gaoriData, err := os.ReadFile(filepath.Join(repositoryRoot(t), ".gaori", "tester.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gaoriText := string(gaoriData)
+	if !strings.Contains(gaoriText, "\n  offline:\n    command: [\"make\", \"test-offline\"]\n") {
+		t.Fatal(".gaori/tester.yaml does not map offline to make test-offline")
 	}
 	unitStart := strings.Index(text, "\ntest-unit:")
 	unitEnd := strings.Index(text, "\ntest-int:")
@@ -354,6 +388,131 @@ func TestMakefileContract(t *testing.T) {
 	workflow := strings.Index(e2eTarget, "-tags=live_e2e")
 	if workflow < 0 || capability <= workflow {
 		t.Fatal("test-e2e does not run the login-recovering exact-binary production workflow before family capability certification")
+	}
+}
+
+func TestMakefileOfflineAndFullGateOrchestration(t *testing.T) {
+	root := repositoryRoot(t)
+	makeBinary, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	makefilePath := filepath.Join(root, "Makefile")
+	bin := t.TempDir()
+	fakeGo := filepath.Join(bin, "fake-go")
+	if err := os.WriteFile(fakeGo, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fakeMake := filepath.Join(bin, "fake-make")
+	fakeMakeScript := `#!/bin/sh
+target=""
+for arg in "$@"; do
+	case "$arg" in
+		test|test-offline|test-prepare|test-unit|test-int|test-release|test-e2e|test-e2e-opt-in|test-grok|test-cursor|test-agy)
+			target="$arg"
+			;;
+	esac
+done
+printf '%s\n' "$target" >> "$FAKE_MAKE_LOG"
+if [ "$target" = "test" ] || [ "$target" = "test-offline" ]; then
+	MAKEFLAGS= exec "$REAL_MAKE" --no-print-directory -f "$MAKEFILE_PATH" "MAKE=$SELF_MAKE" "GO=$FAKE_GO" "$target"
+fi
+if [ "$target" = "${FAKE_MAKE_FAIL_TARGET:-}" ]; then
+	exit 17
+fi
+exit 0
+`
+	if err := os.WriteFile(fakeMake, []byte(fakeMakeScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	runGate := func(t *testing.T, target string, failTarget string) (string, string, error) {
+		t.Helper()
+		logPath := filepath.Join(t.TempDir(), "make.log")
+		command := exec.Command(fakeMake, target)
+		command.Dir = root
+		command.Env = append(
+			os.Environ(),
+			"REAL_MAKE="+makeBinary,
+			"MAKEFILE_PATH="+makefilePath,
+			"SELF_MAKE="+fakeMake,
+			"FAKE_GO="+fakeGo,
+			"FAKE_MAKE_LOG="+logPath,
+			"FAKE_MAKE_FAIL_TARGET="+failTarget,
+		)
+		output, runErr := command.CombinedOutput()
+		logBytes, readErr := os.ReadFile(logPath)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		return string(output), string(logBytes), runErr
+	}
+
+	t.Run("test-offline runs prepare unit and int once in order", func(t *testing.T) {
+		output, logText, runErr := runGate(t, "test-offline", "")
+		if runErr != nil {
+			t.Fatalf("test-offline failed: %v\n%s", runErr, output)
+		}
+		wantLog := "test-offline\ntest-prepare\ntest-unit\ntest-int\n"
+		if logText != wantLog {
+			t.Fatalf("test-offline invocation log = %q, want %q", logText, wantLog)
+		}
+		if !strings.Contains(output, "[test-offline] completed\n") {
+			t.Fatalf("test-offline output missing completion marker:\n%s", output)
+		}
+	})
+
+	t.Run("test runs test-offline once before release and live stages", func(t *testing.T) {
+		output, logText, runErr := runGate(t, "test", "")
+		if runErr != nil {
+			t.Fatalf("test failed: %v\n%s", runErr, output)
+		}
+		wantLog := "test\ntest-offline\ntest-prepare\ntest-unit\ntest-int\ntest-release\ntest-e2e\ntest-e2e-opt-in\n"
+		if logText != wantLog {
+			t.Fatalf("test invocation log = %q, want %q", logText, wantLog)
+		}
+		if !strings.Contains(output, "[test-offline] completed\n") || !strings.Contains(output, "[test] completed\n") {
+			t.Fatalf("test output missing completion markers:\n%s", output)
+		}
+	})
+
+	for _, tc := range []struct {
+		name       string
+		gate       string
+		failTarget string
+		wantLog    string
+	}{
+		{
+			name:       "test-offline stops when test-prepare fails",
+			gate:       "test-offline",
+			failTarget: "test-prepare",
+			wantLog:    "test-offline\ntest-prepare\n",
+		},
+		{
+			name:       "test-offline stops when test-unit fails",
+			gate:       "test-offline",
+			failTarget: "test-unit",
+			wantLog:    "test-offline\ntest-prepare\ntest-unit\n",
+		},
+		{
+			name:       "test stops before release and live stages when test-int fails",
+			gate:       "test",
+			failTarget: "test-int",
+			wantLog:    "test\ntest-offline\ntest-prepare\ntest-unit\ntest-int\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, logText, runErr := runGate(t, tc.gate, tc.failTarget)
+			if runErr == nil {
+				t.Fatalf("%s succeeded when %s failed:\n%s", tc.gate, tc.failTarget, output)
+			}
+			if logText != tc.wantLog {
+				t.Fatalf("%s invocation log on %s failure = %q, want %q", tc.gate, tc.failTarget, logText, tc.wantLog)
+			}
+			if strings.Contains(output, "[test-offline] completed") || strings.Contains(output, "[test] completed") {
+				t.Fatalf("%s printed completion marker after %s failure:\n%s", tc.gate, tc.failTarget, output)
+			}
+		})
 	}
 }
 

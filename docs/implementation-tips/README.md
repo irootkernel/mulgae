@@ -25,26 +25,27 @@ launcher value, so its minimum and verified-latest guidance remain 0.16.5.
 App releases above 3.12.3 and launcher protocol releases above 0.16.5 remain
 eligible as `newer_than_verified`; the two version axes are never substituted.
 
-## Planned verification simplification
+## Verification simplification
 
 [EPIC-015](../roadmap/README.md#epic-015-development-verification-simplification)
-adopts [development verification policy](development-verification.md) and an
-[execution dossier](../todo/development-verification-simplification.md) for
-fixture reuse, compiler-cache reuse and assertion cleanup. TASK-070 will add
-and activate the offline aggregate with its matching agent and contributor
-guidance. Until that change, the commands and requirements below remain in
-force; `make test-offline` is a planned command.
+defines the active [development verification policy](development-verification.md)
+and the [execution dossier](../todo/development-verification-simplification.md)
+for fixture reuse, compiler-cache reuse and assertion cleanup. `TASK-070`
+activated `make test-offline`, `gaori run offline`, and proportional
+verification guidance; `TASK-071` through `TASK-074` continue under the
+dossier.
 
 ## Local checks
 
-The complete gate is:
+The complete release gate is:
 
 ```bash
 make test
 ```
 
-It runs generators and static checks, serialized race-instrumented unit tests,
-serialized race-instrumented integration tests, one exact-binary two-role live
+It runs `make test-offline` once (generators and static checks, serialized
+race-instrumented unit tests, and serialized race-instrumented integration
+tests), followed by `make test-release`, one exact-binary two-role live
 review, and independent live capability certification for ZCode. The
 live review routes `logic` and `security` to ZCode concurrently, accepts
 one Markdown report from each role without repair or structured extraction,
@@ -54,6 +55,15 @@ objective, so a report that merely claims it could not read the target does not
 certify original-source access. The complete gate then invokes the opt-in Codex
 profile target, which reports a stable skip unless `MULGAE_E2E_OPT_IN=1` is
 present.
+
+The complete deterministic offline development gate is:
+
+```bash
+make test-offline
+```
+
+It runs `test-prepare`, `test-unit`, and `test-int` once each in order and
+stops on the first failure without invoking release or live-provider targets.
 
 The mandatory live gate uses its existing bounded whole-review retry helper.
 The separately authorized EPIC-008 requirements demonstration must use one
@@ -93,6 +103,7 @@ private evidence permissions, credential screening, and failure guidance.
 Smaller targets are available while iterating:
 
 ```bash
+make test-offline
 make test-prepare
 make test-unit
 make test-int
@@ -277,6 +288,7 @@ defines these commands:
 | `prepare` | `make test-prepare` | `generic` | `go`, `static` | 3,600s |
 | `unit` | `make test-unit` | `go-test` | `go`, `unit` | 6,000s |
 | `integration` | `make test-int` | `go-test` | `go`, `integration` | 6,000s |
+| `offline` | `make test-offline` | `generic` | `go`, `offline` | 15,600s |
 | `release` | `make test-release` | `generic` | `go`, `release` | 1,800s |
 | `e2e` | `make test-e2e` | `go-test` | `go`, `e2e`, `live` | 11,400s |
 | `e2e-opt-in` | `make test-e2e-opt-in` | `go-test` | `go`, `e2e`, `live`, `codex`, `multi-profile` | 7,200s |

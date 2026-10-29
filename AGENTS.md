@@ -340,14 +340,25 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
 
 - Run an exact focused test first when practical. Use an explicit package and
   anchored `-run` expression for a dynamically selected Go test.
-- Use `make test-prepare`, `make test-unit`, `make test-int`, `make test-release`,
-  `make test-e2e`, or `make test-e2e-opt-in` while iterating or when only a
-  narrower claim is in scope.
-- Run `make test` before claiming complete development or release readiness. It is
-  the complete required gate and includes generation/static checks, serialized
-  race-instrumented unit and integration tests, exact release-binary checks, and
-  mandatory live ZCode certification through one two-role
-  review plus independent capability probes.
+- Use focused Go tests or `make test-prepare`, `make test-unit`, `make test-int`,
+  `make test-offline`, `make test-release`, `make test-e2e`, or
+  `make test-e2e-opt-in` while iterating or when a narrower Task claim is in
+  scope. Preserve valid checks when their tested inputs and assumptions remain
+  unchanged; after a correction, rerun the invalidated checks rather than
+  repeating `make test-offline` after every Task, and refresh broader suites when
+  shared changes or unresolved failures invalidate the prior result.
+- Run `make test-offline` (`test-prepare`, `test-unit`, and `test-int` once each
+  in order) on the integrated candidate before claiming complete deterministic
+  offline development verification, and add `make test-release` when the build,
+  release harness, or installed-binary surface is affected.
+- Run `make test` before claiming complete release readiness. It is the complete
+  release gate and runs `test-offline` once followed by `test-release`,
+  mandatory `test-e2e` (live ZCode certification through one two-role review
+  plus independent capability probes), and conditional `test-e2e-opt-in`. The
+  separately adopted `v0.1.26` release-candidate obligation still requires all
+  five providers (`zcode`, `grok`, `cursor`, `agy`, and `codex`, including
+  `make test-grok`, `make test-cursor`, `make test-agy`, and enabled
+  `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) on the release candidate.
 - A patch-only release may use a reduced exact-commit gate when Master explicitly
   states that `make test` has already passed, accepts responsibility for relying
   on that result, and explicitly requests release after only a patch-version
@@ -398,6 +409,7 @@ running it through Gaori from the repository root:
 - preparation and static checks: `gaori run prepare`
 - unit tests: `gaori run unit`
 - integration tests: `gaori run integration`
+- complete offline development gate: `gaori run offline`
 - release-binary checks: `gaori run release`
 - mandatory ZCode live E2E checks: `gaori run e2e`
 - opt-in two-profile Codex E2E: `gaori run e2e-opt-in`
