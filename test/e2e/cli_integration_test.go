@@ -804,7 +804,7 @@ func serve(argv []string) {
 			prompt = params.Content
 			capability = strings.Contains(prompt, "Prove readiness by returning exactly one JSON object and nothing else.")
 			if capability {
-				if mode != "plan" || denylist != "*" {
+				if mode != "plan" || denylist != "*" || allowlist == nil || len(allowlist) != 0 {
 					panic("non-canonical ZCode capability conversation")
 				}
 			} else if mode != "plan" || !strings.Contains(denylist, "Write") || len(allowlist) != 4 {

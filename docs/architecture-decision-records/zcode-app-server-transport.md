@@ -66,8 +66,16 @@ following facts, verified end to end including one real model turn:
   Parse errors return `{"error":{"code":-32700},"id":"parse-error"}`.
 - `session/create` requires `workspace` as
   `{"workspacePath","workspaceKey"}` and accepts `mode` from
-  `plan|build|edit|yolo|auto` and `toolDenylist` as a string array.
-  `titleGenerationEnabled:false` suppresses the auxiliary title model call.
+  `plan|build|edit|yolo|auto`, `toolAllowlist` as a string array, and
+  `toolDenylist` as a string array. `titleGenerationEnabled:false` suppresses
+  the auxiliary title model call. In bundled launcher 0.16.5,
+  `registerBuiltInTools` evaluates `toolDenylist` by exact tool-name `Set`
+  membership rather than glob matching `"*"`. Live review sessions therefore
+  send `toolAllowlist:["Read","Grep","Glob","Bash"]`, whereas tool-free
+  qualification and live-extraction sessions send `toolAllowlist:[]` together
+  with `toolDenylist:["*"]` so `registerBuiltInTools` constructs an empty
+  allowed `Set` and registers zero built-in tools (including `ExitPlanMode` in
+  `plan` mode).
 - Immediately after `session/create` the server sends a server-initiated
   `session/requestRuntimePreferences` request (id `server-N`, scope
   `runtime-materialization`, and again at `user-execution` before the first

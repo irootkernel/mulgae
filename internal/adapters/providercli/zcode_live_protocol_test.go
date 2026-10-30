@@ -87,8 +87,8 @@ func TestZCodeLiveExtractionKeepsToolsDisabled(t *testing.T) {
 			t.Fatal(err)
 		}
 		if message.Method == zcodeProtocolCreateMethod {
-			if _, present := message.Params["toolAllowlist"]; present {
-				t.Fatal("tool-free live extraction admitted review tools")
+			if string(message.Params["toolAllowlist"]) != `[]` {
+				t.Fatalf("extraction tool allowlist: %s", message.Params["toolAllowlist"])
 			}
 			if string(message.Params["toolDenylist"]) != `["*"]` {
 				t.Fatalf("extraction tool denial: %s", message.Params["toolDenylist"])

@@ -127,6 +127,7 @@ type zcodeProtocolSession struct {
 	extraction           bool
 	liveSource           bool
 	liveReadTools        bool
+	toolFree             bool
 	assistantEvidence    []string
 	observation          ports.ProviderSessionObservation
 	modelSelection       *zcodeModelSelection
@@ -144,6 +145,7 @@ func newZcodeCapabilityProtocolSession(workspacePath string, prompt []byte, sele
 		return nil, err
 	}
 	session.captureAssistantText = true
+	session.toolFree = true
 	return session, nil
 }
 
@@ -197,7 +199,7 @@ func (session *zcodeProtocolSession) AssistantEvidenceText() []byte {
 }
 
 func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) (driveErr error) {
-	state := &zcodeProtocolConversation{prompt: session.prompt, workspacePath: session.workspacePath, mode: session.mode, toolDenylist: append([]string(nil), session.toolDenylist...), captureAssistantText: session.captureAssistantText, extraction: session.extraction, liveSource: session.liveSource, liveReadTools: session.liveReadTools, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection), reasoningEffort: session.reasoningEffort, account: session.account}
+	state := &zcodeProtocolConversation{prompt: session.prompt, workspacePath: session.workspacePath, mode: session.mode, toolDenylist: append([]string(nil), session.toolDenylist...), captureAssistantText: session.captureAssistantText, extraction: session.extraction, liveSource: session.liveSource, liveReadTools: session.liveReadTools, toolFree: session.toolFree, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection), reasoningEffort: session.reasoningEffort, account: session.account}
 	defer func() {
 		terminal := ports.ProviderSessionCompleted
 		if driveErr != nil {
@@ -287,6 +289,7 @@ type zcodeProtocolConversation struct {
 	extraction            bool
 	liveSource            bool
 	liveReadTools         bool
+	toolFree              bool
 	assistantEvidence     []string
 	modelSelection        *zcodeModelSelection
 	modelDefaultReasoning string
@@ -314,6 +317,8 @@ func (state *zcodeProtocolConversation) sendCreate(ctx context.Context, exchange
 	}
 	if state.liveReadTools {
 		params["toolAllowlist"] = []string{"Read", "Grep", "Glob", "Bash"}
+	} else if state.toolFree {
+		params["toolAllowlist"] = []string{}
 	}
 	return sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolCreateID, zcodeProtocolCreateMethod, params)
 }

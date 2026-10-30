@@ -916,6 +916,10 @@ func TestZCodeProtocolDriveRequestShapes(t *testing.T) {
 		if !ok || len(denylist) != 1 || denylist[0] != "*" {
 			t.Fatalf("capability denylist = %#v", denylist)
 		}
+		allowlist, ok := assertJSONField(t, sent[0], "params", "toolAllowlist").([]any)
+		if !ok || len(allowlist) != 0 {
+			t.Fatalf("capability allowlist = %#v", allowlist)
+		}
 		if got := assertJSONField(t, sent[2], "method"); got != "session/messages" {
 			t.Fatalf("messages request method = %v", got)
 		}
