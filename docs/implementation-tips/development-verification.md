@@ -103,7 +103,10 @@ via `sync.Once`. Both objects are safe for concurrent read reuse across tests:
 `builtin.Catalog` accessors return defensive copies, and `jsonschema.Validator`
 holds an unmutated map of compiled `*jschema.Schema` instances backed by
 concurrency-safe `ecmaRegexp` (`*regexp2.Regexp`) engines with no mutable
-validation state on the shared schema graph.
+validation state on the shared schema graph. The same package-scoped
+`sync.Once` fixture reuse applies across `internal/app/publication`,
+`internal/composition`, `internal/app/recovery`, `internal/app/query`,
+`internal/app/reviewrun`, and `internal/adapters/jsonschema` (`pairs_test.go`).
 
 A shared initializer must use `context.Background()` and return its value or
 error without retaining a caller's `*testing.T`, cancelled context, temporary
@@ -113,10 +116,13 @@ test goroutine.
 Wrapper fixtures (`newFoundationFixtureWithWriter`,
 `newFoundationFixtureWithEvidence`, `newG006FixtureWithWriter`,
 `newG008Fixture`, `newG008Composition`, `newG008RealE2EFixture`,
-`historicalValidator`, and `retainedResolverFixture`) obtain shared immutable
-assets directly and construct their `Application` and `gittarget` reader once,
-retaining their own mutable dependencies without intermediate discarded
-constructions.
+`historicalValidator`, `retainedResolverFixture`, `retainedSchema`,
+`newMCPTestApplicationWithReviewRuns`, `requirementsExecutionApplication`,
+`recoveryReadFixture`, `mustSharedQueryTestValidator`,
+`mustSharedReviewRunTestAssets`, and `newBuiltinValidator`) obtain shared
+immutable assets directly and construct their `Application` and `gittarget`
+reader once, retaining their own mutable dependencies without intermediate
+discarded constructions.
 
 Keep writers, request IDs, repositories, native homes, provider state, clocks
 with mutable state, and other mutable dependencies independent per test.
@@ -268,12 +274,14 @@ Matched focused measurements and final candidate gates were recorded on
 `go1.27.1 darwin/arm64` with a warm host `GOCACHE` and `MULGAE_E2E_BINARY`
 unset:
 
-| Check | Command | Baseline (`4beb843`, `TASK-070`) | Task milestone | Final candidate (`eebc6d9`, `TASK-074`) | Removed work |
+| Check | Command | Baseline (`4beb843`, `TASK-070`) | Task milestone (`eebc6d9` / `3f1ef2a`) | Final candidate (with 6-package fixture reuse) | Removed work |
 |---|---|---:|---:|---:|---|
 | Focused CLI fixture selection | `go test -p 1 -race -count=1 ./internal/entrypoint/mulgae -run '^(TestApplicationHelpAndUsageOutput\|TestApplicationG006FailureParityAcrossCommands)$'` | `62.333s` (`62.759s` initial) | `5.170s` (`5.567s` initial, `375ae33` in `TASK-071`) | `5.852s` | Repeated `builtin.NewCatalog` and 82-pair `jsonschema.New` compilation plus discarded intermediate `Application` and `gittarget` constructions per helper call |
 | Focused integration build selection | `go test -p 1 -race -count=1 ./test/e2e -run '^(TestIntegrationIsolatedReleaseFixtureProjectContext\|TestIntegrationIsolatedReleaseFixtureVerifiedWorkflow)$'` | `35.318s` (`29.389s` initial) | `16.948s` (`229ecc8` in `TASK-072`; `2315` cache entries populated on first build and reused with `10` added on second in `TestBuildHelpersReuseCompilerCacheAndIsolateMutableOutputs`) | `19.541s` | Per-build empty `GOCACHE` directories that forced cold compilation for every `buildMulgaeBinary` and `buildFakeZCodeWithReport` call |
-| Complete deterministic offline gate | `make test-offline` (via `gaori run offline`) | — | — | `2357.1s` (`exit 0`) | Runs `test-prepare`, `test-unit`, and `test-int` once in order without invoking release or live-provider stages |
-| Exact-binary release harness gate | `make test-release` (via `gaori run release`) | — | — | `166.0s` (`exit 0`) | Verifies `internal/releasecheck` on the installed `-trimpath` `GOBIN/mulgae` binary and all seven isolated-fixture scenarios on one shared release-stamped fixture binary |
+| Repository unit test stage (`test-unit` package execution sum) | `make test-unit` (`go test -p 1 -timeout 90m -race -count=1 -skip '^TestIntegration' ...`) | — | `1636.0s` (`3f1ef2a`) | `516.6s` (`-68.4%`) | Package-scoped `sync.Once` reuse of immutable `builtin.Catalog` and `jsonschema.Validator` across `publication` (`521.6s` → `32.0s`), `composition` (`477.8s` → `52.3s`), `recovery` (`111.4s` → `4.6s`), `query` (`106.9s` → `14.0s`), `jsonschema` (`91.6s` → `15.7s`), and `reviewrun` (`18.4s` → `14.2s`) |
+| Repository integration test stage (`test-int` package execution sum) | `make test-int` (`go test -p 1 -timeout 90m -race -count=1 -run '^TestIntegration' ./...`) | — | `520.0s` (`3f1ef2a`) | `338.1s` (`-35.0%`) | Package-scoped `sync.Once` fixture reuse across `reviewrun` (`176.5s` → `60.1s`), `publication` (`89.2s` → `47.9s`), and `composition` (`14.1s` → `6.8s`) |
+| Complete deterministic offline gate | `make test-offline` (via `gaori run offline`) | — | `2357.1s` (`3f1ef2a`, `exit 0`) | `909.0s` (`-61.4%`, `exit 0`) | Runs `test-prepare`, `test-unit`, and `test-int` once in order with package-scoped immutable `Catalog` and `Validator` reuse across all bottleneck test packages |
+| Exact-binary release harness gate | `make test-release` (via `gaori run release`) | — | `166.0s` (`exit 0`) | `166.0s` (`exit 0`) | Verifies `internal/releasecheck` on the installed `-trimpath` `GOBIN/mulgae` binary and all seven isolated-fixture scenarios on one shared release-stamped fixture binary |
 
 Live-provider gates (`make test-e2e`, `make test-grok`, `make test-cursor`,
 `make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) were

@@ -16,9 +16,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -50,10 +48,7 @@ func livePublicationChangedFixture(t *testing.T) PreparedLiveCandidate {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	input, _ := livePublicationChangedInput(t, source, schema)
 	candidate, err := PrepareLiveCandidate(input)
 	if err != nil {
@@ -304,10 +299,7 @@ func publicationPublishLiveCandidateThroughRealStore(t *testing.T, candidate Pre
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	clock := publicationServiceClock{now: publicationTestTime()}
 	store, err := filesystem.NewPublicationStore(schema, clock, compositeTestIDs{reviewID: publicationIssuedReviewID(t)}, filesystem.NewSecureWriter())
 	if err != nil {
@@ -417,10 +409,7 @@ func TestLivePublicationSchemaValidationRunsPerBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	clock := publicationServiceClock{now: publicationTestTime()}
 	store, err := filesystem.NewPublicationStore(schema, clock, compositeTestIDs{reviewID: publicationIssuedReviewID(t)}, filesystem.NewSecureWriter())
 	if err != nil {
@@ -459,10 +448,7 @@ func TestPublishLiveRejectsPreflightFailureBeforeIDIssuance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-		if err != nil {
-			t.Fatal(err)
-		}
+		schema := mustSharedPublicationTestValidator(t)
 		clock := publicationServiceClock{now: publicationTestTime()}
 		store, err := filesystem.NewPublicationStore(schema, clock, compositeTestIDs{reviewID: publicationIssuedReviewID(t)}, filesystem.NewSecureWriter())
 		if err != nil {
@@ -564,10 +550,7 @@ func TestLivePublishIssuedBindingFailureAfterIssuance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	clock := publicationServiceClock{now: publicationTestTime()}
 	issued := publicationIssuedReviewID(t)
 	store, err := filesystem.NewPublicationStore(schema, clock, compositeTestIDs{reviewID: issued}, filesystem.NewSecureWriter())
@@ -647,10 +630,7 @@ func TestIntegrationLivePublishResumeRebindsPersistedCandidateIdentity(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	input, _ := livePublicationChangedInput(t, source, schema)
 	candidate, err := PrepareLiveCandidate(input)
 	if err != nil {
@@ -1202,10 +1182,7 @@ func livePublicationChangedWithAttemptsFixture(t *testing.T) PreparedLiveCandida
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	input, _ := livePublicationChangedInput(t, source, schema)
 	base, err := PrepareLiveCandidate(input)
 	if err != nil {

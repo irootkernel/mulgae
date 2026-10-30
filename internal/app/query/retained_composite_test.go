@@ -8,10 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/artifactwire"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"github.com/irootkernel/mulgae/internal/testsupport/historical"
@@ -22,10 +20,7 @@ func TestCompositeRuntimeTargetPreservesDiffStageAndDirtyMetadata(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	for _, c := range corpus.Cases {
 		if c.ID != "composite-legacy-v1" {
 			continue
@@ -78,10 +73,7 @@ func TestCopiedCompositeRetainsProviderRetirementWithoutSourceRuns(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	for _, c := range corpus.Cases {
 		if c.ID != "composite-copied-v1" {
 			continue

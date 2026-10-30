@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -134,6 +135,30 @@ func (fake *mcpReviewRunFake) StartReviewRun(context.Context, mulgaeentry.Review
 	return fake.result, nil
 }
 
+var (
+	sharedCompositionAssetsOnce   sync.Once
+	sharedCompositionTestCatalog  *builtin.Catalog
+	sharedCompositionValidator    *jsonschema.Validator
+	sharedCompositionValidatorErr error
+)
+
+func sharedCompositionTestAssets() (*builtin.Catalog, *jsonschema.Validator, error) {
+	sharedCompositionAssetsOnce.Do(func() {
+		sharedCompositionTestCatalog = builtin.NewCatalog()
+		sharedCompositionValidator, sharedCompositionValidatorErr = jsonschema.New(context.Background(), sharedCompositionTestCatalog)
+	})
+	return sharedCompositionTestCatalog, sharedCompositionValidator, sharedCompositionValidatorErr
+}
+
+func mustSharedCompositionTestAssets(t *testing.T) (*builtin.Catalog, *jsonschema.Validator) {
+	t.Helper()
+	catalog, validator, err := sharedCompositionTestAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return catalog, validator
+}
+
 func newMCPTestApplication(t *testing.T, queries mulgaeentry.PublicationQueryService) *mulgaeentry.Application {
 	return newMCPTestApplicationWithReviewRuns(t, queries, nil)
 }
@@ -144,11 +169,7 @@ func newMCPTestApplicationWithReviewRuns(
 	reviewRuns mulgaeentry.ReviewRunService,
 ) *mulgaeentry.Application {
 	t.Helper()
-	catalog := builtin.NewCatalog()
-	validator, err := jsonschema.New(context.Background(), catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
+	catalog, validator := mustSharedCompositionTestAssets(t)
 	reader, err := gittarget.New(gittarget.NewExecRunner())
 	if err != nil {
 		t.Fatal(err)

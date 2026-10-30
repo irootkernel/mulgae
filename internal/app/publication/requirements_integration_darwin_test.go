@@ -14,10 +14,8 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/validation"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -34,10 +32,7 @@ func TestIntegrationRequirementsPublicationRecoversAndDetectsCorruption(t *testi
 		t.Fatal(err)
 	}
 	root, _ := ports.NewAnchoredRoot(rootPath)
-	schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	clock := publicationServiceClock{now: publicationTestTime()}
 	id := publicationTestReviewID(t)
 	store, err := filesystem.NewPublicationStore(schema, clock, compositeTestIDs{id}, filesystem.NewSecureWriter())
@@ -118,10 +113,7 @@ func TestIntegrationRequirementsOrdinaryPublicationRecoversWithoutSource(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	candidateInput, _ := livePublicationChangedInput(t, source, schema)
 	candidate, err := PrepareLiveCandidate(candidateInput)
 	if err != nil {

@@ -15,14 +15,12 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	adapterruntime "github.com/irootkernel/mulgae/internal/adapters/runtime"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/app/validation"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
 	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -49,11 +47,7 @@ func (factory *requirementsNoProvider) NewQualifiedLiveRun(context.Context, port
 func requirementsExecutionApplication(t *testing.T, root ports.AnchoredRoot, reader ports.TrustedProjectReader) (*mulgaeentry.Application, *mcpBackend, *requirementsWriter, *requirementsNoProvider) {
 	t.Helper()
 	ctx := context.Background()
-	catalog := builtin.NewCatalog()
-	schema, err := jsonschema.New(ctx, catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
+	catalog, schema := mustSharedCompositionTestAssets(t)
 	preflight, err := composeReviewPreflight(ctx, catalog, root, reader)
 	if err != nil {
 		t.Fatal(err)

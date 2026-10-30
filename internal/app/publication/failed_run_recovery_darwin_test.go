@@ -13,22 +13,17 @@ import (
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/clean"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/app/review"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
 func TestIntegrationFailedRecoveryReadAfterProcessRestart(t *testing.T) {
 	ctx := context.Background()
-	validator, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedPublicationTestValidator(t)
 	clock := publicationServiceClock{now: publicationTestTime()}
 	store, err := filesystem.NewPublicationStore(validator, clock, publicationIntegrationIDs{reviewID: publicationTestReviewID(t)}, filesystem.NewSecureWriter())
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
@@ -15,6 +16,28 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 	"github.com/irootkernel/mulgae/internal/testsupport/historical"
 )
+
+var (
+	sharedQueryValidatorOnce sync.Once
+	sharedQueryValidator     *jsonschema.Validator
+	sharedQueryValidatorErr  error
+)
+
+func sharedQueryTestValidator() (*jsonschema.Validator, error) {
+	sharedQueryValidatorOnce.Do(func() {
+		sharedQueryValidator, sharedQueryValidatorErr = jsonschema.New(context.Background(), builtin.NewCatalog())
+	})
+	return sharedQueryValidator, sharedQueryValidatorErr
+}
+
+func mustSharedQueryTestValidator(t *testing.T) *jsonschema.Validator {
+	t.Helper()
+	validator, err := sharedQueryTestValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return validator
+}
 
 func historicalQueryStore(t *testing.T, c historical.Case) (*queryStore, ports.PublicationRun) {
 	t.Helper()
@@ -121,10 +144,7 @@ func TestHistoricalCorpusRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	for _, c := range corpus.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			store, run := historicalQueryStore(t, c)
@@ -204,10 +224,7 @@ func TestHistoricalCorpusAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	required := map[string]bool{}
 	for _, id := range []string{"ordinary-v1-nonminified", "ordinary-v2", "artist", "rerun-exact", "rerun-recompose", "delta", "recovery-child-v2", "followup-resolved", "followup-partially_resolved", "followup-still_open", "followup-unclear", "retired-kimi"} {
 		required[id] = true
@@ -303,10 +320,7 @@ func TestHistoricalCorpusRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	for _, c := range corpus.Cases {
 		if c.Family != "failed-recovery" {
 			continue

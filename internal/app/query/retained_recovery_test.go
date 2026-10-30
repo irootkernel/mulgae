@@ -5,11 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/app/review"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -91,10 +89,7 @@ func TestRecoveryStagedBindingWithoutReplayIssuer(t *testing.T) {
 				input.AdapterParameters["model"] = "changed"
 			}
 			child := installQueryRecovery(t, store, root, document, blobs)
-			validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-			if err != nil {
-				t.Fatal(err)
-			}
+			validator := mustSharedQueryTestValidator(t)
 			service := mustQueryService(t, store, validator, nil)
 			_, err = service.ReadFailedRunRecovery(context.Background(), child)
 			if change == "destination only" && err != nil || change != "destination only" && err == nil {

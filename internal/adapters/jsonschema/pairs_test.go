@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/builtin"
@@ -534,9 +535,22 @@ func cloneSchemaSources(schemas map[string]string) map[string]string {
 	return cloned
 }
 
+var (
+	sharedBuiltinValidatorOnce sync.Once
+	sharedBuiltinValidator     *Validator
+	sharedBuiltinValidatorErr  error
+)
+
+func sharedBuiltinTestValidator() (*Validator, error) {
+	sharedBuiltinValidatorOnce.Do(func() {
+		sharedBuiltinValidator, sharedBuiltinValidatorErr = New(context.Background(), builtin.NewCatalog())
+	})
+	return sharedBuiltinValidator, sharedBuiltinValidatorErr
+}
+
 func newBuiltinValidator(t *testing.T) *Validator {
 	t.Helper()
-	validator, err := New(context.Background(), builtin.NewCatalog())
+	validator, err := sharedBuiltinTestValidator()
 	if err != nil {
 		t.Fatalf("New(builtin catalog): %v", err)
 	}

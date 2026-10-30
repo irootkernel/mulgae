@@ -13,7 +13,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/review"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -85,10 +84,7 @@ func retainedLiveChangedFixture(t *testing.T) PreparedLiveCandidate {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	input, _ := retainedLiveChangedInput(t, source, schema)
 	candidate, err := PrepareLiveCandidate(input)
 	if err != nil {
@@ -127,10 +123,7 @@ func retainedLiveChangedWithAttemptsFixture(t *testing.T) PreparedLiveCandidate 
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	input, _ := retainedLiveChangedInput(t, source, schema)
 	base, err := PrepareLiveCandidate(input)
 	if err != nil {

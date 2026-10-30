@@ -16,14 +16,12 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	adapterruntime "github.com/irootkernel/mulgae/internal/adapters/runtime"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/report"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/validation"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -218,11 +216,7 @@ func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *
 			neutral, _ := ports.NewAnchoredRoot(t.TempDir())
 			credential, _ := ports.NewAnchoredRoot(t.TempDir())
 			artifacts, _ := ports.NewAnchoredRoot(t.TempDir())
-			catalog := builtin.NewCatalog()
-			schema, err := jsonschema.New(ctx, catalog)
-			if err != nil {
-				t.Fatal(err)
-			}
+			catalog, schema := mustSharedReviewRunTestAssets(t)
 			ids := adapterruntime.NewUUIDv7Generator()
 			clock := adapterruntime.SystemClock{}
 			store, err := filesystem.NewPublicationStore(schema, clock, ids, filesystem.NewSecureWriter())

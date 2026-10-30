@@ -13,10 +13,8 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	appreport "github.com/irootkernel/mulgae/internal/app/report"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -29,11 +27,7 @@ func (ids publicationIntegrationIDs) NewReviewID(time.Time) (domain.ReviewID, er
 
 func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 	ctx := context.Background()
-	catalog := builtin.NewCatalog()
-	validator, err := jsonschema.New(ctx, catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedPublicationTestValidator(t)
 	rootPath := filepath.Join(t.TempDir(), ".mulgae")
 	if err := os.Mkdir(rootPath, 0o700); err != nil {
 		t.Fatal(err)
@@ -274,10 +268,7 @@ func TestIntegrationPublicationFilesystemQueryReportAndRecovery(t *testing.T) {
 
 func TestIntegrationPublicationAcceptsTenMiBRoleReport(t *testing.T) {
 	ctx := context.Background()
-	validator, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedPublicationTestValidator(t)
 	rootPath := filepath.Join(t.TempDir(), ".mulgae")
 	if err := os.Mkdir(rootPath, 0o700); err != nil {
 		t.Fatal(err)
@@ -384,11 +375,7 @@ func publicationArchiveFilesEqual(left, right []ports.WorkspaceSnapshotFile) boo
 
 func TestIntegrationPublicationFilesystemRecoversP0StagedToP2(t *testing.T) {
 	ctx := context.Background()
-	catalog := builtin.NewCatalog()
-	validator, err := jsonschema.New(ctx, catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedPublicationTestValidator(t)
 	rootPath := filepath.Join(t.TempDir(), ".mulgae")
 	if err := os.Mkdir(rootPath, 0o700); err != nil {
 		t.Fatal(err)

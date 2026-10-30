@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"sync"
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
@@ -13,6 +14,28 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
+
+var (
+	sharedRecoveryValidatorOnce sync.Once
+	sharedRecoveryValidator     *jsonschema.Validator
+	sharedRecoveryValidatorErr  error
+)
+
+func sharedRecoveryTestValidator() (*jsonschema.Validator, error) {
+	sharedRecoveryValidatorOnce.Do(func() {
+		sharedRecoveryValidator, sharedRecoveryValidatorErr = jsonschema.New(context.Background(), builtin.NewCatalog())
+	})
+	return sharedRecoveryValidator, sharedRecoveryValidatorErr
+}
+
+func mustSharedRecoveryTestValidator(t *testing.T) *jsonschema.Validator {
+	t.Helper()
+	validator, err := sharedRecoveryTestValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return validator
+}
 
 func TestReadRecoveryVerifiesSchemaBlobsAndStableManifest(t *testing.T) {
 	document, source, validator, run := recoveryReadFixture(t)
@@ -86,11 +109,7 @@ func (store *recoveryReadStore) ReadAuxiliaryArtifact(_ context.Context, request
 
 func recoveryReadFixture(t *testing.T) (Document, *recoveryReadStore, SchemaValidator, ports.PublicationRun) {
 	t.Helper()
-	ctx := context.Background()
-	validator, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedRecoveryTestValidator(t)
 	document, blobs := recoveryFixture(t)
 	root, err := ports.NewAnchoredRoot(t.TempDir())
 	if err != nil {

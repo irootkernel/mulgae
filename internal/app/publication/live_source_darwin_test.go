@@ -23,7 +23,6 @@ import (
 	appquery "github.com/irootkernel/mulgae/internal/app/query"
 	"github.com/irootkernel/mulgae/internal/app/review"
 	"github.com/irootkernel/mulgae/internal/app/validation"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -129,10 +128,7 @@ func TestLiveCandidateAdmissionRejectsSourceAndNoChangeMixing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
-	schema, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	input, _ := livePublicationChangedInput(t, source, schema)
 	candidate, err := PrepareLiveCandidate(input)
 	if err != nil || !candidate.Valid() {
@@ -208,10 +204,7 @@ func TestIntegrationLivePublicationRetainsEvidenceAndRecoversExactP1(t *testing.
 		t.Fatal(err)
 	}
 	defer source.Close()
-	schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	input, runtime := livePublicationChangedInput(t, source, schema)
 	candidate, err := PrepareLiveCandidate(input)
 	if err != nil {
@@ -418,10 +411,7 @@ func TestIntegrationLiveCleanupRetainsCorruptIndexedSupport(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer source.Close()
-			schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-			if err != nil {
-				t.Fatal(err)
-			}
+			schema := mustSharedPublicationTestValidator(t)
 			input, _ := livePublicationChangedInput(t, source, schema)
 			candidate, err := PrepareLiveCandidate(input)
 			if err != nil {
@@ -490,10 +480,7 @@ func TestIntegrationLiveCleanupRetainsCorruptIndexedSupport(t *testing.T) {
 
 func TestIntegrationLiveNoChangePublishesP2WithoutProviderOrCaptureWork(t *testing.T) {
 	ctx := context.Background()
-	schema, err := jsonschema.New(ctx, builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedPublicationTestValidator(t)
 	candidate := livePublicationNoChange(t)
 	root, err := ports.NewAnchoredRoot(t.TempDir())
 	if err != nil {

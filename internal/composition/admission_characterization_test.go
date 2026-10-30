@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -90,7 +89,8 @@ func TestReviewAdmissionSequenceCharacterization(t *testing.T) {
 			reader.trace = nil
 			// Preflight composition admits the configured /Users/test home without
 			// performing the normal runtime graph's installed-account check.
-			if _, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, reader); err != nil {
+			catalog, _ := mustSharedCompositionTestAssets(t)
+			if _, err := composeReviewPreflight(context.Background(), catalog, root, reader); err != nil {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(reader.trace, []string{"attest", "locality", "locality"}) {

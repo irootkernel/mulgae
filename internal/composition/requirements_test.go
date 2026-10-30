@@ -16,9 +16,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	mcpentry "github.com/irootkernel/mulgae/internal/entrypoint/mcp"
 	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -64,7 +62,8 @@ func requirementsPreflight(t *testing.T, root ports.AnchoredRoot, reader ports.T
 	if err != nil {
 		return mulgaeentry.ReviewPreflightResult{}, err
 	}
-	service, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, reader)
+	catalog, _ := mustSharedCompositionTestAssets(t)
+	service, err := composeReviewPreflight(context.Background(), catalog, root, reader)
 	if err != nil {
 		return mulgaeentry.ReviewPreflightResult{}, err
 	}
@@ -200,18 +199,14 @@ func TestIntegrationRequirementsPreflightCLIAndMCPRemainProviderFree(t *testing.
 		t.Fatal(err)
 	}
 	prepared := 0
+	catalog, validator := mustSharedCompositionTestAssets(t)
 	runs := newDeferredReviewRunServiceWithPreflight(func(context.Context, ports.AnchoredRoot) (mulgaeentry.ReviewRunService, error) {
 		prepared++
 		return nil, errors.New("provider preparation must not run")
 	}, func(ctx context.Context, root ports.AnchoredRoot) (mulgaeentry.ReviewPreflightService, error) {
-		return composeReviewPreflight(ctx, builtin.NewCatalog(), root, reader)
+		return composeReviewPreflight(ctx, catalog, root, reader)
 	})
 	writer := &requirementsWriter{SecureFileWriter: filesystem.NewSecureWriter()}
-	catalog := builtin.NewCatalog()
-	validator, err := jsonschema.New(context.Background(), catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
 	application, err := mulgaeentry.NewApplication(mulgaeentry.Dependencies{Clock: mcpTestClock{}, RequestIDGenerator: mcpTestRequestIDs{}, Catalog: catalog, JSONSchemaValidator: validator, SecureWriter: writer, TrustedProjectReader: reader, EnvironmentInspector: environment.NewInspector(), ReviewRuns: runs, ProjectContexts: inspectionContexts(), PublicationQueries: &mcpQueryFake{}, PublicationReports: &mcpReportFake{}})
 	if err != nil {
 		t.Fatal(err)

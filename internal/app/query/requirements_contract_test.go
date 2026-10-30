@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
@@ -19,10 +17,7 @@ func TestRequirementsReadRejectsNoChangeReasonForEvaluatedResults(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	id, _ := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-requirements-read.v1.schema.json")
 	for _, test := range []struct {
 		name         string
@@ -68,10 +63,7 @@ func TestRequirementsReadContractSeparatesHistoricalCountsAndContent(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	id, _ := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-requirements-read.v1.schema.json")
 	var value map[string]any
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -170,10 +162,7 @@ func TestRequirementsCursorContractMatchesIssuedCursor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	id, _ := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-requirements-cursor.v1.schema.json")
 	if err := validator.Validate(context.Background(), id, raw); err != nil {
 		t.Fatal(err)

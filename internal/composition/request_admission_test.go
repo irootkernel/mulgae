@@ -13,7 +13,6 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -50,7 +49,8 @@ func TestProductionLivePreflightAllowsVerifiedUnbornWorkspaceAndStage(t *testing
 				t.Fatal(err)
 			}
 			request, _ := invocation.Review()
-			service, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, adapter)
+			catalog, _ := mustSharedCompositionTestAssets(t)
+			service, err := composeReviewPreflight(context.Background(), catalog, root, adapter)
 			if err != nil {
 				t.Fatalf("unborn preflight composition: %v", err)
 			}
@@ -101,7 +101,8 @@ func TestProductionLivePreflightPreservesIndependentBindingAndConfigIdentity(t *
 			return mulgaeentry.ReviewPreflightResult{}, err
 		}
 		request, _ := invocation.Review()
-		service, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, adapter)
+		catalog, _ := mustSharedCompositionTestAssets(t)
+		service, err := composeReviewPreflight(context.Background(), catalog, root, adapter)
 		if err != nil {
 			return mulgaeentry.ReviewPreflightResult{}, err
 		}
@@ -197,7 +198,8 @@ func TestProductionLivePreflightScopesIndexConflicts(t *testing.T) {
 				t.Fatal(err)
 			}
 			request, _ := invocation.Review()
-			service, err := composeReviewPreflight(context.Background(), builtin.NewCatalog(), root, adapter)
+			catalog, _ := mustSharedCompositionTestAssets(t)
+			service, err := composeReviewPreflight(context.Background(), catalog, root, adapter)
 			if err != nil {
 				t.Fatalf("conflicted index prevented composition: %v", err)
 			}

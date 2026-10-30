@@ -7,9 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/validation"
-	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"github.com/irootkernel/mulgae/internal/testsupport/historical"
@@ -20,10 +18,7 @@ func TestHistoricalFollowupPreservesEveryResolutionAndSourceTuple(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	validator := mustSharedQueryTestValidator(t)
 	seen := 0
 	for _, c := range corpus.Cases {
 		if !strings.HasPrefix(c.ID, "followup-") {
@@ -64,10 +59,7 @@ func TestHistoricalFollowupPreservesEveryResolutionAndSourceTuple(t *testing.T) 
 }
 
 func TestRetainedFollowupValidationUsesRealSchemaAndTrustedScope(t *testing.T) {
-	schema, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
+	schema := mustSharedQueryTestValidator(t)
 	id, err := ports.ParseAssetID(validation.ProviderFollowupSchemaID)
 	if err != nil {
 		t.Fatal(err)

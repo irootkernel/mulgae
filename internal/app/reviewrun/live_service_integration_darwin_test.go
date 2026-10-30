@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,30 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
+
+var (
+	sharedReviewRunAssetsOnce   sync.Once
+	sharedReviewRunTestCatalog  *builtin.Catalog
+	sharedReviewRunValidator    *jsonschema.Validator
+	sharedReviewRunValidatorErr error
+)
+
+func sharedReviewRunTestAssets() (*builtin.Catalog, *jsonschema.Validator, error) {
+	sharedReviewRunAssetsOnce.Do(func() {
+		sharedReviewRunTestCatalog = builtin.NewCatalog()
+		sharedReviewRunValidator, sharedReviewRunValidatorErr = jsonschema.New(context.Background(), sharedReviewRunTestCatalog)
+	})
+	return sharedReviewRunTestCatalog, sharedReviewRunValidator, sharedReviewRunValidatorErr
+}
+
+func mustSharedReviewRunTestAssets(t *testing.T) (*builtin.Catalog, *jsonschema.Validator) {
+	t.Helper()
+	catalog, validator, err := sharedReviewRunTestAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return catalog, validator
+}
 
 type integratedLiveSource struct {
 	ports.LiveSourceReader
@@ -228,11 +253,7 @@ func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *tes
 			neutral, _ := ports.NewAnchoredRoot(t.TempDir())
 			credential, _ := ports.NewAnchoredRoot(t.TempDir())
 			artifacts, _ := ports.NewAnchoredRoot(t.TempDir())
-			catalog := builtin.NewCatalog()
-			schema, err := jsonschema.New(ctx, catalog)
-			if err != nil {
-				t.Fatal(err)
-			}
+			catalog, schema := mustSharedReviewRunTestAssets(t)
 			ids := adapterruntime.NewUUIDv7Generator()
 			clock := adapterruntime.SystemClock{}
 			store, err := filesystem.NewPublicationStore(schema, clock, ids, filesystem.NewSecureWriter())

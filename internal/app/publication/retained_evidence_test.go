@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
@@ -16,6 +17,36 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+var (
+	sharedPublicationAssetsOnce sync.Once
+	sharedPublicationCatalog    *builtin.Catalog
+	sharedPublicationValidator  *jsonschema.Validator
+	sharedPublicationAssetsErr  error
+)
+
+func sharedPublicationTestAssets() (*builtin.Catalog, *jsonschema.Validator, error) {
+	sharedPublicationAssetsOnce.Do(func() {
+		catalog := builtin.NewCatalog()
+		validator, err := jsonschema.New(context.Background(), catalog)
+		if err != nil {
+			sharedPublicationAssetsErr = err
+			return
+		}
+		sharedPublicationCatalog = catalog
+		sharedPublicationValidator = validator
+	})
+	return sharedPublicationCatalog, sharedPublicationValidator, sharedPublicationAssetsErr
+}
+
+func mustSharedPublicationTestValidator(t *testing.T) *jsonschema.Validator {
+	t.Helper()
+	_, validator, err := sharedPublicationTestAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return validator
+}
+
 type retainedRecordingSchema struct {
 	validator *jsonschema.Validator
 	ids       []ports.AssetID
@@ -23,11 +54,7 @@ type retainedRecordingSchema struct {
 
 func retainedSchema(t *testing.T) *retainedRecordingSchema {
 	t.Helper()
-	validator, err := jsonschema.New(context.Background(), builtin.NewCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &retainedRecordingSchema{validator: validator}
+	return &retainedRecordingSchema{validator: mustSharedPublicationTestValidator(t)}
 }
 
 func (validator *retainedRecordingSchema) Validate(ctx context.Context, id ports.AssetID, raw []byte) error {
