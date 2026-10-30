@@ -92,12 +92,12 @@ conditions.
 [EPIC-015 development verification simplification](roadmap/README.md#epic-015-development-verification-simplification)
 reduces repeated fixture construction, cold test builds, and brittle assertions.
 Its member Tasks (`TASK-070` through `TASK-074`) and integrated candidate
-verification (`make test-offline` and `make test-release`) are complete, its
-temporary execution dossier is retired, and its durable guidance and measured
-outcomes are promoted to
+verification (`make test-offline`, `make test-release`, and `make test`) are
+complete, its temporary execution dossier is retired, and its durable guidance
+and measured outcomes are promoted to
 [development verification](implementation-tips/development-verification.md) and
-the [roadmap](roadmap/README.md#epic-015-development-verification-simplification).
-`EPIC-015` is in `In Review` awaiting Master's explicit Epic acceptance.
+the [roadmap](roadmap/README.md#epic-015-development-verification-simplification);
+Master accepted the completed Epic result on 2026-10-31.
 
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The
