@@ -6,24 +6,31 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Added
 
-- Assess optional local requirements through their selected owner roles in Git-backed reviews. Provider-free preflight reports admission and execution availability; verified CLI/MCP pages, content reads and reports retain every verdict, rationale, evidence and limitation, including explicit unverified no-change results.
-- Review text roles with AGY over stream-JSON using one default Gemini account. New projects prefer AGY for documentation when available; existing configured routes remain unchanged. Add single-account live verification with `make test-agy`.
-- Select Cursor explicitly for a text role through init, CLI, and MCP. Schemas, help, and contracts name that route. Default role preferences stay unchanged, and live Cursor certification remains opt-in.
+- Assess optional local requirements through selected owner roles in Git-backed reviews, with provider-free admission and execution preflight plus verified CLI/MCP pages, content reads and reports retaining every verdict, rationale, evidence and limitation, including explicit unverified no-change results.
+- Review text roles with AGY over stream-JSON using one default Gemini account, preferring AGY for new documentation assignments when available while preserving configured routes and providing single-account live verification with `make test-agy`.
+- Select Cursor explicitly for text roles through init, CLI and MCP with matching schemas, help and contracts, without adding Cursor to default role preferences or the default live gate.
 
 ### Changed
 
-- Admit Grok, Cursor and AGY native file reads by path without reading file bodies. A provider read of a file with an image extension but invalid image content no longer fails the review; evidence that cites the file still fails with `unsupported_content`.
-- Qualify distinct provider families concurrently; probes of the same family stay sequential, and qualification probes are not counted against `max_active_lanes`. When several families fail in one batch, the run waits for every started family and reports the highest-precedence failure. A panic during a family's qualification now fails the run with a typed internal failure instead of crashing Mulgae.
+- Admit Grok, Cursor and AGY native file reads by path without reading file bodies, allowing reads of invalid image content while retaining `unsupported_content` when evidence cites it.
+- Qualify distinct provider families concurrently outside `max_active_lanes`, keeping same-family probes sequential, waiting for all started families before selecting the highest-precedence failure, and converting qualification panics to typed internal failures.
+- Publish command-result v23, preflight v11, review-artifact v4, run-manifest v4 and support-index v4 contracts with requirements-assessment support while retaining historical readers.
+- Provide `make test-offline` for deterministic development verification and move vulnerability scanning outside the standard test gate to the separate `go tool govulncheck ./...` command.
 
 ### Fixed
 
-- Restore Grok review and extraction compatibility while retaining native security policy and rejecting drift in the affected invocation.
+- Restore Grok review and extraction compatibility while retaining native security policy, rejecting drift in the affected invocation and preserving quota failure signals.
 - Restore AGY workspace and Git reviews with supported newer CLI versions while preserving exact native read permissions.
 - Read live role reports larger than the structured artifact limit.
 - Report simultaneous provider read-plan violations in a deterministic order.
 - Report native-home replacement as a security failure in doctor and providers, and restore offline Cursor version checks.
 - Preserve independent failures when CLI status encounters a missing publication or diagnostic record, instead of reporting success or suppressing the diagnostic failure.
 - Prevent inherited file descriptors from reaching provider processes, and let protocol sessions close stdin while draining the final output.
+- Bind exact-evidence repair to original provider response coordinates after finding and evidence sorting, and protect existing index-side values from fill-missing-fields repair.
+- Allocate publication epochs beyond 4,096 retained epoch files while preserving bounded reads and validation of every retained member.
+- Read historical artist-enabled runtime targets with verified support paths, kinds, index membership and content digests.
+- Preserve Cursor session diagnostics for native identifiers outside the diagnostic grammar, and report ZCode and Grok result transport as `stdout`.
+- Disable all built-in tools in tool-free ZCode qualification and extraction sessions so capability probes cannot stall on interactive plan approval.
 
 ## v0.1.25 - 2026-10-12
 
