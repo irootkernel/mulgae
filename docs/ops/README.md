@@ -33,13 +33,12 @@ including independent project binding and verified reads:
   execution. Preserve available invocation/run identities, reuse the same live
   await handle, and reconcile exact terminal status under the existing rules.
 
-## Planned local client behavior
+## Requirements assessment
 
 The reduced [EPIC-008 requirements assessment](../specs/review-completeness-and-iteration.md)
-is Planned and unimplemented. It adds no command available in the current binary.
-TASK-027 will expose admission/preflight and TASK-028 internal execution;
-public requirements-bearing execution/capability will activate with verified
-CLI/MCP reads in TASK-029. Objective-only execution remains available throughout.
+supports optional requirements in Git-backed reviews with verified CLI/MCP reads.
+Admission and preflight run without provider execution. Objective-only execution
+remains available without a requirements file.
 
 - Supply optional explicit requirements alongside the existing objective and
   target. Requirements do not grant execution permission or enlarge source scope.

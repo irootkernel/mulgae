@@ -284,7 +284,7 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
-`doctor --output json` returns `mulgae-doctor-result.v6`. It checks Config v5,
+`doctor --output json` returns `mulgae-doctor-result.v7`. It checks Config v5,
 project-local security, provider and role identities, exact executable/launcher
 availability, and adapter-owned local CLI version compatibility. The only
 provider process it may run is the fixed `--version` command; it does not
@@ -292,7 +292,7 @@ authenticate, send a prompt or source, contact a provider API, create a review
 run, or start MCP. Versions above the latest verified version remain eligible
 but are reported as `newer_than_verified`. Static-admission evidence and review
 qualification do not gate this offline readiness.
-The v5 result retains the v4 JSON member name `config_v3` for compatibility;
+The current result retains the v4 JSON member name `config_v3` for compatibility;
 that member evaluates the currently supported Config v5 pair.
 
 `providers --output json` reports `offline_ready_provider_count` separately
