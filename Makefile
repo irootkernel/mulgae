@@ -1,6 +1,6 @@
 GO ?= go
 TEST_TIMEOUT ?= 90m
-RELEASE_VERSION := v0.1.26
+RELEASE_VERSION := v0.1.27
 MCP_CLIENT_TAGS := mcpclientcheck
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
 
