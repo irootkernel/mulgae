@@ -177,6 +177,23 @@ func TestLivePromptSourceUsesNativeReadPlanWithoutCopyingSource(t *testing.T) {
 			if count != 1 || reader.reads != 0 || !bytes.Equal(assessed.Target, identity.Bytes()) || len(assessed.CapturedArchive) != 0 {
 				t.Fatal("requirements expanded source/payload authority")
 			}
+			// The selected requirements contract must remain authoritative in the
+			// actual extraction packet, with the accepted report still untrusted.
+			assessedExtraction, err := source.compile(ctx, job, nil, prior)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, material := range []review.RuntimePrompt{assessed, assessedExtraction} {
+				manifest := material.Prompt.TrustedTemplate().TrustedLayerManifest()
+				last := manifest[len(manifest)-1]
+				if last.ID() != source.requirementsLayer.ID() || last.SHA256() != source.requirementsLayer.SHA256() {
+					t.Fatal("stage contract overrode the assigned requirements response form")
+				}
+			}
+			sections = assessedExtraction.Prompt.Sections()
+			if sections[len(sections)-1].Kind() != prompt.SectionPriorReport || !bytes.Equal(sections[len(sections)-1].Payload(), prior) {
+				t.Fatal("requirements extraction replaced the accepted report")
+			}
 			reader.err = errors.New("source identity changed")
 			if _, err := source.Prompt(ctx, job, nil); err == nil {
 				t.Fatal("changed source authority composed a prompt")

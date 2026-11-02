@@ -113,6 +113,7 @@ func TestRequirementsProviderRejectsInvalidOwningSectionsAndProtectedFields(t *t
 		{"unknown verdict", func(r map[string]any) { r["verdict"] = "passed" }, false},
 		{"NUL", func(r map[string]any) { r["rationale"] = "bad\x00" }, false},
 		{"reason type", func(r map[string]any) { r["reason"] = false }, false},
+		{"scope array", func(r map[string]any) { r["examined_scope"] = []any{"reader.go"} }, false},
 		{"owner injection", func(r map[string]any) { r["owner_role"] = "logic" }, true},
 		{"verification injection", func(r map[string]any) {
 			r["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["verification"] = "verified"

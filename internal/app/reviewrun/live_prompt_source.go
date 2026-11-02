@@ -78,12 +78,6 @@ func (source *livePromptSource) compile(ctx context.Context, job review.Invocati
 			assigned = append(assigned, map[string]any{"id": r.ID(), "text": r.Text(), "acceptance_criteria": r.AcceptanceCriteria()})
 		}
 	}
-	if len(assigned) > 0 {
-		template, err = source.templates.ComposeRequirementsReview(template, source.requirementsLayer)
-		if err != nil {
-			return review.RuntimePrompt{}, err
-		}
-	}
 	if repair != nil {
 		template, err = source.templates.ComposeRootReviewRepair(template, repair.Plan())
 	} else if report != nil {
@@ -91,6 +85,14 @@ func (source *livePromptSource) compile(ctx context.Context, job review.Invocati
 	}
 	if err != nil {
 		return review.RuntimePrompt{}, err
+	}
+	// Select the requirements response form after stage-specific contracts so
+	// extraction and reformat repair cannot override it with finding-only JSON.
+	if len(assigned) > 0 {
+		template, err = source.templates.ComposeRequirementsReview(template, source.requirementsLayer)
+		if err != nil {
+			return review.RuntimePrompt{}, err
+		}
 	}
 	manifest, err := template.TrustedLayerManifestJSON()
 	if err != nil {

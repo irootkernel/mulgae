@@ -4,6 +4,10 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.27 - Unreleased
 
+### Fixed
+
+- Preserve the requirements output contract through structured extraction and reformat repair, so supported assessments in accepted role reports can reach native results without conflicting finding-only JSON instructions.
+
 ## v0.1.26 - 2026-10-31
 
 ### Added

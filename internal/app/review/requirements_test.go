@@ -127,6 +127,44 @@ func TestRequirementsRuntimeExtractionRetainsValidPeerAndPrimaryReport(t *testin
 		t.Fatal("extraction lost assessment or exceeded shared calls")
 	}
 }
+
+func TestRequirementsMarkdownExtractionPreservesEveryVerdict(t *testing.T) {
+	for _, verdict := range []domain.RequirementVerdict{domain.RequirementMet, domain.RequirementPartiallyMet, domain.RequirementUnmet, domain.RequirementUnverified} {
+		t.Run(string(verdict), func(t *testing.T) {
+			report := []byte("# Logic review\n\nA: " + string(verdict) + ". Examined source.go:1 (observed). No execution evidence.\n")
+			row := requirementsRuntimeRow("A")
+			row["verdict"] = string(verdict)
+			if verdict == domain.RequirementUnverified {
+				row["reason"] = "insufficient_evidence"
+				row["evidence"] = []any{}
+			}
+			runtime, job, provider := requirementsRuntimeFixture(t, report, requirementsRuntimeResponse([]any{}, row))
+			if !runtime.Invoke(context.Background(), job).Succeeded() {
+				t.Fatal("primary Markdown report was rejected")
+			}
+			job.purpose = domain.InvocationExtract
+			outcome := runtime.Invoke(context.Background(), job)
+			output, ok := outcome.Output()
+			if !ok || string(output.ReportMarkdown()) != string(report) {
+				t.Fatal("extraction replaced the original report")
+			}
+			result, err := runtime.RequirementsResult(true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selected, evaluated, _ := result.Evaluation().Counts()
+			rows := result.Evaluation().Assessments()
+			if selected != 3 || evaluated != 1 || len(provider.invocations) != 2 || rows[0].Verdict() != verdict || rows[0].Origin() != domain.AssessmentProvider {
+				t.Fatalf("lost verdict/origin/counts or exceeded shared budget: %+v", result.Evaluation())
+			}
+			for _, omitted := range rows[1:] {
+				if omitted.Verdict() != domain.RequirementUnverified || omitted.Origin() != domain.AssessmentDerived || omitted.Reason() != domain.AssessmentAnswerOmitted {
+					t.Fatal("extraction invented an unsupported answer")
+				}
+			}
+		})
+	}
+}
 func TestRequirementsRuntimeExtractionInvalidAssessmentRetainsAcceptedFindings(t *testing.T) {
 	finding := map[string]any{
 		"severity": "high", "title": "Accepted source defect", "description": "The observed source demonstrates the defect.",

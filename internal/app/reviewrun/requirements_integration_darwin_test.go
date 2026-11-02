@@ -105,10 +105,10 @@ func (p *requirementsObservedProvider) Observe(_ context.Context, invocation por
 	if p.mode == "free-form" {
 		raw = []byte("# Accepted primary role report\n\nProse only.\n")
 	}
-	if logic && p.mode == "malformed" {
+	if logic && (p.mode == "malformed" || p.mode == "reformat") {
 		if p.logicCalls == 1 {
 			raw = []byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`)
-		} else {
+		} else if p.mode == "malformed" {
 			raw = []byte("Unable to reformat.")
 		}
 	}
@@ -121,7 +121,7 @@ func (p *requirementsObservedProvider) Observe(_ context.Context, invocation por
 }
 
 func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *testing.T) {
-	for _, mode := range []string{"stage", "head", "commit", "diff", "empty-stage", "empty-head", "empty-commit", "empty-diff", "empty-triple-diff", "unborn-stage", "empty-workspace-missing", "unborn-workspace-missing", "empty-head-missing", "empty-stage-missing", "empty-commit-missing", "empty-diff-missing", "empty-triple-diff-missing", "unborn-stage-missing", "empty-head-owner", "empty-head-binding", "free-form", "invalid-peer", "malformed", "unmet", "protected-source", "protected-owner", "large-content"} {
+	for _, mode := range []string{"stage", "head", "commit", "diff", "empty-stage", "empty-head", "empty-commit", "empty-diff", "empty-triple-diff", "unborn-stage", "empty-workspace-missing", "unborn-workspace-missing", "empty-head-missing", "empty-stage-missing", "empty-commit-missing", "empty-diff-missing", "empty-triple-diff-missing", "unborn-stage-missing", "empty-head-owner", "empty-head-binding", "free-form", "invalid-peer", "malformed", "reformat", "unmet", "protected-source", "protected-owner", "large-content"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			directory, err := filepath.EvalSymlinks(t.TempDir())
@@ -319,7 +319,7 @@ func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *
 				t.Fatal("input reread or wrong publication closure")
 			}
 			expectedCalls := 2
-			if mode == "malformed" {
+			if mode == "malformed" || mode == "reformat" {
 				expectedCalls = 3
 			}
 			if empty {

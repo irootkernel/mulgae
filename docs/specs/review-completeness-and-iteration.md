@@ -167,6 +167,16 @@ Keep free-form role reports as the primary provider record. Reuse the existing
 same-role, same-provider structured extraction allowance. Add no dedicated
 assessment call or per-requirement retry; keep current invocation ceilings.
 
+For roles with assigned requirements, append the trusted requirements output
+contract after the initial, extraction or repair contracts. It selects full
+provider-output v3 JSON, including the requirements section, instead of the
+finding-only v1 form. A repair plan selecting a patch keeps its existing form
+and allowed paths. Primary Markdown reports assess the assigned original IDs;
+extraction transcribes only supported report claims and preserves their evidence
+and limitations. Unsupported answers remain omitted. Extraction's top-level
+coverage fields do not erase assessment-specific limitations. Roles without
+assigned requirements retain the ordinary v1 contract.
+
 ### Extraction availability
 
 Requirements input never enables extraction, rewrites configuration, changes a
