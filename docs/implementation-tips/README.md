@@ -1170,3 +1170,40 @@ cleanup. Run the applicable owning-package race units, `make test-prepare`,
 use isolated fake providers; complete `make test`, mandatory live ZCode,
 supported-client certification and a bounded live requirements demo remain
 TASK-033 obligations. Do not present fixture success as live-provider evidence.
+
+## Planned Haepari integration verification
+
+EPIC-016's [dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md) maps the full
+scenario and producer-return requirements to member Tasks. The
+[coordination specification](../specs/haepari-review-coordination.md) owns the
+planned behavior. These checks are future obligations, not recorded passes.
+
+Start with focused Go behavior checks for affected native adapter, application
+lifecycle and CLI/MCP paths. Use make test-offline on the integrated candidate,
+make test-release for the installed-binary surface and make test-mcp-clients
+for changed MCP consumers. Release readiness requires the applicable exact-commit
+make test and provider-specific obligations under the repository's release
+policy. A runtime feature cannot use the patch-only version-increment waiver.
+Live-provider checks retain separate execution authority and cannot be replaced
+with fixture success.
+
+Run installation and fault/contention scenarios in the dedicated utm-macos
+guest, with approved shared VM occupancy once at the outer boundary. Synthetic
+guest targets use an isolated controller/resource and stub providers; they must
+not reacquire the parent's occupied VM or justify concurrent production-account
+calls. Compare meaningful prior configuration/history/retry/active-work state
+with the candidate, then requalify the actual released binary and full skill.
+
+Freeze admitted source, binary/archive, complete skill tree and profile digests
+before submission. Keep pre-submission inputs distinct from returned native Job
+identity/revision and exported results. Automatic recipe cleanup and inventory
+finish before workload exit. Manual operators stage evidence and complete
+cleanup/inventory while awaiting_manual, before manual complete starts native
+collection. Export follows consumer cleanup. Retain the tested combination when
+the scenario requires it and verify the declared reusable guest inventory.
+
+Record original per-case negatives, manual observations and unknowns separately
+from Job success, evidence completeness, native and consumer cleanup, capacity,
+review publication and assessment. Runtime evidence remains with its tool owner;
+promote only a separately approved bounded package when downstream retention
+requires it. No local runtime path or identity becomes canonical evidence.

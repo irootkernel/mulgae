@@ -35,6 +35,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 | [EPIC-015](#epic-015-development-verification-simplification) | Completed | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
+| [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | Planned | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
 
 ## Adopted execution order
 
@@ -83,6 +84,12 @@ simplified, the integrated candidate passed `make test-offline` (`2357.1s` ->
 execution dossier is retired, durable outcomes are promoted to the
 [development verification policy](../implementation-tips/development-verification.md),
 and Master accepted the completed Epic result on 2026-10-31.
+
+EPIC-016 follows completed EPIC-015 and preserves completed TASK-075's
+requirements/extraction correction. Execute TASK-076 through TASK-081 in table
+order. Each Task after TASK-076 depends on acceptance of the preceding Task.
+Release and external-effect authority remain separate prerequisites for the
+affected work, even after implementation passes.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -993,3 +1000,37 @@ DF-028 and DF-029 remain open; this Epic does not prescribe global parallelism.
 - [x] Mandatory release obligations, including the separate five-provider requirement, remain intact and unexecuted live checks are disclosed (`make test-grok`, `make test-cursor`, `make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in` remain deferred to the `v0.1.26` five-provider release gate).
 - [x] Durable guidance and concise outcomes are promoted; the dossier and its index entry are retired and the roadmap links canonical outcomes (`3f1ef2a`, `d42d749`).
 - [x] Master explicitly accepts this Epic; completing its Tasks does not substitute for Epic acceptance.
+
+## EPIC-016: Native Haepari review coordination and release qualification
+
+Status: Planned
+
+Detailed SOT: [Native Haepari review coordination dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md)
+
+Goal: deliver a published Mulgae binary and complete matching use-mulgae skill
+that coordinate CLI, foreground MCP and asynchronous MCP live reviews through
+one native Haepari advisory grant, with installed migration, recovery and result
+retrieval qualified in the dedicated guest. External consumer identity:
+`aquarium:EPIC-032/TASK-092`.
+
+This adoption defines work only. Runtime implementation, release, installed
+qualification and Aquarium acceptance are pending. The
+[coordination specification](../specs/haepari-review-coordination.md) owns the
+planned behavior; the dossier maps execution, acceptance and handoff owners.
+
+| Task | Status | Objective | Verification |
+|---|---|---|---|
+| TASK-076 | Planned | Implement the native Haepari port/adapter and durable acquisition identity. | Capability/Installation admission, exact persisted payload replay, safe persistence refusal and typed native failure handling. |
+| TASK-077 | Planned | Integrate one owned grant lifecycle in the common review execution path. | CLI/foreground/asynchronous MCP acquisition before qualification, protected role/extraction work, renewal, cancellation, terminal release and provider-free exclusions. |
+| TASK-078 | Planned | Complete borrower, uncertainty and failure recovery without duplicate execution. | Identity/deadline negatives, queue timeout/replay, cancellation race, renewal/hold/caller/controller loss and partial-role preservation without cross-run coverage. |
+| TASK-079 | Planned | Qualify complete paired-skill behavior and native configuration/history migration. | All three transports, verified reads, meaningful prior state, preserved provider/role/retry/active-work obligations and full-tree/fresh-session skill checks. |
+| TASK-080 | Planned | Qualify the integrated candidate and reusable dedicated guest. | Applicable deterministic/release/client gates, automatic/manual scenarios, synthetic isolated faults, real cleanup and inventory with explicit gaps. |
+| TASK-081 | Planned | Verify released delivery, return the producer report and prepare final closeout. | Separate authorized release/effects, exact released CLI/full skill requalification, complete correlated return, durable promotion and approved dossier retirement. |
+
+### Epic acceptance
+
+- [ ] Verify the shared native owner/borrower lifecycle, all required transport, contention, replay, cancellation and loss scenarios, original invocation recovery and advisory limitations.
+- [ ] Verify meaningful migration, complete release-matched use-mulgae behavior and fresh-session discovery, installed review/result retrieval and declared automatic/manual guest cleanup and inventory.
+- [ ] Complete applicable exact-candidate repository and release gates; candidate or fixture success alone does not establish released qualification.
+- [ ] Deliver the actual released producer unit and the authorized correlated report with every required return field; retain Aquarium consumer acceptance as its own downstream decision.
+- [ ] Obtain independent integrated assessment and Master's explicit overall acceptance, promote durable outcomes, replace Detailed SOT with Canonical Outcomes and remove the last-consumer dossier/TODO entry under the approved closeout diff.

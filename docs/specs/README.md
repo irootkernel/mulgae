@@ -12,6 +12,10 @@ behavior and durable product contracts.
 
 ## Adopted implementation requirements
 
+- [Native Haepari review coordination](haepari-review-coordination.md) owns
+  EPIC-016's planned owner/borrower lifecycle, uncertainty handling, compatibility
+  and released qualification. This adoption does not change current binaries.
+
 - [Verified review contracts](verified-review-contracts.md) defines native
   project/preflight guards and coherent, bounded result inspection for EPIC-007.
 - [Review completeness and iteration](review-completeness-and-iteration.md)

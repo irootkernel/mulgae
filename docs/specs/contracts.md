@@ -2,6 +2,11 @@
 
 ## Adopted extension status
 
+[Native Haepari review coordination](haepari-review-coordination.md) owns
+EPIC-016's planned shared review lifecycle and compatibility requirements.
+This design introduces no shipped command, schema or capability. Any affected
+public wire change during implementation follows the versioning rules below.
+
 [Live workspace and Git review](live-workspace-and-git-review.md) owns current
 CLI/MCP execution. TASK-038 wires the public cutover; TASK-039 owns complete
 provider/client/release certification. The roadmap owns their lifecycle.

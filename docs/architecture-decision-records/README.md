@@ -25,6 +25,10 @@ explain why durable choices were made.
 
 ## Accepted design for planned implementation
 
+- [Coordinate reviews in the shared native execution path](haepari-review-coordination.md)
+  records EPIC-016's native boundary, ownership and advisory limits. Implementation
+  and released qualification remain pending.
+
 - [Native review contracts before review completeness and iteration](verified-review-iteration.md)
   records why EPIC-007 groups native binding with verified inspection, and why
   EPIC-008 originally grouped requirements assessment with followup and comparison.

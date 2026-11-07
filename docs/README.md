@@ -104,6 +104,18 @@ execution order, dependencies, and status. The
 [design decision](architecture-decision-records/verified-review-iteration.md)
 records the grouping and responsibility boundaries.
 
+## Planned native Haepari review coordination
+
+[EPIC-016](roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
+adopts native capacity-one coordination for CLI and both MCP review modes,
+with complete paired-skill migration and released guest qualification. Its
+[specification](specs/haepari-review-coordination.md),
+[decision](architecture-decision-records/haepari-review-coordination.md) and
+[temporary execution dossier](todo/TODO-HAEPARI-REVIEW-COORDINATION.md) separate
+product requirements, rationale and epic-squad execution. No runtime capability
+is implemented by this design. At final closeout, promote durable outcomes,
+replace temporary links and retire the dossier and its TODO entry.
+
 ## Source-of-truth precedence
 
 Current source and tests are authoritative for implemented runtime behavior.

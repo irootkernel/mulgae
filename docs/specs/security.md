@@ -487,3 +487,13 @@ disposition, CI-policy change, remediation or final acceptance authority.
 Do not open a public issue containing credentials, private source, raw provider
 transcripts, or `.mulgae/` artifacts. Share the smallest redacted reproduction
 through the repository owner's private security contact.
+
+## Planned Haepari coordination boundary
+
+EPIC-016's [coordination contract](haepari-review-coordination.md) requires
+native owner/borrower validation, fail-closed provider dispatch and cancellation
+and drain after grant loss. The inherited reference is same-user coordination;
+it grants no source, provider, credential or publication authority. Advisory
+expiry cannot prove process termination. These are planned requirements, not
+claims about the current binary. Existing isolation and failure precedence
+remain authoritative.

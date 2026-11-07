@@ -69,3 +69,22 @@ execution, remediation and acceptance.
 See [live workspace and Git review](../specs/live-workspace-and-git-review.md)
 for current execution and [verified review contracts](../specs/verified-review-contracts.md)
 for retained historical foundations.
+
+## Planned Haepari coordination operations
+
+EPIC-016 plans a dependency on Haepari's separately owned local controller for
+live review coordination; Mulgae remains a local CLI/attached MCP server. The
+[coordination specification](../specs/haepari-review-coordination.md) owns future
+recovery requirements. Before using the future integration, operators must
+resolve the selected Installation, capability and capacity-one lock policy
+under setup authority. Review execution must not repair or register resources.
+
+A lost wait or start response does not authorize another review. Preserve the
+original acquisition and native invocation/run, inspect using their supported
+read paths and distinguish queue timeout, cancellation acknowledgement, verified
+termination, cleanup and grant disposition. A borrower never disposes its
+parent's grant. Unavailable control or unknown drain requires reporting and
+the owning integration's recovery; it does not authorize direct execution,
+force release, controller changes or automatic rerun. Capture the actual native
+conditions and escalate missing authority to Master. Document verified operator
+commands during implementation; this design adds no currently usable command.

@@ -812,3 +812,14 @@ call. Separate requirements cursors preserve finding filters and pagination.
 `report` consumes content through that verified snapshot. No read consults the
 current project source or provider runtime, and cleanup/export retain their
 existing run ownership, lineage and privacy boundaries.
+
+## Planned Haepari review coordination
+
+EPIC-016 will place grant policy in the application review lifecycle, native
+operations behind a port, concrete Haepari integration in an adapter and wiring
+in composition. CLI, foreground MCP and asynchronous MCP will use that shared
+path. Entrypoints retain transport grammar and lifecycle; neither Aquarium nor
+use-mulgae adds an outer lock wrapper. Provider-free operations retain their
+existing boundaries. The [specification](../specs/haepari-review-coordination.md)
+owns behavior and the [ADR](../architecture-decision-records/haepari-review-coordination.md)
+owns the decision. This design is unimplemented.
