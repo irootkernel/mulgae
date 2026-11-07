@@ -35,7 +35,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 | [EPIC-015](#epic-015-development-verification-simplification) | Completed | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
-| [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | Planned | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
+| [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | In Progress | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
 
 ## Adopted execution order
 
@@ -1003,7 +1003,7 @@ DF-028 and DF-029 remain open; this Epic does not prescribe global parallelism.
 
 ## EPIC-016: Native Haepari review coordination and release qualification
 
-Status: Planned
+Status: In Progress
 
 Detailed SOT: [Native Haepari review coordination dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md)
 
@@ -1020,7 +1020,7 @@ planned behavior; the dossier maps execution, acceptance and handoff owners.
 
 | Task | Status | Objective | Verification |
 |---|---|---|---|
-| TASK-076 | Planned | Implement the native Haepari port/adapter and durable acquisition identity. | Capability/Installation admission, exact persisted payload replay, safe persistence refusal and typed native failure handling. |
+| TASK-076 | Completed | Implement the native Haepari port/adapter and durable acquisition identity. | Capability/Installation admission, exact persisted payload replay, safe persistence refusal and typed native failure handling. |
 | TASK-077 | Planned | Integrate one owned grant lifecycle in the common review execution path. | CLI/foreground/asynchronous MCP acquisition before qualification, protected role/extraction work, renewal, cancellation, terminal release and provider-free exclusions. |
 | TASK-078 | Planned | Complete borrower, uncertainty and failure recovery without duplicate execution. | Identity/deadline negatives, queue timeout/replay, cancellation race, renewal/hold/caller/controller loss and partial-role preservation without cross-run coverage. |
 | TASK-079 | Planned | Qualify complete paired-skill behavior and native configuration/history migration. | All three transports, verified reads, meaningful prior state, preserved provider/role/retry/active-work obligations and full-tree/fresh-session skill checks. |

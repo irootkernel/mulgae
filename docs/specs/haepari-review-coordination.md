@@ -2,8 +2,14 @@
 
 ## Adoption boundary
 
-EPIC-016 adopts these requirements for planned implementation. The current
-binary does not implement this integration. The [roadmap](../roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
+EPIC-016 adopts these requirements for staged implementation. `TASK-076`
+establishes the unwired native coordination port, `internal/adapters/haepari`
+client and state-root admission, private diagnostic intent store
+(`diagnostics/s_<uuidv7>/r_<uuidv7>/haepari-lock.json`) and `internal/app/reviewrun`
+single-acquisition/replay foundation; live runtime wiring and later `EPIC-016`
+lifecycle, public projection and certification tasks (`TASK-077` through
+`TASK-081`) remain pending, so the current binary does not invoke Haepari during
+live CLI or MCP execution yet. The [roadmap](../roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
 owns status; this document owns the product contract. The
 [decision](../architecture-decision-records/haepari-review-coordination.md)
 owns its rationale.

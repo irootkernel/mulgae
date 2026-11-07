@@ -18,7 +18,7 @@ internal/entrypoint/mulgae -> internal/app/* -> internal/domain
 internal/entrypoint/mcp ----------------------> external MCP SDK
 internal/adapters/* --------------------------> internal/ports
 internal/app/*, internal/ports, internal/adapters/* -> internal/artifactwire
-internal/app/{query,report} ----------------------> internal/strictjson
+internal/app/{query,report}, internal/adapters/* -> internal/strictjson
 ```
 
 The domain and application packages do not depend on CLI parsing, provider
@@ -815,11 +815,18 @@ existing run ownership, lineage and privacy boundaries.
 
 ## Planned Haepari review coordination
 
-EPIC-016 will place grant policy in the application review lifecycle, native
-operations behind a port, concrete Haepari integration in an adapter and wiring
-in composition. CLI, foreground MCP and asynchronous MCP will use that shared
-path. Entrypoints retain transport grammar and lifecycle; neither Aquarium nor
-use-mulgae adds an outer lock wrapper. Provider-free operations retain their
-existing boundaries. The [specification](../specs/haepari-review-coordination.md)
-owns behavior and the [ADR](../architecture-decision-records/haepari-review-coordination.md)
-owns the decision. This design is unimplemented.
+EPIC-016 places grant policy in the application review lifecycle, native
+operations behind `internal/ports`, concrete Haepari `managed-execution/v1`
+(`advisory-lock/v1`) integration in `internal/adapters/haepari`, private
+diagnostic intent persistence (`diagnostics/s_<uuidv7>/r_<uuidv7>/haepari-lock.json`)
+in `internal/adapters/filesystem` and wiring in `internal/composition`.
+`TASK-076` establishes the unwired port, adapter, private diagnostic intent
+store and `internal/app/reviewrun` single-acquisition/replay foundation; live
+`LiveService.Execute` and `internal/composition` wiring plus full owner
+wait/renew/cancel/drain lifecycle remain `TASK-077` obligations. CLI, foreground
+MCP and asynchronous MCP will share that application path while entrypoints
+retain transport grammar and lifecycle; neither Aquarium nor `use-mulgae` adds
+an outer lock wrapper. Provider-free operations retain their existing
+boundaries. The [specification](../specs/haepari-review-coordination.md) owns
+behavior and the [ADR](../architecture-decision-records/haepari-review-coordination.md)
+owns the decision.

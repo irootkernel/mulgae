@@ -8,13 +8,14 @@ import (
 // Path spelling is lexical only. Callers validate identities, choose kinds and
 // construct safe paths; no helper cleans or validates its arguments.
 const (
-	ManifestPath           = "manifest.json"
-	JournalPath            = "publication/journal.json"
-	StatusPath             = "status.json"
-	SupportIndexPath       = "support/index.json"
-	ValidatedCandidatePath = "validation/final-candidate.json"
-	RecoveryManifestPath   = "recovery/manifest.json"
-	CompositeSupportPath   = "support/composite.json"
+	ManifestPath              = "manifest.json"
+	JournalPath               = "publication/journal.json"
+	StatusPath                = "status.json"
+	SupportIndexPath          = "support/index.json"
+	ValidatedCandidatePath    = "validation/final-candidate.json"
+	RecoveryManifestPath      = "recovery/manifest.json"
+	CompositeSupportPath      = "support/composite.json"
+	HaepariLockIntentFilename = "haepari-lock.json"
 )
 
 func RunPath(session, run, relative string) string { return session + "/" + run + "/" + relative }
@@ -57,6 +58,9 @@ func CapturedBlobPath(digest string) string {
 }
 func CompositeSourcePrefix(role string) string   { return "support/sources/" + role + "/target/" }
 func CompositeFindingPath(finding string) string { return "support/findings/" + FindingName(finding) }
+func DiagnosticHaepariLockIntentPath(session, run string) string {
+	return "diagnostics/" + session + "/" + run + "/" + HaepariLockIntentFilename
+}
 
 func CanonicalExcerptName(name string) bool {
 	if strings.Contains(name, "/") || !strings.HasPrefix(name, "F") {

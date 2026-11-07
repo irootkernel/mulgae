@@ -483,6 +483,7 @@ authority only after a verified P2 commit.
     s_<uuidv7>/
       r_<uuidv7>/
         status.json
+        haepari-lock.json
         mulgae-runtime.jsonl
         qualification/
           a_<uuidv7>/

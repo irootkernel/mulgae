@@ -158,6 +158,7 @@ func testLeafSpellings(t *testing.T) {
 		{"copied source", artifactwire.CompositeSourcePrefix("logic"), "support/sources/logic/target/"},
 		{"copied finding", artifactwire.CompositeFindingPath("F001"), "support/findings/F001.json"},
 		{"composite document", artifactwire.CompositeSupportPath, "support/composite.json"},
+		{"haepari lock intent", artifactwire.DiagnosticHaepariLockIntentPath("s_1", "r_1"), "diagnostics/s_1/r_1/haepari-lock.json"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.got != c.want {

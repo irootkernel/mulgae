@@ -1179,7 +1179,19 @@ scenario and producer-return requirements to member Tasks. The
 planned behavior. These checks are future obligations, not recorded passes.
 
 Start with focused Go behavior checks for affected native adapter, application
-lifecycle and CLI/MCP paths. Use make test-offline on the integrated candidate,
+lifecycle and CLI/MCP paths. Run each `TASK-076` foundation check on one
+physical line:
+
+```sh
+go test -race -count=1 ./internal/artifactwire -run '^TestArtifactPathGrammarCompatibility$'
+go test -race -count=1 ./internal/ports -run '^TestReview(Lock|Coordination)'
+go test -race -count=1 ./internal/adapters/filesystem -run '^TestCoordinationIntentStore'
+go test -race -count=1 ./internal/adapters/haepari -run '^Test(ResolveStateRoot|Client)'
+go test -race -count=1 ./internal/app/reviewrun -run '^TestReviewCoordinator'
+go test -race -count=1 ./internal/architecture -run '^(TestWireLeafDependencyDirection|TestProductionDependencyDirection|TestEstablishedOwnershipDependencyDirection|TestTestTierNaming)$'
+```
+
+Use make test-offline on the integrated candidate,
 make test-release for the installed-binary surface and make test-mcp-clients
 for changed MCP consumers. Release readiness requires the applicable exact-commit
 make test and provider-specific obligations under the repository's release
