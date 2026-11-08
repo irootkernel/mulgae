@@ -201,3 +201,96 @@ func TestCleanupStoreHaepariIntentDriftAfterSnapshotRetainsBothRoots(t *testing.
 		}
 	}
 }
+
+func TestCleanupStoreHaepariBorrowedV3ProtectionAndDrift(t *testing.T) {
+	t.Parallel()
+	for _, linked := range []bool{false, true} {
+		for _, state := range []ports.ReviewLocalDrainState{ports.ReviewLocalDrainNotStarted, ports.ReviewLocalDrainUnverified, ports.ReviewLocalDrainVerified} {
+			name := string(state) + "/diagnostic"
+			if linked {
+				name = string(state) + "/linked"
+			}
+			t.Run(name, func(t *testing.T) {
+				store, root, session, run, diagnostic := cleanupCoordinationFixture(t, linked)
+				_, record := coordinationV3Fixture(t)
+				record.LocalDrainState = state
+				data, err := encodeCoordinationIntentWire(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				intent := filepath.Join(diagnostic, artifactwire.HaepariLockIntentFilename)
+				if err := os.WriteFile(intent, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				wantProtected := state == ports.ReviewLocalDrainUnverified
+				snapshot, err := store.Observe(context.Background())
+				if err != nil || len(snapshot.Runs) != 1 {
+					t.Fatalf("observation: %+v, %v", snapshot.Runs, err)
+				}
+				observation := snapshot.Runs[0]
+				if (observation.Active || observation.Corrupt || observation.DiagnosticProtected) != wantProtected {
+					t.Fatalf("incorrect v3 borrowed protection for %s: %+v", state, observation)
+				}
+				tombstone := clean.Tombstone{RunID: run, PlanHash: cleanupTestHash("v3-borrowed")}
+				if err := store.Tombstone(context.Background(), tombstone); err != nil {
+					t.Fatal(err)
+				}
+				err = store.DeleteTombstoned(context.Background(), tombstone)
+				if (err != nil) != wantProtected {
+					t.Fatalf("protected=%t deletion=%v", wantProtected, err)
+				}
+				for _, path := range []string{diagnostic, filepath.Join(root.String(), session, run)} {
+					if !linked && path != diagnostic {
+						continue
+					}
+					_, statErr := os.Lstat(path)
+					if wantProtected && statErr != nil || !wantProtected && !errors.Is(statErr, os.ErrNotExist) {
+						t.Fatalf("incorrect retained root %s for v3 %s: %v", path, state, statErr)
+					}
+				}
+			})
+		}
+	}
+
+	// Post-snapshot byte drift on a verified v3 borrowed record must refuse deletion.
+	store, root, session, run, diagnostic := cleanupCoordinationFixture(t, true)
+	_, record := coordinationV3Fixture(t)
+	record.LocalDrainState = ports.ReviewLocalDrainVerified
+	data, err := encodeCoordinationIntentWire(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := filepath.Join(diagnostic, artifactwire.HaepariLockIntentFilename)
+	if err := os.WriteFile(intent, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	err = store.WithCleanupTransaction(context.Background(), func(transaction clean.CleanupTransaction) error {
+		if _, err := transaction.Snapshot(context.Background()); err != nil {
+			return err
+		}
+		record.UpdatedAt = record.UpdatedAt.Add(time.Second)
+		changed, err := encodeCoordinationIntentWire(record)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(intent, changed, 0600); err != nil {
+			return err
+		}
+		tombstone := clean.Tombstone{RunID: run, PlanHash: cleanupTestHash("v3-drift")}
+		if err := transaction.Tombstone(context.Background(), tombstone); err != nil {
+			return err
+		}
+		if err := transaction.DeleteTombstoned(context.Background(), tombstone); err == nil {
+			t.Fatal("v3 intent drift was deleted")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{diagnostic, filepath.Join(root.String(), session, run)} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("v3 intent drift removed a root: %v", err)
+		}
+	}
+}

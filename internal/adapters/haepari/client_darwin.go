@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"github.com/irootkernel/mulgae/internal/strictjson"
 )
@@ -35,6 +36,7 @@ type Config struct {
 type Client struct {
 	rawHome          string
 	rawParentContext string
+	rawLockGrant     string
 	hasLockGrant     bool
 	httpClient       *http.Client
 
@@ -48,6 +50,7 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		rawHome:          cfg.RawHome,
 		rawParentContext: cfg.RawParentContext,
+		rawLockGrant:     cfg.RawLockGrant,
 		hasLockGrant:     cfg.HasLockGrant || cfg.RawLockGrant != "",
 	}
 }
@@ -507,13 +510,36 @@ func (c *Client) doJSON(
 	if err := ctx.Err(); err != nil {
 		return mapTransportError(op, false, err)
 	}
+	var lockGrantHeaderValue string
 	if c.hasLockGrant {
-		return &ports.ReviewCoordinationError{
-			Reason:    ports.ReviewCoordinationReasonParentContextInvalid,
-			Operation: op,
-			Retry:     ports.ReviewCoordinationRetryNever,
-			Message:   "inherited review grant borrowing is not available",
+		grant, err := ports.DecodeReviewBorrowedGrantReference(c.rawLockGrant)
+		if err != nil {
+			return &ports.ReviewCoordinationError{
+				Reason:    ports.ReviewCoordinationReasonParentContextInvalid,
+				Operation: op,
+				Retry:     ports.ReviewCoordinationRetryNever,
+				Uncertain: false,
+				Message:   "HAEPARI_LOCK_GRANT is malformed",
+				Cause:     err,
+			}
 		}
+		if isMutatingLockOp(op) {
+			return &ports.ReviewCoordinationError{
+				Reason:     ports.ReviewCoordinationReasonLockStateConflict,
+				Operation:  op,
+				NativeCode: "CONFLICT",
+				Retry:      ports.ReviewCoordinationRetryNever,
+				Uncertain:  false,
+				Message:    "inherited HAEPARI_LOCK_GRANT forbids mutating lock operations",
+			}
+		}
+		header, _ := json.Marshal(artifactwire.HaepariBorrowedGrantWire{
+			InstallationID: grant.InstallationID,
+			LockID:         grant.LockID,
+			GrantID:        grant.GrantID,
+			Generation:     grant.Generation,
+		})
+		lockGrantHeaderValue = string(header)
 	}
 	parentHeaderValue, err := ValidateParentContext(c.rawParentContext)
 	if err != nil {
@@ -572,6 +598,9 @@ func (c *Client) doJSON(
 	}
 	if parentHeaderValue != "" {
 		req.Header.Set(parentContextHeader, parentHeaderValue)
+	}
+	if lockGrantHeaderValue != "" {
+		req.Header.Set(lockGrantHeader, lockGrantHeaderValue)
 	}
 
 	httpClient := &http.Client{Transport: transport}

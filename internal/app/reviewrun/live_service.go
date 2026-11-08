@@ -111,7 +111,7 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	var execution ports.LiveReviewExecution
 	providersDrained := false
 	providerCompletionKnown := true
-	var owner *ownedReview
+	var owner reviewProtection
 	var terminal QualifiedRunTerminalReceipt
 	var dispositionErr error
 	cleanupAttempted := false
@@ -159,7 +159,7 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 			err = &liveCleanupError{cause: err, cleanup: cleanup}
 		}
 		if owner != nil {
-			owner.cancelWork(context.Canceled)
+			owner.cancel(context.Canceled)
 		}
 		uri, uriErr := runtimeDiagnosticP2URI(result, err)
 		err = errors.Join(err, uriErr)
@@ -249,7 +249,7 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	var requirementResults validation.RequirementResults
 	var artist liveArtistContext
 	if !source.Target().NoChange() {
-		owner, err = service.dependencies.Coordination.startOwnedReview(ctx, ReviewAcquireRequest{Root: request.ArtifactRoot, SessionID: identity.sessionID, RunID: identity.runID}, receipt.RunDeadline())
+		owner, err = service.dependencies.Coordination.startReview(ctx, ReviewAcquireRequest{Root: request.ArtifactRoot, SessionID: identity.sessionID, RunID: identity.runID}, receipt.RunDeadline())
 		if err != nil {
 			return Result{}, err
 		}
@@ -402,7 +402,7 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 			return Result{}, err
 		}
 		cancelPreparation()
-		ctx = owner.work
+		ctx = owner.workContext()
 		coordinated, err = coordinator.ExecuteRun(ctx, &run, plan.Assignments, plan.Threshold, plan.Policy)
 		if err != nil {
 			return Result{}, classifyCoordinatorExecutionFailure(ctx, diagnostics, err)

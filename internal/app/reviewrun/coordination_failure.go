@@ -8,6 +8,22 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+type coordinationPhaseError struct {
+	phase   string
+	monitor bool
+	err     error
+}
+
+func (e *coordinationPhaseError) Error() string { return e.err.Error() }
+func (e *coordinationPhaseError) Unwrap() error { return e.err }
+
+func withCoordinationPhase(phase string, monitor bool, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &coordinationPhaseError{phase: phase, monitor: monitor, err: err}
+}
+
 func coordinationError(reason ports.ReviewCoordinationReason, operation ports.ReviewLockOperation, uncertain bool, cause error) error {
 	return &ports.ReviewCoordinationError{Reason: reason, Operation: operation, Retry: ports.ReviewCoordinationRetryInspectFirst, Uncertain: uncertain, Cause: cause}
 }
@@ -29,6 +45,9 @@ func coordinationFailure(err error, held bool) error {
 	visit = func(current error) {
 		if current == nil {
 			return
+		}
+		if phaseErr, ok := current.(*coordinationPhaseError); ok && phaseErr.monitor {
+			class = domain.FailureArtifact
 		}
 		if coordination, ok := current.(*ports.ReviewCoordinationError); ok && (coordination.Uncertain || coordination.Reason == ports.ReviewCoordinationReasonPersistenceRefused || coordination.Reason == ports.ReviewCoordinationReasonObservationPersistFailed) {
 			class = domain.FailureArtifact

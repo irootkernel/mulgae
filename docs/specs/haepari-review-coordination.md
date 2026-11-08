@@ -5,8 +5,10 @@
 EPIC-016 adopts these requirements in stages. `TASK-076` establishes the native
 port, client, state-root admission and durable acquisition identity. The
 `TASK-077` implementation connects the common live CLI/MCP owner lifecycle,
-private local-drain proof and bounded status projection. Borrowing, complete
-failure recovery, migration and qualification remain `TASK-078` through
+private local-drain proof and bounded status projection. `TASK-078` completes
+read-only `HAEPARI_LOCK_GRANT` borrowing, private v3 child local-drain proof,
+and uncertainty and partial-role recovery without duplicate execution. Paired
+skill, migration, guest and release qualification remain `TASK-079` through
 `TASK-081` obligations. These source changes do not establish installed or
 released behavior. The [roadmap](../roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
 owns status; this document owns the product contract. The
@@ -101,25 +103,39 @@ authorizes replay of provider execution or publication.
 
 ## Borrowed grant lifecycle
 
-Until `TASK-078` implements borrowing, any present `HAEPARI_LOCK_GRANT`, including
-an empty value, is refused before controller access or intent I/O. No-change and
-provider-free requests still require no coordination. The following borrowing
-contract remains a pending obligation.
+When `HAEPARI_LOCK_GRANT` is present in the environment, Mulgae validates its
+closed JSON reference before controller access or intent I/O. No-change and
+provider-free requests still require no coordination.
 
 `HAEPARI_LOCK_GRANT` follows Haepari's closed JSON reference containing
-`installation_id`, `lock_id`, `grant_id` and positive `generation`. The environment
-value alone is not proof. Before skipping acquisition, perform read-only native
-lookup on the selected Installation and require the intended lock, matching
-current grant/generation, `granted` state, and unexpired liveness and maximum-hold
-deadlines. Follow the native bounded pagination and same-page effective-time
-contract.
+`installation_id`, `lock_id`, `grant_id` and positive `generation` within an
+8,192-byte ceiling. The environment value alone is not proof. Before skipping
+acquisition, Mulgae performs read-only native `hello`, `resource.inspect`, and
+bounded `locks.list` (`lock=mulgae-review&limit=100`) lookup on the selected
+Installation under one 30-second whole-inspection deadline. Each page must use a
+strictly progressing cursor, and deadline checks compare against that matching
+page's `now` timestamp. Admission requires the intended lock, matching current
+`grant_id` and `generation`, `granted` state, and unexpired liveness and
+maximum-hold deadlines covering the full admitted run budget plus two minutes of
+cleanup.
 
-A borrower never renews, cancels, releases, force-releases or transfers ownership
-of its parent's request/grant, including on child failure or cancellation.
-Wrong Installation/lock, unknown identity, stale generation or ended/expired
-grant fails with its native typed condition. The borrower must not reacquire
-under another key or bypass Haepari. It stops new provider dispatch and cancels
-and drains its own native work when grant validity is lost. The reference is
+Before any provider qualification, role execution or extraction, the borrower
+persists a private `mulgae-haepari-lock-intent.v3` record with
+`local_drain_state: unverified`, `borrowed_grant`, and `observed_request`
+(without an acquisition payload or receipt). Only proven child provider
+termination and source closure set `local_drain_state: verified`. Same-run v3
+replay is refused before provider dispatch. Cleanup protects unverified v3 child
+trees and allows verified v3 child artifacts to be removed independently while
+the parent grant remains live.
+
+A borrower never acquires, waits, renews, cancels, releases, force-releases or
+transfers ownership of its parent's request/grant, including on child failure or
+cancellation. Wrong Installation/lock, unknown identity, stale generation or
+ended/expired grant fails admission with its native typed condition. The
+borrower never reacquires under another key or bypasses Haepari. During child
+execution, an independent deadline guard and periodic read-only `locks.list`
+monitor adopt parent renewal extensions and stop new provider dispatch, cancel,
+and drain child native work when parent grant validity is lost. The reference is
 same-user coordination, not a credential or a new security boundary.
 
 ## Partial results and advisory limits

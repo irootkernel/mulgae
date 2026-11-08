@@ -238,7 +238,7 @@ func TestReviewCoordinatorInitialAcquireAndIdempotentReplay(t *testing.T) {
 		res:            res,
 		acquireReplies: []ports.ReviewLockReply{queuedReply, replayGrantedReply},
 	}
-	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now})
+	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestReviewCoordinatorRefusesAcquireWhenIntentPersistenceFails(t *testing.T)
 
 	store := &fakeIntentStore{persistErr: errors.New("ENOSPC")}
 	transport := &fakeLockTransport{inst: inst, res: res}
-	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: time.Date(2026, 11, 8, 5, 0, 0, 0, time.UTC)})
+	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: time.Date(2026, 11, 8, 5, 0, 0, 0, time.UTC)}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +362,7 @@ func TestReviewCoordinatorRetainsKnownNativeResultWhenObservationPersistFails(t 
 		res:            res,
 		acquireReplies: []ports.ReviewLockReply{grantedReply},
 	}
-	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now})
+	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +406,7 @@ func TestReviewCoordinatorAdmissionAndIdentityMismatchRefusals(t *testing.T) {
 	inst.Capabilities = []string{ports.HaepariCapabilityManagedExecutionV1}
 	store := &fakeIntentStore{}
 	transport := &fakeLockTransport{inst: inst, res: res}
-	coord, _ := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now})
+	coord, _ := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, "", false)
 	_, err = coord.AcquireOrReplay(context.Background(), reviewrun.ReviewAcquireRequest{Root: root, SessionID: sessionID, RunID: runID})
 	var coordErr *ports.ReviewCoordinationError
 	if !errors.As(err, &coordErr) || coordErr.Reason != ports.ReviewCoordinationReasonCapabilityUnsupported {
@@ -420,7 +420,7 @@ func TestReviewCoordinatorAdmissionAndIdentityMismatchRefusals(t *testing.T) {
 	inst, res = defaultValidInstallationAndResource()
 	res.Capacity = 2
 	transport = &fakeLockTransport{inst: inst, res: res}
-	coord, _ = reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now})
+	coord, _ = reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, "", false)
 	_, err = coord.AcquireOrReplay(context.Background(), reviewrun.ReviewAcquireRequest{Root: root, SessionID: sessionID, RunID: runID})
 	if !errors.As(err, &coordErr) || coordErr.Reason != ports.ReviewCoordinationReasonResourceInvalid {
 		t.Fatalf("expected haepari_resource_invalid, got %+v (%v)", coordErr, err)
@@ -446,7 +446,7 @@ func TestReviewCoordinatorAdmissionAndIdentityMismatchRefusals(t *testing.T) {
 		},
 	}
 	transport = &fakeLockTransport{inst: inst, res: res}
-	coord, _ = reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now})
+	coord, _ = reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, "", false)
 	_, err = coord.AcquireOrReplay(context.Background(), reviewrun.ReviewAcquireRequest{Root: root, SessionID: sessionID, RunID: runID})
 	if !errors.As(err, &coordErr) || coordErr.Reason != ports.ReviewCoordinationReasonInstallationMismatch {
 		t.Fatalf("expected haepari_installation_mismatch, got %+v (%v)", coordErr, err)
@@ -517,7 +517,7 @@ func TestReviewCoordinatorPreservesPersistedIntentAndReplaysAfterUncertainAcquir
 			Message:     "sqlite unavailable during lock.acquire",
 		},
 	}
-	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now})
+	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,5 +557,99 @@ func TestReviewCoordinatorPreservesPersistedIntentAndReplaysAfterUncertainAcquir
 	}
 	if !bytes.Equal(transport.acquirePayloads[0], transport.acquirePayloads[1]) {
 		t.Fatal("expected identical acquire payload bytes replayed after uncertain acquire")
+	}
+}
+
+func TestReviewCoordinatorRefusesBorrowedEnvAndPersistedV3ReplayInAcquireOrReplay(t *testing.T) {
+	t.Parallel()
+
+	root, err := ports.NewAnchoredRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	now := time.Date(2026, 11, 8, 5, 0, 0, 0, time.UTC)
+	inst, res := defaultValidInstallationAndResource()
+
+	// 1. Malformed HAEPARI_LOCK_GRANT present -> rejected before Hello/Acquire.
+	store := &fakeIntentStore{}
+	transport := &fakeLockTransport{inst: inst, res: res}
+	coord, err := reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = coord.AcquireOrReplay(context.Background(), reviewrun.ReviewAcquireRequest{Root: root, SessionID: sessionID, RunID: runID})
+	var coordErr *ports.ReviewCoordinationError
+	if !errors.As(err, &coordErr) || coordErr.Reason != ports.ReviewCoordinationReasonParentContextInvalid || coordErr.Uncertain {
+		t.Fatalf("expected haepari_parent_context_invalid, got %+v (%v)", coordErr, err)
+	}
+	if len(transport.acquirePayloads) != 0 || store.loadCalls != 0 {
+		t.Fatalf("expected zero transport/store calls for malformed grant, got acquire=%d load=%d", len(transport.acquirePayloads), store.loadCalls)
+	}
+
+	// 2. Valid HAEPARI_LOCK_GRANT present -> AcquireOrReplay rejected with CONFLICT before Acquire.
+	validGrant := `{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`
+	coord, err = reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, validGrant, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = coord.AcquireOrReplay(context.Background(), reviewrun.ReviewAcquireRequest{Root: root, SessionID: sessionID, RunID: runID})
+	if !errors.As(err, &coordErr) || coordErr.Reason != ports.ReviewCoordinationReasonLockStateConflict || coordErr.NativeCode != "CONFLICT" || coordErr.Uncertain {
+		t.Fatalf("expected CONFLICT for borrowed AcquireOrReplay, got %+v (%v)", coordErr, err)
+	}
+	if len(transport.acquirePayloads) != 0 {
+		t.Fatalf("expected zero Acquire calls when HAEPARI_LOCK_GRANT is set, got %d", len(transport.acquirePayloads))
+	}
+
+	// 3. HAEPARI_LOCK_GRANT later removed from environment, but a persisted v3 borrowed record exists -> rejected before Acquire.
+	liveness := now.Add(30 * time.Second)
+	maxHold := now.Add(300 * time.Second)
+	borrowedRef, err := ports.DecodeReviewBorrowedGrantReference(validGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = &fakeIntentStore{
+		hasRecord: true,
+		record: ports.ReviewLockRecord{
+			SchemaVersion:   "mulgae-haepari-lock-intent.v3",
+			LocalDrainState: ports.ReviewLocalDrainUnverified,
+			SessionID:       sessionID,
+			RunID:           runID,
+			InstallationID:  "inst-01",
+			ResourceID:      ports.HaepariReviewResourceID,
+			BorrowedGrant:   &borrowedRef,
+			ObservedRequest: &ports.ReviewLockRequest{
+				InstallationID:   "inst-01",
+				LockID:           ports.HaepariReviewResourceID,
+				RequestID:        "lreq_parent",
+				RequestKey:       "mulgae-review.parent-session.parent-run",
+				Holder:           "mulgae-review/parent-session/parent-run",
+				State:            ports.ReviewLockStateGranted,
+				Sequence:         1,
+				GrantID:          "lgrant_01",
+				Generation:       1,
+				Slot:             0,
+				QueuedAt:         now,
+				GrantedAt:        &now,
+				LivenessDeadline: &liveness,
+				MaxHoldDeadline:  &maxHold,
+				LivenessSeconds:  30,
+				MaxHoldSeconds:   300,
+			},
+			PersistedAt: now,
+			UpdatedAt:   now,
+		},
+	}
+	coord, err = reviewrun.NewReviewCoordinator(store, transport, &fakeClock{now: now}, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := coord.AcquireOrReplay(context.Background(), reviewrun.ReviewAcquireRequest{Root: root, SessionID: sessionID, RunID: runID})
+	if !errors.As(err, &coordErr) || coordErr.Reason != ports.ReviewCoordinationReasonLockStateConflict || coordErr.Uncertain {
+		t.Fatalf("expected lock_state_conflict on v3 record replay, got %+v (%v)", coordErr, err)
+	}
+	if !outcome.ReplayedIntent || outcome.Record.SchemaVersion != "mulgae-haepari-lock-intent.v3" || len(transport.acquirePayloads) != 0 {
+		t.Fatalf("expected v3 record rejected before Acquire, got replayed=%v schema=%q acquire=%d", outcome.ReplayedIntent, outcome.Record.SchemaVersion, len(transport.acquirePayloads))
 	}
 }

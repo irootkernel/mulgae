@@ -4,12 +4,13 @@
 
 [Native Haepari review coordination](haepari-review-coordination.md) owns
 EPIC-016's shared review lifecycle and compatibility requirements. The current
-owner implementation preserves CLI v23/MCP v1 shapes and adds closed owned
-`haepari_*` terminal causes and coordination summaries. Native identifiers and
-messages stay private. The private intent v2 adds local-drain proof while v1
-remains readable with unknown proof. Borrowing and release qualification remain
-pending; source implementation supplies no shipped-binary claim. Public wire
-changes follow the versioning rules below.
+owner and borrower implementation preserves CLI v23/MCP v1 shapes and adds closed
+owned `haepari_*` terminal causes and coordination summaries. Native identifiers
+and messages stay private. The private intent v2 (owned) and v3 (borrowed) add
+local-drain proof while v1 remains readable with unknown proof. Migration,
+paired-skill and release qualification remain pending; source implementation
+supplies no shipped-binary claim. Public wire changes follow the versioning rules
+below.
 
 [Live workspace and Git review](live-workspace-and-git-review.md) owns current
 CLI/MCP execution. TASK-038 wires the public cutover; TASK-039 owns complete

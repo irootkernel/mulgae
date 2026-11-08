@@ -12,25 +12,31 @@ import (
 )
 
 type ReviewCoordinator struct {
-	intentStore ports.ReviewCoordinationIntentStore
-	transport   ports.ReviewLockTransport
-	clock       ports.Clock
-	timer       coordinationTimer
+	intentStore  ports.ReviewCoordinationIntentStore
+	transport    ports.ReviewLockTransport
+	clock        ports.Clock
+	timer        coordinationTimer
+	rawLockGrant string
+	hasLockGrant bool
 }
 
 func NewReviewCoordinator(
 	intentStore ports.ReviewCoordinationIntentStore,
 	transport ports.ReviewLockTransport,
 	clock ports.Clock,
+	rawLockGrant string,
+	hasLockGrant bool,
 ) (*ReviewCoordinator, error) {
 	if intentStore == nil || transport == nil || clock == nil {
 		return nil, fmt.Errorf("review coordinator: nil dependency")
 	}
 	return &ReviewCoordinator{
-		intentStore: intentStore,
-		transport:   transport,
-		clock:       clock,
-		timer:       newCoordinationTimer,
+		intentStore:  intentStore,
+		transport:    transport,
+		clock:        clock,
+		timer:        newCoordinationTimer,
+		rawLockGrant: rawLockGrant,
+		hasLockGrant: hasLockGrant || rawLockGrant != "",
 	}, nil
 }
 
@@ -109,6 +115,26 @@ func (c *ReviewCoordinator) AcquireOrReplay(
 			Message:   "queue_seconds out of valid native range",
 		}
 	}
+	if c.hasLockGrant {
+		if _, err := ports.DecodeReviewBorrowedGrantReference(c.rawLockGrant); err != nil {
+			return ReviewAcquireOutcome{}, &ports.ReviewCoordinationError{
+				Reason:    ports.ReviewCoordinationReasonParentContextInvalid,
+				Operation: ports.ReviewLockOperationAcquire,
+				Retry:     ports.ReviewCoordinationRetryNever,
+				Uncertain: false,
+				Message:   "HAEPARI_LOCK_GRANT is malformed",
+				Cause:     err,
+			}
+		}
+		return ReviewAcquireOutcome{}, &ports.ReviewCoordinationError{
+			Reason:     ports.ReviewCoordinationReasonLockStateConflict,
+			Operation:  ports.ReviewLockOperationAcquire,
+			NativeCode: "CONFLICT",
+			Retry:      ports.ReviewCoordinationRetryNever,
+			Uncertain:  false,
+			Message:    "inherited HAEPARI_LOCK_GRANT forbids owned lock acquisition",
+		}
+	}
 
 	installation, err := c.transport.Hello(ctx)
 	if err != nil {
@@ -167,6 +193,21 @@ func (c *ReviewCoordinator) AcquireOrReplay(
 				Retry:     ports.ReviewCoordinationRetryNever,
 				Message:   "persisted intent failed validation",
 				Cause:     err,
+			}
+		}
+		if existing.SchemaVersion == artifactwire.HaepariLockIntentSchemaV3 || existing.BorrowedGrant != nil {
+			return ReviewAcquireOutcome{
+				Installation:   installation,
+				Resource:       resource,
+				Record:         existing,
+				ReplayedIntent: true,
+			}, &ports.ReviewCoordinationError{
+				Reason:      ports.ReviewCoordinationReasonLockStateConflict,
+				Operation:   ports.ReviewLockOperationAcquire,
+				Retry:       ports.ReviewCoordinationRetryNever,
+				Uncertain:   false,
+				Message:     "persisted borrowed coordination record cannot be replayed as owned acquisition",
+				KnownRecord: &existing,
 			}
 		}
 		if existing.InstallationID != installation.InstallationID {

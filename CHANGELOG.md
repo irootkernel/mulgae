@@ -6,8 +6,8 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Changed
 
-- Coordinate live CLI and MCP reviews through one owned Haepari advisory grant before provider qualification, with bounded waiting, renewal and terminal cleanup. No-change review and preflight remain controller-free. Inherited grant references are refused until borrowing support is complete.
-- Retain unknown local drain proof during cleanup and preserve verified published results when final grant disposition fails, with bounded coordination diagnostics in existing status and error envelopes.
+- Coordinate live CLI and MCP reviews through one owned Haepari advisory grant before provider qualification, or validate and monitor an inherited `HAEPARI_LOCK_GRANT` read-only without mutating parent lock state. No-change review and preflight remain controller-free.
+- Retain unknown local drain proof across owned v2 and borrowed v3 intent records during cleanup, preserve accepted role reports and published incomplete results on operational partial-role failure without cross-run coverage, and preserve verified published results when final grant disposition fails, with bounded coordination diagnostics in existing status and error envelopes.
 
 ### Fixed
 

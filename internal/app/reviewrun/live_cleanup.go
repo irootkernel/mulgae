@@ -15,7 +15,7 @@ type LiveRunCleanup struct {
 	provider        RunAuthority
 	providerDrained bool
 	sourceClosed    bool
-	coordination    *ownedReview
+	coordination    reviewProtection
 	providerUnknown bool
 }
 

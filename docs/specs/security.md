@@ -494,12 +494,13 @@ EPIC-016's [coordination contract](haepari-review-coordination.md) requires
 native owner/borrower validation, fail-closed provider dispatch and cancellation
 and drain after grant loss. The inherited reference is same-user coordination;
 it grants no source, provider, credential or publication authority. Advisory
-expiry cannot prove process termination. The common owner path fails closed on
-lost protection, reserves bounded cleanup time and retains unknown local drain
-proof across native expiry. Cleanup rechecks intent bytes and pinned identities
-before deleting either linked tree. Until borrowing is implemented, any present
-inherited grant reference is refused before controller or intent access.
-Provider-free requests retain their existing boundaries. Public causes and
-summaries contain owned bounded tokens; native paths and response text remain
-private. Borrower and installed/released qualification obligations remain pending.
+expiry cannot prove process termination. The common owner and borrower paths
+fail closed on lost protection, reserve bounded cleanup time and retain unknown
+local drain proof across native expiry in private v2 (owned) and v3 (borrowed)
+intent records. A borrower validates `HAEPARI_LOCK_GRANT` through read-only
+controller inspection and periodic monitoring without mutating parent lock state.
+Cleanup rechecks intent bytes and pinned identities before deleting either
+linked tree. Provider-free requests retain their existing boundaries. Public
+causes and summaries contain owned bounded tokens; native paths and response
+text remain private. Installed/released qualification obligations remain pending.
 Existing isolation and failure precedence remain authoritative.

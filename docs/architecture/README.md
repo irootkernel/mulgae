@@ -822,16 +822,22 @@ diagnostic intent persistence (`diagnostics/s_<uuidv7>/r_<uuidv7>/haepari-lock.j
 in `internal/adapters/filesystem` and wiring in `internal/composition`.
 `TASK-076` establishes the port, adapter and durable acquisition identity.
 `TASK-077` connects `LiveService.Execute` and composition to one owned grant
-before qualification. CLI, foreground MCP and asynchronous MCP share acquisition,
-waiting, renewal and bounded terminal cleanup while entrypoints retain transport
-grammar and lifecycle. Independent deadline monitoring cancels work even when
-renewal is stalled. The private v2 intent separates native observation from local
-drain proof; filesystem cleanup protects unknown proof and rechecks it before
-unlinking either linked tree. No-change execution and preflight perform no
-controller access. Borrowing and later qualification remain pending. Aquarium
-and `use-mulgae` retain their existing execution path without an outer lock
-wrapper. Provider-free operations retain their existing boundaries. Verified committed reads may use a same-run coordination diagnostic
-summary as a best-effort supplement; its absence or failure cannot revoke valid
-P2. Independently invalid P2 still fails verification. The
-[specification](../specs/haepari-review-coordination.md) owns behavior and the
-[ADR](../architecture-decision-records/haepari-review-coordination.md) owns the decision.
+before qualification, and `TASK-078` adds read-only `borrowedReview` protection
+under `HAEPARI_LOCK_GRANT` alongside `ownedReview` behind the shared
+`reviewProtection` interface. CLI, foreground MCP and asynchronous MCP share
+acquisition or read-only borrowed admission, deadline monitoring and bounded
+terminal cleanup while entrypoints retain transport grammar and lifecycle.
+Independent deadline monitoring cancels work even when renewal or list
+monitoring is stalled. The private v2 (owned) and v3 (borrowed) intents separate
+native observation from local drain proof; filesystem cleanup protects unknown
+proof and rechecks it before unlinking either linked tree, while allowing
+verified v3 child artifacts to be cleaned independently of the parent grant.
+No-change execution and preflight perform no controller access. Migration,
+paired-skill and release qualification remain pending. Aquarium and `use-mulgae`
+retain their existing execution path without an outer lock wrapper. Provider-free
+operations retain their existing boundaries. Verified committed reads may use a
+same-run coordination diagnostic summary as a best-effort supplement; its
+absence or failure cannot revoke valid P2. Independently invalid P2 still fails
+verification. The [specification](../specs/haepari-review-coordination.md) owns
+behavior and the [ADR](../architecture-decision-records/haepari-review-coordination.md)
+owns the decision.

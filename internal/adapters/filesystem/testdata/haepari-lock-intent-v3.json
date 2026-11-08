@@ -1,0 +1,34 @@
+{
+  "schema_version": "mulgae-haepari-lock-intent.v3",
+  "local_drain_state": "not_started",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+  "installation_id": "inst-01",
+  "resource_id": "mulgae-review",
+  "borrowed_grant": {
+    "installation_id": "inst-01",
+    "lock_id": "mulgae-review",
+    "grant_id": "lgrant_01",
+    "generation": 1
+  },
+  "observed_request": {
+    "installation_id": "inst-01",
+    "lock_id": "mulgae-review",
+    "request_id": "lreq_parent_01",
+    "request_key": "parent-request-key",
+    "holder": "parent:holder",
+    "state": "granted",
+    "sequence": 1,
+    "grant_id": "lgrant_01",
+    "generation": 1,
+    "slot": 0,
+    "queued_at": "2026-07-23T06:00:00Z",
+    "granted_at": "2026-07-23T06:00:00Z",
+    "liveness_deadline": "2026-07-23T06:01:00Z",
+    "max_hold_deadline": "2026-07-23T07:00:00Z",
+    "liveness_seconds": 60,
+    "max_hold_seconds": 3600
+  },
+  "persisted_at": "2026-07-23T06:00:01Z",
+  "updated_at": "2026-07-23T06:00:01Z"
+}

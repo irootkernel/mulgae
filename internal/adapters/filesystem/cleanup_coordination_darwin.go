@@ -51,7 +51,14 @@ func cleanupCoordinationProofAt(fd int, session domain.SessionID, run domain.Run
 	if err != nil {
 		return proof, err
 	}
-	proof.protected = record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV2 || record.ObservedRequest == nil || !record.ObservedRequest.State.IsTerminal() || record.LocalDrainState != ports.ReviewLocalDrainNotStarted && record.LocalDrainState != ports.ReviewLocalDrainVerified
+	switch record.SchemaVersion {
+	case artifactwire.HaepariLockIntentSchemaV2:
+		proof.protected = record.ObservedRequest == nil || !record.ObservedRequest.State.IsTerminal() || record.LocalDrainState != ports.ReviewLocalDrainNotStarted && record.LocalDrainState != ports.ReviewLocalDrainVerified
+	case artifactwire.HaepariLockIntentSchemaV3:
+		proof.protected = record.LocalDrainState != ports.ReviewLocalDrainNotStarted && record.LocalDrainState != ports.ReviewLocalDrainVerified
+	default:
+		proof.protected = true
+	}
 	return proof, nil
 }
 

@@ -107,11 +107,20 @@ func (store *CoordinationIntentStore) PersistIntent(
 	if !root.Valid() {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: invalid root")
 	}
-	if record.ObservedReceipt != nil || record.ObservedRequest != nil {
-		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: initial intent must not carry post-acquire observation")
-	}
-	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV2 && record.LocalDrainState != ports.ReviewLocalDrainNotStarted {
-		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: initial local drain state must be not_started")
+	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV3 {
+		if record.ObservedReceipt != nil || record.ObservedRequest == nil || record.BorrowedGrant == nil {
+			return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: initial borrowed intent requires borrowed_grant and observed_request without receipt")
+		}
+		if record.LocalDrainState != ports.ReviewLocalDrainNotStarted {
+			return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: initial local drain state must be not_started")
+		}
+	} else {
+		if record.ObservedReceipt != nil || record.ObservedRequest != nil {
+			return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: initial intent must not carry post-acquire observation")
+		}
+		if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV2 && record.LocalDrainState != ports.ReviewLocalDrainNotStarted {
+			return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: initial local drain state must be not_started")
+		}
 	}
 	if err := record.Validate(); err != nil {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: %w", err)
@@ -170,6 +179,9 @@ func (store *CoordinationIntentStore) UpdateObservation(
 	if !found {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent update: existing intent absent")
 	}
+	if existing.SchemaVersion == artifactwire.HaepariLockIntentSchemaV3 || existing.BorrowedGrant != nil {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent update: borrowed intent does not accept mutation observations")
+	}
 	if existing.ObservedRequest != nil && existing.ObservedRequest.RequestID != reply.Current.RequestID {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent update: observed request_id %q does not match existing %q", reply.Current.RequestID, existing.ObservedRequest.RequestID)
 	}
@@ -218,8 +230,11 @@ func (store *CoordinationIntentStore) UpdateLocalDrain(ctx context.Context, root
 	if !found {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: intent absent")
 	}
-	if existing.SchemaVersion != artifactwire.HaepariLockIntentSchemaV2 || updatedAt.Before(existing.UpdatedAt) {
+	if (existing.SchemaVersion != artifactwire.HaepariLockIntentSchemaV2 && existing.SchemaVersion != artifactwire.HaepariLockIntentSchemaV3) || updatedAt.Before(existing.UpdatedAt) {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: unsupported proof or stale update")
+	}
+	if existing.LocalDrainState == ports.ReviewLocalDrainNotStarted && state == ports.ReviewLocalDrainUnverified && (existing.ObservedRequest == nil || existing.ObservedRequest.State != ports.ReviewLockStateGranted) {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: local effects require an observed grant")
 	}
 	if state != existing.LocalDrainState && !(existing.LocalDrainState == ports.ReviewLocalDrainNotStarted && state == ports.ReviewLocalDrainUnverified) && !(existing.LocalDrainState == ports.ReviewLocalDrainUnverified && state == ports.ReviewLocalDrainVerified) {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: invalid transition")
@@ -391,6 +406,26 @@ func encodeCoordinationIntentWire(record ports.ReviewLockRecord) ([]byte, error)
 	if err := record.Validate(); err != nil {
 		return nil, err
 	}
+	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV3 {
+		req := record.ObservedRequest
+		return marshalDiagnosticStatus(artifactwire.HaepariLockIntentWireV3{
+			SchemaVersion:   record.SchemaVersion,
+			LocalDrainState: string(record.LocalDrainState),
+			SessionID:       record.SessionID.String(),
+			RunID:           record.RunID.String(),
+			InstallationID:  record.InstallationID,
+			ResourceID:      record.ResourceID,
+			BorrowedGrant: artifactwire.HaepariBorrowedGrantWire{
+				InstallationID: record.BorrowedGrant.InstallationID,
+				LockID:         record.BorrowedGrant.LockID,
+				GrantID:        record.BorrowedGrant.GrantID,
+				Generation:     record.BorrowedGrant.Generation,
+			},
+			ObservedRequest: toLockRequestWire(*req),
+			PersistedAt:     record.PersistedAt.UTC().Format(time.RFC3339Nano),
+			UpdatedAt:       record.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
 	var queueCopy *int64
 	if record.Payload.QueueSeconds != nil {
 		v := *record.Payload.QueueSeconds
@@ -423,34 +458,87 @@ func encodeCoordinationIntentWire(record ports.ReviewLockRecord) ([]byte, error)
 			Force:      record.ObservedReceipt.Force,
 			Reason:     record.ObservedReceipt.Reason,
 		}
-		req := record.ObservedRequest
-		wire.ObservedRequest = &artifactwire.HaepariLockRequestWire{
-			InstallationID:   req.InstallationID,
-			LockID:           req.LockID,
-			RequestID:        req.RequestID,
-			RequestKey:       req.RequestKey,
-			Holder:           req.Holder,
-			State:            string(req.State),
-			Sequence:         req.Sequence,
-			GrantID:          req.GrantID,
-			Generation:       req.Generation,
-			Slot:             req.Slot,
-			QueuedAt:         req.QueuedAt.UTC().Format(time.RFC3339Nano),
-			QueueDeadline:    formatOptionalTimePtr(req.QueueDeadline),
-			GrantedAt:        formatOptionalTimePtr(req.GrantedAt),
-			LivenessDeadline: formatOptionalTimePtr(req.LivenessDeadline),
-			MaxHoldDeadline:  formatOptionalTimePtr(req.MaxHoldDeadline),
-			LivenessSeconds:  req.LivenessSeconds,
-			MaxHoldSeconds:   req.MaxHoldSeconds,
-			EndedAt:          formatOptionalTimePtr(req.EndedAt),
-			Reason:           req.Reason,
-			Forced:           req.Forced,
-		}
+		reqWire := toLockRequestWire(*record.ObservedRequest)
+		wire.ObservedRequest = &reqWire
 	}
 	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV2 {
 		return marshalDiagnosticStatus(artifactwire.HaepariLockIntentWireV2{HaepariLockIntentWire: wire, LocalDrainState: string(record.LocalDrainState)})
 	}
 	return marshalDiagnosticStatus(wire)
+}
+
+func toLockRequestWire(req ports.ReviewLockRequest) artifactwire.HaepariLockRequestWire {
+	return artifactwire.HaepariLockRequestWire{
+		InstallationID:   req.InstallationID,
+		LockID:           req.LockID,
+		RequestID:        req.RequestID,
+		RequestKey:       req.RequestKey,
+		Holder:           req.Holder,
+		State:            string(req.State),
+		Sequence:         req.Sequence,
+		GrantID:          req.GrantID,
+		Generation:       req.Generation,
+		Slot:             req.Slot,
+		QueuedAt:         req.QueuedAt.UTC().Format(time.RFC3339Nano),
+		QueueDeadline:    formatOptionalTimePtr(req.QueueDeadline),
+		GrantedAt:        formatOptionalTimePtr(req.GrantedAt),
+		LivenessDeadline: formatOptionalTimePtr(req.LivenessDeadline),
+		MaxHoldDeadline:  formatOptionalTimePtr(req.MaxHoldDeadline),
+		LivenessSeconds:  req.LivenessSeconds,
+		MaxHoldSeconds:   req.MaxHoldSeconds,
+		EndedAt:          formatOptionalTimePtr(req.EndedAt),
+		Reason:           req.Reason,
+		Forced:           req.Forced,
+	}
+}
+
+func fromLockRequestWire(reqWire artifactwire.HaepariLockRequestWire) (ports.ReviewLockRequest, error) {
+	queuedAt, err := parseCleanupDiagnosticTime(reqWire.QueuedAt)
+	if err != nil {
+		return ports.ReviewLockRequest{}, fmt.Errorf("invalid observed_request.queued_at: %w", err)
+	}
+	queueDeadline, err := parseOptionalTimePtr(reqWire.QueueDeadline)
+	if err != nil {
+		return ports.ReviewLockRequest{}, fmt.Errorf("invalid observed_request.queue_deadline: %w", err)
+	}
+	grantedAt, err := parseOptionalTimePtr(reqWire.GrantedAt)
+	if err != nil {
+		return ports.ReviewLockRequest{}, fmt.Errorf("invalid observed_request.granted_at: %w", err)
+	}
+	livenessDeadline, err := parseOptionalTimePtr(reqWire.LivenessDeadline)
+	if err != nil {
+		return ports.ReviewLockRequest{}, fmt.Errorf("invalid observed_request.liveness_deadline: %w", err)
+	}
+	maxHoldDeadline, err := parseOptionalTimePtr(reqWire.MaxHoldDeadline)
+	if err != nil {
+		return ports.ReviewLockRequest{}, fmt.Errorf("invalid observed_request.max_hold_deadline: %w", err)
+	}
+	endedAt, err := parseOptionalTimePtr(reqWire.EndedAt)
+	if err != nil {
+		return ports.ReviewLockRequest{}, fmt.Errorf("invalid observed_request.ended_at: %w", err)
+	}
+	return ports.ReviewLockRequest{
+		InstallationID:   reqWire.InstallationID,
+		LockID:           reqWire.LockID,
+		RequestID:        reqWire.RequestID,
+		RequestKey:       reqWire.RequestKey,
+		Holder:           reqWire.Holder,
+		State:            ports.ReviewLockState(reqWire.State),
+		Sequence:         reqWire.Sequence,
+		GrantID:          reqWire.GrantID,
+		Generation:       reqWire.Generation,
+		Slot:             reqWire.Slot,
+		QueuedAt:         queuedAt,
+		QueueDeadline:    queueDeadline,
+		GrantedAt:        grantedAt,
+		LivenessDeadline: livenessDeadline,
+		MaxHoldDeadline:  maxHoldDeadline,
+		LivenessSeconds:  reqWire.LivenessSeconds,
+		MaxHoldSeconds:   reqWire.MaxHoldSeconds,
+		EndedAt:          endedAt,
+		Reason:           reqWire.Reason,
+		Forced:           reqWire.Forced,
+	}, nil
 }
 
 func decodeCoordinationIntentWire(
@@ -477,6 +565,48 @@ func decodeCoordinationIntentWire(
 			return ports.ReviewLockRecord{}, fmt.Errorf("decode v2 intent JSON: %w", err)
 		}
 		wire, localDrain = v2.HaepariLockIntentWire, ports.ReviewLocalDrainState(v2.LocalDrainState)
+	case artifactwire.HaepariLockIntentSchemaV3:
+		var v3 artifactwire.HaepariLockIntentWireV3
+		if err := strictjson.DecodeObject(data, &v3); err != nil {
+			return ports.ReviewLockRecord{}, fmt.Errorf("decode v3 intent JSON: %w", err)
+		}
+		if v3.SessionID != expectedSessionID.String() || v3.RunID != expectedRunID.String() {
+			return ports.ReviewLockRecord{}, fmt.Errorf("intent identity (%q, %q) does not match expected (%q, %q)", v3.SessionID, v3.RunID, expectedSessionID.String(), expectedRunID.String())
+		}
+		persistedAt, err := parseCleanupDiagnosticTime(v3.PersistedAt)
+		if err != nil {
+			return ports.ReviewLockRecord{}, fmt.Errorf("invalid persisted_at: %w", err)
+		}
+		updatedAt, err := parseCleanupDiagnosticTime(v3.UpdatedAt)
+		if err != nil {
+			return ports.ReviewLockRecord{}, fmt.Errorf("invalid updated_at: %w", err)
+		}
+		req, err := fromLockRequestWire(v3.ObservedRequest)
+		if err != nil {
+			return ports.ReviewLockRecord{}, err
+		}
+		borrowed := ports.ReviewBorrowedGrantReference{
+			InstallationID: v3.BorrowedGrant.InstallationID,
+			LockID:         v3.BorrowedGrant.LockID,
+			GrantID:        v3.BorrowedGrant.GrantID,
+			Generation:     v3.BorrowedGrant.Generation,
+		}
+		record := ports.ReviewLockRecord{
+			SchemaVersion:   v3.SchemaVersion,
+			LocalDrainState: ports.ReviewLocalDrainState(v3.LocalDrainState),
+			SessionID:       expectedSessionID,
+			RunID:           expectedRunID,
+			InstallationID:  v3.InstallationID,
+			ResourceID:      v3.ResourceID,
+			BorrowedGrant:   &borrowed,
+			ObservedRequest: &req,
+			PersistedAt:     persistedAt,
+			UpdatedAt:       updatedAt,
+		}
+		if err := record.Validate(); err != nil {
+			return ports.ReviewLockRecord{}, err
+		}
+		return record, nil
 	default:
 		return ports.ReviewLockRecord{}, fmt.Errorf("unexpected schema_version %q", header.SchemaVersion)
 	}
@@ -536,52 +666,9 @@ func decodeCoordinationIntentWire(
 			Force:      wire.ObservedReceipt.Force,
 			Reason:     wire.ObservedReceipt.Reason,
 		}
-		reqWire := wire.ObservedRequest
-		queuedAt, err := parseCleanupDiagnosticTime(reqWire.QueuedAt)
+		req, err := fromLockRequestWire(*wire.ObservedRequest)
 		if err != nil {
-			return ports.ReviewLockRecord{}, fmt.Errorf("invalid observed_request.queued_at: %w", err)
-		}
-		queueDeadline, err := parseOptionalTimePtr(reqWire.QueueDeadline)
-		if err != nil {
-			return ports.ReviewLockRecord{}, fmt.Errorf("invalid observed_request.queue_deadline: %w", err)
-		}
-		grantedAt, err := parseOptionalTimePtr(reqWire.GrantedAt)
-		if err != nil {
-			return ports.ReviewLockRecord{}, fmt.Errorf("invalid observed_request.granted_at: %w", err)
-		}
-		livenessDeadline, err := parseOptionalTimePtr(reqWire.LivenessDeadline)
-		if err != nil {
-			return ports.ReviewLockRecord{}, fmt.Errorf("invalid observed_request.liveness_deadline: %w", err)
-		}
-		maxHoldDeadline, err := parseOptionalTimePtr(reqWire.MaxHoldDeadline)
-		if err != nil {
-			return ports.ReviewLockRecord{}, fmt.Errorf("invalid observed_request.max_hold_deadline: %w", err)
-		}
-		endedAt, err := parseOptionalTimePtr(reqWire.EndedAt)
-		if err != nil {
-			return ports.ReviewLockRecord{}, fmt.Errorf("invalid observed_request.ended_at: %w", err)
-		}
-		req := ports.ReviewLockRequest{
-			InstallationID:   reqWire.InstallationID,
-			LockID:           reqWire.LockID,
-			RequestID:        reqWire.RequestID,
-			RequestKey:       reqWire.RequestKey,
-			Holder:           reqWire.Holder,
-			State:            ports.ReviewLockState(reqWire.State),
-			Sequence:         reqWire.Sequence,
-			GrantID:          reqWire.GrantID,
-			Generation:       reqWire.Generation,
-			Slot:             reqWire.Slot,
-			QueuedAt:         queuedAt,
-			QueueDeadline:    queueDeadline,
-			GrantedAt:        grantedAt,
-			LivenessDeadline: livenessDeadline,
-			MaxHoldDeadline:  maxHoldDeadline,
-			LivenessSeconds:  reqWire.LivenessSeconds,
-			MaxHoldSeconds:   reqWire.MaxHoldSeconds,
-			EndedAt:          endedAt,
-			Reason:           reqWire.Reason,
-			Forced:           reqWire.Forced,
+			return ports.ReviewLockRecord{}, err
 		}
 		record.ObservedReceipt = &receipt
 		record.ObservedRequest = &req

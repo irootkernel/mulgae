@@ -391,3 +391,114 @@ func TestReviewCoordinationErrorFormattingAndUnwrap(t *testing.T) {
 		t.Fatalf("unexpected error string %q", coordErr.Error())
 	}
 }
+
+func TestReviewLockBorrowedGrantReferenceAndV3Record(t *testing.T) {
+	t.Parallel()
+
+	validRaw := `{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":2}`
+	borrowed, err := ports.DecodeReviewBorrowedGrantReference(validRaw)
+	if err != nil {
+		t.Fatalf("DecodeReviewBorrowedGrantReference(valid): %v", err)
+	}
+	if borrowed.InstallationID != "inst-01" || borrowed.LockID != "mulgae-review" || borrowed.GrantID != "lgrant_01" || borrowed.Generation != 2 {
+		t.Fatalf("unexpected borrowed grant reference: %+v", borrowed)
+	}
+
+	// Syntactic decoding accepts another valid lock_id so wrong lock/installation can map to CONFLICT later.
+	if otherLock, err := ports.DecodeReviewBorrowedGrantReference(`{"installation_id":"inst-02","lock_id":"other-lock","grant_id":"lgrant_01","generation":1}`); err != nil || otherLock.LockID != "other-lock" {
+		t.Fatalf("expected valid identifier lock_id accepted syntactically, got %+v (%v)", otherLock, err)
+	}
+
+	for _, invalidRaw := range []string{
+		"",
+		"   ",
+		"null",
+		"{}",
+		"[]",
+		strings.Repeat(" ", ports.HaepariMaxParentContextBytes+1),
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":0}`,
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":-1}`,
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":null}`,
+		`{"installation_id":null,"lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`,
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01"}`,
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1,"extra":true}`,
+		`{"Installation_ID":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`,
+		`{"installation_id":"inst-01","installation_id":"inst-02","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`,
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1} {}`,
+		`{"installation_id":"-bad","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`,
+	} {
+		if _, err := ports.DecodeReviewBorrowedGrantReference(invalidRaw); err == nil {
+			t.Fatalf("expected DecodeReviewBorrowedGrantReference(%q) to fail", invalidRaw)
+		}
+	}
+
+	sessionID, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	runID, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	now := time.Date(2026, 11, 8, 5, 0, 0, 0, time.UTC)
+	liveness := now.Add(30 * time.Second)
+	maxHold := now.Add(5 * time.Minute)
+	observedReq := ports.ReviewLockRequest{
+		InstallationID:   "inst-01",
+		LockID:           ports.HaepariReviewResourceID,
+		RequestID:        "lreq_parent",
+		RequestKey:       "parent-request-key",
+		Holder:           "parent:holder",
+		State:            ports.ReviewLockStateGranted,
+		Sequence:         1,
+		GrantID:          "lgrant_01",
+		Generation:       2,
+		Slot:             0,
+		QueuedAt:         now,
+		GrantedAt:        &now,
+		LivenessDeadline: &liveness,
+		MaxHoldDeadline:  &maxHold,
+		LivenessSeconds:  30,
+		MaxHoldSeconds:   300,
+	}
+	v3 := ports.ReviewLockRecord{
+		SchemaVersion:   artifactwire.HaepariLockIntentSchemaV3,
+		LocalDrainState: ports.ReviewLocalDrainNotStarted,
+		SessionID:       sessionID,
+		RunID:           runID,
+		InstallationID:  "inst-01",
+		ResourceID:      ports.HaepariReviewResourceID,
+		BorrowedGrant:   &borrowed,
+		ObservedRequest: &observedReq,
+		PersistedAt:     now,
+		UpdatedAt:       now,
+	}
+	if err := v3.Validate(); err != nil {
+		t.Fatalf("valid v3 borrowed record rejected: %v", err)
+	}
+	if _, ok := v3.GrantReference(); ok {
+		t.Fatal("v3 borrowed record must never produce owned ReviewLockGrantReference")
+	}
+
+	// Reject synthetic payload or observed receipt on v3 record.
+	payload, _ := ports.NewReviewLockRequestPayload(sessionID, runID, nil)
+	withPayload := v3
+	withPayload.Payload = payload
+	if err := withPayload.Validate(); err == nil {
+		t.Fatal("expected v3 record with acquisition payload to fail validation")
+	}
+	withReceipt := v3
+	withReceipt.ObservedReceipt = &ports.ReviewLockReceipt{
+		Operation:  ports.ReviewLockReceiptOperationAcquire,
+		RequestID:  "lreq_parent",
+		GrantID:    "lgrant_01",
+		State:      ports.ReviewLockStateGranted,
+		RecordedAt: now,
+	}
+	if err := withReceipt.Validate(); err == nil {
+		t.Fatal("expected v3 record with observed_receipt to fail validation")
+	}
+	nonGranted := observedReq
+	ended := now.Add(time.Second)
+	nonGranted.State = ports.ReviewLockStateReleased
+	nonGranted.EndedAt = &ended
+	withReleased := v3
+	withReleased.ObservedRequest = &nonGranted
+	if err := withReleased.Validate(); err == nil {
+		t.Fatal("expected v3 record with non-granted observed_request to fail validation")
+	}
+}

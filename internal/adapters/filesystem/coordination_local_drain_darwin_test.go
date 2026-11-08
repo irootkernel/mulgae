@@ -135,3 +135,74 @@ func TestCoordinationIntentStoreLocalDrainTransitionsAndObservation(t *testing.T
 		t.Fatal("accepted stale observation over new proof")
 	}
 }
+
+func coordinationV3Fixture(t *testing.T) ([]byte, ports.ReviewLockRecord) {
+	t.Helper()
+	data, err := os.ReadFile("testdata/haepari-lock-intent-v3.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	run, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	record, err := decodeCoordinationIntentWire(data, session, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data, record
+}
+
+func TestCoordinationIntentStoreBorrowedV3Lifecycle(t *testing.T) {
+	t.Parallel()
+	_, record := coordinationV3Fixture(t)
+	if record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV3 || record.BorrowedGrant == nil || record.ObservedRequest == nil || record.ObservedReceipt != nil || record.LocalDrainState != ports.ReviewLocalDrainNotStarted {
+		t.Fatalf("invalid canonical v3 fixture: %+v", record)
+	}
+	for _, state := range []ports.ReviewLocalDrainState{ports.ReviewLocalDrainNotStarted, ports.ReviewLocalDrainUnverified, ports.ReviewLocalDrainVerified} {
+		candidate := record
+		candidate.LocalDrainState = state
+		encoded, err := encodeCoordinationIntentWire(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := decodeCoordinationIntentWire(encoded, record.SessionID, record.RunID)
+		if err != nil || decoded.LocalDrainState != state || decoded.BorrowedGrant == nil || decoded.BorrowedGrant.GrantID != "lgrant_01" {
+			t.Fatalf("v3 round trip %s: %+v, %v", state, decoded, err)
+		}
+	}
+
+	fixture := newDiagnosticStoreFixture(t)
+	t.Cleanup(func() { _, _ = fixture.store.Finalize(context.Background(), mustDiagnosticFinalizeRequest(t, fixture)) })
+	store := NewCoordinationIntentStore()
+	ctx, root := context.Background(), fixture.request.Root()
+
+	persisted, err := store.PersistIntent(ctx, root, record)
+	if err != nil {
+		t.Fatalf("PersistIntent(v3): %v", err)
+	}
+	if _, err := store.PersistIntent(ctx, root, record); err == nil {
+		t.Fatal("expected duplicate PersistIntent(v3) to fail")
+	}
+	// Borrowed v3 records must never accept native mutation receipt observations.
+	now := persisted.UpdatedAt.Add(time.Second)
+	reply := ports.ReviewLockReply{
+		Receipt: ports.ReviewLockReceipt{Operation: ports.ReviewLockReceiptOperationRenew, RequestID: "lreq_parent_01", GrantID: "lgrant_01", State: ports.ReviewLockStateGranted, RecordedAt: now},
+		Current: *persisted.ObservedRequest,
+	}
+	if _, err := store.UpdateObservation(ctx, root, record.SessionID, record.RunID, reply, now); err == nil {
+		t.Fatal("accepted UpdateObservation on borrowed v3 record")
+	}
+	if _, err := store.UpdateLocalDrain(ctx, root, record.SessionID, record.RunID, ports.ReviewLocalDrainVerified, now); err == nil {
+		t.Fatal("accepted skipped unverified transition on borrowed v3 record")
+	}
+	unverified, err := store.UpdateLocalDrain(ctx, root, record.SessionID, record.RunID, ports.ReviewLocalDrainUnverified, now)
+	if err != nil || unverified.LocalDrainState != ports.ReviewLocalDrainUnverified {
+		t.Fatalf("UpdateLocalDrain(unverified): %+v, %v", unverified, err)
+	}
+	verified, err := store.UpdateLocalDrain(ctx, root, record.SessionID, record.RunID, ports.ReviewLocalDrainVerified, now.Add(time.Second))
+	if err != nil || verified.LocalDrainState != ports.ReviewLocalDrainVerified {
+		t.Fatalf("UpdateLocalDrain(verified): %+v, %v", verified, err)
+	}
+	if _, err := store.UpdateLocalDrain(ctx, root, record.SessionID, record.RunID, ports.ReviewLocalDrainUnverified, now.Add(2*time.Second)); err == nil {
+		t.Fatal("accepted local drain regression on borrowed v3 record")
+	}
+}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/domain"
+	"github.com/irootkernel/mulgae/internal/strictjson"
 )
 
 const (
@@ -23,6 +24,7 @@ const (
 	HaepariCapabilityAdvisoryLockV1           = "advisory-lock/v1"
 	HaepariMaxQueueSeconds              int64 = 9223372036
 	HaepariMaxHolderBytes                     = 512
+	HaepariMaxParentContextBytes              = 8192
 )
 
 type ReviewLockState string
@@ -675,6 +677,81 @@ func (ref ReviewLockGrantReference) Validate() error {
 	return nil
 }
 
+// ReviewBorrowedGrantReference is the closed four-field inherited grant
+// reference carried by HAEPARI_LOCK_GRANT and X-Haepari-Lock-Grant.
+type ReviewBorrowedGrantReference struct {
+	InstallationID string
+	LockID         string
+	GrantID        string
+	Generation     int64
+}
+
+func (ref ReviewBorrowedGrantReference) Validate() error {
+	if !ValidHaepariIdentifier(ref.InstallationID) {
+		return fmt.Errorf("borrowed lock grant reference: invalid installation_id %q", ref.InstallationID)
+	}
+	if !ValidHaepariIdentifier(ref.LockID) {
+		return fmt.Errorf("borrowed lock grant reference: invalid lock_id %q", ref.LockID)
+	}
+	if !ValidHaepariIdentifier(ref.GrantID) {
+		return fmt.Errorf("borrowed lock grant reference: invalid grant_id %q", ref.GrantID)
+	}
+	if ref.Generation <= 0 {
+		return fmt.Errorf("borrowed lock grant reference: invalid generation %d", ref.Generation)
+	}
+	return nil
+}
+
+// DecodeReviewBorrowedGrantReference parses a raw HAEPARI_LOCK_GRANT string
+// using Haepari v0.1.0's closed DecodeLockGrant rules: <= 8192 bytes, single
+// JSON object, no duplicate or case-variant keys, no unknown or null fields,
+// valid native identifiers, and positive int64 generation.
+func DecodeReviewBorrowedGrantReference(raw string) (ReviewBorrowedGrantReference, error) {
+	if len(raw) > HaepariMaxParentContextBytes {
+		return ReviewBorrowedGrantReference{}, fmt.Errorf("borrowed lock grant reference: exceeds %d bytes", HaepariMaxParentContextBytes)
+	}
+	var wire artifactwire.HaepariBorrowedGrantWire
+	if err := strictjson.DecodeObject([]byte(raw), &wire); err != nil {
+		return ReviewBorrowedGrantReference{}, fmt.Errorf("borrowed lock grant reference: %w", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+		return ReviewBorrowedGrantReference{}, fmt.Errorf("borrowed lock grant reference: %w", err)
+	}
+	if len(fields) != 4 {
+		return ReviewBorrowedGrantReference{}, fmt.Errorf("borrowed lock grant reference: requires all four canonical fields")
+	}
+	for _, key := range []string{"installation_id", "lock_id", "grant_id", "generation"} {
+		value, present := fields[key]
+		if !present {
+			return ReviewBorrowedGrantReference{}, fmt.Errorf("borrowed lock grant reference: missing canonical field %q", key)
+		}
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return ReviewBorrowedGrantReference{}, fmt.Errorf("borrowed lock grant reference: field %q must not be null", key)
+		}
+	}
+	ref := ReviewBorrowedGrantReference{
+		InstallationID: wire.InstallationID,
+		LockID:         wire.LockID,
+		GrantID:        wire.GrantID,
+		Generation:     wire.Generation,
+	}
+	if err := ref.Validate(); err != nil {
+		return ReviewBorrowedGrantReference{}, err
+	}
+	return ref, nil
+}
+
+func (payload ReviewLockRequestPayload) isZero() bool {
+	return payload.LockID == "" &&
+		payload.RequestKey == "" &&
+		payload.Holder == "" &&
+		payload.QueueSeconds == nil &&
+		len(payload.CanonicalJSON) == 0 &&
+		payload.PayloadSHA256 == "" &&
+		payload.NativePayloadDigest == ""
+}
+
 // ReviewLocalDrainState is local completion proof, independent of native expiry.
 // The empty value is historical v1 proof and must remain unknown.
 type ReviewLocalDrainState string
@@ -697,6 +774,7 @@ type ReviewLockRecord struct {
 	InstallationID  string
 	ResourceID      string
 	Payload         ReviewLockRequestPayload
+	BorrowedGrant   *ReviewBorrowedGrantReference
 	PersistedAt     time.Time
 	UpdatedAt       time.Time
 	ObservedReceipt *ReviewLockReceipt
@@ -704,10 +782,13 @@ type ReviewLockRecord struct {
 }
 
 func (record ReviewLockRecord) Validate() error {
-	if record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV1 && record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV2 {
+	if record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV1 &&
+		record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV2 &&
+		record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV3 {
 		return fmt.Errorf("review lock record: unexpected schema_version %q", record.SchemaVersion)
 	}
-	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV1 && record.LocalDrainState != "" || record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV2 && !record.LocalDrainState.Valid() {
+	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV1 && record.LocalDrainState != "" ||
+		(record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV2 || record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV3) && !record.LocalDrainState.Valid() {
 		return fmt.Errorf("review lock record: invalid local drain proof")
 	}
 	if !validSessionID(record.SessionID) || !validRunID(record.RunID) {
@@ -719,11 +800,50 @@ func (record ReviewLockRecord) Validate() error {
 	if record.ResourceID != HaepariReviewResourceID {
 		return fmt.Errorf("review lock record: unexpected resource_id %q", record.ResourceID)
 	}
-	if err := record.Payload.ValidateForIdentity(record.SessionID, record.RunID); err != nil {
-		return fmt.Errorf("review lock record: %w", err)
-	}
 	if record.PersistedAt.IsZero() || record.UpdatedAt.IsZero() || record.UpdatedAt.Before(record.PersistedAt) {
 		return fmt.Errorf("review lock record: invalid persisted_at or updated_at timestamps")
+	}
+	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV3 {
+		if record.BorrowedGrant == nil {
+			return fmt.Errorf("review lock record: borrowed record requires borrowed_grant")
+		}
+		if err := record.BorrowedGrant.Validate(); err != nil {
+			return fmt.Errorf("review lock record: %w", err)
+		}
+		if record.BorrowedGrant.InstallationID != record.InstallationID || record.BorrowedGrant.LockID != record.ResourceID {
+			return fmt.Errorf("review lock record: borrowed_grant does not match installation_id or resource_id")
+		}
+		if !record.Payload.isZero() {
+			return fmt.Errorf("review lock record: borrowed record must not carry acquisition payload")
+		}
+		if record.ObservedReceipt != nil {
+			return fmt.Errorf("review lock record: borrowed record must not carry observed_receipt")
+		}
+		if record.ObservedRequest == nil {
+			return fmt.Errorf("review lock record: borrowed record requires observed_request")
+		}
+		if err := record.ObservedRequest.Validate(); err != nil {
+			return fmt.Errorf("review lock record: invalid borrowed observed_request: %w", err)
+		}
+		if record.ObservedRequest.State != ReviewLockStateGranted {
+			return fmt.Errorf("review lock record: borrowed record requires granted observed_request")
+		}
+		if record.ObservedRequest.InstallationID != record.InstallationID ||
+			record.ObservedRequest.LockID != record.ResourceID ||
+			record.ObservedRequest.GrantID != record.BorrowedGrant.GrantID ||
+			record.ObservedRequest.Generation != record.BorrowedGrant.Generation {
+			return fmt.Errorf("review lock record: borrowed observed_request does not match borrowed_grant")
+		}
+		if record.ObservedRequest.LivenessDeadline.After(*record.ObservedRequest.MaxHoldDeadline) {
+			return fmt.Errorf("review lock record: borrowed observed_request liveness_deadline exceeds max_hold_deadline")
+		}
+		return nil
+	}
+	if record.BorrowedGrant != nil {
+		return fmt.Errorf("review lock record: owned record must not carry borrowed_grant")
+	}
+	if err := record.Payload.ValidateForIdentity(record.SessionID, record.RunID); err != nil {
+		return fmt.Errorf("review lock record: %w", err)
 	}
 	if (record.ObservedReceipt == nil) != (record.ObservedRequest == nil) {
 		return fmt.Errorf("review lock record: observed_receipt and observed_request must be present together")
@@ -753,6 +873,9 @@ func (record ReviewLockRecord) Validate() error {
 }
 
 func (record ReviewLockRecord) GrantReference() (ReviewLockGrantReference, bool) {
+	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV3 || record.BorrowedGrant != nil {
+		return ReviewLockGrantReference{}, false
+	}
 	if record.ObservedRequest == nil || record.ObservedRequest.State != ReviewLockStateGranted {
 		return ReviewLockGrantReference{}, false
 	}

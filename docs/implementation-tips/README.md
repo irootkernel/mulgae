@@ -1178,7 +1178,7 @@ TASK-033 obligations. Do not present fixture success as live-provider evidence.
 EPIC-016's [dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md) maps the full
 scenario and producer-return requirements to member Tasks. The
 [coordination specification](../specs/haepari-review-coordination.md) owns the
-owner behavior and the remaining borrower/migration/qualification obligations.
+owner and borrower behavior and the remaining migration/qualification obligations.
 The commands below define checks; their presence records no passing result.
 
 Start with focused Go behavior checks for affected native adapter, application
@@ -1194,14 +1194,18 @@ go test -race -count=1 ./internal/app/reviewrun -run '^TestReviewCoordinator'
 go test -race -count=1 ./internal/architecture -run '^(TestWireLeafDependencyDirection|TestProductionDependencyDirection|TestEstablishedOwnershipDependencyDirection|TestTestTierNaming)$'
 ```
 
-Owner-lifecycle tests use an isolated Unix controller under a short physical
-0700 temporary root and never the host Installation. Shared Installation tests
-serialize CLI, foreground MCP and async start/await/cancel across project roots;
-the existing provider barrier test uses separate Installations to retain overlap.
-Controlled timers cover a stalled renewal independently from its deadline guard.
-Private intent v2 tests cover legacy unknown proof, local-state transitions and
-linked/unlinked cleanup drift. Committed-status tests cover best-effort supplement
-failure without weakening independent P2 verification.
+Owner and borrower lifecycle tests use an isolated Unix controller under a short
+physical 0700 temporary root and never the host Installation. Shared Installation
+tests serialize CLI, foreground MCP and async start/await/cancel across project
+roots and verify read-only child execution under `HAEPARI_LOCK_GRANT` without
+mutating parent lock state; the existing provider barrier test uses separate
+Installations to retain overlap. Controlled timers cover stalled renewal and
+stalled borrowed `locks.list` polls independently from their deadline guards,
+multi-page borrowed lookup beyond 64 pages using same-page `now`, and partial-role
+preservation without cross-run coverage. Private intent v2 and v3 tests cover
+legacy unknown proof, owned and borrowed local-state transitions and
+linked/unlinked cleanup drift. Committed-status tests cover best-effort
+supplement failure without weakening independent P2 verification.
 
 Use make test-offline on the integrated candidate,
 make test-release for the installed-binary surface and make test-mcp-clients

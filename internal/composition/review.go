@@ -132,7 +132,7 @@ func composeReviewRuns(
 		return nil, errors.Join(err, graph.cleanupRoots())
 	}
 	rawGrant, hasGrant := os.LookupEnv("HAEPARI_LOCK_GRANT")
-	coordination, err := reviewrun.NewReviewCoordinator(filesystem.NewCoordinationIntentStore(), haepari.NewClient(haepari.Config{RawHome: os.Getenv("HAEPARI_HOME"), RawParentContext: os.Getenv("HAEPARI_PARENT_CONTEXT"), RawLockGrant: rawGrant, HasLockGrant: hasGrant}), clock)
+	coordination, err := reviewrun.NewReviewCoordinator(filesystem.NewCoordinationIntentStore(), haepari.NewClient(haepari.Config{RawHome: os.Getenv("HAEPARI_HOME"), RawParentContext: os.Getenv("HAEPARI_PARENT_CONTEXT"), RawLockGrant: rawGrant, HasLockGrant: hasGrant}), clock, rawGrant, hasGrant)
 	if err != nil {
 		return nil, errors.Join(err, graph.cleanupRoots())
 	}

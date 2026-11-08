@@ -3,6 +3,7 @@ package artifactwire
 const (
 	HaepariLockIntentSchemaV1 = "mulgae-haepari-lock-intent.v1"
 	HaepariLockIntentSchemaV2 = "mulgae-haepari-lock-intent.v2"
+	HaepariLockIntentSchemaV3 = "mulgae-haepari-lock-intent.v3"
 )
 
 type HaepariLockPayloadWire struct {
@@ -63,4 +64,24 @@ type HaepariLockIntentWire struct {
 type HaepariLockIntentWireV2 struct {
 	HaepariLockIntentWire
 	LocalDrainState string `json:"local_drain_state"`
+}
+
+type HaepariBorrowedGrantWire struct {
+	InstallationID string `json:"installation_id"`
+	LockID         string `json:"lock_id"`
+	GrantID        string `json:"grant_id"`
+	Generation     int64  `json:"generation"`
+}
+
+type HaepariLockIntentWireV3 struct {
+	SchemaVersion   string                   `json:"schema_version"`
+	LocalDrainState string                   `json:"local_drain_state"`
+	SessionID       string                   `json:"session_id"`
+	RunID           string                   `json:"run_id"`
+	InstallationID  string                   `json:"installation_id"`
+	ResourceID      string                   `json:"resource_id"`
+	BorrowedGrant   HaepariBorrowedGrantWire `json:"borrowed_grant"`
+	ObservedRequest HaepariLockRequestWire   `json:"observed_request"`
+	PersistedAt     string                   `json:"persisted_at"`
+	UpdatedAt       string                   `json:"updated_at"`
 }

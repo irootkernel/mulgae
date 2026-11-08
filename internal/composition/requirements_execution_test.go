@@ -88,7 +88,7 @@ func requirementsExecutionApplication(t *testing.T, root ports.AnchoredRoot, rea
 	neutral, _ := ports.NewAnchoredRoot(canonicalTestTempDir(t))
 	credentials, _ := ports.NewAnchoredRoot(canonicalTestTempDir(t))
 	factory := &requirementsNoProvider{}
-	coordination, err := reviewrun.NewReviewCoordinator(filesystem.NewCoordinationIntentStore(), haepari.NewClient(haepari.Config{}), mcpTestClock{})
+	coordination, err := reviewrun.NewReviewCoordinator(filesystem.NewCoordinationIntentStore(), haepari.NewClient(haepari.Config{}), mcpTestClock{}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}

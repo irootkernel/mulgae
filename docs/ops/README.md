@@ -80,10 +80,15 @@ prerequisites fail closed. Resolve setup and policy changes under their separate
 authority; review execution does not repair, register or change resources.
 No-change review, local preflight and verified reads need no controller.
 
-Any present `HAEPARI_LOCK_GRANT`, including empty, is currently refused before
-controller access. Full borrowing remains `TASK-078` work. The
-[coordination specification](../specs/haepari-review-coordination.md) owns the
-current owner behavior and remaining recovery requirements.
+When `HAEPARI_LOCK_GRANT` is present, Mulgae validates the inherited grant
+through read-only controller inspection (`hello`, `resource.inspect`, and bounded
+`locks.list`) and monitors parent validity during child execution without
+acquiring, renewing, cancelling, or releasing the parent grant. Malformed,
+mismatched, stale, ended or expired references fail closed. Once a borrowed
+child run verifies its own local provider/source drain in its private v3 intent,
+its child artifacts may be cleaned independently while the parent grant remains
+live. The [coordination specification](../specs/haepari-review-coordination.md)
+owns the owner and borrower behavior and remaining qualification requirements.
 
 A lost wait or start response does not authorize another review. Preserve the
 original acquisition and native invocation/run, inspect using their supported

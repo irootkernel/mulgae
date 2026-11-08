@@ -30,23 +30,92 @@ type socketFixture struct {
 func TestClientRefusesInheritedGrantBeforeControllerAccess(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int64
-	fixture := newShortSocketFixture(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	validGrant := `{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`
+	fixture := newShortSocketFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
+		if got := r.Header.Get("X-Haepari-Lock-Grant"); got != validGrant {
+			t.Errorf("X-Haepari-Lock-Grant = %q, want %q", got, validGrant)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/hello":
+			_, _ = io.WriteString(w, `{"schema":"haepari.envelope/v1","operation":"hello","ok":true,"data":{"protocol":"managed-execution/v1","protocol_version":1,"installation_id":"inst-01","capabilities":["managed-execution/v1","advisory-lock/v1"]}}`)
+		case "/v1/resources/mulgae-review":
+			_, _ = io.WriteString(w, `{"schema":"haepari.envelope/v1","operation":"resource.inspect","ok":true,"data":{"resource_id":"mulgae-review","kind":"lock","configuration_digest":"`+strings.Repeat("a", 64)+`","config_revision":1,"availability_revision":1,"availability":"available","capacity":1,"occupancy":1,"advisory_grants":1,"advisory_queued":0,"lease_generation":1}}`)
+		case "/v1/locks":
+			_, _ = io.WriteString(w, `{"schema":"haepari.envelope/v1","operation":"locks.list","ok":true,"data":{"installation_id":"inst-01","now":"2026-11-08T05:00:10Z","requests":[],"more":false}}`)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	}))
-	for _, value := range []string{"", " \t", "{}", `{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`} {
+	for _, value := range []string{
+		"",
+		" \t",
+		"{}",
+		"null",
+		strings.Repeat(" ", ports.HaepariMaxParentContextBytes+1),
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":0}`,
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":null}`,
+		`{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1,"extra":true}`,
+		`{"Installation_ID":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`,
+	} {
 		for _, home := range []string{"", fixture.home} {
 			client := haepari.NewClient(haepari.Config{RawHome: home, HasLockGrant: true, RawLockGrant: value})
 			_, err := client.Hello(context.Background())
 			var coordination *ports.ReviewCoordinationError
 			if !errors.As(err, &coordination) || coordination.Reason != ports.ReviewCoordinationReasonParentContextInvalid || coordination.Retry != ports.ReviewCoordinationRetryNever || coordination.Uncertain {
-				t.Fatalf("present reference %q: expected zero-effect parent refusal, got %v", value, err)
+				t.Fatalf("present malformed reference %q: expected zero-effect parent refusal, got %v", value, err)
 			}
 		}
 	}
 	if calls.Load() != 0 {
-		t.Fatalf("inherited grant refusal contacted controller %d times", calls.Load())
+		t.Fatalf("malformed inherited grant refusal contacted controller %d times", calls.Load())
 	}
+
+	borrowedClient := haepari.NewClient(haepari.Config{RawHome: fixture.home, HasLockGrant: true, RawLockGrant: validGrant})
+	for _, op := range []func() error{
+		func() error {
+			_, err := borrowedClient.Acquire(context.Background(), []byte(`{"lock_id":"mulgae-review","request_key":"mulgae-r_1","holder":"h"}`))
+			return err
+		},
+		func() error { _, err := borrowedClient.Wait(context.Background(), "lreq_01", time.Second); return err },
+		func() error { _, err := borrowedClient.Renew(context.Background(), "lgrant_01"); return err },
+		func() error { _, err := borrowedClient.Release(context.Background(), "lgrant_01"); return err },
+		func() error { _, err := borrowedClient.Cancel(context.Background(), "lreq_01"); return err },
+	} {
+		err := op()
+		var coordination *ports.ReviewCoordinationError
+		if !errors.As(err, &coordination) || coordination.Reason != ports.ReviewCoordinationReasonLockStateConflict || coordination.Uncertain {
+			t.Fatalf("expected mutating operation refused locally on borrowed client, got %v", err)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("mutating operation on borrowed client contacted controller %d times", calls.Load())
+	}
+
+	if _, err := borrowedClient.Hello(context.Background()); err != nil {
+		t.Fatalf("borrowed Hello: %v", err)
+	}
+	if _, err := borrowedClient.InspectResource(context.Background(), ports.HaepariReviewResourceID); err != nil {
+		t.Fatalf("borrowed InspectResource: %v", err)
+	}
+	if _, err := borrowedClient.ListLocks(context.Background(), ports.HaepariReviewResourceID, "", 100); err != nil {
+		t.Fatalf("borrowed ListLocks: %v", err)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("expected 3 read-only borrowed calls, got %d", calls.Load())
+	}
+
+	// Valid multiline JSON must remain usable as native header context.
+	prettyGrant := strings.ReplaceAll(validGrant, ",", ",\n  ")
+	prettyClient := haepari.NewClient(haepari.Config{RawHome: fixture.home, HasLockGrant: true, RawLockGrant: prettyGrant})
+	if _, err := prettyClient.Hello(context.Background()); err != nil {
+		t.Fatalf("borrowed multiline JSON Hello: %v", err)
+	}
+	if calls.Load() != 4 {
+		t.Fatalf("expected multiline reference to reach read-only controller, got %d calls", calls.Load())
+	}
+
 	// Absence remains different from a present empty value.
 	if _, err := haepari.NewClient(haepari.Config{}).Hello(context.Background()); !hasReason(err, ports.ReviewCoordinationReasonInstallationNotSelected) {
 		t.Fatalf("absent grant changed normal Installation admission: %v", err)

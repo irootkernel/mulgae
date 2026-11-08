@@ -22,6 +22,7 @@ const (
 	maxParentContextBytes          = 8192
 	maxParentEntries               = 32
 	parentContextHeader            = "X-Haepari-Parent-Context"
+	lockGrantHeader                = "X-Haepari-Lock-Grant"
 	protocolHeader                 = "X-Haepari-Protocol"
 	protocolMinHeader              = "X-Haepari-Protocol-Min"
 	protocolMaxHeader              = "X-Haepari-Protocol-Max"

@@ -257,4 +257,78 @@ func TestIntegrationCoordinationProviderFreeAndInheritedGrant(t *testing.T) {
 	if observations := fakeZCodeReviewObservations(t, log); len(observations) != 0 {
 		t.Fatalf("provider-free or refused requests invoked provider: %+v", observations)
 	}
+
+	// Active parent grant on isolated controller: borrowed child CLI, foreground MCP,
+	// and async MCP reviews succeed read-only without mutating the parent grant, and
+	// child artifacts can be cleaned while the parent remains live.
+	controller := haeparifixture.New(t)
+	unblockParent := controller.PauseNextRelease()
+	defer unblockParent()
+	parentEnv := withHaepariHome(environment, controller.Home)
+	parentProject := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, parentProject)
+	runTestCommand(t, parentProject, "git", "add", "review.go")
+	runTestCommand(t, parentProject, "git", "-c", "user.name=Mulgae E2E", "-c", "user.email=mulgae-e2e@example.invalid", "commit", "-m", "review target")
+	initializeOfflineProvidersForRoles(t, binary, parentProject, parentEnv, "zcode", "logic", bundle)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	parentProc := startMulgaeBinaryWithEnv(t, ctx, binary, parentProject, parentEnv, "review", "--head", "--roles", "logic", "--output", "json")
+	if err := controller.WaitFor(ctx, "release_pending:grant-1"); err != nil {
+		t.Fatal(err)
+	}
+	rawGrant := controller.ActiveGrantJSON()
+	if rawGrant == "" {
+		t.Fatal("expected active parent grant JSON from controller")
+	}
+	borrowedEnv := append(withHaepariHome(environment, controller.Home), "HAEPARI_LOCK_GRANT="+rawGrant)
+
+	// 1. Borrowed CLI child review + independent child clean while parent is still holding grant-1.
+	cliChildRes := runMulgaeBinaryWithEnv(t, binary, project, borrowedEnv, "review", "--head", "--roles", "logic", "--output", "json")
+	assertSuccessfulConcurrentReview(t, project, cliChildRes)
+	cleanRes := runMulgaeBinaryWithEnv(t, binary, project, borrowedEnv, "clean", "--all", "--output", "json")
+	if cleanRes.exitCode != 0 {
+		t.Fatalf("expected borrowed child clean to succeed while parent grant remains live: %d / %s / %s", cleanRes.exitCode, cleanRes.stdout, cleanRes.stderr)
+	}
+
+	// 2. Borrowed foreground and async MCP child reviews under the same active parent grant.
+	mcpClient := startCoordinationMCP(t, ctx, binary, project, borrowedEnv)
+	arguments := map[string]any{"target": map[string]any{"kind": "head"}, "roles": []string{"logic"}}
+	fgResult, err := mcpClient.tool("run_review", arguments)
+	if err != nil || fgResult["outcome"] != "success" {
+		t.Fatalf("borrowed foreground MCP review failed: %+v / %v", fgResult, err)
+	}
+	started, err := mcpClient.tool("start_review", arguments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, ok := started["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("borrowed start_review envelope: %+v", started)
+	}
+	invocation, _ := data["invocation_id"].(string)
+	if invocation == "" {
+		t.Fatalf("missing invocation_id: %+v", started)
+	}
+	asyncResult, err := mcpClient.tool("await_review", map[string]any{"invocation_id": invocation})
+	if err != nil || asyncResult["outcome"] != "success" {
+		t.Fatalf("borrowed async MCP review failed: %+v / %v", asyncResult, err)
+	}
+
+	// Verify zero child lock mutations occurred while parent held grant-1.
+	listEvents := 0
+	for _, event := range controller.Events() {
+		if event == "list" {
+			listEvents++
+		}
+		if event == "queued:request-2" || event == "granted:request-2" || strings.HasPrefix(event, "cancel:") {
+			t.Fatalf("borrowed child review mutated controller lock state: %v", controller.Events())
+		}
+	}
+	if listEvents < 3 {
+		t.Fatalf("expected read-only locks.list calls from borrowed CLI/MCP children, got %d (%v)", listEvents, controller.Events())
+	}
+
+	unblockParent()
+	assertSuccessfulConcurrentReview(t, parentProject, waitMulgaeBinary(t, parentProc))
 }
