@@ -86,7 +86,7 @@ func TestIntegrationLiveServicePublishesWholeTreeNoChange(t *testing.T) {
 	common, _ := LoadLiveReviewCommon(ctx, catalog)
 	calls := []string{}
 	diagnostics := &serviceDiagnosticFactory{calls: &calls}
-	service, err := NewLiveService(LiveDependencies{Sources: integratedLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: clock, IDs: ids, Build: build, Authority: factory, Validator: validator, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: filesystem.NewContentDetector()})
+	service, err := NewLiveService(LiveDependencies{Coordination: testLiveCoordination(t), Sources: integratedLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: clock, IDs: ids, Build: build, Authority: factory, Validator: validator, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: filesystem.NewContentDetector()})
 	if err != nil {
 		t.Fatal(err)
 	}

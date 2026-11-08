@@ -82,6 +82,14 @@ func (s *fakeIntentStore) UpdateObservation(_ context.Context, _ ports.AnchoredR
 	return updated, nil
 }
 
+func (s *fakeIntentStore) UpdateLocalDrain(_ context.Context, _ ports.AnchoredRoot, _ domain.SessionID, _ domain.RunID, state ports.ReviewLocalDrainState, updatedAt time.Time) (ports.ReviewLockRecord, error) {
+	if !s.hasRecord || !state.Valid() {
+		return ports.ReviewLockRecord{}, errors.New("invalid local drain update")
+	}
+	s.record.LocalDrainState, s.record.UpdatedAt = state, updatedAt
+	return s.record, s.record.Validate()
+}
+
 type fakeLockTransport struct {
 	inst            ports.ReviewLockInstallation
 	helloErr        error

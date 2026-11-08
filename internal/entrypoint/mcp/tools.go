@@ -530,6 +530,12 @@ func finalizePublicToolError(err error, tool string, failure ToolError) ToolErro
 		return failure
 	}
 	failure.Retryable = false
+	if reason, ok := reviewrun.CoordinationFailureReason(err); ok {
+		if class, present := reducedToolFailureClass(err); present && (class == domain.FailureConfiguration || class == domain.FailureArtifact || class == domain.FailureCancelled) {
+			failure.Class, failure.Code = publicToolFailureClass(class), string(reason)
+			failure.Message = "Review coordination failed: " + string(reason) + ". Inspect the returned run identity with get_run."
+		}
+	}
 	if sessionID, runID, ok := reviewrun.RuntimeDiagnosticIdentityFromError(err); ok {
 		session, run := sessionID.String(), runID.String()
 		failure.SessionID, failure.RunID = &session, &run

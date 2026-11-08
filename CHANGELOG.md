@@ -4,6 +4,11 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.27 - Unreleased
 
+### Changed
+
+- Coordinate live CLI and MCP reviews through one owned Haepari advisory grant before provider qualification, with bounded waiting, renewal and terminal cleanup. No-change review and preflight remain controller-free. Inherited grant references are refused until borrowing support is complete.
+- Retain unknown local drain proof during cleanup and preserve verified published results when final grant disposition fails, with bounded coordination diagnostics in existing status and error envelopes.
+
 ### Fixed
 
 - Preserve the requirements output contract through structured extraction and reformat repair, so supported assessments in accepted role reports can reach native results without conflicting finding-only JSON instructions.

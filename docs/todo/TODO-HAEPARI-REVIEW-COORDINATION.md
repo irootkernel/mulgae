@@ -38,10 +38,10 @@ change. Never relabel a v0.2.14 profile as v0.2.16.
 | Runtime coordination and compatibility | [Coordination specification](../specs/haepari-review-coordination.md) |
 | Public envelopes and failure precedence | [Contracts](../specs/contracts.md) |
 | Trust and process isolation | [Security](../specs/security.md) |
-| Structural ownership | [Architecture](../architecture/README.md#planned-haepari-review-coordination) |
+| Structural ownership | [Architecture](../architecture/README.md#haepari-review-coordination) |
 | Decision and rejected alternatives | [ADR](../architecture-decision-records/haepari-review-coordination.md) |
 | Guest/release verification | [Implementation guidance](../implementation-tips/README.md#planned-haepari-integration-verification) |
-| Operator recovery boundary | [Operations](../ops/README.md#planned-haepari-coordination-operations) |
+| Operator recovery boundary | [Operations](../ops/README.md#haepari-coordination-operations) |
 
 ## Member delivery contracts
 

@@ -378,8 +378,10 @@ go test -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationHistoricalCo
 
 `runstatus.Service` acquires publication status before diagnostics. Test exact
 root/run scope, original error identity, diagnostic-only fallback, unavailable
-status, committed reads with zero diagnostic calls, and session-bound summary
-merging. Diagnostic projection eligibility remains a transport decision: CLI
+status, best-effort same-run coordination enrichment of committed reads, and
+session-bound summary merging. Missing, corrupt, unsupported, unreadable or
+mismatched supplementary diagnostics must not fail a valid committed P2 read.
+Diagnostic projection eligibility remains a transport decision: CLI
 accepts pending/running diagnostic-only status; MCP requires a completed failed
 or cancelled record. A shared use case must not narrow CLI or widen MCP.
 
@@ -1176,7 +1178,8 @@ TASK-033 obligations. Do not present fixture success as live-provider evidence.
 EPIC-016's [dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md) maps the full
 scenario and producer-return requirements to member Tasks. The
 [coordination specification](../specs/haepari-review-coordination.md) owns the
-planned behavior. These checks are future obligations, not recorded passes.
+owner behavior and the remaining borrower/migration/qualification obligations.
+The commands below define checks; their presence records no passing result.
 
 Start with focused Go behavior checks for affected native adapter, application
 lifecycle and CLI/MCP paths. Run each `TASK-076` foundation check on one
@@ -1191,13 +1194,26 @@ go test -race -count=1 ./internal/app/reviewrun -run '^TestReviewCoordinator'
 go test -race -count=1 ./internal/architecture -run '^(TestWireLeafDependencyDirection|TestProductionDependencyDirection|TestEstablishedOwnershipDependencyDirection|TestTestTierNaming)$'
 ```
 
+Owner-lifecycle tests use an isolated Unix controller under a short physical
+0700 temporary root and never the host Installation. Shared Installation tests
+serialize CLI, foreground MCP and async start/await/cancel across project roots;
+the existing provider barrier test uses separate Installations to retain overlap.
+Controlled timers cover a stalled renewal independently from its deadline guard.
+Private intent v2 tests cover legacy unknown proof, local-state transitions and
+linked/unlinked cleanup drift. Committed-status tests cover best-effort supplement
+failure without weakening independent P2 verification.
+
 Use make test-offline on the integrated candidate,
 make test-release for the installed-binary surface and make test-mcp-clients
 for changed MCP consumers. Release readiness requires the applicable exact-commit
 make test and provider-specific obligations under the repository's release
 policy. A runtime feature cannot use the patch-only version-increment waiver.
 Live-provider checks retain separate execution authority and cannot be replaced
-with fixture success.
+with fixture success. `make test-e2e`, `make test-grok`, `make test-cursor`,
+`make test-agy` and enabled `make test-e2e-opt-in` now also require an explicitly
+selected usable Haepari Installation or an isolated controller. Missing
+coordination prerequisites fail closed; no target automatically changes resource
+policy. These live gates remain TASK-080 obligations.
 
 Run installation and fault/contention scenarios in the dedicated utm-macos
 guest, with approved shared VM occupancy once at the outer boundary. Synthetic

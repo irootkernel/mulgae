@@ -3,9 +3,13 @@
 ## Adopted extension status
 
 [Native Haepari review coordination](haepari-review-coordination.md) owns
-EPIC-016's planned shared review lifecycle and compatibility requirements.
-This design introduces no shipped command, schema or capability. Any affected
-public wire change during implementation follows the versioning rules below.
+EPIC-016's shared review lifecycle and compatibility requirements. The current
+owner implementation preserves CLI v23/MCP v1 shapes and adds closed owned
+`haepari_*` terminal causes and coordination summaries. Native identifiers and
+messages stay private. The private intent v2 adds local-drain proof while v1
+remains readable with unknown proof. Borrowing and release qualification remain
+pending; source implementation supplies no shipped-binary claim. Public wire
+changes follow the versioning rules below.
 
 [Live workspace and Git review](live-workspace-and-git-review.md) owns current
 CLI/MCP execution. TASK-038 wires the public cutover; TASK-039 owns complete

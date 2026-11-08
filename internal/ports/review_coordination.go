@@ -675,8 +675,23 @@ func (ref ReviewLockGrantReference) Validate() error {
 	return nil
 }
 
+// ReviewLocalDrainState is local completion proof, independent of native expiry.
+// The empty value is historical v1 proof and must remain unknown.
+type ReviewLocalDrainState string
+
+const (
+	ReviewLocalDrainNotStarted ReviewLocalDrainState = "not_started"
+	ReviewLocalDrainUnverified ReviewLocalDrainState = "unverified"
+	ReviewLocalDrainVerified   ReviewLocalDrainState = "verified"
+)
+
+func (state ReviewLocalDrainState) Valid() bool {
+	return state == ReviewLocalDrainNotStarted || state == ReviewLocalDrainUnverified || state == ReviewLocalDrainVerified
+}
+
 type ReviewLockRecord struct {
 	SchemaVersion   string
+	LocalDrainState ReviewLocalDrainState
 	SessionID       domain.SessionID
 	RunID           domain.RunID
 	InstallationID  string
@@ -689,8 +704,11 @@ type ReviewLockRecord struct {
 }
 
 func (record ReviewLockRecord) Validate() error {
-	if record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV1 {
+	if record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV1 && record.SchemaVersion != artifactwire.HaepariLockIntentSchemaV2 {
 		return fmt.Errorf("review lock record: unexpected schema_version %q", record.SchemaVersion)
+	}
+	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV1 && record.LocalDrainState != "" || record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV2 && !record.LocalDrainState.Valid() {
+		return fmt.Errorf("review lock record: invalid local drain proof")
 	}
 	if !validSessionID(record.SessionID) || !validRunID(record.RunID) {
 		return fmt.Errorf("review lock record: invalid session or run identity")
@@ -783,6 +801,8 @@ const (
 	ReviewCoordinationReasonAcquireUncertain         ReviewCoordinationReason = "haepari_acquire_uncertain"
 	ReviewCoordinationReasonQueueExpired             ReviewCoordinationReason = "haepari_queue_expired"
 	ReviewCoordinationReasonHoldExpired              ReviewCoordinationReason = "haepari_hold_expired"
+	ReviewCoordinationReasonHoldBudgetExceeded       ReviewCoordinationReason = "haepari_hold_budget_exceeded"
+	ReviewCoordinationReasonLocalDrainUnverified     ReviewCoordinationReason = "haepari_local_drain_unverified"
 	ReviewCoordinationReasonLockCancelled            ReviewCoordinationReason = "haepari_lock_cancelled"
 	ReviewCoordinationReasonLockReleased             ReviewCoordinationReason = "haepari_lock_released"
 	ReviewCoordinationReasonLockStateConflict        ReviewCoordinationReason = "haepari_lock_state_conflict"
@@ -863,6 +883,7 @@ type ReviewCoordinationIntentStore interface {
 	LoadIntent(ctx context.Context, root AnchoredRoot, sessionID domain.SessionID, runID domain.RunID) (ReviewLockRecord, bool, error)
 	PersistIntent(ctx context.Context, root AnchoredRoot, record ReviewLockRecord) (ReviewLockRecord, error)
 	UpdateObservation(ctx context.Context, root AnchoredRoot, sessionID domain.SessionID, runID domain.RunID, reply ReviewLockReply, updatedAt time.Time) (ReviewLockRecord, error)
+	UpdateLocalDrain(ctx context.Context, root AnchoredRoot, sessionID domain.SessionID, runID domain.RunID, state ReviewLocalDrainState, updatedAt time.Time) (ReviewLockRecord, error)
 }
 
 type ReviewLockTransport interface {

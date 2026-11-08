@@ -1373,6 +1373,15 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 		if uri, ok := reviewrun.RuntimeDiagnosticURIFromError(err); ok {
 			failure.diagnosticURI = uri.String()
 		}
+		if reason, ok := reviewrun.CoordinationFailureReason(err); ok {
+			class := reducedFailureClass(err, fallback)
+			if class == domain.FailureConfiguration || class == domain.FailureArtifact || class == domain.FailureCancelled {
+				failure.class, failure.exit, failure.code = class, requestedExit(class), string(reason)
+				failure.stage = "review.coordination"
+				failure.message, failure.humanMessage = "Review coordination failed: "+string(reason)+".", "mulgae: "+string(reason)
+				failure.retryable, failure.hasRetryable = false, true
+			}
+		}
 	}()
 	if code, ok := reviewrun.GuardReason(err); ok && reducedFailureClass(err, domain.FailureConfiguration) == domain.FailureConfiguration {
 		return &executionFailure{class: domain.FailureConfiguration, code: code, message: "Review admission rejected the request.", humanMessage: "mulgae: " + code, stage: "review.admission", exit: app.ExitCodeUsage, retryable: false, hasRetryable: true, recommendedNextCommand: "repeat preflight for the intended project and request"}

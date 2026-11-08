@@ -30,6 +30,7 @@ type requirementsLiveSource struct {
 	*integratedLiveSource
 	inputReads int
 	readErr    error
+	driftInput bool
 }
 
 func (s *requirementsLiveSource) Read(ctx context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
@@ -41,7 +42,11 @@ func (s *requirementsLiveSource) Read(ctx context.Context, side domain.LiveSourc
 
 func (s *requirementsLiveSource) ReadRequirementsInput(ctx context.Context, path ports.SafeRelativePath) ([]byte, error) {
 	s.inputReads++
-	return s.LiveSourceReader.(ports.RequirementsInputReader).ReadRequirementsInput(ctx, path)
+	raw, err := s.LiveSourceReader.(ports.RequirementsInputReader).ReadRequirementsInput(ctx, path)
+	if err == nil && s.driftInput && s.inputReads > 1 {
+		raw = bytes.ReplaceAll(raw, []byte("LOGIC_ONLY_REQUIREMENT"), []byte("CHANGED_REQUIREMENT"))
+	}
+	return raw, err
 }
 
 type requirementsLiveOpener struct{ source *requirementsLiveSource }
@@ -121,7 +126,7 @@ func (p *requirementsObservedProvider) Observe(_ context.Context, invocation por
 }
 
 func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *testing.T) {
-	for _, mode := range []string{"stage", "head", "commit", "diff", "empty-stage", "empty-head", "empty-commit", "empty-diff", "empty-triple-diff", "unborn-stage", "empty-workspace-missing", "unborn-workspace-missing", "empty-head-missing", "empty-stage-missing", "empty-commit-missing", "empty-diff-missing", "empty-triple-diff-missing", "unborn-stage-missing", "empty-head-owner", "empty-head-binding", "free-form", "invalid-peer", "malformed", "reformat", "unmet", "protected-source", "protected-owner", "large-content"} {
+	for _, mode := range []string{"stage", "head", "commit", "diff", "empty-stage", "empty-head", "empty-commit", "empty-diff", "empty-triple-diff", "unborn-stage", "empty-workspace-missing", "unborn-workspace-missing", "empty-head-missing", "empty-stage-missing", "empty-commit-missing", "empty-diff-missing", "empty-triple-diff-missing", "unborn-stage-missing", "empty-head-owner", "empty-head-binding", "free-form", "invalid-peer", "malformed", "reformat", "unmet", "protected-source", "protected-owner", "large-content", "input-drift"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			directory, err := filepath.EvalSymlinks(t.TempDir())
@@ -205,7 +210,7 @@ func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *
 			if err != nil {
 				t.Fatal(err)
 			}
-			source := &requirementsLiveSource{integratedLiveSource: &integratedLiveSource{LiveSourceReader: reader}}
+			source := &requirementsLiveSource{integratedLiveSource: &integratedLiveSource{LiveSourceReader: reader}, driftInput: mode == "input-drift"}
 			if mode == "protected-source" {
 				source.readErr = ports.NewLiveSourceError(ports.LiveSourceUnavailable, errors.New("isolated source unavailable"))
 			}
@@ -268,7 +273,7 @@ func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *
 			}
 			calls := []string{}
 			diagnostics := &serviceDiagnosticFactory{calls: &calls}
-			service, err := NewLiveService(LiveDependencies{Sources: requirementsLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: clock, IDs: ids, Build: build, Authority: factory, Validator: validator, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, RequirementsPrompt: contract, Diagnostics: diagnostics, Detector: filesystem.NewContentDetector()})
+			service, err := NewLiveService(LiveDependencies{Coordination: testLiveCoordination(t), Sources: requirementsLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: clock, IDs: ids, Build: build, Authority: factory, Validator: validator, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, RequirementsPrompt: contract, Diagnostics: diagnostics, Detector: filesystem.NewContentDetector()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -278,6 +283,13 @@ func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *
 				request.ExpectedProjectBinding, _ = domain.ParseProjectBinding("sha256:" + strings.Repeat("f", 64))
 			}
 			result, err := service.Execute(ctx, request)
+			if mode == "input-drift" {
+				var failure *domain.Failure
+				if err == nil || !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy || source.inputReads != 2 || factory.calls != 0 || provider.calls != 0 || publisher.calls != 0 || !source.closed {
+					t.Fatalf("requirements drift after grant crossed provider/publication boundary: %v", err)
+				}
+				return
+			}
 			if mode == "protected-source" || mode == "protected-owner" {
 				var failure *domain.Failure
 				want := domain.FailureArtifact
@@ -315,8 +327,12 @@ func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *
 				}
 				t.Fatal(err)
 			}
-			if source.inputReads != 1 || !source.closed || publisher.calls != 1 {
-				t.Fatal("input reread or wrong publication closure")
+			expectedInputReads := 1
+			if !empty {
+				expectedInputReads = 2
+			} // Revalidate the admitted requirements after grant acquisition.
+			if source.inputReads != expectedInputReads || !source.closed || publisher.calls != 1 {
+				t.Fatalf("requirements admission/revalidation or publication closure: reads=%d want=%d closed=%v publications=%d", source.inputReads, expectedInputReads, source.closed, publisher.calls)
 			}
 			expectedCalls := 2
 			if mode == "malformed" || mode == "reformat" {

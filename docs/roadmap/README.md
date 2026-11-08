@@ -1021,7 +1021,7 @@ planned behavior; the dossier maps execution, acceptance and handoff owners.
 | Task | Status | Objective | Verification |
 |---|---|---|---|
 | TASK-076 | Completed | Implement the native Haepari port/adapter and durable acquisition identity. | Capability/Installation admission, exact persisted payload replay, safe persistence refusal and typed native failure handling. |
-| TASK-077 | Planned | Integrate one owned grant lifecycle in the common review execution path. | CLI/foreground/asynchronous MCP acquisition before qualification, protected role/extraction work, renewal, cancellation, terminal release and provider-free exclusions. |
+| TASK-077 | Completed | Integrate one owned grant lifecycle in the common review execution path. | CLI/foreground/asynchronous MCP acquisition before qualification, protected role/extraction work, renewal, cancellation, terminal release and provider-free exclusions. |
 | TASK-078 | Planned | Complete borrower, uncertainty and failure recovery without duplicate execution. | Identity/deadline negatives, queue timeout/replay, cancellation race, renewal/hold/caller/controller loss and partial-role preservation without cross-run coverage. |
 | TASK-079 | Planned | Qualify complete paired-skill behavior and native configuration/history migration. | All three transports, verified reads, meaningful prior state, preserved provider/role/retry/active-work obligations and full-tree/fresh-session skill checks. |
 | TASK-080 | Planned | Qualify the integrated candidate and reusable dedicated guest. | Applicable deterministic/release/client gates, automatic/manual scenarios, synthetic isolated faults, real cleanup and inventory with explicit gaps. |

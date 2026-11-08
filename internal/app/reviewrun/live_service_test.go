@@ -21,6 +21,25 @@ type serviceLiveSource struct {
 	closeErr error
 }
 
+func serviceErrorContains(err error, message string) bool {
+	if err == nil {
+		return false
+	}
+	if strings.Contains(err.Error(), message) {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, child := range joined.Unwrap() {
+			if serviceErrorContains(child, message) {
+				return true
+			}
+		}
+	} else if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return serviceErrorContains(wrapped.Unwrap(), message)
+	}
+	return false
+}
+
 func (source *serviceLiveSource) Close() error {
 	source.closed = true
 	return source.closeErr
@@ -82,7 +101,7 @@ func TestLiveServiceSourceAdmissionFailurePreservesTypedPolicyBeforeAllocation(t
 			if err != nil {
 				t.Fatal(err)
 			}
-			service, err := NewLiveService(LiveDependencies{Sources: opener, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{}, Clock: serviceClock{}, IDs: &serviceIDs{calls: &calls}, Build: BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}, Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: &serviceDiagnosticFactory{calls: &calls}, Detector: &packetDetectorFake{}})
+			service, err := NewLiveService(LiveDependencies{Coordination: testLiveCoordination(t), Sources: opener, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{}, Clock: serviceClock{}, IDs: &serviceIDs{calls: &calls}, Build: BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}, Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: &serviceDiagnosticFactory{calls: &calls}, Detector: &packetDetectorFake{}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,6 +142,9 @@ type serviceLiveAuthority struct {
 func (factory *serviceLiveAuthority) NewQualifiedLiveRun(context.Context, ports.LiveReviewExecution, RunSelection) (RunAuthority, error) {
 	factory.calls++
 	if factory.authority != nil || factory.err != nil || factory.nilSuccess {
+		if nilInterface(factory.authority) && factory.err != nil {
+			return factory.authority, newQualifiedRunConstructionError(factory.err, ports.NewEmptyProviderRunTerminalReceipt())
+		}
 		return factory.authority, factory.err
 	}
 	return nil, errors.New("empty selection must not qualify providers")
@@ -227,14 +249,14 @@ func TestLiveServiceQualificationGuardsRejectBeforeExecution(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			service, err := NewLiveService(LiveDependencies{Sources: serviceLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: serviceClock{}, IDs: &serviceIDs{}, Build: base.BuildIdentity(), Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: &packetDetectorFake{}})
+			service, err := NewLiveService(LiveDependencies{Coordination: testLiveCoordination(t), Sources: serviceLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: serviceClock{}, IDs: &serviceIDs{}, Build: base.BuildIdentity(), Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: &packetDetectorFake{}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			selection, _ := NewRunSelection([]domain.Role{domain.RoleLogic}, nil)
 			result, err := service.Execute(context.Background(), LiveRequest{ProjectRoot: root, ArtifactRoot: root, Target: selector, Selection: selection})
 			var diagnosticReference *RuntimeDiagnosticReferenceError
-			if !errors.As(err, &diagnosticReference) || !strings.Contains(diagnosticReference.Unwrap().Error(), test.wantError) {
+			if !errors.As(err, &diagnosticReference) || !serviceErrorContains(diagnosticReference.Unwrap(), test.wantError) {
 				t.Fatalf("qualification guard lost its original rejection: %v", err)
 			}
 			if typedFailure != nil {
@@ -243,7 +265,7 @@ func TestLiveServiceQualificationGuardsRejectBeforeExecution(t *testing.T) {
 					t.Fatalf("qualification guard replaced the typed planner failure: %v", err)
 				}
 			}
-			if !reflect.DeepEqual(result, Result{}) || factory.calls != 1 || source.reads != 0 || provider.calls != 0 || publisher.calls != 0 || !source.closed {
+			if !reflect.DeepEqual(result, Result{}) || factory.calls != 1 || source.reads != 0 || provider.calls != 0 || publisher.calls != 0 || source.closed == (test.nilAuthority || test.typedNil) {
 				t.Fatalf("rejected qualification executed, published, retained a result, or left its source open: result=%+v calls=%v reads=%d provider=%d publication=%d closed=%v", result, calls, source.reads, provider.calls, publisher.calls, source.closed)
 			}
 			wantCalls := []string{"sink"}
@@ -312,7 +334,7 @@ func TestLiveServiceRetainsSourceUntilProviderDrainAndAllowsCleanupRetry(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			service, err := NewLiveService(LiveDependencies{Sources: serviceLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: serviceClock{}, IDs: &serviceIDs{}, Build: authority.BuildIdentity(), Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: &packetDetectorFake{}})
+			service, err := NewLiveService(LiveDependencies{Coordination: testLiveCoordination(t), Sources: serviceLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: serviceClock{}, IDs: &serviceIDs{}, Build: authority.BuildIdentity(), Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: &packetDetectorFake{}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -387,7 +409,7 @@ func TestLiveServiceEmptySelectionClosesBeforePublicationWithoutProviderAuthorit
 			if err != nil {
 				t.Fatal(err)
 			}
-			service, err := NewLiveService(LiveDependencies{Sources: serviceLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: serviceClock{}, IDs: &serviceIDs{}, Build: BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}, Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: &serviceDiagnosticFactory{calls: &calls}, Detector: &packetDetectorFake{}})
+			service, err := NewLiveService(LiveDependencies{Coordination: testLiveCoordination(t), Sources: serviceLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: serviceClock{}, IDs: &serviceIDs{}, Build: BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}, Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: &serviceDiagnosticFactory{calls: &calls}, Detector: &packetDetectorFake{}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -472,7 +494,7 @@ func TestLiveServiceDiagnosticAndLoginFailuresRetainSafeIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			service, err := NewLiveService(LiveDependencies{Sources: serviceLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: serviceClock{}, IDs: &serviceIDs{}, Build: BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}, Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: &packetDetectorFake{}})
+			service, err := NewLiveService(LiveDependencies{Coordination: testLiveCoordination(t), Sources: serviceLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: serviceClock{}, IDs: &serviceIDs{}, Build: BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}, Authority: factory, Validator: &validation.ReviewValidator{}, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: &packetDetectorFake{}})
 			if err != nil {
 				t.Fatal(err)
 			}

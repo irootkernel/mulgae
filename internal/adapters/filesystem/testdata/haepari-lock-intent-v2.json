@@ -1,0 +1,17 @@
+{
+  "schema_version": "mulgae-haepari-lock-intent.v2",
+  "session_id": "s_019f596a-cf80-7c67-b265-f37053d51ccf",
+  "run_id": "r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+  "installation_id": "inst-01",
+  "resource_id": "mulgae-review",
+  "payload": {
+    "lock_id": "mulgae-review",
+    "request_key": "mulgae-r_019f596a-cfe4-7c9c-b82e-7149158243ba",
+    "holder": "mulgae:s_019f596a-cf80-7c67-b265-f37053d51ccf:r_019f596a-cfe4-7c9c-b82e-7149158243ba"
+  },
+  "payload_json": "{\"lock_id\":\"mulgae-review\",\"request_key\":\"mulgae-r_019f596a-cfe4-7c9c-b82e-7149158243ba\",\"holder\":\"mulgae:s_019f596a-cf80-7c67-b265-f37053d51ccf:r_019f596a-cfe4-7c9c-b82e-7149158243ba\"}",
+  "payload_sha256": "sha256:4fa3af44fe60b5754303fd3128d2f36ea842e65285837057d8ab45ab9d5d28b9",
+  "persisted_at": "2026-07-23T06:00:01Z",
+  "updated_at": "2026-07-23T06:00:01Z",
+  "local_drain_state": "not_started"
+}

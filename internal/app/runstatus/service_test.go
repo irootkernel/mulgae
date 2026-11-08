@@ -110,14 +110,12 @@ func TestStatusAcquisitionCompatibility(t *testing.T) {
 		pub := &publicationFake{run: run, status: PublicationStatus{PublicationState: status}}
 		diag := &diagnosticFake{status: diagnostic}
 		got, err := New(pub, diag).Read(context.Background(), root, runID)
-		wantSession := 0
-		if status != domain.PublicationCommitted {
-			wantSession = 1
-		}
-		if err != nil || got.Kind != Publication || got.Run != run || diag.calls != 0 || diag.sessionCalls != wantSession || got.Status.HasDiagnosticSummary != (wantSession == 1) {
+		wantSession := 1
+		wantSummary := status != domain.PublicationCommitted
+		if err != nil || got.Kind != Publication || got.Run != run || diag.calls != 0 || diag.sessionCalls != wantSession || got.Status.HasDiagnosticSummary != wantSummary {
 			t.Fatalf("publication=%+v err=%v diagnostics=%d/%d", got, err, diag.calls, diag.sessionCalls)
 		}
-		if wantSession == 1 && (diag.root != root || diag.session != session || diag.run != runID || got.Status.DiagnosticSummary != summary) {
+		if diag.root != root || diag.session != session || diag.run != runID || wantSummary && got.Status.DiagnosticSummary != summary {
 			t.Fatal("session-bound summary merge changed")
 		}
 	}
@@ -145,5 +143,49 @@ func TestStatusAcquisitionCompatibility(t *testing.T) {
 	got, err = New(pub, nil).Read(context.Background(), root, runID)
 	if err != artifact || got.Phase != Resolve {
 		t.Fatal("optional diagnostics changed original failure")
+	}
+}
+
+func TestServiceReadCommittedCoordinationSupplementBestEffort(t *testing.T) {
+	root, _ := ports.NewAnchoredRoot("/fixture/.mulgae")
+	session, _ := domain.ParseSessionID("s_019f596a-cfe4-7c9c-b82e-7149158243ba")
+	runID, _ := domain.ParseRunID("r_019f596a-cf80-7c67-b265-f37053d51ccf")
+	run, _ := ports.NewPublicationRun(root, session, runID)
+	summary, _ := ports.NewRuntimeDiagnosticSummary(ports.RuntimeDiagnosticSummaryInput{Component: "coordination", Phase: "release", InvariantID: string(domain.DiagnosticCauseCoordinationDispositionFailed)})
+	now := time.Now().UTC()
+	diagnostic, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: session, RunID: runID, State: domain.RunCompleted, StartedAt: now, UpdatedAt: now, DiagnosticSummary: summary, HasDiagnosticSummary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSession, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+	mismatch, _ := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: otherSession, RunID: runID, State: domain.RunCompleted, StartedAt: now, UpdatedAt: now, DiagnosticSummary: summary, HasDiagnosticSummary: true})
+	corrupt := errors.New("corrupt private supplement")
+	for _, test := range []struct {
+		name       string
+		diagnostic ports.RuntimeDiagnosticRunStatus
+		err        error
+		enrich     bool
+	}{
+		{"valid", diagnostic, nil, true},
+		{"missing", ports.RuntimeDiagnosticRunStatus{}, ports.ErrRuntimeDiagnosticRunNotFound, false},
+		{"legacy unsupported", ports.RuntimeDiagnosticRunStatus{}, errors.New("unsupported schema"), false},
+		{"corrupt", ports.RuntimeDiagnosticRunStatus{}, corrupt, false},
+		{"unreadable", ports.RuntimeDiagnosticRunStatus{}, errors.New("read refused"), false},
+		{"mismatch", mismatch, nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			axes := PublicationStatus{PublicationState: domain.PublicationCommitted, RunState: domain.RunDegraded, HasRunState: true, ContentVerdict: domain.ContentNoFindings, HasAxes: true}
+			pub := &publicationFake{run: run, status: axes}
+			diag := &diagnosticFake{status: test.diagnostic, err: test.err}
+			got, err := New(pub, diag).Read(context.Background(), root, runID)
+			if err != nil || got.Kind != Publication || got.Status.HasDiagnosticSummary != test.enrich || got.Status.RunState != axes.RunState || got.Status.ContentVerdict != axes.ContentVerdict || pub.reads != 1 {
+				t.Fatalf("supplement revoked or changed P2: %+v / %v", got, err)
+			}
+			pub.readErr = corrupt
+			before := diag.sessionCalls
+			if _, err := New(pub, diag).Read(context.Background(), root, runID); err != corrupt || diag.sessionCalls != before {
+				t.Fatal("supplement hid independently corrupt P2")
+			}
+		})
 	}
 }

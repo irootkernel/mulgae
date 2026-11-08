@@ -539,7 +539,7 @@ func (store *DiagnosticStore) Finalize(ctx context.Context, request ports.Runtim
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticPersistenceError(ports.DiagnosticPersistenceFinalize, "terminal_event", errors.New("diagnostic store durability is uncertain"))
 	}
 	status := request.Status()
-	if store.hasDiagnosticSummary {
+	if supplied, present := status.DiagnosticSummary(); store.hasDiagnosticSummary && (!present || supplied.Component() != "coordination") {
 		var err error
 		status, err = ports.WithRuntimeDiagnosticSummary(status, store.diagnosticSummary)
 		if err != nil {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +25,32 @@ type socketFixture struct {
 	socketPath string
 	listener   net.Listener
 	server     *http.Server
+}
+
+func TestClientRefusesInheritedGrantBeforeControllerAccess(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int64
+	fixture := newShortSocketFixture(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	for _, value := range []string{"", " \t", "{}", `{"installation_id":"inst-01","lock_id":"mulgae-review","grant_id":"lgrant_01","generation":1}`} {
+		for _, home := range []string{"", fixture.home} {
+			client := haepari.NewClient(haepari.Config{RawHome: home, HasLockGrant: true, RawLockGrant: value})
+			_, err := client.Hello(context.Background())
+			var coordination *ports.ReviewCoordinationError
+			if !errors.As(err, &coordination) || coordination.Reason != ports.ReviewCoordinationReasonParentContextInvalid || coordination.Retry != ports.ReviewCoordinationRetryNever || coordination.Uncertain {
+				t.Fatalf("present reference %q: expected zero-effect parent refusal, got %v", value, err)
+			}
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("inherited grant refusal contacted controller %d times", calls.Load())
+	}
+	// Absence remains different from a present empty value.
+	if _, err := haepari.NewClient(haepari.Config{}).Hello(context.Background()); !hasReason(err, ports.ReviewCoordinationReasonInstallationNotSelected) {
+		t.Fatalf("absent grant changed normal Installation admission: %v", err)
+	}
 }
 
 func newShortSocketFixture(t *testing.T, handler http.Handler) *socketFixture {

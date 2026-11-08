@@ -488,12 +488,18 @@ Do not open a public issue containing credentials, private source, raw provider
 transcripts, or `.mulgae/` artifacts. Share the smallest redacted reproduction
 through the repository owner's private security contact.
 
-## Planned Haepari coordination boundary
+## Haepari coordination boundary
 
 EPIC-016's [coordination contract](haepari-review-coordination.md) requires
 native owner/borrower validation, fail-closed provider dispatch and cancellation
 and drain after grant loss. The inherited reference is same-user coordination;
 it grants no source, provider, credential or publication authority. Advisory
-expiry cannot prove process termination. These are planned requirements, not
-claims about the current binary. Existing isolation and failure precedence
-remain authoritative.
+expiry cannot prove process termination. The common owner path fails closed on
+lost protection, reserves bounded cleanup time and retains unknown local drain
+proof across native expiry. Cleanup rechecks intent bytes and pinned identities
+before deleting either linked tree. Until borrowing is implemented, any present
+inherited grant reference is refused before controller or intent access.
+Provider-free requests retain their existing boundaries. Public causes and
+summaries contain owned bounded tokens; native paths and response text remain
+private. Borrower and installed/released qualification obligations remain pending.
+Existing isolation and failure precedence remain authoritative.

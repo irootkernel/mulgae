@@ -15,6 +15,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
+	"github.com/irootkernel/mulgae/internal/adapters/haepari"
 	adapterruntime "github.com/irootkernel/mulgae/internal/adapters/runtime"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/query"
@@ -87,8 +88,13 @@ func requirementsExecutionApplication(t *testing.T, root ports.AnchoredRoot, rea
 	neutral, _ := ports.NewAnchoredRoot(canonicalTestTempDir(t))
 	credentials, _ := ports.NewAnchoredRoot(canonicalTestTempDir(t))
 	factory := &requirementsNoProvider{}
+	coordination, err := reviewrun.NewReviewCoordinator(filesystem.NewCoordinationIntentStore(), haepari.NewClient(haepari.Config{}), mcpTestClock{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	live, err := reviewrun.NewLiveService(reviewrun.LiveDependencies{
-		Sources: policy.sources, ReviewerHome: requirementsNeutralHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credentials},
+		Coordination: coordination,
+		Sources:      policy.sources, ReviewerHome: requirementsNeutralHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credentials},
 		Admission: productionLiveRequestAdmission{policy: policy.policy}, Clock: mcpTestClock{}, IDs: ids,
 		Build:     reviewrun.BuildIdentity{Product: "mulgae", Version: "test", Module: "github.com/irootkernel/mulgae", VCSRevision: "fixture"},
 		Authority: factory, Validator: validator, Publication: publisher, PublicationWriter: writer, Templates: templates, Common: common, RequirementsPrompt: requirements,

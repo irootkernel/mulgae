@@ -2,14 +2,13 @@
 
 ## Adoption boundary
 
-EPIC-016 adopts these requirements for staged implementation. `TASK-076`
-establishes the unwired native coordination port, `internal/adapters/haepari`
-client and state-root admission, private diagnostic intent store
-(`diagnostics/s_<uuidv7>/r_<uuidv7>/haepari-lock.json`) and `internal/app/reviewrun`
-single-acquisition/replay foundation; live runtime wiring and later `EPIC-016`
-lifecycle, public projection and certification tasks (`TASK-077` through
-`TASK-081`) remain pending, so the current binary does not invoke Haepari during
-live CLI or MCP execution yet. The [roadmap](../roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
+EPIC-016 adopts these requirements in stages. `TASK-076` establishes the native
+port, client, state-root admission and durable acquisition identity. The
+`TASK-077` implementation connects the common live CLI/MCP owner lifecycle,
+private local-drain proof and bounded status projection. Borrowing, complete
+failure recovery, migration and qualification remain `TASK-078` through
+`TASK-081` obligations. These source changes do not establish installed or
+released behavior. The [roadmap](../roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
 owns status; this document owns the product contract. The
 [decision](../architecture-decision-records/haepari-review-coordination.md)
 owns its rationale.
@@ -53,7 +52,13 @@ the caller's obligation throughout waiting and execution.
 ## Owned grant lifecycle
 
 The acquiring process renews in process, using the native returned liveness
-and maximum-hold deadlines. The registered maximum hold must cover the admitted
+and maximum-hold deadlines. Mulgae requires remaining hold to exceed the full
+admitted run budget plus two minutes for terminal cleanup. Preparation has its
+own deadline at maximum hold minus both reservations. An independent guard
+cancels active work at maximum hold minus cleanup reserve or known liveness
+loss; a stalled renewal cannot postpone that guard. Calls are bounded to 30
+seconds, queue observations to 15 seconds, and renewal calls additionally to the
+known safe lease interval. The registered maximum hold must cover the admitted
 execution and cleanup budget. An insufficient policy fails admission; review
 execution cannot silently update the resource or change Installation. Resource
 registration and policy changes retain their separate setup authority.
@@ -72,6 +77,22 @@ are separate observations. When drain is unknown, retain the native cleanup
 owner and report uncertainty; do not claim protected work ended or cleanup
 succeeded. Advisory expiry can free capacity while work continues.
 
+The private v2 intent records `local_drain_state` as `not_started`, `unverified`
+or `verified`. Persist `unverified` before protected effects; only proven provider
+termination and source closure establish `verified`. Native terminal state does
+not supply local proof. Historical v1 records remain readable with unknown local
+proof. Cleanup protects unknown, invalid, unresolved, nonterminal or unverified
+intent in diagnostic-only and linked publication trees. It checks exact intent
+bytes and descriptor identity again before deletion; ordinary diagnostics without
+an intent retain their existing cleanup policy.
+
+Renewal continues through one bounded provider/source cleanup operation shared
+by normal and deferred cleanup. Unknown completion retains its cleanup owner and
+intent without Release or Cancel. After verified completion, a purely operational
+Release or observation-persistence error remains an error but does not suppress
+an otherwise valid P2 publication. Capture the actual P2 reference before error
+projection, preserving its original state, coverage and findings/CI axes.
+
 If the controller is unavailable or renewal fails, stop new provider dispatch,
 request native cancellation and drain, and report the actual terminal or unknown
 outcome. Do not silently run directly. Controller restart, caller loss, maximum
@@ -79,6 +100,11 @@ hold expiry and stale identities must retain this behavior. A lock replay never
 authorizes replay of provider execution or publication.
 
 ## Borrowed grant lifecycle
+
+Until `TASK-078` implements borrowing, any present `HAEPARI_LOCK_GRANT`, including
+an empty value, is refused before controller access or intent I/O. No-change and
+provider-free requests still require no coordination. The following borrowing
+contract remains a pending obligation.
 
 `HAEPARI_LOCK_GRANT` follows Haepari's closed JSON reference containing
 `installation_id`, `lock_id`, `grant_id` and positive `generation`. The environment
@@ -114,6 +140,19 @@ provider rate-limit immunity or police callers that skip the lock. Grant expiry
 does not forcibly terminate native work, so overlap remains possible after lost
 renewal or maximum hold. This feature does not provide managed unknown-execution
 containment. Coverage, findings/CI, publication and lock disposition stay separate.
+
+## Supported observation
+
+CLI v23 and MCP v1 retain their existing envelopes. Owned `haepari_*` causes and
+`diagnostic_summary` tokens distinguish readiness, queue expiry, cancellation,
+hold reservation, protection loss, unknown local drain, persistence and final
+disposition. Native free text, paths and identities are not public diagnostics.
+Coordination failures remain non-provider failures with normal failure precedence.
+
+Verified P2 reads remain publication-first. A valid same-session/same-run
+coordination summary may enrich status/get_run; missing, unsupported, unreadable,
+corrupt or mismatched supplementary diagnostics are omitted. Absence of a summary
+does not prove clean disposition. Independently corrupt P2 still fails verification.
 
 ## Migration and release qualification
 

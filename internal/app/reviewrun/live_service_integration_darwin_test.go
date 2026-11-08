@@ -56,11 +56,15 @@ func mustSharedReviewRunTestAssets(t *testing.T) (*builtin.Catalog, *jsonschema.
 
 type integratedLiveSource struct {
 	ports.LiveSourceReader
-	closed bool
-	reads  int
+	closed   bool
+	reads    int
+	closeErr error
 }
 
 func (source *integratedLiveSource) Close() error {
+	if source.closeErr != nil {
+		return source.closeErr
+	}
 	source.closed = true
 	return source.LiveSourceReader.Close()
 }
@@ -83,11 +87,13 @@ func (planner integratedLivePlanner) PlanSelectedRoles(context.Context, []domain
 }
 
 type integratedLiveAuthority struct {
-	provider ports.ObservedReviewProvider
-	plan     ExecutionPlan
-	build    BuildIdentity
-	terminal QualifiedRunTerminalReceipt
-	drained  bool
+	provider   ports.ObservedReviewProvider
+	plan       ExecutionPlan
+	build      BuildIdentity
+	terminal   QualifiedRunTerminalReceipt
+	drained    bool
+	drainErr   error
+	drainCheck func()
 }
 
 func (authority *integratedLiveAuthority) Provider() ports.ObservedReviewProvider {
@@ -105,8 +111,14 @@ func (authority *integratedLiveAuthority) QualificationObservations() []Provider
 	return observations
 }
 func (authority *integratedLiveAuthority) DrainTerminal(ctx context.Context) (QualifiedRunTerminalReceipt, error) {
+	if authority.drainCheck != nil {
+		authority.drainCheck()
+	}
 	if ctx.Err() != nil {
 		return QualifiedRunTerminalReceipt{}, ctx.Err()
+	}
+	if authority.drainErr != nil {
+		return QualifiedRunTerminalReceipt{}, authority.drainErr
 	}
 	authority.drained = true
 	return authority.terminal, nil
@@ -128,9 +140,10 @@ type integratedLiveProvider struct {
 	side          domain.LiveSourceSide
 	calls         int
 	mode          string
+	cancel        context.CancelFunc
 }
 
-func (provider *integratedLiveProvider) Observe(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+func (provider *integratedLiveProvider) Observe(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
 	provider.calls++
 	execution, live := invocation.LiveExecution()
 	if !live || execution.SourceReader().Root() != provider.root || execution.ReviewerHome().Root() != provider.neutral {
@@ -141,6 +154,14 @@ func (provider *integratedLiveProvider) Observe(_ context.Context, invocation po
 	}
 	if bytes.Contains(invocation.Packet().Bytes(), []byte("observed\n")) {
 		provider.t.Fatal("source content was copied into the prompt")
+	}
+	if provider.mode == "cancel-execution" {
+		provider.cancel()
+		return ports.ProviderExecutionObservation{}, ctx.Err()
+	}
+	if provider.mode == "partial-role-failure" && invocation.Role() == domain.RoleSecurity {
+		failure, _ := domain.NewFailure("review.provider", domain.FailureConfiguration, "fixture refusal", nil)
+		return ports.ProviderExecutionObservation{}, failure
 	}
 	raw := []byte(fmt.Sprintf(`{"schema_version":"mulgae-provider-review-output.v1","summary":"A live observation.","completeness":"complete","limitations":[],"findings":[{"severity":"low","title":"Observed defect","description":"The selected source contains the cited statement.","evidence":[{"current":{"path":"source.go","side":%q,"line_start":1,"line_end":1,"quote":"observed\n"}}],"recommendation":"Correct the statement.","confidence":"high"}]}`, map[domain.LiveSourceSide]string{domain.LiveSourceWorktree: "worktree", domain.LiveSourceIndex: "index", domain.LiveSourceAfter: "head"}[provider.side]))
 	if provider.calls == 1 {
@@ -187,18 +208,25 @@ func (publisher *integratedLivePublisher) PublishLiveNextObserved(ctx context.Co
 }
 
 func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *testing.T) {
-	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage, domain.LiveSourceHead, domain.LiveSourceCommit, domain.LiveSourceDiff, "empty-stage", "extraction", "repair", "non-git-workspace", "qualification-sink-failure"} {
+	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage, domain.LiveSourceHead, domain.LiveSourceCommit, domain.LiveSourceDiff, "empty-stage", "extraction", "repair", "non-git-workspace", "qualification-sink-failure", "disposition-failure", "disposition-protocol-failure", "cancel-execution", "partial-role-failure", "provider-drain-failure", "source-close-failure"} {
 		t.Run(string(scope), func(t *testing.T) {
 			mode := ""
 			nonGit := scope == "non-git-workspace"
 			qualificationSinkFailure := scope == "qualification-sink-failure"
-			if nonGit || qualificationSinkFailure {
+			dispositionFailure := scope == "disposition-failure"
+			unsafeDisposition := scope == "disposition-protocol-failure"
+			terminalFailure := scope == "cancel-execution" || scope == "partial-role-failure" || scope == "provider-drain-failure" || scope == "source-close-failure"
+			if terminalFailure {
+				mode, scope = string(scope), domain.LiveSourceWorkspace
+			}
+			if nonGit || qualificationSinkFailure || dispositionFailure || unsafeDisposition {
 				scope = domain.LiveSourceWorkspace
 			}
 			if scope == "extraction" || scope == "repair" {
 				mode, scope = string(scope), domain.LiveSourceWorkspace
 			}
-			ctx := context.Background()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 			rootPath, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
@@ -261,7 +289,11 @@ func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *tes
 				t.Fatal(err)
 			}
 			publicationService, _ := publication.NewService(store, schema, clock, ports.PublicationStructuredMemberMaxBytes)
-			plan := reviewRunPlan(t, []domain.Role{domain.RoleLogic})
+			roles := []domain.Role{domain.RoleLogic}
+			if mode == "partial-role-failure" {
+				roles = append(roles, domain.RoleSecurity)
+			}
+			plan := reviewRunPlan(t, roles)
 			plan.Threshold = domain.SeverityHigh
 			plan.Ceilings = review.DefaultHarnessCeilings()
 			plan.Extraction = mode == "extraction"
@@ -273,7 +305,7 @@ func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *tes
 			if scope == domain.LiveSourceStage {
 				side = domain.LiveSourceIndex
 			}
-			provider := &integratedLiveProvider{t: t, root: root, neutral: neutral, side: side, mode: mode}
+			provider := &integratedLiveProvider{t: t, root: root, neutral: neutral, side: side, mode: mode, cancel: cancel}
 			terminal := serviceQualifiedTerminal(t)
 			for index := range terminal.providers {
 				terminal.providers[index].identity.ExecutableSHA256 = "sha256:" + strings.Repeat("b", 64)
@@ -292,12 +324,107 @@ func TestIntegrationLiveServicePublishesVerifiedOriginalSourceAndNoChange(t *tes
 			if qualificationSinkFailure {
 				diagnostics.refuseEvent, diagnostics.refusal = domain.DiagnosticQualificationSucceeded, errors.New("private diagnostic storage failure")
 			}
-			service, err := NewLiveService(LiveDependencies{Sources: integratedLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: clock, IDs: ids, Build: build, Authority: factory, Validator: validator, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: filesystem.NewContentDetector()})
+			coordination, intentStore, transport := newOwnerTestCoordinator(t)
+			if terminalFailure {
+				authority.drainCheck = func() {
+					transport.mu.Lock()
+					defer transport.mu.Unlock()
+					intentStore.mu.Lock()
+					defer intentStore.mu.Unlock()
+					if transport.releases != 0 || source.closed || intentStore.record.LocalDrainState != ports.ReviewLocalDrainUnverified {
+						t.Fatal("grant or source was released before provider drain")
+					}
+				}
+				transport.releaseCheck = func() {
+					intentStore.mu.Lock()
+					defer intentStore.mu.Unlock()
+					if !source.closed || !authority.drained || intentStore.record.LocalDrainState != ports.ReviewLocalDrainVerified {
+						t.Fatal("Release preceded verified provider drain and source close")
+					}
+				}
+				if mode == "provider-drain-failure" {
+					authority.drainErr = errors.New("provider drain remains unknown")
+				}
+				if mode == "source-close-failure" {
+					source.closeErr = errors.New("source close remains unknown")
+				}
+			}
+			if dispositionFailure {
+				transport.releaseErr = errors.New("private controller disposition failure")
+			}
+			if unsafeDisposition {
+				transport.releaseErr = coordinationError(ports.ReviewCoordinationReasonProtocolIncompatible, ports.ReviewLockOperationRelease, true, errors.New("private identity mismatch"))
+			}
+			service, err := NewLiveService(LiveDependencies{Coordination: coordination, Sources: integratedLiveOpener{source}, ReviewerHome: promptLiveHome{root: neutral}, CredentialRoots: []ports.AnchoredRoot{credential}, Admission: serviceLiveAdmission{plan}, Clock: clock, IDs: ids, Build: build, Authority: factory, Validator: validator, Publication: publisher, Templates: mustServiceTemplates(t), Common: common, Diagnostics: diagnostics, Detector: filesystem.NewContentDetector()})
 			if err != nil {
 				t.Fatal(err)
 			}
-			selection, _ := NewRunSelection([]domain.Role{domain.RoleLogic}, nil)
+			selection, _ := NewRunSelection(roles, nil)
 			result, err := service.Execute(ctx, LiveRequest{ProjectRoot: root, ArtifactRoot: artifacts, Target: selector, Selection: selection})
+			if terminalFailure {
+				if err == nil || publisher.calls != 0 || result.Final().Valid() || factory.calls != 1 || transport.acquires != 1 || transport.cancels != 0 {
+					t.Fatalf("failed protected execution published or changed acquisition identity: %v", err)
+				}
+				unknown := mode == "provider-drain-failure" || mode == "source-close-failure"
+				if unknown {
+					cleanup, retained := LiveCleanupFromError(err)
+					if !retained || transport.releases != 0 || intentStore.record.LocalDrainState != ports.ReviewLocalDrainUnverified || source.closed {
+						t.Fatalf("unknown termination lost ownership or proof: %v", err)
+					}
+					authority.drainErr, source.closeErr = nil, nil
+					if retryErr := cleanup.DrainAndClose(ctx); retryErr != nil {
+						t.Fatal(retryErr)
+					}
+				}
+				if transport.releases != 1 || !authority.drained || !source.closed || intentStore.record.LocalDrainState != ports.ReviewLocalDrainVerified || intentStore.record.ObservedRequest.State != ports.ReviewLockStateReleased {
+					t.Fatalf("verified terminal cleanup did not settle the original grant: %v", err)
+				}
+				if mode == "cancel-execution" && (ctx.Err() != context.Canceled || runtimeDiagnosticFailureClass(err) != domain.FailureCancelled || provider.calls != 1) {
+					t.Fatalf("cancellation did not reach admitted provider execution: class=%s calls=%d error=%v", runtimeDiagnosticFailureClass(err), provider.calls, err)
+				}
+				if mode == "partial-role-failure" {
+					completed := 0
+					for _, input := range diagnostics.inputs {
+						if input.Event == domain.DiagnosticRoleCompleted && input.Role == domain.RoleLogic {
+							completed++
+						}
+					}
+					if completed != 1 || provider.calls != 2 {
+						t.Fatal("partial role failure lost accepted work or repeated a provider")
+					}
+				}
+				return
+			}
+			if unsafeDisposition {
+				if err == nil || publisher.calls != 0 || !source.closed || !authority.drained || intentStore.record.LocalDrainState != ports.ReviewLocalDrainVerified || result.Final().Valid() {
+					t.Fatalf("protocol/identity failure was downgraded to operational disposition: %v", err)
+				}
+				return
+			}
+			if dispositionFailure {
+				sessionID, runID, allocated := RuntimeDiagnosticIdentityFromError(err)
+				if err == nil || !allocated || publisher.calls != 1 || !source.closed || !authority.drained || intentStore.record.LocalDrainState != ports.ReviewLocalDrainVerified {
+					t.Fatalf("operational disposition revoked valid protected completion: %v", err)
+				}
+				run, _ := ports.NewPublicationRun(artifacts, sessionID, runID)
+				queries, _ := query.NewService(store, schema, nil, ports.PublicationStructuredMemberMaxBytes)
+				status, queryErr := queries.ReadRunStatus(context.Background(), run)
+				if queryErr != nil || status.PublicationStatus() != domain.PublicationCommitted {
+					t.Fatalf("committed P2 unavailable after disposition failure: %v", queryErr)
+				}
+				if len(diagnostics.finalizeRequests) != 1 {
+					t.Fatal("missing disposition diagnostics")
+				}
+				finalized := diagnostics.finalizeRequests[0].Status()
+				publishedState, hasState := status.RunState()
+				if _, ok := finalized.P2URI(); !ok || !hasState || finalized.State() != publishedState {
+					t.Fatal("disposition diagnostics lost actual P2 identity or state")
+				}
+				if summary, ok := finalized.DiagnosticSummary(); !ok || summary.Component() != "coordination" || summary.InvariantID() != string(domain.DiagnosticCauseCoordinationDispositionFailed) {
+					t.Fatal("missing bounded disposition summary")
+				}
+				return
+			}
 			if qualificationSinkFailure {
 				if !runtimeDiagnosticPersistenceFailure(err) || !source.closed || !authority.drained || publisher.calls != 0 || provider.calls != 0 || source.reads != 0 || result.Final().Valid() || diagnostics.refusals != 1 {
 					t.Fatalf("qualification persistence failure granted review/publication or lost cleanup: %v", err)

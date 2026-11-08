@@ -15,14 +15,30 @@ type LiveRunCleanup struct {
 	provider        RunAuthority
 	providerDrained bool
 	sourceClosed    bool
+	coordination    *ownedReview
+	providerUnknown bool
 }
 
 func (cleanup *LiveRunCleanup) DrainAndClose(ctx context.Context) error {
 	if cleanup == nil || ctx == nil {
 		return fmt.Errorf("live cleanup: missing authority or context")
 	}
+	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), coordinationDrainBudget)
+	defer cancel()
+	err := cleanup.drainAndClose(bounded)
+	if cleanup.coordination != nil {
+		protection, disposition := cleanup.coordination.finish(bounded, cleanup.sourceClosed && (cleanup.providerDrained || nilInterface(cleanup.provider)))
+		err = errors.Join(err, protection, disposition)
+	}
+	return err
+}
+
+func (cleanup *LiveRunCleanup) drainAndClose(ctx context.Context) error {
+	if cleanup.providerUnknown {
+		return coordinationFailure(coordinationError(ports.ReviewCoordinationReasonLocalDrainUnverified, "", true, errors.New("qualification returned neither a cleanup owner nor terminal proof")), true)
+	}
 	if !cleanup.providerDrained && !nilInterface(cleanup.provider) {
-		if _, err := DrainRunAuthorityTerminal(ctx, cleanup.provider); err != nil {
+		if _, err := drainRunAuthorityTerminal(ctx, cleanup.provider); err != nil {
 			return err
 		}
 		cleanup.providerDrained = true
@@ -30,7 +46,7 @@ func (cleanup *LiveRunCleanup) DrainAndClose(ctx context.Context) error {
 	if cleanup.sourceClosed {
 		return nil
 	}
-	_, bindingErr := cleanup.source.RevalidateExecution(context.WithoutCancel(ctx))
+	_, bindingErr := cleanup.source.RevalidateExecution(ctx)
 	closeErr := cleanup.source.Close()
 	cleanup.sourceClosed = closeErr == nil
 	if bindingErr != nil || closeErr != nil {

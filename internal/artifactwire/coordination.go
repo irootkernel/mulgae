@@ -2,6 +2,7 @@ package artifactwire
 
 const (
 	HaepariLockIntentSchemaV1 = "mulgae-haepari-lock-intent.v1"
+	HaepariLockIntentSchemaV2 = "mulgae-haepari-lock-intent.v2"
 )
 
 type HaepariLockPayloadWire struct {
@@ -57,4 +58,9 @@ type HaepariLockIntentWire struct {
 	UpdatedAt       string                  `json:"updated_at"`
 	ObservedReceipt *HaepariLockReceiptWire `json:"observed_receipt,omitempty"`
 	ObservedRequest *HaepariLockRequestWire `json:"observed_request,omitempty"`
+}
+
+type HaepariLockIntentWireV2 struct {
+	HaepariLockIntentWire
+	LocalDrainState string `json:"local_drain_state"`
 }

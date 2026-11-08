@@ -46,6 +46,7 @@ type LivePublicationCommitter interface {
 }
 
 type LiveDependencies struct {
+	Coordination       *ReviewCoordinator
 	PublicationWriter  ports.SecureFileWriter
 	RequirementsPrompt prompt.TrustedLayer
 	Sources            ports.LiveSourceOpener
@@ -68,7 +69,7 @@ type LiveDependencies struct {
 type LiveService struct{ dependencies LiveDependencies }
 
 func NewLiveService(dependencies LiveDependencies) (*LiveService, error) {
-	if nilInterface(dependencies.Sources) || nilInterface(dependencies.ReviewerHome) || len(dependencies.CredentialRoots) == 0 || nilInterface(dependencies.Admission) || nilInterface(dependencies.Clock) || nilInterface(dependencies.IDs) || !dependencies.Build.Valid() || nilInterface(dependencies.Authority) || dependencies.Validator == nil || nilInterface(dependencies.Publication) || dependencies.Templates.Common().ID() == "" || dependencies.Common.ID() == "" || nilInterface(dependencies.Diagnostics) || nilInterface(dependencies.Detector) {
+	if dependencies.Coordination == nil || nilInterface(dependencies.Sources) || nilInterface(dependencies.ReviewerHome) || len(dependencies.CredentialRoots) == 0 || nilInterface(dependencies.Admission) || nilInterface(dependencies.Clock) || nilInterface(dependencies.IDs) || !dependencies.Build.Valid() || nilInterface(dependencies.Authority) || dependencies.Validator == nil || nilInterface(dependencies.Publication) || dependencies.Templates.Common().ID() == "" || dependencies.Common.ID() == "" || nilInterface(dependencies.Diagnostics) || nilInterface(dependencies.Detector) {
 		return nil, fmt.Errorf("live review: invalid dependencies")
 	}
 	dependencies.CredentialRoots = append([]ports.AnchoredRoot(nil), dependencies.CredentialRoots...)
@@ -104,34 +105,76 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	if nilInterface(source) {
 		return Result{}, projectAdmissionFailure(fmt.Errorf("missing source lease"))
 	}
+	callerCtx := ctx
 	sourceClosed := false
 	var qualified RunAuthority
+	var execution ports.LiveReviewExecution
 	providersDrained := false
+	providerCompletionKnown := true
+	var owner *ownedReview
+	var terminal QualifiedRunTerminalReceipt
+	var dispositionErr error
+	cleanupAttempted := false
+	var cleanupErr error
+	finishCleanup := func() error {
+		if cleanupAttempted {
+			return cleanupErr
+		}
+		cleanupAttempted = true
+		if owner != nil {
+			owner.beginTerminal()
+		}
+		drain, cancel := context.WithTimeout(context.WithoutCancel(callerCtx), coordinationDrainBudget)
+		defer cancel()
+		if !nilInterface(qualified) && !providersDrained {
+			terminal, cleanupErr = drainRunAuthorityTerminal(drain, qualified)
+			providersDrained = cleanupErr == nil
+			providerCompletionKnown = providersDrained
+		}
+		if providersDrained || nilInterface(qualified) && providerCompletionKnown {
+			if execution.Valid() {
+				if revalidateErr := execution.Revalidate(drain); revalidateErr != nil {
+					cleanupErr = errors.Join(cleanupErr, projectAdmissionFailure(revalidateErr))
+				}
+			}
+			cleanup := &LiveRunCleanup{source: source, provider: qualified, providerDrained: providersDrained, sourceClosed: sourceClosed}
+			cleanupErr = errors.Join(cleanupErr, cleanup.drainAndClose(drain))
+			sourceClosed = cleanup.sourceClosed
+		}
+		if owner != nil {
+			if !sourceClosed || !providerCompletionKnown {
+				cleanupErr = coordinationFailure(coordinationError(ports.ReviewCoordinationReasonLocalDrainUnverified, "", true, cleanupErr), true)
+			}
+			protection, disposition := owner.finish(drain, sourceClosed && providerCompletionKnown)
+			cleanupErr, dispositionErr = errors.Join(cleanupErr, protection), disposition
+		}
+		return cleanupErr
+	}
 	var diagnostics *runtimeDiagnosticLifecycle
 	var coordinated review.CoordinatorResult
 	defer func() {
-		cleanup := &LiveRunCleanup{source: source, provider: qualified, providerDrained: providersDrained, sourceClosed: sourceClosed}
-		if !nilInterface(qualified) && !providersDrained {
-			_, drainErr := DrainRunAuthorityTerminal(ctx, qualified)
-			err = errors.Join(err, drainErr)
-			cleanup.providerDrained = drainErr == nil
-		}
-		if cleanup.providerDrained || nilInterface(qualified) {
-			err = errors.Join(err, cleanup.DrainAndClose(ctx))
-		}
-		if !cleanup.sourceClosed {
+		err = errors.Join(err, finishCleanup(), dispositionErr)
+		if !sourceClosed {
+			cleanup := &LiveRunCleanup{source: source, provider: qualified, providerDrained: providersDrained, sourceClosed: sourceClosed, coordination: owner, providerUnknown: !providerCompletionKnown && nilInterface(qualified)}
 			err = &liveCleanupError{cause: err, cleanup: cleanup}
+		}
+		if owner != nil {
+			owner.cancelWork(context.Canceled)
+		}
+		uri, uriErr := runtimeDiagnosticP2URI(result, err)
+		err = errors.Join(err, uriErr)
+		if diagnostics == nil {
+			return
+		}
+		state, cause, phase := runtimeDiagnosticTerminalDecision(callerCtx, result, err)
+		if uri.Valid() && result.Snapshot().Valid() {
+			state, _, _ = runtimeDiagnosticTerminalDecision(callerCtx, result, nil)
 		}
 		if err != nil {
 			result = Result{}
 		}
-		if diagnostics == nil {
-			return
-		}
-		state, cause, phase := runtimeDiagnosticTerminalDecision(ctx, result, err)
-		uri, uriErr := runtimeDiagnosticP2URI(result, err)
-		err = errors.Join(err, uriErr)
-		finalized, finalizeErr := diagnostics.finalize(ctx, state, cause, phase, uri, coordinated)
+		summary, _ := coordinationDiagnosticSummary(err)
+		finalized, finalizeErr := diagnostics.finalize(callerCtx, state, cause, phase, uri, coordinated, summary)
 		if finalizeErr != nil {
 			result = Result{}
 			err = NewAllocatedRunIdentityError(diagnostics.identity.sessionID, diagnostics.identity.runID, errors.Join(err, finalizeErr))
@@ -202,30 +245,61 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 	if err != nil {
 		return Result{}, err
 	}
-	var terminal QualifiedRunTerminalReceipt
 	var attempts []publication.AttemptArtifactInput
 	var requirementResults validation.RequirementResults
 	var artist liveArtistContext
-	if request.HasArtistInputs && !source.Target().NoChange() {
-		artist, err = prepareLiveArtistContext(ctx, source, request.ArtistInputs)
-		if err != nil {
-			return Result{}, projectAdmissionFailure(err)
-		}
-	}
 	if !source.Target().NoChange() {
-		execution, err := ports.NewLiveReviewExecution(ctx, source, service.dependencies.ReviewerHome, service.dependencies.CredentialRoots)
+		owner, err = service.dependencies.Coordination.startOwnedReview(ctx, ReviewAcquireRequest{Root: request.ArtifactRoot, SessionID: identity.sessionID, RunID: identity.runID}, receipt.RunDeadline())
+		if err != nil {
+			return Result{}, err
+		}
+		preparation, cancelPreparation := owner.preparationContext(receipt.RunDeadline())
+		defer cancelPreparation()
+		defer func() { err = owner.preparationFailure(preparation, err) }()
+		ctx = preparation
+		current, readErr := source.RevalidateExecution(ctx)
+		if readErr != nil {
+			return Result{}, projectAdmissionFailure(readErr)
+		}
+		currentBinding, bindErr := AdmitLiveProjectBinding(current, request.Target, request.ExpectedProjectBinding)
+		if bindErr != nil || currentBinding != binding {
+			return Result{}, projectAdmissionFailure(errors.Join(fmt.Errorf("project binding changed while waiting for coordination"), bindErr))
+		}
+		currentPlan, planErr := service.dependencies.Admission.AdmitLive(ctx, request, source, currentBinding)
+		if planErr != nil || !reflect.DeepEqual(currentPlan, plan) {
+			return Result{}, guardFailure(errors.Join(fmt.Errorf("admitted plan changed while waiting for coordination"), planErr))
+		}
+		if request.HasRequirements {
+			currentRequirements, readErr := AdmitRequirementsInput(ctx, source, request.RequirementsPath, request.Selection.Roles())
+			if readErr != nil || !reflect.DeepEqual(currentRequirements, requirements) {
+				return Result{}, projectAdmissionFailure(errors.Join(fmt.Errorf("requirements changed while waiting for coordination"), readErr))
+			}
+		}
+		if request.HasArtistInputs {
+			artist, err = prepareLiveArtistContext(ctx, source, request.ArtistInputs)
+			if err != nil {
+				return Result{}, projectAdmissionFailure(err)
+			}
+		}
+		execution, err = ports.NewLiveReviewExecution(ctx, source, service.dependencies.ReviewerHome, service.dependencies.CredentialRoots)
 		if err != nil {
 			return Result{}, projectAdmissionFailure(err)
 		}
 		if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationStarted, "qualification", "admit", ""); err != nil {
 			return Result{}, err
 		}
+		providerCompletionKnown = false
 		qualified, err = service.dependencies.Authority.NewQualifiedLiveRun(ctx, execution, request.Selection)
 		if nilInterface(qualified) {
 			if owner, ok := CleanupOwnerFromError(err); ok {
 				qualified = owner
 			} else if owner, ok := RunAuthorityFromError(err); ok {
 				qualified = owner
+			}
+		}
+		if nilInterface(qualified) {
+			if receipt, verified := ProviderRunTerminalReceiptFromError(err); verified && receipt.Valid() {
+				providerCompletionKnown = true
 			}
 		}
 		if err != nil {
@@ -321,6 +395,14 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 		if err != nil {
 			return Result{}, err
 		}
+		if err := owner.preparationFailure(preparation, nil); err != nil {
+			return Result{}, err
+		}
+		if err := owner.admitExecution(receipt.RunDeadline()); err != nil {
+			return Result{}, err
+		}
+		cancelPreparation()
+		ctx = owner.work
 		coordinated, err = coordinator.ExecuteRun(ctx, &run, plan.Assignments, plan.Threshold, plan.Policy)
 		if err != nil {
 			return Result{}, classifyCoordinatorExecutionFailure(ctx, diagnostics, err)
@@ -345,14 +427,6 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 				attempts = append(attempts, publication.AttemptArtifactInput{AttemptID: capture.AttemptID(), InvocationSequence: capture.Sequence(), Artifact: artifact})
 			}
 		}
-		terminal, err = DrainRunAuthorityTerminal(ctx, qualified)
-		if err != nil {
-			return Result{}, err
-		}
-		providersDrained = true
-		if err := execution.Revalidate(context.WithoutCancel(ctx)); err != nil {
-			return Result{}, projectAdmissionFailure(err)
-		}
 	}
 	if request.HasRequirements && source.Target().NoChange() {
 		requirementResults, err = validation.NormalizeRequirements(requirements, nil, nil, sourceIdentity.SHA256(), true)
@@ -360,13 +434,8 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 			return Result{}, err
 		}
 	}
-	if _, err := source.RevalidateExecution(context.WithoutCancel(ctx)); err != nil {
-		return Result{}, projectAdmissionFailure(err)
-	}
-	closeErr := source.Close()
-	sourceClosed = closeErr == nil
-	if closeErr != nil {
-		return Result{}, projectAdmissionFailure(closeErr)
+	if err := finishCleanup(); err != nil {
+		return Result{}, err
 	}
 	provenance := liveProductionProvenance(service.dependencies.Build, request, sourceIdentity, binding, identity, terminal)
 	var candidate publication.PreparedLiveCandidate
@@ -386,7 +455,7 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 			return Result{}, publicationCandidateFailure(err)
 		}
 	}
-	published, err := service.dependencies.Publication.PublishLiveNextObserved(ctx, request.ArtifactRoot, candidate, diagnostics)
+	published, err := service.dependencies.Publication.PublishLiveNextObserved(callerCtx, request.ArtifactRoot, candidate, diagnostics)
 	if err != nil {
 		return Result{}, err
 	}

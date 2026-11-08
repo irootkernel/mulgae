@@ -122,6 +122,17 @@ func (code RuntimeDiagnosticEventCode) SafeMessage() string { return runtimeDiag
 type RuntimeDiagnosticCause string
 
 const (
+	DiagnosticCauseCoordinationReadinessFailed    RuntimeDiagnosticCause = "haepari_readiness_failed"
+	DiagnosticCauseCoordinationQueueExpired       RuntimeDiagnosticCause = "haepari_queue_expired"
+	DiagnosticCauseCoordinationCancelled          RuntimeDiagnosticCause = "haepari_cancelled"
+	DiagnosticCauseCoordinationHoldBudgetExceeded RuntimeDiagnosticCause = "haepari_hold_budget_exceeded"
+	DiagnosticCauseCoordinationProtectionLost     RuntimeDiagnosticCause = "haepari_protection_lost"
+	DiagnosticCauseCoordinationDrainUnverified    RuntimeDiagnosticCause = "haepari_local_drain_unverified"
+	DiagnosticCauseCoordinationDispositionFailed  RuntimeDiagnosticCause = "haepari_disposition_failed"
+	DiagnosticCauseCoordinationPersistenceFailed  RuntimeDiagnosticCause = "haepari_persistence_failed"
+)
+
+const (
 	DiagnosticCauseProviderSpawnFailed                          RuntimeDiagnosticCause = "provider_spawn_failed"
 	DiagnosticCauseProviderExecutionFailed                      RuntimeDiagnosticCause = "provider_execution_failed"
 	DiagnosticCauseProviderTurnFailed                           RuntimeDiagnosticCause = "provider_turn_failed"
@@ -175,6 +186,11 @@ const (
 
 func (cause RuntimeDiagnosticCause) Valid() bool {
 	switch cause {
+	case DiagnosticCauseCoordinationReadinessFailed, DiagnosticCauseCoordinationQueueExpired,
+		DiagnosticCauseCoordinationCancelled, DiagnosticCauseCoordinationHoldBudgetExceeded,
+		DiagnosticCauseCoordinationProtectionLost, DiagnosticCauseCoordinationDrainUnverified,
+		DiagnosticCauseCoordinationDispositionFailed, DiagnosticCauseCoordinationPersistenceFailed:
+		return true
 	case DiagnosticCauseProviderSpawnFailed, DiagnosticCauseProviderExecutionFailed, DiagnosticCauseProviderTurnFailed, DiagnosticCauseProviderProcessWaitFailed, DiagnosticCauseProcessGroupCleanupFailed,
 		DiagnosticCauseTransportVerificationFailed, DiagnosticCausePromptFilePreStartFailed, DiagnosticCausePromptFilePostEndFailed,
 		DiagnosticCauseTransportReceiptMismatch, DiagnosticCauseLifecycleReceiptInvalid, DiagnosticCauseOutputFrameMissing, DiagnosticCauseOutputMissing,

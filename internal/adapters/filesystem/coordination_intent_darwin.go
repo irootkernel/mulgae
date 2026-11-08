@@ -6,9 +6,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/artifactwire"
@@ -19,6 +21,7 @@ import (
 )
 
 type CoordinationIntentStore struct {
+	mu         sync.Mutex
 	operations secureWriterOperations
 }
 
@@ -93,6 +96,8 @@ func (store *CoordinationIntentStore) PersistIntent(
 	root ports.AnchoredRoot,
 	record ports.ReviewLockRecord,
 ) (ports.ReviewLockRecord, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	if ctx == nil {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: nil context")
 	}
@@ -104,6 +109,9 @@ func (store *CoordinationIntentStore) PersistIntent(
 	}
 	if record.ObservedReceipt != nil || record.ObservedRequest != nil {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: initial intent must not carry post-acquire observation")
+	}
+	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV2 && record.LocalDrainState != ports.ReviewLocalDrainNotStarted {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: initial local drain state must be not_started")
 	}
 	if err := record.Validate(); err != nil {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent persist: %w", err)
@@ -137,6 +145,8 @@ func (store *CoordinationIntentStore) UpdateObservation(
 	reply ports.ReviewLockReply,
 	updatedAt time.Time,
 ) (ports.ReviewLockRecord, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	if ctx == nil {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent update: nil context")
 	}
@@ -164,8 +174,8 @@ func (store *CoordinationIntentStore) UpdateObservation(
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent update: observed request_id %q does not match existing %q", reply.Current.RequestID, existing.ObservedRequest.RequestID)
 	}
 	updatedUTC := updatedAt.UTC()
-	if updatedUTC.Before(existing.PersistedAt) {
-		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent update: updated_at precedes persisted_at")
+	if updatedUTC.Before(existing.UpdatedAt) {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent update: updated_at moved backwards")
 	}
 
 	receiptCopy := reply.Receipt
@@ -191,6 +201,44 @@ func (store *CoordinationIntentStore) UpdateObservation(
 	}
 	if !found {
 		return ports.ReviewLockRecord{}, fmt.Errorf("coordination intent update verify: updated intent absent")
+	}
+	return loaded, nil
+}
+
+func (store *CoordinationIntentStore) UpdateLocalDrain(ctx context.Context, root ports.AnchoredRoot, sessionID domain.SessionID, runID domain.RunID, state ports.ReviewLocalDrainState, updatedAt time.Time) (ports.ReviewLockRecord, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if ctx == nil || !state.Valid() || updatedAt.IsZero() {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: invalid input")
+	}
+	existing, found, err := store.LoadIntent(ctx, root, sessionID, runID)
+	if err != nil {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: intent unavailable: %w", err)
+	}
+	if !found {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: intent absent")
+	}
+	if existing.SchemaVersion != artifactwire.HaepariLockIntentSchemaV2 || updatedAt.Before(existing.UpdatedAt) {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: unsupported proof or stale update")
+	}
+	if state != existing.LocalDrainState && !(existing.LocalDrainState == ports.ReviewLocalDrainNotStarted && state == ports.ReviewLocalDrainUnverified) && !(existing.LocalDrainState == ports.ReviewLocalDrainUnverified && state == ports.ReviewLocalDrainVerified) {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: invalid transition")
+	}
+	updated := existing
+	updated.LocalDrainState, updated.UpdatedAt = state, updatedAt.UTC()
+	data, err := encodeCoordinationIntentWire(updated)
+	if err != nil {
+		return ports.ReviewLockRecord{}, err
+	}
+	if err := store.replaceExistingIntentFile(root, sessionID, runID, data); err != nil {
+		return ports.ReviewLockRecord{}, err
+	}
+	loaded, found, err := store.LoadIntent(ctx, root, sessionID, runID)
+	if err != nil {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: installed intent unavailable: %w", err)
+	}
+	if !found {
+		return ports.ReviewLockRecord{}, fmt.Errorf("coordination local drain: installed intent absent")
 	}
 	return loaded, nil
 }
@@ -399,6 +447,9 @@ func encodeCoordinationIntentWire(record ports.ReviewLockRecord) ([]byte, error)
 			Forced:           req.Forced,
 		}
 	}
+	if record.SchemaVersion == artifactwire.HaepariLockIntentSchemaV2 {
+		return marshalDiagnosticStatus(artifactwire.HaepariLockIntentWireV2{HaepariLockIntentWire: wire, LocalDrainState: string(record.LocalDrainState)})
+	}
 	return marshalDiagnosticStatus(wire)
 }
 
@@ -407,12 +458,27 @@ func decodeCoordinationIntentWire(
 	expectedSessionID domain.SessionID,
 	expectedRunID domain.RunID,
 ) (ports.ReviewLockRecord, error) {
-	var wire artifactwire.HaepariLockIntentWire
-	if err := strictjson.DecodeObject(data, &wire); err != nil {
-		return ports.ReviewLockRecord{}, fmt.Errorf("decode intent JSON: %w", err)
+	var header struct {
+		SchemaVersion string `json:"schema_version"`
 	}
-	if wire.SchemaVersion != artifactwire.HaepariLockIntentSchemaV1 {
-		return ports.ReviewLockRecord{}, fmt.Errorf("unexpected schema_version %q", wire.SchemaVersion)
+	if err := json.Unmarshal(data, &header); err != nil {
+		return ports.ReviewLockRecord{}, fmt.Errorf("decode intent schema: %w", err)
+	}
+	var wire artifactwire.HaepariLockIntentWire
+	var localDrain ports.ReviewLocalDrainState
+	switch header.SchemaVersion {
+	case artifactwire.HaepariLockIntentSchemaV1:
+		if err := strictjson.DecodeObject(data, &wire); err != nil {
+			return ports.ReviewLockRecord{}, fmt.Errorf("decode v1 intent JSON: %w", err)
+		}
+	case artifactwire.HaepariLockIntentSchemaV2:
+		var v2 artifactwire.HaepariLockIntentWireV2
+		if err := strictjson.DecodeObject(data, &v2); err != nil {
+			return ports.ReviewLockRecord{}, fmt.Errorf("decode v2 intent JSON: %w", err)
+		}
+		wire, localDrain = v2.HaepariLockIntentWire, ports.ReviewLocalDrainState(v2.LocalDrainState)
+	default:
+		return ports.ReviewLockRecord{}, fmt.Errorf("unexpected schema_version %q", header.SchemaVersion)
 	}
 	if wire.SessionID != expectedSessionID.String() || wire.RunID != expectedRunID.String() {
 		return ports.ReviewLockRecord{}, fmt.Errorf("intent identity (%q, %q) does not match expected (%q, %q)", wire.SessionID, wire.RunID, expectedSessionID.String(), expectedRunID.String())
@@ -443,14 +509,15 @@ func decodeCoordinationIntentWire(
 		NativePayloadDigest: nativeHex,
 	}
 	record := ports.ReviewLockRecord{
-		SchemaVersion:  wire.SchemaVersion,
-		SessionID:      expectedSessionID,
-		RunID:          expectedRunID,
-		InstallationID: wire.InstallationID,
-		ResourceID:     wire.ResourceID,
-		Payload:        payload,
-		PersistedAt:    persistedAt,
-		UpdatedAt:      updatedAt,
+		SchemaVersion:   wire.SchemaVersion,
+		LocalDrainState: localDrain,
+		SessionID:       expectedSessionID,
+		RunID:           expectedRunID,
+		InstallationID:  wire.InstallationID,
+		ResourceID:      wire.ResourceID,
+		Payload:         payload,
+		PersistedAt:     persistedAt,
+		UpdatedAt:       updatedAt,
 	}
 	if (wire.ObservedReceipt == nil) != (wire.ObservedRequest == nil) {
 		return ports.ReviewLockRecord{}, fmt.Errorf("observed_receipt and observed_request must be present together")

@@ -191,6 +191,7 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(
 	phase domain.RuntimeDiagnosticPhase,
 	p2URI ports.SafeRelativePath,
 	coordinator review.CoordinatorResult,
+	supplements ...ports.RuntimeDiagnosticSummary,
 ) (ports.RuntimeDiagnosticFinalizeResult, error) {
 	if lifecycle == nil || nilInterface(lifecycle.sink) {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", fmt.Errorf("diagnostic lifecycle is unavailable"))
@@ -223,6 +224,12 @@ func (lifecycle *runtimeDiagnosticLifecycle) finalize(
 	})
 	if err != nil {
 		return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", err)
+	}
+	if len(supplements) > 0 && supplements[0].Valid() {
+		status, err = ports.WithRuntimeDiagnosticSummary(status, supplements[0])
+		if err != nil {
+			return ports.RuntimeDiagnosticFinalizeResult{}, diagnosticArtifactFailure("reviewrun.diagnostics.finalize", err)
+		}
 	}
 	request, err := ports.NewRuntimeDiagnosticFinalizeRequest(state, cause, status)
 	if err != nil {
@@ -268,6 +275,13 @@ func runtimeDiagnosticTerminalDecision(parent context.Context, result Result, er
 			return state, "", ""
 		}
 		return domain.RunCompleted, "", ""
+	}
+	if cause, ok := CoordinationFailureReason(err); ok {
+		state := domain.RunFailed
+		if runtimeDiagnosticFailureClass(err) == domain.FailureCancelled {
+			state = domain.RunCancelled
+		}
+		return state, cause, ""
 	}
 	if _, ok := ProviderLoginRequiredProvidersFromError(err); ok {
 		return domain.RunFailed, domain.DiagnosticCauseLoginRequired, ""

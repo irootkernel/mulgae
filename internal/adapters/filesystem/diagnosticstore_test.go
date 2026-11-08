@@ -309,6 +309,48 @@ func TestDiagnosticStoreRetainsInvariantSummaryOverLaterProtocolSummary(t *testi
 	}
 }
 
+func TestDiagnosticStoreCoordinationSummaryOverridesOnlyAtOwnedBoundary(t *testing.T) {
+	for _, component := range []string{"coordination", "caller"} {
+		t.Run(component, func(t *testing.T) {
+			fixture := newDiagnosticStoreFixture(t)
+			attempt, _ := domain.ParseAttemptID("a_019f596a-d048-79e7-b2b7-59822f012273")
+			draft, err := domain.NewRuntimeDiagnosticEventDraft(domain.RuntimeDiagnosticEventInput{Level: domain.RuntimeDiagnosticInfo, Component: "provider_runtime", Operation: "protocol", Event: domain.DiagnosticProviderProtocolTerminal, SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), AttemptID: attempt, Provider: "zcode_original", ProtocolPhase: "turn", ProtocolTerminal: "failed"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			event, err := fixture.store.Emit(context.Background(), draft)
+			if err != nil {
+				t.Fatal(err)
+			}
+			summary, _ := ports.NewRuntimeDiagnosticSummary(ports.RuntimeDiagnosticSummaryInput{Component: component, Phase: "release", InvariantID: string(domain.DiagnosticCauseCoordinationDispositionFailed)})
+			completed := fixture.request.StartedAt().Add(time.Second)
+			status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{SessionID: fixture.request.SessionID(), RunID: fixture.request.RunID(), State: domain.RunFailed, StartedAt: fixture.request.StartedAt(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true, LastSequence: event.Sequence(), TerminalCause: domain.DiagnosticCauseCoordinationDispositionFailed, DiagnosticSummary: summary, HasDiagnosticSummary: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunFailed, domain.DiagnosticCauseCoordinationDispositionFailed, status)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fixture.store.Finalize(context.Background(), request); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(diagnosticStorePath(fixture, "status.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			persisted, err := decodeDiagnosticRunStatus(data, fixture.request.SessionID(), fixture.request.RunID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			selected, ok := persisted.DiagnosticSummary()
+			if !ok || component == "coordination" && selected != summary || component != "coordination" && selected.Provider() != "zcode_original" {
+				t.Fatalf("summary priority crossed owned boundary: %+v", selected.Input())
+			}
+		})
+	}
+}
+
 func TestDiagnosticStorePersistsPreparationInvariantSummary(t *testing.T) {
 	fixture := newDiagnosticStoreFixture(t)
 	cause := domain.DiagnosticCauseReviewProviderRuntimePreparationFailed

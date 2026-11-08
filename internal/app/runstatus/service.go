@@ -116,6 +116,15 @@ func (service *Service) Read(ctx context.Context, root ports.AnchoredRoot, runID
 	if err != nil {
 		return result, err
 	}
+	if status.PublicationState == domain.PublicationCommitted && service.diagnostics != nil {
+		// Supplementary diagnostics cannot revoke independently verified P2.
+		diagnostic, diagnosticErr := service.diagnostics.ReadSessionRunStatus(ctx, root, run.SessionID(), run.RunID())
+		if diagnosticErr == nil && diagnostic.SessionID() == run.SessionID() && diagnostic.RunID() == run.RunID() {
+			if summary, ok := diagnostic.DiagnosticSummary(); ok && summary.Component() == "coordination" {
+				result.Status.DiagnosticSummary, result.Status.HasDiagnosticSummary = summary, true
+			}
+		}
+	}
 	if status.PublicationState != domain.PublicationCommitted && service.diagnostics != nil {
 		diagnostic, err := service.diagnostics.ReadSessionRunStatus(ctx, root, run.SessionID(), run.RunID())
 		if err != nil {

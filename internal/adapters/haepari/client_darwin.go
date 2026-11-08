@@ -28,11 +28,14 @@ const (
 type Config struct {
 	RawHome          string
 	RawParentContext string
+	RawLockGrant     string
+	HasLockGrant     bool
 }
 
 type Client struct {
 	rawHome          string
 	rawParentContext string
+	hasLockGrant     bool
 	httpClient       *http.Client
 
 	mu             sync.Mutex
@@ -45,6 +48,7 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		rawHome:          cfg.RawHome,
 		rawParentContext: cfg.RawParentContext,
+		hasLockGrant:     cfg.HasLockGrant || cfg.RawLockGrant != "",
 	}
 }
 
@@ -502,6 +506,14 @@ func (c *Client) doJSON(
 	}
 	if err := ctx.Err(); err != nil {
 		return mapTransportError(op, false, err)
+	}
+	if c.hasLockGrant {
+		return &ports.ReviewCoordinationError{
+			Reason:    ports.ReviewCoordinationReasonParentContextInvalid,
+			Operation: op,
+			Retry:     ports.ReviewCoordinationRetryNever,
+			Message:   "inherited review grant borrowing is not available",
+		}
 	}
 	parentHeaderValue, err := ValidateParentContext(c.rawParentContext)
 	if err != nil {

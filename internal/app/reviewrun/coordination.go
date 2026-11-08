@@ -15,6 +15,7 @@ type ReviewCoordinator struct {
 	intentStore ports.ReviewCoordinationIntentStore
 	transport   ports.ReviewLockTransport
 	clock       ports.Clock
+	timer       coordinationTimer
 }
 
 func NewReviewCoordinator(
@@ -29,6 +30,7 @@ func NewReviewCoordinator(
 		intentStore: intentStore,
 		transport:   transport,
 		clock:       clock,
+		timer:       newCoordinationTimer,
 	}, nil
 }
 
@@ -198,14 +200,15 @@ func (c *ReviewCoordinator) AcquireOrReplay(
 		}
 		now := c.clock.Now().UTC()
 		draft := ports.ReviewLockRecord{
-			SchemaVersion:  artifactwire.HaepariLockIntentSchemaV1,
-			SessionID:      req.SessionID,
-			RunID:          req.RunID,
-			InstallationID: installation.InstallationID,
-			ResourceID:     ports.HaepariReviewResourceID,
-			Payload:        payload,
-			PersistedAt:    now,
-			UpdatedAt:      now,
+			SchemaVersion:   artifactwire.HaepariLockIntentSchemaV2,
+			LocalDrainState: ports.ReviewLocalDrainNotStarted,
+			SessionID:       req.SessionID,
+			RunID:           req.RunID,
+			InstallationID:  installation.InstallationID,
+			ResourceID:      ports.HaepariReviewResourceID,
+			Payload:         payload,
+			PersistedAt:     now,
+			UpdatedAt:       now,
 		}
 		persisted, err := c.intentStore.PersistIntent(ctx, req.Root, draft)
 		if err != nil {
@@ -290,6 +293,9 @@ func (c *ReviewCoordinator) AcquireOrReplay(
 		}
 	}
 
+	if err := validateCoordinationReply(record, reply, ports.ReviewLockOperationAcquire); err != nil {
+		return ReviewAcquireOutcome{Installation: installation, Resource: resource, Record: record, ReplayedIntent: replayedIntent}, err
+	}
 	observedAt := c.clock.Now().UTC()
 	if observedAt.Before(record.PersistedAt) {
 		observedAt = record.PersistedAt
@@ -355,13 +361,13 @@ func sameQueueSeconds(a, b *int64) bool {
 func ensureCoordinationError(op ports.ReviewLockOperation, fallbackReason ports.ReviewCoordinationReason, err error) error {
 	var coordErr *ports.ReviewCoordinationError
 	if errors.As(err, &coordErr) {
-		return coordErr
+		return err
 	}
 	return &ports.ReviewCoordinationError{
 		Reason:    fallbackReason,
 		Operation: op,
 		Retry:     ports.ReviewCoordinationRetryInspectFirst,
-		Uncertain: op == ports.ReviewLockOperationAcquire,
+		Uncertain: op == ports.ReviewLockOperationAcquire || op == ports.ReviewLockOperationWait || op == ports.ReviewLockOperationRenew || op == ports.ReviewLockOperationRelease || op == ports.ReviewLockOperationCancel,
 		Message:   err.Error(),
 		Cause:     err,
 	}

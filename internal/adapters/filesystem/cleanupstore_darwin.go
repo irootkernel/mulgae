@@ -35,10 +35,11 @@ const (
 // CleanupStore is the durable, root-confined implementation of clean.ApplyStore.
 // The caller owns policy resolution; this adapter owns only observation and effects.
 type CleanupStore struct {
-	root        ports.AnchoredRoot
-	publication *PublicationStore
-	clock       ports.Clock
-	operations  secureWriterOperations
+	root               ports.AnchoredRoot
+	publication        *PublicationStore
+	clock              ports.Clock
+	operations         secureWriterOperations
+	coordinationProofs map[string]cleanupCoordinationProof
 }
 
 var _ clean.ApplyStore = (*CleanupStore)(nil)
@@ -69,13 +70,16 @@ func (store *CleanupStore) WithCleanupTransaction(ctx context.Context, callback 
 		return errors.New("cleanup store: publication authority and transaction callback are required")
 	}
 	return store.publication.withLock(ctx, store.root, func() error {
-		return callback(cleanupTransaction{store})
+		scoped := *store
+		scoped.coordinationProofs = nil
+		return callback(cleanupTransaction{&scoped})
 	})
 }
 
 type cleanupTransaction struct{ *CleanupStore }
 
 func (transaction cleanupTransaction) Snapshot(ctx context.Context) (clean.RetentionSnapshot, error) {
+	transaction.coordinationProofs = make(map[string]cleanupCoordinationProof)
 	return transaction.CleanupStore.snapshotLocked(ctx)
 }
 func (transaction cleanupTransaction) PersistDryRunPlan(ctx context.Context, plan clean.CleanPlan) error {
@@ -535,6 +539,18 @@ func (store *CleanupStore) observeDiagnosticRuns(ctx context.Context, runs *[]cl
 			if index, ok := publicationByRun[runEntry.Name()]; ok && (*runs)[index].SessionID == sessionEntry.Name() {
 				matchingPublication = index
 			}
+			intent, present, intentErr := store.readCoordinationProof(sessionID, runID)
+			material = append(material, []byte("coordination/"+sessionEntry.Name()+"/"+runEntry.Name()+"\x00"+intent.material+"\n")...)
+			if present && store.coordinationProofs != nil {
+				store.coordinationProofs[sessionEntry.Name()+"/"+runEntry.Name()] = intent
+			}
+			observation.Corrupt = intentErr != nil || !present
+			observation.Active = intent.protected || !present
+			if matchingPublication >= 0 {
+				publication := &(*runs)[matchingPublication]
+				publication.Corrupt = publication.Corrupt || observation.Corrupt
+				publication.Active = publication.Active || observation.Active
+			}
 			if statErr != nil || !runInfo.IsDir() || runInfo.Mode()&os.ModeSymlink != 0 {
 				observation.Corrupt = true
 				if matchingPublication < 0 {
@@ -571,10 +587,10 @@ func (store *CleanupStore) observeDiagnosticRuns(ctx context.Context, runs *[]cl
 			completedAt, terminal := cleanupDiagnosticCompletion(status)
 			observation.Completed = terminal
 			observation.CompletedAt = completedAt
-			observation.Active = !terminal
+			observation.Active = observation.Active || !terminal
 			p2URI, hasP2 := status.P2URI()
 			expectedP2 := ".mulgae/" + sessionEntry.Name() + "/" + runEntry.Name() + "/manifest.json"
-			linked := matchingPublication >= 0 && terminal && hasP2 && p2URI.String() == expectedP2
+			linked := matchingPublication >= 0 && terminal && hasP2 && p2URI.String() == expectedP2 && !observation.Active && !observation.Corrupt
 			switch {
 			case linked:
 				publication := &(*runs)[matchingPublication]
@@ -765,6 +781,30 @@ func (store *CleanupStore) deleteRun(id string) error {
 			sessionName = name
 		}
 	}
+	var expectedDiagnostic cleanupCoordinationProof
+	var expectedDiagnosticPresent bool
+	var publicationSessionID domain.SessionID
+	runID, err := domain.ParseRunID(id)
+	if err != nil {
+		return err
+	}
+	if sessionName != "" {
+		publicationSessionID, err = domain.ParseSessionID(sessionName)
+		if err != nil {
+			return err
+		}
+		expectedDiagnostic, expectedDiagnosticPresent, err = store.readCoordinationProof(publicationSessionID, runID)
+		if err != nil {
+			return err
+		}
+		if expectedDiagnosticPresent {
+			if err := store.admitCoordinationDeletion(publicationSessionID, runID, expectedDiagnostic); err != nil {
+				return err
+			}
+		} else if _, existed := store.coordinationProofs[sessionName+"/"+id]; existed {
+			return errors.New("cleanup store: diagnostic run changed after snapshot")
+		}
+	}
 	diagnosticSession, err := store.deletableDiagnosticSession(id, sessionName)
 	if err != nil {
 		return err
@@ -773,6 +813,7 @@ func (store *CleanupStore) deleteRun(id string) error {
 		if err := store.deleteDiagnosticRun(diagnosticSession, id); err != nil {
 			return err
 		}
+		expectedDiagnosticPresent = false
 	}
 	if sessionName == "" {
 		return nil
@@ -782,7 +823,13 @@ func (store *CleanupStore) deleteRun(id string) error {
 		return fmt.Errorf("cleanup store: reopen session: %w", err)
 	}
 	defer unix.Close(sessionFD)
-	if err := cleanupRemoveTreeAt(sessionFD, id); err != nil {
+	if err := cleanupRemoveTreeAtGuarded(sessionFD, id, func(_ int) error {
+		current, present, err := store.readCoordinationProof(publicationSessionID, runID)
+		if err != nil || present != expectedDiagnosticPresent || present && current != expectedDiagnostic {
+			return errors.New("cleanup store: diagnostic coordination changed before publication deletion")
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("cleanup store: remove run: %w", err)
 	}
 	if err := unix.Fsync(sessionFD); err != nil {
@@ -849,7 +896,14 @@ func (store *CleanupStore) deletableDiagnosticSession(id, publicationSession str
 			return "", errors.New("cleanup store: invalid diagnostic deletion run ID")
 		}
 		statusBytes, readErr := cleanupReadRegularAt(runFD, "status.json")
+		intent, intentErr := cleanupCoordinationProofAt(runFD, sessionID, runID)
 		unix.Close(runFD)
+		if intentErr != nil {
+			return "", fmt.Errorf("cleanup store: unsafe coordination intent: %w", intentErr)
+		}
+		if err := store.admitCoordinationDeletion(sessionID, runID, intent); err != nil {
+			return "", err
+		}
 		status, statusErr := decodeCleanupDiagnosticStatus(statusBytes, sessionID, runID)
 		_, terminal := cleanupDiagnosticCompletion(status)
 		if readErr != nil || statusErr != nil || !terminal {
@@ -891,7 +945,28 @@ func (store *CleanupStore) deleteDiagnosticRun(session, id string) error {
 		return fmt.Errorf("cleanup store: open diagnostic session: %w", err)
 	}
 	defer unix.Close(sessionFD)
-	if err := cleanupRemoveTreeAt(sessionFD, id); err != nil {
+	sessionID, sessionErr := domain.ParseSessionID(session)
+	runID, runErr := domain.ParseRunID(id)
+	if sessionErr != nil || runErr != nil {
+		return errors.New("cleanup store: invalid diagnostic identity")
+	}
+	expected, present, err := store.readCoordinationProof(sessionID, runID)
+	if err != nil || !present {
+		return errors.New("cleanup store: diagnostic coordination unavailable before deletion")
+	}
+	if err := store.admitCoordinationDeletion(sessionID, runID, expected); err != nil {
+		return err
+	}
+	if err := cleanupRemoveTreeAtGuarded(sessionFD, id, func(fd int) error {
+		proof, err := cleanupCoordinationProofAt(fd, sessionID, runID)
+		if err != nil {
+			return err
+		}
+		if proof != expected {
+			return errors.New("cleanup store: diagnostic coordination changed before unlink")
+		}
+		return store.admitCoordinationDeletion(sessionID, runID, proof)
+	}); err != nil {
 		return fmt.Errorf("cleanup store: remove diagnostic run: %w", err)
 	}
 	if err := unix.Fsync(sessionFD); err != nil {
@@ -911,6 +986,10 @@ func cleanupDirNames(fd int) ([]string, error) {
 }
 
 func cleanupRemoveTreeAt(parentFD int, name string) error {
+	return cleanupRemoveTreeAtGuarded(parentFD, name, nil)
+}
+
+func cleanupRemoveTreeAtGuarded(parentFD int, name string, guard func(int) error) error {
 	var stat unix.Stat_t
 	if err := unix.Fstatat(parentFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return err
@@ -921,6 +1000,17 @@ func cleanupRemoveTreeAt(parentFD int, name string) error {
 	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return err
+	}
+	var opened unix.Stat_t
+	if err := unix.Fstat(fd, &opened); err != nil || opened.Dev != stat.Dev || opened.Ino != stat.Ino {
+		closeFD(fd)
+		return errors.New("cleanup store: deletion directory changed")
+	}
+	if guard != nil {
+		if err := guard(fd); err != nil {
+			closeFD(fd)
+			return err
+		}
 	}
 	names, err := cleanupDirNames(fd)
 	if err == nil {
@@ -947,6 +1037,9 @@ func cleanupRemoveTreeAt(parentFD int, name string) error {
 	}
 	if err != nil {
 		return err
+	}
+	if err := unix.Fstatat(parentFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil || opened.Dev != stat.Dev || opened.Ino != stat.Ino {
+		return errors.New("cleanup store: deletion directory changed before unlink")
 	}
 	return unix.Unlinkat(parentFD, name, unix.AT_REMOVEDIR)
 }

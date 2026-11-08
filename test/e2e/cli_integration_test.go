@@ -26,6 +26,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
+	"github.com/irootkernel/mulgae/internal/testsupport/haeparifixture"
 )
 
 const productName = "mulgae"
@@ -125,7 +126,7 @@ func TestIntegrationIndependentProcessesDoNotShareProviderLocks(t *testing.T) {
 					defer cancel()
 					arguments := []string{"review", "--diff", "HEAD~1..HEAD", "--roles", "logic", "--objective", "Review the selected change.", "--output", "json"}
 					first := startMulgaeBinaryWithEnv(t, ctx, binary, firstProject, environment, arguments...)
-					second := startMulgaeBinaryWithEnv(t, ctx, binary, secondProject, environment, arguments...)
+					second := startMulgaeBinaryWithEnv(t, ctx, binary, secondProject, withHaepariHome(environment, haeparifixture.New(t).Home), arguments...)
 					firstResult := waitMulgaeBinary(t, first)
 					secondResult := waitMulgaeBinary(t, second)
 					firstEnvelope := assertSuccessfulConcurrentReview(t, firstProject, firstResult)
@@ -1348,6 +1349,7 @@ func isolatedMulgaeEnv(t *testing.T) []string {
 	root := t.TempDir()
 	return []string{
 		"HOME=" + root,
+		"HAEPARI_HOME=" + haeparifixture.New(t).Home,
 		"TMPDIR=" + root,
 		"XDG_CACHE_HOME=" + root,
 		"XDG_CONFIG_HOME=" + root,
@@ -1360,6 +1362,7 @@ func isolatedMulgaeEnv(t *testing.T) []string {
 func isolatedMulgaeEnvWith(t *testing.T, home, providerDirectory string) []string {
 	t.Helper()
 	return []string{
+		"HAEPARI_HOME=" + haeparifixture.New(t).Home,
 		"HOME=" + home,
 		"TMPDIR=" + canonicalTestTempDir(t),
 		"XDG_CACHE_HOME=" + canonicalTestTempDir(t),
@@ -1374,6 +1377,7 @@ func isolatedMulgaeEnvWith(t *testing.T, home, providerDirectory string) []strin
 func sharedMulgaeProcessEnv(t *testing.T, home, providerDirectory, runtimeRoot string, useXDG bool) []string {
 	t.Helper()
 	environment := []string{
+		"HAEPARI_HOME=" + haeparifixture.New(t).Home,
 		"HOME=" + home,
 		"TMPDIR=" + runtimeRoot,
 		"XDG_CACHE_HOME=" + canonicalTestTempDir(t),
@@ -1387,6 +1391,16 @@ func sharedMulgaeProcessEnv(t *testing.T, home, providerDirectory, runtimeRoot s
 		return append(environment, "XDG_RUNTIME_DIR="+runtimeRoot)
 	}
 	return append(environment, "XDG_RUNTIME_DIR=")
+}
+
+func withHaepariHome(environment []string, home string) []string {
+	result := make([]string, 0, len(environment)+1)
+	for _, value := range environment {
+		if !strings.HasPrefix(value, "HAEPARI_HOME=") {
+			result = append(result, value)
+		}
+	}
+	return append(result, "HAEPARI_HOME="+home)
 }
 
 func uniqueStrings(values ...string) []string {

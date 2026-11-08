@@ -14,6 +14,8 @@ import (
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
+	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	"github.com/irootkernel/mulgae/internal/adapters/haepari"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
@@ -129,7 +131,13 @@ func composeReviewRuns(
 	if err != nil {
 		return nil, errors.Join(err, graph.cleanupRoots())
 	}
+	rawGrant, hasGrant := os.LookupEnv("HAEPARI_LOCK_GRANT")
+	coordination, err := reviewrun.NewReviewCoordinator(filesystem.NewCoordinationIntentStore(), haepari.NewClient(haepari.Config{RawHome: os.Getenv("HAEPARI_HOME"), RawParentContext: os.Getenv("HAEPARI_PARENT_CONTEXT"), RawLockGrant: rawGrant, HasLockGrant: hasGrant}), clock)
+	if err != nil {
+		return nil, errors.Join(err, graph.cleanupRoots())
+	}
 	service, err := reviewrun.NewLiveService(reviewrun.LiveDependencies{
+		Coordination:       coordination,
 		RequirementsPrompt: requirementsPrompt, PublicationWriter: writer,
 		Sources: graph.liveSources, ReviewerHome: graph.reviewerHome, CredentialRoots: graph.credentialRoots,
 		Admission: productionLiveRequestAdmission{policy: graph.policy}, Clock: clock, IDs: ids, Build: build,

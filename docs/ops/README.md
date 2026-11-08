@@ -70,14 +70,20 @@ See [live workspace and Git review](../specs/live-workspace-and-git-review.md)
 for current execution and [verified review contracts](../specs/verified-review-contracts.md)
 for retained historical foundations.
 
-## Planned Haepari coordination operations
+## Haepari coordination operations
 
-EPIC-016 plans a dependency on Haepari's separately owned local controller for
-live review coordination; Mulgae remains a local CLI/attached MCP server. The
-[coordination specification](../specs/haepari-review-coordination.md) owns future
-recovery requirements. Before using the future integration, operators must
-resolve the selected Installation, capability and capacity-one lock policy
-under setup authority. Review execution must not repair or register resources.
+The common live CLI/MCP owner path requires Haepari's separately owned local
+controller. Select an existing private `HAEPARI_HOME` with `advisory-lock/v1`
+and a capacity-one `mulgae-review` resource. Its hold policy must cover the full
+admitted run budget, preparation and two minutes of cleanup. Missing or unsafe
+prerequisites fail closed. Resolve setup and policy changes under their separate
+authority; review execution does not repair, register or change resources.
+No-change review, local preflight and verified reads need no controller.
+
+Any present `HAEPARI_LOCK_GRANT`, including empty, is currently refused before
+controller access. Full borrowing remains `TASK-078` work. The
+[coordination specification](../specs/haepari-review-coordination.md) owns the
+current owner behavior and remaining recovery requirements.
 
 A lost wait or start response does not authorize another review. Preserve the
 original acquisition and native invocation/run, inspect using their supported
@@ -86,5 +92,8 @@ termination, cleanup and grant disposition. A borrower never disposes its
 parent's grant. Unavailable control or unknown drain requires reporting and
 the owning integration's recovery; it does not authorize direct execution,
 force release, controller changes or automatic rerun. Capture the actual native
-conditions and escalate missing authority to Master. Document verified operator
-commands during implementation; this design adds no currently usable command.
+conditions and escalate missing authority to Master. Use existing
+`mulgae status --run <run-id> --output json` or MCP `get_run` for bounded
+coordination summaries. A committed result remains inspectable after an
+operational disposition error; missing supplementary diagnostics do not establish
+clean release or cleanup. Never edit intent/status files to simulate recovery.
