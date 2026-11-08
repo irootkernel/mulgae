@@ -35,8 +35,21 @@ exposes the tools and resources. If a needed surface is unavailable, select a
 supported CLI or [legacy path](references/legacy.md) before starting. Never
 remove a requested guard to make a call succeed.
 
+CLI `mulgae review`, foreground MCP `run_review`, and asynchronous MCP
+`start_review` share one native Haepari coordination path. Before live provider
+qualification, role execution, or structured extraction, an admitted live review
+acquires the capacity-one `mulgae-review` advisory lock once in the selected
+`HAEPARI_HOME` Installation (`advisory-lock/v1`), or validates and monitors an
+inherited `HAEPARI_LOCK_GRANT` read-only without acquiring, renewing,
+cancelling, or releasing the parent grant. Parallel roles inside that admitted
+review share the same run's coordination. Local `--preflight`/`preflight_review`,
+`context`/`get_context`, receipt-bound verified reads, `clean`, and admitted
+no-change targets invoke no provider and require no Haepari controller or grant.
+Never wrap `mulgae` in an outer `haepari lock` command or bypass coordination.
+
 Call start exactly once. A successful start or a pending await is not a completed
-review and does not guarantee a durable run ID. Keep one `await_review` pending
+review and does not guarantee a durable run ID. Queue waiting stays inside the
+original review invocation. Keep one `await_review` pending
 on the returned invocation until completion. Never repeat an uncertain start or
 start another review to change transports.
 Run preflight, start and await sequentially, waiting for each preceding response.
@@ -95,8 +108,17 @@ identities. Cancellation never rolls back an already committed publication.
    and `.mulgae/local.yaml`. If either is absent, stop that workflow unless the
    user explicitly requested initialization; then read
    [lifecycle.md](references/lifecycle.md). The first file is shared project
-   policy; the second is private machine configuration. Native context and verified
-   reads do not require initialization or provider readiness.
+   policy; the second is private machine configuration. Upgrading Mulgae
+   preserves an existing valid Config v5 pair (including custom provider-role
+   routing, timeouts, Codex credential profiles, and artist inputs) and
+   retained `.mulgae/` history; never run a fresh `mulgae init` over an already
+   configured project. Native context and verified reads do not require
+   initialization, a Haepari controller, or provider readiness. Live provider
+   reviews require an existing private `HAEPARI_HOME` with `advisory-lock/v1`
+   and a capacity-one `mulgae-review` resource whose hold policy covers the
+   admitted run budget, preparation, and two minutes of terminal cleanup (or a
+   valid inherited `HAEPARI_LOCK_GRANT`); missing or under-budget prerequisites
+   fail closed, and setup or policy changes require separate authority.
 4. For execution or configuration diagnosis, read admitted configuration with:
 
    ```bash
@@ -266,8 +288,12 @@ available per item when retained; legacy absence is explicit.
 Diagnostic-only results have no publication receipt or findings. Historical
 `failed_run_recovery` describes retained evidence, not executable replay.
 Treat `run_status_unavailable` as an allocated identity without durable status;
-stop rather than retrying the review. Preserve coverage, extraction, publication
-and CI as independent axes. Zero extracted findings in `reports_only` or `mixed`
+stop rather than retrying the review. Preserve coverage, extraction, publication,
+CI, and lock disposition as independent axes. Advisory `mulgae-review`
+serialization coordinates cooperating reviews, but does not prevent provider
+rate limits, police callers that skip the lock, or forcibly contain an
+unverified local provider process (`haepari_local_drain_unverified`) after hold
+expiry or lost renewal. Zero extracted findings in `reports_only` or `mixed`
 output does not establish a clean report. Verify advisory findings against the
 retained source evidence and current code before changing anything.
 
@@ -365,8 +391,10 @@ surfaces. A CLI process has no MCP invocation identity.
 - Re-read effective configuration after configuration changes and exact run
   inspection after review completion. Start and cancellation acknowledgements must
   be followed by terminal awaiting, not immediate run-status queries.
-- Never weaken path, locality, source admission, validation, evidence, or publication
-  fences. Never edit manifests, attempts, diagnostics, or final artifacts.
+- Never weaken path, locality, source admission, validation, evidence,
+  coordination, or publication fences. Never wrap `mulgae` in an external
+  `haepari lock` command, force-release or mutate a Haepari resource from a
+  review workflow, or edit manifests, attempts, diagnostics, or final artifacts.
 - Preserve Mulgae's product boundary: it is a local advisory code-review CLI,
   not merge approval, consensus, a hosted service, a task manager, or an agent
   orchestrator.

@@ -1207,6 +1207,47 @@ legacy unknown proof, owned and borrowed local-state transitions and
 linked/unlinked cleanup drift. Committed-status tests cover best-effort
 supplement failure without weakening independent P2 verification.
 
+Paired-skill and prior-state candidate checks use the released v0.1.26
+configuration examples pinned at `c422590155f62380709c8f6fd08c9ad423badaaa`
+under `internal/entrypoint/mulgae/testdata/coordination-upgrade/`. Their source
+hashes cover the original example bytes after the provenance comments. These
+Config v5 inputs need preservation rather than an invented schema conversion.
+The historical corpus retains its separate producer provenance.
+
+```sh
+go test -race -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationPreExistingProjectMigrationAndHistoryCoexistence$'
+go test -race -count=1 ./test/e2e -run '^TestIntegrationPriorStateCLIAndMCP$'
+go test -tags=releasecheck -race -count=1 ./internal/releasecheck -run '^TestTrackedReleaseSurface$'
+```
+
+The first case compares historical publication and failed-recovery identities,
+bytes and modes while preserving custom routing, timeouts and credential
+bindings. Actual cleanup retains legacy unknown proof, unsupported records and
+unverified owned/borrowed intent, while deleting an eligible diagnostic. The
+second seeds the prior configuration without init and retains a real
+provider-free requirements publication across a controller-admission failure
+and one nonempty CLI, foreground MCP and asynchronous MCP review each. It checks
+native requirements results, receipt-bound CLI/MCP content, distinct run IDs,
+unchanged inputs and settled grants using isolated stub providers. The initial
+requirements publication is current fixture output, not v0.1.26 execution.
+The tracked-surface check is packaging policy, not skill behavior or discovery.
+
+Read the full six-file `skills/use-mulgae/` tree against the supported
+CLI/MCP contracts and bind every path, byte count and SHA256 to the tested
+candidate and eventual committed Git tree/blobs. For candidate discovery, copy
+that exact tree into an isolated Git project's supported skill scope and start
+a fresh native agent session. Installed AGY documents `.agents/skills/` as
+project scope. Observe native discovery/loading and its source path; explicit
+file reading, an older global skill, or a synthetic loader is insufficient.
+Keep the probe read-only and exclude review execution, host installation and
+configuration changes. Record the observed harness and any unsupported route;
+candidate AGY discovery does not qualify installed Codex/Claude consumers.
+Requalify the actual released full tree under the release/guest requirements.
+
+Use `make test-prepare` once on the frozen member candidate. Native
+`make test-mcp-clients` checks client registration and server connectivity;
+it does not load this skill or run the separate requirements-client checks. Reuse unchanged
+runtime evidence and refresh only checks whose inputs or assumptions changed.
 Use make test-offline on the integrated candidate,
 make test-release for the installed-binary surface and make test-mcp-clients
 for changed MCP consumers. Release readiness requires the applicable exact-commit

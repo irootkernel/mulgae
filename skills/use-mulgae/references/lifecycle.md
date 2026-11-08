@@ -75,8 +75,10 @@ mulgae init --refresh-local --output json
 ```
 
 Refresh preserves `config.yaml`, atomically replaces only `local.yaml`, accepts
-machine-path overrides, and rejects project-policy options. Config v1 is
-rejected; there is no automatic migration.
+machine-path overrides, and rejects project-policy options. Upgrading Mulgae
+preserves an existing valid Config v5 pair and retained `.mulgae/` history;
+never replace an existing configured pair with a fresh `mulgae init`. Config v1
+is rejected; there is no automatic migration.
 
 ## Start or associate a review
 
@@ -85,6 +87,43 @@ and the independently checked project binding. An optional `--session` groups
 a new run; it does not resume provider execution. Attached lifecycle is one
 `start_review`, repeated waiting on the same exact `await_review`, and explicit
 `cancel_review` followed by terminal await. No invocation survives server restart.
+
+Before live provider qualification, role execution, or structured extraction,
+the shared CLI, foreground MCP (`run_review`), and asynchronous MCP
+(`start_review`) review path coordinates through the selected private
+`HAEPARI_HOME` Installation (`advisory-lock/v1`) and its capacity-one
+`mulgae-review` resource. Local `--preflight`/`preflight_review`,
+`context`/`get_context`, receipt-bound verified reads, `clean`, and admitted
+no-change targets require no controller or lock grant.
+
+- Owned grant lifecycle: When `HAEPARI_LOCK_GRANT` is absent, Mulgae
+  acquires `mulgae-review` once for the admitted review, waits in queue inside
+  the original review invocation, renews in process through provider/source
+  drain, and releases after terminal completion, failure, or cancellation before
+  returning for any user decision. The registered maximum hold and remaining
+  hold budget must cover the full admitted run budget (`budget.run_deadline`),
+  preparation, and two minutes of terminal cleanup. Missing, unsafe, or
+  under-budget coordination prerequisites fail admission closed; review
+  execution never registers or mutates `mulgae-review` policy, and setup or
+  policy changes require separate authority. After a queue wait and before
+  provider dispatch, Mulgae revalidates the admitted local source, project
+  binding, configuration, and remaining budget; the caller must keep workspace
+  and index state unchanged throughout waiting and execution.
+- Borrowed grant lifecycle (`HAEPARI_LOCK_GRANT`): When `HAEPARI_LOCK_GRANT`
+  is set, Mulgae validates the closed JSON grant reference (`installation_id`,
+  `lock_id`, `grant_id`, positive `generation`) read-only against the selected
+  Installation (`hello`, `resource.inspect`, and bounded `locks.list` for
+  `mulgae-review`) and monitors parent validity during child execution. A
+  borrower never acquires, waits, renews, cancels, releases, or force-releases
+  its parent's grant; invalid, mismatched, stale, ended, or expired parent
+  grants fail closed without reacquisition or uncoordinated fallback.
+- Advisory limits: `mulgae-review` serializes cooperating reviews across
+  project roots on the same Installation, while parallel roles inside one
+  admitted review share that run's grant. Advisory serialization does not
+  prevent provider rate limits, block callers that skip the lock, or forcibly
+  terminate an unverified local provider process (`haepari_local_drain_unverified`)
+  after hold expiry or lost renewal, so overlap remains possible after lost
+  protection.
 
 Historical child, replay and composite artifacts remain readable, but their
 creation commands are retired. Retained recovery inventories confer no execution
@@ -121,8 +160,12 @@ mulgae clean --all --dry-run --output json
 
 Apply only the reviewed selector, without `--dry-run`, after authorization.
 Mulgae protects active, incomplete, corrupt, unknown, and required-lineage
-state, including protected failed-recovery roots; never bypass those protections
-by deleting `.mulgae/` manually. Self-contained composite evidence does not
+state, including protected failed-recovery roots, legacy unknown-drain
+coordination records, and owned or borrowed runs whose local provider/source
+drain is unverified (`haepari_local_drain_unverified`); never bypass those
+protections by deleting `.mulgae/` manually. Once a borrowed child run verifies
+its own local drain, its child artifacts can be cleaned independently while the
+parent grant remains live. Self-contained composite evidence does not
 authorize source deletion. Only the native cleanup plan establishes eligibility.
 
 ## Unsupported lifecycle controls

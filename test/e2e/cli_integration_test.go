@@ -62,6 +62,195 @@ func currentCommandResultContractURI(t *testing.T) string {
 	return contractURI
 }
 
+func TestIntegrationPriorStateCLIAndMCP(t *testing.T) {
+	root := repositoryRoot(t)
+	binary := buildMulgaeBinary(t, root)
+	project := canonicalTestTempDir(t)
+	initializeReviewGitRepository(t, project)
+	providers := canonicalTestTempDir(t)
+	bundle, node, launcher := fakeZCodeAppPaths(providers)
+	providerLog := filepath.Join(canonicalTestTempDir(t), "provider.jsonl")
+	wire := `{"schema_version":"mulgae-provider-review-output.v3","summary":"Retain independent requirements results.","completeness":"complete","limitations":[],"findings":[],"requirements":{"schema_version":"mulgae-provider-requirements.v1","assessments":[{"requirement_id":"KEEP-1","verdict":"unverified","rationale":"The retained criterion needs independent runtime evidence.","evidence":[],"examined_scope":"Selected review.go.","limitations":["No runtime execution."],"reason":"insufficient_evidence"}]}}`
+	buildFakeZCodeWithReport(t, root, node, launcher, providerLog, "success", "", "# logic role report\n\n```json\n"+wire+"\n```\n")
+	native := integrationNativeHome(t, binary)
+	shared, err := os.ReadFile(filepath.Join(root, "internal/entrypoint/mulgae/testdata/coordination-upgrade/project-config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	private, err := os.ReadFile(filepath.Join(root, "internal/entrypoint/mulgae/testdata/coordination-upgrade/local-config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := adapterconfig.DecodeSplit(shared, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Project.Name, config.NativeUser.Home = "retained-upgrade", native
+	config.Providers.ZCode.AppBundle, config.Providers.ZCode.Timeout = bundle, "7m"
+	config.Providers.Codex = &adapterconfig.CodexProviderConfig{
+		Executable: node, Timeout: "9m", DefaultCredentialProfile: "archive",
+		CredentialHomes: []adapterconfig.CodexCredentialHomeConfig{{Profile: "archive", Home: canonicalTestTempDir(t)}},
+	}
+	config.Roles.Documentation.PrimaryProvider, config.Roles.Documentation.CredentialProfile = "codex", "archive"
+	config.Validation.Extraction.Enabled, config.Validation.Extraction.EnabledExplicit = false, true
+	shared, private, err = adapterconfig.EncodeSplit(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed the already configured v5 pair; never invoke init during upgrade.
+	mustWriteTestFile(t, filepath.Join(project, ".mulgae/config.yaml"), shared)
+	mustWriteTestFile(t, filepath.Join(project, ".mulgae/local.yaml"), private)
+	input := []byte(`{"schema_version":"mulgae-requirements-input.v1","requirements":[{"id":"KEEP-1","text":"Retain the existing review workflow.","acceptance_criteria":["Existing results remain independently readable."],"owner_role":"logic"}]}`)
+	mustWriteTestFile(t, filepath.Join(project, "requirements.json"), input)
+	environment := isolatedMulgaeEnvWith(t, native, providers)
+	withoutController := withHaepariHome(environment, filepath.Join(canonicalTestTempDir(t), "unavailable"))
+	run := func(env []string, want int, args ...string) map[string]any {
+		t.Helper()
+		result := runMulgaeBinaryWithEnv(t, binary, project, env, append(args, "--output", "json")...)
+		if result.exitCode != want {
+			t.Fatalf("%v: exit=%d stdout=%s stderr=%s", args, result.exitCode, result.stdout, result.stderr)
+		}
+		var envelope map[string]any
+		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		return envelope
+	}
+	binding := run(withoutController, 0, "context")["result"].(map[string]any)["project_binding"].(string)
+	for _, mode := range []string{"effective", "provenance"} {
+		run(withoutController, 0, "config", "--mode", mode)
+	}
+	preflight := run(withoutController, 0, "review", "--workspace", "--roles", "logic", "--requirements", "requirements.json", "--preflight", "--expected-project-binding", binding)["result"].(map[string]any)["preflight"].(map[string]any)
+	if preflight["project_binding"] != binding || preflight["requirements"].(map[string]any)["execution_available"] != true {
+		t.Fatalf("prior-state preflight: %+v", preflight)
+	}
+	// A real provider-free publication supplies retained requirements state.
+	// This fixture is current producer output, not claimed v0.1.26 execution.
+	prior := run(withoutController, 0, "review", "--stage", "--roles", "logic", "--requirements", "requirements.json", "--expected-project-binding", binding)["result"].(map[string]any)
+	priorRun := prior["run_id"].(string)
+	priorPage := run(withoutController, 0, "inspect", "--run", priorRun, "--expected-project-binding", binding)["result"].(map[string]any)
+	priorRequirements := priorPage["requirements"].(map[string]any)
+	if priorRequirements["availability"] != "not_run" || priorRequirements["selected_count"] != float64(1) || priorRequirements["evaluated_count"] != float64(0) {
+		t.Fatalf("prior requirements: %+v", priorRequirements)
+	}
+	priorRoot := filepath.Join(project, ".mulgae", prior["session_id"].(string), priorRun)
+	before := snapshotTestTreeMaterial(t, priorRoot)
+	beforeLog, _ := os.ReadFile(providerLog)
+	rejected := run(withoutController, 2, "review", "--workspace", "--roles", "logic", "--requirements", "requirements.json", "--expected-project-binding", binding)
+	reasons, _ := json.Marshal(rejected["reasons"])
+	if !bytes.Contains(reasons, []byte("haepari_readiness_failed")) {
+		t.Fatalf("wrong coordination refusal: %s", reasons)
+	}
+	if after, _ := os.ReadFile(providerLog); !bytes.Equal(beforeLog, after) {
+		t.Fatal("unavailable controller or provider-free setup invoked providers")
+	}
+	controller := haeparifixture.New(t)
+	environment = withHaepariHome(environment, controller.Home)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	t.Cleanup(cancel)
+	client := startCoordinationMCP(t, ctx, binary, project, environment)
+	call := func(name string, arguments any) map[string]any {
+		t.Helper()
+		result, err := client.tool(name, arguments)
+		if err != nil || result["outcome"] != "success" {
+			t.Fatalf("%s: %+v / %v", name, result, err)
+		}
+		return result["data"].(map[string]any)
+	}
+	if call("get_context", map[string]any{})["project_binding"] != binding {
+		t.Fatal("MCP is bound to another project")
+	}
+	arguments := map[string]any{"target": map[string]any{"kind": "workspace"}, "roles": []string{"logic"}, "requirements_path": "requirements.json", "expected_project_binding": binding}
+	if call("preflight_review", arguments)["project_binding"] != binding {
+		t.Fatal("MCP preflight binding changed")
+	}
+	seen := map[string]bool{priorRun: true}
+	for _, route := range []string{"cli", "foreground", "async"} {
+		var result map[string]any
+		switch route {
+		case "cli":
+			result = run(environment, 0, "review", "--workspace", "--roles", "logic", "--requirements", "requirements.json", "--expected-project-binding", binding)["result"].(map[string]any)
+		case "foreground":
+			result = call("run_review", arguments)
+		case "async":
+			started := call("start_review", arguments)
+			result = call("await_review", map[string]any{"invocation_id": started["invocation_id"]})
+		}
+		id, ok := result["run_id"].(string)
+		if !ok || id == "" || seen[id] {
+			t.Fatalf("%s did not create a distinct current run: %+v", route, result)
+		}
+		seen[id] = true
+		page := run(environment, 0, "inspect", "--run", id, "--expected-project-binding", binding)["result"].(map[string]any)
+		receipt, ok := page["publication_receipt"].(string)
+		if !ok || receipt == "" || page["publication_authority"] != "P2" || page["coverage_status"] != "complete" {
+			t.Fatalf("%s publication: %+v", route, page)
+		}
+		requirements := page["requirements"].(map[string]any)
+		if requirements["availability"] != "evaluated" || requirements["selected_count"] != float64(1) || requirements["evaluated_count"] != float64(1) {
+			t.Fatalf("%s did not evaluate selected requirement: %+v", route, requirements)
+		}
+		row := requirements["items"].([]any)[0].(map[string]any)
+		if row["requirement_id"] != "KEEP-1" || row["origin"] != "provider" || row["verdict"] != "unverified" || row["reason"] != "insufficient_evidence" {
+			t.Fatalf("%s requirement identity/meaning changed: %+v", route, row)
+		}
+		report := run(environment, 0, "read-report", "--run", id, "--requirement", "KEEP-1", "--expected-project-binding", binding, "--expected-publication-receipt", receipt)["result"].(map[string]any)
+		mcpPage := call("inspect_review", map[string]any{"run_id": id, "expected_project_binding": binding, "expected_publication_receipt": receipt})
+		if !reflect.DeepEqual(mcpPage["requirements"], requirements) || mcpPage["publication_receipt"] != receipt {
+			t.Fatalf("%s CLI/MCP read disagreement", route)
+		}
+		uri := mcpPage["requirement_content_uris"].(map[string]any)["KEEP-1"].(string)
+		raw, err := client.rpc("resources/read", map[string]any{"uri": uri})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var resource struct {
+			Contents []struct {
+				Text string         `json:"text"`
+				Meta map[string]any `json:"_meta"`
+			} `json:"contents"`
+		}
+		if err := json.Unmarshal(raw, &resource); err != nil || len(resource.Contents) != 1 || resource.Contents[0].Text != report["content"] || resource.Contents[0].Meta["publication_receipt"] != receipt {
+			t.Fatalf("%s receipt-bound resource: %s / %v", route, raw, err)
+		}
+		// get_run has only a run selector; this server was independently bound above.
+		call("get_run", map[string]any{"run_id": id})
+		if got := snapshotTestTreeMaterial(t, priorRoot); !reflect.DeepEqual(got, before) {
+			t.Fatal("new review changed prior requirements publication")
+		}
+	}
+	priorAfter := run(environment, 0, "inspect", "--run", priorRun, "--expected-project-binding", binding, "--expected-publication-receipt", priorPage["publication_receipt"].(string))["result"].(map[string]any)
+	if !reflect.DeepEqual(priorAfter["requirements"], priorRequirements) {
+		t.Fatal("prior derived requirements were reclassified")
+	}
+	if got := readE2EConfig(t, project); !reflect.DeepEqual(got, config) {
+		t.Fatalf("prior provider/role/profile configuration changed: %+v", got)
+	}
+	for name, want := range map[string][]byte{".mulgae/config.yaml": shared, ".mulgae/local.yaml": private, "requirements.json": input} {
+		path := filepath.Join(project, name)
+		raw, err := os.ReadFile(path)
+		info, statErr := os.Stat(path)
+		if err != nil || statErr != nil || !bytes.Equal(raw, want) || info.Mode().Perm() != 0600 {
+			t.Fatalf("retained input changed: %s / %v / %v", name, err, statErr)
+		}
+	}
+	if reviews := fakeZCodeReviewObservations(t, providerLog); len(reviews) != 3 {
+		t.Fatalf("want exactly 3 nonempty root provider executions, got %d", len(reviews))
+	}
+	grants, releases := 0, 0
+	for _, event := range controller.Events() {
+		if strings.HasPrefix(event, "granted:") {
+			grants++
+		}
+		if strings.HasPrefix(event, "release:") {
+			releases++
+		}
+	}
+	if grants != 3 || releases != 3 {
+		t.Fatalf("current reviews did not settle their own grants: %v", controller.Events())
+	}
+}
+
 func TestCurrentCommandResultContractAuthority(t *testing.T) {
 	if _, err := ports.ParseAssetID(currentCommandResultContractURI(t)); err != nil {
 		t.Fatalf("current command-result contract URI is invalid: %v", err)

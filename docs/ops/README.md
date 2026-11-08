@@ -80,6 +80,19 @@ prerequisites fail closed. Resolve setup and policy changes under their separate
 authority; review execution does not repair, register or change resources.
 No-change review, local preflight and verified reads need no controller.
 
+An existing valid Config v5 project keeps its shared policy, private machine
+paths, configured role/provider routes, credential profiles and historical
+review/requirements results across this upgrade. Do not replace the pair with
+a fresh `mulgae init`. Retained failed-run reports and retry inventories grant
+inspection authority only. Legacy unknown drain and unverified owned or
+borrowed work remain protected by native cleanup; preserve that obligation
+when moving an existing project. The complete paired
+[`use-mulgae` skill](../../skills/use-mulgae/SKILL.md) follows the same native
+CLI and MCP lifecycle without an outer lock wrapper. Candidate preservation
+and discovery checks are described in the
+[verification guidance](../implementation-tips/README.md#planned-haepari-integration-verification);
+released installation and consumer qualification remain separate.
+
 When `HAEPARI_LOCK_GRANT` is present, Mulgae validates the inherited grant
 through read-only controller inspection (`hello`, `resource.inspect`, and bounded
 `locks.list`) and monitors parent validity during child execution without

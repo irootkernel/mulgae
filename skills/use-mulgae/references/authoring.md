@@ -59,13 +59,17 @@ validation are deferred.
 models, roles, artist inputs, timeouts, validation, resources, and CI policy.
 Edit it only when the user explicitly authorizes that policy change. The
 untracked, mode-`0600` `.mulgae/local.yaml` owns only the native home and
-provider executable, ZCode app-bundle, and credential-home paths. Prefer
-`mulgae init --refresh-local` over hand-editing ordinary discovered paths. Use
-only Config v5 fields demonstrated by current effective configuration, the
-paired embedded examples, and `mulgae help config`; Config v1 through v4 are
-unsupported. To migrate v4 deliberately, back up the private file, set both
-versions to 5 and remove shared `execution.workspace_access`. No replacement
-setting or automatic migration exists.
+provider executable, ZCode app-bundle, and credential-home paths. Upgrading
+Mulgae preserves existing valid Config v5 shared and machine-local files,
+including custom provider-role routing, provider timeouts, Codex credential
+profiles, Grok/AGY model and reasoning settings, and UI `artist` inputs, without
+running a fresh `mulgae init`. Prefer `mulgae init --refresh-local` over hand-editing
+ordinary discovered paths. Use only Config v5 fields demonstrated by current
+effective configuration, the paired embedded examples, and `mulgae help config`;
+Config v1 through v4 are unsupported. To migrate v4 deliberately, back up the
+private file, set both versions to 5 and remove shared
+`execution.workspace_access`. No replacement setting or automatic migration
+exists.
 
 ## Configure several Codex authentication profiles
 
@@ -135,8 +139,15 @@ Commit only `config.yaml`; never commit `local.yaml` or runtime artifacts.
 ## Authoring boundaries
 
 Project configuration cannot add arbitrary executable commands, provider
-families, roles, or prompt layers. Mulgae does not support custom workflow,
-manifest, procedure, or task-policy authoring. The repository's
+families, roles, prompt layers, or Haepari controller/lock settings. Live review
+coordination uses the external `HAEPARI_HOME` Installation (`advisory-lock/v1`)
+and its registered capacity-one `mulgae-review` resource. When authoring or
+raising provider timeouts or role invocation budgets, ensure the external
+`mulgae-review` maximum-hold policy covers the full admitted run budget
+(`budget.run_deadline`), preparation, and two minutes of terminal cleanup;
+review execution never registers or modifies Haepari resource policy, and policy
+changes require separate setup authority. Mulgae does not support custom
+workflow, manifest, procedure, or task-policy authoring. The repository's
 `assets/roles.yaml` is a build-time source for initialization defaults and the
 compiled-in role prompts, not a project customization surface and not a
 fallback for configured values. Editing it changes neither an installed binary

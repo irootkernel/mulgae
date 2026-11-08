@@ -1,0 +1,9 @@
+# Mulgae v0.1.26: c422590155f62380709c8f6fd08c9ad423badaaa
+# Source: internal/builtin/assets/examples/local-config.yaml
+# SHA256 of source bytes below: 8ce37893102db46fb2bdebf729dd3f116e3bf4adfbee2d98918fa7a77115aa15
+version: 5
+native_user:
+  home: "/Users/example"
+providers:
+  zcode:
+    app_bundle: "/Applications/ZCode.app"

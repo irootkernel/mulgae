@@ -13,9 +13,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
+	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	"github.com/irootkernel/mulgae/internal/app/clean"
@@ -219,6 +221,275 @@ func historicalExport(t *testing.T, f *historicalConsumer, c historical.Case) ([
 	}
 	return raw, nil
 }
+
+func TestIntegrationPreExistingProjectMigrationAndHistoryCoexistence(t *testing.T) {
+	shared, err := os.ReadFile("testdata/coordination-upgrade/project-config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	private, err := os.ReadFile("testdata/coordination-upgrade/local-config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []struct {
+		data   []byte
+		digest string
+	}{
+		{shared, "42013c6fc559b4d7e27e2dba461c93ffe00d5d9e47577f4b110f39d0bbf6ef51"},
+		{private, "8ce37893102db46fb2bdebf729dd3f116e3bf4adfbee2d98918fa7a77115aa15"},
+	} {
+		parts := bytes.SplitN(input.data, []byte("\n"), 4)
+		if len(parts) != 4 || historicalRawHash(parts[3]) != input.digest {
+			t.Fatal("released configuration fixture lost exact source provenance")
+		}
+	}
+	baseline, err := adapterconfig.DecodeSplit(shared, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corpus, err := historical.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := historicalValidator(t)
+	for _, selected := range []struct{ id, intent string }{
+		{"ordinary-v2", "legacy"}, {"composite-copied-v1", "owned"}, {"failed-recovery", "borrowed"}, {"ordinary-v2", "unknown"},
+	} {
+		t.Run(selected.id+"/"+selected.intent, func(t *testing.T) {
+			var current *historical.Case
+			for i := range corpus.Cases {
+				if corpus.Cases[i].ID == selected.id {
+					current = &corpus.Cases[i]
+					break
+				}
+			}
+			if current == nil {
+				t.Fatalf("missing frozen historical case %s", selected.id)
+			}
+			f := newHistoricalConsumer(t, *current, validator)
+			ctx := context.Background()
+			config := baseline
+			config.Project.Name = "retained-custom-project"
+			config.NativeUser.Home = t.TempDir()
+			config.Providers.ZCode.AppBundle = filepath.Join(t.TempDir(), "ZCode.app")
+			config.Providers.ZCode.Timeout = "7m"
+			config.Providers.Codex = &adapterconfig.CodexProviderConfig{
+				Executable: filepath.Join(t.TempDir(), "codex"), Timeout: "9m", DefaultCredentialProfile: "archive",
+				CredentialHomes: []adapterconfig.CodexCredentialHomeConfig{{Profile: "archive", Home: t.TempDir()}},
+			}
+			config.Roles.Documentation.PrimaryProvider, config.Roles.Documentation.CredentialProfile = "codex", "archive"
+			projectData, localData, err := adapterconfig.EncodeSplit(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			configRoot := filepath.Join(f.project.String(), ".mulgae")
+			if err := os.Mkdir(configRoot, 0700); err != nil {
+				t.Fatal(err)
+			}
+			for name, data := range map[string][]byte{"config.yaml": projectData, "local.yaml": localData} {
+				if err := os.WriteFile(filepath.Join(configRoot, name), data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// The frozen corpus has independent producer provenance. In particular,
+			// failed recovery is retained evidence, never executable retry authority.
+			beforeView, err := NewPublicationQueryService(f.queries).ReadRunStatus(ctx, f.run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if beforeView.RunID != current.RunID || beforeView.SessionID != current.SessionID {
+				t.Fatal("historical identities changed")
+			}
+			if current.Family == "failed-recovery" {
+				if !beforeView.FailedRunRecovery.Available || beforeView.HasFinalArtifact {
+					t.Fatal("historical retry evidence gained publication authority")
+				}
+			} else if !beforeView.HasFinalArtifact || !beforeView.HasAxes {
+				t.Fatal("historical P2 lost authority")
+			}
+			type retained struct {
+				raw  []byte
+				mode os.FileMode
+			}
+			before := map[string]retained{}
+			remember := func(path string) {
+				t.Helper()
+				raw, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before[path] = retained{raw, info.Mode()}
+			}
+			if err := filepath.WalkDir(f.root.String(), func(path string, entry os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !entry.IsDir() {
+					remember(path)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			remember(filepath.Join(configRoot, "config.yaml"))
+			remember(filepath.Join(configRoot, "local.yaml"))
+			initial, err := f.cleanup.Observe(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var keep []string
+			for _, run := range initial.Runs {
+				keep = append(keep, run.RunID)
+			}
+			session, _ := domain.ParseSessionID("s_019f596a-cf80-7c67-b265-f37053d51ccf")
+			protected, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243ba")
+			eligible, _ := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bb")
+			seedClock := historicalClock{now: f.clock.Now().Add(-48 * time.Hour)}
+			factory, err := filesystem.NewDiagnosticStoreFactory(filesystem.NewSecureWriter(), seedClock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []domain.RunID{protected, eligible} {
+				request, err := ports.NewRuntimeDiagnosticOpenRequest(f.root, session, id, seedClock.Now())
+				if err != nil {
+					t.Fatal(err)
+				}
+				sink, err := factory.Open(ctx, request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				completed := seedClock.Now().Add(time.Second)
+				status, err := ports.NewRuntimeDiagnosticRunStatus(ports.RuntimeDiagnosticRunStatusInput{
+					SessionID: session, RunID: id, State: domain.RunFailed, StartedAt: seedClock.Now(), UpdatedAt: completed, CompletedAt: completed, HasCompletedAt: true,
+					SelectedRoles: []domain.Role{domain.RoleTesting}, RolePathTotal: 1, RolePathFailed: 1,
+					TerminalCause: domain.DiagnosticCausePublicationInstallationFailed, TerminalPhase: domain.DiagnosticPhasePublicationInstallation,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				finalize, err := ports.NewRuntimeDiagnosticFinalizeRequest(domain.RunFailed, domain.DiagnosticCausePublicationInstallationFailed, status)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := sink.Finalize(ctx, finalize); err != nil {
+					t.Fatal(err)
+				}
+			}
+			name := "haepari-lock-intent-v2.json"
+			if selected.intent == "borrowed" {
+				name = "haepari-lock-intent-v3.json"
+			}
+			raw, err := os.ReadFile(filepath.Join("../../adapters/filesystem/testdata", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if selected.intent == "unknown" {
+				fields = map[string]json.RawMessage{"schema_version": json.RawMessage(`"future-unknown"`)}
+			} else if selected.intent == "legacy" {
+				fields["schema_version"] = json.RawMessage(`"mulgae-haepari-lock-intent.v1"`)
+				delete(fields, "local_drain_state")
+			} else {
+				fields["local_drain_state"] = json.RawMessage(`"unverified"`)
+			}
+			raw, err = json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			protectedPath := filepath.Join(f.root.String(), "diagnostics", session.String(), protected.String())
+			intentPath := filepath.Join(protectedPath, "haepari-lock.json")
+			if err := os.WriteFile(intentPath, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			remember(intentPath)
+			if selected.intent != "unknown" {
+				record, found, err := filesystem.NewCoordinationIntentStore().LoadIntent(ctx, f.root, session, protected)
+				if err != nil || !found || (selected.intent == "legacy" && record.LocalDrainState != "") ||
+					(selected.intent != "legacy" && record.LocalDrainState != ports.ReviewLocalDrainUnverified) {
+					t.Fatalf("prior lock intent is not meaningful: %+v / %t / %v", record, found, err)
+				}
+			}
+			snapshot, err := f.cleanup.Observe(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot.Policy = clean.Policy{RetentionAgeSeconds: 1, ExplicitKeepRunIDs: keep}
+			policy, err := json.Marshal(snapshot.Policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot.InputPolicySHA256 = "sha256:" + historicalRawHash(policy)
+			plan, err := clean.Plan(snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			protectedSelected, eligibleSelected := false, false
+			for _, action := range plan.OrderedActions {
+				if action.RunID == protected.String() {
+					protectedSelected = true
+				}
+				if action.RunID == eligible.String() {
+					eligibleSelected = true
+				}
+			}
+			if protectedSelected || !eligibleSelected {
+				t.Fatalf("unsafe or vacuous cleanup plan: %+v", plan.RunDecisions)
+			}
+			if err := f.cleanup.WithCleanupTransaction(ctx, func(tx clean.CleanupTransaction) error { return tx.PersistDryRunPlan(ctx, plan) }); err != nil {
+				t.Fatal(err)
+			}
+			apply, err := clean.ApplyPlan(plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := clean.ExecuteApply(ctx, f.cleanup, apply); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(f.root.String(), "diagnostics", session.String(), eligible.String())); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("eligible diagnostic was not removed: %v", err)
+			}
+			for path, want := range before {
+				raw, err := os.ReadFile(path)
+				info, statErr := os.Stat(path)
+				if err != nil || statErr != nil || !bytes.Equal(raw, want.raw) || info.Mode() != want.mode {
+					t.Fatalf("cleanup changed retained input %s: %v / %v", path, err, statErr)
+				}
+			}
+			afterView, err := NewPublicationQueryService(f.queries).ReadRunStatus(ctx, f.run)
+			if err != nil || !reflect.DeepEqual(beforeView, afterView) {
+				t.Fatalf("historical results/recovery changed: %+v / %v", afterView, err)
+			}
+			afterProject, err := os.ReadFile(filepath.Join(configRoot, "config.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			afterLocal, err := os.ReadFile(filepath.Join(configRoot, "local.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := adapterconfig.DecodeSplit(afterProject, afterLocal)
+			if err != nil || !reflect.DeepEqual(decoded, config) {
+				t.Fatalf("custom routing/timeouts/credential bindings changed: %+v / %v", decoded, err)
+			}
+			// Unsupported future input refuses admission without rewriting either file.
+			future := bytes.Replace(afterProject, []byte("version: 5"), []byte("version: 999"), 1)
+			if bytes.Equal(future, afterProject) {
+				t.Fatal("future-version fixture did not change the version")
+			}
+			if _, err := adapterconfig.DecodeSplit(future, afterLocal); err == nil {
+				t.Fatal("unsupported prior configuration was silently migrated")
+			}
+		})
+	}
+}
+
 func TestIntegrationHistoricalCorpusConsumers(t *testing.T) {
 	validator := historicalValidator(t)
 	corpus, err := historical.Load()

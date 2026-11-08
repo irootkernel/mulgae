@@ -44,3 +44,14 @@ On a proven legacy MCP root, follow each resource's canonical `nextURI` through
 completion. Existing report/evidence URIs retain their historical verification
 and metadata; they do not acquire publication-receipt binding implicitly.
 Never read a resource from an unbound server or upgrade an artifact in place.
+
+## Historical artifacts and cleanup protection
+
+Historical committed publications, requirements assessments, rendered reports,
+redacted exports, and retained `failed_run_recovery` inventories remain readable
+without `HAEPARI_HOME` or a running Haepari controller. During `mulgae clean`,
+legacy coordination intent records with unknown local drain proof and current
+owned or borrowed runs with unverified local drain
+(`haepari_local_drain_unverified`) remain protected from deletion alongside
+required composite ancestors and retained failed-recovery roots. Never delete
+`.mulgae/` directories manually to bypass cleanup protection.

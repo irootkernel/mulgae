@@ -8,11 +8,14 @@ failed.
 
 If a known lifecycle invocation is still pending, preserve its `i_...` identity
 and await it in the same live MCP session before applying the terminal run
-inspection below. A host timeout or retryable `await_cancelled` ends only the
-observer; it does not cancel execution or authorize another start. Re-await that
-same invocation. If awaiting cannot continue, report the concrete limitation
-without switching to another execution or polling run status. `get_run` is not
-a live invocation snapshot, and start need not return a durable run ID.
+inspection below. Queue waiting for `mulgae-review` stays inside the original
+review invocation. A host timeout, native queue observation timeout, or
+retryable `await_cancelled` ends only the observer; it leaves a queued or
+running review in that same invocation and does not cancel execution or
+authorize another start or queue request. Re-await that same invocation. If
+awaiting cannot continue, report the concrete limitation without switching to
+another execution or polling run status. `get_run` is not a live invocation
+snapshot, and start need not return a durable run ID.
 
 1. Stop issuing mutations. Preserve the complete command envelope, exit code,
    and any exact session, run, and attempt IDs already returned.
@@ -30,11 +33,29 @@ a live invocation snapshot, and start need not return a durable run ID.
    limit; do not infer state or retry the review.
 
 3. Trust the current `publication_status`, `failed_run_recovery`,
-   `diagnostic_only`, `publication_authority`, stable reasons, and
-   `recovery_action`; do not infer
+   `diagnostic_only`, `publication_authority`, stable reasons,
+   `diagnostic_summary`, and `recovery_action`; do not infer
    completion from provider output, conversation memory, runtime logs, or the
-   mere presence of files.
-4. If no exact run ID was returned, report the outcome as unknown. Mulgae has no
+   mere presence of files. Bounded `haepari_*` causes and coordination
+   `diagnostic_summary` tokens distinguish readiness/capability refusal, queue
+   wait expiry, cancellation, hold-budget reservation refusal, renewal or parent
+   protection loss, unknown local drain (`haepari_local_drain_unverified`),
+   persistence failure, and final disposition errors.
+4. When controller contact or renewal is lost, or maximum hold expires, Mulgae
+   stops new provider dispatch, requests native cancellation and drain, and
+   fails closed without falling back to uncoordinated execution. A borrower
+   under `HAEPARI_LOCK_GRANT` stops and drains its own child work when parent
+   grant validity is lost and never cancels, releases, or force-releases the
+   parent's grant. When local provider/source termination cannot be proven
+   (`haepari_local_drain_unverified`), Mulgae retains the cleanup owner and
+   protects the run's artifacts from `mulgae clean` without releasing or
+   cancelling the grant; report that uncertainty and escalate rather than
+   force-releasing, mutating controller state, or deleting `.mulgae/` manually.
+   After verified local drain, an operational release or observation-persistence
+   failure remains an error without suppressing an otherwise valid P2
+   publication. Inspect the exact returned run ID through
+   `inspect_review`/`inspect` or `get_run`/`status`.
+5. If no exact run ID was returned, report the outcome as unknown. Mulgae has no
    read-only command that safely reconstructs an unknown ID from conversation
    context. Do not guess an ID or start another run to probe state. The
    `latest` selector on `export` resolves the newest committed run, but export
@@ -84,10 +105,18 @@ remain readable; they supply no current replay or composition mutation.
 ## Recover a partially failed review
 
 New execution has no retained-source replay, child or compose operation.
-Inspect the exact terminal identity once. Distinguish committed incomplete
-coverage, retained historical failed-run support, diagnostic-only status and
-`run_status_unavailable`. None authorizes a replacement review or provider change.
-A new authorized review observes current source and leaves old results unchanged.
+On operational partial-role failure, Mulgae preserves accepted role reports as
+historical evidence under the original run, completes native provider and source
+drain, and releases an owned `mulgae-review` grant before returning for a user
+decision (so unrelated queued reviews may proceed while the original result
+remains incomplete). Inspect the exact terminal identity once. Distinguish
+committed incomplete coverage, retained historical failed-run support,
+diagnostic-only status and `run_status_unavailable`. Do not rerun roles, compose
+reports, substitute another provider for a failed role, or combine coverage
+across runs. Any new full review of current source requires explicit user
+authority and acquires a new FIFO position on `mulgae-review`, inheriting no
+queue position, continuation, or lease from the prior run while leaving old
+results unchanged.
 
 Historical accepted roles, retry attempts, manifests, blobs and lineage remain
 verified inspection facts. Read only public supported surfaces; never reconstruct

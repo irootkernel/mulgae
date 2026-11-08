@@ -1,0 +1,36 @@
+# Mulgae v0.1.26: c422590155f62380709c8f6fd08c9ad423badaaa
+# Source: internal/builtin/assets/examples/project-config.yaml
+# SHA256 of source bytes below: 42013c6fc559b4d7e27e2dba461c93ffe00d5d9e47577f4b110f39d0bbf6ef51
+version: 5
+project:
+  name: "my-project"
+providers:
+  zcode:
+    timeout: "30m"
+roles:
+  logic: {enabled: true, primary_provider: "zcode"}
+  security: {enabled: true, primary_provider: "zcode"}
+  maintainability: {enabled: true, primary_provider: "zcode"}
+  product: {enabled: true, primary_provider: "zcode"}
+  documentation: {enabled: true, primary_provider: "zcode"}
+  testing: {enabled: true, primary_provider: "zcode"}
+review:
+  required_roles: ["logic"]
+  request_changes_on: ["high", "critical", "blocker"]
+validation:
+  evidence:
+    require_verified_for: ["high", "critical", "blocker"]
+  repair:
+    enabled: true
+    max_attempts: 1
+    same_provider: true
+  extraction:
+    enabled: true
+resources:
+  max_active_lanes: 6
+  primary_repair_attempts: 1
+  role_max_invocations: 2
+  run_max_invocations: 12
+ci:
+  fail_on_severity: ["high", "critical", "blocker"]
+  degraded_review_fails: true

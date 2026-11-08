@@ -39,8 +39,18 @@ mulgae inspect --run "$run_id" \
 Read `publication_authority`, `publication_state`, `coverage_status`,
 `structured_extraction_status`, `ci_decision`, `capture_availability`,
 `failed_run_recovery`, `publication_receipt`, and `role_reports` independently.
-A diagnostic-only observation has no receipt or content references. No receipt
-means no verified finding/content reads. A retained historical failed-run source supports verified inspection only.
+`status` and MCP `get_run` verify committed P2 before using optional runtime
+diagnostics. Receipt-bound finding pages, role reports, and requirements
+assessments retain their authority from the verified publication store. A valid
+same-session, same-run diagnostic record may add a bounded `diagnostic_summary`
+with `component: "coordination"` and an owned `haepari_*` cause in `invariant_id`,
+such as `haepari_disposition_failed`. Missing, unsupported, unreadable, corrupt,
+or mismatched supplementary diagnostics are omitted without failing a valid P2
+read. Their absence does not prove clean grant disposition. Independently
+corrupt P2 artifacts still fail verification closed. A diagnostic-only
+observation (including `haepari_*` coordination failures such as `haepari_local_drain_unverified`) has no receipt
+or content references. No receipt means no verified finding/content reads. A
+retained historical failed-run source supports verified inspection only.
 
 A current live result advertises `source_evidence: v1`, `capture_availability:
 not_captured` and explicit source identity. Read its excerpts with
