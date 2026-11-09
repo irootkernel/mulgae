@@ -37,7 +37,7 @@ families are not supported by the initial release.
 ### Use Codex from Mulgae
 
 Install Codex CLI 0.154.0 or newer and sign in with the CLI before initializing
-Mulgae with Codex as a review provider. A legacy single-profile configuration
+Mulgae with Codex as a review provider. The default configuration
 uses Codex's native `~/.codex/auth.json` login state. Mulgae does not accept an
 API-key environment variable or a project-configured credential.
 
@@ -64,40 +64,6 @@ descriptor-anchored copy of `auth.json`, the admitted original source, a
 read-only permission profile, and disabled web, app, plugin, browser, hook,
 image-generation, and multi-agent features. Project instructions and user
 configuration are ignored.
-
-To use more than one authenticated Codex environment, declare the default
-credential profile in the Git-shareable project policy and bind each profile to
-an explicit `CODEX_HOME` in the private local configuration:
-
-```yaml
-# .mulgae/config.yaml
-providers:
-  codex:
-    default_credential_profile: "personal"
-roles:
-  logic: {enabled: true, primary_provider: "codex"}
-  security: {enabled: true, primary_provider: "codex", credential_profile: "work"}
-```
-
-```yaml
-# .mulgae/local.yaml
-providers:
-  codex:
-    executable: "/Users/operator/.local/bin/codex"
-    credential_homes:
-      - profile: "personal"
-        home: "/Users/operator/.codex"
-      - profile: "work"
-        home: "/Users/operator/.codex-work"
-```
-
-Profile IDs are operator-chosen authentication aliases, not executable names;
-they use lowercase kebab-case. The local entries must match the default profile
-plus every role override exactly and remain in lexical order. Mulgae
-reads only `auth.json` from each configured home. Model, reasoning, and timeout
-remain shared Codex project policy; `config.toml`, rules, skills, plugins,
-hooks, and ambient `CODEX_HOME` are not inherited. Use the real `codex` binary
-for every profile rather than a wrapper that rewrites `CODEX_HOME`.
 
 ### Use ZCode from Mulgae
 

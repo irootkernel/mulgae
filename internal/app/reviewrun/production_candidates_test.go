@@ -51,30 +51,6 @@ func TestProductionCandidateTemplatesAreCanonicalAndBounded(t *testing.T) {
 	}
 }
 
-func TestProductionCandidateTemplatesSeparateCodexCredentialProfiles(t *testing.T) {
-	identities, err := defaultProductionPolicyIdentities(providercli.RuntimeBuilder{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	profiles := map[domain.Role]string{domain.RoleLogic: "personal", domain.RoleSecurity: "work"}
-	templates, err := productionCandidateTemplatesWithCodexSettingsAndTimeouts(identities, "", "", profiles, defaultProductionProviderTimeouts())
-	if err != nil {
-		t.Fatal(err)
-	}
-	seen := map[domain.Role]productionCandidateTemplate{}
-	for _, template := range templates {
-		if template.family == FamilyCodex {
-			seen[template.supportedRoles[0]] = template
-		}
-	}
-	if seen[domain.RoleLogic].instance != "codex-personal-logic" || seen[domain.RoleLogic].profileID != "codex-personal" {
-		t.Fatalf("logic template = %#v", seen[domain.RoleLogic])
-	}
-	if seen[domain.RoleSecurity].instance != "codex-work-security" || seen[domain.RoleSecurity].profileID != "codex-work" {
-		t.Fatalf("security template = %#v", seen[domain.RoleSecurity])
-	}
-}
-
 func TestProductionCandidateTemplatesBindDistinctFamilyTimeoutsToLimitsAndRuntimeDefinitions(t *testing.T) {
 	profiles := []DiscoveredProviderProfile{
 		{family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher, argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery"},

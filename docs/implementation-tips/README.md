@@ -307,7 +307,7 @@ defines these commands:
 | `offline` | `make test-offline` | `generic` | `go`, `offline` | 15,600s |
 | `release` | `make test-release` | `generic` | `go`, `release` | 1,800s |
 | `e2e` | `make test-e2e` | `go-test` | `go`, `e2e`, `live` | 11,400s |
-| `e2e-opt-in` | `make test-e2e-opt-in` | `go-test` | `go`, `e2e`, `live`, `codex`, `multi-profile` | 7,200s |
+| `e2e-opt-in` | `make test-e2e-opt-in` | `go-test` | `go`, `e2e`, `live`, `codex` | 7,200s |
 | `grok` | `make test-grok` | `go-test` | `go`, `e2e`, `live`, `grok` | 6,000s |
 | `full` | `make test` | `generic` | `go`, `full`, `live` | 28,800s |
 
@@ -692,8 +692,7 @@ cover descriptor cleanup on early returns and cancellation during admission.
 Unix socket fixtures check direct and symlink-alias denial at protected source
 and credential paths while an owned invocation socket remains reachable.
 These focused fixtures do not replace the complete integrated `make test`
-gate or the opt-in Codex certification. TASK-080 supersedes TASK-039's earlier
-secondary-home requirement; the live gate now certifies the primary account.
+gate or the opt-in Codex certification of the primary account.
 
 The [verified review contracts](../specs/verified-review-contracts.md) and their
 [roadmap outcomes](../roadmap/README.md#epic-007-verified-review-contracts)

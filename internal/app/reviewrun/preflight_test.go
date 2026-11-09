@@ -46,23 +46,6 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	}
 }
 
-func TestPreflightConfiguredPlanBindsCodexCredentialProfileToInstance(t *testing.T) {
-	policy := DefaultPlannerPolicy()
-	logic, err := NewRoleProviderAssignmentWithCredentialProfile(domain.RoleLogic, FamilyCodex, "work")
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy.Assignments = []RoleProviderAssignment{logic}
-	timeouts := map[Family]time.Duration{FamilyZCode: 15 * time.Minute, FamilyGrok: 15 * time.Minute, FamilyCodex: 20 * time.Minute, FamilyCursor: 15 * time.Minute, FamilyAgy: 10 * time.Minute}
-	plan, _, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := plan.Assignments[0].ProviderInstance(); got != "codex-work-logic" {
-		t.Fatalf("provider instance = %q", got)
-	}
-}
-
 func TestRoleProviderInstanceMatchesConfiguredAssignment(t *testing.T) {
 	for _, test := range []struct {
 		name     string

@@ -110,7 +110,7 @@ identities. Cancellation never rolls back an already committed publication.
    [lifecycle.md](references/lifecycle.md). The first file is shared project
    policy; the second is private machine configuration. Upgrading Mulgae
    preserves an existing valid Config v5 pair (including custom provider-role
-   routing, timeouts, Codex credential profiles, and artist inputs) and
+   routing, timeouts, and artist inputs) and
    retained `.mulgae/` history; never run a fresh `mulgae init` over an already
    configured project. Native context and verified reads do not require
    initialization, a Haepari controller, or provider readiness. Live provider

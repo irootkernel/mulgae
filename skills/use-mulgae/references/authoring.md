@@ -71,46 +71,6 @@ private file, set both versions to 5 and remove shared
 `execution.workspace_access`. No replacement setting or automatic migration
 exists.
 
-## Configure several Codex authentication profiles
-
-Named Codex profiles are a YAML-only Config v5 feature. Treat profile IDs as
-operator-chosen authentication aliases, not executable names. With explicit
-authorization, set the default and any role overrides in shared project policy:
-
-```yaml
-# .mulgae/config.yaml
-providers:
-  codex:
-    default_credential_profile: "personal"
-roles:
-  logic: {enabled: true, primary_provider: "codex"}
-  security: {enabled: true, primary_provider: "codex", credential_profile: "work"}
-```
-
-Map exactly those aliases, in lexical order, to their private machine-local
-`CODEX_HOME` directories:
-
-```yaml
-# .mulgae/local.yaml
-providers:
-  codex:
-    executable: "/Users/operator/.local/bin/codex"
-    credential_homes:
-      - profile: "personal"
-        home: "/Users/operator/.codex"
-      - profile: "work"
-        home: "/Users/operator/.codex-work"
-```
-
-Use lowercase kebab-case profile IDs and one common real `codex` executable.
-Do not point `executable` at wrappers that rewrite `CODEX_HOME`. The local list
-must cover the default plus every role override exactly; unused, missing,
-duplicate, or unsorted entries are rejected. A role-level profile is valid only
-for a Codex role. Mulgae imports only `auth.json`; model, reasoning, and timeout
-remain shared project policy, while Codex config, rules, skills, and plugins are
-ignored. Do not authenticate, create homes, or expose their paths without the
-user's separate authorization.
-
 After editing, re-read both admitted value and provenance:
 
 ```bash

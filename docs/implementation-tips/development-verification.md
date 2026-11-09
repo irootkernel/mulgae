@@ -206,8 +206,7 @@ deleting scenarios is not a completion quota.
   `QualifyCurrent`, role/profile routing (`zcode-logic`, `zcode-security`,
   `codex-primary-logic`, `codex-primary-security`,
   `codex-primary-documentation`), required and forbidden environment
-  variables (`MULGAE_E2E_CODEX_PRIMARY_HOME` after `TASK-080` retired the
-  secondary live Codex home), and the no-`.Skip(`/`.Skipf(` invariant across
+  variables (`MULGAE_E2E_CODEX_PRIMARY_HOME`), and the no-`.Skip(`/`.Skipf(` invariant across
   all three live test files without pinning unexported helper names in
   `test/e2e/live_test.go`.
   `TestMCPContractProjectionOwnership` retains the forbidden composition tokens
