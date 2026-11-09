@@ -358,6 +358,15 @@ func TestServeAwaitCancellationDoesNotCancelReviewExecution(t *testing.T) {
 		"i_019f596a-cf81-7c67-b265-f37053d51ccf",
 		"i_019f596a-cf82-7c67-b265-f37053d51ccf",
 	)
+	awaitStarted := make(chan struct{})
+	newRequestID := config.NewRequestID
+	config.NewRequestID = func() (string, error) {
+		id, err := newRequestID()
+		if id == "i_019f596a-cf81-7c67-b265-f37053d51ccf" {
+			close(awaitStarted)
+		}
+		return id, err
+	}
 	go func() {
 		done <- Serve(context.Background(), reader, channelWriter{output: output}, config)
 	}()
@@ -374,6 +383,11 @@ func TestServeAwaitCancellationDoesNotCancelReviewExecution(t *testing.T) {
 	}
 
 	writeMCPMessage(t, input, latestRequest(3, "tools/call", `{"name":"await_review","arguments":{"invocation_id":"`+invocationID+`"}}`))
+	select {
+	case <-awaitStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for await_review handler admission")
+	}
 	writeMCPMessage(t, input, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3,"reason":"observer timeout"}}`+"\n")
 	cancelled := decodeResponse(t, receiveMCPMessage(t, output))["result"].(map[string]any)["structuredContent"].(map[string]any)
 	failure := cancelled["error"].(map[string]any)
