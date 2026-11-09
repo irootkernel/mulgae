@@ -417,6 +417,7 @@ func envOrDefault(name, fallback string) string {
 
 func initializeLiveE2ERepository(t *testing.T) string {
 	t.Helper()
+	prepareLiveReviewCoordination(t)
 	project := t.TempDir()
 	if preserved := os.Getenv("MULGAE_E2E_PROJECT_ROOT"); preserved != "" {
 		if !filepath.IsAbs(preserved) || filepath.Clean(preserved) != preserved {

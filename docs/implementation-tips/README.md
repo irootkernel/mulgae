@@ -1273,10 +1273,14 @@ make test and provider-specific obligations under the repository's release
 policy. A runtime feature cannot use the patch-only version-increment waiver.
 Live-provider checks retain separate execution authority and cannot be replaced
 with fixture success. `make test-e2e`, `make test-grok`, `make test-cursor`,
-`make test-agy` and enabled `make test-e2e-opt-in` now also require an explicitly
-selected usable Haepari Installation or an isolated controller. Missing
-coordination prerequisites fail closed; no target automatically changes resource
-policy. These live gates remain TASK-080 obligations.
+`make test-agy` and enabled `make test-e2e-opt-in` reuse an explicitly selected
+usable `HAEPARI_HOME`. For standalone runs without a selected Installation or
+inherited Haepari context, the shared live fixture starts the installed `haepari`
+from `PATH` in a private temporary root, registers its capacity-one `mulgae-review`
+resource, and stops and removes that controller during test cleanup. It never
+changes an existing Installation or resource policy. Inherited Haepari context
+still requires its matching explicit `HAEPARI_HOME`; missing or invalid selected
+prerequisites fail closed. These live gates remain TASK-080 obligations.
 
 Run installation and fault/contention scenarios in the dedicated utm-macos
 guest, with approved shared VM occupancy once at the outer boundary. Synthetic
