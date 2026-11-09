@@ -6,12 +6,15 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Changed
 
+- Add sealed Haepari guest qualification preparation, installed CLI/MCP and native controller checks, and manual cleanup gates, with explicit incomplete outcomes for unobserved scenarios.
 - Update the complete `use-mulgae` skill for native review coordination and recovery while preserving existing Config v5 provider/role policy, machine paths and retained review/requirements history across upgrades.
 - Coordinate live CLI and MCP reviews through one owned Haepari advisory grant before provider qualification, or validate and monitor an inherited `HAEPARI_LOCK_GRANT` read-only without mutating parent lock state. No-change review and preflight remain controller-free.
 - Retain unknown local drain proof across owned v2 and borrowed v3 intent records during cleanup, preserve accepted role reports and published incomplete results on operational partial-role failure without cross-run coverage, and preserve verified published results when final grant disposition fails, with bounded coordination diagnostics in existing status and error envelopes.
 
 ### Fixed
 
+- Accept Grok's early zero-tool initialization only after binding it to the authenticated session, while rejecting active MCP tools and mismatched identities.
+- Accept AGY's canonical file-read events through the existing workspace read authority while retaining credential boundaries and tool-identity checks.
 - Preserve cancellation after Haepari acquisition by recording the native reply under a bounded context before cancelling the original request, while retaining genuine storage failures.
 - Preserve the requirements output contract through structured extraction and reformat repair, so supported assessments in accepted role reports can reach native results without conflicting finding-only JSON instructions.
 

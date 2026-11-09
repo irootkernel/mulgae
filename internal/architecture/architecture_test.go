@@ -1,6 +1,8 @@
 package architecture
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -212,6 +214,12 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
+	for _, target := range []string{"test-e2e", "test-e2e-opt-in", "test-grok", "test-cursor", "test-agy", "test-mcp-clients"} {
+		start := strings.Index(text, "\n"+target+":\n")
+		if start < 0 || !strings.HasPrefix(text[start+len(target)+3:], "\t@$(validate_installed_test_inputs)\n") {
+			t.Fatalf("%s must validate sealed installed inputs before any workload", target)
+		}
+	}
 	for _, target := range []string{"test:", "test-offline:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-grok:", "test-cursor:", "test-agy:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
@@ -337,13 +345,16 @@ func TestMakefileContract(t *testing.T) {
 	optInTarget := text[optInStart:grokStart]
 	for _, required := range []string{
 		`MULGAE_E2E_OPT_IN:-}`, "[test-e2e-opt-in] skipped: set MULGAE_E2E_OPT_IN=1",
-		"MULGAE_E2E_CODEX_EXECUTABLE", "MULGAE_E2E_CODEX_PRIMARY_HOME", "MULGAE_E2E_CODEX_SECONDARY_HOME",
+		"MULGAE_E2E_CODEX_EXECUTABLE", "MULGAE_E2E_CODEX_PRIMARY_HOME",
 		"MULGAE_E2E_PROJECT_ROOT", "-tags='live_e2e live_e2e_opt_in'", "-run '^TestE2EOptInCodexCredentialProfiles$$'",
 		"[test-e2e-opt-in] failed; preserved private project:",
 	} {
 		if !strings.Contains(optInTarget, required) {
 			t.Errorf("test-e2e-opt-in missing Codex-profile token %q", required)
 		}
+	}
+	if strings.Contains(optInTarget, "MULGAE_E2E_CODEX_SECONDARY_HOME") {
+		t.Fatal("opt-in Codex certification still requires a secondary home")
 	}
 	cursorStart := strings.Index(text, "\ntest-cursor:")
 	agyStart := strings.Index(text, "\ntest-agy:")
@@ -399,6 +410,96 @@ func TestMakefileContract(t *testing.T) {
 	if workflow < 0 || capability <= workflow {
 		t.Fatal("test-e2e does not run the login-recovering exact-binary production workflow before family capability certification")
 	}
+}
+
+func TestMakefileInstalledBinaryProvenance(t *testing.T) {
+	root := repositoryRoot(t)
+	makeBinary, err := exec.LookPath("make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch := t.TempDir()
+	fakeGo := filepath.Join(scratch, "go")
+	binary := filepath.Join(scratch, "installed mulgae")
+	manifest := filepath.Join(scratch, "candidate.json")
+	probe := filepath.Join(scratch, "probe.mk")
+	for path, contents := range map[string]string{
+		fakeGo:   "#!/bin/sh\nexit 0\n",
+		binary:   "#!/bin/sh\nexit 99\n",
+		manifest: "{\"source\":\"sealed fixture\"}\n",
+		probe:    "installed-input-check:\n\t@$(validate_installed_test_inputs)\n",
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const source = "0123456789012345678901234567890123456789"
+	inputs := []string{
+		"MULGAE_TEST_INSTALLED_BINARY=" + binary,
+		"MULGAE_TEST_SOURCE_COMMIT=" + source,
+		"MULGAE_TEST_PREPARED_MANIFEST=" + manifest,
+	}
+	run := func(t *testing.T, target string, values []string) (string, error) {
+		t.Helper()
+		args := []string{"--no-print-directory", "-f", filepath.Join(root, "Makefile"),
+			"-f", probe, "GO=" + fakeGo, "MAKE=/usr/bin/false", target}
+		cmd := exec.Command(makeBinary, args...)
+		cmd.Dir = root
+		for _, entry := range os.Environ() {
+			name, _, _ := strings.Cut(entry, "=")
+			if name != "MULGAE_TEST_INSTALLED_BINARY" && name != "MULGAE_TEST_SOURCE_COMMIT" &&
+				name != "MULGAE_TEST_PREPARED_MANIFEST" && name != "MAKEFLAGS" && name != "MFLAGS" {
+				cmd.Env = append(cmd.Env, entry)
+			}
+		}
+		cmd.Env = append(cmd.Env, values...)
+		output, runErr := cmd.CombinedOutput()
+		return string(output), runErr
+	}
+	for _, tc := range []struct {
+		name   string
+		values []string
+	}{
+		{"source-without-binary", []string{inputs[1]}},
+		{"manifest-without-binary", []string{inputs[2]}},
+		{"binary-without-manifest", inputs[:2]},
+		{"invalid-source", []string{inputs[0], "MULGAE_TEST_SOURCE_COMMIT=not-a-commit", inputs[2]}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := run(t, "installed-input-check", tc.values)
+			if err == nil || !strings.Contains(output, "invalid installed-test inputs") {
+				t.Fatalf("unsafe installed inputs were not refused: err=%v output=%s", err, output)
+			}
+		})
+	}
+	t.Run("normal-build-inputs", func(t *testing.T) {
+		output, err := run(t, "installed-input-check", nil)
+		if err != nil || strings.Contains(output, "[installed-test]") {
+			t.Fatalf("ordinary build acquired installed-binary inputs: err=%v output=%s", err, output)
+		}
+	})
+	t.Run("sealed-input-provenance", func(t *testing.T) {
+		output, err := run(t, "installed-input-check", inputs)
+		if err != nil || !strings.Contains(output, "supplied_source_commit="+source) ||
+			!strings.Contains(output, binary) || !strings.Contains(output, manifest) {
+			t.Fatalf("installed input provenance missing: err=%v output=%s", err, output)
+		}
+		for _, path := range []string{binary, manifest} {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(output, fmt.Sprintf("%x", sha256.Sum256(data))) {
+				t.Fatalf("installed input hash missing for %s: %s", path, output)
+			}
+		}
+	})
+	t.Run("full-gate-refuses-overrides", func(t *testing.T) {
+		output, err := run(t, "test", inputs)
+		if err == nil || !strings.Contains(output, "make test refuses installed-binary overrides") {
+			t.Fatalf("full gate accepted external inputs: err=%v output=%s", err, output)
+		}
+	})
 }
 
 func TestMakefileOfflineAndFullGateOrchestration(t *testing.T) {
@@ -760,12 +861,15 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	optInText := string(optInData)
 	for _, required := range []string{
 		"live_e2e_opt_in", "func TestE2EOptInCodexCredentialProfiles",
-		`"codex-primary-logic"`, `"codex-primary-security"`, `"codex-secondary-documentation"`,
-		"MULGAE_E2E_CODEX_PRIMARY_HOME", "MULGAE_E2E_CODEX_SECONDARY_HOME",
+		`"codex-primary-logic"`, `"codex-primary-security"`, `"codex-primary-documentation"`,
+		"MULGAE_E2E_CODEX_PRIMARY_HOME",
 	} {
 		if !strings.Contains(optInText, required) {
 			t.Errorf("opt-in exact-binary workflow contract missing %q", required)
 		}
+	}
+	if strings.Contains(optInText, "MULGAE_E2E_CODEX_SECONDARY_HOME") || strings.Contains(optInText, `"codex-secondary-`) {
+		t.Fatal("opt-in Codex certification still uses a secondary profile")
 	}
 	if strings.Contains(optInText, ".Skip(") || strings.Contains(optInText, ".Skipf(") {
 		t.Fatal("enabled opt-in exact-binary workflow may not skip prerequisites")

@@ -8,7 +8,7 @@
 - a ZCode app bundle with a current Z.AI Individual Coding Plan connection for
   the mandatory live tests, plus an authenticated Grok installation for
   `make test-grok`
-- two distinct authenticated Codex homes only for the opt-in profile E2E
+- an authenticated primary Codex home only for the opt-in profile E2E
 
 Codex provider execution requires CLI 0.154.0 or newer for the app-server
 route. The separate Codex MCP-client compatibility check retains its own
@@ -53,6 +53,13 @@ objective, so a report that merely claims it could not read the target does not
 certify original-source access. The complete gate then invokes the opt-in Codex
 profile target, which reports a stable skip unless `MULGAE_E2E_OPT_IN=1` is
 present.
+
+`make test` rejects `MULGAE_TEST_INSTALLED_BINARY`,
+`MULGAE_TEST_SOURCE_COMMIT` and `MULGAE_TEST_PREPARED_MANIFEST` overrides.
+Separately authorized [sealed guest owning targets](../../test/vm/README.md)
+require all three together and record the supplied source label plus executable
+and manifest SHA-256. A source label alone cannot relabel a worktree build;
+the sealed request remains responsible for candidate provenance.
 
 The complete deterministic offline development gate is:
 
@@ -145,6 +152,12 @@ It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and otherwise discovers
 does not modify native Grok configuration, and is the standalone Grok live
 provider gate outside `make test-e2e`.
 
+Grok may report zero-tool MCP initialization before its `session/new` response.
+The adapter retains that notification's session identity after authentication and
+requires it to match the response before prompting. Missing or nonzero tool
+counts, conflicting identities and initialization before authentication fail
+closed; native MCP servers and tools remain disabled.
+
 `make test-cursor` builds the exact current release binary and runs one Cursor
 review. It requires `darwin/arm64`, `CURSOR_AUTH_TOKEN`, and an absolute
 executable in `MULGAE_E2E_CURSOR_EXECUTABLE`. The executable's version line
@@ -169,6 +182,12 @@ unchanged original source/Git/token, and removed invocation runtime roots.
 Qualification is part of that review; the command controls issue no production
 qualification authority. The gate neither requires nor validates a second account.
 
+AGY 1.5.3 reports native file reads as `read_file` with a `Path` operand in
+canonical tool events. The adapter also accepts the earlier
+`view_file`/`AbsolutePath` format. Both use the same workspace-only source
+admission, credential protection and start/completion checks. Qualification and
+extraction remain prompt-bound and admit no file-read operation.
+
 The Make target retains its private fixture, exact binary hashes and candidate
 diff/untracked-file hashes under the selected temporary directory on success
 or failure. Inspect those local artifacts before cleanup, especially after
@@ -180,15 +199,14 @@ second provider or change that gate's two-role assertions.
 
 `make test-e2e-opt-in` is called after `make test-e2e`, but performs no provider
 discovery or execution unless `MULGAE_E2E_OPT_IN=1`. When enabled it runs one
-three-role exact-binary review: Codex profile `primary` owns `logic` and
-`security`, while profile `secondary` owns `documentation`. Supply the two
-distinct credential roots explicitly; profile names are test aliases and do
-not prescribe directory names:
+three-role exact-binary review in which Codex profile `primary` owns `logic`,
+`security`, and `documentation`. Supply the primary credential root
+explicitly; the profile name is a test alias and does not prescribe the
+directory name:
 
 ```bash
 MULGAE_E2E_OPT_IN=1 \
 MULGAE_E2E_CODEX_PRIMARY_HOME=/absolute/path/to/primary-codex-home \
-MULGAE_E2E_CODEX_SECONDARY_HOME=/absolute/path/to/secondary-codex-home \
 make test-e2e-opt-in
 ```
 
@@ -674,7 +692,8 @@ cover descriptor cleanup on early returns and cancellation during admission.
 Unix socket fixtures check direct and symlink-alias denial at protected source
 and credential paths while an owned invocation socket remains reachable.
 These focused fixtures do not replace the complete integrated `make test`
-gate or the explicit two-home Codex certification required by TASK-039.
+gate or the opt-in Codex certification. TASK-080 supersedes TASK-039's earlier
+secondary-home requirement; the live gate now certifies the primary account.
 
 The [verified review contracts](../specs/verified-review-contracts.md) and their
 [roadmap outcomes](../roadmap/README.md#epic-007-verified-review-contracts)

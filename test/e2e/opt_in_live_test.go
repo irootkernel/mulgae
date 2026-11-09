@@ -15,15 +15,13 @@ import (
 )
 
 const (
-	optInCodexPrimaryProfile   = "primary"
-	optInCodexSecondaryProfile = "secondary"
+	optInCodexPrimaryProfile = "primary"
 )
 
 type optInLiveEnvironment struct {
-	binary             string
-	codexExecutable    string
-	codexPrimaryHome   string
-	codexSecondaryHome string
+	binary           string
+	codexExecutable  string
+	codexPrimaryHome string
 }
 
 type optInProtectedFile struct {
@@ -60,7 +58,7 @@ func TestE2EOptInCodexCredentialProfiles(t *testing.T) {
 	expected := map[string]string{
 		"logic":         "codex-primary-logic",
 		"security":      "codex-primary-security",
-		"documentation": "codex-secondary-documentation",
+		"documentation": "codex-primary-documentation",
 	}
 	run := runLiveRecoverableWorkflowWithGate(t, validator, runtimeEnvironment, project, "opt-in-codex-credential-profiles", expected, validateOptInLiveGate,
 		"review", "--workspace",
@@ -86,21 +84,12 @@ func validateOptInLiveGate(project string, run livePublishedRun, expected map[st
 func requireOptInLiveEnvironment(t *testing.T) optInLiveEnvironment {
 	t.Helper()
 	environment := optInLiveEnvironment{
-		binary:             requireLiveExecutable(t, "MULGAE_E2E_BINARY", ""),
-		codexExecutable:    requireLiveExecutable(t, "MULGAE_E2E_CODEX_EXECUTABLE", ""),
-		codexPrimaryHome:   requireCanonicalOptInDirectory(t, "MULGAE_E2E_CODEX_PRIMARY_HOME"),
-		codexSecondaryHome: requireCanonicalOptInDirectory(t, "MULGAE_E2E_CODEX_SECONDARY_HOME"),
+		binary:           requireLiveExecutable(t, "MULGAE_E2E_BINARY", ""),
+		codexExecutable:  requireLiveExecutable(t, "MULGAE_E2E_CODEX_EXECUTABLE", ""),
+		codexPrimaryHome: requireCanonicalOptInDirectory(t, "MULGAE_E2E_CODEX_PRIMARY_HOME"),
 	}
-	primaryInfo, err := os.Stat(environment.codexPrimaryHome)
-	if err != nil {
+	if _, err := os.Stat(environment.codexPrimaryHome); err != nil {
 		t.Fatalf("inspect primary Codex home: %v", err)
-	}
-	secondaryInfo, err := os.Stat(environment.codexSecondaryHome)
-	if err != nil {
-		t.Fatalf("inspect secondary Codex home: %v", err)
-	}
-	if os.SameFile(primaryInfo, secondaryInfo) {
-		t.Fatal("opt-in E2E requires distinct primary and secondary Codex homes")
 	}
 	return environment
 }
@@ -127,14 +116,13 @@ func configureOptInCredentialProfiles(t *testing.T, project string, environment 
 	config.Providers.Codex.DefaultCredentialProfile = optInCodexPrimaryProfile
 	config.Providers.Codex.CredentialHomes = []adapterconfig.CodexCredentialHomeConfig{
 		{Profile: optInCodexPrimaryProfile, Home: environment.codexPrimaryHome},
-		{Profile: optInCodexSecondaryProfile, Home: environment.codexSecondaryHome},
 	}
 	config.Roles.Logic.PrimaryProvider = "codex"
 	config.Roles.Logic.CredentialProfile = optInCodexPrimaryProfile
 	config.Roles.Security.PrimaryProvider = "codex"
 	config.Roles.Security.CredentialProfile = optInCodexPrimaryProfile
 	config.Roles.Documentation.PrimaryProvider = "codex"
-	config.Roles.Documentation.CredentialProfile = optInCodexSecondaryProfile
+	config.Roles.Documentation.CredentialProfile = optInCodexPrimaryProfile
 	projectConfig, localConfig, err := adapterconfig.EncodeSplit(config)
 	if err != nil {
 		t.Fatalf("encode opt-in Config v5 pair: %v", err)
@@ -188,7 +176,7 @@ func assertOptInConfigMatrix(t *testing.T, raw []byte, environment optInLiveEnvi
 	want := map[string][2]string{
 		"logic":         {"codex", optInCodexPrimaryProfile},
 		"security":      {"codex", optInCodexPrimaryProfile},
-		"documentation": {"codex", optInCodexSecondaryProfile},
+		"documentation": {"codex", optInCodexPrimaryProfile},
 	}
 	for _, assignment := range redacted.Policy.RoleAssignments {
 		expected, ok := want[assignment.Role]
@@ -207,10 +195,8 @@ func assertOptInConfigMatrix(t *testing.T, raw []byte, environment optInLiveEnvi
 
 func assertOptInPrivatePathsRedacted(t *testing.T, raw []byte, environment optInLiveEnvironment) {
 	t.Helper()
-	for _, path := range []string{environment.codexPrimaryHome, environment.codexSecondaryHome} {
-		if bytes.Contains(raw, []byte(path)) {
-			t.Fatal("opt-in config output exposed a private provider home")
-		}
+	if bytes.Contains(raw, []byte(environment.codexPrimaryHome)) {
+		t.Fatal("opt-in config output exposed a private provider home")
 	}
 }
 
@@ -221,7 +207,6 @@ func captureOptInProtectedFiles(t *testing.T, environment optInLiveEnvironment) 
 		path  string
 	}{
 		{label: "Codex primary auth", path: filepath.Join(environment.codexPrimaryHome, "auth.json")},
-		{label: "Codex secondary auth", path: filepath.Join(environment.codexSecondaryHome, "auth.json")},
 	}
 	protected := make([]optInProtectedFile, 0, len(specs))
 	for _, spec := range specs {

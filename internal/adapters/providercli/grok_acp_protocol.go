@@ -212,7 +212,7 @@ type grokACPConversation struct {
 	setModelAccepted, modelConfirmed, effortConfirmed, promptSent bool
 	promptCompleted, messageReceived, closeSent                   bool
 	closeAccepted, permissionGranted                              bool
-	sessionID, turnID                                             string
+	sessionID, turnID, pendingMCPSessionID                        string
 	providerErrorCode                                             int
 	hasProviderErrorCode                                          bool
 	assistantEvidence                                             []string
@@ -379,6 +379,11 @@ func (state *grokACPConversation) acceptSessionNew(result json.RawMessage) error
 	if sanitizeProtocolDiagnosticIdentifier(payload.SessionID) == "" {
 		return errors.New("session/new result without a safe session id")
 	}
+	if state.pendingMCPSessionID != "" && state.pendingMCPSessionID != payload.SessionID {
+		return errors.New("MCP initialization differs from session/new identity")
+	}
+	state.mcpObserved = state.mcpObserved || state.pendingMCPSessionID != ""
+	state.pendingMCPSessionID = ""
 	state.sessionID = payload.SessionID
 	state.currentModel = payload.Models.CurrentModelID
 	state.sessionCreated = true
@@ -440,10 +445,24 @@ func (state *grokACPConversation) handleNotification(ctx context.Context, exchan
 	case grokACPMCPInitialized:
 		var params struct {
 			SessionID    string `json:"sessionId"`
-			MCPToolCount int    `json:"mcpToolCount"`
+			MCPToolCount *int   `json:"mcpToolCount"`
 		}
-		if err := json.Unmarshal(message.Params, &params); err != nil || params.SessionID != state.sessionID || params.MCPToolCount != 0 {
+		if err := json.Unmarshal(message.Params, &params); err != nil ||
+			params.MCPToolCount == nil || *params.MCPToolCount != 0 ||
+			sanitizeProtocolDiagnosticIdentifier(params.SessionID) == "" {
 			return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("active ACP MCP tool rejected"))
+		}
+		if !state.sessionCreated {
+			if !state.authenticated || state.pendingMCPSessionID != "" && state.pendingMCPSessionID != params.SessionID {
+				return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("uncorrelated early MCP initialization"))
+			}
+			// Native setup can finish before session/new replies. Bind its identity
+			// to that response before accepting it or sending any prompt.
+			state.pendingMCPSessionID = params.SessionID
+			return nil
+		}
+		if params.SessionID != state.sessionID {
+			return grokACPFailure(domain.DiagnosticCausePermissionDenied, errors.New("uncorrelated MCP initialization"))
 		}
 		state.mcpObserved = true
 		return nil

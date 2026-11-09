@@ -110,10 +110,11 @@ records the grouping and responsibility boundaries.
 adopts native capacity-one coordination for CLI and both MCP review modes,
 with complete paired-skill migration and released guest qualification. Its
 [specification](specs/haepari-review-coordination.md),
-[decision](architecture-decision-records/haepari-review-coordination.md) and
-[temporary execution dossier](todo/TODO-HAEPARI-REVIEW-COORDINATION.md) separate
-product requirements, rationale and epic-squad execution. No runtime capability
-is implemented by this design. At final closeout, promote durable outcomes,
+[decision](architecture-decision-records/haepari-review-coordination.md),
+[temporary execution dossier](todo/TODO-HAEPARI-REVIEW-COORDINATION.md) and
+[Haepari VM qualification harness](../test/vm/README.md) separate
+product requirements, rationale, epic-squad execution and guest qualification
+entrypoints. At final closeout, promote durable outcomes,
 replace temporary links and retire the dossier and its TODO entry.
 
 ## Source-of-truth precedence

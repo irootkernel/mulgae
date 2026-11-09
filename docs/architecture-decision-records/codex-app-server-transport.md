@@ -48,4 +48,8 @@ separate Codex MCP-client minimum stays at 0.149.0.
 Malformed or uncorrelated frames, unexpected requests, missing final text,
 failed turns, and missing completion fail closed with typed provider causes.
 The existing opt-in two-profile exact-binary test remains required for this
-epic's acceptance and optional in ordinary `make test` runs.
+epic's acceptance and optional in ordinary `make test` runs. `EPIC-016` /
+`TASK-080` later supersedes the secondary live Codex account requirement:
+`make test-e2e-opt-in` routes `logic`, `security`, and `documentation` through
+the single `primary` Codex profile (`MULGAE_E2E_CODEX_PRIMARY_HOME`), while
+runtime multi-profile support retains deterministic test coverage.

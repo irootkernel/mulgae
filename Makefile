@@ -3,10 +3,31 @@ TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.27
 MCP_CLIENT_TAGS := mcpclientcheck
 UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
+PYTHON ?= python3
+HAEPARI ?= haepari
+RESOURCE ?=
+SUITE ?= guest-qualification
+MODE ?= auto
+RUN_DIR ?=
+REQUEST ?=
 
-.PHONY: test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients
+.PHONY: test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
+
+# These inputs are only for the separately admitted, sealed guest owning targets.
+define validate_installed_test_inputs
+if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
+	test -x "$$MULGAE_TEST_INSTALLED_BINARY" && test -n "$${MULGAE_TEST_SOURCE_COMMIT:-}" && test -f "$${MULGAE_TEST_PREPARED_MANIFEST:-}" || { echo "invalid installed-test inputs" >&2; exit 1; }; \
+	case "$$MULGAE_TEST_SOURCE_COMMIT" in *[!0-9a-f]*) echo "invalid installed-test inputs" >&2; exit 1;; esac; \
+	test "$${#MULGAE_TEST_SOURCE_COMMIT}" -eq 40 || { echo "invalid installed-test inputs" >&2; exit 1; }; \
+	printf '%s\n' "[installed-test] supplied_source_commit=$$MULGAE_TEST_SOURCE_COMMIT"; \
+	shasum -a 256 -- "$$MULGAE_TEST_INSTALLED_BINARY" "$$MULGAE_TEST_PREPARED_MANIFEST" || exit $$?; \
+elif test -n "$${MULGAE_TEST_SOURCE_COMMIT:-}$${MULGAE_TEST_PREPARED_MANIFEST:-}"; then \
+	echo "invalid installed-test inputs" >&2; exit 1; \
+fi
+endef
 
 test:
+	@test -z "$${MULGAE_TEST_INSTALLED_BINARY:-}$${MULGAE_TEST_SOURCE_COMMIT:-}$${MULGAE_TEST_PREPARED_MANIFEST:-}" || { echo "make test refuses installed-binary overrides" >&2; exit 1; }
 	@$(MAKE) test-offline
 	@$(MAKE) test-release
 	@$(MAKE) test-e2e
@@ -95,6 +116,7 @@ test-release:
 	@printf '%s\n' '[test-release] completed'
 
 test-e2e:
+	@$(validate_installed_test_inputs)
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-e2e requires darwin/arm64" >&2; exit 1; }
 	@e2e_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$e2e_tmp"' EXIT; \
@@ -102,8 +124,12 @@ test-e2e:
 	e2e_project="$$(mktemp -d "$${e2e_base%/}/mulgae-e2e-project.XXXXXX")"; \
 	chmod 700 "$$e2e_project"; \
 	MULGAE_E2E_BINARY="$$e2e_tmp/mulgae"; \
-	MULGAE_E2E_COMMIT="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$MULGAE_E2E_COMMIT" -o "$$MULGAE_E2E_BINARY" .; \
+	MULGAE_E2E_COMMIT="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
+	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
+		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$MULGAE_E2E_BINARY"; \
+	else \
+		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$MULGAE_E2E_COMMIT" -o "$$MULGAE_E2E_BINARY" .; \
+	fi || exit $$?; \
 	zcode_app="$${MULGAE_E2E_ZCODE_APP_BUNDLE:-/Applications/ZCode.app}"; \
 	test -d "$$zcode_app" || { echo "test-e2e requires the ZCode app bundle" >&2; exit 1; }; \
 	case "$$zcode_app" in /*) ;; *) echo "test-e2e requires an absolute ZCode app bundle" >&2; exit 1;; esac; \
@@ -132,6 +158,7 @@ test-e2e:
 	@printf '%s\n' '[test-e2e] completed'
 
 test-e2e-opt-in:
+	@$(validate_installed_test_inputs)
 	@if test "$${MULGAE_E2E_OPT_IN:-}" != "1"; then \
 		printf '%s\n' '[test-e2e-opt-in] skipped: set MULGAE_E2E_OPT_IN=1'; \
 		exit 0; \
@@ -143,8 +170,12 @@ test-e2e-opt-in:
 	opt_in_project="$$(mktemp -d "$${opt_in_base%/}/mulgae-e2e-opt-in-project.XXXXXX")"; \
 	chmod 700 "$$opt_in_project"; \
 	opt_in_binary="$$opt_in_tmp/mulgae"; \
-	opt_in_commit="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$opt_in_commit" -o "$$opt_in_binary" .; \
+	opt_in_commit="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
+	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
+		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$opt_in_binary"; \
+	else \
+		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$opt_in_commit" -o "$$opt_in_binary" .; \
+	fi || exit $$?; \
 	codex_candidate="$${MULGAE_E2E_CODEX_EXECUTABLE:-$$(command -v codex)}"; \
 	test -n "$$codex_candidate" && test -x "$$codex_candidate" || { echo "test-e2e-opt-in requires the Codex executable" >&2; exit 1; }; \
 	codex_bin="$$(realpath "$$codex_candidate")"; \
@@ -153,12 +184,9 @@ test-e2e-opt-in:
 	codex_primary_home="$${MULGAE_E2E_CODEX_PRIMARY_HOME:-}"; \
 	test -n "$$codex_primary_home" && test -d "$$codex_primary_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_CODEX_PRIMARY_HOME" >&2; exit 1; }; \
 	case "$$codex_primary_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_CODEX_PRIMARY_HOME" >&2; exit 1;; esac; \
-	codex_secondary_home="$${MULGAE_E2E_CODEX_SECONDARY_HOME:-}"; \
-	test -n "$$codex_secondary_home" && test -d "$$codex_secondary_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_CODEX_SECONDARY_HOME" >&2; exit 1; }; \
-	case "$$codex_secondary_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_CODEX_SECONDARY_HOME" >&2; exit 1;; esac; \
 	if MULGAE_E2E_BINARY="$$opt_in_binary" MULGAE_E2E_PROJECT_ROOT="$$opt_in_project" \
 		MULGAE_E2E_CODEX_EXECUTABLE="$$codex_bin" MULGAE_E2E_CODEX_PRIMARY_HOME="$$codex_primary_home" \
-		MULGAE_E2E_CODEX_SECONDARY_HOME="$$codex_secondary_home" $(GO) test -v -tags='live_e2e live_e2e_opt_in' \
+		$(GO) test -v -tags='live_e2e live_e2e_opt_in' \
 		-timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2EOptInCodexCredentialProfiles$$' ./test/e2e; then \
 		:; \
 	else \
@@ -170,12 +198,17 @@ test-e2e-opt-in:
 	printf '%s\n' '[test-e2e-opt-in] completed'
 
 test-grok:
+	@$(validate_installed_test_inputs)
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-grok requires darwin/arm64" >&2; exit 1; }
 	@set -e; grok_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$grok_tmp"' EXIT; \
 	grok_binary="$$grok_tmp/mulgae"; \
-	grok_commit="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$grok_commit" -o "$$grok_binary" .; \
+	grok_commit="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
+	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
+		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$grok_binary"; \
+	else \
+		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$grok_commit" -o "$$grok_binary" .; \
+	fi || exit $$?; \
 	grok_candidate="$${MULGAE_E2E_GROK_EXECUTABLE:-$$(command -v grok)}"; \
 	test -n "$$grok_candidate" && test -x "$$grok_candidate" || { echo "test-grok requires the Grok executable" >&2; exit 1; }; \
 	grok_bin="$$(realpath "$$grok_candidate")"; \
@@ -192,13 +225,18 @@ test-grok:
 	@printf '%s\n' '[test-grok] completed'
 
 test-cursor:
+	@$(validate_installed_test_inputs)
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-cursor requires darwin/arm64" >&2; exit 1; }
 	@test -n "$${CURSOR_AUTH_TOKEN:-}" || { echo "test-cursor requires CURSOR_AUTH_TOKEN" >&2; exit 1; }; \
 	cursor_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$cursor_tmp"' EXIT; \
 	cursor_binary="$$cursor_tmp/mulgae"; \
-	cursor_commit="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$cursor_commit" -o "$$cursor_binary" . && \
+	cursor_commit="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
+	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
+		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$cursor_binary"; \
+	else \
+		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$cursor_commit" -o "$$cursor_binary" .; \
+	fi || exit $$?; \
 	cursor_candidate="$${MULGAE_E2E_CURSOR_EXECUTABLE:-}"; \
 	test -n "$$cursor_candidate" && test -x "$$cursor_candidate" || { echo "test-cursor requires an absolute MULGAE_E2E_CURSOR_EXECUTABLE" >&2; exit 1; }; \
 	cursor_bin="$$(realpath "$$cursor_candidate")"; \
@@ -211,6 +249,7 @@ test-cursor:
 	@printf '%s\n' '[test-cursor] completed'
 
 test-agy:
+	@$(validate_installed_test_inputs)
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-agy requires darwin/arm64" >&2; exit 1; }
 	@set -eu; \
 	agy_base="$$(cd "$${TMPDIR:-/tmp}" && pwd -P)"; \
@@ -219,15 +258,24 @@ test-agy:
 	printf '%s\n' "[test-agy] private evidence retained: $$agy_root"; \
 	mkdir -m 700 "$$agy_root/runtime" "$$agy_root/project (single account)" "$$agy_root/command-controls"; \
 	agy_binary="$$agy_root/mulgae"; \
-	agy_commit="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$agy_commit" -o "$$agy_binary" .; \
+	agy_commit="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
+	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
+		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$agy_binary"; \
+	else \
+		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$agy_commit" -o "$$agy_binary" .; \
+	fi || exit $$?; \
 	agy_candidate="$${MULGAE_E2E_AGY_EXECUTABLE:-$$(command -v agy || true)}"; \
 	test -n "$$agy_candidate" && test -x "$$agy_candidate" || { echo "test-agy requires the AGY executable" >&2; exit 1; }; \
 	agy_bin="$$(realpath "$$agy_candidate")"; \
 	case "$$agy_bin" in /*) ;; *) echo "test-agy requires an absolute AGY executable" >&2; exit 1;; esac; \
 	shasum -a 256 "$$agy_binary" "$$agy_bin" > "$$agy_root/binaries.sha256"; \
-	git diff --binary HEAD > "$$agy_root/candidate.patch"; \
-	git ls-files --others --exclude-standard -z > "$$agy_root/untracked.paths"; \
+	if test -n "$${MULGAE_TEST_PREPARED_MANIFEST:-}"; then \
+		cp "$$MULGAE_TEST_PREPARED_MANIFEST" "$$agy_root/candidate-preparation.json"; \
+		: > "$$agy_root/untracked.paths"; \
+	else \
+		git diff --binary HEAD > "$$agy_root/candidate.patch"; \
+		git ls-files --others --exclude-standard -z > "$$agy_root/untracked.paths"; \
+	fi; \
 	if test -s "$$agy_root/untracked.paths"; then \
 		xargs -0 shasum -a 256 -- < "$$agy_root/untracked.paths" > "$$agy_root/untracked.sha256"; \
 	else : > "$$agy_root/untracked.sha256"; fi; \
@@ -246,12 +294,17 @@ test-mcp-requirements-clients: MCP_CLIENT_TAGS := mcpclientcheck,requirementscli
 test-mcp-requirements-clients: test-mcp-clients
 
 test-mcp-clients:
+	@$(validate_installed_test_inputs)
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-mcp-clients requires darwin/arm64" >&2; exit 1; }
 	@mcp_tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$mcp_tmp"' EXIT; \
 	mcp_binary="$$mcp_tmp/mulgae"; \
-	mcp_commit="$$(git rev-parse HEAD)"; \
-	$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$mcp_commit" -o "$$mcp_binary" .; \
+	mcp_commit="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
+	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
+		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$mcp_binary"; \
+	else \
+		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$mcp_commit" -o "$$mcp_binary" .; \
+	fi || exit $$?; \
 	codex_bin="$${MULGAE_MCP_CODEX_BINARY:-$$(command -v codex)}"; \
 	claude_bin="$${MULGAE_MCP_CLAUDE_BINARY:-$$(command -v claude)}"; \
 	for client in "$$codex_bin" "$$claude_bin"; do \
@@ -263,3 +316,28 @@ test-mcp-clients:
 		MULGAE_MCP_CLAUDE_BINARY="$$claude_bin" \
 		$(GO) test -v -tags=$(MCP_CLIENT_TAGS) -count=1 ./internal/mcpclientcheck
 	@printf '%s\n' '[test-mcp-clients] completed'
+
+test-vm:
+	@test -n "$(PREPARED_DIR)" || { echo "test-vm requires PREPARED_DIR from test/vm/prepare.py" >&2; exit 1; }
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B ./test/vm/host.py \
+		--haepari "$(HAEPARI)" \
+		--resource "$(RESOURCE)" \
+		--suite "$(SUITE)" \
+		--mode "$(MODE)" \
+		--run-dir "$(RUN_DIR)" \
+		--request "$(REQUEST)" \
+		--prepared-dir "$(PREPARED_DIR)"
+
+test-vm-guest:
+	@PYTHONDONTWRITEBYTECODE=1 /bin/sh ./test/vm/run.sh "$(SUITE)"
+
+test-vm-contract:
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m unittest discover -s ./test/vm -p 'contract_test.py' -v
+	@printf '%s\n' '[test-vm-contract] completed'
+
+test-vm-driver-compile:
+	@set -eu; \
+	vm_compile="$$(mktemp -d /tmp/mulgae-vm-compile.XXXXXX)"; \
+	trap 'rm -rf "$$vm_compile"' EXIT; \
+	$(GO) test -c -tags=vm_qualification -o "$$vm_compile/qualification.test" ./test/e2e
+	@printf '%s\n' '[test-vm-driver-compile] completed'

@@ -840,6 +840,7 @@ type observation struct {
 }
 
 const barrierDirectory = __FAKE_ZCODE_BARRIER__
+const requestRuntimeAuth = __FAKE_ZCODE_RUNTIME_AUTH__
 
 var roleGuide = regexp.MustCompile("Mulgae ROOT REVIEW ROLE GUIDE/[0-9]+: ([A-Z]+)")
 
@@ -862,7 +863,7 @@ func serve(argv []string) {
 	sessionID := "sess_fake"
 	var prompt, mode, denylist, proof string
 	var allowlist []string
-	capability, accountConfigured, authAccepted, modelSelected := false, false, false, false
+	capability, accountConfigured, authAccepted, modelSelected := false, false, !requestRuntimeAuth, false
 	stdout := bufio.NewWriter(os.Stdout)
 	defer stdout.Flush()
 	reply := func(id json.RawMessage, result any) {
@@ -953,10 +954,12 @@ func serve(argv []string) {
 				"sessionId": sessionID,
 				"scope":     "runtime-materialization",
 			})
-			serverRequest("server-auth", "interaction/requestProviderRuntimeHeaders", map[string]any{
-				"providerId": "account:zai-individual-coding-plan",
-				"accountAccess": map[string]any{"type": "zhipu-account", "mode": "individual-coding-plan", "accountType": "zai"},
-			})
+			if requestRuntimeAuth {
+				serverRequest("server-auth", "interaction/requestProviderRuntimeHeaders", map[string]any{
+					"providerId": "account:zai-individual-coding-plan",
+					"accountAccess": map[string]any{"type": "zhipu-account", "mode": "individual-coding-plan", "accountType": "zai"},
+				})
+			}
 			reply(message.ID, map[string]any{
 				"session": map[string]any{"sessionId": sessionID},
 				"settings": map[string]any{"model": map[string]any{"available": []any{
@@ -1050,6 +1053,7 @@ func capabilityProof(prompt string) string {
 func reviewFailureVariant() bool {
 	switch "__FAKE_ZCODE_MODE__" {
 	case "wait_review":
+		if barrierDirectory != "" { observe(observation{}, true) }
 		for { time.Sleep(time.Second) }
 	case "rate_limit_review":
 		fmt.Fprintln(os.Stderr, "rate_limit")
@@ -1082,11 +1086,26 @@ func report(prompt string) string {
 	if len(role) != 2 {
 		panic("ZCode review prompt omits the role guide")
 	}
+	if "__FAKE_ZCODE_MODE__" == "fail_security_review" && role[1] == "SECURITY" {
+		deadline := time.Now().Add(30*time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(barrierDirectory+"/fail-security"); err == nil {
+				fmt.Fprintln(os.Stderr, "provider execution failed")
+				os.Exit(1)
+			}
+			time.Sleep(10*time.Millisecond)
+		}
+		panic("controlled security failure was not released")
+	}
 	return strings.ReplaceAll(__FAKE_ZCODE_REPORT_BODY__, "__ROLE__", strings.ToLower(role[1]))
 }
 
 
 `
+	// Installed VM artifacts retain the real native user. Synthetic app-server
+	// coordination cases never request that user\'s credentials; isolated-home
+	// integration tests keep their existing authentication callback assertions.
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_RUNTIME_AUTH__", strconv.FormatBool(os.Getenv("MULGAE_VM_WORK_ROOT") == ""))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_BARRIER__", strconv.Quote(barrier))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_REPORT_BODY__", strconv.Quote(reportBody))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)

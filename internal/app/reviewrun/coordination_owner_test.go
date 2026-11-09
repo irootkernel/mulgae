@@ -651,7 +651,7 @@ func TestReviewCoordinatorBorrowedHoldAndMonitor(t *testing.T) {
 			t.Run(fmt.Sprintf("expire_before_retry=%v", expireBeforeRetry), func(t *testing.T) {
 				store := &ownerTestStore{}
 				transport := &ownerTestTransport{}
-				now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+				now := time.Now().UTC()
 				clock := &ownerControlledClock{now: now}
 				live := now.Add(30 * time.Second)
 				maxHold := now.Add(30 * time.Minute)
@@ -856,7 +856,7 @@ func TestReviewCoordinatorBorrowedAdmissionAndPagination(t *testing.T) {
 
 		// Unknown grant -> NOT_FOUND.
 		store := &ownerTestStore{}
-		transport := &ownerTestTransport{}
+		transport := &ownerTestTransport{clock: clock}
 		coord, _ := NewReviewCoordinator(store, transport, clock, validGrant, true)
 		_, err := coord.startReview(context.Background(), ownerTestRequest(t), time.Minute)
 		assertAdmissionClassification(t, err, domain.DiagnosticCauseCoordinationReadinessFailed, "NOT_FOUND", domain.FailureConfiguration)
@@ -1140,7 +1140,7 @@ func TestReviewCoordinatorBorrowedAdmissionAndPagination(t *testing.T) {
 
 	t.Run("persistence-refusal-and-same-run-replay-refusal", func(t *testing.T) {
 		clock := &ownerControlledClock{now: now}
-		transport := &ownerTestTransport{current: baseRequest()}
+		transport := &ownerTestTransport{clock: clock, current: baseRequest()}
 
 		// PersistIntent failure -> haepari_persistence_failed, phase admission, FailureArtifact.
 		store := &ownerTestStore{localErr: errors.New("disk full")}

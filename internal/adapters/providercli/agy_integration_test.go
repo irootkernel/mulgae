@@ -360,6 +360,7 @@ type agyLiveTestRunner struct {
 	path       string
 	rejectPath bool
 	extraction bool
+	canonical  bool
 }
 
 func (r *agyLiveTestRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
@@ -379,12 +380,16 @@ func (r *agyLiveTestRunner) Converse(ctx context.Context, request ports.ProcessR
 	}
 	frames := [][]byte{agyTestJSON(map[string]any{"event": "init", "conversation_id": "conversation-1", "init": map[string]string{"agent": agent, "permission_mode": "request-review"}})}
 	if !r.extraction {
+		tool, parameter := "view_file", "AbsolutePath"
+		if r.canonical {
+			tool, parameter = "read_file", "Path"
+		}
 		path := r.path
 		if r.rejectPath {
 			path = filepath.Join(gemini, "antigravity-cli/antigravity-oauth-token")
 		}
 		for _, state := range []string{"ACTIVE", "DONE"} {
-			frames = append(frames, agyTestStep(map[string]any{"conversation_id": "conversation-1", "step_index": 2, "step_type": "tool", "state": state, "tool_name": "view_file", "tool_info": map[string]any{"name": "view_file", "parameters": map[string]string{"AbsolutePath": path}, "output": "fixture read"}}))
+			frames = append(frames, agyTestStep(map[string]any{"conversation_id": "conversation-1", "step_index": 2, "step_type": "tool", "state": state, "tool_name": tool, "tool_info": map[string]any{"name": tool, "parameters": map[string]string{parameter: path}, "output": "fixture read"}}))
 		}
 	}
 	frames = append(frames, agyTestProgress(), agyTestResult(nil))
@@ -404,8 +409,9 @@ func (r *agyLiveTestRunner) Converse(ctx context.Context, request ports.ProcessR
 	return currentProbeCapabilityProtocolObservation(r.t, r.fixture, []byte("transcript")), err
 }
 func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testing.T) {
-	for _, variant := range []string{"review", "extraction", "Git authority", "credential path", "unsafe target", "policy drift", "signals", "drain unknown"} {
+	for _, variant := range []string{"review", "extraction", "Git authority", "credential path", "unsafe target", "policy drift", "signals", "drain unknown", "canonical review", "canonical credential path", "canonical unsafe target"} {
 		t.Run(variant, func(t *testing.T) {
+			kind := strings.TrimPrefix(variant, "canonical ")
 			ctx := context.Background()
 			lease, operator := agyTestNamespace(t)
 			base := credentialSourceTempDir(t)
@@ -414,7 +420,7 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 				t.Fatal(err)
 			}
 			target := filepath.Join(project, "target.txt")
-			if variant == "Git authority" {
+			if kind == "Git authority" {
 				target = filepath.Join(project, "target's file.txt")
 			}
 			if err := os.WriteFile(target, []byte("original source\n"), 0600); err != nil {
@@ -431,7 +437,7 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 			git("init", "--quiet")
 			git("add", filepath.Base(target))
 			git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Baseline")
-			if variant == "Git authority" {
+			if kind == "Git authority" {
 				if err := os.WriteFile(target, []byte("index source\n"), 0600); err != nil {
 					t.Fatal(err)
 				}
@@ -450,7 +456,7 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 			}
 			projectRoot, _ := ports.NewAnchoredRoot(project)
 			selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
-			if variant == "Git authority" {
+			if kind == "Git authority" {
 				selector, _ = ports.NewLiveSourceSelector(domain.LiveSourceStage, "")
 			}
 			source, err := adapter.OpenLiveSource(ctx, projectRoot, selector)
@@ -463,7 +469,7 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			if variant == "unsafe target" {
+			if kind == "unsafe target" {
 				// The workspace symlink appears after admission; the completed
 				// view_file operation on it must fail closed.
 				if err := os.Symlink(filepath.Base(target), filepath.Join(project, "link.txt")); err != nil {
@@ -471,7 +477,7 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 				}
 				target = filepath.Join(project, "link.txt")
 			}
-			if variant == "Git authority" {
+			if kind == "Git authority" {
 				plan, err := agyLiveReadPlan(ctx, execution, false)
 				if err != nil {
 					t.Fatal(err)
@@ -494,6 +500,11 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 						}
 					}
 				}
+				for _, tool := range []string{"view_file", "read_file"} {
+					if authority.allow(ctx, tool, target) == nil {
+						t.Fatal("file read gained authority under a Git-only selection")
+					}
+				}
 				// Admitted and rejected exact Git commands never consult the
 				// source reader.
 				if counted.reads != 0 || counted.admits != 0 {
@@ -508,7 +519,7 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 			}
 			root, identity := testWorkspaceRoot(t)
 			fixture := &currentProbeFixture{root: root, identity: identity}
-			runner := &agyLiveTestRunner{agyProbeRunner: &agyProbeRunner{t: t, fixture: fixture, drift: variant == "policy drift", signaled: variant == "signals", drainUnknown: variant == "drain unknown"}, path: target, rejectPath: variant == "credential path", extraction: variant == "extraction"}
+			runner := &agyLiveTestRunner{agyProbeRunner: &agyProbeRunner{t: t, fixture: fixture, drift: kind == "policy drift", signaled: kind == "signals", drainUnknown: kind == "drain unknown"}, path: target, rejectPath: kind == "credential path", extraction: kind == "extraction", canonical: strings.HasPrefix(variant, "canonical ")}
 			registry := &Registry{runner: runner}
 			purpose := ports.ProviderInvocationInitial
 			if runner.extraction {
@@ -520,11 +531,11 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 				t.Fatal(err)
 			}
 			observation, report, err := registry.runInLiveSource(ctx, definition(d), invocation, execution, invocation.Packet(), lease)
-			if variant != "review" && variant != "extraction" {
+			if kind != "review" && kind != "extraction" {
 				if err == nil || len(report) != 0 {
 					t.Fatal("failed live candidate returned report", err, string(report))
 				}
-				if variant == "unsafe target" || variant == "credential path" {
+				if kind == "unsafe target" || kind == "credential path" {
 					// The failure must come from the completed tool's
 					// admission, not an earlier protocol failure. The
 					// conversation wrapper hides the inner message, so the
@@ -539,14 +550,14 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 					// is rejected by the driver's safe-path boundary before
 					// the reader is consulted.
 					wantAdmits := 1
-					if variant == "credential path" {
+					if kind == "credential path" {
 						wantAdmits = 0
 					}
 					if counted.reads != 0 || counted.admits != wantAdmits {
 						t.Fatalf("%s body reads = %d, admissions = %d; want 0 reads and %d admissions", variant, counted.reads, counted.admits, wantAdmits)
 					}
 					var source *ports.LiveSourceError
-					if variant == "unsafe target" {
+					if kind == "unsafe target" {
 						if !errors.As(err, &source) || source.Code() != ports.LiveSourceUnsafe {
 							t.Fatalf("unsafe target lost its typed source code: %v", err)
 						}
@@ -554,7 +565,7 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 						t.Fatalf("credential path unexpectedly reached the reader: %v", err)
 					}
 				}
-				if variant == "drain unknown" {
+				if kind == "drain unknown" {
 					agyAssertProfileRetained(t, lease)
 				}
 				return
@@ -573,7 +584,7 @@ func TestAgyLiveReviewAndExtractionUseExactPlanAndRejectFailedCandidate(t *testi
 			// The scripted review performs exactly one view_file admission
 			// and never reads the file body; extraction has no tool frames.
 			wantAdmits := 1
-			if variant == "extraction" {
+			if kind == "extraction" {
 				wantAdmits = 0
 			}
 			if counted.reads != 0 || counted.admits != wantAdmits {

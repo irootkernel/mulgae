@@ -128,8 +128,8 @@ func newAgyLiveReadAuthority(ctx context.Context, execution ports.LiveReviewExec
 	return authority, nil
 }
 
-// allow admits one completed native tool operation. view_file is authorized
-// through the source reader under the workspace scope only; run_command must
+// allow admits one completed native tool operation. Both native file-read
+// formats use the source reader under workspace scope only; run_command must
 // match a trusted read-plan Git command byte for byte.
 func (authority *agyLiveReadAuthority) allow(ctx context.Context, tool, operand string) error {
 	if authority == nil {
@@ -144,7 +144,7 @@ func (authority *agyLiveReadAuthority) allow(ctx context.Context, tool, operand 
 			return fmt.Errorf("native command is outside the live read plan")
 		}
 		return nil
-	case "view_file":
+	case "view_file", "read_file":
 		if authority.execution.Target().Selector().Scope() != domain.LiveSourceWorkspace || !validCanonicalAbsolute(operand) {
 			return fmt.Errorf("native operation is outside the live read plan")
 		}
@@ -481,7 +481,7 @@ func (state *agyConversation) handleStepUpdate(ctx context.Context, session *agy
 }
 
 func (state *agyConversation) handleToolStep(ctx context.Context, session *agyProtocolSession, stepIndex int, stepState, toolName string, toolInfo *agyToolInfoFrame) error {
-	if toolName != "view_file" && toolName != "run_command" {
+	if toolName != "view_file" && toolName != "read_file" && toolName != "run_command" {
 		return agyProtocolFailure(domain.DiagnosticCausePermissionDenied, errors.New("disallowed native tool"))
 	}
 	if toolInfo != nil && toolInfo.hasName && toolInfo.name != toolName {
@@ -494,9 +494,15 @@ func (state *agyConversation) handleToolStep(ctx context.Context, session *agyPr
 	if toolInfo != nil {
 		var raw json.RawMessage
 		var present bool
-		if toolName == "view_file" {
+		switch toolName {
+		case "view_file":
 			raw, present = toolInfo.parameters["AbsolutePath"]
-		} else {
+		case "read_file":
+			if len(toolInfo.parameters) != 1 {
+				return agyProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("canonical file read carries unexpected parameters"))
+			}
+			raw, present = toolInfo.parameters["Path"]
+		case "run_command":
 			raw, present = toolInfo.parameters["CommandLine"]
 		}
 		if present && len(raw) != 0 && string(raw) != "null" {

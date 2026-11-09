@@ -113,6 +113,64 @@ func TestGrokACPDriveRequestShapesAndExtractionSelection(t *testing.T) {
 	}
 }
 
+func TestGrokACPDriveBindsEarlyZeroToolInitialization(t *testing.T) {
+	const initialized = `{"jsonrpc":"2.0","method":"_x.ai/mcp_initialized","params":{"sessionId":"session-script","mcpToolCount":0,"elapsedMs":0}}`
+	const message = `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ready"}}}}`
+	for _, early := range []bool{true, false} {
+		name := "after session response"
+		if early {
+			name = "before session response"
+		}
+		t.Run(name, func(t *testing.T) {
+			session := mustGrokSession(t, protocolPurposeQualification)
+			lines := []string{grokInitializeResult, grokAuthResult}
+			if early {
+				lines = append(lines, initialized, grokNewResult)
+			} else {
+				lines = append(lines, grokNewResult, initialized)
+			}
+			lines = append(lines, message, grokPromptResult, grokCloseResult)
+			err, sent := driveGrokScripted(t, session, lines...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !session.mcpObserved || string(session.AssistantEvidenceText()) != "ready" || len(sent) != 5 {
+				t.Fatalf("MCP observation=%t evidence=%q sent=%d", session.mcpObserved, session.AssistantEvidenceText(), len(sent))
+			}
+		})
+	}
+}
+
+func TestGrokACPDriveRejectsUnboundMCPInitialization(t *testing.T) {
+	const initialized = `{"jsonrpc":"2.0","method":"_x.ai/mcp_initialized","params":{"sessionId":"session-script","mcpToolCount":0}}`
+	const foreign = `{"jsonrpc":"2.0","method":"_x.ai/mcp_initialized","params":{"sessionId":"foreign-session","mcpToolCount":0}}`
+	for _, test := range []struct {
+		name  string
+		lines []string
+		cause domain.RuntimeDiagnosticCause
+		sent  int
+	}{
+		{"before authentication", []string{grokInitializeResult, initialized}, domain.DiagnosticCausePermissionDenied, 2},
+		{"active tools before session", []string{grokInitializeResult, grokAuthResult, `{"jsonrpc":"2.0","method":"_x.ai/mcp_initialized","params":{"sessionId":"session-script","mcpToolCount":1}}`, grokNewResult}, domain.DiagnosticCausePermissionDenied, 3},
+		{"missing tool count", []string{grokInitializeResult, grokAuthResult, `{"jsonrpc":"2.0","method":"_x.ai/mcp_initialized","params":{"sessionId":"session-script"}}`, grokNewResult}, domain.DiagnosticCausePermissionDenied, 3},
+		{"missing session", []string{grokInitializeResult, grokAuthResult, `{"jsonrpc":"2.0","method":"_x.ai/mcp_initialized","params":{"mcpToolCount":0}}`, grokNewResult}, domain.DiagnosticCausePermissionDenied, 3},
+		{"mismatched session response", []string{grokInitializeResult, grokAuthResult, foreign, grokNewResult}, domain.DiagnosticCauseOutputEnvelopeInvalid, 3},
+		{"conflicting early identities", []string{grokInitializeResult, grokAuthResult, initialized, foreign, grokNewResult}, domain.DiagnosticCausePermissionDenied, 3},
+		{"missing session response", []string{grokInitializeResult, grokAuthResult, initialized}, domain.DiagnosticCauseProviderTurnFailed, 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := mustGrokSession(t, protocolPurposeQualification)
+			err, sent := driveGrokScripted(t, session, test.lines...)
+			if err == nil || grokCause(t, err) != test.cause {
+				t.Fatalf("error=%v, want cause=%s", err, test.cause)
+			}
+			if len(sent) != test.sent || len(session.AssistantEvidenceText()) != 0 || session.mcpObserved {
+				t.Fatalf("sent=%d, want=%d without prompt or accepted evidence", len(sent), test.sent)
+			}
+		})
+	}
+}
+
 func TestGrokACPDriveAppliesConfiguredSelectionBeforePrompt(t *testing.T) {
 	for _, test := range []struct {
 		name, model, effort, selectedModel string

@@ -1024,7 +1024,7 @@ planned behavior; the dossier maps execution, acceptance and handoff owners.
 | TASK-077 | Completed | Integrate one owned grant lifecycle in the common review execution path. | CLI/foreground/asynchronous MCP acquisition before qualification, protected role/extraction work, renewal, cancellation, terminal release and provider-free exclusions. |
 | TASK-078 | Completed | Complete borrower, uncertainty and failure recovery without duplicate execution. | Identity/deadline negatives, queue timeout/replay, cancellation race, renewal/hold/caller/controller loss and partial-role preservation without cross-run coverage. |
 | TASK-079 | Completed | Qualify complete paired-skill behavior and native configuration/history migration. | All three transports, verified reads, meaningful prior state, preserved provider/role/retry/active-work obligations and full-tree/fresh-session skill checks. |
-| TASK-080 | Planned | Qualify the integrated candidate and reusable dedicated guest. | Applicable deterministic/release/client gates, automatic/manual scenarios, synthetic isolated faults, real cleanup and inventory with explicit gaps. |
+| TASK-080 | Completed | Qualify the integrated candidate and reusable dedicated guest. | Applicable deterministic/release/client gates, automatic/manual scenarios, synthetic isolated faults, real cleanup and inventory with explicit gaps. |
 | TASK-081 | Planned | Verify released delivery, return the producer report and prepare final closeout. | Separate authorized release/effects, exact released CLI/full skill requalification, complete correlated return, durable promotion and approved dossier retirement. |
 
 ### Epic acceptance

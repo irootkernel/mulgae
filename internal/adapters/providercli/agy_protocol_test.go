@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
@@ -151,6 +152,73 @@ func TestAgyProtocolRejectsInvalidFramesAndNeverReturnsPartialEvidence(t *testin
 		}
 	}
 }
+func TestAgyCanonicalFileReadKeepsClosedOperandsAndPurpose(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		parameters map[string]any
+		accepted   bool
+	}{
+		{"Path", map[string]any{"Path": "/source/a"}, true},
+		{"legacy field", map[string]any{"AbsolutePath": "/source/a"}, false},
+		{"mixed fields", map[string]any{"Path": "/source/a", "AbsolutePath": "/source/b"}, false},
+		{"command field", map[string]any{"Path": "/source/a", "CommandLine": "cat /source/a"}, false},
+		{"non-string", map[string]any{"Path": 1}, false},
+		{"missing", map[string]any{}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			info, err := parseAgyToolInfo(agyTestJSON(map[string]any{
+				"name": "read_file", "parameters": test.parameters, "output": "fixture",
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := &agyConversation{tools: make(map[int]*agyToolOperation)}
+			session := &agyProtocolSession{}
+			err = state.handleToolStep(context.Background(), session, 2, "ACTIVE", "read_file", info)
+			if (err == nil) != test.accepted {
+				t.Fatalf("start accepted=%t: %v", test.accepted, err)
+			}
+			if !test.accepted {
+				if len(state.tools) != 0 {
+					t.Fatal("invalid operand acquired a tool identity")
+				}
+				return
+			}
+			// A valid wire operand still grants no qualification/extraction read.
+			err = state.handleToolStep(context.Background(), session, 2, "DONE", "read_file", info)
+			var failure *agyProtocolError
+			if !errors.As(err, &failure) || failure.Cause() != domain.DiagnosticCausePermissionDenied || state.tools[2].done {
+				t.Fatalf("prompt-bound purpose admitted a native file read: %v", err)
+			}
+		})
+	}
+}
+
+func TestAgyCanonicalFileReadRetainsRawToolIdentity(t *testing.T) {
+	state := &agyConversation{tools: make(map[int]*agyToolOperation)}
+	session := &agyProtocolSession{}
+	canonical, err := parseAgyToolInfo(agyTestJSON(map[string]any{
+		"name": "read_file", "parameters": map[string]string{"Path": "/source/a"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.handleToolStep(context.Background(), session, 2, "ACTIVE", "read_file", canonical); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := parseAgyToolInfo(agyTestJSON(map[string]any{
+		"name": "view_file", "parameters": map[string]string{"AbsolutePath": "/source/a"}, "output": "fixture",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = state.handleToolStep(context.Background(), session, 2, "DONE", "view_file", legacy)
+	var failure *agyProtocolError
+	if !errors.As(err, &failure) || failure.Cause() != domain.DiagnosticCausePermissionDenied || state.tools[2].done {
+		t.Fatalf("wire-format switch hid a tool identity change: %v", err)
+	}
+}
+
 func TestAgySettingsAndArgvPreserveNativeSelection(t *testing.T) {
 	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
 		if !validAgySettings("model-1", effort) {

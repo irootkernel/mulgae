@@ -35,9 +35,12 @@ every era, including transitive lineage.
 ## Verification boundary
 
 The complete release gate requires live ZCode and Grok certification. Codex
-keeps deterministic coverage in the mandatory non-live gates. Its live primary
-and secondary credential-profile scenario remains opt-in through
-`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`.
+keeps deterministic coverage in the mandatory non-live gates. Its live
+three-role credential-profile scenario remains opt-in through
+`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in` and certifies the primary Codex
+account (`MULGAE_E2E_CODEX_PRIMARY_HOME`, superseding the earlier live
+secondary-home requirement while runtime multi-profile support stays covered by
+deterministic tests).
 AGY has a separate `make test-agy` single-account exact-candidate gate. It does
 not add another account to the mandatory mixed-provider gate.
 
