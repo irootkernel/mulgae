@@ -12,6 +12,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Preserve cancellation after Haepari acquisition by recording the native reply under a bounded context before cancelling the original request, while retaining genuine storage failures.
 - Preserve the requirements output contract through structured extraction and reformat repair, so supported assessments in accepted role reports can reach native results without conflicting finding-only JSON instructions.
 
 ## v0.1.26 - 2026-10-31

@@ -353,7 +353,9 @@ func (c *ReviewCoordinator) AcquireOrReplay(
 		grantPtr = &grantRef
 	}
 
-	persistedObs, obsErr := c.intentStore.UpdateObservation(ctx, req.Root, req.SessionID, req.RunID, reply, observedAt)
+	persist, done := context.WithTimeout(context.WithoutCancel(ctx), coordinationCallBudget)
+	persistedObs, obsErr := c.intentStore.UpdateObservation(persist, req.Root, req.SessionID, req.RunID, reply, observedAt)
+	done()
 	if obsErr != nil {
 		knownRecordCopy := knownRecord
 		replyCopy := reply
