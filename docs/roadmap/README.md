@@ -1013,10 +1013,19 @@ one native Haepari advisory grant, with installed migration, recovery and result
 retrieval qualified in the dedicated guest. External consumer identity:
 `aquarium:EPIC-032/TASK-092`.
 
-This adoption defines work only. Runtime implementation, release, installed
-qualification and Aquarium acceptance are pending. The
-[coordination specification](../specs/haepari-review-coordination.md) owns the
-planned behavior; the dossier maps execution, acceptance and handoff owners.
+The [v0.1.27 release](https://github.com/irootkernel/mulgae/releases/tag/v0.1.27)
+ships native advisory coordination and the complete paired skill. Installed CLI,
+foreground and asynchronous MCP, migration and fresh Codex skill discovery were
+verified in UTM, and the correlated producer report was delivered. Master approved
+direct SSH/Aqua qualification and reuse of the passing `make test` run, with the
+four remaining provider/client targets run separately. These release-specific
+exceptions leave native outer VM Job/manual/export and global VM exclusivity
+unverified. The [coordination specification](../specs/haepari-review-coordination.md)
+owns behavior. Native scenarios ran on the tag-built functional qualification
+binary; the public Go-install binary received identity, version and source checks
+only. Durable promotion and dossier retirement are prepared and remain gated to
+Epic closeout. Assembled Epic assessment, overall acceptance and Aquarium consumer
+acceptance remain separate.
 
 | Task | Status | Objective | Verification |
 |---|---|---|---|
@@ -1025,7 +1034,7 @@ planned behavior; the dossier maps execution, acceptance and handoff owners.
 | TASK-078 | Completed | Complete borrower, uncertainty and failure recovery without duplicate execution. | Identity/deadline negatives, queue timeout/replay, cancellation race, renewal/hold/caller/controller loss and partial-role preservation without cross-run coverage. |
 | TASK-079 | Completed | Qualify complete paired-skill behavior and native configuration/history migration. | All three transports, verified reads, meaningful prior state, preserved provider/role/retry/active-work obligations and full-tree/fresh-session skill checks. |
 | TASK-080 | Completed | Qualify the integrated candidate and reusable dedicated guest. | Applicable deterministic/release/client gates, automatic/manual scenarios, synthetic isolated faults, real cleanup and inventory with explicit gaps. |
-| TASK-081 | Planned | Verify released delivery, return the producer report and prepare final closeout. | Separate authorized release/effects, exact released CLI/full skill requalification, complete correlated return, durable promotion and approved dossier retirement. |
+| TASK-081 | Completed | Verify released delivery, return the producer report and prepare final closeout. | Separate authorized release/effects, exact released CLI/full skill requalification, complete correlated return, durable promotion and approved dossier retirement. |
 
 ### Epic acceptance
 
