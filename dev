@@ -1,0 +1,140 @@
+#!/bin/sh
+# Repository-owned toolchain selection. Only "install" may provision runtimes.
+set -eu
+fail() { printf 'toolchain: %s\n' "$*" >&2; exit 2; }
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+PIN_FILE="$ROOT/tools/toolchains.env"
+test -f "$PIN_FILE" || fail "missing $PIN_FILE"
+GO_VERSION= PYTHON_VERSION= PRIOR_GO_VERSION=
+while IFS= read -r line || test -n "$line"; do
+    case "$line" in ''|'#'*) continue;; esac
+    key=${line%%=*}; value=${line#*=}
+    printf '%s\n' "$value" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || fail "invalid exact version for $key"
+    case "$key" in
+        GO_VERSION) test -z "$GO_VERSION" || fail "duplicate $key"; GO_VERSION=$value;;
+        PYTHON_VERSION) test -z "$PYTHON_VERSION" || fail "duplicate $key"; PYTHON_VERSION=$value;;
+        PRIOR_GO_VERSION) test -z "$PRIOR_GO_VERSION" || fail "duplicate $key"; PRIOR_GO_VERSION=$value;;
+        *) fail "unknown declaration $key";;
+    esac
+done < "$PIN_FILE"
+test -n "$GO_VERSION" && test -n "$PYTHON_VERSION" && test -n "$PRIOR_GO_VERSION" || fail "incomplete $PIN_FILE"
+
+# Version and discovery probes are bounded even for a broken launcher.
+probe() (
+    scratch=$(/usr/bin/mktemp -d /tmp/mulgae-toolchain-probe.XXXXXX) || exit 2
+    command_pid= timer_pid=
+    cleanup() {
+        test -z "$command_pid" || kill "$command_pid" 2>/dev/null || :
+        test -z "$timer_pid" || kill "$timer_pid" 2>/dev/null || :
+        test -z "$timer_pid" || wait "$timer_pid" 2>/dev/null || :
+        /bin/rm -rf "$scratch"
+    }
+    trap cleanup EXIT
+    trap 'exit 2' HUP INT TERM
+    "$@" > "$scratch/out" 2> "$scratch/err" & command_pid=$!
+    (
+        /bin/sleep 10 & sleeper=$!
+        trap 'kill "$sleeper" 2>/dev/null || :; exit' TERM INT HUP
+        wait "$sleeper"
+        : > "$scratch/timeout"
+        kill -TERM "$command_pid" 2>/dev/null || :
+        /bin/sleep 1 & sleeper=$!
+        wait "$sleeper"
+        kill -KILL "$command_pid" 2>/dev/null || :
+    ) & timer_pid=$!
+    status=0; wait "$command_pid" || status=$?
+    command_pid=
+    kill "$timer_pid" 2>/dev/null || :
+    wait "$timer_pid" 2>/dev/null || :
+    timer_pid=
+    test ! -e "$scratch/timeout" || { echo 'toolchain: discovery/version probe timed out' >&2; exit 2; }
+    if test "$status" != 0; then cat "$scratch/err" >&2; exit "$status"; fi
+    cat "$scratch/out"
+)
+
+mise_command() (
+    manager=$(command -v mise) || fail "mise is required; install it explicitly with: brew install mise"
+    # Do not load project/ancestor/global config or installation hooks/packages.
+    cd /
+    exec /usr/bin/env -i HOME="$HOME" PATH="$PATH" \
+        MISE_DATA_DIR="${MISE_DATA_DIR:-$HOME/.local/share/mise}" \
+        MISE_GLOBAL_CONFIG_FILE="$ROOT/tools/mise.toml" MISE_SYSTEM_CONFIG_FILE="$ROOT/tools/mise.toml" \
+        MISE_CEILING_PATHS=/ MISE_NO_ENV=1 MISE_NO_HOOKS=1 \
+        MISE_AUTO_INSTALL=0 MISE_OFFLINE="${MISE_OFFLINE:-1}" \
+        MISE_PYTHON_COMPILE=0 MISE_GO_SKIP_CHECKSUM=0 \
+        MISE_GO_DEFAULT_PACKAGES_FILE=/dev/null MISE_PYTHON_DEFAULT_PACKAGES_FILE=/dev/null \
+        "$manager" "$@"
+)
+
+resolve() {
+    role=$1
+    case "$role" in
+        go) expected=$GO_VERSION; selected=${MULGAE_GO_EXECUTABLE:-}; tool=go; executable=go;;
+        prior-go) expected=$PRIOR_GO_VERSION; selected=${MULGAE_PRIOR_GO_EXECUTABLE:-}; tool=go; executable=go;;
+        python) expected=$PYTHON_VERSION; selected=${MULGAE_PYTHON_EXECUTABLE:-}; tool=python; executable=python3;;
+        *) fail "unknown tool $role";;
+    esac
+    if test -z "$selected"; then
+        install_dir=$(probe mise_command where "core:$tool@$expected") || fail "$role $expected is not installed; run make toolchain-install or supply its explicit executable path"
+        selected="$install_dir/bin/$executable"
+    fi
+    case "$selected" in /*) ;; *) fail "$role requires an absolute executable path";; esac
+    test -f "$selected" && test -x "$selected" || fail "$role executable unavailable: $selected"
+    actual=$(realpath -- "$selected") || fail "cannot resolve $role executable"
+    unset GOROOT
+    export GOTOOLCHAIN=local GOENV=off GOWORK=off
+    if test "$tool" = go; then
+        observed=$(probe "$actual" version) || fail "$role version probe failed"
+        case "$observed" in "go version go$expected "*) ;; *) fail "$role expected $expected; observed $observed ($actual)";; esac
+        goroot=$(probe "$actual" env GOROOT) || fail "$role GOROOT probe failed"
+        test "$(realpath -- "$goroot/bin/go")" = "$actual" || fail "$role GOROOT does not own selected executable"
+    else
+        unset PYTHONHOME PYTHONPATH PYTHONPLATLIBDIR PYTHONEXECUTABLE __PYVENV_LAUNCHER__
+        observed=$(probe "$actual" -I --version) || fail "Python version probe failed"
+        test "$observed" = "Python $expected" || fail "python expected $expected; observed $observed ($actual)"
+        export PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1
+    fi
+}
+
+command=${1:-help}
+test "$#" = 0 || shift
+case "$command" in
+    help)
+        printf '%s\n' 'Usage: ./dev {go|prior-go|gofmt|python} [args...]' \
+            '       ./dev exec -- command [args...]' \
+            '       ./dev {install|check|path TOOL}' \
+            'Install explicitly with make toolchain-install; see make help.';;
+    install)
+        # Installation has a separate network/effect boundary; never change pins.
+        MISE_OFFLINE=0 mise_command install "core:go@$GO_VERSION" "core:go@$PRIOR_GO_VERSION" "core:python@$PYTHON_VERSION";;
+    check)
+        for role in go python prior-go; do
+            resolve "$role"
+            printf '%s declared=%s observed=%s selected=%s real=%s\n' "$role" "$expected" "$observed" "$selected" "$actual"
+        done;;
+    path)
+        test "$#" = 1 || fail 'path requires one tool'
+        resolve "$1"; printf '%s\n' "$actual";;
+    go|prior-go|python|gofmt)
+        role=$command; test "$role" != gofmt || role=go
+        resolve "$role"
+        if test "$command" = gofmt; then
+            formatter=$(realpath -- "$goroot/bin/gofmt") || fail 'gofmt unavailable'
+            metadata=$(probe "$actual" version -m "$formatter") || fail 'gofmt identity probe failed'
+            first_line=$(printf '%s\n' "$metadata" | head -n 1)
+            case "$first_line" in *": go$expected") ;; *) fail 'gofmt does not match selected Go';; esac
+            actual=$formatter
+        fi
+        PATH="$(dirname -- "$actual"):$PATH"; export PATH
+        exec "$actual" "$@";;
+    exec)
+        test "${1:-}" = -- || fail 'exec requires -- command [args...]'
+        shift; test "$#" -gt 0 || fail 'exec requires a command'
+        resolve python; python_bin=$(dirname -- "$actual")
+        export MULGAE_PYTHON_EXECUTABLE="$actual"
+        resolve go; go_bin=$(dirname -- "$actual")
+        export MULGAE_GO_EXECUTABLE="$actual"
+        PATH="$go_bin:$python_bin:$PATH"; export PATH
+        exec "$@";;
+    *) fail "unknown command $command";;
+esac

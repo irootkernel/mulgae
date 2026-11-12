@@ -154,6 +154,9 @@ and user value to their canonical owners. Closeout removes the dossier and its
 index entry, replaces `Detailed SOT` with `Canonical Outcomes`, and then changes
 epic status. Git preserves the deleted dossier history.
 
+The [development toolchain guide](implementation-tips/toolchains.md) owns exact
+language selection, installation boundaries and the developer command entrypoints.
+
 ## Documentation checks
 
 The repository has no dedicated Markdown linter or documentation test target.

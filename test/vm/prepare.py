@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 
+from haepari_inputs import check_python_entrypoint, require_python, resolve_tool, toolchain_versions
 from haepari_inputs import Refusal, SKILL_SELECTED_FILES, PRIOR_RELEASE_TAG_COMMIT, regular_bytes, _relative_paths, remove_owned_tree, candidate_binary_bytes
 
 
@@ -20,6 +21,8 @@ def git(root: Path, *args: str) -> bytes:
 
 def prepare(root: Path, output: Path, commit: str, go: str, reuse: Path | None = None,
             haepari: Path | None = None) -> dict:
+    toolchains = require_python(root)
+    go = resolve_tool(root, "go", go)
     if not re.fullmatch(r"[0-9a-f]{40}", commit) or git(root, "rev-parse", commit+"^{commit}").decode().strip() != commit:
         raise Refusal("candidate must be an exact commit")
     if output.exists() or not output.is_absolute() or output.parent.resolve() != output.parent:
@@ -34,7 +37,7 @@ def prepare(root: Path, output: Path, commit: str, go: str, reuse: Path | None =
         metadata, raw_name = record.split(b"\t", 1)
         mode, kind, object_id = metadata.split()
         name = raw_name.decode("utf-8")
-        production = (name in {"go.mod", "go.sum", "main.go", "Makefile"}
+        production = (name in {"go.mod", "go.sum", "main.go", "Makefile", "dev", "tools/toolchains.env", "tools/mise.toml"}
                       or name.startswith("assets/") and not name.endswith("_test.go")
                       or name.startswith("internal/") and
                       (name.endswith(".go") and (not name.endswith("_test.go") or name.startswith(("internal/adapters/providercli/", "internal/mcpclientcheck/")))
@@ -77,6 +80,8 @@ def prepare(root: Path, output: Path, commit: str, go: str, reuse: Path | None =
     version = re.search(r"^RELEASE_VERSION := (v[0-9]+\.[0-9]+\.[0-9]+)$", version_text, re.M)
     if not version:
         raise Refusal("candidate Makefile release version is not recognized")
+    if toolchain_versions(output / "source") != toolchains:
+        raise Refusal("candidate declarations differ from the selected preparation toolchain")
     toolchain = subprocess.run([go, "version"], env=env, check=True, capture_output=True, text=True).stdout.strip()
     binary_origin = {"kind": "fresh_go_install"}
     if reuse is None:
@@ -132,7 +137,7 @@ def prepare(root: Path, output: Path, commit: str, go: str, reuse: Path | None =
         "schema": "mulgae.vm-prepared-candidate/v1", "source_commit": commit,
         "version": version[1], "binary_sha256": "sha256:"+hashlib.sha256(binary_bytes).hexdigest(),
         "skill_tree_git_object": git(root, "rev-parse", commit+":skills/use-mulgae").decode().strip(),
-        "go_version": toolchain, "binary_origin": binary_origin, "test_overlay": "working tree; not a committed test revision",
+        "toolchains": toolchains, "go_version": toolchain, "binary_origin": binary_origin, "test_overlay": "working tree; not a committed test revision",
         "test_base_commit": git(root, "rev-parse", "HEAD").decode().strip(),
         "production_inputs": production_hashes,
         "native_controller_sha256": native_controller_sha256,
@@ -156,7 +161,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--commit", required=True)
-    parser.add_argument("--go", default="go")
+    parser.add_argument("--go", default="", help="Explicit exact-version Go executable; otherwise resolve the project pin")
     parser.add_argument("--haepari", default="", help="Stage this released controller in the private test fixture; never install it globally")
     parser.add_argument("--reuse-prepared", default="", help="Reuse an artifact only when its exact production inputs and toolchain match")
     args = parser.parse_args()
@@ -172,4 +177,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    check_python_entrypoint()
     raise SystemExit(main())

@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from haepari_inputs import check_python_entrypoint
 from haepari_inputs import (
     DEFAULT_SELECTED_FILES,
     DEFAULT_SUITES,
@@ -418,7 +419,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--request",
         default=os.environ.get("REQUEST") or "",
-        help="Path to external non-secret mulgae.haepari-vm-request/v1 JSON document",
+        help="Path to external non-secret mulgae.haepari-vm-request/v2 JSON document",
     )
     parser.add_argument(
         "--manual-complete-input",
@@ -467,7 +468,7 @@ def run(argv: list[str] | None = None) -> int:
         raise Refusal("suites must be a non-empty object")
 
     if not args.request:
-        raise Refusal("REQUEST (--request) is required: supply an external mulgae.haepari-vm-request/v1 JSON file")
+        raise Refusal("REQUEST (--request) is required: supply an external mulgae.haepari-vm-request/v2 JSON file")
     request_path = Path(args.request)
     if not request_path.is_absolute():
         request_path = (Path.cwd() / request_path).resolve()
@@ -617,4 +618,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    check_python_entrypoint()
     sys.exit(main())

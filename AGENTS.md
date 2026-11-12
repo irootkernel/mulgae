@@ -283,15 +283,15 @@ the runtime sources of truth. Apply these rules when sources disagree:
   there is no `assets.zip` build product.
 - Never hand-edit `CHECKSUMS.sha256` or another derived output. Change the
   canonical asset and run its documented generator.
-- Use `go generate ./internal/app/init` for init schema sections and golden data,
-  and `go generate ./internal/builtin` for embedded-asset checksums.
+- Use `./dev go generate ./internal/app/init` for init schema sections and golden data,
+  and `./dev go generate ./internal/builtin` for embedded-asset checksums.
 - Every schema requires exactly one paired valid example plus semantic tests in
   the owning application package.
 - Run both generators twice when changing embedded assets. The second run must
   leave the worktree unchanged.
 - Keep local state, provider credentials, review artifacts, exports, temporary
   workspaces, and test evidence out of source control. The only trackable
-  development-tool state is `.mulgae/config.yaml`, `.gaori/tester.yaml`,
+  Aquarium development-tool state is `.mulgae/config.yaml`, `.gaori/tester.yaml`,
   `.gaori/tester/rules/*.yaml`, `.podway/config.yaml`, `.podway/.gitignore`, and
   `.podway/procedures/*.yaml`. Never commit `.mulgae/local.yaml`, any other
   `.mulgae/**` path, `.gaori/toolchain.yaml`, `.gaori/rule-proposals/`,
@@ -337,6 +337,16 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
 ### Project-Specific Operating Rules
 
 #### Verification
+
+- `tools/toolchains.env` owns exact current Go, Python and historical-rebuild Go
+  versions. Use `./dev go`, `./dev python`, `./dev exec -- ...` or the owning Make
+  target. Read `docs/implementation-tips/toolchains.md` for setup and upgrades.
+- Ordinary execution must fail on missing or mismatched runtimes. Never install
+  implicitly or replace a pin with the system version. `make toolchain-install`
+  is the separate explicit installation entrypoint; it requires an installed mise.
+- Preserve the distinction between exact execution pins, the `go.mod` minimum,
+  dependencies and historical evidence. Do not upgrade the historical compiler
+  when changing the current development compiler.
 
 - Run an exact focused test first when practical. Use an explicit package and
   anchored `-run` expression for a dynamically selected Go test.
@@ -422,7 +432,7 @@ For a dynamically selected Go test, use an explicit parser and tags:
 
 ```bash
 gaori run --parser go-test --tag go --tag unit -- \
-  go test -count=1 <package> -run '<pattern>'
+  ./dev go test -count=1 <package> -run '<pattern>'
 ```
 
 Use the locally installed Gaori without enforcing a specific version. Configured

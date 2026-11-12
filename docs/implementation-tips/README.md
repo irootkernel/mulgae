@@ -3,7 +3,7 @@
 ## Requirements
 
 - macOS on Apple silicon for the complete release gate
-- Go 1.27.1 or newer
+- The exact development Go and Python versions in `tools/toolchains.env`
 - Git
 - a ZCode app bundle with a current Z.AI Individual Coding Plan connection for
   the mandatory live tests, plus an authenticated Grok installation for
@@ -24,6 +24,10 @@ launcher reports protocol version 0.16.5; provider qualification observes that
 launcher value, so its minimum and verified-latest guidance remain 0.16.5.
 App releases above 3.12.3 and launcher protocol releases above 0.16.5 remain
 eligible as `newer_than_verified`; the two version axes are never substituted.
+
+See [development toolchains](toolchains.md) for explicit installation, executable
+selection, command usage and version upgrades. Run `make toolchain-check` before
+verification.
 
 ## Verification simplification
 
@@ -67,7 +71,11 @@ The complete deterministic offline development gate is:
 make test-offline
 ```
 
-It runs `test-prepare`, `test-unit`, and `test-int` once each in order and
+`test-prepare` runs code generation, automatically formats project Go files with
+the pinned gofmt, then runs lint and static checks. Use `make fmt` to format only,
+or `make fmt-check` to check formatting without rewriting files.
+
+The offline gate runs `test-prepare`, `test-unit`, and `test-int` once each in order and
 stops on the first failure without invoking release or live-provider targets.
 
 The mandatory live gate uses its existing bounded whole-review retry helper.
@@ -88,7 +96,7 @@ Vulnerability scanning is separate from `make test` and `make test-prepare`.
 Run it manually with the module's declared tool:
 
 ```bash
-go tool govulncheck ./...
+make vuln-check
 ```
 
 The scan reports findings independently of the test gate. Passing `make test`
@@ -335,7 +343,7 @@ For a focused Go test that is not configured, select the parser explicitly:
 
 ```bash
 gaori run --parser go-test --tag go --tag unit -- \
-  go test -count=1 ./internal/app/reviewrun -run '^TestQualifiedPlanner'
+  ./dev go test -count=1 ./internal/app/reviewrun -run '^TestQualifiedPlanner'
 ```
 
 Gaori emits no running heartbeat. A long period without console output can be
@@ -378,18 +386,18 @@ needs a separately identified regression and its intended-behavior source.
 Run each focused command on one physical line:
 
 ```sh
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestReviewRequestTransportCharacterization$'
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestReviewPolicyRepeatedResolutionCharacterization$'
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestRejectedInitOutputModes$'
-go test -count=1 ./internal/entrypoint/mcp -run '^TestReviewToolTransportCharacterization$'
-go test -count=1 ./internal/entrypoint/mcp -run '^TestServePartialToolConfiguration$'
-go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPRequestIdentityAdmission$'
-go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPLifecycleAndResultBounds$'
-go test -count=1 ./internal/entrypoint/mcp -run '^TestReviewMappingDirectCompatibility$'
-go test -count=1 ./internal/composition -run '^TestMCPReviewRequestMappingCompatibility$'
-go test -count=1 ./internal/app/reviewrun -run '^TestReviewRequestAdmissionCompatibility$'
-go test -count=1 ./test/e2e -run '^TestVerifiedWorkflowFrozenConsumers$'
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationHistoricalCorpusConsumers$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestReviewRequestTransportCharacterization$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestReviewPolicyRepeatedResolutionCharacterization$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestRejectedInitOutputModes$'
+./dev go test -count=1 ./internal/entrypoint/mcp -run '^TestReviewToolTransportCharacterization$'
+./dev go test -count=1 ./internal/entrypoint/mcp -run '^TestServePartialToolConfiguration$'
+./dev go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPRequestIdentityAdmission$'
+./dev go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPLifecycleAndResultBounds$'
+./dev go test -count=1 ./internal/entrypoint/mcp -run '^TestReviewMappingDirectCompatibility$'
+./dev go test -count=1 ./internal/composition -run '^TestMCPReviewRequestMappingCompatibility$'
+./dev go test -count=1 ./internal/app/reviewrun -run '^TestReviewRequestAdmissionCompatibility$'
+./dev go test -count=1 ./test/e2e -run '^TestVerifiedWorkflowFrozenConsumers$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationHistoricalCorpusConsumers$'
 ```
 
 ## Status acquisition and failure selection controls
@@ -477,26 +485,26 @@ Argument and incoming-frame limits remain separate.
 Run each focused command on one physical line:
 
 ```sh
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusMissingErrorCharacterization$'
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusStrictMissingOnlyRegression$'
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusMixedPublicationFailureRegression$'
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestG006OperationalFailureExitPrecedence$'
-go test -count=1 ./internal/app -run '^TestFailurePrecedenceIsExactAndClosed$'
-go test -count=1 ./internal/app -run '^TestFailureSelectionCompatibility$'
-go test -count=1 ./internal/app/runstatus -run '^TestStatusAcquisitionCompatibility$'
-go test -count=1 ./internal/app/reviewrun -run '^TestReviewPreparationClassificationDefersToDiagnosticPersistenceFailure$'
-go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus$'
-go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunMergesSessionBoundDiagnosticSummary$'
-go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity$'
-go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunPreservesSoleDiagnosticCancellation$'
-go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusDiagnosticEligibilityCompatibility$'
-go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPLifecycleAndResultBounds$'
-go test -count=1 ./internal/entrypoint/mcp -run '^TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation$'
-go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPStatusFailureCharacterization$'
-go test -count=1 ./internal/composition -run '^TestMCPStatusAcquisitionCharacterization$'
-go test -race -count=1 ./internal/architecture -run '^TestProductionDependencyDirection$'
-go test -race -count=1 ./internal/architecture -run '^TestMCPContractProjectionOwnership$'
-go test -race -count=1 ./internal/architecture -run '^TestWireLeafDependencyDirection$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusMissingErrorCharacterization$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusStrictMissingOnlyRegression$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusMixedPublicationFailureRegression$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestG006OperationalFailureExitPrecedence$'
+./dev go test -count=1 ./internal/app -run '^TestFailurePrecedenceIsExactAndClosed$'
+./dev go test -count=1 ./internal/app -run '^TestFailureSelectionCompatibility$'
+./dev go test -count=1 ./internal/app/runstatus -run '^TestStatusAcquisitionCompatibility$'
+./dev go test -count=1 ./internal/app/reviewrun -run '^TestReviewPreparationClassificationDefersToDiagnosticPersistenceFailure$'
+./dev go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunFallsBackOnlyToSafeDiagnosticStatus$'
+./dev go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunMergesSessionBoundDiagnosticSummary$'
+./dev go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunReportsUnavailableDiagnosticIdentity$'
+./dev go test -count=1 ./internal/composition -run '^TestMCPBackendGetRunPreservesSoleDiagnosticCancellation$'
+./dev go test -count=1 ./internal/entrypoint/mulgae -run '^TestStatusDiagnosticEligibilityCompatibility$'
+./dev go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPLifecycleAndResultBounds$'
+./dev go test -count=1 ./internal/entrypoint/mcp -run '^TestPublicToolErrorUsesFailurePrecedenceBeforeCancellation$'
+./dev go test -count=1 ./internal/entrypoint/mcp -run '^TestMCPStatusFailureCharacterization$'
+./dev go test -count=1 ./internal/composition -run '^TestMCPStatusAcquisitionCharacterization$'
+./dev go test -race -count=1 ./internal/architecture -run '^TestProductionDependencyDirection$'
+./dev go test -race -count=1 ./internal/architecture -run '^TestMCPContractProjectionOwnership$'
+./dev go test -race -count=1 ./internal/architecture -run '^TestWireLeafDependencyDirection$'
 ```
 
 Inspect new application imports directly for forbidden entrypoint, adapter and
@@ -529,31 +537,31 @@ complement each other; these focused checks supplement the standard local gates.
 Ownership guards and their controls:
 
 ```sh
-go test -p 1 -race -count=1 ./internal/architecture -run '^(TestEstablishedOwnershipDependencyDirection|TestTypedReviewRequestOwnership|TestMCPParserRouteOwnership|TestEstablishedOwnershipDependencyControls|TestTypedReviewRequestOwnershipControls|TestMCPParserRouteControls|TestOwnershipInspectionFailures|TestTestSupportDependencyControls|TestTestSupportDependencyDirection)$'
+./dev go test -p 1 -race -count=1 ./internal/architecture -run '^(TestEstablishedOwnershipDependencyDirection|TestTypedReviewRequestOwnership|TestMCPParserRouteOwnership|TestEstablishedOwnershipDependencyControls|TestTypedReviewRequestOwnershipControls|TestMCPParserRouteControls|TestOwnershipInspectionFailures|TestTestSupportDependencyControls|TestTestSupportDependencyDirection)$'
 ```
 
 After the query excerpt move:
 
 ```sh
-go test -p 1 -race -count=1 ./internal/app/query -run '^(TestReadCommittedListFindingsAndRenderExcerpt|TestRenderExcerptUsesPersistedArtifactAfterRestart|TestRenderExcerptFailsClosedWhenPersistedArtifactIsMissing|TestRenderExcerptRejectsPersistedArtifactCorruption|TestSyntheticExcerptLayoutCapsAggregateAllocation|TestCommittedFindingAndRuntimeSourcesBindEveryAuxiliaryDigest|TestCommittedFindingAndRuntimeSourcesRejectMissingTamperedOrReboundArtifacts|TestHistoricalCorpusRead)$'
+./dev go test -p 1 -race -count=1 ./internal/app/query -run '^(TestReadCommittedListFindingsAndRenderExcerpt|TestRenderExcerptUsesPersistedArtifactAfterRestart|TestRenderExcerptFailsClosedWhenPersistedArtifactIsMissing|TestRenderExcerptRejectsPersistedArtifactCorruption|TestSyntheticExcerptLayoutCapsAggregateAllocation|TestCommittedFindingAndRuntimeSourcesBindEveryAuxiliaryDigest|TestCommittedFindingAndRuntimeSourcesRejectMissingTamperedOrReboundArtifacts|TestHistoricalCorpusRead)$'
 ```
 
 After the filesystem document move:
 
 ```sh
-go test -p 1 -race -count=1 ./internal/adapters/filesystem -run '^(TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON|TestPublicationSchemaSelectionPreservesArtifactFamily|TestSupportIndexDecoderDiagnostics|TestPublicationStorePreparesCommitsAndRecoversFromDisk|TestPublicationStoreResumesExactPersistedCompositeMembers|TestPublicationStoreRejectsRecoveryAmbiguityAndDestinationCollision)$'
+./dev go test -p 1 -race -count=1 ./internal/adapters/filesystem -run '^(TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON|TestPublicationSchemaSelectionPreservesArtifactFamily|TestSupportIndexDecoderDiagnostics|TestPublicationStorePreparesCommitsAndRecoversFromDisk|TestPublicationStoreResumesExactPersistedCompositeMembers|TestPublicationStoreRejectsRecoveryAmbiguityAndDestinationCollision)$'
 ```
 
 After the CLI doctor move:
 
 ```sh
-go test -p 1 -race -count=1 ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestDoctorProvidersConformanceCompatibility|TestProvidersCharacterization|TestDoctorProvidersNativeHomeReplacementRegression|TestDoctorProvidersNativeHomeCancellationProjection|TestLocalDoctorHumanOutputIsANSIFreeAndUsesFixedInventory)$'
+./dev go test -p 1 -race -count=1 ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestDoctorProvidersConformanceCompatibility|TestProvidersCharacterization|TestDoctorProvidersNativeHomeReplacementRegression|TestDoctorProvidersNativeHomeCancellationProjection|TestLocalDoctorHumanOutputIsANSIFreeAndUsesFixedInventory)$'
 ```
 
 After each move:
 
 ```sh
-go test -p 1 -race -count=1 ./internal/architecture
+./dev go test -p 1 -race -count=1 ./internal/architecture
 ```
 
 ## Changing embedded assets
@@ -571,8 +579,8 @@ enter the checksum inventory. Included assets must remain regular files; symboli
 links and other non-regular entries are rejected.
 
 ```bash
-go generate ./internal/app/init
-go generate ./internal/builtin
+./dev go generate ./internal/app/init
+./dev go generate ./internal/builtin
 ```
 
 The first generator maintains init schema sections and golden data. The second
@@ -667,7 +675,7 @@ operator's project or provider state as the disposable target.
 Run the complete focused set explicitly after supplying those Codex variables:
 
 ```bash
-go test -count=1 -tags=liveprovider ./internal/adapters/providercli \
+./dev go test -count=1 -tags=liveprovider ./internal/adapters/providercli \
   -run '^TestLive(Neutral(ReviewReports|ExtractionReports|ReviewConcurrentCancellation|CredentialBoundary)|(ZCode|Grok)NeutralKernelProtection)$' -v
 ```
 
@@ -775,15 +783,15 @@ Default test selections omit files behind additional build tags. Check the
 supported tagged sets from the repository root:
 
 ```sh
-go vet -tags=liveprovider ./...
-go vet -tags=live_e2e ./test/e2e
-go vet -tags="live_e2e live_grok" ./test/e2e
-go vet -tags="live_e2e live_cursor" ./test/e2e
-go vet -tags="live_e2e live_agy" ./test/e2e
-go vet -tags="live_e2e live_e2e_opt_in" ./test/e2e
-go vet -tags=releasecheck ./internal/releasecheck
-go vet -tags=mcpclientcheck ./internal/mcpclientcheck
-go vet -tags="mcpclientcheck requirementsclientcheck" ./internal/mcpclientcheck
+./dev go vet -tags=liveprovider ./...
+./dev go vet -tags=live_e2e ./test/e2e
+./dev go vet -tags="live_e2e live_grok" ./test/e2e
+./dev go vet -tags="live_e2e live_cursor" ./test/e2e
+./dev go vet -tags="live_e2e live_agy" ./test/e2e
+./dev go vet -tags="live_e2e live_e2e_opt_in" ./test/e2e
+./dev go vet -tags=releasecheck ./internal/releasecheck
+./dev go vet -tags=mcpclientcheck ./internal/mcpclientcheck
+./dev go vet -tags="mcpclientcheck requirementsclientcheck" ./internal/mcpclientcheck
 ```
 
 These commands compile and type-check the tagged source without running live
@@ -820,11 +828,11 @@ below cover the approved conformance corrections; no control certifies live
 providers.
 
 ```sh
-go test -count=1 -v ./internal/app/config -run '^(TestLocalityAdmissionSequence|TestNativeAccountAdmissionCompatibility|TestServiceResolvesCanonicalConfigV2Pair|TestBundleSHA256BindsAuthorityOrderAndBoundaries)$'
-go test -count=1 -v ./internal/app/init -run '^(TestInitializeProjectRejectsExistingConfigBeforeDiscovery|TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem|TestInitializeProjectRejectsSameByteConfigIdentitySubstitution|TestInitializeProjectRequiresTerminalLocalityRevalidation|TestInitializeProjectRejectsConfigMutationAfterTerminalAttestation)$'
-go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestAdmissionSequenceCharacterization|TestDoctorProvidersConformanceCompatibility|TestApplicationConfigRejectsNativeAccountAndIdentityMismatch|TestApplicationNativeHomeCancellationUsesExitNine|TestRejectedInitOutputModes)$'
-go test -count=1 -v ./internal/composition -run '^(TestProductionLivePreflightPreservesIndependentBindingAndConfigIdentity|TestProductionConfigCredentialFailuresRemainSecurityFailures|TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation)$'
-go test -count=1 -v ./internal/architecture -run '^TestProductionDependencyDirection$'
+./dev go test -count=1 -v ./internal/app/config -run '^(TestLocalityAdmissionSequence|TestNativeAccountAdmissionCompatibility|TestServiceResolvesCanonicalConfigV2Pair|TestBundleSHA256BindsAuthorityOrderAndBoundaries)$'
+./dev go test -count=1 -v ./internal/app/init -run '^(TestInitializeProjectRejectsExistingConfigBeforeDiscovery|TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem|TestInitializeProjectRejectsSameByteConfigIdentitySubstitution|TestInitializeProjectRequiresTerminalLocalityRevalidation|TestInitializeProjectRejectsConfigMutationAfterTerminalAttestation)$'
+./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestAdmissionSequenceCharacterization|TestDoctorProvidersConformanceCompatibility|TestApplicationConfigRejectsNativeAccountAndIdentityMismatch|TestApplicationNativeHomeCancellationUsesExitNine|TestRejectedInitOutputModes)$'
+./dev go test -count=1 -v ./internal/composition -run '^(TestProductionLivePreflightPreservesIndependentBindingAndConfigIdentity|TestProductionConfigCredentialFailuresRemainSecurityFailures|TestProviderSpawnRejectsConfigMutationAfterLocalityAttestation)$'
+./dev go test -count=1 -v ./internal/architecture -run '^TestProductionDependencyDirection$'
 ```
 
 ## Doctor admission compatibility controls
@@ -888,9 +896,9 @@ controls cover init, config and doctor, and do not include providers.
 Run each command on one physical line, and confirm that every named test runs:
 
 ```sh
-go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestAdmissionSequenceCharacterization|TestDoctorProvidersConformanceCompatibility|TestProvidersCharacterization|TestAdmitConfiguredNativeAccount|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
-go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverCursorTupleAndGenericNormalization|TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestObserveNativeHomeIdentityCapturesDescriptorAndDetectsReplacement|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes)$'
-go test -count=1 -v ./internal/composition -run '^TestReviewAdmissionSequenceCharacterization$'
+./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestAdmissionSequenceCharacterization|TestDoctorProvidersConformanceCompatibility|TestProvidersCharacterization|TestAdmitConfiguredNativeAccount|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
+./dev go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverCursorTupleAndGenericNormalization|TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestObserveNativeHomeIdentityCapturesDescriptorAndDetectsReplacement|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes)$'
+./dev go test -count=1 -v ./internal/composition -run '^TestReviewAdmissionSequenceCharacterization$'
 ```
 
 Use the standard checks after focused verification. Tagged compilation does
@@ -904,15 +912,15 @@ shared LocalService used by doctor and providers; keep the earlier M1/M2
 commands alongside them.
 
 ```sh
-go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorProvidersNativeHomeReplacementRegression|TestDoctorProvidersNativeHomeCancellationProjection)$'
-go test -count=1 -v ./internal/adapters/environment -run '^TestProviderVersionObserverCursorCompatibility$'
-go test -count=1 -v ./internal/entrypoint/mulgae -run '^TestDoctorProvidersProductionCursorCompatibility$'
-go test -count=1 -v ./internal/app/doctor -run '^(TestLocalDoctorAdmissionSequence|TestLocalDoctorReadinessCompatibility|TestLocalDoctorRejectsNativeHomeReplacement|TestLocalDoctorCancellationAndEffects)$'
-go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestDoctorProvidersConformanceCompatibility|TestApplicationDoctorReportsStableBinaryAvailabilityReasons|TestApplicationDoctorClassifiesProviderCLIVersionOutcomes|TestApplicationDoctorNeverInvokesLiveHeartbeatService|TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
-go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes|TestProviderVersionObserverAdmitsAgyOfflineVersion|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestSpawnVerifierRejectsZCodeProviderConfigDrift|TestApplicationMetadataObservationBindsShortVersionAndDigest)$'
-go test -count=1 -v ./internal/app/reviewrun -run '^(TestClassifyVersion|TestCursorDateHashGuidanceIgnoresHashOrder)$'
-go test -count=1 -v ./internal/architecture -run '^TestProductionDependencyDirection$'
-go test -count=1 -v ./internal/entrypoint/mulgae -run '^TestDoctorCursorProductionVersionPolicy$'
+./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorProvidersNativeHomeReplacementRegression|TestDoctorProvidersNativeHomeCancellationProjection)$'
+./dev go test -count=1 -v ./internal/adapters/environment -run '^TestProviderVersionObserverCursorCompatibility$'
+./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^TestDoctorProvidersProductionCursorCompatibility$'
+./dev go test -count=1 -v ./internal/app/doctor -run '^(TestLocalDoctorAdmissionSequence|TestLocalDoctorReadinessCompatibility|TestLocalDoctorRejectsNativeHomeReplacement|TestLocalDoctorCancellationAndEffects)$'
+./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestDoctorProvidersConformanceCompatibility|TestApplicationDoctorReportsStableBinaryAvailabilityReasons|TestApplicationDoctorClassifiesProviderCLIVersionOutcomes|TestApplicationDoctorNeverInvokesLiveHeartbeatService|TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
+./dev go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes|TestProviderVersionObserverAdmitsAgyOfflineVersion|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestSpawnVerifierRejectsZCodeProviderConfigDrift|TestApplicationMetadataObservationBindsShortVersionAndDigest)$'
+./dev go test -count=1 -v ./internal/app/reviewrun -run '^(TestClassifyVersion|TestCursorDateHashGuidanceIgnoresHashOrder)$'
+./dev go test -count=1 -v ./internal/architecture -run '^TestProductionDependencyDirection$'
+./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^TestDoctorCursorProductionVersionPolicy$'
 ```
 
 ## Runtime wire compatibility controls
@@ -990,25 +998,25 @@ owning review/followup parser cases retain exact scalar and repair assertions.
 Run each command on one physical line:
 
 ```sh
-go test -race -count=1 ./internal/app/validation -run '^TestProviderJSONSurrogateCompatibility$'
-go test -race -count=1 ./internal/app/query -run '^TestStrictObjectCompatibility$'
-go test -race -count=1 ./internal/app/report -run '^TestStrictObjectCompatibility$'
-go test -race -count=1 ./internal/app/publication -run '^(TestRetainedGoldenInventory|TestRetainedRuntimeWireBytes)$'
-go test -race -count=1 ./internal/app/publication -run '^TestSupportIndexDecoderDiagnostics$'
-go test -race -count=1 ./internal/adapters/filesystem -run '^TestSupportIndexDecoderDiagnostics$'
-go test -race -count=1 ./internal/app/query -run '^(TestRuntimeTargetRetainsArtistPresenceAndConfiguredLargeBriefBytes|TestReadRuntimeTargetLegacyArchiveControls)$'
-go test -race -count=1 ./internal/app/publication -run '^(TestRetainedPublicationDTOBytes|TestRetainedLiveGoldenBytes|TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges)$'
-go test -race -count=1 ./internal/adapters/filesystem -run '^(TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges|TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON)$'
-go test -race -count=1 ./internal/artifactwire -run '^TestArtifactPathGrammarCompatibility$'
-go test -race -count=1 ./internal/ports -run '^(TestPublicationPathContractCompatibility|TestCorruptionDiagnosticWireTypeIdentity|TestClassifyRunSupportArtifactPathRequiresCanonicalRecoveryArtifacts|TestClassifyLiveSupportArtifactPaths)$'
-go test -race -count=1 ./internal/app/publication -run '^(TestPreparedCandidateBuildDeterministicPublicationBundle|TestRetainedLiveManifestRoleReportRecordsTransport|TestRetainedLiveRecoverCorruptionDiagnosticIsIdempotentByEpochAndBytes)$'
-go test -race -count=1 ./internal/app/publication -run '^(TestLivePublicationConstructsSharedSupportOnce|TestBuildAbsentLiveRefusalPreservesProloguePrecedence|TestLiveFirstBindingProloguePrecedenceMatchesBuild|TestLiveBindingMemberPrecedenceMatchesBuild)$'
-go test -race -count=1 ./internal/app/publication -run '^(TestRunSupportContractAcceptsOnlyCanonicalRuntimeInventoryPaths|TestPublicationVariableSizedSupportPathsUseCanonicalKindPolicy)$'
-go test -race -count=1 ./internal/strictjson -run '^TestDecodeObjectCompatibility$'
-go test -race -count=1 ./internal/app/query -run '^(TestDecodeFinalDTORejectsDuplicateUnknownAndTrailingJSON|TestPublicationReceiptBindsOneCompleteObservation|TestFindingCursorRejectsCrossSnapshotQueryAndNoncanonicalValues)$'
-go test -race -count=1 ./internal/app/report -run '^(TestDecodeReportFinalAcceptsRerunSourceAttempt|TestReportFailureReductionUsesOperationalPrecedenceInBothJoinOrders)$'
-go test -race -count=1 ./internal/adapters/jsonschema -run '^(TestValidatorAcceptsExactAuthoritativePairs|TestValidatorStrictJSONDecodeRejectsAmbiguity|TestStrictJSONDecoderDepthUnicodeAndEquivalentKeys)$'
-go test -race -count=1 ./internal/architecture -run '^(TestWireLeafDependencyDirection|TestProductionDependencyDirection|TestTestSupportDependencyDirection)$'
+./dev go test -race -count=1 ./internal/app/validation -run '^TestProviderJSONSurrogateCompatibility$'
+./dev go test -race -count=1 ./internal/app/query -run '^TestStrictObjectCompatibility$'
+./dev go test -race -count=1 ./internal/app/report -run '^TestStrictObjectCompatibility$'
+./dev go test -race -count=1 ./internal/app/publication -run '^(TestRetainedGoldenInventory|TestRetainedRuntimeWireBytes)$'
+./dev go test -race -count=1 ./internal/app/publication -run '^TestSupportIndexDecoderDiagnostics$'
+./dev go test -race -count=1 ./internal/adapters/filesystem -run '^TestSupportIndexDecoderDiagnostics$'
+./dev go test -race -count=1 ./internal/app/query -run '^(TestRuntimeTargetRetainsArtistPresenceAndConfiguredLargeBriefBytes|TestReadRuntimeTargetLegacyArchiveControls)$'
+./dev go test -race -count=1 ./internal/app/publication -run '^(TestRetainedPublicationDTOBytes|TestRetainedLiveGoldenBytes|TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges)$'
+./dev go test -race -count=1 ./internal/adapters/filesystem -run '^(TestM2PublicationObjectCompatibility|TestM2DiagnosticMoveRejectsNonNameChanges|TestPublicationJournalWireRejectsDuplicateUnknownAndTrailingJSON)$'
+./dev go test -race -count=1 ./internal/artifactwire -run '^TestArtifactPathGrammarCompatibility$'
+./dev go test -race -count=1 ./internal/ports -run '^(TestPublicationPathContractCompatibility|TestCorruptionDiagnosticWireTypeIdentity|TestClassifyRunSupportArtifactPathRequiresCanonicalRecoveryArtifacts|TestClassifyLiveSupportArtifactPaths)$'
+./dev go test -race -count=1 ./internal/app/publication -run '^(TestPreparedCandidateBuildDeterministicPublicationBundle|TestRetainedLiveManifestRoleReportRecordsTransport|TestRetainedLiveRecoverCorruptionDiagnosticIsIdempotentByEpochAndBytes)$'
+./dev go test -race -count=1 ./internal/app/publication -run '^(TestLivePublicationConstructsSharedSupportOnce|TestBuildAbsentLiveRefusalPreservesProloguePrecedence|TestLiveFirstBindingProloguePrecedenceMatchesBuild|TestLiveBindingMemberPrecedenceMatchesBuild)$'
+./dev go test -race -count=1 ./internal/app/publication -run '^(TestRunSupportContractAcceptsOnlyCanonicalRuntimeInventoryPaths|TestPublicationVariableSizedSupportPathsUseCanonicalKindPolicy)$'
+./dev go test -race -count=1 ./internal/strictjson -run '^TestDecodeObjectCompatibility$'
+./dev go test -race -count=1 ./internal/app/query -run '^(TestDecodeFinalDTORejectsDuplicateUnknownAndTrailingJSON|TestPublicationReceiptBindsOneCompleteObservation|TestFindingCursorRejectsCrossSnapshotQueryAndNoncanonicalValues)$'
+./dev go test -race -count=1 ./internal/app/report -run '^(TestDecodeReportFinalAcceptsRerunSourceAttempt|TestReportFailureReductionUsesOperationalPrecedenceInBothJoinOrders)$'
+./dev go test -race -count=1 ./internal/adapters/jsonschema -run '^(TestValidatorAcceptsExactAuthoritativePairs|TestValidatorStrictJSONDecodeRejectsAmbiguity|TestStrictJSONDecoderDepthUnicodeAndEquivalentKeys)$'
+./dev go test -race -count=1 ./internal/architecture -run '^(TestWireLeafDependencyDirection|TestProductionDependencyDirection|TestTestSupportDependencyDirection)$'
 ```
 
 Run the historical corpus consumers below after each migrated writer/reader
@@ -1064,10 +1072,10 @@ golden files or inline vectors to accommodate a changed implementation.
 Run the focused checks with explicit packages:
 
 ```sh
-go test -race -count=1 ./internal/testsupport/historical -run '^TestHistoricalCorpus(Records|RejectsChecksumMutation)$'
-go test -race -count=1 ./internal/app/query -run '^TestHistoricalCorpus(Read|Recovery|Attempts)$'
-go test -race -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationHistoricalCorpus(Consumers|Recovery|Cleanup)$'
-go test -race -count=1 ./internal/architecture -run '^TestTestSupportDependencyDirection$'
+./dev go test -race -count=1 ./internal/testsupport/historical -run '^TestHistoricalCorpus(Records|RejectsChecksumMutation)$'
+./dev go test -race -count=1 ./internal/app/query -run '^TestHistoricalCorpus(Read|Recovery|Attempts)$'
+./dev go test -race -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationHistoricalCorpus(Consumers|Recovery|Cleanup)$'
+./dev go test -race -count=1 ./internal/architecture -run '^TestTestSupportDependencyDirection$'
 ```
 
 The loader and in-memory checks belong to the unit tier. The filesystem,
@@ -1204,12 +1212,12 @@ lifecycle and CLI/MCP paths. Run each `TASK-076` foundation check on one
 physical line:
 
 ```sh
-go test -race -count=1 ./internal/artifactwire -run '^TestArtifactPathGrammarCompatibility$'
-go test -race -count=1 ./internal/ports -run '^TestReview(Lock|Coordination)'
-go test -race -count=1 ./internal/adapters/filesystem -run '^TestCoordinationIntentStore'
-go test -race -count=1 ./internal/adapters/haepari -run '^Test(ResolveStateRoot|Client)'
-go test -race -count=1 ./internal/app/reviewrun -run '^TestReviewCoordinator'
-go test -race -count=1 ./internal/architecture -run '^(TestWireLeafDependencyDirection|TestProductionDependencyDirection|TestEstablishedOwnershipDependencyDirection|TestTestTierNaming)$'
+./dev go test -race -count=1 ./internal/artifactwire -run '^TestArtifactPathGrammarCompatibility$'
+./dev go test -race -count=1 ./internal/ports -run '^TestReview(Lock|Coordination)'
+./dev go test -race -count=1 ./internal/adapters/filesystem -run '^TestCoordinationIntentStore'
+./dev go test -race -count=1 ./internal/adapters/haepari -run '^Test(ResolveStateRoot|Client)'
+./dev go test -race -count=1 ./internal/app/reviewrun -run '^TestReviewCoordinator'
+./dev go test -race -count=1 ./internal/architecture -run '^(TestWireLeafDependencyDirection|TestProductionDependencyDirection|TestEstablishedOwnershipDependencyDirection|TestTestTierNaming)$'
 ```
 
 Owner and borrower lifecycle tests use an isolated Unix controller under a short
@@ -1233,9 +1241,9 @@ Config v5 inputs need preservation rather than an invented schema conversion.
 The historical corpus retains its separate producer provenance.
 
 ```sh
-go test -race -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationPreExistingProjectMigrationAndHistoryCoexistence$'
-go test -race -count=1 ./test/e2e -run '^TestIntegrationPriorStateCLIAndMCP$'
-go test -tags=releasecheck -race -count=1 ./internal/releasecheck -run '^TestTrackedReleaseSurface$'
+./dev go test -race -count=1 ./internal/entrypoint/mulgae -run '^TestIntegrationPreExistingProjectMigrationAndHistoryCoexistence$'
+./dev go test -race -count=1 ./test/e2e -run '^TestIntegrationPriorStateCLIAndMCP$'
+./dev go test -tags=releasecheck -race -count=1 ./internal/releasecheck -run '^TestTrackedReleaseSurface$'
 ```
 
 The first case compares historical publication and failed-recovery identities,

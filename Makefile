@@ -1,9 +1,17 @@
-GO ?= go
+# Explicit legacy GO/PYTHON paths still pass through the exact-version guard.
+ifdef GO
+export MULGAE_GO_EXECUTABLE := $(GO)
+endif
+ifdef PYTHON
+export MULGAE_PYTHON_EXECUTABLE := $(PYTHON)
+endif
+override GO := "$(CURDIR)/dev" go
+override PYTHON := "$(CURDIR)/dev" python
+# Children inherit the validated executable inputs, never these command strings.
+unexport GO PYTHON
 TEST_TIMEOUT ?= 90m
 RELEASE_VERSION := v0.1.27
 MCP_CLIENT_TAGS := mcpclientcheck
-UNIT_PACKAGES := $(shell $(GO) list ./... | grep -v '/internal/architecture$$')
-PYTHON ?= python3
 HAEPARI ?= haepari
 RESOURCE ?=
 SUITE ?= guest-qualification
@@ -11,7 +19,9 @@ MODE ?= auto
 RUN_DIR ?=
 REQUEST ?=
 
-.PHONY: test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
+.DEFAULT_GOAL := test
+
+.PHONY: help toolchain-install toolchain-check generate fmt fmt-check vuln-check test-toolchain test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
 
 # These inputs are only for the separately admitted, sealed guest owning targets.
 define validate_installed_test_inputs
@@ -41,10 +51,9 @@ test-offline:
 	@printf '%s\n' '[test-offline] completed'
 
 test-prepare:
-	$(GO) generate ./internal/app/init
-	$(GO) generate ./internal/builtin
-	@unformatted="$$(find . -type f -name '*.go' -not -path './vendor/*' -exec gofmt -l {} +)"; \
-		test -z "$$unformatted" || { printf '%s\n' "$$unformatted" >&2; exit 1; }
+	@$(MAKE) test-toolchain
+	@$(MAKE) generate
+	@$(MAKE) fmt
 	$(GO) mod verify
 	$(GO) tool golangci-lint run ./...
 	$(GO) vet ./...
@@ -52,7 +61,9 @@ test-prepare:
 	@printf '%s\n' '[test-prepare] completed'
 
 test-unit:
-	$(GO) test -p 1 -timeout $(TEST_TIMEOUT) -race -count=1 -skip '^TestIntegration' $(UNIT_PACKAGES)
+	@packages="$$($(GO) list ./...)" || exit $$?; \
+		packages="$$(printf '%s\n' "$$packages" | grep -v '/internal/architecture$$')" || exit $$?; \
+		$(GO) test -p 1 -timeout $(TEST_TIMEOUT) -race -count=1 -skip '^TestIntegration' $$packages
 	@printf '%s\n' '[test-unit] completed'
 
 test-int:
@@ -329,7 +340,7 @@ test-vm:
 		--prepared-dir "$(PREPARED_DIR)"
 
 test-vm-guest:
-	@PYTHONDONTWRITEBYTECODE=1 /bin/sh ./test/vm/run.sh "$(SUITE)"
+	@PYTHONDONTWRITEBYTECODE=1 PYTHON="$$("$(CURDIR)/dev" path python)" /bin/sh ./test/vm/run.sh "$(SUITE)"
 
 test-vm-contract:
 	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m unittest discover -s ./test/vm -p 'contract_test.py' -v
@@ -341,3 +352,42 @@ test-vm-driver-compile:
 	trap 'rm -rf "$$vm_compile"' EXIT; \
 	$(GO) test -c -tags=vm_qualification -o "$$vm_compile/qualification.test" ./test/e2e
 	@printf '%s\n' '[test-vm-driver-compile] completed'
+
+help:
+	@printf '%s\n' 'make toolchain-install   Install only the exact declared language versions (requires mise)' \
+	    'make toolchain-check     Show declared/observed versions and executable paths' \
+	    './dev go|python ...      Run a pinned interpreter/compiler' \
+	    './dev exec -- command    Run a command with both pinned runtimes' \
+	    'make generate | fmt | fmt-check | vuln-check' \
+	    'make test-toolchain | test-offline | test-vm-contract | test-vm-driver-compile | test-release' \
+	    'make test                Complete release gate, including live providers'
+
+toolchain-install:
+	@"$(CURDIR)/dev" install
+
+toolchain-check:
+	@"$(CURDIR)/dev" check
+
+generate:
+	$(GO) generate ./internal/app/init
+	$(GO) generate ./internal/builtin
+
+fmt:
+	@files="$$(/usr/bin/mktemp /tmp/mulgae-fmt.XXXXXX)" || exit $$?; \
+		trap '/bin/rm -f "$$files"' EXIT; \
+		git ls-files -z --cached --others --exclude-standard -- '*.go' ':!vendor/**' > "$$files" || exit $$?; \
+		test ! -s "$$files" || xargs -0 "$(CURDIR)/dev" gofmt -w < "$$files"
+
+fmt-check:
+	@files="$$(/usr/bin/mktemp /tmp/mulgae-fmt.XXXXXX)" || exit $$?; \
+		trap '/bin/rm -f "$$files"' EXIT; \
+		git ls-files -z --cached --others --exclude-standard -- '*.go' ':!vendor/**' > "$$files" || exit $$?; \
+		unformatted=""; \
+		if test -s "$$files"; then unformatted="$$(xargs -0 "$(CURDIR)/dev" gofmt -l < "$$files")" || exit $$?; fi; \
+		test -z "$$unformatted" || { printf '%s\n' "$$unformatted" >&2; exit 1; }
+
+vuln-check:
+	$(GO) tool govulncheck ./...
+
+test-toolchain:
+	$(PYTHON) -B ./test/toolchain_contract_test.py

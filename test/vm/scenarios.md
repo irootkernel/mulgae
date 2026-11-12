@@ -64,10 +64,11 @@ converted to manual PASS.
    running candidate init on it. Old v0.1.26 never created native coordination
    intents; record that source-backed absence separately.
 4. `post-manual-cleanup-inventory-check`: close fresh clients and stop/wait
-   every fixture-owned helper. From outside the owned root, run:
+   every fixture-owned helper. From the sealed bundle directory, outside the owned
+   root, run:
 
    ```sh
-   PYTHONDONTWRITEBYTECODE=1 python3 -B test/vm/finalize.py \
+   ./source/dev python -B test/vm/finalize.py \
      --stage <native-workspace>/results/<suite>/manual-staging.json
    ```
 

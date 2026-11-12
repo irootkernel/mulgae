@@ -4,6 +4,11 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ## v0.1.28 - Unreleased
 
+### Changed
+
+- Require pinned Go/Python toolchains for development and VM qualification,
+  migrate VM requests to v2, and automatically format Go files before verification.
+
 ## v0.1.27 - 2026-11-10
 
 ### Changed

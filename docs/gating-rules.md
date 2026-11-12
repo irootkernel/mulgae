@@ -20,15 +20,16 @@ access.
   diagnostic persistence failures remain artifact failures; private causal
   text never reaches public output.
 - **Procedure:** From the repository root, create a fresh mode-`0700` directory
-  matching `/tmp/mulgae-gate-001.XXXXXX`. Set `HOME`, `TMPDIR`, and `GOCACHE`
-  to directories beneath it, set `GOMODCACHE` to the existing value from
-  `go env GOMODCACHE`, and set `GOPROXY=off` and `GOSUMDB=off`. Run these
-  commands in order:
+  matching `/tmp/mulgae-gate-001.XXXXXX`. Before changing `HOME`, export
+  `MULGAE_GO_EXECUTABLE="$(./dev path go)"` and preserve the existing module cache
+  with `GOMODCACHE="$(./dev go env GOMODCACHE)"`. Set `HOME`, `TMPDIR`, and
+  `GOCACHE` to directories beneath the gate root, and set `GOPROXY=off` and
+  `GOSUMDB=off`. Run these commands in order:
 
   ```sh
-  go test -count=1 ./internal/app/reviewrun -run '^(TestReviewPreparationFailureClassificationIsClosedAndRedacted|TestReviewPreparationClassificationPreservesCausalTypedAndCancellationFailures|TestReviewPreparationClassificationDefersToDiagnosticPersistenceFailure|TestCoordinatorAdmissionFailureIsClassifiedBeforeRunStart|TestCoordinatorAdmissionClassificationPreservesCancellation|TestLiveServiceDiagnosticAndLoginFailuresRetainSafeIdentity)$'
-  go test -count=1 ./internal/entrypoint/mulgae -run '^(TestApplicationReviewPreparationFailureIsInternalAndActionable|TestApplicationIndependentCleanupFailureDoesNotSuppressReviewPreparationFailure)$'
-  go test -count=1 ./internal/entrypoint/mcp -run '^(TestPublicToolErrorProjectsReviewPreparationFailure|TestServeRunReviewPreparationFailurePreservesEnvelopeAndIdentity|TestServeAwaitReviewPreparationFailurePreservesEnvelopeAndIdentity)$'
+  ./dev go test -count=1 ./internal/app/reviewrun -run '^(TestReviewPreparationFailureClassificationIsClosedAndRedacted|TestReviewPreparationClassificationPreservesCausalTypedAndCancellationFailures|TestReviewPreparationClassificationDefersToDiagnosticPersistenceFailure|TestCoordinatorAdmissionFailureIsClassifiedBeforeRunStart|TestCoordinatorAdmissionClassificationPreservesCancellation|TestLiveServiceDiagnosticAndLoginFailuresRetainSafeIdentity)$'
+  ./dev go test -count=1 ./internal/entrypoint/mulgae -run '^(TestApplicationReviewPreparationFailureIsInternalAndActionable|TestApplicationIndependentCleanupFailureDoesNotSuppressReviewPreparationFailure)$'
+  ./dev go test -count=1 ./internal/entrypoint/mcp -run '^(TestPublicToolErrorProjectsReviewPreparationFailure|TestServeRunReviewPreparationFailurePreservesEnvelopeAndIdentity|TestServeAwaitReviewPreparationFailurePreservesEnvelopeAndIdentity)$'
   ```
 
   Remove the disposable directory after recording command output and confirm
@@ -70,8 +71,8 @@ access.
   On native Apple Silicon macOS, run:
 
   ```sh
-  go test -v -count=1 ./internal/adapters/providercli -run '^(TestCodexProtocolCompletesOneEphemeralTurn|TestCodexProtocolRejectsActualWriteAuthority|TestZCodeLiveProtocolCorrelatesOwnTurnAndCollectsCompleteReport|TestZCodeLiveExtractionKeepsToolsDisabled|TestZCodeExtractionOmitsToolCallNarration|TestZCodeNonExtractionPreservesToolCallNarration|TestZCodeExtractionRejectsMalformedFinish|TestZCodeLiveProtocolRejectsMissingOwnCompletionAndReport|TestLiveExecutionGuidePlanAndClosedGrokPermissions|TestLiveNeutralProtocolAdmissionClosesUnconsumedDescriptor|TestLiveRuntimeTempRejectsReplacementAndUnsafeDirectory|TestLiveTerminalRevalidationDiscardsChangedSourceAndGuide|TestCredentialSourceProjectsOnlyDeclaredFamilyFiles|TestGrokCredentialProjectionRejectsNonPrivateAuth|TestCodexCredentialProjectionUsesConfiguredCodexHome)$'
-  go test -v -count=1 ./internal/adapters/process -run '^(TestLiveBoundaryDeniesWritesReadsAndAncestorRename|TestLiveBoundaryDeniesCredentialSymlinksToOutsideTargets|TestLiveBoundaryProtectsExoticCredentialPaths|TestLiveBoundaryRejectsSymlinkAndMissingRootsBeforeLaunch|TestLiveBoundaryRejectsPreexistingCredentialHardlink|TestLiveBoundaryDeniesProtectedUnixSockets|TestLiveBoundaryCredentialAdmissionHonorsCancellation|TestLiveBoundaryCredentialAdmissionHonorsDeadline|TestLiveBoundaryRejectsPreexistingWritableHardlink|TestLiveBoundaryRuntimeTempKeepsOverlappingRootsProtected|TestLiveNeutralLaunchRejectsWrongAndReplacedDescriptor|TestLiveBoundaryProtectsMissingOptionalCredentialHomes)$'
+  ./dev go test -v -count=1 ./internal/adapters/providercli -run '^(TestCodexProtocolCompletesOneEphemeralTurn|TestCodexProtocolRejectsActualWriteAuthority|TestZCodeLiveProtocolCorrelatesOwnTurnAndCollectsCompleteReport|TestZCodeLiveExtractionKeepsToolsDisabled|TestZCodeExtractionOmitsToolCallNarration|TestZCodeNonExtractionPreservesToolCallNarration|TestZCodeExtractionRejectsMalformedFinish|TestZCodeLiveProtocolRejectsMissingOwnCompletionAndReport|TestLiveExecutionGuidePlanAndClosedGrokPermissions|TestLiveNeutralProtocolAdmissionClosesUnconsumedDescriptor|TestLiveRuntimeTempRejectsReplacementAndUnsafeDirectory|TestLiveTerminalRevalidationDiscardsChangedSourceAndGuide|TestCredentialSourceProjectsOnlyDeclaredFamilyFiles|TestGrokCredentialProjectionRejectsNonPrivateAuth|TestCodexCredentialProjectionUsesConfiguredCodexHome)$'
+  ./dev go test -v -count=1 ./internal/adapters/process -run '^(TestLiveBoundaryDeniesWritesReadsAndAncestorRename|TestLiveBoundaryDeniesCredentialSymlinksToOutsideTargets|TestLiveBoundaryProtectsExoticCredentialPaths|TestLiveBoundaryRejectsSymlinkAndMissingRootsBeforeLaunch|TestLiveBoundaryRejectsPreexistingCredentialHardlink|TestLiveBoundaryDeniesProtectedUnixSockets|TestLiveBoundaryCredentialAdmissionHonorsCancellation|TestLiveBoundaryCredentialAdmissionHonorsDeadline|TestLiveBoundaryRejectsPreexistingWritableHardlink|TestLiveBoundaryRuntimeTempKeepsOverlappingRootsProtected|TestLiveNeutralLaunchRejectsWrongAndReplacedDescriptor|TestLiveBoundaryProtectsMissingOptionalCredentialHomes)$'
   ```
 
   Remove only the task-owned directory after recording results and confirm that

@@ -19,6 +19,7 @@ import hashlib
 import gzip
 import json
 import os
+import platform
 import re
 import shutil
 import stat
@@ -29,7 +30,7 @@ from typing import Any
 
 HAEPARI_UPSTREAM_SOURCE_COMMIT = "800da97b7e2ca84a15d4ee5921702ec57bbc7d61"
 HAEPARI_UPSTREAM_BUILD_REVISION = "fc3b975f8a99cacb96aecc988d3adbc04dda7309"
-EXECUTION_REQUEST_SCHEMA = "mulgae.haepari-vm-request/v1"
+EXECUTION_REQUEST_SCHEMA = "mulgae.haepari-vm-request/v2"
 BUNDLE_MANIFEST_SCHEMA = "mulgae.haepari-bundle-manifest/v1"
 PRIOR_RELEASE_VERSION = "v0.1.26"
 PRIOR_RELEASE_TAG_COMMIT = "c422590155f62380709c8f6fd08c9ad423badaaa"
@@ -376,7 +377,7 @@ def validate_execution_request(
 ) -> dict[str, Any]:
     req = _require_mapping(request_data, "request")
     if req.get("schema") != EXECUTION_REQUEST_SCHEMA:
-        raise Refusal(f"request.schema must be {EXECUTION_REQUEST_SCHEMA}")
+        raise Refusal(f"request.schema must be {EXECUTION_REQUEST_SCHEMA}; regenerate v1 requests with the current toolchain declarations")
     _reject_embedded_secrets(req)
 
     haepari_cfg = _require_mapping(req.get("haepari"), "request.haepari")
@@ -402,7 +403,9 @@ def validate_execution_request(
         raise Refusal("request.guest.expected_hardware_uuid must be a canonical UUID")
 
     guest_tools = {}
-    for field in ("go_executable", "python_executable"):
+    for field in ("go_executable", "python_executable", "prior_go_executable"):
+        if field not in guest_cfg:
+            raise Refusal(f"request.guest.{field} is required")
         if field in guest_cfg:
             value = _require_non_empty_str(guest_cfg, field, "request.guest")
             if not Path(value).is_absolute() or str(Path(value)) != value:
@@ -450,10 +453,12 @@ def validate_execution_request(
         raise Refusal(f"request.prior_release.tag_commit must be {PRIOR_RELEASE_TAG_COMMIT}")
     if prior_target != PRIOR_RELEASE_INSTALL_TARGET:
         raise Refusal(f"request.prior_release.install_target must be {PRIOR_RELEASE_INSTALL_TARGET}")
-    go_toolchain = _require_non_empty_str(prior_cfg, "go_toolchain", "request.prior_release")
-    go_version = re.fullmatch(r"go1\.([0-9]+)\.([0-9]+)", go_toolchain)
-    if not go_version or tuple(map(int, go_version.groups())) < (27, 1):
-        raise Refusal("prior release requires a declared local Go toolchain >= go1.27.1")
+    toolchains = toolchain_versions(repo_root)
+    if "toolchains" in req and req["toolchains"] != toolchains:
+        raise Refusal("request toolchains differ from the project declarations")
+    go_toolchain = "go" + toolchains["PRIOR_GO_VERSION"]
+    if prior_cfg.get("go_toolchain", go_toolchain) != go_toolchain:
+        raise Refusal("prior release Go differs from the declared prior-release compiler")
     goproxy = _require_non_empty_str(prior_cfg, "goproxy", "request.prior_release")
     network_exposure = _require_non_empty_str(prior_cfg, "network_exposure", "request.prior_release")
 
@@ -507,6 +512,7 @@ def validate_execution_request(
 
     return {
         "schema": EXECUTION_REQUEST_SCHEMA,
+        "toolchains": toolchains,
         "haepari": {
             "executable": executable_path,
             "executable_sha256": executable_sha256,
@@ -650,6 +656,53 @@ def remove_owned_tree(root: Path) -> None:
     shutil.rmtree(root)
 
 
+def toolchain_root() -> Path:
+    base = Path(__file__).resolve().parents[2]
+    return base if (base / "go.mod").is_file() else base / "source"
+
+
+def toolchain_versions(root: Path) -> dict[str, str]:
+    values = {}
+    for line in regular_bytes(root / "tools/toolchains.env").decode().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"(GO_VERSION|PYTHON_VERSION|PRIOR_GO_VERSION)=([0-9]+\.[0-9]+\.[0-9]+)", line)
+        if not match or match[1] in values:
+            raise Refusal("invalid or duplicate exact toolchain declaration")
+        values[match[1]] = match[2]
+    if set(values) != {"GO_VERSION", "PYTHON_VERSION", "PRIOR_GO_VERSION"}:
+        raise Refusal("incomplete toolchain declarations")
+    return values
+
+
+def require_python(root: Path | None = None) -> dict[str, str]:
+    values = toolchain_versions(root or toolchain_root())
+    if platform.python_version() != values["PYTHON_VERSION"]:
+        raise Refusal("Python differs from the exact project pin; invoke through ./dev python")
+    return values
+
+
+def check_python_entrypoint() -> None:
+    try:
+        require_python()
+    except (Refusal, OSError, UnicodeError) as exc:
+        print("refused: " + str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
+
+
+def resolve_tool(root: Path, role: str, executable: str) -> str:
+    names = {"go": "MULGAE_GO_EXECUTABLE", "prior-go": "MULGAE_PRIOR_GO_EXECUTABLE"}
+    env = dict(os.environ)
+    if executable:
+        env[names[role]] = executable
+    try:
+        result = subprocess.run([str(root / "dev"), "path", role], env=env,
+                                capture_output=True, text=True, check=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise Refusal(f"{role} does not satisfy the declared toolchain") from exc
+    return result.stdout.strip()
+
+
 def candidate_binary_bytes(root: Path) -> bytes:
     """Read one sealed candidate representation without changing executable identity."""
     plain = root / "artifacts/mulgae"
@@ -676,6 +729,12 @@ def verify_prepared_candidate(root: Path, request: dict[str, Any]) -> dict[str, 
     if (not isinstance(files, dict) or not files
             or len({"artifacts/mulgae", "artifacts/mulgae.gz"} & set(files)) != 1):
         raise Refusal("prepared candidate file inventory is incomplete")
+    if request.get("schema") == EXECUTION_REQUEST_SCHEMA:
+        required = {"source/dev", "source/tools/toolchains.env", "source/tools/mise.toml"}
+        if (receipt.get("toolchains") != request["toolchains"]
+                or not required.issubset(files)
+                or toolchain_versions(root / "source") != request["toolchains"]):
+            raise Refusal("prepared toolchain declarations or runner inventory differ from the request")
     for name in _relative_paths(list(files)):
         _, path = regular_file(root, name)
         if file_digest(path) != files[name]:
@@ -840,12 +899,12 @@ def job_spec(
         "MULGAE_VM_CANDIDATE_BINARY_SHA256": validated_request["candidate"]["binary_sha256"],
         "MULGAE_VM_SKILL_TREE_OBJECT": validated_request["candidate"]["skill_tree_git_object"],
     }
-    if "python_executable" in validated_request["guest"]:
-        env["PYTHON"] = validated_request["guest"]["python_executable"]
-    if "go_executable" in validated_request["guest"]:
-        go_path = validated_request["guest"]["go_executable"]
-        env["MULGAE_VM_GO_EXECUTABLE"] = go_path
-        env["PATH"] = str(Path(go_path).parent) + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    tools = validated_request["guest"]
+    env.update(PYTHON=tools["python_executable"],
+               MULGAE_PYTHON_EXECUTABLE=tools["python_executable"],
+               MULGAE_GO_EXECUTABLE=tools["go_executable"],
+               MULGAE_PRIOR_GO_EXECUTABLE=tools["prior_go_executable"])
+    env["PATH"] = str(Path(tools["go_executable"]).parent) + ":" + str(Path(tools["python_executable"]).parent) + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     deadlines = {
         "queue_seconds": 30,
         "prepare_seconds": duration_seconds(timeouts["prepare"]),
@@ -917,4 +976,5 @@ def _cli_main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    check_python_entrypoint()
     sys.exit(_cli_main())

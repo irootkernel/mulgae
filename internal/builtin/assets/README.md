@@ -13,7 +13,7 @@ carries every role's review guidance, its ordered provider preference for
 its own package directory, so that document is embedded by the root `assets`
 package and overlaid into this catalog under the same checksum inventory.
 
-`go generate ./internal/builtin` rebuilds `CHECKSUMS.sha256`, covering both this
+`./dev go generate ./internal/builtin` rebuilds `CHECKSUMS.sha256`, covering both this
 directory and the root role document. The runtime catalog verifies a one-to-one
 checksum relationship before returning any asset.
 

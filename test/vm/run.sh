@@ -11,7 +11,6 @@ set -eu
 
 SUITE="${1:-${MULGAE_VM_SUITE:-${HAEPARI_TEST_SUITE:-guest-qualification}}}"
 MODE="${MULGAE_VM_MODE:-${HAEPARI_TEST_MODE:-auto}}"
-PYTHON_BIN="${PYTHON:-python3}"
 export PYTHONDONTWRITEBYTECODE=1
 
 case "$SUITE" in
@@ -34,6 +33,7 @@ if [ "$OS_NAME" != "Darwin" ] || [ "$HV_PRESENT" != "1" ]; then
   exit 2
 fi
 
+PYTHON_BIN="${PYTHON:?an explicit admitted Python executable is required}"
 BUNDLE_ROOT="."
 "$PYTHON_BIN" -B "$BUNDLE_ROOT/test/vm/haepari_inputs.py" \
   --verify-bundle --bundle "$BUNDLE_ROOT" >/dev/null

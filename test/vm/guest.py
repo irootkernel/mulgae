@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 
+from haepari_inputs import check_python_entrypoint, require_python, resolve_tool, EXECUTION_REQUEST_SCHEMA
 from haepari_inputs import Refusal, regular_bytes, verify_sealed_bundle, remove_owned_tree, candidate_binary_bytes
 
 
@@ -121,15 +122,17 @@ def run(suite: str, mode: str, job: str, lease: int, uuid: str, bundle: Path, re
             raise Refusal("prepared candidate identity does not match the execution request")
     if "sha256:"+hashlib.sha256(candidate_binary_bytes(bundle)).hexdigest() != prepared["binary_sha256"]:
         raise Refusal("candidate binary digest mismatch")
-    go = os.environ.get("MULGAE_VM_GO_EXECUTABLE") or shutil.which("go")
-    if not go or not Path(go).is_absolute() or not os.access(go, os.X_OK):
-        raise Refusal("the admitted guest profile lacks Go; provisioning is a separate effect")
-    observed_go = subprocess.run([go, "version"], env=dict(os.environ, GOTOOLCHAIN="local", GOENV="off", GOWORK="off"),
-                                 check=True, capture_output=True, text=True).stdout
-    if request["prior_release"]["go_toolchain"] not in observed_go.split():
-        raise Refusal("guest Go toolchain differs from the admitted prior-release toolchain")
-    # GOENV/GOTOOLCHAIN prevent ambient config or a downloaded compiler from
-    # silently changing the selected guest toolchain.
+    source = bundle / "source"
+    toolchains = require_python(source)
+    if (request.get("schema") != EXECUTION_REQUEST_SCHEMA
+            or request.get("toolchains") != toolchains
+            or prepared.get("toolchains") != toolchains):
+        raise Refusal("guest request or preparation does not bind current toolchains; regenerate inputs")
+    tools = request["guest"]
+    if Path(sys.executable).resolve() != Path(tools["python_executable"]).resolve():
+        raise Refusal("guest Python executable differs from the admitted path")
+    go = resolve_tool(source, "go", tools["go_executable"])
+    prior_go = resolve_tool(source, "prior-go", tools["prior_go_executable"])
     work = Path(tempfile.mkdtemp(prefix="mulgae-vm-", dir="/private/tmp")).resolve()
     roots = [work]
     info = work.stat()
@@ -162,6 +165,10 @@ def run(suite: str, mode: str, job: str, lease: int, uuid: str, bundle: Path, re
                    HOME=str(work/"home"), GOCACHE=str(work/"cache"),
                    GOMODCACHE=str(work/"modules"), TMPDIR=str(work/"runtime"),
                    GOPROXY=request["prior_release"]["goproxy"])
+        env.update(MULGAE_GO_EXECUTABLE=go,
+                   MULGAE_PRIOR_GO_EXECUTABLE=prior_go,
+                   MULGAE_PYTHON_EXECUTABLE=str(Path(sys.executable).resolve()),
+                   PATH=str(Path(go).parent) + ":" + str(Path(sys.executable).parent) + ":" + env.get("PATH", ""))
         env.pop("HAEPARI_LOCK_GRANT", None)
         # ParentChain remains inherited unchanged. Never reacquire the outer VM.
         installed_version = subprocess.run([str(candidate), "version", "--json"], env=env,
@@ -173,9 +180,10 @@ def run(suite: str, mode: str, job: str, lease: int, uuid: str, bundle: Path, re
             skill_files={name: manifest["files"][name] for name in manifest["files"] if name.startswith("skills/use-mulgae/")},
         ))
         if suite in {"guest-qualification", "manual-qualification"}:
-            old_env = dict(env, GOBIN=str(work/"prior-bin"))
+            old_env = dict(env, GOBIN=str(work/"prior-bin"), MULGAE_GO_EXECUTABLE=prior_go,
+                           PATH=str(Path(prior_go).parent) + ":" + env["PATH"])
             prior = request["prior_release"]
-            downloaded = subprocess.run([go, "mod", "download", "-json", prior["install_target"]],
+            downloaded = subprocess.run([prior_go, "mod", "download", "-json", prior["install_target"]],
                                         cwd=work, env=old_env, check=False, capture_output=True, text=True)
             (results/"prior-module.json").write_text(downloaded.stdout)
             (results/"prior-module.stderr.log").write_text(downloaded.stderr)
@@ -194,7 +202,7 @@ def run(suite: str, mode: str, job: str, lease: int, uuid: str, bundle: Path, re
                 _, path = regular_file(module_root, name)
                 if digest(path) != expected:
                     raise Refusal("downloaded prior module differs from the pinned Git build inputs")
-            execute([go, "install", "-trimpath", "-ldflags",
+            execute([prior_go, "install", "-trimpath", "-ldflags",
                      "-X main.buildVersion=v0.1.26 -X main.buildRevision="+prior["tag_commit"],
                      prior["install_target"]], work, old_env, results/"prior-build.log")
             old_binary = work/"prior-bin/mulgae"
@@ -202,7 +210,7 @@ def run(suite: str, mode: str, job: str, lease: int, uuid: str, bundle: Path, re
                                          check=True, capture_output=True, text=True).stdout
             if "v0.1.26" not in old_version:
                 raise Refusal("rebuilt prior CLI did not report v0.1.26")
-            module = subprocess.run([go, "version", "-m", str(old_binary)], env=env,
+            module = subprocess.run([prior_go, "version", "-m", str(old_binary)], env=env,
                                     check=True, capture_output=True, text=True).stdout
             if "github.com/irootkernel/mulgae\tv0.1.26" not in module:
                 raise Refusal("prior binary module identity differs from the pinned old release")
@@ -371,4 +379,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    check_python_entrypoint()
     raise SystemExit(main())

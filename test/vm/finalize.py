@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 from guest import cleanup
+from haepari_inputs import check_python_entrypoint
 from haepari_inputs import Refusal, regular_bytes, verify_sealed_bundle
 
 
@@ -69,4 +70,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    check_python_entrypoint()
     raise SystemExit(main())

@@ -214,7 +214,7 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
 
     def _base_request(self, include_live: bool = False) -> dict:
         req = {
-            "schema": "mulgae.haepari-vm-request/v1",
+            "schema": "mulgae.haepari-vm-request/v2",
             "haepari": {
                 "executable": str(self.fake_haepari),
                 "executable_sha256": self.fake_haepari_sha,
@@ -228,6 +228,9 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
             },
             "guest": {
                 "expected_hardware_uuid": SAMPLE_GUEST_UUID,
+                "go_executable": "/Users/guest/.local/bin/go",
+                "prior_go_executable": "/Users/guest/.local/bin/prior-go",
+                "python_executable": "/Users/guest/.local/bin/python3",
             },
             "profiles": {
                 "starting_profile_id": "mulgae-guest-v0.2.14",
@@ -325,6 +328,40 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
             haepari_inputs.validate_execution_request(
                 request, REPO_ROOT, "guest-qualification", haepari_inputs.DEFAULT_SUITES["guest-qualification"],
             )
+
+    def test_v2_binds_derived_versions_and_requires_all_tool_paths(self) -> None:
+        request = self._base_request()
+        request["prior_release"].pop("go_toolchain")
+        validated = haepari_inputs.validate_execution_request(
+            request, REPO_ROOT, "guest-qualification", haepari_inputs.DEFAULT_SUITES["guest-qualification"])
+        self.assertEqual(validated["toolchains"], haepari_inputs.toolchain_versions(REPO_ROOT))
+        self.assertEqual(validated["prior_release"]["go_toolchain"],
+                         "go" + validated["toolchains"]["PRIOR_GO_VERSION"])
+        request["schema"] = "mulgae.haepari-vm-request/v1"
+        with self.assertRaisesRegex(haepari_inputs.Refusal, "regenerate"):
+            haepari_inputs.validate_execution_request(
+                request, REPO_ROOT, "guest-qualification", haepari_inputs.DEFAULT_SUITES["guest-qualification"])
+        request["schema"] = haepari_inputs.EXECUTION_REQUEST_SCHEMA
+        request["guest"].pop("prior_go_executable")
+        with self.assertRaisesRegex(haepari_inputs.Refusal, "prior_go_executable"):
+            haepari_inputs.validate_execution_request(
+                request, REPO_ROOT, "guest-qualification", haepari_inputs.DEFAULT_SUITES["guest-qualification"])
+
+    def test_python_pin_checked_on_direct_entry_and_v2_preparation_requires_pin_inventory(self) -> None:
+        with mock.patch("haepari_inputs.platform.python_version", return_value="0.0.0"):
+            with self.assertRaisesRegex(haepari_inputs.Refusal, "Python"):
+                haepari_inputs.require_python(REPO_ROOT)
+        root = self.tmp_root / "pin-inventory"
+        (root / "artifacts").mkdir(parents=True)
+        (root / "source/tools").mkdir(parents=True)
+        (root / "source/tools/toolchains.env").write_bytes((REPO_ROOT / "tools/toolchains.env").read_bytes())
+        request = self._base_request()
+        request["toolchains"] = haepari_inputs.toolchain_versions(REPO_ROOT)
+        receipt = {"schema": "mulgae.vm-prepared-candidate/v1", **request["candidate"],
+                   "toolchains": request["toolchains"], "files": {"artifacts/mulgae": request["candidate"]["binary_sha256"]}}
+        (root / "artifacts/candidate.json").write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(haepari_inputs.Refusal, "runner inventory"):
+            haepari_inputs.verify_prepared_candidate(root, request)
 
     def test_prepared_artifact_binding(self) -> None:
         root = self.tmp_root / "prepared"

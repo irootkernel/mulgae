@@ -1,0 +1,2 @@
+# Empty by design. Exact language versions live only in toolchains.env.
+# The launcher uses this file instead of user-global and system mise config.

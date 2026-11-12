@@ -32,7 +32,7 @@ it. Ordinary offline and release gates remain separate.
 Prepare under a new physical private directory:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -B test/vm/prepare.py \
+./dev exec -- python3 -B test/vm/prepare.py \
   --commit <accepted-production-commit> \
   --output /private/tmp/<owned-parent>/prepared
 ```
@@ -48,27 +48,31 @@ verify the original executable hash; compression does not rebuild the binary.
 The six skill files must equal the selected Git tree. Build material is never
 used as provider review source.
 
-Supply an external `mulgae.haepari-vm-request/v1` JSON document with:
+Supply an external `mulgae.haepari-vm-request/v2` JSON document with:
 
 | Section | Required binding |
 |---|---|
 | `haepari` | Executable/path/hash, explicit Installation root and native ID |
 | `resource` | Registered `utm-macos` ID and current configuration revision |
-| `guest` | Actual expected hardware UUID |
+| `guest` | Actual expected hardware UUID and absolute `go_executable`, `python_executable`, `prior_go_executable` paths |
 | `profiles` | Starting/target IDs, external files and their distinct SHA256 values |
 | `candidate` | Prepared source commit, actual binary SHA256, full skill Git tree and authorization reference |
-| `prior_release` | `v0.1.26`, commit `c422590155f62380709c8f6fd08c9ad423badaaa`, install target `github.com/irootkernel/mulgae@v0.1.26`, exact installed guest Go toolchain, GOPROXY and declared network exposure |
+| `prior_release` | `v0.1.26`, commit `c422590155f62380709c8f6fd08c9ad423badaaa`, install target `github.com/irootkernel/mulgae@v0.1.26`, historical rebuild Go version (derived from `PRIOR_GO_VERSION`), GOPROXY and declared network exposure |
 | `review_controller_home` | New isolated absolute guest directory, separate from the outer Installation |
 | `live_accounts` | Existing authorized guest account aliases, native app/client paths and the primary Codex home, when selecting live checks |
 
-The guest must already have the selected Go toolchain (at least Go 1.27.1)
-and requested native clients. The preparation command can stage the selected
-released controller with `--haepari <absolute-executable>` for a private fixture
-copy when Haepari is absent from the guest PATH. Its hash must match the admitted
-released unit; no global Haepari installation occurs. Optional
-`guest.go_executable` and `guest.python_executable` bind observed absolute guest
-tool paths and the workload environment. No automatic toolchain download,
-sign-in, profile change, credential copy or guest provisioning is performed.
+The guest must already have the exact current Go, Python and historical-rebuild
+Go declared in `tools/toolchains.env`, and the requested native clients. Versions
+are derived during admission and bound to the prepared candidate's sealed pin
+file and runner. Each declared path is checked against its own role before work.
+See [toolchain setup](../../docs/implementation-tips/toolchains.md). Regenerate
+v1 execution requests; old stored evidence is not rewritten.
+
+The preparation command can stage the selected released controller with
+`--haepari <absolute-executable>` for a private fixture copy when Haepari is
+absent from the guest PATH. Its hash must match the admitted released unit.
+Qualification performs no automatic language installation, sign-in, profile
+change, credential copy or guest provisioning.
 The prior release has no published binary assets; its provenance is an actual
 tag-pinned Go rebuild. Before compilation, the guest compares its downloaded
 module's production inputs with hashes from the pinned old Git commit.

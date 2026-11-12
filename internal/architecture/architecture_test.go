@@ -779,11 +779,28 @@ func TestMakefileReleaseGateFailsWhenCleanupCannotRemoveTemporaryRoot(t *testing
 
 func writeReleaseGateFakeGo(t *testing.T, directory string) string {
 	t.Helper()
-	path := filepath.Join(directory, "fake-go")
+	bin := filepath.Join(directory, "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(bin, "go")
+	pins, err := os.ReadFile(filepath.Join(repositoryRoot(t), "tools", "toolchains.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`(?m)^GO_VERSION=(.+)$`).FindStringSubmatch(string(pins))
+	if len(match) != 2 {
+		t.Fatal("missing Go execution pin")
+	}
 	script := `#!/bin/sh
+if [ "$1" = "version" ]; then
+	printf 'go version go__PIN__ darwin/arm64\n'
+	exit 0
+fi
 if [ "$1" = "env" ]; then
 	case "$2" in
 		GOOS) printf '%s\n' darwin ;;
+		GOROOT) printf '%s\n' "${0%/bin/go}" ;;
 		GOARCH) printf '%s\n' arm64 ;;
 	esac
 	exit 0
@@ -814,7 +831,7 @@ if [ "$1" = "build" ] && [ "${FAKE_GO_LEAK_RELEASE_ROOT:-}" = "1" ]; then
 fi
 exit 0
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+	if err := os.WriteFile(path, []byte(strings.ReplaceAll(script, "__PIN__", match[1])), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return path
