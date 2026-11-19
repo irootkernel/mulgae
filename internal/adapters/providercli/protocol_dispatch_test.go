@@ -1,13 +1,16 @@
 package providercli
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 type zcodeAccountRuntimeStub struct {
 	runtime *zcodeAccountRuntime
 	err     error
 }
 
-func (stub zcodeAccountRuntimeStub) zcodeAccountRuntime(string, string) (*zcodeAccountRuntime, error) {
+func (stub zcodeAccountRuntimeStub) zcodeAccountRuntime(context.Context, RuntimeDefinition) (*zcodeAccountRuntime, error) {
 	return stub.runtime, stub.err
 }
 
@@ -38,7 +41,7 @@ func TestZCodeProtocolConstructorOwnsPurposeSelection(t *testing.T) {
 func TestZCodeProtocolConfigurationPreservesAppServerDefaultModel(t *testing.T) {
 	definition := RuntimeDefinition{family: FamilyZcode}
 	account := &zcodeAccountRuntime{}
-	configuration, err := protocolConfigurationForNamespace(definition, zcodeAccountRuntimeStub{runtime: account})
+	configuration, err := protocolConfigurationForNamespace(t.Context(), definition, zcodeAccountRuntimeStub{runtime: account})
 	if err != nil {
 		t.Fatal(err)
 	}

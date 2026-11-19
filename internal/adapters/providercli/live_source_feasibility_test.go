@@ -63,7 +63,20 @@ func runLiveZCodeSourceProbe(t *testing.T, fixture liveSourceProbeFixture, mode 
 	lease := acquired.(*namespaceLease)
 	defer drainLiveGrokNamespace(t, lease)
 	assertLiveSourceNamespace(t, lease, FamilyZcode)
-	account, err := lease.zcodeAccountRuntime(providerConfig, "")
+	executableBytes, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const metadataPath = "/Applications/ZCode.app/Contents/Info.plist"
+	metadata, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := lease.zcodeAccountRuntime(t.Context(), RuntimeDefinition{
+		executable: executable, executableSHA256: fmt.Sprintf("sha256:%x", sha256.Sum256(executableBytes)),
+		zcodeProviderConfig: providerConfig, applicationMetadata: metadataPath,
+		applicationMetadataSHA256: fmt.Sprintf("sha256:%x", sha256.Sum256(metadata)),
+	})
 	if err != nil || account == nil {
 		t.Fatalf("isolated ZCode account bridge: %v", err)
 	}

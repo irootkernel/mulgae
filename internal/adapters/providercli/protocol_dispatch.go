@@ -1,6 +1,7 @@
 package providercli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -52,10 +53,10 @@ type protocolSessionConfiguration struct {
 }
 
 type zcodeAccountRuntimeAuthority interface {
-	zcodeAccountRuntime(string, string) (*zcodeAccountRuntime, error)
+	zcodeAccountRuntime(context.Context, RuntimeDefinition) (*zcodeAccountRuntime, error)
 }
 
-func protocolConfigurationForNamespace(definition RuntimeDefinition, namespace any) (protocolSessionConfiguration, error) {
+func protocolConfigurationForNamespace(ctx context.Context, definition RuntimeDefinition, namespace any) (protocolSessionConfiguration, error) {
 	configuration := protocolSessionConfiguration{
 		grokSettings: grokInvocationSettings{
 			model: definition.grokModel, reasoningEffort: definition.grokReasoningEffort,
@@ -82,7 +83,7 @@ func protocolConfigurationForNamespace(definition RuntimeDefinition, namespace a
 		// Provider-neutral qualification doubles carry no native account authority.
 		return configuration, nil
 	}
-	account, err := authority.zcodeAccountRuntime(definition.zcodeProviderConfig, definition.zcodeModel)
+	account, err := authority.zcodeAccountRuntime(ctx, definition)
 	if err != nil {
 		return protocolSessionConfiguration{}, err
 	}

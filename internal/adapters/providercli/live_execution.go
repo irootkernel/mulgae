@@ -258,7 +258,7 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 	if err != nil {
 		return observation, nil, fail(err)
 	}
-	configuration, err := protocolConfigurationForNamespace(RuntimeDefinition(definition), namespace)
+	configuration, err := protocolConfigurationForNamespace(ctx, RuntimeDefinition(definition), namespace)
 	if err != nil {
 		return observation, nil, fail(err)
 	}

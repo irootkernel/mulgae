@@ -1,6 +1,7 @@
 package providercli
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha256"
@@ -87,19 +88,23 @@ func validZCodeSettings(model, effort string) bool {
 	return true
 }
 
+type zcodeOSCredentialReader func(string) (string, error)
+type zcodeOSCredentialSource func(context.Context, string) (zcodeOSCredentialReader, func(), error)
+
 type zcodeAccountRuntime struct {
-	nativeHome      string
-	providerID      string
-	accountIdentity string
-	builtinRevision string
-	revision        string
+	prepareOSCredential zcodeOSCredentialSource
+	nativeHome          string
+	providerID          string
+	accountIdentity     string
+	builtinRevision     string
+	revision            string
 }
 
 func loadZCodeAccountRuntime(nativeHome, builtinPath, configuredModel string) (*zcodeAccountRuntime, error) {
-	return loadZCodeAccountRuntimeForSource(nativeHome, builtinPath, builtinPath, configuredModel)
+	return loadZCodeAccountRuntimeForSource(context.Background(), nativeHome, builtinPath, builtinPath, configuredModel, nil)
 }
 
-func loadZCodeAccountRuntimeForSource(nativeHome, builtinPath, activeBuiltinPath, configuredModel string) (*zcodeAccountRuntime, error) {
+func loadZCodeAccountRuntimeForSource(ctx context.Context, nativeHome, builtinPath, activeBuiltinPath, configuredModel string, prepareOS zcodeOSCredentialSource) (*zcodeAccountRuntime, error) {
 	if !validCanonicalAbsolute(nativeHome) || !validCanonicalAbsolute(builtinPath) || !validCanonicalAbsolute(activeBuiltinPath) {
 		return nil, errors.New("invalid ZCode account authority")
 	}
@@ -130,14 +135,14 @@ func loadZCodeAccountRuntimeForSource(nativeHome, builtinPath, activeBuiltinPath
 			return nil, errors.New("selected ZCode model is absent from the bundled account catalog")
 		}
 	}
-	identity, _, err := readZCodeDesktopCredential(nativeHome, providerID, "")
+	identity, _, err := readZCodeDesktopCredential(ctx, nativeHome, providerID, "", prepareOS)
 	if err != nil {
 		return nil, err
 	}
 	pathDigest := sha256.Sum256([]byte(filepath.Clean(activeBuiltinPath)))
 	builtinRevision := fmt.Sprintf("zcode-builtin:%d:%x", releaseRevision, pathDigest)
 	revisionDigest := sha256.Sum256([]byte(builtinRevision + "\x00" + providerID + "\x00" + identity))
-	return &zcodeAccountRuntime{nativeHome: nativeHome, providerID: providerID, accountIdentity: identity, builtinRevision: builtinRevision, revision: "mulgae-account:" + hex.EncodeToString(revisionDigest[:])}, nil
+	return &zcodeAccountRuntime{prepareOSCredential: prepareOS, nativeHome: nativeHome, providerID: providerID, accountIdentity: identity, builtinRevision: builtinRevision, revision: "mulgae-account:" + hex.EncodeToString(revisionDigest[:])}, nil
 }
 
 func zcodeActiveBuiltinPath(runtimeHome string) (string, error) {
@@ -197,11 +202,11 @@ func (runtime *zcodeAccountRuntime) accountConfigParams() map[string]any {
 	}
 }
 
-func (runtime *zcodeAccountRuntime) apiKey(providerID string) (string, error) {
+func (runtime *zcodeAccountRuntime) apiKey(ctx context.Context, providerID string) (string, error) {
 	if runtime == nil || providerID != runtime.providerID {
 		return "", errors.New("ZCode account provider identity mismatch")
 	}
-	identity, apiKey, err := readZCodeDesktopCredential(runtime.nativeHome, runtime.providerID, runtime.accountIdentity)
+	identity, apiKey, err := readZCodeDesktopCredential(ctx, runtime.nativeHome, runtime.providerID, runtime.accountIdentity, runtime.prepareOSCredential)
 	if err != nil {
 		return "", err
 	}
@@ -211,7 +216,7 @@ func (runtime *zcodeAccountRuntime) apiKey(providerID string) (string, error) {
 	return apiKey, nil
 }
 
-func readZCodeDesktopCredential(nativeHome, providerID, expectedIdentity string) (string, string, error) {
+func readZCodeDesktopCredential(ctx context.Context, nativeHome, providerID, expectedIdentity string, prepareOS zcodeOSCredentialSource) (string, string, error) {
 	bytes, err := readZCodeV2File(nativeHome, "credentials.json", true)
 	if err != nil {
 		return "", "", fmt.Errorf("read ZCode credentials: %w", err)
@@ -220,9 +225,35 @@ func readZCodeDesktopCredential(nativeHome, providerID, expectedIdentity string)
 	if json.Unmarshal(bytes, &values) != nil {
 		return "", "", errors.New("invalid ZCode credentials")
 	}
-	profile, err := decryptZCodeCredential(values["oauth:zai:user_info"], nativeHome)
+	var readOS zcodeOSCredentialReader
+	var closeOS func()
+	defer func() {
+		if closeOS != nil {
+			closeOS()
+		}
+	}()
+	decrypt := func(value string) (string, error) {
+		if !strings.HasPrefix(value, zcodeOSCredentialPrefix) {
+			return decryptZCodeCredential(value, nativeHome)
+		}
+		if readOS == nil {
+			if prepareOS == nil {
+				return "", errors.New("ZCode Keychain reader is unavailable")
+			}
+			var prepareErr error
+			readOS, closeOS, prepareErr = prepareOS(ctx, filepath.Join(nativeHome, ".zcode", "v2", "credentials.json"))
+			if prepareErr != nil {
+				return "", prepareErr
+			}
+			if readOS == nil {
+				return "", errors.New("ZCode Keychain reader is unavailable")
+			}
+		}
+		return readOS(value)
+	}
+	profile, err := decrypt(values["oauth:zai:user_info"])
 	if err != nil {
-		return "", "", errors.New("invalid ZCode account profile")
+		return "", "", fmt.Errorf("read ZCode account profile: %w", err)
 	}
 	var userInfo struct {
 		ID     string `json:"id"`
@@ -239,8 +270,11 @@ func readZCodeDesktopCredential(nativeHome, providerID, expectedIdentity string)
 		return "", "", errors.New("ZCode account identity is unavailable")
 	}
 	key := "account-provider:coding-plan:" + providerID + ":account:" + encodeURIComponent(identity) + ":api-key"
-	apiKey, err := decryptZCodeCredential(values[key], nativeHome)
-	if err != nil || strings.TrimSpace(apiKey) == "" {
+	apiKey, err := decrypt(values[key])
+	if err != nil {
+		return "", "", fmt.Errorf("read ZCode Individual Coding Plan credential: %w", err)
+	}
+	if strings.TrimSpace(apiKey) == "" {
 		return "", "", errors.New("ZCode Individual Coding Plan credential is unavailable")
 	}
 	return identity, strings.TrimSpace(apiKey), nil
@@ -248,6 +282,9 @@ func readZCodeDesktopCredential(nativeHome, providerID, expectedIdentity string)
 
 func decryptZCodeCredential(value, nativeHome string) (string, error) {
 	if !strings.HasPrefix(value, zcodeCredentialPrefix) {
+		if strings.HasPrefix(value, "enc:") {
+			return "", errors.New("unsupported ZCode credential format")
+		}
 		return value, nil
 	}
 	parts := strings.Split(strings.TrimPrefix(value, zcodeCredentialPrefix), ".")
@@ -286,7 +323,7 @@ func decryptZCodeCredential(value, nativeHome string) (string, error) {
 }
 
 func readZCodeAccountFile(path string, private, allowRootOwner bool) ([]byte, error) {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +354,7 @@ func readZCodeV2File(nativeHome, name string, private bool) ([]byte, error) {
 		current.Close()
 		current = next
 	}
-	fd, err := unix.Openat(int(current.Fd()), name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(int(current.Fd()), name, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
 	}

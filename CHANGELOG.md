@@ -9,6 +9,10 @@ This file records concise shipped outcomes and the planned next stable release.
 - Require pinned Go/Python toolchains for development and VM qualification,
   migrate VM requests to v2, and automatically format Go files before verification.
 
+### Fixed
+
+- Restore ZCode 3.18.2 reviews for accounts protected by macOS Keychain.
+
 ## v0.1.27 - 2026-11-10
 
 ### Changed

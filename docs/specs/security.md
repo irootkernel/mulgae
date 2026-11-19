@@ -278,6 +278,17 @@ bundles.
 
 ZCode admission binds its app's v2 desktop state and current Z.AI Individual
 Coding Plan account. Legacy CLI config is not live authentication authority.
+On macOS arm64, Mulgae reads `enc:v2:os` values using the pinned ZCode
+executable from its verified app bundle and an open descriptor for a
+signature-verified private copy of the bundled Keychain module. Mulgae
+verifies both signatures once per credential request and reuses the module
+descriptor for the profile and API key reads. Each launch rechecks the
+descriptor, executable, and app metadata. The helper authenticates the
+ciphertext using the path-bound Keychain item and returns the selected
+credential through a private pipe. The encryption key stays in the helper.
+Mulgae runs signature verification and the helper on the trusted host side.
+Read or verification failures reject qualification or the affected runtime
+header request. Plaintext and `enc:v1` remain supported.
 Admitted provider state is projected only through the adapter-owned disposable
 namespace. Cleanup zeroes credential content only through a verified single-link
 regular descriptor on the namespace device with the expected owner. Unsafe

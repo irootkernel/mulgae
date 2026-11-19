@@ -309,7 +309,7 @@ type namespaceLease struct {
 
 var _ ports.ProviderNamespaceLease = (*namespaceLease)(nil)
 
-func (lease *namespaceLease) zcodeAccountRuntime(builtinPath, configuredModel string) (*zcodeAccountRuntime, error) {
+func (lease *namespaceLease) zcodeAccountRuntime(ctx context.Context, definition RuntimeDefinition) (*zcodeAccountRuntime, error) {
 	if lease == nil || lease.zcodeNativeHome == "" {
 		return nil, nil
 	}
@@ -321,7 +321,7 @@ func (lease *namespaceLease) zcodeAccountRuntime(builtinPath, configuredModel st
 	if err != nil {
 		return nil, err
 	}
-	return loadZCodeAccountRuntimeForSource(lease.zcodeNativeHome, builtinPath, activeBuiltinPath, configuredModel)
+	return loadZCodeAccountRuntimeForSource(ctx, lease.zcodeNativeHome, definition.zcodeProviderConfig, activeBuiltinPath, definition.zcodeModel, definition.prepareZCodeOSCredential)
 }
 
 // zcodeRuntimeTempDirectory is the short shared temp directory for ZCode

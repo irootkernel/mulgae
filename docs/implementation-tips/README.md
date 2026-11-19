@@ -48,7 +48,8 @@ make test
 It runs `make test-offline` once (generators and static checks, serialized
 race-instrumented unit tests, and serialized race-instrumented integration
 tests), followed by `make test-release`, one exact-binary two-role live
-review, and independent live capability certification for ZCode. The
+review, the ZCode synthetic Keychain cipher fixtures, and independent live
+capability certification for ZCode. The
 live review routes `logic` and `security` to ZCode concurrently, accepts
 one Markdown report from each role without repair or structured extraction,
 and requires Mulgae to publish one complete reports-only review. Each role must
@@ -771,7 +772,7 @@ development and Epic certification run the deterministic Make gates
 (`make test-prepare`, `make test-unit`, `make test-int`, and
 `make test-release`), `make test-mcp-clients` when MCP consumer paths change,
 and ZCode-only live verification (`make test-e2e`, which runs
-`TestLiveZCodeCapability` and the two-role ZCode live review), while live
+`TestLiveZCodeCapability`, the synthetic cipher fixtures, and the two-role ZCode live review), while live
 provider gates for Grok (`make test-grok`), Cursor
 (`make test-cursor`), AGY (`make test-agy`), and Codex
 (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) are explicitly deferred to the

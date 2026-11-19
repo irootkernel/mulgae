@@ -619,7 +619,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, workingDirectory, binding, timeout)
 		}
 		if requestErr == nil {
-			configuration, configurationErr := protocolConfigurationForNamespace(definition, namespace)
+			configuration, configurationErr := protocolConfigurationForNamespace(ctx, definition, namespace)
 			if configurationErr != nil {
 				return ports.ProcessObservation{}, nil, nil, configurationErr
 			}

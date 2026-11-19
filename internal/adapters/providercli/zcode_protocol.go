@@ -667,7 +667,7 @@ func (state *zcodeProtocolConversation) handleServerRequest(ctx context.Context,
 		if json.Unmarshal(message.Params, &params) != nil || params.ProviderID != state.account.providerID || params.AccountAccess.Type != "zhipu-account" || params.AccountAccess.Mode != "individual-coding-plan" || params.AccountAccess.AccountType != "zai" {
 			return sendZcodeProtocolResponse(ctx, exchange, message.ID, map[string]any{"headersApplied": false, "errorMessage": "ZCode account request identity is invalid"})
 		}
-		apiKey, err := state.account.apiKey(params.ProviderID)
+		apiKey, err := state.account.apiKey(ctx, params.ProviderID)
 		if err != nil {
 			return sendZcodeProtocolResponse(ctx, exchange, message.ID, map[string]any{"headersApplied": false, "errorMessage": "ZCode account credential is unavailable"})
 		}

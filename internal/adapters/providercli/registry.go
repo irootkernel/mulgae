@@ -510,12 +510,12 @@ func (namespace retainedQualificationNamespace) Environment() []ports.Environmen
 	return namespace.lease.Environment()
 }
 
-func (namespace retainedQualificationNamespace) zcodeAccountRuntime(builtinPath, configuredModel string) (*zcodeAccountRuntime, error) {
+func (namespace retainedQualificationNamespace) zcodeAccountRuntime(ctx context.Context, definition RuntimeDefinition) (*zcodeAccountRuntime, error) {
 	authority, ok := namespace.lease.(zcodeAccountRuntimeAuthority)
 	if !ok {
 		return nil, nil
 	}
-	return authority.zcodeAccountRuntime(builtinPath, configuredModel)
+	return authority.zcodeAccountRuntime(ctx, definition)
 }
 
 func (namespace retainedQualificationNamespace) RuntimeSafetyPolicyIdentity() string {
@@ -1574,7 +1574,7 @@ func (r *Registry) executeProviderProcess(ctx context.Context, definition defini
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
 			fmt.Errorf("provider registry: process runner cannot converse"))
 	}
-	configuration, err := protocolConfigurationForNamespace(RuntimeDefinition(definition), r.namespaces[definition.instance])
+	configuration, err := protocolConfigurationForNamespace(ctx, RuntimeDefinition(definition), r.namespaces[definition.instance])
 	if err != nil {
 		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}

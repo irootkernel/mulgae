@@ -160,7 +160,7 @@ test-e2e:
 	fi; \
 	MULGAE_LIVE_ZCODE_APP_BUNDLE="$$zcode_app" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
+		-run '^TestLiveZCodeCapability(CipherFixtures)?$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \

@@ -326,7 +326,7 @@ func TestMakefileContract(t *testing.T) {
 		"zcode_app=", `test -d "$$zcode_app"`, "zcode_executable=", `test -x "$$zcode_executable"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`,
 		"MULGAE_LIVE_ZCODE_APP_BUNDLE",
-		"-tags=liveprovider", "-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"-tags=liveprovider", "-run '^TestLiveZCodeCapability(CipherFixtures)?$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
 		"MULGAE_E2E_ZCODE_APP_BUNDLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
