@@ -220,7 +220,7 @@ func TestMakefileContract(t *testing.T) {
 			t.Fatalf("%s must validate sealed installed inputs before any workload", target)
 		}
 	}
-	for _, target := range []string{"test:", "test-offline:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-grok:", "test-cursor:", "test-agy:"} {
+	for _, target := range []string{"test:", "test-offline:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-herdr:", "test-grok:", "test-cursor:", "test-agy:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
 		}
@@ -259,7 +259,7 @@ func TestMakefileContract(t *testing.T) {
 			t.Fatalf("Makefile test-offline order is not sequential: %v", offlinePositions)
 		}
 	}
-	for _, forbidden := range []string{"test-release", "test-e2e", "test-e2e-opt-in", "test-grok", "test-cursor", "test-agy"} {
+	for _, forbidden := range []string{"test-release", "test-e2e", "test-e2e-opt-in", "test-herdr", "test-grok", "test-cursor", "test-agy"} {
 		if strings.Contains(offlineTarget, forbidden) {
 			t.Fatalf("Makefile test-offline references non-offline stage %q", forbidden)
 		}
@@ -364,12 +364,27 @@ func TestMakefileContract(t *testing.T) {
 	}
 	grokTarget := text[grokStart:cursorStart]
 	for _, required := range []string{
+		"$(MAKE) test-herdr",
 		"MULGAE_LIVE_GROK_BIN", "-tags=liveprovider", "-run '^TestLiveGrokCapability$$'",
 		"MULGAE_E2E_GROK_EXECUTABLE", "main.buildVersion=$(RELEASE_VERSION)",
 		"-tags='live_e2e live_grok'", "-run '^TestE2EGrokReleaseBinaryReview$$'",
 	} {
 		if !strings.Contains(grokTarget, required) {
 			t.Errorf("test-grok missing exact-binary review token %q", required)
+		}
+	}
+	herdrStart := strings.Index(text, "\ntest-herdr:")
+	vmStart := strings.Index(text, "\ntest-vm:")
+	if herdrStart < 0 || vmStart <= herdrStart {
+		t.Fatal("Makefile does not define test-herdr before test-vm")
+	}
+	herdrTarget := text[herdrStart:vmStart]
+	for _, required := range []string{
+		"-tags=live_herdr", "./internal/adapters/herdr",
+		"test-herdr requires an executable hc/herdr-core binary",
+	} {
+		if !strings.Contains(herdrTarget, required) {
+			t.Errorf("test-herdr missing required token %q", required)
 		}
 	}
 	capabilityEnd := strings.Index(grokTarget, "./internal/adapters/providercli &&")
@@ -890,6 +905,17 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	if strings.Contains(optInText, ".Skip(") || strings.Contains(optInText, ".Skipf(") {
 		t.Fatal("enabled opt-in exact-binary workflow may not skip prerequisites")
+	}
+	herdrLiveData, err := os.ReadFile(filepath.Join(root, "internal", "adapters", "herdr", "live_herdr_darwin_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	herdrLiveText := string(herdrLiveData)
+	if !strings.Contains(herdrLiveText, "live_herdr") {
+		t.Fatal("live_herdr_darwin_test.go missing live_herdr build tag")
+	}
+	if strings.Contains(herdrLiveText, ".Skip(") || strings.Contains(herdrLiveText, ".Skipf(") {
+		t.Fatal("live_herdr isolated-core test suite may not silently skip")
 	}
 }
 

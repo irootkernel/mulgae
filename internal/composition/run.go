@@ -18,6 +18,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
+	herdradapter "github.com/irootkernel/mulgae/internal/adapters/herdr"
 	"github.com/irootkernel/mulgae/internal/adapters/jsonschema"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
@@ -60,6 +61,12 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 	handled, err := processadapter.ExecInheritedDirectory(argv)
 	if handled {
 		writeDiagnostic(stderr, "mulgae: provider launch boundary failed\n")
+		if err != nil {
+			return 10
+		}
+		return 0
+	}
+	if handled, err := herdradapter.RunWatchdogMode(argv); handled {
 		if err != nil {
 			return 10
 		}

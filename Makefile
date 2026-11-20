@@ -21,7 +21,7 @@ REQUEST ?=
 
 .DEFAULT_GOAL := test
 
-.PHONY: help toolchain-install toolchain-check generate fmt fmt-check vuln-check test-toolchain test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
+.PHONY: help toolchain-install toolchain-check generate fmt fmt-check vuln-check test-toolchain test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-herdr test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
 
 # These inputs are only for the separately admitted, sealed guest owning targets.
 define validate_installed_test_inputs
@@ -227,6 +227,7 @@ test-grok:
 	grok_runtime="$$(mktemp -d)"; \
 	grok_runtime="$$(cd "$$grok_runtime" && pwd -P)"; \
 	printf '%s\n' "[test-grok] retained private runtime: $$grok_runtime"; \
+	$(MAKE) test-herdr && \
 	TMPDIR="$$grok_runtime" MULGAE_LIVE_GROK_BIN="$$grok_bin" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestLiveGrokCapability$$' ./internal/adapters/providercli && \
@@ -328,6 +329,22 @@ test-mcp-clients:
 		$(GO) test -v -tags=$(MCP_CLIENT_TAGS) -count=1 ./internal/mcpclientcheck
 	@printf '%s\n' '[test-mcp-clients] completed'
 
+test-herdr:
+	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-herdr requires darwin/arm64" >&2; exit 1; }
+	@if test -n "$${MULGAE_HERDR_CORE_BIN+x}"; then \
+		herdr_candidate="$$MULGAE_HERDR_CORE_BIN"; \
+	else \
+		herdr_candidate="$$(command -v hc || command -v herdr-core || true)"; \
+		if test -z "$$herdr_candidate"; then \
+			for p in "$$HOME/.local/bin/hc" "$$HOME/.local/bin/herdr-core"; do \
+				if test -f "$$p" && test -x "$$p"; then herdr_candidate="$$p"; break; fi; \
+			done; \
+		fi; \
+	fi; \
+	test -n "$$herdr_candidate" && test -f "$$herdr_candidate" && test -x "$$herdr_candidate" || { echo "test-herdr requires an executable hc/herdr-core binary" >&2; exit 1; }; \
+	$(GO) test -v -race -tags=live_herdr -timeout $(TEST_TIMEOUT) -count=1 ./internal/adapters/herdr
+	@printf '%s\n' '[test-herdr] completed'
+
 test-vm:
 	@test -n "$(PREPARED_DIR)" || { echo "test-vm requires PREPARED_DIR from test/vm/prepare.py" >&2; exit 1; }
 	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B ./test/vm/host.py \
@@ -359,7 +376,7 @@ help:
 	    './dev go|python ...      Run a pinned interpreter/compiler' \
 	    './dev exec -- command    Run a command with both pinned runtimes' \
 	    'make generate | fmt | fmt-check | vuln-check' \
-	    'make test-toolchain | test-offline | test-vm-contract | test-vm-driver-compile | test-release' \
+	    'make test-toolchain | test-offline | test-herdr | test-vm-contract | test-vm-driver-compile | test-release' \
 	    'make test                Complete release gate, including live providers'
 
 toolchain-install:

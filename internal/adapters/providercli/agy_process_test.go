@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	herdradapter "github.com/irootkernel/mulgae/internal/adapters/herdr"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 )
 
@@ -18,6 +19,12 @@ func TestMain(m *testing.M) {
 			os.Exit(125)
 		}
 		os.Exit(126)
+	}
+	if handled, err := herdradapter.RunWatchdogMode(os.Args); handled {
+		if err != nil {
+			os.Exit(10)
+		}
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
