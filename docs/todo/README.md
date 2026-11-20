@@ -16,6 +16,10 @@ task identity, ordering, dependencies, and status.
   is the temporary execution SOT for EPIC-016. Its roadmap owns status. Retire
   the dossier and this entry only through the approved final closeout after
   durable promotion and last-consumer reference checks.
+- [herdr-core terminal runtime and Grok migration](TODO-HERDR-CORE-TERMINAL-RUNTIME.md)
+  is the temporary execution SOT for EPIC-017. Its roadmap owns status. Retire
+  the dossier and this entry only through the approved final closeout after
+  durable promotion and last-consumer reference checks.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply

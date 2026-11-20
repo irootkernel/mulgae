@@ -117,6 +117,22 @@ product requirements, rationale, epic-squad execution and guest qualification
 entrypoints. At final closeout, promote durable outcomes,
 replace temporary links and retire the dossier and its TODO entry.
 
+## Planned herdr-core terminal runtime
+
+[EPIC-017](roadmap/README.md#epic-017-herdr-core-terminal-runtime-and-grok-migration)
+adopts a reusable, isolated `herdr-core` terminal runtime backed by Mulgae's
+trusted pane trampoline (`__mulgae_paneexec_v1`), hardened outer macOS Seatbelt
+(control-plane socket denials and exact `PANE_TTY` binding), disposable
+`HOME`/`GROK_HOME`, and scratch-file prompt/output delivery, migrating Grok CLI
+(`FamilyGrok`) in Phase 1 while leaving ZCode, Codex, Cursor, AGY transports,
+and Config v5 unchanged (following standalone maintenance `TASK-083`). Its
+[decision](architecture-decision-records/herdr-core-terminal-transport.md) and
+[temporary execution dossier](todo/TODO-HERDR-CORE-TERMINAL-RUNTIME.md) separate
+architectural rationale from sequential task execution. At final closeout,
+promote durable outcomes to specifications, architecture, gating rules, and the
+accepted ADR, replace temporary links, and retire the dossier and its TODO
+entry.
+
 ## Source-of-truth precedence
 
 Current source and tests are authoritative for implemented runtime behavior.

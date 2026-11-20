@@ -36,6 +36,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 | [EPIC-015](#epic-015-development-verification-simplification) | Completed | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
 | [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | In Progress | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
+| [EPIC-017](#epic-017-herdr-core-terminal-runtime-and-grok-migration) | Planned | Build a reusable isolated `herdr-core` terminal runtime with shared outer macOS Seatbelt and scratch-file delivery, and migrate Grok CLI (`FamilyGrok`) onto it first. |
 
 ## Adopted execution order
 
@@ -91,6 +92,16 @@ order. Each Task after TASK-076 depends on acceptance of the preceding Task.
 Release and external-effect authority remain separate prerequisites for the
 affected work, even after implementation passes.
 
+EPIC-017 adopts the reusable `herdr-core` terminal runtime and Phase 1 Grok CLI
+migration with no dependency on EPIC-016. Standalone maintenance TASK-083
+(Grok version-channel parsing and heartbeat `grok-logic` registration) precedes
+EPIC-017. Execute TASK-084 through TASK-087 in table order; each Task after
+TASK-084 depends on acceptance of the preceding Task, and a short approved Grok
+1.0.89 live spike gates TASK-086. Remaining interactive provider migrations
+(Codex, Cursor, AGY) and Config v5 changes stay outside EPIC-017 and belong to
+separate future Epics. Release, installation, commit, push, and external-effect
+authority remain separate.
+
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
 EPIC-011 have no EPIC-008 dependency. Deferred TASK-004 is not a prerequisite
@@ -111,6 +122,7 @@ Standalone maintenance tasks sit outside the Epics.
 | TASK-018 | Completed | Bind `use-mulgae` execution to the requested canonical root before provider transmission; use the native CLI when the attached MCP root cannot be proven, and carry the complete Review Brief within native input limits. Clarify CLI cancellation and audit result-field guidance. | Rehearse wrong-root and equal-content roots without provider execution; check same-root selection, objective boundaries, and timeout behavior; validate skill references and run the complete `make test` gate. |
 | TASK-075 | Completed | Reconciled assigned requirements output across initial review, extraction and reformat repair, specified assessment field types, and preserved original role reports, independent findings, source restrictions and invocation budgets. Aquarium's consumer workaround retirement remains dependent on a verified stable release. | The original composer fails the precedence regression for all five source selectors; the correction passes. Focused race checks, reformat integration, idempotent generators, final `make test-offline` and `make test-release` pass. An initial isolated Codex review rejected array-valued scope; after clarifying the contract, a new review retained its Markdown byte-for-byte across exactly two invocations and published all four provider verdicts with selected/evaluated counts of 4/4 and verified content reads. Release, installation and consumer requalification remain separate. |
 | TASK-082 | Completed | Restore ZCode 3.18.2 review and qualification with macOS Keychain credentials. Preserve legacy credential decoding, account binding, and reviewer isolation. | Cover selected-account reads, account drift, and unsupported encrypted formats. Run `make test-offline`, `make test-release`, and `make test-e2e` with ZCode 3.18.2 and launcher 0.17.1. |
+| TASK-083 | Planned | Accept optional release-channel tags (`(?: \[[A-Za-z0-9._-]+\])?$`) in `grokVersionOutput` (`qualifier.go:762`) for Grok 1.0.89 and future releases (`1.0.90+`), invert the negative test at `qualifier_test.go:615`, reconcile `docs/specs/contracts.md:1035`, and extract `productionInstanceFamilies` in `production_graph.go` to register synthetic `grok-logic` for `mulgae heartbeat --provider grok` (projecting `auth.json` only when acquired). Keep `VerifiedLatest` at `1.0.40` so frozen doctor goldens remain intact and unverified ACP 1.0.89 support is not claimed. | Run focused `-race` tests in `internal/adapters/providercli`, `internal/app/reviewrun`, `internal/composition`, `internal/entrypoint/mulgae`, and `internal/app/doctor` covering tagged (`[stable]`, `[beta]`) and untagged Grok version strings, `1.0.89`/`1.0.90` yellow pass, untouched doctor goldens, and synthetic `grok-logic` heartbeat registration. |
 
 ## EPIC-001: Token-efficient review waiting
 
@@ -1044,3 +1056,95 @@ acceptance remain separate.
 - [ ] Complete applicable exact-candidate repository and release gates; candidate or fixture success alone does not establish released qualification.
 - [ ] Deliver the actual released producer unit and the authorized correlated report with every required return field; retain Aquarium consumer acceptance as its own downstream decision.
 - [ ] Obtain independent integrated assessment and Master's explicit overall acceptance, promote durable outcomes, replace Detailed SOT with Canonical Outcomes and remove the last-consumer dossier/TODO entry under the approved closeout diff.
+
+## EPIC-017: herdr-core terminal runtime and Grok migration
+
+Status: Planned
+
+Detailed SOT: [herdr-core terminal runtime dossier](../todo/TODO-HERDR-CORE-TERMINAL-RUNTIME.md)
+
+Decision: [herdr-core terminal transport](../architecture-decision-records/herdr-core-terminal-transport.md)
+
+Goal: build a reusable, provider-agnostic `herdr-core` terminal execution layer
+backed by Mulgae's trusted pane trampoline (`__mulgae_paneexec_v1`), hardened
+outer macOS Seatbelt guard, disposable provider home, and universal
+scratch-file (`staged_file`) prompt/output delivery, and migrate Grok CLI
+(`FamilyGrok`) onto it across live review, structured extraction,
+qualification, and heartbeat while leaving ZCode, Codex, Cursor, AGY
+transports, Config v5, and embedded JSON schemas/examples unchanged.
+
+Design decisions accepted at design time (hardened across two rounds of
+independent architecture, security, and empirical `hc 0.1.20` / `grok 1.0.89`
+reviews):
+
+- **Trusted pane trampoline (`__mulgae_paneexec_v1`) and hardened Seatbelt**:
+  launch panes through Mulgae's canonicalized verified binary (`fdexec_darwin.go`
+  extension, dispatched via `internal/composition/run.go:60`, behind a narrow
+  `ports` interface) reading `0400` env and Seatbelt profile files from a
+  `ControlPlaneRoots`-denied per-pane directory
+  (`/private/tmp/mgh-<uid>/<16hex>/panes/<id>/`), verifying argv-bound
+  `(dev, ino)`/SHA-256 identities for env/profile/executable/`cwd`, verifying
+  all three FDs `0, 1, 2` match the single controlling TTY slave without cgo
+  (`F_GETPATH` + `Rdev` + `Getsid` + `TIOCGPGRP`), sanitizing FDs > 2,
+  enforcing exact `envp` (fixed terminal values + validated `HC_TERMINAL_ID`
+  pass-through, stripping `HC_TERMINAL_SOCKET`/`HC_SOCKET`/`HC_SESSION`/`HC_SCOPE`/`DYLD_*`/`GODEBUG`),
+  and `execve`ing compiled-in `/usr/bin/sandbox-exec -D PANE_TTY=<slave> -f <profile-file> ...`.
+  Add missing-tolerant `ControlPlaneRoots` (excluded from hardlink walks) plus
+  `~/.cursor`/`~/.config/cursor` denials across shared boundaries, add
+  terminal secret-root and ancestor-file denials (`~/.ssh`, `~/.aws`,
+  `Keychains`, `~/.claude`, `~/.config/herdr`, `~/.local/state`, `~/AGENTS.md`,
+  `~/CLAUDE.md`, `~/.mcp.json`), keep AGY `OwnedPTY` clauses byte-identical,
+  and enforce the hard review-lane `Bash` Seatbelt gate (shell-free default;
+  default-deny unix-socket + localhost TCP + `process-exec` + survivor/mtime
+  controls mandatory if the spike proves `Bash` is required for index/commit
+  Git reads).
+- **Disposable `HOME` + disposable `GROK_HOME` (no writable native `~/.grok`)**:
+  retain Mulgae's disposable namespace `HOME`/`GROK_HOME` with read-only
+  `.grok/auth.json` projection (`0600`, no write-back), keeping `~/.grok`
+  kernel-denied in `CredentialRoots` (`leader.sock`, `downloads/grok-*`,
+  `config.toml`, `hooks/`, `AGENTS.md`, `plugins/`, `skills/`, `sandbox.toml`,
+  `trusted_folders.toml`, `memory-v2/`), moving Grok qualification/heartbeat
+  onto neutral-cwd + Seatbelt, and retiring Grok ACP and `grok_boundary.go`
+  post-drain native audits (retaining minimal disposable `requirements.toml` if
+  spike hook/rule canaries warrant).
+- **Isolated per-run `herdr-core` daemon, graph ownership, and truthful teardown**:
+  lazily launch foreground `herdr-core serve` with explicit minimal `Env` under
+  canonical `/private/tmp/mgh-<uid>/<16hex>/s.sock` (no `launchd`,
+  `{pid, start_time}` owner lock + stale reaper, parent-death watchdog,
+  `hello.generation == 1`, tracking both core PID and `server.status.holder.pid`).
+  Make `productionRuntimeGraph` sole owner of `Session.Close()`, invoked first
+  in `cleanupRoots()` AND on the retained branch of `review.go` (preventing MCP
+  daemon leaks); `Registry.Close` drains only its own labeled panes retryably
+  and never stops the shared daemon. Confirm `ProcessGroupAbsent()` only after
+  Mulgae-verified `unix.Kill(-pid, 0) == ESRCH` and session-scoped absence.
+- **Universal scratch-file delivery, prompt/output integrity, and contracts**:
+  write unbounded prompts to `input/<id>/prompt.md` (`0400`) inside a pane
+  `ReadOnlyRoots` `input/` directory with pre/post digest receipts and a
+  mandatory end-of-prompt nonce, send concise fixed instructions via
+  `terminal.send` (`Terminal.reported == true`, turn advancement,
+  `StartupTimeout` inside family budget), validate parameterized
+  `stagedOutputLease` outputs (`role-report.md`, `extraction.json`, `probe.json`)
+  strictly after `ESRCH` teardown, bind `OutputSHA256` to staged bytes, keep
+  Config v5 and embedded JSON schemas/examples unchanged, and update embedded
+  help Markdown assets (with idempotent regeneration) and `contracts.md`/
+  `security.md` in the same cutover change.
+
+Non-goals: no changes to ZCode, Codex, Cursor, or AGY transports; no Config v5
+or public manifest/JSON-schema changes; no source snapshots or workspace
+copying; no dual ACP fallback for Grok.
+
+| Task | Status | Objective | Verification |
+|---|---|---|---|
+| TASK-084 | Planned | Add dark terminal-transport ports (`ProviderPacketChannelTerminal`, closed Mulgae status enums, `TerminalSessionRunner`, `PaneLaunch` interface, `ProcessGroupSignalRequestTerminalTeardown{,Escalation}`, `TerminalSessionCompleted`, prompt-file digest receipt, full `ProviderExecutionObservation.Validate()` success & failure branches, amended `ProcessRequest` doc comments) and Seatbelt/trampoline foundations (missing-tolerant `ControlPlaneRoots` excluded from hardlink walk, Cursor roots in `live_source.go`/`live_source_test.go` + Codex argv check, terminal secret-root & ancestor literal denies, `PaneTTY` parameter mode + `B-1` Bash-gate rules, and `__mulgae_paneexec_v1` in `fdexec_darwin.go` dispatched from `composition/run.go:60` with per-pane private env/profile files, argv integrity binding, cgo-free FD `0,1,2` + TTY check, exact `envp` + `HC_TERMINAL_ID` pass-through marker). | Port unit tests for every channel/observation branch, `internal/architecture` checks, and `internal/adapters/process` kernel tests (synthetic `/dev/ptmx` + `Setsid`/`Setctty`) verifying `__mulgae_paneexec_v1` FD set `{0,1,2}` (rejecting pipe/socket fd 2), exact `envp` scrubbing, `cwd`/executable/env/profile integrity binding, control-plane & secret-root denials, Cursor credential denial, and byte-identical AGY `OwnedPTY` clauses. |
+| TASK-085 | Planned | Implement the reusable `internal/adapters/herdr` adapter (safe-PATH `hc`/`herdr-core` discovery, Unix-socket JSON-RPC 2.0 client checking `hello.generation == 1`, lazy isolated `herdr-core serve` under canonical `/private/tmp/mgh-<uid>/<16hex>/s.sock` with minimal `Env`, `{pid, start_time}` owner lock + stale reaper, parent-death watchdog, `holder.pid` tracking, `panes/<id>/` private dir, `__mulgae_paneexec_v1` launch, OSC 7501 `reported == true` + turn tracking, launch-failure classification independent of exit code, `terminal.kill` -> `ESRCH` + session absence -> post-kill `terminal.read(lines: 0)` -> `terminal.rm`, label-scoped drain, idempotent `Session.Close` refusing new runs, `TestMain`, and build-tagged 12-item live spike harness) with no production caller yet. | Deterministic offline fake-RPC tests in `make test-offline` plus build-tagged (`live_herdr`, wired into `Makefile` `test-herdr` and `test-grok`, never silently skipped) real-`hc` isolated-core tests proving: `idle` -> `send` -> `working` -> `done`, `blocked(auth)`, `error`, exit, timeout check-ins, cancellation, every core/holder Unix socket enumerated and `EPERM`-denied (incl. symlink/hardlink alias), own-slave raw mode OK + foreign `/dev/ttys*` denied, `F_GETPATH` on real holder slave, exact `envp` (zero `DYLD_*`/`GODEBUG`/`HC_TERMINAL_SOCKET`), `/dev/fd == {0,1,2}`, zero leftovers, and `ps`-verified untouched `default` core. Gate TASK-086 on the approved 12-item Grok 1.0.89 live spike. |
+| TASK-086 | Planned | Add reusable `terminal_provider.go` driver and `grok_terminal.go` profile; atomically migrate `FamilyGrok` across `providercli`, `reviewrun`, and `composition` (disposable `HOME`/`GROK_HOME` + `.grok/auth.json` projection, neutral-cwd + Seatbelt qualification/heartbeat, read-only `input/` + `prompt.md` digest receipt + mandatory end-of-prompt nonce, parameterized `stagedOutputLease` `role-report.md`/`extraction.json`/`probe.json`, `OutputSHA256` bound to staged bytes, `StartupTimeout` inside family budget, `herdr-core` proof/policy/doctor binding, purpose-scoped `--tools` obeying the `B-1` rule, graph-owned `Session.Close` in both `cleanupRoots()` first-step and `review.go:336` retained branch, label-scoped `Registry.Close`, Grok version guidance update post-spike, second fake non-OSC multi-home terminal profile test); delete obsolete Grok ACP & `grok_boundary` files; update all affected unit/live/E2E tests, embedded help assets (`help/{providers,security,prompts}.md` + both generators twice), `Makefile`, and canonical docs (`security.md`, `contracts.md`, `live-workspace-and-git-review.md`, `architecture/README.md`, `gating-rules.md`) in the same change. | Focused `-race` tests across `internal/{architecture,ports,adapters/process,adapters/herdr,adapters/providercli,app/reviewrun,composition,builtin,entrypoint/mulgae}` covering staged prompt/output negatives, OSC spoofing/truncation rejection, second fake terminal profile extensibility, Grok review/extraction/qualification/heartbeat flows, zero `herdr-core` starts for ZCode/Codex/Cursor/AGY, idempotent generator check, and `git diff --check`. |
+| TASK-087 | Planned | Certify the integrated candidate across deterministic offline, release-binary, tagged real-`hc`, mandatory ZCode live regression (for shared Seatbelt updates), and live Grok 1.0.89 gates (`make test-offline`, `make test-release`, `make test-herdr`, `make test-e2e`, `make test-grok`); promote `herdr-core-terminal-transport.md` ADR from planned to accepted, record the deferred follow-up for non-`herdr-core` ZCode local control planes, and prepare the Epic closeout diff. | Pass `make test-offline`, `make test-release`, `make test-herdr`, `make test-e2e`, and live `make test-grok` (real Grok 1.0.89 capability + release-binary workspace/index/commit review and shell-free extraction, retained-run & MCP-mode `ps` leak checks, unchanged original source/`.git`/`~/.grok/auth.json`/`grok` binary, zero leftover cores/holders/panes/`/private/tmp/mgh-<uid>/*`/`mulgae-review-*`, `ps`-verified untouched user `default` core); verify all canonical doc backlinks and `git diff --check`. |
+
+### Epic acceptance
+
+- [ ] Prerequisite maintenance `TASK-083` and every member Task (`TASK-084` through `TASK-087`) have implementation and exact-candidate verification evidence.
+- [ ] `internal/adapters/herdr`, `__mulgae_paneexec_v1`, and `internal/adapters/providercli/terminal_provider.go` pass unit tests with a second fake non-OSC multi-home terminal profile while keeping ZCode, Codex, Cursor, AGY transports, Config v5, and embedded JSON schemas/examples unchanged.
+- [ ] Real-holder-PTY kernel tests, isolated `herdr-core` lifecycle tests, and live `make test-grok` confirm zero source copying, read-only project/`.git` protection, enumerated control-plane socket escape denial (`HC_TERMINAL_SOCKET`, operator `herdr-core`, `~/.grok/leader.sock`), exact `PANE_TTY` isolation, terminal secret-root denies, disposable `HOME`/`GROK_HOME` without native `~/.grok` mutation, truthful `ESRCH` + session teardown, complete core/holder/pane/socket cleanup (including retained and MCP paths), and `ps`-verified zero interference with the operator's `default` `herdr-core` session.
+- [ ] Deterministic offline (`make test-offline`), release-binary (`make test-release`), tagged real-`hc` (`make test-herdr`), mandatory ZCode regression (`make test-e2e`), and live Grok 1.0.89 (`make test-grok`) gates pass on the integrated candidate.
+- [ ] Durable outcomes are promoted to `docs/architecture/README.md`, `docs/specs/security.md`, `docs/specs/contracts.md`, `docs/specs/live-workspace-and-git-review.md`, `docs/gating-rules.md`, embedded help assets, and the accepted ADR; deferred non-`herdr-core` ZCode control-plane hardening is recorded in `docs/deferred-feedback/README.md`; `Detailed SOT` is replaced with `Canonical Outcomes` and the temporary dossier and TODO entry are removed in the approved closeout diff.
+- [ ] Master explicitly accepts this Epic; completing its Tasks does not substitute for Epic acceptance.
