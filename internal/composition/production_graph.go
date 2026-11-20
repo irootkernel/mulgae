@@ -101,6 +101,9 @@ func composeProductionRuntimeGraph(
 	if _, _, accountErr := appconfig.AdmitConfiguredNativeAccount(policy.config.NativeUser.Home, installedAccount); accountErr != nil {
 		return nil, reviewCompositionFailure(domain.FailureSecurityPolicy, "configured native home does not match installed user", nil)
 	}
+	if ancestorErr := rejectProjectAncestorOfReviewerHome(root, policy.config.NativeUser.Home); ancestorErr != nil {
+		return nil, reviewCompositionFailure(domain.FailureSecurityPolicy, "project root must not be an ancestor of reviewer home", ancestorErr)
+	}
 	tempRoot, err := startupTempRoot()
 	if err != nil {
 		return nil, fmt.Errorf("production graph: startup temp root: %w", err)
@@ -234,6 +237,9 @@ func (graph *productionRuntimeGraph) openLiveReview(ctx context.Context, catalog
 	operatorHome, err := ports.NewAnchoredRoot(graph.policy.config.NativeUser.Home)
 	if err != nil {
 		return err
+	}
+	if ancestorErr := rejectProjectAncestorOfReviewerHome(graph.root, operatorHome.String()); ancestorErr != nil {
+		return reviewCompositionFailure(domain.FailureSecurityPolicy, "project root must not be an ancestor of reviewer home", ancestorErr)
 	}
 	graph.reviewerHome, err = providercli.OpenReviewerHome(operatorHome, guide)
 	if err != nil {

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 
 	"github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
@@ -16,11 +18,268 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+const (
+	maxLiveSourceSymlinkHops    = 40
+	maxLiveSourcePathComponents = 4096
+	macOSDataVolumePrefix       = "/System/Volumes/Data"
+)
+
+// rejectProjectAncestorOfReviewerHome fails closed when the project root equals
+// or contains ~/.mulgae/home (lexically, through existing or dangling symlinks,
+// macOS APFS Data-volume firmlinks, or case-insensitive APFS aliases), so
+// reviewing a project can never expose or collide with the neutral reviewer home.
+func rejectProjectAncestorOfReviewerHome(project ports.AnchoredRoot, nativeHome string) error {
+	if !project.Valid() || nativeHome == "" || !filepath.IsAbs(nativeHome) || filepath.Clean(nativeHome) != nativeHome {
+		return fmt.Errorf("live source: invalid project root or native user home")
+	}
+	resolvedProject, err := resolvePathComponentsMissingTolerant(project.String())
+	if err != nil {
+		return fmt.Errorf("live source: resolve project root: %w", err)
+	}
+	projectForms := uniqueCleanPaths(project.String(), resolvedProject)
+
+	mulgaeDir := filepath.Join(nativeHome, ".mulgae")
+	reviewerHome := filepath.Join(mulgaeDir, "home")
+
+	resolvedHome, err := resolvePathComponentsMissingTolerant(nativeHome)
+	if err != nil {
+		return fmt.Errorf("live source: resolve native user home: %w", err)
+	}
+	resolvedMulgae, err := resolvePathComponentsMissingTolerant(mulgaeDir)
+	if err != nil {
+		return fmt.Errorf("live source: resolve mulgae state root: %w", err)
+	}
+	resolvedReviewerHome, err := resolvePathComponentsMissingTolerant(reviewerHome)
+	if err != nil {
+		return fmt.Errorf("live source: resolve reviewer home: %w", err)
+	}
+
+	candidates := uniqueCleanPaths(
+		reviewerHome,
+		resolvedReviewerHome,
+		filepath.Join(resolvedMulgae, "home"),
+		filepath.Join(resolvedHome, ".mulgae", "home"),
+	)
+
+	// Expand macOS APFS Data-volume firmlink aliases so ancestors of
+	// /System/Volumes/Data (including /System/Volumes/Data, /System/Volumes,
+	// and /System) are rejected when reviewer home resides on a firmlinked path.
+	dataAliases := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		existing, existingInfo, ok, walkErr := deepestExistingNoFollowPrefix(candidate)
+		if walkErr != nil {
+			return fmt.Errorf("live source: inspect reviewer home ancestor: %w", walkErr)
+		}
+		if !ok || existing == "/" || existing == macOSDataVolumePrefix || strings.HasPrefix(existing, macOSDataVolumePrefix+"/") {
+			continue
+		}
+		dataAlias := filepath.Join(macOSDataVolumePrefix, existing)
+		dataAliasInfo, lstatErr := os.Lstat(dataAlias)
+		if lstatErr != nil {
+			if errors.Is(lstatErr, os.ErrNotExist) || errors.Is(lstatErr, syscall.ENOTDIR) {
+				continue
+			}
+			return fmt.Errorf("live source: inspect data-volume alias: %w", lstatErr)
+		}
+		if os.SameFile(existingInfo, dataAliasInfo) {
+			dataAliases = append(dataAliases, filepath.Join(macOSDataVolumePrefix, candidate))
+		}
+	}
+	candidates = uniqueCleanPaths(append(candidates, dataAliases...)...)
+
+	for _, projectPath := range projectForms {
+		for _, candidate := range candidates {
+			if pathIsAncestorOrEqual(projectPath, candidate) {
+				return fmt.Errorf("live source: project root must not be an ancestor of reviewer home")
+			}
+		}
+		// Compare kernel (dev, ino) via os.SameFile against every existing
+		// ancestor of each reviewerHome candidate up to "/", closing macOS
+		// firmlinks (/System/Volumes/Data/Users/...), APFS case-insensitivity,
+		// and symlinked project roots.
+		projectInfo, statErr := os.Stat(projectPath)
+		if statErr != nil {
+			continue
+		}
+		for _, candidate := range candidates {
+			for ancestor := candidate; ; {
+				if ancestorInfo, err := os.Stat(ancestor); err == nil && os.SameFile(projectInfo, ancestorInfo) {
+					return fmt.Errorf("live source: project root must not be an ancestor of reviewer home")
+				}
+				parent := filepath.Dir(ancestor)
+				if parent == ancestor {
+					break
+				}
+				ancestor = parent
+			}
+		}
+	}
+	return nil
+}
+
+// deepestExistingNoFollowPrefix walks path downward from "/" via os.Lstat,
+// stopping at the first missing component (ENOENT/ENOTDIR) or at the first
+// symlink (returning that symlink path and its Lstat FileInfo). Fails closed on
+// any other Lstat error (such as EACCES).
+func deepestExistingNoFollowPrefix(path string) (string, os.FileInfo, bool, error) {
+	clean := filepath.Clean(path)
+	if !filepath.IsAbs(clean) {
+		return "", nil, false, fmt.Errorf("path must be absolute")
+	}
+	parts := splitPathComponents(clean)
+	if len(parts) > maxLiveSourcePathComponents {
+		return "", nil, false, fmt.Errorf("resolved path exceeds component bound")
+	}
+	current := "/"
+	var lastPath string
+	var lastInfo os.FileInfo
+	for _, seg := range parts {
+		next := filepath.Join(current, seg)
+		info, err := os.Lstat(next)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+				return lastPath, lastInfo, lastInfo != nil, nil
+			}
+			return "", nil, false, err
+		}
+		lastPath = next
+		lastInfo = info
+		if info.Mode()&os.ModeSymlink != 0 {
+			return lastPath, lastInfo, true, nil
+		}
+		current = next
+	}
+	return lastPath, lastInfo, lastInfo != nil, nil
+}
+
+func resolvePathComponentsMissingTolerant(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("path must be absolute")
+	}
+	current := "/"
+	missingDepth := 0
+	hops := 0
+	queue := splitPathComponents(path)
+	if len(queue) > maxLiveSourcePathComponents {
+		return "", fmt.Errorf("resolved path exceeds component bound")
+	}
+
+	for len(queue) > 0 {
+		seg := queue[0]
+		queue = queue[1:]
+		if seg == "" || seg == "." {
+			continue
+		}
+		if seg == ".." {
+			if current != "/" {
+				current = filepath.Dir(current)
+				if missingDepth > 0 {
+					missingDepth--
+				}
+			}
+			continue
+		}
+		next := filepath.Join(current, seg)
+		if missingDepth > 0 {
+			current = next
+			missingDepth++
+			continue
+		}
+		info, err := os.Lstat(next)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+				current = next
+				missingDepth = 1
+				continue
+			}
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			current = next
+			continue
+		}
+		hops++
+		if hops > maxLiveSourceSymlinkHops {
+			return "", fmt.Errorf("too many symlink hops")
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return "", err
+		}
+		if target == "" {
+			return "", fmt.Errorf("empty symlink target")
+		}
+		if strings.HasPrefix(target, "/") {
+			current = "/"
+			missingDepth = 0
+		}
+		targetParts := splitPathComponents(target)
+		if len(targetParts)+len(queue) > maxLiveSourcePathComponents {
+			return "", fmt.Errorf("resolved path exceeds component bound")
+		}
+		newQueue := make([]string, 0, len(targetParts)+len(queue))
+		newQueue = append(newQueue, targetParts...)
+		newQueue = append(newQueue, queue...)
+		queue = newQueue
+	}
+	return current, nil
+}
+
+func splitPathComponents(path string) []string {
+	raw := strings.Split(path, "/")
+	out := make([]string, 0, len(raw))
+	for _, part := range raw {
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func uniqueCleanPaths(paths ...string) []string {
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		clean := filepath.Clean(p)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	return out
+}
+
+func pathIsAncestorOrEqual(ancestor, descendant string) bool {
+	ancestor = filepath.Clean(ancestor)
+	descendant = filepath.Clean(descendant)
+	if ancestor == descendant {
+		return true
+	}
+	if ancestor == string(filepath.Separator) {
+		return strings.HasPrefix(descendant, string(filepath.Separator))
+	}
+	return strings.HasPrefix(descendant, ancestor+string(filepath.Separator))
+}
+
 // Credential boundaries include every machine-owned profile, including profiles
 // that are not selected for this review. Missing default directories still have
 // deny authority; existing aliases also exclude their resolved source roots.
 func liveSourceBoundaries(config appconfig.Config, project ports.AnchoredRoot, runtimeRoots ...ports.AnchoredRoot) (credentials, protected []ports.AnchoredRoot, err error) {
-	paths := []string{filepath.Join(config.NativeUser.Home, ".codex"), filepath.Join(config.NativeUser.Home, ".grok"), filepath.Join(config.NativeUser.Home, ".zcode"), filepath.Join(config.NativeUser.Home, ".gemini")}
+	if err := rejectProjectAncestorOfReviewerHome(project, config.NativeUser.Home); err != nil {
+		return nil, nil, err
+	}
+	paths := []string{
+		filepath.Join(config.NativeUser.Home, ".codex"),
+		filepath.Join(config.NativeUser.Home, ".grok"),
+		filepath.Join(config.NativeUser.Home, ".zcode"),
+		filepath.Join(config.NativeUser.Home, ".gemini"),
+		filepath.Join(config.NativeUser.Home, ".cursor"),
+		filepath.Join(config.NativeUser.Home, ".config", "cursor"),
+	}
 	if config.Providers.Codex != nil {
 		for _, profile := range config.Providers.Codex.CredentialHomes {
 			paths = append(paths, profile.Home)

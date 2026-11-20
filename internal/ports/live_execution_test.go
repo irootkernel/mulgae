@@ -3,9 +3,19 @@ package ports
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func mustLiveExecRoot(t *testing.T, path string) AnchoredRoot {
+	t.Helper()
+	r, err := NewAnchoredRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
 
 func TestNeutralBoundProcessRequestRejectsInvalidAuthority(t *testing.T) {
 	root, err := NewAnchoredRoot(t.TempDir())
@@ -239,5 +249,163 @@ func TestLiveReadOnlyBoundaryOwnedPTYCapabilityComposesWithExistingAuthority(t *
 
 	if _, err := NewLiveReadOnlyBoundaryWithOwnedPTY(LiveReadOnlyBoundary{}); err == nil {
 		t.Fatal("invalid boundary admitted for the owned-terminal capability")
+	}
+}
+
+func TestLiveReadOnlyBoundaryControlPlanePaneTTYAndBashGate(t *testing.T) {
+	source, _ := NewAnchoredRoot("/source")
+	credential, _ := NewAnchoredRoot("/credentials")
+	writable, _ := NewAnchoredRoot("/invocation")
+	nativeHome, _ := NewAnchoredRoot("/Users/alice")
+
+	base, err := NewLiveReadOnlyBoundary([]AnchoredRoot{source}, []AnchoredRoot{credential}, writable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.PaneTTY() || base.BashGate() || len(base.ControlPlaneRoots()) != 0 || len(base.ControlPlaneLiterals()) != 0 ||
+		len(base.TerminalSecretRoots()) != 0 || len(base.TerminalDeniedLiterals()) != 0 {
+		t.Fatal("default boundary unexpectedly populated terminal/control-plane fields")
+	}
+
+	// Default control-plane roots.
+	sessionRoot, _ := NewAnchoredRoot("/private/tmp/mgh-501/0123456789abcdef")
+	cpRoots, err := DefaultControlPlaneRoots(nativeHome, 501, sessionRoot)
+	if err != nil {
+		t.Fatalf("DefaultControlPlaneRoots: %v", err)
+	}
+	wantCP := []string{
+		"/private/tmp/mgh-501",
+		"/Users/alice/.local/state/herdr-core",
+		"/Users/alice/.config/herdr-core",
+		"/private/tmp/mgh-501/0123456789abcdef",
+	}
+	if len(cpRoots) != len(wantCP) {
+		t.Fatalf("cpRoots = %v, want %v", cpRoots, wantCP)
+	}
+	for i, want := range wantCP {
+		if cpRoots[i].String() != want {
+			t.Fatalf("cpRoots[%d] = %q, want %q", i, cpRoots[i].String(), want)
+		}
+	}
+
+	// ControlPlanePathsForSocket fails closed when nativeHome is invalid.
+	if _, _, err := ControlPlanePathsForSocket("/private/tmp/my-hc/s.sock", AnchoredRoot{}); err == nil {
+		t.Fatal("ControlPlanePathsForSocket accepted zero nativeHome")
+	}
+	fsRoot, _ := NewAnchoredRoot("/")
+	if _, _, err := ControlPlanePathsForSocket("/private/tmp/my-hc/s.sock", fsRoot); err == nil {
+		t.Fatal("ControlPlanePathsForSocket accepted / as nativeHome")
+	}
+
+	// ControlPlanePathsForSocket distinguishes shared parents from dedicated parents.
+	for _, sharedSock := range []string{
+		"/private/tmp/custom.sock",
+		"/Users/alice/hc.sock",
+		"/Users/alice/.local/share/hc.sock",
+		"/Users/alice/.cache/hc.sock",
+		"/private/var/folders/aa/hc.sock",
+		"/private/var/folders/aa/bb/hc.sock",
+		"/private/var/folders/aa/bb/T/hc.sock",
+		"/private/var/folders/aa/bb/C/hc.sock",
+		"/private/var/folders/aa/bb/0/hc.sock",
+		"/usr/local/hc.sock",
+		"/opt/homebrew/hc.sock",
+		"/private/etc/hc.sock",
+	} {
+		roots, lits, err := ControlPlanePathsForSocket(sharedSock, nativeHome)
+		if err != nil || len(roots) != 0 || len(lits) != 1 || lits[0].String() != sharedSock {
+			t.Fatalf("shared parent socket %q = (%v, %v, %v), want literal only", sharedSock, roots, lits, err)
+		}
+	}
+	sharedLits := []AnchoredRoot{mustLiveExecRoot(t, "/private/tmp/custom.sock")}
+	for _, dedSock := range []string{
+		"/private/tmp/my-hc-dir/s.sock",
+		"/private/var/folders/aa/bb/T/mulgae-hc-1/s.sock",
+		"/Users/alice/.local/state/herdr-core/s.sock",
+	} {
+		dedRoots, dedLits, err := ControlPlanePathsForSocket(dedSock, nativeHome)
+		if err != nil || len(dedRoots) != 1 || dedRoots[0].String() != filepath.Dir(dedSock) || len(dedLits) != 1 {
+			t.Fatalf("dedicated parent socket %q = (%v, %v, %v)", dedSock, dedRoots, dedLits, err)
+		}
+	}
+
+	// WithProcessRequestControlPlane layers control-plane roots/literals without mutating the original request.
+	packet, _ := NewProviderPacketFromBytes([]byte("overlay packet"))
+	binding, _ := NewProtocolProviderPacketBinding(packet)
+	protoReq, err := NewProviderProtocolProcessRequest("/provider", []string{"/provider"}, nil, "/neutral", binding, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WithProcessRequestControlPlane(protoReq, cpRoots, sharedLits); err == nil {
+		t.Fatal("WithProcessRequestControlPlane accepted unguarded request")
+	}
+	guardedProto, err := NewLiveReadOnlyProcessRequest(protoReq, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlaid, err := WithProcessRequestControlPlane(guardedProto, cpRoots, sharedLits)
+	if err != nil {
+		t.Fatalf("WithProcessRequestControlPlane: %v", err)
+	}
+	origB, _ := guardedProto.LiveReadOnlyBoundary()
+	overB, _ := overlaid.LiveReadOnlyBoundary()
+	if len(origB.ControlPlaneRoots()) != 0 || len(overB.ControlPlaneRoots()) != len(cpRoots) || len(overB.ControlPlaneLiterals()) != 1 {
+		t.Fatalf("WithProcessRequestControlPlane overlay failed: orig=%v overlaid=%v", origB.ControlPlaneRoots(), overB.ControlPlaneRoots())
+	}
+
+	withCP, err := NewLiveReadOnlyBoundaryWithControlPlane(base, cpRoots, sharedLits)
+	if err != nil || !withCP.Valid() {
+		t.Fatalf("NewLiveReadOnlyBoundaryWithControlPlane: %v", err)
+	}
+	if len(base.ControlPlaneRoots()) != 0 {
+		t.Fatal("control-plane constructor mutated original boundary")
+	}
+
+	// BashGate requires PaneTTY.
+	if _, err := NewLiveReadOnlyBoundaryWithBashGate(withCP); err == nil {
+		t.Fatal("BashGate accepted non-PaneTTY boundary")
+	}
+
+	withPaneTTY, err := NewLiveReadOnlyBoundaryWithPaneTTY(withCP, nativeHome)
+	if err != nil || !withPaneTTY.Valid() || !withPaneTTY.PaneTTY() {
+		t.Fatalf("NewLiveReadOnlyBoundaryWithPaneTTY: %v", err)
+	}
+	if len(withPaneTTY.TerminalSecretRoots()) != 14 {
+		t.Fatalf("TerminalSecretRoots count = %d, want 14: %v", len(withPaneTTY.TerminalSecretRoots()), withPaneTTY.TerminalSecretRoots())
+	}
+	if len(withPaneTTY.TerminalDeniedLiterals()) != 3 {
+		t.Fatalf("TerminalDeniedLiterals count = %d, want 3: %v", len(withPaneTTY.TerminalDeniedLiterals()), withPaneTTY.TerminalDeniedLiterals())
+	}
+
+	// PaneTTY composes cleanly with OwnedPTY in both orders.
+	composedA, err := NewLiveReadOnlyBoundaryWithOwnedPTY(withPaneTTY)
+	if err != nil || !composedA.OwnedPTY() || !composedA.PaneTTY() || len(composedA.ControlPlaneRoots()) != len(cpRoots) {
+		t.Fatalf("OwnedPTY(PaneTTY) failed: %v", err)
+	}
+	ownedFirst, err := NewLiveReadOnlyBoundaryWithOwnedPTY(withCP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	composedB, err := NewLiveReadOnlyBoundaryWithPaneTTY(ownedFirst, nativeHome)
+	if err != nil || !composedB.OwnedPTY() || !composedB.PaneTTY() {
+		t.Fatalf("PaneTTY(OwnedPTY) failed: %v", err)
+	}
+
+	// BashGate default and custom allowed sockets.
+	withGate, err := NewLiveReadOnlyBoundaryWithBashGate(withPaneTTY)
+	if err != nil || !withGate.Valid() || !withGate.BashGate() {
+		t.Fatalf("NewLiveReadOnlyBoundaryWithBashGate: %v", err)
+	}
+	allowed := withGate.BashGateAllowedUnixSockets()
+	if len(allowed) != 1 || allowed[0].String() != "/private/var/run/mDNSResponder" {
+		t.Fatalf("default BashGateAllowedUnixSockets = %v", allowed)
+	}
+	if withPaneTTY.BashGate() {
+		t.Fatal("BashGate constructor mutated original boundary")
+	}
+	customSock, _ := NewAnchoredRoot("/private/var/run/custom.sock")
+	withCustomGate, err := NewLiveReadOnlyBoundaryWithBashGate(withPaneTTY, customSock)
+	if err != nil || len(withCustomGate.BashGateAllowedUnixSockets()) != 1 || withCustomGate.BashGateAllowedUnixSockets()[0] != customSock {
+		t.Fatalf("custom BashGate = (%v, %v)", withCustomGate.BashGateAllowedUnixSockets(), err)
 	}
 }

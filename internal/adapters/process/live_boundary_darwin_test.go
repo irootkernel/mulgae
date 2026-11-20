@@ -298,6 +298,40 @@ func TestLiveBoundaryRejectsPreexistingCredentialHardlink(t *testing.T) {
 	}
 }
 
+func TestLiveBoundaryRejectsPreexistingCredentialSocketHardlink(t *testing.T) {
+	temporaryBase, err := os.MkdirTemp("", "sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(temporaryBase) })
+	base, err := filepath.EvalSymlinks(temporaryBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, neutral := filepath.Join(base, "src"), filepath.Join(base, "neu")
+	credentials, namespace := filepath.Join(base, "cred"), filepath.Join(base, "ns")
+	for _, path := range []string{source, neutral, credentials, namespace} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sockPath := filepath.Join(credentials, "leader.sock")
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	alias := filepath.Join(source, "leader-alias.sock")
+	if err := os.Link(sockPath, alias); err != nil {
+		t.Fatal(err)
+	}
+	request := liveBoundaryTestRequest(t, neutral, source, source, credentials, namespace, []string{"/bin/sh", "-c", "exit 0"})
+	child, launch, _, err := assembleDirectChild(context.Background(), request, nil, nil)
+	if err == nil || child != nil || launch != nil || !strings.Contains(err.Error(), "hardlink alias") {
+		t.Fatalf("preexisting credential socket hardlink reached spawn: %v", err)
+	}
+}
+
 func TestLiveBoundaryDeniesProtectedUnixSockets(t *testing.T) {
 	binary, err := os.Executable()
 	if err != nil {

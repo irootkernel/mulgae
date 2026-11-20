@@ -18,6 +18,7 @@ const (
 	fdExecHiddenArgument           = "__mulgae_fdexec_v1"
 	fdExecNativeHomeHiddenArgument = "__mulgae_fdexec_native_home_v1"
 	cleanExecHiddenArgument        = "__mulgae_cleanexec_v1"
+	paneExecHiddenArgument         = "__mulgae_paneexec_v1"
 )
 
 // ExecInheritedDirectory recognizes Mulgae's private provider-launch modes.
@@ -25,6 +26,9 @@ const (
 // validate and enter their inherited directory; every mode removes inherited
 // descriptor capabilities before replacing itself with the guarded target.
 func ExecInheritedDirectory(argv []string) (bool, error) {
+	if len(argv) >= 2 && argv[1] == paneExecHiddenArgument {
+		return true, execPaneTrampoline(argv)
+	}
 	if len(argv) >= 2 && argv[1] == cleanExecHiddenArgument {
 		if len(argv) < 3 || !filepath.IsAbs(argv[2]) || filepath.Clean(argv[2]) != argv[2] {
 			return true, fmt.Errorf("clean exec: invalid provider executable")

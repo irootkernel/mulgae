@@ -442,13 +442,19 @@ const (
 	// stdin and stdout pipes. The packet never appears in argv and is never
 	// written as raw stdin bytes.
 	ProviderPacketChannelProtocol ProviderPacketChannel = "protocol"
+	// ProviderPacketChannelTerminal delivers the unbounded prompt packet via a
+	// read-only 0400 prompt file while a managed terminal session (herdr-core)
+	// runs the provider behind Mulgae's trusted pane trampoline and exact-TTY
+	// Seatbelt guard. The packet never appears in argv or raw pipe stdin.
+	ProviderPacketChannelTerminal ProviderPacketChannel = "terminal"
 )
 
 func (channel ProviderPacketChannel) Valid() bool {
 	return channel == ProviderPacketChannelArgvLiteral ||
 		channel == ProviderPacketChannelStdin ||
 		channel == ProviderPacketChannelPromptFile ||
-		channel == ProviderPacketChannelProtocol
+		channel == ProviderPacketChannelProtocol ||
+		channel == ProviderPacketChannelTerminal
 }
 
 // ProviderPacketBinding binds one packet to exactly one child-process channel.
@@ -495,6 +501,18 @@ func NewProtocolProviderPacketBinding(packet ProviderPacket) (ProviderPacketBind
 	return ProviderPacketBinding{channel: ProviderPacketChannelProtocol, packet: packet, argvIndex: -1}, nil
 }
 
+// NewTerminalProviderPacketBinding binds one packet to the managed terminal
+// transport channel. The terminal runner delivers the unbounded prompt through
+// a read-only 0400 prompt file with pre-start and post-teardown digest
+// verification, so the binding carries no argv index or snapshot prompt
+// reference.
+func NewTerminalProviderPacketBinding(packet ProviderPacket) (ProviderPacketBinding, error) {
+	if !packet.Valid() {
+		return ProviderPacketBinding{}, fmt.Errorf("provider packet binding: invalid packet")
+	}
+	return ProviderPacketBinding{channel: ProviderPacketChannelTerminal, packet: packet, argvIndex: -1}, nil
+}
+
 func (binding ProviderPacketBinding) Channel() ProviderPacketChannel { return binding.channel }
 
 // Packet returns the bound packet. The returned value shares no mutable
@@ -523,15 +541,23 @@ func (binding ProviderPacketBinding) Valid() bool {
 	case ProviderPacketChannelProtocol:
 		_, err := NewProtocolProviderPacketBinding(binding.packet)
 		return err == nil
+	case ProviderPacketChannelTerminal:
+		_, err := NewTerminalProviderPacketBinding(binding.packet)
+		return err == nil
 	default:
 		return false
 	}
 }
 
 // ProcessRequest is the complete direct-execution request for one child
-// process. Its fields deliberately exclude shell commands, TTY settings, and
-// inherited environment state. Environment is the complete environment actually
-// supplied through exec.Cmd.Env. Slice accessors return caller-owned copies.
+// process. Its fields deliberately exclude shell commands and arbitrary
+// inherited environment state; any terminal capability is opt-in through
+// LiveReadOnlyBoundary (OwnedPTY or PaneTTY) rather than ambient host TTY
+// inheritance. For direct and protocol launches, Environment is the complete
+// environment supplied through exec.Cmd.Env; for terminal-channel launches
+// executed through the trusted pane trampoline, Environment is the exact
+// explicit envp supplemented only by the validated HC_TERMINAL_ID pass-through.
+// Slice accessors return caller-owned copies.
 type ProcessRequest struct {
 	executable                   string
 	argv                         []string
@@ -694,6 +720,35 @@ func NewProviderProtocolProcessRequest(
 	return request, nil
 }
 
+// NewProviderTerminalProcessRequest builds a terminal-session request whose
+// unbounded packet is delivered via a read-only prompt file inside a guarded
+// pane. Child stdin starts empty and the packet never appears in argv.
+func NewProviderTerminalProcessRequest(
+	executable string, argv []string, environment []EnvironmentVariable, workingDirectory string,
+	binding ProviderPacketBinding, timeout time.Duration,
+) (ProcessRequest, error) {
+	if binding.Channel() != ProviderPacketChannelTerminal {
+		return ProcessRequest{}, fmt.Errorf("provider terminal process request: terminal packet binding is required")
+	}
+	request, err := NewProcessRequest(
+		executable,
+		argv,
+		environment,
+		workingDirectory,
+		nil,
+		timeout,
+	)
+	if err != nil {
+		return ProcessRequest{}, err
+	}
+	if err := validateProviderPacketRequestBinding(request, binding); err != nil {
+		return ProcessRequest{}, fmt.Errorf("provider terminal process request: %w", err)
+	}
+	request.providerPacketBinding = binding
+	request.hasProviderPacketBinding = true
+	return request, nil
+}
+
 // NewBoundProcessRequest transfers a caller-owned launch-directory descriptor
 // into an immutable request. The descriptor is consumed and closed by the
 // process runner; callers must not use it after this constructor succeeds.
@@ -768,6 +823,13 @@ func validateProviderPacketRequestBinding(request ProcessRequest, binding Provid
 		}
 		if packetOccurrences != 0 {
 			return fmt.Errorf("protocol packet must not occur in argv")
+		}
+	case ProviderPacketChannelTerminal:
+		if len(request.stdin) != 0 {
+			return fmt.Errorf("terminal packet transport must start with empty stdin")
+		}
+		if packetOccurrences != 0 {
+			return fmt.Errorf("terminal packet must not occur in argv")
 		}
 	case ProviderPacketChannelPromptFile:
 		if len(request.stdin) != 0 {
@@ -1087,7 +1149,20 @@ const (
 	// ProcessGroupSignalRequestConversationTeardownEscalation escalates a
 	// conversation teardown whose graceful termination did not complete.
 	ProcessGroupSignalRequestConversationTeardownEscalation ProcessGroupSignalRequestReason = "conversation_teardown_escalation"
+	// ProcessGroupSignalRequestTerminalTeardown terminates a managed terminal
+	// pane whose turn has finished or failed.
+	ProcessGroupSignalRequestTerminalTeardown ProcessGroupSignalRequestReason = "terminal_teardown"
+	// ProcessGroupSignalRequestTerminalTeardownEscalation escalates a terminal
+	// pane teardown whose graceful termination did not complete.
+	ProcessGroupSignalRequestTerminalTeardownEscalation ProcessGroupSignalRequestReason = "terminal_teardown_escalation"
 )
+
+// Valid reports whether reason is a closed process-group signal request reason.
+func (reason ProcessGroupSignalRequestReason) Valid() bool {
+	return reason == ProcessGroupSignalRequestPostOutput ||
+		reason == ProcessGroupSignalRequestPostOutputEscalation ||
+		isNonPostOutputProcessGroupSignalRequestReason(reason)
+}
 
 type ProcessGroupSignalRequestReceipt struct {
 	reason         ProcessGroupSignalRequestReason
@@ -1129,7 +1204,9 @@ func isNonPostOutputProcessGroupSignalRequestReason(reason ProcessGroupSignalReq
 		ProcessGroupSignalRequestResidualGroup,
 		ProcessGroupSignalRequestInternalTeardown,
 		ProcessGroupSignalRequestConversationTeardown,
-		ProcessGroupSignalRequestConversationTeardownEscalation:
+		ProcessGroupSignalRequestConversationTeardownEscalation,
+		ProcessGroupSignalRequestTerminalTeardown,
+		ProcessGroupSignalRequestTerminalTeardownEscalation:
 		return true
 	default:
 		return false
@@ -1287,6 +1364,22 @@ func NewProviderPacketTransportReceipt(
 	return receipt, nil
 }
 
+// NewTerminalProviderPacketTransportReceipt constructs a path-free terminal
+// transport receipt binding the invocation packet identity and matching
+// pre-start and post-teardown prompt-file identities.
+func NewTerminalProviderPacketTransportReceipt(
+	packetIdentity, preStartIdentity, postTerminationIdentity ProviderPacketIdentity,
+) (ProviderPacketTransportReceipt, error) {
+	return NewProviderPacketTransportReceipt(
+		ProviderPacketChannelTerminal,
+		packetIdentity,
+		"",
+		"",
+		preStartIdentity,
+		postTerminationIdentity,
+	)
+}
+
 func (receipt ProviderPacketTransportReceipt) Channel() ProviderPacketChannel { return receipt.channel }
 func (receipt ProviderPacketTransportReceipt) PacketIdentity() ProviderPacketIdentity {
 	return receipt.packetIdentity
@@ -1314,6 +1407,14 @@ func (receipt ProviderPacketTransportReceipt) Valid() bool {
 			validCanonicalSnapshotCWD(receipt.snapshotCWD) &&
 			receipt.preStartIdentity == receipt.packetIdentity &&
 			receipt.postTerminationIdentity == receipt.packetIdentity
+	case ProviderPacketChannelTerminal:
+		return receipt.promptFileReference == "" &&
+			receipt.snapshotCWD == "" &&
+			receipt.preStartIdentity.Valid() &&
+			receipt.postTerminationIdentity.Valid() &&
+			receipt.preStartIdentity == receipt.postTerminationIdentity &&
+			(receipt.preStartIdentity == receipt.packetIdentity ||
+				receipt.preStartIdentity.ByteLength() > receipt.packetIdentity.ByteLength())
 	default:
 		return false
 	}
@@ -1979,8 +2080,20 @@ func validateProcessRequest(request ProcessRequest) error {
 		return fmt.Errorf("working directory: %w", err)
 	}
 	if request.liveReadOnlyBoundary.present {
-		if !request.liveReadOnlyBoundary.Valid() || !request.hasProviderPacketBinding || request.providerPacketBinding.Channel() != ProviderPacketChannelProtocol {
-			return fmt.Errorf("live read-only boundary requires a valid protocol request")
+		if !request.liveReadOnlyBoundary.Valid() || !request.hasProviderPacketBinding {
+			return fmt.Errorf("live read-only boundary requires a valid protocol or terminal request")
+		}
+		switch request.providerPacketBinding.Channel() {
+		case ProviderPacketChannelProtocol:
+			if request.liveReadOnlyBoundary.PaneTTY() {
+				return fmt.Errorf("live read-only boundary pane TTY mode requires a terminal request")
+			}
+		case ProviderPacketChannelTerminal:
+			if !request.liveReadOnlyBoundary.PaneTTY() {
+				return fmt.Errorf("terminal request requires a pane TTY live read-only boundary")
+			}
+		default:
+			return fmt.Errorf("live read-only boundary requires a valid protocol or terminal request")
 		}
 	}
 	if request.hasBoundLaunchDirectory {
@@ -2022,6 +2135,9 @@ func validateProcessRequest(request ProcessRequest) error {
 	if request.hasPostOutputLifecycle {
 		if !request.hasProviderPacketBinding || !request.postOutputLifecycle.Valid() {
 			return fmt.Errorf("post-output lifecycle requires provider packet binding and valid policy")
+		}
+		if request.providerPacketBinding.Channel() == ProviderPacketChannelTerminal {
+			return fmt.Errorf("post-output lifecycle is unsupported for terminal requests")
 		}
 		if request.postOutputLifecycle.stabilityGrace > request.timeout-request.postOutputLifecycle.terminationGrace {
 			return fmt.Errorf("post-output lifecycle grace exceeds timeout")
@@ -2084,12 +2200,12 @@ func validateProviderPacketTransportReceipt(termination ProcessTermination, stdi
 		return nil
 	}
 	if stdin.IntendedByteLength() != 0 || stdin.WrittenByteCount() != 0 || !stdin.Complete() || stdin.SHA256() != providerPacketDigest(nil) {
-		return fmt.Errorf("argv or prompt-file transport requires complete zero-byte stdin receipt")
+		return fmt.Errorf("argv, prompt-file, or terminal transport requires complete zero-byte stdin receipt")
 	}
 	switch termination {
 	case ProcessTerminationStartFailed, ProcessTerminationStartUnavailable, ProcessTerminationStartConfiguration,
 		ProcessTerminationStartSecurity:
-		return fmt.Errorf("start failure cannot claim argv or prompt-file delivery")
+		return fmt.Errorf("start failure cannot claim argv, prompt-file, or terminal delivery")
 	}
 	return nil
 }

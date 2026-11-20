@@ -675,7 +675,12 @@ func (observation ProviderExecutionObservation) Validate() error {
 		if !observation.hasProcess {
 			return fmt.Errorf("provider execution observation: successful status requires process observation")
 		}
-		if !canonicalProcess.Succeeded() && !canonicalProcess.conversationTeardownCompleted() {
+		transport, hasTransport := canonicalProcess.ProviderPacketTransportReceipt()
+		if hasTransport && transport.Channel() == ProviderPacketChannelTerminal {
+			if !canonicalProcess.TerminalSessionCompleted() {
+				return fmt.Errorf("provider execution observation: successful terminal status requires a completed terminal process observation")
+			}
+		} else if !canonicalProcess.Succeeded() && !canonicalProcess.conversationTeardownCompleted() {
 			return fmt.Errorf("provider execution observation: successful status requires a successful process observation")
 		}
 		if !observation.hasResult {
@@ -694,7 +699,7 @@ func (observation ProviderExecutionObservation) Validate() error {
 		if result.InputIdentity() != canonicalInvocation.InputIdentity() {
 			return fmt.Errorf("provider execution observation: result input identity does not match invocation")
 		}
-		if transport, ok := canonicalProcess.ProviderPacketTransportReceipt(); ok {
+		if hasTransport {
 			if transport.Channel() == ProviderPacketChannelStdin && !canonicalProcess.StdinWriteReceipt().Complete() {
 				return fmt.Errorf("provider execution observation: successful status requires complete packet transport")
 			}
@@ -1042,6 +1047,16 @@ func validateProviderExecutionStdinReceipt(invocation ProviderInvocation, proces
 		if !receipt.Complete() {
 			return fmt.Errorf("protocol stdin receipt is incomplete")
 		}
+	case ProviderPacketChannelTerminal:
+		if !transport.PreStartIdentity().Valid() ||
+			!transport.PostTerminationIdentity().Valid() ||
+			transport.PreStartIdentity() != transport.PostTerminationIdentity() {
+			return fmt.Errorf("terminal transport receipt requires matching pre-start and post-teardown prompt digests")
+		}
+		if receipt.IntendedByteLength() != 0 || receipt.WrittenByteCount() != 0 ||
+			!receipt.Complete() || receipt.SHA256() != providerPacketDigest(nil) {
+			return fmt.Errorf("terminal packet transport must have a complete empty stdin receipt")
+		}
 	default:
 		if receipt.IntendedByteLength() != 0 || receipt.WrittenByteCount() != 0 ||
 			!receipt.Complete() || receipt.SHA256() != providerPacketDigest(nil) {
@@ -1055,32 +1070,39 @@ func providerExecutionStatusMatchesProcessObservation(
 	status ProviderExecutionStatus,
 	processObservation ProcessObservation,
 ) bool {
+	terminalCompleted := processObservation.TerminalSessionCompleted()
 	switch status {
 	case ProviderExecutionStatusTimedOut:
 		return processObservation.Termination() == ProcessTerminationTimedOut ||
 			(processObservation.Termination() == ProcessTerminationExited &&
-				processObservation.StdinWriteReceipt().Complete())
+				processObservation.StdinWriteReceipt().Complete()) ||
+			terminalCompleted
 	case ProviderExecutionStatusCancelled:
 		return processObservation.Termination() == ProcessTerminationCancelled
 	case ProviderExecutionStatusArtifactFailure:
 		// Incomplete stdin is a process artifact. A complete
 		// stdin process exit may instead carry an artifact diagnostic from
-		// post-exit output validation. No policy maps a signal to this status.
+		// post-exit output validation. A completed terminal session torn down
+		// after reporting done may similarly fail post-teardown staging
+		// validation. No policy maps an unsolicited signal to this status.
 		switch processObservation.Termination() {
 		case ProcessTerminationStdinIncomplete:
 			return true
 		case ProcessTerminationExited:
 			return processObservation.StdinWriteReceipt().Complete()
 		default:
-			return false
+			return terminalCompleted
 		}
 	case ProviderExecutionStatusUnavailable:
 		// A transient provider-side outcome (overloaded, capacity, 5xx) is
 		// reported by a process that ran and exited after a complete stdin
-		// write, the same shape as authentication, quota and rate limit.
+		// write, or by a live terminal pane intentionally torn down after a
+		// structured provider error, the same shape as authentication, quota
+		// and rate limit.
 		return processObservation.Termination() == ProcessTerminationStartUnavailable ||
 			(processObservation.Termination() == ProcessTerminationExited &&
-				processObservation.StdinWriteReceipt().Complete())
+				processObservation.StdinWriteReceipt().Complete()) ||
+			terminalCompleted
 	case ProviderExecutionStatusSecurityViolation:
 		switch processObservation.Termination() {
 		case ProcessTerminationStartSecurity,
@@ -1089,7 +1111,7 @@ func providerExecutionStatusMatchesProcessObservation(
 		case ProcessTerminationExited:
 			return processObservation.StdinWriteReceipt().Complete()
 		default:
-			return false
+			return terminalCompleted
 		}
 	case ProviderExecutionStatusConfigurationViolation:
 		switch processObservation.Termination() {
@@ -1098,21 +1120,23 @@ func providerExecutionStatusMatchesProcessObservation(
 		case ProcessTerminationExited:
 			return processObservation.StdinWriteReceipt().Complete()
 		default:
-			return false
+			return terminalCompleted
 		}
 	case ProviderExecutionStatusAuthentication,
 		ProviderExecutionStatusQuota,
 		ProviderExecutionStatusRateLimit,
 		ProviderExecutionStatusMutationViolation:
-		return processObservation.Termination() == ProcessTerminationExited &&
-			processObservation.StdinWriteReceipt().Complete()
+		return (processObservation.Termination() == ProcessTerminationExited &&
+			processObservation.StdinWriteReceipt().Complete()) ||
+			terminalCompleted
 	case ProviderExecutionStatusInternalFailure:
 		// Signals and unclassified start failures remain exact process
 		// facts and fail closed as internal rather than becoming unavailable.
 		return processObservation.Termination() == ProcessTerminationSignaled ||
 			processObservation.Termination() == ProcessTerminationStartFailed ||
 			(processObservation.Termination() == ProcessTerminationExited &&
-				processObservation.StdinWriteReceipt().Complete())
+				processObservation.StdinWriteReceipt().Complete()) ||
+			terminalCompleted
 	default:
 		return false
 	}
@@ -1175,6 +1199,83 @@ func (observation ProcessObservation) conversationTeardownCompleted() bool {
 		}
 	}
 	return true
+}
+
+// TerminalSessionCompleted reports whether this process observation carries the
+// truthful process-level completion fact of a managed terminal session: the
+// terminal channel delivered a verified prompt file, the pane's process group
+// and session were proven absent (ProcessGroupAbsent() == true), and the pane
+// either exited cleanly with status 0 without signals or ended through
+// Mulgae's receipt-proven terminal teardown signals.
+func (observation ProcessObservation) TerminalSessionCompleted() bool {
+	if !observation.Valid() || !observation.ProcessGroupAbsent() {
+		return false
+	}
+	if !observation.stdinWriteReceipt.Valid() || !observation.stdinWriteReceipt.Complete() {
+		return false
+	}
+	transport, ok := observation.ProviderPacketTransportReceipt()
+	if !ok || !transport.Valid() || transport.Channel() != ProviderPacketChannelTerminal {
+		return false
+	}
+	if observation.terminalTeardownCompleted() {
+		return true
+	}
+	if observation.Termination() != ProcessTerminationExited {
+		return false
+	}
+	if len(observation.SignalRequests()) != 0 {
+		return false
+	}
+	exitCode, exited := observation.ExitCode()
+	return exited && exitCode == 0
+}
+
+func (observation ProcessObservation) terminalTeardownCompleted() bool {
+	switch observation.Termination() {
+	case ProcessTerminationSignaled, ProcessTerminationExited:
+	default:
+		return false
+	}
+	transport, ok := observation.ProviderPacketTransportReceipt()
+	if !ok || !transport.Valid() || transport.Channel() != ProviderPacketChannelTerminal {
+		return false
+	}
+	lifecycle, ok := observation.LifecycleReceipt()
+	if !ok || !lifecycle.Valid() || !lifecycle.ProcessGroupAbsent() {
+		return false
+	}
+	requests := lifecycle.SignalRequests()
+	if len(requests) == 0 {
+		return false
+	}
+	for _, request := range requests {
+		switch request.Reason() {
+		case ProcessGroupSignalRequestTerminalTeardown,
+			ProcessGroupSignalRequestTerminalTeardownEscalation:
+		default:
+			return false
+		}
+	}
+	final := lifecycle.FinalTermination()
+	switch observation.Termination() {
+	case ProcessTerminationSignaled:
+		sig, ok := final.Signal()
+		if !ok {
+			return false
+		}
+		for _, request := range requests {
+			if request.Signal() == sig {
+				return true
+			}
+		}
+		return false
+	case ProcessTerminationExited:
+		_, ok := final.ExitCode()
+		return ok
+	default:
+		return false
+	}
 }
 
 func providerResultIsZero(result ProviderResult) bool {

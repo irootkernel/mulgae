@@ -246,6 +246,9 @@ func (runner *Runner) Run(ctx context.Context, request ports.ProcessRequest) (po
 	}
 
 	binding, providerRequest := request.ProviderPacketBinding()
+	if providerRequest && binding.Channel() == ports.ProviderPacketChannelTerminal {
+		return ports.ProcessObservation{}, fmt.Errorf("process runner: terminal requests require a terminal session runner")
+	}
 	stdin := request.Stdin()
 	needsStdinPipe := !providerRequest || binding.Channel() == ports.ProviderPacketChannelStdin
 	expectedStdinSHA256 := stdinWriteSHA256(stdin)
@@ -694,14 +697,7 @@ func readOutputChunks(stream streamKind, reader *os.File, output chan<- outputCh
 }
 
 func processSignalName(signal syscall.Signal) string {
-	switch signal {
-	case syscall.SIGTERM:
-		return "SIGTERM"
-	case syscall.SIGKILL:
-		return "SIGKILL"
-	default:
-		return fmt.Sprintf("SIG%d", signal)
-	}
+	return ports.SignalNameFromNumber(int(signal))
 }
 func (runner *Runner) runBoundedPostOutput(ctx context.Context, outer *time.Timer, request ports.ProcessRequest, child *exec.Cmd, pgid int, out, errOut *os.File, in io.WriteCloser, stdin []byte, initial ports.StdinWriteReceipt, expected string, binding ports.ProviderPacketBinding, provider bool, pre ports.ProviderPacketIdentity, lifecycle ports.BoundedPostOutputLifecycle, started time.Time) (ports.ProcessObservation, error) {
 	stdout, stderr := streamCapture{}, streamCapture{}
@@ -1722,7 +1718,7 @@ func processExitStatus(state *os.ProcessState) (*int, *ports.ProcessSignal, erro
 	if !ok || !status.Signaled() {
 		return nil, nil, fmt.Errorf("process runner: child ended without an exit status")
 	}
-	signal, err := ports.NewProcessSignal(int(status.Signal()), unix.SignalName(status.Signal()))
+	signal, err := ports.NewProcessSignalFromNumber(int(status.Signal()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("process runner: record child signal: %w", err)
 	}

@@ -30,10 +30,16 @@ import (
 )
 
 func TestMalformedProviderLaunchFailsWithoutPublicOutput(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	exit := Run([]string{"mulgae", "__mulgae_cleanexec_v1", "relative"}, strings.NewReader(""), &stdout, &stderr, BuildOverrides{})
-	if exit != 10 || stdout.Len() != 0 || stderr.String() != "mulgae: provider launch boundary failed\n" {
-		t.Fatalf("malformed launch: exit=%d, stdout=%q, stderr=%q", exit, stdout.String(), stderr.String())
+	for _, argv := range [][]string{
+		{"mulgae", "__mulgae_cleanexec_v1", "relative"},
+		{"mulgae", "__mulgae_paneexec_v1"},
+		{"mulgae", "__mulgae_paneexec_v1", "relative"},
+	} {
+		var stdout, stderr bytes.Buffer
+		exit := Run(argv, strings.NewReader(""), &stdout, &stderr, BuildOverrides{})
+		if exit != 10 || stdout.Len() != 0 || stderr.String() != "mulgae: provider launch boundary failed\n" {
+			t.Fatalf("malformed launch %q: exit=%d, stdout=%q, stderr=%q", argv, exit, stdout.String(), stderr.String())
+		}
 	}
 }
 
