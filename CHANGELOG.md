@@ -12,6 +12,7 @@ This file records concise shipped outcomes and the planned next stable release.
 ### Fixed
 
 - Restore ZCode 3.18.2 reviews for accounts protected by macOS Keychain.
+- Accept optional Grok CLI release-channel version tags (such as `[stable]` or `[beta]`) and register the synthetic `grok-logic` namespace so `mulgae heartbeat --provider grok` works even when no review role uses Grok.
 
 ## v0.1.27 - 2026-11-10
 

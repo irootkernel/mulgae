@@ -759,7 +759,7 @@ func providerDiagnosticCause(err error) (domain.RuntimeDiagnosticCause, bool) {
 }
 
 var semverOutput = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
-var grokVersionOutput = regexp.MustCompile(`^grok ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?) \([0-9a-f]+\)$`)
+var grokVersionOutput = regexp.MustCompile(`^grok ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?) \([0-9a-f]+\)(?: \[[A-Za-z0-9._-]+\])?$`)
 var cursorVersionOutput = regexp.MustCompile(`^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]+$`)
 
 func acceptedObservedVersion(family, version string) bool {

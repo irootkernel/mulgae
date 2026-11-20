@@ -820,8 +820,10 @@ historical replay or recovery execution path.
 
 MCP uses the same configured route, preflight, result and inspection owners.
 It adds no init/configuration tool or provider selector. Heartbeat's synthetic
-`agy-logic` namespace is registered independently of enabled review roles, so
-a documentation-only route can still use the authorized diagnostic.
+`agy-logic` and `grok-logic` namespaces are registered independently of enabled
+review roles whenever the corresponding provider is configured, so an unassigned
+or documentation-only route can still use the authorized diagnostic; `grok-logic`
+projects `~/.grok/auth.json` lazily only when the namespace is acquired.
 
 ## Output and exits
 
@@ -1030,11 +1032,17 @@ rejects an observed false value when the configuration requested true.
 ## Provider qualification readiness
 
 Grok CLI 1.0.34 is the minimum release for configurable selection and 1.0.40
-is the latest verified release. The verified Apple Silicon binaries identify
-themselves as `grok 1.0.34 (3736acbc8658) [stable]` and
-`grok 1.0.40 (eb1a2256660d) [stable]`. Both releases accept selection only
-through the ACP conversation: after `session/new`, Mulgae sends
-`session/set_model` with the exact `modelId` and, when configured,
+is the latest verified release. Mulgae accepts both untagged
+`grok <semver> (<hex>)` banners and optional release-channel tagged
+`grok <semver> (<hex>) [<channel>]` banners (such as `[stable]` or `[beta]`),
+including the verified Apple Silicon binaries
+`grok 1.0.34 (3736acbc8658) [stable]` and
+`grok 1.0.40 (eb1a2256660d) [stable]`. Minimum remains `1.0.34` and verified
+latest remains `1.0.40` (so newer releases such as `1.0.89` remain eligible as
+`yellow` / `newer_than_verified` / `provider_cli_version_newer_than_verified`)
+until live `1.0.89` certification lands in EPIC-017. Both verified releases
+accept selection only through the ACP conversation: after `session/new`, Mulgae
+sends `session/set_model` with the exact `modelId` and, when configured,
 `_meta.reasoningEffort`. Omitting a setting leaves that dimension at the
 provider default; an effort-only request reuses the current model reported by
 `session/new` without guessing or persisting it.

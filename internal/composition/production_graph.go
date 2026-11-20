@@ -156,68 +156,12 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: namespaces: %w", err)
 	}
-	instanceFamilies := make(map[string]providercli.CredentialSourceFamily)
-	instancePolicies := make(map[string]providercli.RuntimeSafetyPolicy)
-	nativeHomes := make(map[string]string)
-	sourceRoots := make(map[string]string)
-	configuredRoles := policy.config.Roles.Ordered()
-	for index, role := range domain.FixedRoleOrder() {
-		configured := configuredRoles[index]
-		if !configured.Enabled {
-			continue
-		}
-		familyName := configured.PrimaryProvider
-		family := reviewrun.Family(familyName)
-		instance := familyName + "-" + string(role)
-		credentialProfile := ""
-		if family == reviewrun.FamilyCodex && policy.config.Providers.Codex != nil && policy.config.Providers.Codex.DefaultCredentialProfile != "" {
-			credentialProfile = configured.CredentialProfile
-			if credentialProfile == "" {
-				credentialProfile = policy.config.Providers.Codex.DefaultCredentialProfile
-			}
-			instance = familyName + "-" + credentialProfile + "-" + string(role)
-		}
-		switch family {
-		case reviewrun.FamilyZCode:
-			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
-		case reviewrun.FamilyGrok:
-			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceGrok, policies[family]
-		case reviewrun.FamilyCodex:
-			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCodex, policies[family]
-			if credentialProfile != "" {
-				sourceRoots[instance], _ = policy.config.Providers.Codex.CredentialHome(credentialProfile)
-			}
-		case reviewrun.FamilyCursor:
-			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCursor, policies[family]
-		case reviewrun.FamilyAgy:
-			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[family]
-		default:
-			return nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
-		}
-	}
 	candidates.cursorAuthToken = os.Getenv("CURSOR_AUTH_TOKEN")
-	if policy.config.Providers.Agy != nil {
-		// Heartbeat qualifies the fixed synthetic logic candidate even when
-		// generated project policy assigns AGY only to documentation.
-		instance := string(reviewrun.FamilyAgy) + "-" + string(domain.RoleLogic)
-		instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[reviewrun.FamilyAgy]
+	instanceFamilies, instancePolicies, sourceRoots, err := productionInstanceFamilies(policy.config, policies)
+	if err != nil {
+		return nil, err
 	}
-	if codex := policy.config.Providers.Codex; codex != nil {
-		seen := make(map[string]struct{}, len(sourceRoots))
-		for _, home := range sourceRoots {
-			seen[home] = struct{}{}
-		}
-		for _, entry := range codex.CredentialHomes {
-			if entry.Home == "" {
-				continue
-			}
-			if _, exists := seen[entry.Home]; exists {
-				continue
-			}
-			sourceRoots["profile-home-"+entry.Profile] = entry.Home
-			seen[entry.Home] = struct{}{}
-		}
-	}
+	nativeHomes := make(map[string]string)
 	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithProjectRoot(namespaces, nativeHome, root.String(), instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: credential namespaces: %w", err)
@@ -301,4 +245,78 @@ func (graph *productionRuntimeGraph) openLiveReview(ctx context.Context, catalog
 	}
 	graph.liveCommon, err = reviewrun.LoadLiveReviewCommon(ctx, catalog)
 	return err
+}
+
+func productionInstanceFamilies(
+	config appconfig.Config,
+	policies map[reviewrun.Family]providercli.RuntimeSafetyPolicy,
+) (map[string]providercli.CredentialSourceFamily, map[string]providercli.RuntimeSafetyPolicy, map[string]string, error) {
+	instanceFamilies := make(map[string]providercli.CredentialSourceFamily)
+	instancePolicies := make(map[string]providercli.RuntimeSafetyPolicy)
+	sourceRoots := make(map[string]string)
+	configuredRoles := config.Roles.Ordered()
+	for index, role := range domain.FixedRoleOrder() {
+		configured := configuredRoles[index]
+		if !configured.Enabled {
+			continue
+		}
+		familyName := configured.PrimaryProvider
+		family := reviewrun.Family(familyName)
+		instance := familyName + "-" + string(role)
+		credentialProfile := ""
+		if family == reviewrun.FamilyCodex && config.Providers.Codex != nil && config.Providers.Codex.DefaultCredentialProfile != "" {
+			credentialProfile = configured.CredentialProfile
+			if credentialProfile == "" {
+				credentialProfile = config.Providers.Codex.DefaultCredentialProfile
+			}
+			instance = familyName + "-" + credentialProfile + "-" + string(role)
+		}
+		switch family {
+		case reviewrun.FamilyZCode:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
+		case reviewrun.FamilyGrok:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceGrok, policies[family]
+		case reviewrun.FamilyCodex:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCodex, policies[family]
+			if credentialProfile != "" {
+				sourceRoots[instance], _ = config.Providers.Codex.CredentialHome(credentialProfile)
+			}
+		case reviewrun.FamilyCursor:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCursor, policies[family]
+		case reviewrun.FamilyAgy:
+			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[family]
+		default:
+			return nil, nil, nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
+		}
+	}
+	if config.Providers.Grok != nil {
+		// Heartbeat qualifies the fixed synthetic logic candidate even when
+		// generated project policy does not assign Grok to logic or any role.
+		// Credential projection remains lazy until the namespace is acquired.
+		instance := string(reviewrun.FamilyGrok) + "-" + string(domain.RoleLogic)
+		instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceGrok, policies[reviewrun.FamilyGrok]
+	}
+	if config.Providers.Agy != nil {
+		// Heartbeat qualifies the fixed synthetic logic candidate even when
+		// generated project policy assigns AGY only to documentation.
+		instance := string(reviewrun.FamilyAgy) + "-" + string(domain.RoleLogic)
+		instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[reviewrun.FamilyAgy]
+	}
+	if codex := config.Providers.Codex; codex != nil {
+		seen := make(map[string]struct{}, len(sourceRoots))
+		for _, home := range sourceRoots {
+			seen[home] = struct{}{}
+		}
+		for _, entry := range codex.CredentialHomes {
+			if entry.Home == "" {
+				continue
+			}
+			if _, exists := seen[entry.Home]; exists {
+				continue
+			}
+			sourceRoots["profile-home-"+entry.Profile] = entry.Home
+			seen[entry.Home] = struct{}{}
+		}
+	}
+	return instanceFamilies, instancePolicies, sourceRoots, nil
 }

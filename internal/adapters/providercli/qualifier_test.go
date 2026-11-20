@@ -608,11 +608,31 @@ func currentProbeAuthorityForDefinition(t *testing.T) (RuntimeDefinition, Curren
 }
 
 func TestPlainSemverAcceptsExactGrokCLIIdentity(t *testing.T) {
-	observation := testProcessObservation(t, []byte("grok 1.0.30 (a1b2c3d)\n"), nil, ports.ProcessTerminationExited, 0)
-	if got, err := plainSemver(FamilyGrok, observation); err != nil || got != "1.0.30" {
-		t.Fatalf("Grok version = %q, %v", got, err)
+	for _, valid := range []struct {
+		output string
+		want   string
+	}{
+		{"grok 1.0.30 (a1b2c3d)", "1.0.30"},
+		{"grok 1.0.30 (a1b2c3d) [stable]", "1.0.30"},
+		{"grok 1.0.30 (a1b2c3d) [beta]", "1.0.30"},
+		{"grok 1.0.30 (a1b2c3d) [rc.1_test]", "1.0.30"},
+		{"grok 1.0.89 (28be5bb1bf65) [stable]", "1.0.89"},
+		{"grok 1.0.90 (a1b2c3d) [beta]", "1.0.90"},
+	} {
+		observation := testProcessObservation(t, []byte(valid.output+"\n"), nil, ports.ProcessTerminationExited, 0)
+		if got, err := plainSemver(FamilyGrok, observation); err != nil || got != valid.want {
+			t.Fatalf("Grok version %q = %q, %v; want %q", valid.output, got, err, valid.want)
+		}
 	}
-	for _, invalid := range []string{"1.0.30", "grok 1.0.30", "grok 1.0.30 (A1B2)", "grok 1.0.30 (a1b2c3d) [stable]"} {
+	for _, invalid := range []string{
+		"1.0.30",
+		"grok 1.0.30",
+		"grok 1.0.30 (A1B2)",
+		"grok 1.0.30 (a1b2c3d) []",
+		"grok 1.0.30 (a1b2c3d) [bad tag]",
+		"grok 1.0.30 (a1b2c3d) [stable] extra",
+		"grok 1.0.30 (a1b2c3d)[stable]",
+	} {
 		candidate := testProcessObservation(t, []byte(invalid+"\n"), nil, ports.ProcessTerminationExited, 0)
 		if _, err := plainSemver(FamilyGrok, candidate); err == nil {
 			t.Fatalf("invalid Grok version output %q was accepted", invalid)

@@ -1042,6 +1042,9 @@ func TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes(t *testing
 		version string
 	}{
 		{"supported", "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf 'grok 1.1.4\\n'\n", ports.ProviderVersionObserved, "1.1.4"},
+		{"grok untagged banner", "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf 'grok 1.0.30 (a1b2c3d)\\n'\n", ports.ProviderVersionObserved, "1.0.30"},
+		{"grok stable channel banner", "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf 'grok 1.0.89 (28be5bb1bf65) [stable]\\n'\n", ports.ProviderVersionObserved, "1.0.89"},
+		{"grok beta channel banner", "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf 'grok 1.0.90 (a1b2c3d) [beta]\\n'\n", ports.ProviderVersionObserved, "1.0.90"},
 		{"malformed", "#!/bin/sh\nprintf 'grok unknown\\n'\n", ports.ProviderVersionMalformed, ""},
 		{"execution failure", "#!/bin/sh\nexit 7\n", ports.ProviderVersionExecutionFailed, ""},
 		{"timeout", "#!/bin/sh\nsleep 30\n", ports.ProviderVersionTimedOut, ""},
