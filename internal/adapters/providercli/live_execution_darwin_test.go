@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -167,9 +168,13 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if !slices.Contains(argv, "--trust") {
+				t.Fatalf("scope %s argv %q missing exact --trust flag", scope, argv)
+			}
 			joined := strings.Join(argv, " ")
 			for _, required := range []string{
 				"--permission-mode bypassPermissions",
+				"--trust",
 				"--no-alt-screen",
 				"--deny MCPTool",
 				"--tools " + wantReviewTools,

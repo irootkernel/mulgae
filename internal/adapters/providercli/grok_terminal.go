@@ -31,9 +31,8 @@ const (
 
 // grokMinimalDisposableRequirementsTOML is written inside disposable GROK_HOME
 // (<namespace>/home/.grok/requirements.toml) before each Grok launch. It
-// disables external hooks, MCP servers, rules, skills, plugins, managed
-// configs, and ambient repo status without embedding any native-home path or
-// sandbox.toml file.
+// disables external hooks, MCP servers, rules, skills, plugins, and managed
+// configs without embedding any native-home path or sandbox.toml file.
 const grokMinimalDisposableRequirementsTOML = `fail_closed = true
 allow_managed_mcp_servers_only = true
 enable_all_project_mcp_servers = false
@@ -65,7 +64,6 @@ managed_config = false
 mcp_auto_restart = false
 mcp_liveness_watchers = false
 mcp_recursive_config_watch = false
-repo_status_in_system_prompt = false
 
 [paths]
 extra_rule_dirs = []
@@ -233,6 +231,10 @@ func grokTerminalBaseArgv(definition RuntimeDefinition, purpose terminalInvocati
 		"--no-plan",
 		"--deny", "MCPTool",
 		"--permission-mode", "bypassPermissions",
+		// Trust ONLY Mulgae's verified read-only neutral --cwd inside disposable
+		// GROK_HOME so ~/.mulgae/home/AGENTS.md does not trigger Grok's
+		// interactive folder-trust blocked(permission) startup prompt.
+		"--trust",
 		"--no-alt-screen",
 		"--tools", grokTerminalTools(purpose, liveScope, hasLiveScope),
 	}

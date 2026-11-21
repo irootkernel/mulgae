@@ -58,7 +58,6 @@ managed_config = false
 mcp_auto_restart = false
 mcp_liveness_watchers = false
 mcp_recursive_config_watch = false
-repo_status_in_system_prompt = false
 
 [paths]
 extra_rule_dirs = []

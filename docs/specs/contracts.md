@@ -668,8 +668,10 @@ turn-failure classification.
 
 Grok review, extraction, qualification, and heartbeat invocations run through
 Mulgae's isolated per-run `herdr-core` terminal runtime (`ProviderPacketChannelTerminal`,
-`PaneTTY`-only, `--permission-mode bypassPermissions`, `--no-alt-screen`) inside
-Mulgae's mandatory outer macOS Seatbelt boundary. Prompts are written read-only
+`PaneTTY`-only, `--permission-mode bypassPermissions`, `--trust`, `--no-alt-screen`)
+inside Mulgae's mandatory outer macOS Seatbelt boundary, where `--trust` applies
+strictly to Mulgae's verified read-only neutral reviewer home (`--cwd`) inside
+disposable `GROK_HOME`. Prompts are written read-only
 (`0400`) to `<scratch>/input/<id>/prompt.md` inside `ReadOnlyRoots` with pre/post
 SHA-256 verification and a mandatory per-invocation completion nonce (for review
 and extraction), while concise fixed instructions with explicit pagination

@@ -143,8 +143,10 @@ Grok runs through an isolated per-run Mulgae-owned `herdr-core` terminal runtime
 inside the mandatory macOS Seatbelt guard (`PaneTTY`-only, never contacting the
 operator's `default` `herdr-core` session). Mulgae copies only `.grok/auth.json`
 into a disposable `GROK_HOME` alongside a minimal `requirements.toml` disabling
-compat hooks, MCP servers, rules, skills, plugins, managed configs, and ambient
-repo status, while keeping native `~/.grok` kernel-denied in `CredentialRoots`.
+compat hooks, MCP servers, rules, skills, plugins, and managed configs, while
+keeping native `~/.grok` kernel-denied in `CredentialRoots`; `--trust` applies
+strictly to Mulgae's verified read-only neutral `~/.mulgae/home` `--cwd` inside
+disposable `GROK_HOME`.
 Tools are purpose-scoped: workspace review (`read_file,grep,list_dir,Write`),
 extraction, and qualification (`read_file,Write`) run strictly shell-free, while
 index and commit reviews enable `Bash` only under all five `B-1` controls.

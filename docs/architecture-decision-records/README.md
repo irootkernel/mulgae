@@ -22,14 +22,13 @@ explain why durable choices were made.
   selection and the ACP session, permission, and credential boundaries.
 - [AGY stream-JSON transport](agy-stream-json-transport.md) records the
   single-account stream protocol, guarded reads and natural-exit boundary.
-
-## Accepted design for planned implementation
-
 - [herdr-core terminal transport](herdr-core-terminal-transport.md) records
   EPIC-017's reusable isolated `herdr-core` terminal runtime, trusted pane
   trampoline (`__mulgae_paneexec_v1`), control-plane and exact-TTY Seatbelt
   hardening, disposable `GROK_HOME` scratch-file delivery, and Phase 1 Grok
-  migration. Implementation and live Grok certification remain pending.
+  `1.0.89+` migration and live certification.
+
+## Accepted design for planned implementation
 
 - [Coordinate reviews in the shared native execution path](haepari-review-coordination.md)
   records EPIC-016's native boundary, ownership and advisory limits. Implementation

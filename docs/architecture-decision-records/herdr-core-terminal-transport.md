@@ -1,16 +1,12 @@
 # herdr-core terminal transport
 
-Status: Accepted design for planned implementation
+Status: Accepted
 
 Roadmap: [EPIC-017](../roadmap/README.md#epic-017-herdr-core-terminal-runtime-and-grok-migration)
 
-Design acceptance does not imply that this transport is implemented yet; the
-[roadmap](../roadmap/README.md#epic-017-herdr-core-terminal-runtime-and-grok-migration)
-owns delivery status.
-
 ## Context
 
-Mulgae currently integrates every AI review provider through a bespoke,
+Prior to `EPIC-017`, Mulgae integrated every AI review provider through a bespoke,
 CLI-specific wire protocol (`zcode app-server`, `codex app-server`,
 `cursor acp`, `grok agent stdio` ACP, `agy stream-json`), paired with
 provider-specific settings and policy-file generation. Upstream CLI releases
@@ -50,7 +46,7 @@ subsequent Epics. (Grok `1.0.89+` release-channel version parsing and synthetic
    TOCTOU.
    Therefore, `terminal.run` launches Mulgae's canonicalized verified binary as
    `__mulgae_paneexec_v1` (extending `internal/adapters/process/fdexec_darwin.go`,
-   dispatched via `internal/composition/run.go:60`, behind a narrow `ports`
+   dispatched via `internal/composition/run.go`, behind a narrow `ports`
    launch-builder interface). The trampoline reads the `0400` env file and
    Seatbelt profile file from a `ControlPlaneRoots`-denied per-pane directory
    (`/private/tmp/mgh-<uid>/<16hex>/panes/<id>/`), verifies Mulgae-authored
@@ -72,20 +68,29 @@ subsequent Epics. (Grok `1.0.89+` release-channel version parsing and synthetic
    `~/.config/cursor` denials to shared boundaries, and adds secret-root and
    ancestor-file denials (`~/.ssh`, `~/.aws`, `~/.config/gh`, `~/Library/Keychains`,
    `~/.claude`, `~/.config/herdr`, `~/.local/state`, `~/AGENTS.md`,
-   `~/CLAUDE.md`, `~/.mcp.json`) to `PaneTTY` profiles. Existing AGY `OwnedPTY`
-   clauses remain byte-identical.
+   `~/CLAUDE.md`, `~/.mcp.json`) to `PaneTTY` profiles. Grok uses `PaneTTY`
+   only (never `OwnedPTY`); existing AGY `OwnedPTY` clauses remain
+   byte-identical.
 2. **Disposable `HOME` + disposable `GROK_HOME` (retaining sterile isolation)**:
    Original project sources and `.git` remain uncopied and read-only under
    Seatbelt with neutral `cwd` (`~/.mulgae/home/`). Grok retains Mulgae's
-   disposable namespace `HOME` and disposable `GROK_HOME`, projecting only a
+   disposable namespace `HOME` and disposable `GROK_HOME`, containing only a
+   minimal `requirements.toml` (disabling compat hooks, MCP servers, rules,
+   skills, plugins, and managed configs, with no `sandbox.toml`) and a
    validated `0600` regular single-link copy of `~/.grok/auth.json` with zero
-   write-back. This keeps `~/.grok` kernel-denied in `CredentialRoots` for Grok
-   as well as every other provider (blocking `~/.grok/leader.sock`, Grok's own
-   binary under `~/.grok/downloads`, `config.toml`, `hooks/`, `AGENTS.md`,
-   `plugins/`, `skills/`, `sandbox.toml`, `trusted_folders.toml`, and
-   `memory-v2/`), preserves all existing `HOME` authority checks in `policy.go`
-   and `scheduling.go`, prevents concurrent OAuth refresh conflicts, and moves
-   Grok qualification and heartbeat onto the neutral-cwd + Seatbelt pattern.
+   write-back. Grok launches with `--permission-mode bypassPermissions`,
+   `--trust`, and `--no-alt-screen`, where `--trust` applies strictly to
+   Mulgae's verified read-only neutral `--cwd` inside disposable `GROK_HOME`
+   so `~/.mulgae/home/AGENTS.md` does not trigger Grok's interactive
+   folder-trust prompt. Native `~/.grok` stays kernel-denied in
+   `CredentialRoots` for Grok as well as every other provider (blocking
+   `~/.grok/leader.sock`, `config.toml`, `hooks/`, `AGENTS.md`, `plugins/`,
+   `skills/`, `sandbox.toml`, `trusted_folders.toml`, and `memory-v2/`, while
+   installed `~/.grok/downloads/grok-*` binaries execute directly without
+   widening `~/.grok` denies), preserving all existing `HOME` authority checks
+   in `policy.go` and `scheduling.go`, preventing concurrent OAuth refresh
+   conflicts, and moving Grok qualification and heartbeat onto the neutral-cwd
+   + Seatbelt pattern.
 3. **Isolated per-run `herdr-core` daemon, graph ownership, and truthful teardown**:
    Mulgae lazily launches a foreground `herdr-core serve` child per run (no
    `launchd`, never touching the user's `default` core) with explicit minimal
@@ -103,18 +108,24 @@ subsequent Epics. (Grok `1.0.89+` release-channel version parsing and synthetic
 4. **Universal scratch-file delivery, tool limits, and contract honesty**:
    Full unbounded prompts are written to `input/<id>/prompt.md` (`0400`) inside
    a pane `ReadOnlyRoots` `input/` directory with pre-start and post-teardown
-   SHA-256 digests and a mandatory end-of-prompt completion nonce. Concise fixed
+   SHA-256 digests and a mandatory end-of-prompt completion nonce (for review
+   and extraction). Concise fixed
    instructions travel via `terminal.send` (requiring `Terminal.reported == true`
    and turn advancement). Strictly after proven `ESRCH` teardown,
    descriptor-bound `stagedOutputLease.Validate()` reads back exact unbounded
    bytes (`role-report.md` for review, `extraction.json` for extraction,
    `probe.json` for qualification), bound as `result_transport: "stdout"`
    (documented explicitly in `contracts.md` alongside bounded post-kill screen
-   diagnostics and merged PTY stream semantics). Review `--tools` defaults to a
-   shell-free allowlist (`read_file,grep,list_dir,Write`); enabling `Bash` for
-   index/commit Git reads is permitted ONLY if the live spike proves necessity
-   AND all `PaneTTY` default-deny unix-socket, localhost TCP, `process-exec`,
-   and survivor-check controls pass kernel tests. Config v5 and embedded JSON
+   diagnostics and merged PTY stream semantics). Tools are purpose-scoped:
+   workspace reviews (`read_file,grep,list_dir,Write`), extraction, and
+   qualification (`read_file,Write`) run strictly shell-free, while index and
+   commit Git reviews enable `Bash` (`read_file,grep,list_dir,Write,Bash`)
+   solely under all five `B-1` Seatbelt and post-`ESRCH` stability/survivor
+   controls (default-deny outbound Unix sockets with narrow system-resolver
+   allowlist, localhost IP denial, terminal secret-root and ancestor-literal
+   denials, sensitive-binary and `WritableRoot`/`RuntimeTempRoot`/`ReadOnlyRoots`
+   `process-exec` denials, and post-`ESRCH` session/sentinel survivor and
+   `mtime`/`ctime` stability checks). Config v5 and embedded JSON
    schemas/examples remain unchanged; affected embedded help Markdown assets
    are updated with idempotent regeneration.
 
@@ -131,8 +142,8 @@ subsequent Epics. (Grok `1.0.89+` release-channel version parsing and synthetic
   and `~/.cursor`/`~/.config/cursor` denials closes `herdr-core` control-plane
   and Cursor-credential access across guarded providers. (Other same-UID local
   control planes reachable from shell-capable ZCode — such as operator `herdr`,
-  `ssh-agent`, or localhost APIs — remain a separate deferred security item
-  outside `EPIC-017`.)
+  `ssh-agent`, `opencode`, or localhost APIs — remain recorded in
+  [`DF-030`](../deferred-feedback/README.md) outside `EPIC-017`.)
 - **Trade-offs**:
   - **TUI / onboarding / OSC churn**: Trading a versioned wire protocol for a
     TUI shifts maintenance risk toward startup dialogs, CLI flag renames, and
@@ -146,9 +157,11 @@ subsequent Epics. (Grok `1.0.89+` release-channel version parsing and synthetic
     `docs/specs/security.md`).
   - **Merged PTY diagnostics & model acknowledgement**: Terminal mode provides
     bounded screen capture rather than separated unbounded stdout/stderr, and
-    replaces pre-prompt ACP model/effort acknowledgement with CLI flags and
-    allowlist validation (confirmed during the spike and documented in
-    `docs/specs/contracts.md`).
+    replaces pre-prompt ACP model/effort acknowledgement with syntax-validated
+    CLI flags (`-m`, `--reasoning-effort`) bound to qualification identity,
+    where Grok `1.0.89`'s interactive TUI applies unrecognized tokens
+    best-effort with silent provider-side fallback (confirmed during the spike
+    and documented in `docs/specs/contracts.md`).
   - **Detached process residual & host dependency**: `setsid()` escapers remain
     a residual risk when a shell is enabled (matching `Setpgid` runner
     limits), and Grok execution requires `herdr-core` (`hc`) on the host.

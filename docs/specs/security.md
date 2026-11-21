@@ -193,9 +193,11 @@ verified provider drain.
   `HC_TERMINAL_ID` pass-through), foreign `/dev/ttys*` denial, and `TIOCSTI`
   (`#x80017472`) `EPERM` denial. Grok runs with a disposable `HOME` and
   disposable `GROK_HOME` containing only a minimal `requirements.toml` (disabling
-  compat hooks, MCPs, rules, skills, plugins, managed configs, and ambient repo
-  status, with zero native-home paths and no `sandbox.toml`) and a mode-`0600`
-  projected `.grok/auth.json` (never written back). Native `~/.grok` remains
+  compat hooks, MCPs, rules, skills, plugins, and managed configs, with zero
+  native-home paths and no `sandbox.toml`) and a mode-`0600` projected
+  `.grok/auth.json` (never written back); `--trust` applies strictly to Mulgae's
+  verified read-only neutral `~/.mulgae/home` `--cwd` inside disposable
+  `GROK_HOME`. Native `~/.grok` remains
   kernel-denied in `CredentialRoots` (`file-read*`/`file-write*`/`file-link`/
   Unix sockets); installed `~/.grok/downloads/grok-*` binaries execute directly
   without widening `~/.grok` denies. Tools are purpose-scoped: workspace review

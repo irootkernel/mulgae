@@ -30,8 +30,8 @@ Live review and extraction use original source reads from a neutral cwd:
   terminal runtime (`PaneTTY`, OSC 7501 readiness and turn state) inside the
   mandatory outer Seatbelt guard, with a disposable `HOME`, a disposable
   `GROK_HOME` containing only a minimal `requirements.toml` (disabling compat
-  hooks, MCPs, rules, skills, plugins, managed configs and ambient repo status)
-  and a mode-`0600` projected `auth.json` (never written back). Tools are
+  hooks, MCPs, rules, skills, plugins and managed configs) and a mode-`0600`
+  projected `auth.json` (never written back). Tools are
   purpose-scoped: workspace reviews run strictly shell-free
   (`read_file,grep,list_dir,Write`), index and commit reviews add `Bash` under
   the five-control `B-1` Seatbelt and post-`ESRCH` stability/survivor gate, and

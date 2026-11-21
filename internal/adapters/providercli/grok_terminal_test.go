@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -69,6 +71,56 @@ func TestGrokTerminalFlagsMinimalRequirementsAndDisposableHomes(t *testing.T) {
 	if string(reqBytes) != grokMinimalDisposableRequirementsTOML {
 		t.Fatalf("disposable requirements.toml drifted")
 	}
+	if strings.Contains(string(reqBytes), "repo_status_in_system_prompt") {
+		t.Fatalf("minimal disposable requirements.toml retained unknown Grok 1.0.89 field repo_status_in_system_prompt: %s", reqBytes)
+	}
+	wantSections := map[string]map[string]string{
+		"": {
+			"fail_closed":                    "true",
+			"allow_managed_mcp_servers_only": "true",
+			"enable_all_project_mcp_servers": "false",
+			"allowed_mcp_servers":            "[]",
+			"plugin_auto_update":             "false",
+		},
+		"compat.claude": {
+			"agents": "false",
+			"hooks":  "false",
+			"mcps":   "false",
+			"rules":  "false",
+			"skills": "false",
+		},
+		"compat.codex": {
+			"hooks":  "false",
+			"skills": "false",
+		},
+		"compat.cursor": {
+			"agents": "false",
+			"hooks":  "false",
+			"mcps":   "false",
+			"rules":  "false",
+			"skills": "false",
+		},
+		"features": {
+			"campaigns":                  "false",
+			"codebase_indexing":          "false",
+			"managed_config":             "false",
+			"mcp_auto_restart":           "false",
+			"mcp_liveness_watchers":      "false",
+			"mcp_recursive_config_watch": "false",
+		},
+		"paths": {
+			"extra_rule_dirs":  "[]",
+			"extra_skill_dirs": "[]",
+		},
+		"plugins": {
+			"enabled": "[]",
+			"paths":   "[]",
+		},
+	}
+	gotSections := parseFlatTOMLSections(t, string(reqBytes))
+	if !reflect.DeepEqual(gotSections, wantSections) {
+		t.Fatalf("disposable requirements.toml lockdown sections mismatch:\ngot:  %#v\nwant: %#v", gotSections, wantSections)
+	}
 	if strings.Contains(string(reqBytes), fx.nativeHome.String()) || strings.Contains(string(reqBytes), "/Users/") {
 		t.Fatalf("minimal disposable requirements.toml embedded native path: %s", reqBytes)
 	}
@@ -80,6 +132,9 @@ func TestGrokTerminalFlagsMinimalRequirementsAndDisposableHomes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !slices.Contains(argv, "--trust") {
+		t.Fatalf("Grok argv %q missing exact --trust flag", argv)
+	}
 	joined := strings.Join(argv, " ")
 	for _, token := range []string{
 		"--no-auto-update",
@@ -89,6 +144,7 @@ func TestGrokTerminalFlagsMinimalRequirementsAndDisposableHomes(t *testing.T) {
 		"--no-plan",
 		"--deny MCPTool",
 		"--permission-mode bypassPermissions",
+		"--trust",
 		"--no-alt-screen",
 		"--tools read_file,grep,list_dir,Write",
 		"-m grok-4.7",
@@ -106,10 +162,64 @@ func TestGrokTerminalFlagsMinimalRequirementsAndDisposableHomes(t *testing.T) {
 			}
 		}
 	}
+	for _, purpose := range []terminalInvocationPurpose{
+		terminalPurposeReview,
+		terminalPurposeExtraction,
+		terminalPurposeQualification,
+	} {
+		purposeInv := inv
+		purposeInv.Purpose = purpose
+		purposeArgv, buildErr := profile.BuildArgv(purposeInv)
+		if buildErr != nil {
+			t.Fatalf("BuildArgv(purpose=%q): %v", purpose, buildErr)
+		}
+		if !slices.Contains(purposeArgv, "--trust") {
+			t.Fatalf("Grok argv for purpose %q missing exact --trust flag: %q", purpose, purposeArgv)
+		}
+		if !slices.Contains(purposeArgv, "--cwd") || !slices.Contains(purposeArgv, fx.neutralCWD.String()) {
+			t.Fatalf("Grok argv for purpose %q missing neutral --cwd binding: %q", purpose, purposeArgv)
+		}
+	}
 	initialInput := profile.BuildInitialInput(inv)
 	if !strings.Contains(initialInput, "line offsets until EOF") || !strings.Contains(initialInput, inv.PromptPath) || !strings.Contains(initialInput, inv.OutputPath) {
 		t.Fatalf("Grok initial input missing pagination hint or paths: %q", initialInput)
 	}
+}
+
+func parseFlatTOMLSections(t *testing.T, body string) map[string]map[string]string {
+	t.Helper()
+	sections := map[string]map[string]string{"": {}}
+	current := ""
+	for lineNo, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			current = strings.TrimSpace(line[1 : len(line)-1])
+			if current == "" {
+				t.Fatalf("requirements.toml line %d: empty section header", lineNo+1)
+			}
+			if _, exists := sections[current]; !exists {
+				sections[current] = map[string]string{}
+			}
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			t.Fatalf("requirements.toml line %d: malformed assignment %q", lineNo+1, line)
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			t.Fatalf("requirements.toml line %d: empty key or value in %q", lineNo+1, line)
+		}
+		if _, dup := sections[current][key]; dup {
+			t.Fatalf("requirements.toml line %d: duplicate key %q in section %q", lineNo+1, key, current)
+		}
+		sections[current][key] = value
+	}
+	return sections
 }
 
 func TestGrokRegistryLiveReviewExtractionAndLabelScopedDrain(t *testing.T) {
