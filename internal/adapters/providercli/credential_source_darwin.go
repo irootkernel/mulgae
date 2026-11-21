@@ -56,12 +56,12 @@ type credentialSource struct {
 	components  []string
 }
 type credentialSourceAuthority struct {
-	runtimeHome  string
-	homeIdentity fileIdentity
-	components   []string
-	directoryIDs []fileIdentity
-	sourceID     fileIdentity
-	agyToken     bool
+	runtimeHome       string
+	homeIdentity      fileIdentity
+	components        []string
+	directoryIDs      []fileIdentity
+	sourceID          fileIdentity
+	privateSingleLink bool
 }
 
 var credentialSources = map[CredentialSourceFamily][]credentialSource{
@@ -118,7 +118,7 @@ func NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(base ports
 }
 
 // NewCredentialProjectingNamespaceFactoryWithProjectRoot also binds the live
-// project root that Grok's generated sandbox must deny.
+// project root retained for provider launch containment checks.
 func NewCredentialProjectingNamespaceFactoryWithProjectRoot(base ports.ProviderNamespaceFactory, runtimeHome, projectRoot string, instanceFamilies map[string]CredentialSourceFamily, instancePolicies map[string]RuntimeSafetyPolicy, nativeHomes, sourceRoots map[string]string) (ports.ProviderNamespaceFactory, error) {
 	factory, err := newCredentialProjectingNamespaceFactory(base, runtimeHome, instanceFamilies, instancePolicies, nativeHomes, sourceRoots)
 	if err != nil {
@@ -288,14 +288,13 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 		concrete.agySourceHomeInfo = info
 	}
 	if family == CredentialSourceGrok {
-		if factory.projectRoot != "" {
-			bundle, boundaryErr := installGrokBoundaryBundle(filepath.Join(concrete.root, "home", ".grok"), factory.runtimeHome, factory.projectRoot)
-			if boundaryErr != nil {
-				_, _ = lease.DrainTerminal(context.Background())
-				return nil, fmt.Errorf("credential source factory: Grok boundary installation failed")
-			}
-			concrete.grokBoundary = &bundle
+		roots := make([]string, 0, len(factory.configuredRoots))
+		for _, configured := range factory.configuredRoots {
+			roots = append(roots, configured.path)
 		}
+		sort.Strings(roots)
+		concrete.grokRuntimeHome = factory.runtimeHome
+		concrete.grokConfiguredRoots = roots
 	}
 	acquired := lease
 	defer func() {
@@ -370,10 +369,11 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 		(family == CredentialSourceCodex || family == CredentialSourceGrok || family == CredentialSourceAgy) && info.Mode().Perm() != 0600 {
 		return fmt.Errorf("unsafe credential source")
 	}
-	if family == CredentialSourceAgy {
-		// The default-account token must be a regular, single-link, same-user,
-		// mode-0600 file with content; anything else is unsafe admission.
-		if !safeAgyCredentialSource(info) {
+	if family == CredentialSourceAgy || family == CredentialSourceGrok {
+		// Projected private credential files must be regular, single-link,
+		// same-user, mode-0600 files with non-empty content; anything else
+		// fails admission closed.
+		if !safePrivateSingleLinkCredentialSource(info) {
 			return fmt.Errorf("unsafe credential source")
 		}
 	}
@@ -389,7 +389,7 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 	if err != nil {
 		return fmt.Errorf("unsafe credential source")
 	}
-	authority := credentialSourceAuthority{runtimeHome: rootPath, homeIdentity: rootIdentity, components: components, directoryIDs: directoryIDs, sourceID: sourceID, agyToken: family == CredentialSourceAgy}
+	authority := credentialSourceAuthority{runtimeHome: rootPath, homeIdentity: rootIdentity, components: components, directoryIDs: directoryIDs, sourceID: sourceID, privateSingleLink: family == CredentialSourceAgy || family == CredentialSourceGrok}
 	request, err := ports.NewCredentialProjectionRequestWithAuthority(lease.ProviderInstance(), lease.Generation(), sourcePath, file, digest, info.Size(), info.Mode(), source.destination, authority)
 	if err != nil {
 		return fmt.Errorf("unsafe credential source")
@@ -450,8 +450,8 @@ func (authority credentialSourceAuthority) ValidateCredentialSource(size int64, 
 	if err != nil || !info.Mode().IsRegular() || info.Size() != size || info.Mode().Perm() != mode.Perm() {
 		return fmt.Errorf("credential source drift")
 	}
-	if authority.agyToken && !safeAgyCredentialSource(info) {
-		return fmt.Errorf("AGY credential source ownership drift")
+	if authority.privateSingleLink && !safePrivateSingleLinkCredentialSource(info) {
+		return fmt.Errorf("credential source ownership or link drift")
 	}
 	digest, err := digestCredentialSource(file, size)
 	if err != nil || digest != sha256 {
@@ -460,7 +460,7 @@ func (authority credentialSourceAuthority) ValidateCredentialSource(size int64, 
 	return nil
 }
 
-func safeAgyCredentialSource(info os.FileInfo) bool {
+func safePrivateSingleLinkCredentialSource(info os.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return info.Mode().IsRegular() && info.Mode().Perm() == 0600 && info.Size() > 0 && ok && stat.Nlink == 1 && stat.Uid == uint32(unix.Geteuid())
 }

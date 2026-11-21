@@ -1016,7 +1016,7 @@ func TestObservedSpawnFailurePolicyUsesStatusAndFailsClosedWithoutObservation(t 
 		status ports.ProviderExecutionStatus
 		want   AttemptCondition
 	}{
-		{"unavailable", ports.ProviderExecutionStatusUnavailable, AttemptConditionProviderUnavailable},
+		{"unavailable", ports.ProviderExecutionStatusUnavailable, AttemptConditionProviderSpawnFailed},
 		{"configuration", ports.ProviderExecutionStatusConfigurationViolation, AttemptConditionConfigurationViolation},
 		{"security", ports.ProviderExecutionStatusSecurityViolation, AttemptConditionSecurityViolation},
 		{"internal", ports.ProviderExecutionStatusInternalFailure, AttemptConditionInternalInvariant},
@@ -1028,6 +1028,15 @@ func TestObservedSpawnFailurePolicyUsesStatusAndFailsClosedWithoutObservation(t 
 			}
 		})
 	}
+	if got := observedStatusCondition(ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderTurnFailed); got != AttemptConditionProviderTurnFailed {
+		t.Fatalf("unavailable + provider_turn_failed condition = %q, want %q", got, AttemptConditionProviderTurnFailed)
+	}
+	if got := observedStatusCondition(ports.ProviderExecutionStatusSecurityViolation, domain.DiagnosticCauseProviderTurnFailed); got != AttemptConditionSecurityViolation {
+		t.Fatalf("security + provider_turn_failed condition = %q, want security_violation", got)
+	}
+	if got := observedStatusCondition(ports.ProviderExecutionStatusUnavailable, domain.DiagnosticCauseProviderExecutionFailed); got != AttemptConditionProviderUnavailable {
+		t.Fatalf("unavailable + provider_execution_failed condition = %q, want %q", got, AttemptConditionProviderUnavailable)
+	}
 
 	typed, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseProviderSpawnFailed, errors.New("private spawn detail"))
 	if err != nil {
@@ -1036,6 +1045,67 @@ func TestObservedSpawnFailurePolicyUsesStatusAndFailsClosedWithoutObservation(t 
 	if got := runtimeProviderErrorCondition(context.Background(), typed); got != AttemptConditionProviderSpawnFailed {
 		t.Fatalf("unobserved spawn failure condition = %q, want provider spawn failure", got)
 	}
+}
+
+func TestProcessGroupCleanupFailureAlwaysPromotesToSecurityViolation(t *testing.T) {
+	if got := runtimeCauseCondition(domain.DiagnosticCauseProcessGroupCleanupFailed); got != AttemptConditionSecurityViolation {
+		t.Fatalf("runtimeCauseCondition(process_group_cleanup_failed) = %q, want security_violation", got)
+	}
+	for _, status := range []ports.ProviderExecutionStatus{
+		ports.ProviderExecutionStatusInternalFailure,
+		ports.ProviderExecutionStatusTimedOut,
+		ports.ProviderExecutionStatusUnavailable,
+		ports.ProviderExecutionStatusSecurityViolation,
+	} {
+		if got := observedStatusCondition(status, domain.DiagnosticCauseProcessGroupCleanupFailed); got != AttemptConditionSecurityViolation {
+			t.Fatalf("observedStatusCondition(%q, process_group_cleanup_failed) = %q, want security_violation", status, got)
+		}
+	}
+	procErr, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseTimedOut,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		nil, nil, errors.New("residual process group"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeProviderErrorCondition(context.Background(), procErr); got != AttemptConditionSecurityViolation {
+		t.Fatalf("runtimeProviderErrorCondition(process cleanup failure) = %q, want security_violation", got)
+	}
+	// Even if a ProviderRuntimeError wraps a ProcessExecutionError whose cleanup
+	// failed, cleanup breach must outrank primary cause.
+	wrapped, err := ports.NewProviderRuntimeError(domain.DiagnosticCauseTimedOut, procErr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtimeProviderErrorCondition(context.Background(), wrapped); got != AttemptConditionSecurityViolation {
+		t.Fatalf("runtimeProviderErrorCondition(wrapped process cleanup failure) = %q, want security_violation", got)
+	}
+	// Verify runtime.Invoke promotes an observed failure carrying CleanupCause()
+	// to AttemptConditionSecurityViolation even when status/primary is non-security.
+	provider := &cleanupFailureObservedProvider{t: t}
+	runtime, job, _ := providerRuntimeObservedFixture(t, provider, nil)
+	outcome := runtime.Invoke(context.Background(), job)
+	cond, hasCond := outcome.Condition()
+	if outcome.Succeeded() || !hasCond || cond != AttemptConditionSecurityViolation {
+		t.Fatalf("observed cleanup failure outcome = %#v (condition=%q/%t), want security_violation", outcome, cond, hasCond)
+	}
+}
+
+type cleanupFailureObservedProvider struct {
+	t *testing.T
+}
+
+func (p *cleanupFailureObservedProvider) Observe(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+	return ports.NewPartialFailedProviderExecutionObservation(
+		ports.ProviderExecutionStatusInternalFailure,
+		invocation,
+		nil,
+		nil,
+		"process_wait_failed",
+		domain.DiagnosticCauseProviderProcessWaitFailed,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+	)
 }
 
 func TestInitialValidationFailureRequiresAConcreteRepairPlan(t *testing.T) {

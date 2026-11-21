@@ -122,6 +122,8 @@ composition remain supported. These guards preserve existing product contracts.
 | `internal/artifactwire` | Shared persisted DTOs, format/schema identifiers, path spelling and lexical helpers |
 | `internal/strictjson` | Shared strict-object mechanics for query/report, without destination or semantic policy |
 | `internal/adapters/providercli` | Provider profiles, qualification, credentials, invocation, neutral reviewer home |
+| `internal/adapters/process` | Bounded Darwin process runner, Seatbelt launch boundaries, and `__mulgae_paneexec_v1` trampoline |
+| `internal/adapters/herdr` | Isolated per-run `herdr-core` terminal runtime lifecycle, RPC client, watchdog, and `TerminalSessionRunner` |
 | `internal/adapters/workspace` | Qualification fixtures and descriptor-bound roots |
 | `internal/adapters/filesystem` | Secure project-local storage and publication |
 | `internal/adapters/jsonschema` | Offline Draft 2020-12 validation |
@@ -291,9 +293,11 @@ See the [AGY transport decision](../architecture-decision-records/agy-stream-jso
    metadata, with framed untrusted context/objective and no copied source tree.
 6. Qualification uses Mulgae-owned synthetic fixtures. Each invocation owns its
    isolated credentials/scratch and mandatory native source restrictions.
-7. The runtime collects a complete correlated protocol assistant report.
-   Optional same-provider repair or extraction shares the one second slot;
-   protected failures retain precedence and deny publication.
+7. The runtime collects a complete correlated protocol assistant report for
+   protocol providers or a post-`ESRCH` validated staged output (projected under
+   `result_transport: "stdout"`) for managed terminal providers. Optional
+   same-provider repair or extraction shares the one second slot; protected
+   failures retain precedence and deny publication.
 8. Live evidence is checked against its declared source side, preserving selected
    raster bytes and verified excerpts. Workspace/index stability is the caller's
    responsibility; committed operands stay fixed.
@@ -313,42 +317,50 @@ Workspace reads use original paths; index and committed reads use fixed Git
 operands and a deterministic environment.
 
 Within `providercli`, `protocol_mechanics.go` owns diagnostic-ID sanitization
-for all five families and the identical string-response matching used by
-ZCode and Grok. Family adapters retain request prefixes, outstanding state,
-wire parsing and the consequences of an invalid authoritative identifier.
-Cursor textual IDs, Codex integer response IDs and AGY integer step IDs keep
-their native codecs. Cancellation, EOF and process-exit rules remain local,
-including ZCode's accepted post-turn stream end and AGY's required natural exit.
+for all five families and string-response matching for ZCode. Family adapters
+retain request prefixes, outstanding state, wire parsing and the consequences
+of an invalid authoritative identifier. Cursor textual IDs, Codex integer
+response IDs and AGY integer step IDs keep their native codecs. Cancellation,
+EOF and process-exit rules remain local, including ZCode's accepted post-turn
+stream end and AGY's required natural exit.
 
-`live_read_plan.go` builds the raw Git-command sets used by Grok and Cursor
+`terminal_provider.go` owns the reusable provider-agnostic managed terminal
+execution driver over `ports.TerminalSessionRunner` (supporting both OSC 7501
+and non-OSC terminal profiles, single- or multi-home disposable profiles,
+read-only `<scratch>/input/<id>/prompt.md` staging protected via `ReadOnlyRoots`,
+per-invocation end-of-prompt completion nonces, parameterized post-`ESRCH`
+`stagedOutputLease` validation with `B-1` stability/survivor controls,
+`StartupTimeout` carving, launch-boundary `ExitedBeforeReport` classification,
+and structured core-state precedence). `grok_terminal.go` implements Grok's
+`1.0.89` terminal profile (`PaneTTY`-only, minimal disposable `requirements.toml`
+in disposable `GROK_HOME`, projected `0600` `.grok/auth.json`, purpose-scoped
+`--tools`, and `B-1` Bash gate for index/commit reviews only). `internal/adapters/herdr`
+manages the lazily started per-run isolated `herdr-core` daemon, parent-death
+watchdog, and JSON-RPC lifecycle; `productionRuntimeGraph` is the sole owner of
+`terminalSession.Close()` (invoked first in `cleanupRoots()` and explicitly on
+the retained-cleanup error branch of `StartReviewRun`), while `Registry` and
+`CurrentProbe` borrow the session runner and `Registry.Close` drains only its
+own labeled panes. ZCode, Codex, Cursor, and AGY never start `herdr-core`.
+
+`live_read_plan.go` builds the raw Git-command sets used by Cursor
 and translates admitted workspace paths to the source port's `AdmitPath`.
 Callers retain their existing authority, revalidation, scope and canonical-path
-checks. Grok trims command whitespace; Cursor compares exact command bytes;
-AGY retains its guarded-command translation. Grok's prompt and close checks,
-and Cursor's end-turn check, visit tool operations in ascending raw native
-string-ID order and return the first rejection. Immediate event failures and
-each operation's check order remain unchanged. AGY's unfinished-step check
-retains its single diagnostic.
+checks. Cursor compares exact command bytes; AGY retains its guarded-command
+translation. Cursor's end-turn check visits tool operations in ascending raw
+native string-ID order and returns the first rejection. Immediate event
+failures and each operation's check order remain unchanged. AGY's
+unfinished-step check retains its single diagnostic.
 
 `providercli` binds the sealed invocation to a descriptor for the neutral cwd,
 retains per-invocation credential and scratch namespaces, and collects complete
-correlated assistant reports. ZCode and Grok require the process adapter's
-outer Seatbelt policy for both live review and extraction. It denies source,
+correlated assistant reports for protocol providers or post-`ESRCH` validated
+staged reports (published as `result_transport: "stdout"`) for terminal-runtime
+providers. ZCode, Grok, Cursor, and AGY require the process adapter's
+outer Seatbelt policy for both live review and extraction, and all five
+providers (including Codex's `permissions.mulgae` profile) deny shared
+`herdr-core` control-plane roots and sockets. Seatbelt denies source,
 Git and guide writes and credential reads, writes and links. It also denies
 Unix socket access at all protected roots and permits writes to `/dev/null`.
-Grok runs with its own sandbox off inside this mandatory guard.
-Its namespace retains `requirements.toml` with `fail_closed = true` and
-`sandbox.toml` as immutable app-owned policy. Native bookkeeping files remain
-outside that policy bundle. `Registry.Observe` and `CurrentProbe.runBound`
-revalidate the namespace immediately after verified process drain, before
-accepting review/extraction output or qualification evidence. This preserves
-the failing invocation's security classification without policy restoration;
-unverified process drain stays with the existing terminal owner.
-For live review conversations, its ACP adapter retains partial tool inputs by
-native identity and validates completed operations and final turn acceptance
-against the read plan, including operations that failed or bypassed the
-permission-request handshake.
-Structured extraction uses the outer guard without review read-plan correlation.
 Native tool path admission runs body-free through the source port: the source
 reader checks the path, protected roots, namespace, file kind and namespace
 identity through descriptors and inventories, while evidence reads keep their
@@ -358,11 +370,10 @@ provider tool, but still fails closed with `unsupported_content` whenever it
 is claimed as evidence.
 ZCode also admits its existing private short socket directory by canonical
 identity; protected denials override writable-root overlap. Codex retains its
-native read-only profile with explicit credential-root denial. These controls
+native read-only profile with explicit credential-root and control-plane denial. These controls
 do not claim general IPC or process containment. The outer policy permits
 reads outside credential roots and network access outside protected Unix socket
-paths; it is not a global read or network allowlist. ZCode's native Bash tool
-has no Grok-style exact-command permission gate. Live execution rejects
+paths; it is not a global read or network allowlist. Live execution rejects
 non-printable or invalid UTF-8 policy roots before producing Seatbelt or native
 provider configuration, preventing cross-grammar escape mismatches.
 

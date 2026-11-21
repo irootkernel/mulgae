@@ -11,8 +11,13 @@ Git objects; they are not copied into an execution tree or full-source archive.
 Project context, objectives, accepted reports and provider candidates remain
 framed untrusted data. Attempts record prompt bytes and layer identities.
 
-Complete role reports arrive as correlated protocol assistant text. Live
-review grants no staged report-file destination. Historical staging receipts
+Protocol providers return complete role reports as correlated assistant text.
+Terminal-runtime providers (Grok) read the exact prompt from a read-only
+(`0400`) staged `prompt.md` inside `<scratch>/input/` (with an adapter-owned
+delivery trailer appended strictly after the canonical prompt bytes) and write
+their output to a per-invocation staging directory that Mulgae validates
+strictly after `ESRCH`, strips its per-invocation completion nonce, and
+publishes under `result_transport: "stdout"`. Historical staging receipts
 retain their original meaning for inspection.
 
 One constrained repair may change only the declared provider-owned fields.

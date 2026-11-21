@@ -63,7 +63,7 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		// conversations use zcodeReviewProtocolDenylist instead.
 		return appendZcodeProtocolServerArgv(baseArgv), nil
 	case FamilyGrok:
-		return grokACPArgv(definition.Executable(), protocolPurposeQualification)
+		return grokTerminalBaseArgv(definition, terminalPurposeQualification, "", false)
 	case FamilyCodex:
 		return appendCodexProtocolServerArgv(baseArgv, definition.CodexModel(), definition.CodexReasoningEffort()), nil
 	case FamilyCursor:

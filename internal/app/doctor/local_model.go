@@ -219,7 +219,7 @@ func validateReadyProviderProjection(result LocalDoctorResult) error {
 			if row.Reason == "" {
 				return fmt.Errorf("local doctor result: invalid unavailable provider")
 			}
-			unsafe = unsafe || row.Reason == "provider_executable_unsafe_identity" || row.Reason == "zcode_launcher_unsafe_identity" || row.Reason == "zcode_provider_config_unsafe_identity" || row.Reason == "zcode_application_metadata_unsafe_identity" || row.Reason == "provider_cli_version_unsafe_identity"
+			unsafe = unsafe || row.Reason == "provider_executable_unsafe_identity" || row.Reason == "zcode_launcher_unsafe_identity" || row.Reason == "zcode_provider_config_unsafe_identity" || row.Reason == "zcode_application_metadata_unsafe_identity" || row.Reason == "provider_cli_version_unsafe_identity" || row.Reason == "herdr_core_unsafe_identity"
 		default:
 			return fmt.Errorf("local doctor result: configured provider was not classified")
 		}

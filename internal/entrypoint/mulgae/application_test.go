@@ -94,8 +94,18 @@ type doctorIdentityInspector struct {
 type doctorVersionObserver struct{}
 
 func (doctorVersionObserver) ObserveProviderVersion(_ context.Context, family string, _ []string, _ ports.ProviderVersionIdentity) (ports.ProviderVersionObservation, error) {
-	versions := map[string]string{"zcode": "0.16.3", "grok": "1.0.40", "codex": "0.154.0"}
+	versions := map[string]string{"zcode": "0.16.3", "grok": "1.0.89", "codex": "0.154.0"}
 	return ports.NewProviderVersionObservation(ports.ProviderVersionObserved, versions[family])
+}
+
+type doctorTerminalRuntimeObserver struct{}
+
+func (doctorTerminalRuntimeObserver) ObserveTerminalRuntime(_ context.Context, _ string, _ ...string) (ports.TerminalRuntimeExecutableObservation, error) {
+	return ports.NewTerminalRuntimeExecutableObservation(
+		ports.TerminalRuntimeAvailable,
+		"/opt/homebrew/bin/hc",
+		"sha256:"+strings.Repeat("d", 64),
+	)
 }
 
 type doctorVersionObserverFunc func(context.Context, string, []string, ports.ProviderVersionIdentity) (ports.ProviderVersionObservation, error)
@@ -1982,7 +1992,7 @@ func TestApplicationDoctorClassifiesProviderCLIVersionOutcomes(t *testing.T) {
 		compatibility string
 		reason        string
 	}{
-		{"supported", ports.ProviderVersionObserved, "1.0.40", app.ExitCodeSuccess, "verified", "eligible", "verified", "provider_cli_version_supported"},
+		{"supported", ports.ProviderVersionObserved, "1.0.89", app.ExitCodeSuccess, "verified", "eligible", "verified", "provider_cli_version_supported"},
 		{"newer than verified", ports.ProviderVersionObserved, "9.9.9", app.ExitCodeSuccess, "verified", "eligible", "newer_than_verified", "provider_cli_version_newer_than_verified"},
 		{"below minimum", ports.ProviderVersionObserved, "0.1.0", app.ExitCodeReadiness, "failed", "ineligible", "below_minimum", "provider_cli_version_below_minimum"},
 		{"observed malformed", ports.ProviderVersionObserved, "not-a-version", app.ExitCodeReadiness, "failed", "ineligible", "malformed", "provider_cli_version_malformed"},
@@ -4201,6 +4211,7 @@ func TestNewApplicationValidatesG006DependencyGroup(t *testing.T) {
 		TrustedProjectReader:    reader,
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
+		TerminalRuntimeObserver: doctorTerminalRuntimeObserver{},
 		RequestResolver:         resolver,
 		Retention:               retention,
 		Exports:                 exports,
@@ -4412,6 +4423,7 @@ func newG008Fixture(t *testing.T, fakes g008WorkflowFakes) foundationFixture {
 		TrustedProjectReader:    reader,
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
+		TerminalRuntimeObserver: doctorTerminalRuntimeObserver{},
 		RequestResolver:         fakes.resolver,
 		Retention:               fakes.retention,
 		Exports:                 fakes.export,
@@ -4921,6 +4933,7 @@ func newFoundationFixtureWithEvidence(t *testing.T, evidence doctor.EvidenceRead
 		TrustedProjectReader:    reader,
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
+		TerminalRuntimeObserver: doctorTerminalRuntimeObserver{},
 		RequestResolver:         resolver,
 		EvidenceReader:          evidence,
 		Retention:               retention,
@@ -4957,6 +4970,7 @@ func newFoundationFixtureWithWriter(t *testing.T, secureWriter ports.SecureFileW
 		TrustedProjectReader:    reader,
 		EnvironmentInspector:    environment.NewInspector(),
 		ProviderVersionObserver: doctorVersionObserver{},
+		TerminalRuntimeObserver: doctorTerminalRuntimeObserver{},
 		RequestResolver:         resolver,
 		Retention:               retention,
 		Exports:                 exports,

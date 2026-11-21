@@ -108,9 +108,11 @@ If either value is omitted, app-server keeps its default for that dimension.
 
 ### Use Grok from Mulgae
 
-Install Grok CLI 1.0.34 or newer and sign in before selecting it explicitly.
-Version 1.0.40 is the latest release verified for Mulgae's exact ACP selection
-contract; newer releases remain eligible but require a current qualification:
+Install Grok CLI 1.0.89 or newer, install `herdr-core` (`hc` / `herdr-core`),
+and sign in to Grok before selecting it explicitly. Version 1.0.89 is the
+minimum and latest release verified for Mulgae's isolated `herdr-core` terminal
+runtime contract; newer releases remain eligible as `newer_than_verified` and
+require a current qualification:
 
 ```bash
 grok --version
@@ -130,22 +132,29 @@ mulgae init --providers grok \
 ```
 
 The values are stored only in `.mulgae/config.yaml`; the executable remains in
-untracked `.mulgae/local.yaml`. Mulgae preserves their exact spelling and
-requires Grok to acknowledge the configured selection before it sends a prompt.
-Existing Config v5 projects that omit either field continue to use Grok's
-provider default for that dimension; removing a generated field restores that
-behavior.
-Grok uses ACP v1. Mulgae copies its native authentication file into a
-disposable home. It suppresses project and user configuration, disables MCP
-servers, and retains its native security policy in an adapter-owned
-`requirements.toml` with `fail_closed = true`. Native bookkeeping may update
-`config.toml` without changing that policy. Mulgae checks the protected policy
-before invocation and after verified process drain. Grok runs inside the
-mandatory macOS process boundary. Review, qualification, and extraction accept
-only correlated assistant-message text;
-providers receive no role-report file write grant. Grok does not advertise image
-prompt support, so assigning it to `artist` fails before provider execution with
-`provider_capability_unsupported` and exit 4.
+untracked `.mulgae/local.yaml`. Mulgae passes `-m` and `--reasoning-effort`
+preserving their exact spelling; Grok `1.0.89`'s interactive TUI applies them
+best-effort with silent provider-side fallback for unrecognized values, without
+Mulgae substituting another model or provider. Existing Config v5 projects that
+omit either field continue to use Grok's provider default for that dimension;
+removing a generated field restores that behavior.
+
+Grok runs through an isolated per-run Mulgae-owned `herdr-core` terminal runtime
+inside the mandatory macOS Seatbelt guard (`PaneTTY`-only, never contacting the
+operator's `default` `herdr-core` session). Mulgae copies only `.grok/auth.json`
+into a disposable `GROK_HOME` alongside a minimal `requirements.toml` disabling
+compat hooks, MCP servers, rules, skills, plugins, managed configs, and ambient
+repo status, while keeping native `~/.grok` kernel-denied in `CredentialRoots`.
+Tools are purpose-scoped: workspace review (`read_file,grep,list_dir,Write`),
+extraction, and qualification (`read_file,Write`) run strictly shell-free, while
+index and commit reviews enable `Bash` only under all five `B-1` controls.
+Outputs are staged inside private namespace scratch, validated strictly after
+`ESRCH` teardown with a per-invocation completion nonce, and published under
+`result_transport: "stdout"`. Grok does not advertise image prompt support, so
+assigning it to `artist` fails before provider execution with
+`provider_capability_unsupported` and exit 4. Run `make test-herdr` for the
+isolated `herdr-core` runtime suite and `make test-grok` for the full live Grok
+release-binary gate.
 
 ### Use Cursor from Mulgae
 

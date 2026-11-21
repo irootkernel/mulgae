@@ -219,16 +219,24 @@ func (adapter *QualificationFixtureFactoryAdapter) Acquire(ctx context.Context, 
 // retained providercli production registry.
 type QualificationRegistryFactory struct {
 	runner          ports.ProcessRunner
+	terminalRunner  ports.TerminalSessionRunner
 	namespaces      ports.ProviderNamespaceFactory
 	verifier        SpawnVerifier
 	verifierFactory func(context.Context) (SpawnVerifier, error)
 }
 
 func NewQualificationRegistryFactory(runner ports.ProcessRunner, namespaces ports.ProviderNamespaceFactory, verifier SpawnVerifier, verifierFactory func(context.Context) (SpawnVerifier, error)) (*QualificationRegistryFactory, error) {
+	return NewQualificationRegistryFactoryWithTerminalRunner(runner, nil, namespaces, verifier, verifierFactory)
+}
+
+// NewQualificationRegistryFactoryWithTerminalRunner binds a borrowed
+// graph-owned TerminalSessionRunner into every production registry created by
+// the factory. Registries never own terminalRunner.Close().
+func NewQualificationRegistryFactoryWithTerminalRunner(runner ports.ProcessRunner, terminalRunner ports.TerminalSessionRunner, namespaces ports.ProviderNamespaceFactory, verifier SpawnVerifier, verifierFactory func(context.Context) (SpawnVerifier, error)) (*QualificationRegistryFactory, error) {
 	if nilRunner(runner) || nilProviderNamespaceFactory(namespaces) || (nilSpawnVerifier(verifier) && verifierFactory == nil) {
 		return nil, fmt.Errorf("provider qualification registry factory: dependencies are required")
 	}
-	return &QualificationRegistryFactory{runner: runner, namespaces: namespaces, verifier: verifier, verifierFactory: verifierFactory}, nil
+	return &QualificationRegistryFactory{runner: runner, terminalRunner: terminalRunner, namespaces: namespaces, verifier: verifier, verifierFactory: verifierFactory}, nil
 }
 
 func (factory *QualificationRegistryFactory) NewProviderQualificationRegistry(ctx context.Context, definitions []ports.ProviderRuntimeDefinition) (ports.ProviderQualificationRegistry, error) {
@@ -251,7 +259,7 @@ func (factory *QualificationRegistryFactory) NewProviderQualificationRegistry(ct
 			return nil, fmt.Errorf("provider qualification registry factory: construct spawn verifier: %w", err)
 		}
 	}
-	return NewProductionRegistryWithContext(ctx, factory.runner, factory.namespaces, verifier, profiles...)
+	return NewProductionRegistryWithTerminalRunner(ctx, factory.runner, factory.terminalRunner, factory.namespaces, verifier, profiles...)
 }
 
 func (*QualificationRegistryFactory) RegistryFromConstructionError(err error) (ports.ProviderQualificationRegistry, bool) {

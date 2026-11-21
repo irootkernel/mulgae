@@ -65,23 +65,18 @@ func task064TraceExecution(t *testing.T, original ports.LiveReviewExecution) (*t
 func TestLiveReadPlanMechanics(t *testing.T) {
 	ctx := context.Background()
 	t.Run("missing authority stays rejected", func(t *testing.T) {
-		if _, err := newGrokLiveReadAuthority(ctx, ports.LiveReviewExecution{}); err == nil {
-			t.Fatal("Grok constructed missing execution authority")
-		}
 		if _, err := newCursorLiveReadAuthority(ctx, ports.LiveReviewExecution{}); err == nil {
 			t.Fatal("Cursor constructed missing execution authority")
 		}
 		if _, err := newAgyLiveReadAuthority(ctx, ports.LiveReviewExecution{}); err == nil {
 			t.Fatal("AGY constructed missing execution authority")
 		}
-		var grok *grokLiveReadAuthority
 		var cursor *cursorLiveReadAuthority
 		var agy *agyLiveReadAuthority
 		for _, test := range []struct {
 			err  error
 			want string
 		}{
-			{grok.allow(ctx, "read", "ReadFile", "/source/a", ""), "missing live read authority"},
 			{cursor.allowWorkspacePath(ctx, "/source/a"), "missing cursor live read authority"},
 			{cursor.allowGit("git show"), "cursor git command is outside the live read plan"},
 			{agy.allow(ctx, "view_file", "/source/a"), "missing live read authority"},
@@ -102,10 +97,6 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 			if empty && len(execution.Reads()) != 0 || !empty && len(execution.Reads()) != 2*len(original.Reads()) {
 				t.Fatal("enumeration fixture did not reach its intended read-plan class")
 			}
-			grok, err := newGrokLiveReadAuthority(ctx, execution)
-			if err != nil {
-				t.Fatal(err)
-			}
 			cursor, err := newCursorLiveReadAuthority(ctx, execution)
 			if err != nil {
 				t.Fatal(err)
@@ -120,7 +111,7 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 					want[read.GitCommand()] = true
 				}
 			}
-			if !reflect.DeepEqual(grok.gitCommands, want) || !reflect.DeepEqual(cursor.gitCommands, want) || len(agy.gitCommands) != len(want) || counted.reads != 0 || counted.admits != 0 {
+			if !reflect.DeepEqual(cursor.gitCommands, want) || len(agy.gitCommands) != len(want) || counted.reads != 0 || counted.admits != 0 {
 				t.Fatalf("empty=%t duplicate plan changed command sets or read source bodies", empty)
 			}
 		}
@@ -130,16 +121,12 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 			t.Run(string(scope), func(t *testing.T) {
 				counted, original, project := countingLiveFixture(t, scope)
 				trace, execution := task064TraceExecution(t, original)
-				grok, err := newGrokLiveReadAuthority(ctx, execution)
-				if err != nil {
-					t.Fatal(err)
-				}
 				cursor, err := newCursorLiveReadAuthority(ctx, execution)
 				if err != nil {
 					t.Fatal(err)
 				}
 				agy, err := newAgyLiveReadAuthority(ctx, execution)
-				if err != nil || trace.revalidations != 3 {
+				if err != nil || trace.revalidations != 2 {
 					t.Fatalf("constructors: revalidations=%d error=%v", trace.revalidations, err)
 				}
 				raw, guarded := map[string]bool{}, map[string]bool{}
@@ -150,8 +137,8 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 						guarded["MULGAE_READ_GUARD[1]=1 "+command] = true
 					}
 				}
-				if !reflect.DeepEqual(grok.gitCommands, raw) || !reflect.DeepEqual(cursor.gitCommands, raw) || !reflect.DeepEqual(agy.gitCommands, guarded) {
-					t.Fatalf("command sets differ: Grok=%v Cursor=%v AGY=%v", grok.gitCommands, cursor.gitCommands, agy.gitCommands)
+				if !reflect.DeepEqual(cursor.gitCommands, raw) || !reflect.DeepEqual(agy.gitCommands, guarded) {
+					t.Fatalf("command sets differ: Cursor=%v AGY=%v", cursor.gitCommands, agy.gitCommands)
 				}
 				if (len(raw) == 0) != (scope == domain.LiveSourceWorkspace) || raw[""] || guarded[""] {
 					t.Fatal("workspace/non-workspace command partition changed")
@@ -159,17 +146,13 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 				for command := range raw {
 					for _, test := range []struct {
 						name, command string
-						grok, cursor  bool
+						cursor        bool
 					}{
-						{"exact", command, true, true}, {"outer whitespace", " \t" + command + "\n", true, false},
-						{"extra operand", command + " 'HEAD:other.txt'", false, false}, {"compound", command + "; true", false, false},
-						{"changed spacing", strings.Replace(command, " show ", "  show ", 1), false, false},
-						{"changed quoting", strings.ReplaceAll(command, "'", "\""), false, false}, {"empty", "", false, false},
+						{"exact", command, true}, {"outer whitespace", " \t" + command + "\n", false},
+						{"extra operand", command + " 'HEAD:other.txt'", false}, {"compound", command + "; true", false},
+						{"changed spacing", strings.Replace(command, " show ", "  show ", 1), false},
+						{"changed quoting", strings.ReplaceAll(command, "'", "\""), false}, {"empty", "", false},
 					} {
-						trace.revalidations = 0
-						if err := grok.allow(ctx, "execute", "Bash", "", test.command); (err == nil) != test.grok || trace.revalidations != 1 {
-							t.Fatalf("Grok %s: error=%v revalidations=%d", test.name, err, trace.revalidations)
-						}
 						trace.revalidations = 0
 						if err := cursor.allowGit(test.command); (err == nil) != test.cursor || trace.revalidations != 0 {
 							t.Fatalf("Cursor %s: error=%v revalidations=%d", test.name, err, trace.revalidations)
@@ -185,7 +168,7 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 				}
 				if scope != domain.LiveSourceWorkspace {
 					file := filepath.Join(project, "target.txt")
-					if grok.allow(ctx, "read", "ReadFile", file, "") == nil || cursor.allowWorkspacePath(ctx, file) == nil || agy.allow(ctx, "view_file", file) == nil {
+					if cursor.allowWorkspacePath(ctx, file) == nil || agy.allow(ctx, "view_file", file) == nil {
 						t.Fatal("non-workspace scope admitted a worktree substitute")
 					}
 				}
@@ -219,10 +202,6 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 	t.Run("body-free path classes and original errors", func(t *testing.T) {
 		counted, original, project := countingLiveFixture(t, domain.LiveSourceWorkspace)
 		trace, execution := task064TraceExecution(t, original)
-		grok, err := newGrokLiveReadAuthority(ctx, execution)
-		if err != nil {
-			t.Fatal(err)
-		}
 		cursor, err := newCursorLiveReadAuthority(ctx, execution)
 		if err != nil {
 			t.Fatal(err)
@@ -258,7 +237,6 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 			name  string
 			allow func(context.Context, string) error
 		}{
-			{"grok", func(ctx context.Context, path string) error { return grok.allow(ctx, "read", "ReadFile", path, "") }},
 			{"cursor", cursor.allowWorkspacePath},
 			{"agy", func(ctx context.Context, path string) error { return agy.allow(ctx, "view_file", path) }},
 		}
@@ -319,14 +297,10 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 	})
 
 	t.Run("authority lifetime between admission events", func(t *testing.T) {
-		for _, family := range []string{"grok", "cursor", "agy"} {
+		for _, family := range []string{"cursor", "agy"} {
 			for _, mutation := range []string{"regular replacement", "symlink replacement", "removed path", "closed source", "replaced project", "replaced neutral home", "cancelled"} {
 				t.Run(family+"/"+mutation, func(t *testing.T) {
 					counted, execution, project := countingLiveFixture(t, domain.LiveSourceWorkspace)
-					grok, err := newGrokLiveReadAuthority(ctx, execution)
-					if err != nil {
-						t.Fatal(err)
-					}
 					cursor, err := newCursorLiveReadAuthority(ctx, execution)
 					if err != nil {
 						t.Fatal(err)
@@ -337,8 +311,6 @@ func TestLiveReadPlanMechanics(t *testing.T) {
 					}
 					allow := func(callContext context.Context, path string) error {
 						switch family {
-						case "grok":
-							return grok.allow(callContext, "read", "ReadFile", path, "")
 						case "cursor":
 							return cursor.allowWorkspacePath(callContext, path)
 						default:

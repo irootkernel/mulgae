@@ -26,6 +26,8 @@ type localDoctorFixture struct {
 	replacement                        bool
 	versionState                       ports.ProviderVersionState
 	version                            string
+	terminalState                      ports.TerminalRuntimeAvailabilityState
+	terminalErr                        error
 	openErr, errorAttest, errorConfirm error
 	sourceCalls                        int
 	sourceFailAt                       int
@@ -148,6 +150,24 @@ func (versions localDoctorVersions) ObserveProviderVersion(_ context.Context, fa
 	}
 	return ports.NewProviderVersionObservation(f.versionState, f.version)
 }
+
+type localDoctorTerminalRuntime struct{ fixture *localDoctorFixture }
+
+func (observer localDoctorTerminalRuntime) ObserveTerminalRuntime(_ context.Context, _ string, _ ...string) (ports.TerminalRuntimeExecutableObservation, error) {
+	f := observer.fixture
+	if f.terminalErr != nil {
+		return ports.TerminalRuntimeExecutableObservation{}, f.terminalErr
+	}
+	if f.terminalState == ports.TerminalRuntimeAvailable {
+		return ports.NewTerminalRuntimeExecutableObservation(
+			ports.TerminalRuntimeAvailable,
+			"/opt/homebrew/bin/hc",
+			"sha256:"+strings.Repeat("d", 64),
+		)
+	}
+	return ports.NewTerminalRuntimeExecutableObservation(f.terminalState, "", "")
+}
+
 func newLocalDoctorFixture(t *testing.T) *localDoctorFixture {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -184,8 +204,8 @@ func newLocalDoctorFixture(t *testing.T) *localDoctorFixture {
 		}
 	}
 	anchored, _ := ports.NewAnchoredRoot(root)
-	f := &localDoctorFixture{root: anchored, versionState: ports.ProviderVersionObserved, version: "1.0.40"}
-	f.service = NewLocalService(LocalDependencies{Clock: localDoctorClock{f}, Sources: localDoctorFactory{f}, Codec: localDoctorCodec{adapterconfig.YAMLCodec{}, f}, Accounts: localDoctorAccount{f}, Locality: localDoctorAttestor{f}, Inspector: localDoctorInspector{fixture: f}, Versions: localDoctorVersions{f}, Platform: LocalPlatformEvidence{Cell: "darwin-arm64", Native: true}})
+	f := &localDoctorFixture{root: anchored, versionState: ports.ProviderVersionObserved, version: "1.0.89", terminalState: ports.TerminalRuntimeAvailable}
+	f.service = NewLocalService(LocalDependencies{Clock: localDoctorClock{f}, Sources: localDoctorFactory{f}, Codec: localDoctorCodec{adapterconfig.YAMLCodec{}, f}, Accounts: localDoctorAccount{f}, Locality: localDoctorAttestor{f}, Inspector: localDoctorInspector{fixture: f}, Versions: localDoctorVersions{f}, TerminalRuntime: localDoctorTerminalRuntime{f}, Platform: LocalPlatformEvidence{Cell: "darwin-arm64", Native: true}})
 	if len(f.trace) != 0 {
 		t.Fatalf("construction observed effects: %v", f.trace)
 	}
@@ -229,8 +249,9 @@ func TestLocalDoctorReadinessCompatibility(t *testing.T) {
 		exit          int
 		reason        string
 	}{
-		{"supported", "1.0.40", ports.ProviderVersionObserved, 0, "provider_cli_version_supported"},
+		{"supported", "1.0.89", ports.ProviderVersionObserved, 0, "provider_cli_version_supported"},
 		{"newer", "9.9.9", ports.ProviderVersionObserved, 0, "provider_cli_version_newer_than_verified"},
+		{"below_prior_verified", "1.0.40", ports.ProviderVersionObserved, 4, "provider_cli_version_below_minimum"},
 		{"below", "0.1.0", ports.ProviderVersionObserved, 4, "provider_cli_version_below_minimum"},
 		{"malformed", "", ports.ProviderVersionMalformed, 4, "provider_cli_version_malformed"},
 		{"timeout", "", ports.ProviderVersionTimedOut, 4, "provider_cli_version_timeout"},
@@ -252,6 +273,56 @@ func TestLocalDoctorReadinessCompatibility(t *testing.T) {
 	want := append(append([]string{}, localDoctorReadyTrace[:15]...), "native.2")
 	if err != nil || result.Readiness.ExitCode != 4 || !reflect.DeepEqual(f.trace, want) {
 		t.Fatalf("optional version observer=%+v err=%v trace=%v", result, err, f.trace)
+	}
+}
+
+func TestLocalDoctorGrokTerminalRuntimeReadiness(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		state      ports.TerminalRuntimeAvailabilityState
+		obsErr     error
+		nilObs     bool
+		wantExit   int
+		wantState  string
+		wantReason string
+	}{
+		{name: "missing", state: ports.TerminalRuntimeMissing, wantExit: 4, wantState: "unverified", wantReason: "herdr_core_missing"},
+		{name: "unsafe_identity", state: ports.TerminalRuntimeUnsafeIdentity, wantExit: 8, wantState: "unsafe", wantReason: "herdr_core_unsafe_identity"},
+		{name: "observation_error", obsErr: errors.New("stat failed"), wantExit: 4, wantState: "unverified", wantReason: "herdr_core_observation_failed"},
+		{name: "nil_observer", nilObs: true, wantExit: 4, wantState: "unverified", wantReason: "herdr_core_observation_failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newLocalDoctorFixture(t)
+			f.terminalState = tc.state
+			f.terminalErr = tc.obsErr
+			if tc.nilObs {
+				f.service.dependencies.TerminalRuntime = nil
+			}
+			result, err := f.service.DiagnoseLocal(context.Background(), f.root)
+			if err != nil {
+				t.Fatalf("DiagnoseLocal() err = %v", err)
+			}
+			if result.Readiness.ExitCode != tc.wantExit || result.Readiness.State != tc.wantState {
+				t.Fatalf("readiness = %+v, want state=%s exit=%d", result.Readiness, tc.wantState, tc.wantExit)
+			}
+			grokRow := result.ProviderInventory[1]
+			if grokRow.State != "unavailable" || grokRow.Reason != tc.wantReason {
+				t.Fatalf("grok row = %+v, want unavailable/%s", grokRow, tc.wantReason)
+			}
+			if !reflect.DeepEqual(grokRow.BinaryAvailable.ReasonCodes, []string{tc.wantReason}) {
+				t.Fatalf("grok binary reasons = %v, want [%s]", grokRow.BinaryAvailable.ReasonCodes, tc.wantReason)
+			}
+		})
+	}
+	for _, cancelErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run("cancel/"+cancelErr.Error(), func(t *testing.T) {
+			f := newLocalDoctorFixture(t)
+			f.terminalErr = cancelErr
+			_, err := f.service.DiagnoseLocal(context.Background(), f.root)
+			if !errors.Is(err, cancelErr) {
+				t.Fatalf("DiagnoseLocal() err = %v, want %v", err, cancelErr)
+			}
+		})
 	}
 }
 func TestLocalDoctorRejectsNativeHomeReplacement(t *testing.T) {

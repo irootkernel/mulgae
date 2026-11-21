@@ -17,7 +17,7 @@ import (
 )
 
 func TestLiveNeutralReviewConcurrentCancellation(t *testing.T) {
-	for _, family := range []string{FamilyZcode, FamilyGrok, FamilyCodex} {
+	for _, family := range []string{FamilyZcode, FamilyCodex} {
 		t.Run(family, func(t *testing.T) {
 			fixture := newLiveSourceProbeFixture(t)
 			fixture.readAdmitted, fixture.cancelAdmitted, fixture.readFinished = make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -78,7 +78,7 @@ func TestLiveNeutralReviewConcurrentCancellation(t *testing.T) {
 						}
 						observation, err := registry.Observe(invocationCtx, invocation)
 						if observation.Invocation().ProviderInstance() != instance || observation.Invocation().InputIdentity() != invocation.InputIdentity() {
-							t.Fatalf("native failure or report replaced invocation identity: status=%s diagnostic=%s error=%v native_error=%v tools=%v", observation.Status(), observation.DiagnosticCode(), err, admission.driverErr, admission.grokTools)
+							t.Fatalf("native failure or report replaced invocation identity: status=%s diagnostic=%s error=%v native_error=%v", observation.Status(), observation.DiagnosticCode(), err, admission.driverErr)
 						}
 						if mode == "cancel" {
 							process := observation.ProcessObservation()
@@ -90,13 +90,10 @@ func TestLiveNeutralReviewConcurrentCancellation(t *testing.T) {
 						}
 						result, ok := observation.Result()
 						if err != nil || observation.Status() != ports.ProviderExecutionStatusSucceeded || !ok || !strings.Contains(string(result.Stdout()), fixture.tokens["worktree"]) || !strings.Contains(string(result.Stdout()), "COMPLETE_NATIVE_REPORT") {
-							t.Fatalf("peer native report: status=%s diagnostic=%s error=%v native_error=%v tools=%v report=%s", observation.Status(), observation.DiagnosticCode(), err, admission.driverErr, admission.grokTools, result.Stdout())
+							t.Fatalf("peer native report: status=%s diagnostic=%s error=%v native_error=%v report=%s", observation.Status(), observation.DiagnosticCode(), err, admission.driverErr, result.Stdout())
 						}
 						if family == FamilyCodex && !admission.codexReadCompleted {
 							t.Fatal("complete Codex report lacks a successful native command read of the source token")
-						}
-						if family == FamilyGrok && !admission.grokReadCompleted {
-							t.Fatal("complete Grok report lacks a correlated native completion for the planned source read")
 						}
 					})
 				}

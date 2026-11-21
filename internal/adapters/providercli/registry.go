@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -85,6 +86,10 @@ func (t RuntimeTransport) validate() error {
 	case ports.ProviderPacketChannelProtocol:
 		if t.argvIndex != -1 || t.reference != "" {
 			return fmt.Errorf("protocol transport must not have an argv index or reference")
+		}
+	case ports.ProviderPacketChannelTerminal:
+		if t.argvIndex != -1 || t.reference != "" {
+			return fmt.Errorf("terminal transport must not have an argv index or reference")
 		}
 	default:
 		return fmt.Errorf("unsupported packet channel")
@@ -420,10 +425,19 @@ func (d RuntimeDefinition) validate() error {
 	if authorityErr != nil {
 		return authorityErr
 	}
-	if (d.transport.channel == ports.ProviderPacketChannelProtocol) != (d.protocolDriver != nil) ||
-		(d.transport.channel == ports.ProviderPacketChannelProtocol && authority.protocolDriver == nil) ||
-		reflect.TypeOf(d.protocolDriver) != reflect.TypeOf(authority.protocolDriver) {
-		return fmt.Errorf("protocol transport and driver authority must be paired")
+	switch d.transport.channel {
+	case ports.ProviderPacketChannelProtocol:
+		if authority.protocolDriver == nil || d.protocolDriver == nil || reflect.TypeOf(d.protocolDriver) != reflect.TypeOf(authority.protocolDriver) {
+			return fmt.Errorf("protocol transport and driver authority must be paired")
+		}
+	case ports.ProviderPacketChannelTerminal:
+		if authority.terminalProfile == nil || d.protocolDriver != nil {
+			return fmt.Errorf("terminal transport and terminal profile authority must be paired")
+		}
+	default:
+		if d.protocolDriver != nil || authority.protocolDriver != nil {
+			return fmt.Errorf("protocol transport and driver authority must be paired")
+		}
 	}
 	return nil
 }
@@ -487,7 +501,22 @@ type SpawnVerifier interface {
 // QualificationNamespace is the non-draining, non-credential authority for the
 // exact namespace lease retained by a Registry.
 type retainedQualificationNamespace struct {
-	lease ports.ProviderNamespaceLease
+	lease              ports.ProviderNamespaceLease
+	terminalGeneration string
+	markTerminalUsed   func()
+}
+
+func (namespace retainedQualificationNamespace) qualificationTerminalRegistryLabel() (string, error) {
+	if !ports.ValidTerminalLabel(terminalRegistryLabelKey, namespace.terminalGeneration) {
+		return "", fmt.Errorf("grok qualification: missing registry terminal label")
+	}
+	return namespace.terminalGeneration, nil
+}
+
+func (namespace retainedQualificationNamespace) markQualificationTerminalUsed() {
+	if namespace.markTerminalUsed != nil {
+		namespace.markTerminalUsed()
+	}
 }
 
 type namespaceRuntimeSafetyPolicyIdentity interface {
@@ -659,6 +688,18 @@ func (namespace retainedQualificationNamespace) agyQualificationBinding(source p
 	if err != nil {
 		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
 	}
+	operatorHomeRoot, homeErr := ports.NewAnchoredRoot(filepath.Dir(lease.agySourceHome))
+	if homeErr != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("agy qualification: control-plane native home: %w", homeErr)
+	}
+	cpRoots, cpLiterals, cpErr := defaultControlPlanePathsForHome(operatorHomeRoot)
+	if cpErr != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("agy qualification: control-plane paths: %w", cpErr)
+	}
+	boundary, err = ports.NewLiveReadOnlyBoundaryWithControlPlane(boundary, cpRoots, cpLiterals)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+	}
 	boundary, err = ports.NewLiveReadOnlyBoundaryWithOwnedPTY(boundary)
 	if err != nil {
 		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
@@ -727,12 +768,98 @@ func (namespace retainedQualificationNamespace) cursorLaunchBoundary(source port
 	if err != nil {
 		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
 	}
+	if lease.cursorRuntimeHome != "" {
+		operatorHomeRoot, homeErr := ports.NewAnchoredRoot(lease.cursorRuntimeHome)
+		if homeErr != nil {
+			return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("cursor qualification: control-plane native home: %w", homeErr)
+		}
+		cpRoots, cpLiterals, cpErr := defaultControlPlanePathsForHome(operatorHomeRoot)
+		if cpErr != nil {
+			return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("cursor qualification: control-plane paths: %w", cpErr)
+		}
+		boundary, err = ports.NewLiveReadOnlyBoundaryWithControlPlane(boundary, cpRoots, cpLiterals)
+		if err != nil {
+			return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
+		}
+	}
 	return boundary, neutral, nil
+}
+
+// grokQualificationBinding opens the neutral ~/.mulgae/home launch directory
+// (without creating or mutating AGENTS.md) and returns the read-only boundary
+// with the fixture snapshot in ReadOnlyRoots, ~/.grok and sibling credential
+// roots denied, shared ControlPlaneRoots denied, and the disposable namespace
+// as WritableRoot.
+func (namespace retainedQualificationNamespace) grokQualificationBinding(source ports.AnchoredRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, ports.AnchoredRoot, string, *os.File, error) {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil || !source.Valid() {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, fmt.Errorf("grok qualification: missing namespace")
+	}
+	if !validCanonicalAbsolute(lease.grokRuntimeHome) {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, fmt.Errorf("grok qualification: missing runtime home")
+	}
+	nativeHome, err := ports.NewAnchoredRoot(lease.grokRuntimeHome)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, err
+	}
+	launchDir, neutral, err := openNeutralQualificationDirectory(lease.grokRuntimeHome)
+	if err != nil {
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, err
+	}
+	fail := func(cause error) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, ports.AnchoredRoot, string, *os.File, error) {
+		_ = launchDir.Close()
+		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, cause
+	}
+	writable, err := ports.NewAnchoredRoot(lease.root)
+	if err != nil {
+		return fail(err)
+	}
+	synthetic, err := ports.NewAnchoredRoot(filepath.Join(lease.root, "auth"))
+	if err != nil {
+		return fail(err)
+	}
+	if err := cursorRejectContainedLaunch(source.String(), neutral.String(), writable.String()); err != nil {
+		return fail(fmt.Errorf("grok qualification: %w", err))
+	}
+	extras, err := agyQualificationCredentialExtras(lease.grokRuntimeHome, source.String())
+	if err != nil {
+		return fail(fmt.Errorf("grok qualification: %w", err))
+	}
+	extras = append(extras, lease.grokConfiguredRoots...)
+	credentials, err := cursorBoundaryCredentials([]ports.AnchoredRoot{synthetic}, synthetic.String(), extras)
+	if err != nil {
+		return fail(err)
+	}
+	boundary, err := ports.NewLiveReadOnlyBoundary([]ports.AnchoredRoot{source, neutral}, credentials, writable)
+	if err != nil {
+		return fail(err)
+	}
+	cpRoots, cpLiterals, err := defaultControlPlanePathsForHome(nativeHome)
+	if err != nil {
+		return fail(err)
+	}
+	boundary, err = ports.NewLiveReadOnlyBoundaryWithControlPlane(boundary, cpRoots, cpLiterals)
+	if err != nil {
+		return fail(err)
+	}
+	return boundary, neutral, nativeHome, lease.root, launchDir, nil
+}
+
+func (namespace retainedQualificationNamespace) bindGrokTerminalRuntimeIdentity(identity ports.TerminalRuntimeIdentity) error {
+	lease, ok := namespace.lease.(*namespaceLease)
+	if !ok || lease == nil {
+		return nil
+	}
+	return lease.bindGrokTerminalRuntimeIdentity(identity)
 }
 
 // Registry is an immutable, concurrent-safe opt-in set of provider capability profiles.
 type Registry struct {
 	runner               ports.ProcessRunner
+	terminalRunner       ports.TerminalSessionRunner
+	terminalGeneration   string
+	terminalUsed         atomic.Bool
+	terminalDrained      bool
 	definitions          map[string]definition
 	namespaces           map[string]ports.ProviderNamespaceLease
 	namespaceGenerations map[string]string
@@ -804,8 +931,13 @@ func newRegistryWithNamespaces(
 	}
 	activeZero := make(chan struct{})
 	close(activeZero)
+	termGen, err := namespaceGeneration()
+	if err != nil {
+		return nil, fmt.Errorf("provider registry: generate terminal label: %w", err)
+	}
 	registry := &Registry{
 		runner:               runner,
+		terminalGeneration:   termGen,
 		definitions:          make(map[string]definition, len(definitions)),
 		namespaces:           make(map[string]ports.ProviderNamespaceLease, len(definitions)),
 		namespaceGenerations: make(map[string]string, len(definitions)),
@@ -951,6 +1083,18 @@ func NewProductionRegistryWithContext(
 	ctx context.Context, runner ports.ProcessRunner, factory ports.ProviderNamespaceFactory, verifier SpawnVerifier,
 	profiles ...RuntimeDefinition,
 ) (*Registry, error) {
+	return NewProductionRegistryWithTerminalRunner(ctx, runner, nil, factory, verifier, profiles...)
+}
+
+// NewProductionRegistryWithTerminalRunner constructs a production registry that
+// borrows a graph-owned TerminalSessionRunner for managed terminal providers.
+// The registry drains only its own labeled panes in Close and never stops the
+// shared session runner.
+func NewProductionRegistryWithTerminalRunner(
+	ctx context.Context, runner ports.ProcessRunner, terminalRunner ports.TerminalSessionRunner,
+	factory ports.ProviderNamespaceFactory, verifier SpawnVerifier,
+	profiles ...RuntimeDefinition,
+) (*Registry, error) {
 	if ctx == nil || ctx.Err() != nil {
 		return nil, fmt.Errorf("provider registry: invalid construction context")
 	}
@@ -977,6 +1121,7 @@ func NewProductionRegistryWithContext(
 		}
 	}
 	registry.spawnVerifier = verifier
+	registry.terminalRunner = terminalRunner
 	return registry, nil
 }
 
@@ -1000,7 +1145,13 @@ func (r *Registry) QualificationNamespace(instance string) (QualificationNamespa
 	if !ok {
 		return nil, false
 	}
-	return retainedQualificationNamespace{lease: lease}, true
+	return retainedQualificationNamespace{
+		lease:              lease,
+		terminalGeneration: r.terminalGeneration,
+		markTerminalUsed: func() {
+			r.terminalUsed.Store(true)
+		},
+	}, true
 }
 
 // stagedOutputParentDirectoryName is the fixed scratch subdirectory that holds
@@ -1011,10 +1162,10 @@ const stagedOutputParentDirectoryName = "output"
 // expected to deliver its role report. Each grant comes from live capability
 // evidence, never from preference: ZCode reliably writes one regular file at an
 // absolute staging path once it runs outside plan mode with Write removed from
-// the review denylist. Grok's ACP driver grants exactly one correlated write to
-// the staged report; every family without positive evidence keeps stdout.
+// the review denylist. Managed terminal providers (Grok) stage internally and
+// project accepted bytes as isolated stdout transport (result_transport: "stdout").
 func familyReviewOutputTransport(family string) ports.ProviderOutputTransport {
-	if family == FamilyZcode || family == FamilyGrok {
+	if family == FamilyZcode {
 		return ports.ProviderOutputTransportStagedFile
 	}
 	return ports.ProviderOutputTransportStdout
@@ -1178,16 +1329,25 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		}
 		processObservation, conversationEvidence, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment(), invocation.Purpose(), staging)
 	}
-	// Only a drained process leaves a stable policy to audit. Uncertain drain
-	// retains the existing process/namespace terminal ownership and failure.
-	if definition.family == FamilyGrok && processObservation.ProcessGroupAbsent() {
-		if boundaryErr := namespace.ValidateForSpawn(); boundaryErr != nil {
-			conversationEvidence = nil
-			runErr = errors.Join(providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed,
-				fmt.Errorf("provider registry: post-invocation Grok boundary: %w", boundaryErr)), runErr)
-		}
-	}
 	if runErr != nil {
+		// Terminal driver failures already hold an exact closed classification
+		// that never lets post-kill screen text override security, launch, or
+		// staging failures.
+		var termFailure *terminalDriverFailure
+		if errors.As(runErr, &termFailure) && processObservation.Valid() {
+			status, diagnostic := termFailure.Status(), termFailure.Diagnostic()
+			if termFailure.CleanupCause() == domain.DiagnosticCauseProcessGroupCleanupFailed {
+				status, diagnostic = ports.ProviderExecutionStatusSecurityViolation, "process_security"
+			}
+			failedObs, failedErr := ports.NewFailedProviderExecutionObservationWithCause(
+				status, invocation, processObservation,
+				diagnostic, termFailure.Cause(), termFailure.CleanupCause(),
+			)
+			if failedErr != nil {
+				return ports.ProviderExecutionObservation{}, providerRuntimeFailure(termFailure.Cause(), errors.Join(termFailure, failedErr))
+			}
+			return failedObs, nil
+		}
 		// Boundary and cleanup failures describe a compromised observation and
 		// outrank the process's concurrent cancellation or timeout termination.
 		// Ordinary protocol/exchange failures still yield to the coherent process
@@ -1271,6 +1431,9 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		}
 		cause, cleanupCause = providerRunCauses(runErr)
 		status, diagnostic := providerFailureProjection(cause)
+		if cleanupCause == domain.DiagnosticCauseProcessGroupCleanupFailed {
+			status, diagnostic = ports.ProviderExecutionStatusSecurityViolation, "process_security"
+		}
 		var processFailure *ports.ProcessExecutionError
 		if !errors.As(runErr, &processFailure) {
 			typedErr, typedConstructErr := ports.NewProviderRuntimeError(cause, runErr)
@@ -1309,16 +1472,20 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	// role proof apply, so the layers cannot drift apart.
 	protocolConversationSucceeded := definition.transport.channel == ports.ProviderPacketChannelProtocol &&
 		(definition.family != FamilyAgy && processObservation.ProtocolConversationCompleted())
-	if processObservation.Succeeded() || protocolConversationSucceeded {
+	terminalSessionSucceeded := definition.transport.channel == ports.ProviderPacketChannelTerminal &&
+		processObservation.TerminalSessionCompleted()
+	if processObservation.Succeeded() || protocolConversationSucceeded || terminalSessionSucceeded {
 		if staging != nil {
 			// The workspace guard has already revalidated at this point, so the
 			// staged bytes are read back from a snapshot that never drifted.
 			return stagedFileObservation(definition, invocation, processObservation, staging)
 		}
-		if definition.transport.channel == ports.ProviderPacketChannelProtocol {
-			// An unstaged protocol conversation returns its complete assistant
-			// report or structured extraction: captured text is the exact provider
-			// result, and the protocol transcript on stdout is never content.
+		if definition.transport.channel == ports.ProviderPacketChannelProtocol ||
+			definition.transport.channel == ports.ProviderPacketChannelTerminal {
+			// An unstaged protocol conversation or managed terminal session
+			// returns its verified report or structured extraction: captured or
+			// staged bytes are the exact provider result, and raw stdout/screen
+			// capture remains diagnostic evidence only.
 			if conversationEvidence == nil {
 				return ports.NewFailedProviderExecutionObservationWithCause(
 					ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
@@ -1780,6 +1947,12 @@ func (r *Registry) Close(ctx context.Context) (ports.ProviderRunTerminalReceipt,
 	if r.receipt.Valid() {
 		return r.receipt, nil
 	}
+	if !nilTerminalSessionRunner(r.terminalRunner) && r.terminalUsed.Load() && !r.terminalDrained {
+		if err := r.terminalRunner.DrainLabeledPanes(ctx, terminalRegistryLabelKey, r.terminalGeneration); err != nil {
+			return ports.ProviderRunTerminalReceipt{}, fmt.Errorf("provider registry: drain terminal panes: %w", err)
+		}
+		r.terminalDrained = true
+	}
 	receipt, err := r.drainNamespacesWithContext(ctx)
 	if err != nil {
 		return ports.ProviderRunTerminalReceipt{}, err
@@ -2047,6 +2220,8 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		return ports.ProviderExecutionStatusQuota, "provider_quota"
 	case domain.DiagnosticCauseRateLimited:
 		return ports.ProviderExecutionStatusRateLimit, "provider_rate_limit"
+	case domain.DiagnosticCauseProviderSpawnFailed:
+		return ports.ProviderExecutionStatusUnavailable, "provider_spawn_failed"
 	case domain.DiagnosticCauseProviderTurnFailed:
 		return ports.ProviderExecutionStatusUnavailable, "provider_turn_failed"
 	case domain.DiagnosticCauseProviderExecutionFailed:
@@ -2059,6 +2234,7 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		domain.DiagnosticCauseOutputFrameMismatch,
 		domain.DiagnosticCauseSignalReceiptMismatch,
 		domain.DiagnosticCauseWorkspaceRevalidationFailed,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
 		// A provider that wrote outside the single file it was granted, or
 		// staging whose identity moved underneath the retained descriptor,
 		// breached a boundary rather than produced poor output.
@@ -2124,6 +2300,9 @@ func providerProcessRequestForPurpose(definition definition, packet ports.Provid
 	case ports.ProviderPacketChannelProtocol:
 		binding, err := ports.NewProtocolProviderPacketBinding(packet)
 		return argv, binding, err
+	case ports.ProviderPacketChannelTerminal:
+		binding, err := ports.NewTerminalProviderPacketBinding(packet)
+		return argv, binding, err
 	default:
 		return nil, ports.ProviderPacketBinding{}, fmt.Errorf("unsupported packet channel")
 	}
@@ -2139,6 +2318,7 @@ func buildArgvForPurpose(definition definition, workingDirectory string, packet 
 	case ports.ProviderPacketChannelStdin:
 	case ports.ProviderPacketChannelPromptFile:
 	case ports.ProviderPacketChannelProtocol:
+	case ports.ProviderPacketChannelTerminal:
 	default:
 		return nil, fmt.Errorf("unsupported packet channel")
 	}
@@ -2148,7 +2328,10 @@ func buildArgvForPurpose(definition definition, workingDirectory string, packet 
 	case FamilyZcode:
 		return appendZcodeProtocolServerArgv(argv), nil
 	case FamilyGrok:
-		return grokACPArgv(definition.executable, protocolPurposeForReview(purpose))
+		// Grok runs exclusively over the managed terminal transport with an
+		// invocation-bound neutral directory and disposable GROK_HOME. Legacy
+		// and snapshot routes fail closed instead of constructing an unbound launch.
+		return nil, fmt.Errorf("grok terminal transport requires live or qualification terminal execution")
 	case FamilyCodex:
 		return appendCodexProtocolServerArgv(argv, definition.codexModel, definition.codexReasoningEffort), nil
 	case FamilyCursor:
@@ -2176,7 +2359,7 @@ func providerResult(family string, stdout []byte) ([]byte, bool, error) {
 		// never provider report content.
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("zcode protocol transport delivers no report on stdout"))
 	case FamilyGrok:
-		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("grok protocol transport delivers no report on stdout"))
+		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("grok terminal transport delivers no report on raw stdout"))
 	case FamilyCodex:
 		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("codex protocol transport delivers no report on raw stdout"))
 	case FamilyCursor:
@@ -2478,6 +2661,12 @@ func defaultRuntimeTransport(family string) (RuntimeTransport, error) {
 }
 
 func validateRuntimeTransportShape(family string, transport RuntimeTransport) error {
+	if family == FamilyGrok {
+		if transport.channel == ports.ProviderPacketChannelTerminal {
+			return nil
+		}
+		return fmt.Errorf("%s requires the terminal transport", family)
+	}
 	if transport.channel == ports.ProviderPacketChannelStdin || transport.channel == ports.ProviderPacketChannelProtocol {
 		return nil
 	}

@@ -3,6 +3,7 @@
 package herdr
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/irootkernel/mulgae/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -66,6 +68,38 @@ func DefaultResolveOptions(nativeHome string, excludedRoots ...string) ResolveOp
 		NativeHome:    nativeHome,
 		ExcludedRoots: append([]string(nil), excludedRoots...),
 	}
+}
+
+// ExecutableObserver implements ports.TerminalRuntimeObserver for offline
+// doctor checks without starting any daemon or touching any socket.
+type ExecutableObserver struct{}
+
+var _ ports.TerminalRuntimeObserver = ExecutableObserver{}
+
+// NewExecutableObserver returns an offline herdr-core binary observer.
+func NewExecutableObserver() ExecutableObserver { return ExecutableObserver{} }
+
+// ObserveTerminalRuntime verifies local herdr-core / hc binary availability
+// and descriptor identity offline.
+func (ExecutableObserver) ObserveTerminalRuntime(ctx context.Context, nativeHome string, excludedRoots ...string) (ports.TerminalRuntimeExecutableObservation, error) {
+	if ctx == nil {
+		return ports.TerminalRuntimeExecutableObservation{}, fmt.Errorf("herdr observer: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return ports.TerminalRuntimeExecutableObservation{}, err
+	}
+	resolved, err := ResolveExecutable(DefaultResolveOptions(nativeHome, excludedRoots...))
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrExecutableNotFound):
+			return ports.NewTerminalRuntimeExecutableObservation(ports.TerminalRuntimeMissing, "", "")
+		case errors.Is(err, ErrUnsafeExecutable):
+			return ports.NewTerminalRuntimeExecutableObservation(ports.TerminalRuntimeUnsafeIdentity, "", "")
+		default:
+			return ports.TerminalRuntimeExecutableObservation{}, err
+		}
+	}
+	return ports.NewTerminalRuntimeExecutableObservation(ports.TerminalRuntimeAvailable, resolved.Path, resolved.SHA256)
 }
 
 // ResolveExecutable discovers and verifies the herdr-core / hc executable using

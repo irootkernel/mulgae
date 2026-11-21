@@ -14,9 +14,11 @@ Codex provider execution requires CLI 0.154.0 or newer for the app-server
 route. The separate Codex MCP-client compatibility check retains its own
 minimum version.
 
-Grok provider execution requires CLI 1.0.34 or newer. Version 1.0.40 is the
-latest release verified for the exact ACP model and reasoning-effort selection
-contract; later versions remain eligible but require current qualification.
+Grok provider execution requires CLI 1.0.89 or newer and an available
+`herdr-core` (`hc` / `herdr-core`) runtime. Version 1.0.89 is the minimum and
+latest release verified for Mulgae's isolated `herdr-core` terminal runtime
+contract; later versions remain eligible as `newer_than_verified` and require
+current qualification.
 
 ZCode app 3.12.3 is the minimum and currently verified app release for the app-owned
 Electron plus bundled `zcode.cjs app-server --stdio` route. That bundle's
@@ -124,6 +126,7 @@ make test-int
 make test-release
 make test-e2e
 make test-e2e-opt-in
+make test-herdr
 make test-grok
 make test-cursor
 make test-agy
@@ -147,25 +150,28 @@ before providers, and integrity failures after a process restart.
 `make test-release` includes this fixture. It uses a fake provider and does not
 replace mandatory live gates.
 
-`make test-grok` builds the exact current release binary, runs independent live
-Grok capability certification, and runs one authorized Grok review through
-ACP v1. The isolated review fixture enables structured extraction and disables
-repair. It requires exactly one initial review and one successful extraction
-on the same attempt and provider, with successful extraction diagnostics and
-a structured public result. A source-only marker, original source/Git,
-authentication and executable hashes, and removed runtime roots check the
-surrounding boundary. The target retains a private physical temporary directory
-so a failure cannot erase an uncertain process's protection files.
-It uses `MULGAE_E2E_GROK_EXECUTABLE` when set and otherwise discovers
-`grok` on `PATH`. The target requires an already authenticated installation,
-does not modify native Grok configuration, and is the standalone Grok live
-provider gate outside `make test-e2e`.
+`make test-herdr` runs the live isolated `herdr-core` terminal runtime
+verification suite (`-tags=live_herdr ./internal/adapters/herdr`) against a
+temporary Mulgae-owned `herdr-core` session without ever contacting the
+operator's `default` `herdr-core` daemon.
 
-Grok may report zero-tool MCP initialization before its `session/new` response.
-The adapter retains that notification's session identity after authentication and
-requires it to match the response before prompting. Missing or nonzero tool
-counts, conflicting identities and initialization before authentication fail
-closed; native MCP servers and tools remain disabled.
+`make test-grok` builds the exact current release binary, runs `make test-herdr`
+and independent live Grok capability certification, and runs the release-binary
+Grok review suite (`TestE2EGrokReleaseBinaryReview`) through the isolated
+`herdr-core` terminal runtime. It verifies `--workspace` review with same-provider
+shell-free structured extraction, `--stage` (index) and `--commit` reviews under
+all five `B-1` Bash-gate controls, retained-error/interrupt immediate
+`herdr-core` teardown, and long-lived MCP-mode (`mulgae mcp`) teardown while the
+MCP server stays alive. Source markers, original source/Git, `~/.grok/auth.json`
+and executable SHA-256 digests, empty `/private/tmp/mgh-<uid>`, removed runtime
+roots, and `/bin/ps -axww -E` snapshots prove zero leaked Mulgae daemons/holders/
+watchdogs/panes and untouched operator `default` `herdr-core` processes. The
+target retains a private physical temporary directory so a failure cannot erase
+an uncertain process's protection files. It uses `MULGAE_E2E_GROK_EXECUTABLE`
+when set and otherwise discovers `grok` on `PATH`. The target requires an
+already authenticated installation and `herdr-core`, does not modify native Grok
+configuration, and is the standalone Grok live provider gate outside
+`make test-e2e`.
 
 `make test-cursor` builds the exact current release binary and runs one Cursor
 review. It requires `darwin/arm64`, `CURSOR_AUTH_TOKEN`, and an absolute
@@ -686,10 +692,16 @@ in Electron-as-Node mode under the exact boundary, environment and neutral
 directory from production admission. Native child-process receipts verify the
 five write denials and positive source/Git/guide reads and owned scratch writes;
 the normal plan-mode app-server report remains a separate conversation.
-Grok requires a correlated read-plan rejection through its permission handler
-or completed native operation, plus the separate kernel-boundary test. A native
-operation outside the plan must fail report admission even when the kernel
-denies its file access. Codex's kernel probe sends sandboxed
+Grok runs through its isolated `herdr-core` terminal runtime under the outer
+Seatbelt `PaneTTY` guard: workspace review, extraction, and qualification run
+shell-free while stage and commit reviews enable `Bash` only under all five
+`B-1` controls. Live credential and kernel-protection checks execute a
+deterministic non-model Seatbelt kernel probe inside the exact compiled
+production boundary (verifying direct and symlink-alias `CredentialRoots`
+denial, write denials, and positive source/Git/guide reads plus owned scratch
+writes) alongside the live Grok review turn, and
+`TestLiveGrokTerminalCancellationDrainsOnlyItsProcessGroup` verifies bounded
+process-group teardown without disturbing unrelated processes. Codex's kernel probe sends sandboxed
 `command/exec` through the same native server and its unchanged default
 `mulgae` profile before the independently correlated assistant turn. It checks
 real exit codes and direct/alias denials. Model refusal or reported denial alone

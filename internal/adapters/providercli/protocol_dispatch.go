@@ -44,8 +44,6 @@ type protocolSessionConfiguration struct {
 	zcodeSelection  *zcodeModelSelection
 	zcodeEffort     string
 	zcodeAccount    *zcodeAccountRuntime
-	grokSettings    grokInvocationSettings
-	grokLiveReads   *grokLiveReadAuthority
 	cursorLiveReads *cursorLiveReadAuthority
 	agySettings     agyInvocationSettings
 	agyLiveReads    *agyLiveReadAuthority
@@ -57,11 +55,7 @@ type zcodeAccountRuntimeAuthority interface {
 }
 
 func protocolConfigurationForNamespace(ctx context.Context, definition RuntimeDefinition, namespace any) (protocolSessionConfiguration, error) {
-	configuration := protocolSessionConfiguration{
-		grokSettings: grokInvocationSettings{
-			model: definition.grokModel, reasoningEffort: definition.grokReasoningEffort,
-		},
-	}
+	configuration := protocolSessionConfiguration{}
 	if definition.family == FamilyAgy {
 		settings, err := newAgyInvocationSettings(definition.agyModel, definition.agyReasoningEffort)
 		if err != nil {
@@ -127,22 +121,6 @@ func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 	return session, nil
 }
 
-type grokACPProtocolDriverConstructor struct{}
-
-func (grokACPProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
-	session, err := newGrokACPProtocolSession(workspacePath, prompt, purpose, writeAuthority, configuration.grokSettings)
-	if err != nil {
-		return nil, err
-	}
-	if purpose == protocolPurposeLiveReview {
-		if configuration.grokLiveReads == nil {
-			return nil, fmt.Errorf("grok live review: missing read authority")
-		}
-		session.liveReads = configuration.grokLiveReads
-	}
-	return session, nil
-}
-
 type cursorACPProtocolDriverConstructor struct{}
 
 func (cursorACPProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, _ protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
@@ -163,11 +141,12 @@ func (codexProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 
 // providerAdapterAuthority is the single family-to-transport-and-driver
 // registry. Other family switches may shape native argv or output, but they do
-// not select whether or how a protocol conversation is driven.
+// not select whether or how a protocol or terminal conversation is driven.
 type providerAdapterAuthority struct {
 	defaultChannel       ports.ProviderPacketChannel
 	qualificationChannel ports.ProviderPacketChannel
 	protocolDriver       providerProtocolDriverConstructor
+	terminalProfile      terminalProviderProfile
 }
 
 func adapterAuthorityForFamily(family string) (providerAdapterAuthority, error) {
@@ -175,7 +154,7 @@ func adapterAuthorityForFamily(family string) (providerAdapterAuthority, error) 
 	case FamilyZcode:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: zcodeProtocolDriverConstructor{}}, nil
 	case FamilyGrok:
-		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: grokACPProtocolDriverConstructor{}}, nil
+		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelTerminal, qualificationChannel: ports.ProviderPacketChannelTerminal, terminalProfile: grokTerminalProfile{}}, nil
 	case FamilyCodex:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: codexProtocolDriverConstructor{}}, nil
 	case FamilyCursor:

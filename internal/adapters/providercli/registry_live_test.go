@@ -79,8 +79,8 @@ func TestLiveZCodeCapability(t *testing.T) {
 func TestLiveGrokCapability(t *testing.T) {
 	config := liveCapabilityConfig{
 		family: providercli.FamilyGrok, credential: providercli.CredentialSourceGrok, instance: "grok-logic", role: domain.RoleLogic,
-		executableEnv: "MULGAE_LIVE_GROK_BIN", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
-		minimumVersion: [3]int{1, 0, 30},
+		executableEnv: "MULGAE_LIVE_GROK_BIN", transport: ports.ProviderPacketChannelTerminal, transportIndex: -1,
+		minimumVersion: [3]int{1, 0, 89},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".grok", "auth.json")}
 		},
@@ -357,7 +357,32 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	}
 	recording := &liveCapabilityRecordingRunner{runner: runner}
 	verifier := environmentadapter.NewSpawnVerifier()
-	registry, err := providercli.NewProductionRegistry(recording, projectedNamespaces, verifier, definition)
+	var terminalSession ports.TerminalSessionRunner
+	var terminalClosed bool
+	if config.family == providercli.FamilyGrok {
+		nativeHomeRoot, homeErr := ports.NewAnchoredRoot(runtimeHome)
+		if homeErr != nil {
+			t.Fatal(homeErr)
+		}
+		session, sessionErr := herdradapter.NewSession(herdradapter.SessionOptions{
+			Clock:         runtimeadapter.SystemClock{},
+			LaunchBuilder: processadapter.NewPaneLaunchBuilder(),
+			NativeHome:    nativeHomeRoot,
+		})
+		if sessionErr != nil {
+			t.Fatalf("%s terminal session: %v", config.family, sessionErr)
+		}
+		terminalSession = session
+		t.Cleanup(func() {
+			if terminalClosed {
+				return
+			}
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cleanupCancel()
+			_ = session.Close(cleanupCtx)
+		})
+	}
+	registry, err := providercli.NewProductionRegistryWithTerminalRunner(ctx, recording, terminalSession, projectedNamespaces, verifier, definition)
 	if err != nil {
 		t.Fatalf("%s production registry: %v", config.family, err)
 	}
@@ -374,7 +399,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	if !ok {
 		t.Fatalf("%s qualification namespace is unavailable", config.family)
 	}
-	probe, err := providercli.NewCurrentProbe(recording, verifier)
+	probe, err := providercli.NewCurrentProbeWithTerminalRunner(recording, verifier, terminalSession)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,17 +424,27 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	if !providercli.VersionAtLeast(result.Version, config.minimumVersion[0], config.minimumVersion[1], config.minimumVersion[2]) {
 		t.Fatalf("%s version %q is below the supported minimum", config.family, result.Version)
 	}
-	if len(recording.requests) != 2 || len(recording.observations) != 2 {
-		t.Fatalf("%s launches = requests:%d observations:%d, want one version and one capability", config.family, len(recording.requests), len(recording.observations))
-	}
-	for _, request := range recording.requests {
-		if request.WorkingDirectory() != fixture.WorkspaceSnapshotIdentity().SnapshotPath() {
-			t.Fatalf("%s launch escaped the immutable capability fixture", config.family)
+	if config.family == providercli.FamilyGrok {
+		if len(recording.requests) != 1 || len(recording.observations) != 1 {
+			t.Fatalf("%s plain launches = requests:%d observations:%d, want one version probe only", config.family, len(recording.requests), len(recording.observations))
 		}
-	}
-	transport, ok := recording.observations[1].ProviderPacketTransportReceipt()
-	if !ok || !transport.Valid() || transport.Channel() != transportChannel {
-		t.Fatalf("%s capability transport receipt is invalid", config.family)
+		neutralHome := filepath.Join(runtimeHome, ".mulgae", "home")
+		if recording.requests[0].WorkingDirectory() != neutralHome {
+			t.Fatalf("%s version launch cwd = %q, want neutral %q", config.family, recording.requests[0].WorkingDirectory(), neutralHome)
+		}
+	} else {
+		if len(recording.requests) != 2 || len(recording.observations) != 2 {
+			t.Fatalf("%s launches = requests:%d observations:%d, want one version and one capability", config.family, len(recording.requests), len(recording.observations))
+		}
+		for _, request := range recording.requests {
+			if request.WorkingDirectory() != fixture.WorkspaceSnapshotIdentity().SnapshotPath() {
+				t.Fatalf("%s launch escaped the immutable capability fixture", config.family)
+			}
+		}
+		transport, ok := recording.observations[1].ProviderPacketTransportReceipt()
+		if !ok || !transport.Valid() || transport.Channel() != transportChannel {
+			t.Fatalf("%s capability transport receipt is invalid", config.family)
+		}
 	}
 	liveCapabilityRequireReceipts(t, config.family, result.Receipts)
 
@@ -420,6 +455,12 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	runReceipt, err := registry.Close(ctx)
 	if err != nil || !runReceipt.Valid() {
 		t.Fatalf("%s capability namespace did not drain: %v", config.family, err)
+	}
+	if terminalSession != nil {
+		if err := terminalSession.Close(ctx); err != nil {
+			t.Fatalf("%s terminal runtime session did not close cleanly: %v", config.family, err)
+		}
+		terminalClosed = true
 	}
 	for _, receipt := range runReceipt.NamespaceReceipts() {
 		if !receipt.Drained() || !receipt.Unlinked() || !receipt.TornDown() {

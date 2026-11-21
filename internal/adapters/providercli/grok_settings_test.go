@@ -21,7 +21,7 @@ func TestGrokSettingsIdentityDistinguishesEveryConfiguredDimension(t *testing.T)
 }
 
 func TestGrokSettingsAreBoundToRuntimeAndProbeIdentity(t *testing.T) {
-	base := testProfile(t, FamilyGrok, "grok-logic", "1.0.34", "")
+	base := testProfile(t, FamilyGrok, "grok-logic", "1.0.89", "")
 	configured := base
 	configured.grokModel = "grok-4.5"
 	configured.grokReasoningEffort = "low"

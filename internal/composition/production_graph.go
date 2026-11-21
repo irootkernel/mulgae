@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
+	herdradapter "github.com/irootkernel/mulgae/internal/adapters/herdr"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	"github.com/irootkernel/mulgae/internal/adapters/providercli"
 	"github.com/irootkernel/mulgae/internal/adapters/workspace"
@@ -25,32 +27,61 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
+const terminalSessionCloseTimeout = 15 * time.Second
+
 type productionRuntimeGraph struct {
-	build           reviewrun.BuildIdentity
-	root            ports.AnchoredRoot
-	policy          productionRunPolicy
-	workspaceRoot   ports.AnchoredRoot
-	namespaceRoot   ports.AnchoredRoot
-	detector        ports.ReviewInputContentDetector
-	liveSources     ports.LiveSourceOpener
-	reviewerHome    ports.ReviewerHome
-	credentialRoots []ports.AnchoredRoot
-	liveCommon      prompt.TrustedLayer
-	authority       *reviewrun.RunAuthorityAdapter
-	qualified       *reviewrun.QualifiedRunFactory
-	candidates      *configuredProductionCandidateSource
-	fixtures        *providercli.ProbeFixtureLeaseFactory
-	reviewValidator *validation.ReviewValidator
-	publisher       *publication.Service
-	diagnostics     ports.RuntimeDiagnosticSinkFactory
-	templates       review.TemplateSet
-	clock           ports.Clock
-	ids             review.IdentityGenerator
+	build                reviewrun.BuildIdentity
+	root                 ports.AnchoredRoot
+	policy               productionRunPolicy
+	workspaceRoot        ports.AnchoredRoot
+	namespaceRoot        ports.AnchoredRoot
+	terminalSession      ports.TerminalSessionRunner
+	detector             ports.ReviewInputContentDetector
+	liveSources          ports.LiveSourceOpener
+	reviewerHome         ports.ReviewerHome
+	credentialRoots      []ports.AnchoredRoot
+	controlPlaneRoots    []ports.AnchoredRoot
+	controlPlaneLiterals []ports.AnchoredRoot
+	liveCommon           prompt.TrustedLayer
+	authority            *reviewrun.RunAuthorityAdapter
+	qualified            *reviewrun.QualifiedRunFactory
+	candidates           *configuredProductionCandidateSource
+	fixtures             *providercli.ProbeFixtureLeaseFactory
+	reviewValidator      *validation.ReviewValidator
+	publisher            *publication.Service
+	diagnostics          ports.RuntimeDiagnosticSinkFactory
+	templates            review.TemplateSet
+	clock                ports.Clock
+	ids                  review.IdentityGenerator
+}
+
+// closeTerminalSession stops the graph-owned isolated herdr-core session and
+// holder using a bounded timeout. It is an idempotent no-op when the session
+// was never started.
+func (graph *productionRuntimeGraph) closeTerminalSession(ctx context.Context) error {
+	if graph == nil || graph.terminalSession == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalSessionCloseTimeout)
+	defer cancel()
+	if err := graph.terminalSession.Close(closeCtx); err != nil {
+		return reviewCompositionFailure(domain.FailureArtifact, "production terminal session cleanup failed", err)
+	}
+	return nil
 }
 
 func (graph *productionRuntimeGraph) cleanupRoots() error {
 	if graph == nil {
 		return nil
+	}
+	// Stop isolated herdr-core and its holder BEFORE removing namespace roots.
+	// If holder/core/pane exit cannot be proven, retain the namespace root and
+	// return a failure so no active pane loses its disposable filesystem root.
+	if err := graph.closeTerminalSession(context.Background()); err != nil {
+		return err
 	}
 	if err := removeDrainedNamespaceParent(graph.namespaceRoot); err != nil {
 		return reviewCompositionFailure(domain.FailureArtifact, "production temporary root cleanup failed", err)
@@ -155,6 +186,20 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: process runner: %w", err)
 	}
+	nativeHomeRoot, err := ports.NewAnchoredRoot(nativeHome)
+	if err != nil {
+		return nil, fmt.Errorf("production graph: native home root: %w", err)
+	}
+	terminalSession, err := herdradapter.NewSession(herdradapter.SessionOptions{
+		Clock:                clock,
+		LaunchBuilder:        processadapter.NewPaneLaunchBuilder(),
+		NativeHome:           nativeHomeRoot,
+		ExcludedResolveRoots: []string{root.String(), workspaceRoot.String(), namespaceRoot.String()},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("production graph: terminal session: %w", err)
+	}
+	graph.terminalSession = terminalSession
 	namespaces, err := providercli.NewNamespaceFactory(namespaceRoot.String())
 	if err != nil {
 		return nil, fmt.Errorf("production graph: namespaces: %w", err)
@@ -174,7 +219,7 @@ func composeProductionRuntimeGraph(
 		return nil, fmt.Errorf("production graph: probe fixtures: %w", err)
 	}
 	baseSpawnVerifier := environment.NewSpawnVerifier()
-	probe, err := providercli.NewCurrentProbe(runner, contextLocalitySpawnVerifier{inner: baseSpawnVerifier})
+	probe, err := providercli.NewCurrentProbeWithTerminalRunner(runner, contextLocalitySpawnVerifier{inner: baseSpawnVerifier}, terminalSession)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: current probe: %w", err)
 	}
@@ -190,7 +235,7 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: qualifier: %w", err)
 	}
-	registries, err := providercli.NewQualificationRegistryFactory(runner, projected, nil, func(ctx context.Context) (providercli.SpawnVerifier, error) {
+	registries, err := providercli.NewQualificationRegistryFactoryWithTerminalRunner(runner, terminalSession, projected, nil, func(ctx context.Context) (providercli.SpawnVerifier, error) {
 		return boundLocalitySpawnVerifier(ctx, baseSpawnVerifier)
 	})
 	if err != nil {
@@ -248,6 +293,10 @@ func (graph *productionRuntimeGraph) openLiveReview(ctx context.Context, catalog
 	graph.liveSources, graph.credentialRoots, err = productionLiveSources(graph.policy.config, graph.root, graph.workspaceRoot, graph.namespaceRoot)
 	if err != nil {
 		return err
+	}
+	graph.controlPlaneRoots, graph.controlPlaneLiterals, err = productionLiveControlPlanePaths(operatorHome.String())
+	if err != nil {
+		return reviewCompositionFailure(domain.FailureSecurityPolicy, "live control-plane boundaries unavailable", err)
 	}
 	graph.liveCommon, err = reviewrun.LoadLiveReviewCommon(ctx, catalog)
 	return err

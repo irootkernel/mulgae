@@ -14,14 +14,15 @@ import (
 // LocalDependencies are the existing observation capabilities for offline diagnosis.
 // Platform is build metadata supplied by composition, not another observation.
 type LocalDependencies struct {
-	Clock     ports.Clock
-	Sources   ports.ConfigSourceFactory
-	Codec     appconfig.Codec
-	Accounts  appconfig.AccountObserver
-	Locality  ports.ConfigLocalityAttestor
-	Inspector ports.EnvironmentInspector
-	Versions  ports.ProviderVersionObserver
-	Platform  LocalPlatformEvidence
+	Clock           ports.Clock
+	Sources         ports.ConfigSourceFactory
+	Codec           appconfig.Codec
+	Accounts        appconfig.AccountObserver
+	Locality        ports.ConfigLocalityAttestor
+	Inspector       ports.EnvironmentInspector
+	Versions        ports.ProviderVersionObserver
+	TerminalRuntime ports.TerminalRuntimeObserver
+	Platform        LocalPlatformEvidence
 }
 
 // LocalService owns local v7 admission and reduction. Recorded evidence remains
@@ -289,7 +290,33 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 		}
 		cliIdentityUnsafe := row.CLICompatible.ReasonCode == "provider_cli_version_unsafe_identity"
 		unsafeAdmission = unsafeAdmission || cliIdentityUnsafe
-		if row.CLICompatible.Eligibility == "eligible" && row.ApplicationCompatible.Eligibility != "ineligible" {
+		herdrReason := ""
+		if family == "grok" {
+			if nilInterface(service.dependencies.TerminalRuntime) {
+				herdrReason = "herdr_core_observation_failed"
+			} else {
+				rtObs, rtErr := service.dependencies.TerminalRuntime.ObserveTerminalRuntime(ctx, account.Home, root.String())
+				if localDoctorCancellation(rtErr) {
+					return LocalDoctorResult{}, rtErr
+				}
+				switch {
+				case rtErr != nil || !rtObs.Valid():
+					herdrReason = "herdr_core_observation_failed"
+				case rtObs.State() == ports.TerminalRuntimeAvailable:
+				case rtObs.State() == ports.TerminalRuntimeMissing:
+					herdrReason = "herdr_core_missing"
+				case rtObs.State() == ports.TerminalRuntimeUnsafeIdentity:
+					herdrReason = "herdr_core_unsafe_identity"
+					unsafeAdmission = true
+				default:
+					herdrReason = "herdr_core_observation_failed"
+				}
+			}
+			if herdrReason != "" {
+				row.BinaryAvailable = LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{herdrReason}}
+			}
+		}
+		if row.CLICompatible.Eligibility == "eligible" && row.ApplicationCompatible.Eligibility != "ineligible" && herdrReason == "" {
 			eligible++
 			row.State, row.Reason = "eligible", row.CLICompatible.ReasonCode
 			if family == "zcode" {
@@ -299,6 +326,11 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 			row.State, row.Reason = "unavailable", row.CLICompatible.ReasonCode
 			if row.ApplicationCompatible.Eligibility == "ineligible" && !cliIdentityUnsafe {
 				row.Reason = row.ApplicationCompatible.ReasonCode
+			}
+			if herdrReason == "herdr_core_unsafe_identity" && !cliIdentityUnsafe {
+				row.Reason = herdrReason
+			} else if herdrReason != "" && row.CLICompatible.Eligibility == "eligible" {
+				row.Reason = herdrReason
 			}
 		}
 		base.ProviderInventory = append(base.ProviderInventory, row)

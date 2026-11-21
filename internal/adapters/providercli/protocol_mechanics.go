@@ -22,7 +22,7 @@ func sanitizeProtocolDiagnosticIdentifier(value string) string {
 	return value
 }
 
-// protocolStringResponseMatches shares only ZCode/Grok string-ID matching.
+// protocolStringResponseMatches shares JSON-RPC string-ID matching for protocol adapters.
 // Request identities, outstanding state and other native ID codecs stay local.
 func protocolStringResponseMatches(rawID json.RawMessage, method string, expected ...string) bool {
 	if len(rawID) == 0 || method != "" {

@@ -264,10 +264,14 @@ func TestAgyRuntimeBuilderRejectsCrossFamilySettings(t *testing.T) {
 	const identity = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for _, family := range []string{FamilyCodex, FamilyGrok, FamilyCursor, FamilyAgy} {
 		t.Run(family, func(t *testing.T) {
+			channel := ports.ProviderPacketChannelProtocol
+			if family == FamilyGrok {
+				channel = ports.ProviderPacketChannelTerminal
+			}
 			spec := ports.ProviderRuntimeSpec{Family: family, Instance: family, Executable: "/bin/provider", ExecutableSHA256: identity,
 				Launcher: "/bin/provider", LauncherSHA256: identity, BaseArgv: []string{"/bin/provider"}, ProfileID: family,
 				ProfileGeneration: "fixture", RuntimeSafetyPolicyIdentity: identity, WorkingDirectory: "/neutral", Timeout: time.Second,
-				TransportChannel: ports.ProviderPacketChannelProtocol, TransportArgvIndex: -1}
+				TransportChannel: channel, TransportArgvIndex: -1}
 			if _, err := (RuntimeBuilder{}).BuildProductionRuntime(spec); err != nil {
 				t.Fatal("invalid baseline fixture", err)
 			}

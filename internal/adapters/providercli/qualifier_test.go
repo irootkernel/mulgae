@@ -54,18 +54,21 @@ func TestClassifyCodexProbeFailurePreservesQuotaSignalFromStderr(t *testing.T) {
 	}
 }
 
-func TestClassifyGrokACPProbeFailurePreservesQuotaAndLoginSignalsFromStderr(t *testing.T) {
-	t.Run("quota balance exhausted", func(t *testing.T) {
+func TestClassifyGrokTerminalProbeFailurePreservesQuotaAndLoginAndBlocksSecurityOverride(t *testing.T) {
+	t.Run("quota balance exhausted on terminal error", func(t *testing.T) {
 		observation := protocolTeardownObservationWithStderr(
 			t,
 			nil,
 			[]byte("ERROR responses API error status=402 Payment Required error_message=Grok Build usage balance exhausted"),
 		)
-		processed := qualificationProcessFailure(
-			FamilyGrok,
-			observation,
-			grokACPFailure(domain.DiagnosticCauseProviderExecutionFailed, errors.New("ACP request failed: Internal error")),
+		driverErr := newTerminalDriverFailure(
+			ports.ProviderExecutionStatusQuota,
+			"provider_quota_exceeded",
+			domain.DiagnosticCauseQuotaExceeded,
+			"",
+			errors.New("terminal program reported quota exhaustion"),
 		)
+		processed := qualificationProcessFailure(FamilyGrok, observation, driverErr)
 		requireProviderDiagnosticCause(t, processed, domain.DiagnosticCauseQuotaExceeded)
 		classified := classifyProbeFailure(context.Background(), FamilyGrok, processed, observation.Stderr(), observation.Stdout())
 		var failure *domain.Failure
@@ -74,17 +77,20 @@ func TestClassifyGrokACPProbeFailurePreservesQuotaAndLoginSignalsFromStderr(t *t
 		}
 		requireProviderDiagnosticCause(t, classified, domain.DiagnosticCauseQuotaExceeded)
 	})
-	t.Run("login required", func(t *testing.T) {
+	t.Run("login required on terminal error", func(t *testing.T) {
 		observation := protocolTeardownObservationWithStderr(
 			t,
 			nil,
 			[]byte(`{"code":"auth.login_required","message":"login first"}`),
 		)
-		processed := qualificationProcessFailure(
-			FamilyGrok,
-			observation,
-			grokACPFailure(domain.DiagnosticCauseProviderExecutionFailed, errors.New("ACP request failed: Internal error")),
+		driverErr := newTerminalDriverFailure(
+			ports.ProviderExecutionStatusAuthentication,
+			"provider_login_required",
+			domain.DiagnosticCauseLoginRequired,
+			"",
+			ports.ErrProviderLoginRequired,
 		)
+		processed := qualificationProcessFailure(FamilyGrok, observation, driverErr)
 		requireProviderDiagnosticCause(t, processed, domain.DiagnosticCauseLoginRequired)
 		classified := classifyProbeFailure(context.Background(), FamilyGrok, processed, observation.Stderr(), observation.Stdout())
 		var failure *domain.Failure
@@ -92,6 +98,55 @@ func TestClassifyGrokACPProbeFailurePreservesQuotaAndLoginSignalsFromStderr(t *t
 			t.Fatalf("Grok login-required probe failure = %v", classified)
 		}
 		requireProviderDiagnosticCause(t, classified, domain.DiagnosticCauseLoginRequired)
+	})
+	t.Run("screen tokens never override security or staging failure", func(t *testing.T) {
+		observation := protocolTeardownObservationWithStderr(
+			t,
+			[]byte(`{"code":"auth.login_required","message":"spoofed screen token"}`),
+			[]byte("ERROR status=402 Payment Required usage balance exhausted"),
+		)
+		for _, tc := range []struct {
+			name      string
+			driverErr *terminalDriverFailure
+			wantClass domain.FailureClass
+			wantCause domain.RuntimeDiagnosticCause
+		}{
+			{
+				name: "security violation",
+				driverErr: newTerminalDriverFailure(
+					ports.ProviderExecutionStatusSecurityViolation,
+					"provider_output_staging_violation",
+					domain.DiagnosticCauseProviderOutputStagingViolation,
+					"",
+					errors.New("staged output violated security boundary"),
+				),
+				wantClass: domain.FailureSecurityPolicy,
+				wantCause: domain.DiagnosticCauseProviderOutputStagingViolation,
+			},
+			{
+				name: "staging missing",
+				driverErr: newTerminalDriverFailure(
+					ports.ProviderExecutionStatusUnavailable,
+					"provider_output_file_missing",
+					domain.DiagnosticCauseProviderOutputFileMissing,
+					"",
+					errors.New("staged output missing"),
+				),
+				wantClass: domain.FailureInvalidOutput,
+				wantCause: domain.DiagnosticCauseProviderOutputFileMissing,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				processed := qualificationProcessFailure(FamilyGrok, observation, tc.driverErr)
+				requireProviderDiagnosticCause(t, processed, tc.wantCause)
+				classified := classifyProbeFailure(context.Background(), FamilyGrok, processed, observation.Stderr(), observation.Stdout())
+				var failure *domain.Failure
+				if !errors.As(classified, &failure) || failure.Class() != tc.wantClass {
+					t.Fatalf("%s classified = %v (class %v), want class %s", tc.name, classified, failure, tc.wantClass)
+				}
+				requireProviderDiagnosticCause(t, classified, tc.wantCause)
+			})
+		}
 	})
 }
 
@@ -524,7 +579,7 @@ func TestCurrentProbeReleasesProtocolTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	argv := appendCodexProtocolServerArgv(definition.BaseArgv(), "", "")
-	if _, _, _, err := probe.runBound(context.Background(), definition, currentProbeNamespace{instance: "codex_current"}, fixture, argv, nil, time.Second, &packet, ""); err != nil {
+	if _, _, _, _, _, err := probe.runBound(context.Background(), definition, currentProbeNamespace{instance: "codex_current"}, fixture, argv, nil, time.Second, &packet, ""); err != nil {
 		t.Fatal(err)
 	}
 	if lease.closes != 1 {
@@ -612,11 +667,10 @@ func TestPlainSemverAcceptsExactGrokCLIIdentity(t *testing.T) {
 		output string
 		want   string
 	}{
-		{"grok 1.0.30 (a1b2c3d)", "1.0.30"},
-		{"grok 1.0.30 (a1b2c3d) [stable]", "1.0.30"},
-		{"grok 1.0.30 (a1b2c3d) [beta]", "1.0.30"},
-		{"grok 1.0.30 (a1b2c3d) [rc.1_test]", "1.0.30"},
+		{"grok 1.0.89 (a1b2c3d)", "1.0.89"},
 		{"grok 1.0.89 (28be5bb1bf65) [stable]", "1.0.89"},
+		{"grok 1.0.89 (a1b2c3d) [beta]", "1.0.89"},
+		{"grok 1.0.89 (a1b2c3d) [rc.1_test]", "1.0.89"},
 		{"grok 1.0.90 (a1b2c3d) [beta]", "1.0.90"},
 	} {
 		observation := testProcessObservation(t, []byte(valid.output+"\n"), nil, ports.ProcessTerminationExited, 0)
@@ -625,13 +679,15 @@ func TestPlainSemverAcceptsExactGrokCLIIdentity(t *testing.T) {
 		}
 	}
 	for _, invalid := range []string{
-		"1.0.30",
-		"grok 1.0.30",
-		"grok 1.0.30 (A1B2)",
-		"grok 1.0.30 (a1b2c3d) []",
-		"grok 1.0.30 (a1b2c3d) [bad tag]",
-		"grok 1.0.30 (a1b2c3d) [stable] extra",
-		"grok 1.0.30 (a1b2c3d)[stable]",
+		"1.0.89",
+		"grok 1.0.89",
+		"grok 1.0.89 (A1B2)",
+		"grok 1.0.89 (a1b2c3d) []",
+		"grok 1.0.89 (a1b2c3d) [bad tag]",
+		"grok 1.0.89 (a1b2c3d) [stable] extra",
+		"grok 1.0.89 (a1b2c3d)[stable]",
+		"grok 1.0.30 (a1b2c3d)",
+		"grok 1.0.40 (eb1a2256660d) [stable]",
 	} {
 		candidate := testProcessObservation(t, []byte(invalid+"\n"), nil, ports.ProcessTerminationExited, 0)
 		if _, err := plainSemver(FamilyGrok, candidate); err == nil {

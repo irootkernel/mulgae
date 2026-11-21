@@ -120,7 +120,7 @@ func TestValidateQualificationRejectsInvalidFirstAndLaterReceipts(t *testing.T) 
 	build := func(mutate func(position int, receipts []Receipt) []Receipt) QualificationInput {
 		candidate := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
 		identity := qualificationIdentity(candidate, candidate.Definition, "generation-1")
-		identity.Version = "1.0.34"
+		identity.Version = "1.0.89"
 		expires := now.Add(time.Minute)
 		proof := &validatedAuthorityProof{directAuthorityID: "sha256:guard-authority", identity: identity, expiresAt: expires}
 		receipts := []Receipt{
@@ -136,7 +136,7 @@ func TestValidateQualificationRejectsInvalidFirstAndLaterReceipts(t *testing.T) 
 		if mutate != nil {
 			receipts = mutate(0, receipts)
 		}
-		return QualificationInput{Identity: identity, Version: "1.0.34", Receipts: receipts, Now: now}
+		return QualificationInput{Identity: identity, Version: "1.0.89", Receipts: receipts, Now: now}
 	}
 	if decision := ValidateQualification(build(nil)); !decision.Available() {
 		t.Fatalf("positive control rejected a valid qualification: %s", decision.Reason())

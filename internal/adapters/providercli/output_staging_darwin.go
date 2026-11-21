@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/sys/unix"
@@ -18,9 +19,28 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// stagedOutputFilename is the single base name a staged_file provider
+// stagedOutputFilename is the default single base name a review staged_file
 // invocation may write. Mulgae owns the name: provider output never selects it.
-const stagedOutputFilename = "role-report.md"
+const (
+	stagedOutputFilename           = "role-report.md"
+	stagedExtractionOutputFilename = "extraction.json"
+	stagedProbeOutputFilename      = "probe.json"
+)
+
+// defaultStagedStabilityWindow is the bounded post-teardown settle window used
+// by B-1 Control 5 to verify that staged file mtime/ctime do not advance after
+// verified process-group and session teardown.
+const defaultStagedStabilityWindow = 25 * time.Millisecond
+
+// stagedOutputValidateOptions configures optional post-teardown B-1 Control 5
+// stability and survivor checks on a stagedOutputLease.
+type stagedOutputValidateOptions struct {
+	requireStabilityCheck bool
+	stabilityWindow       time.Duration
+	profileSentinel       string
+	survivorCheck         func(sentinel string) error
+	afterFirstStatHook    func()
+}
 
 // maxStagedOutputDirectoryName bounds the per-invocation directory name.
 const maxStagedOutputDirectoryName = 96
@@ -106,11 +126,21 @@ func (lease *stagedOutputLease) AuthorizeWriteOnce(candidate string) error {
 // directory itself must not already exist: a colliding or stale directory could
 // carry entries written by an earlier, unrelated provider process.
 func createStagedOutputDirectory(parent string, invocationDir string) (*stagedOutputLease, error) {
+	return createStagedOutputDirectoryWithFilename(parent, invocationDir, stagedOutputFilename)
+}
+
+// createStagedOutputDirectoryWithFilename creates one fresh per-invocation
+// staging directory beneath parent parameterized by Mulgae-owned output base
+// name (for example role-report.md, extraction.json, or probe.json).
+func createStagedOutputDirectoryWithFilename(parent string, invocationDir string, filename string) (*stagedOutputLease, error) {
 	if !validCanonicalAbsolute(parent) || parent == string(filepath.Separator) {
 		return nil, stagedOutputViolation("invalid staging parent")
 	}
 	if !validStagedOutputDirectoryName(invocationDir) {
 		return nil, stagedOutputViolation("invalid staging directory name")
+	}
+	if _, err := ports.NewStagedOutputDestination(filepath.Join(parent, invocationDir), filename); err != nil {
+		return nil, stagedOutputViolation("invalid staging filename: %w", err)
 	}
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return nil, stagedOutputViolation("create staging parent: %w", err)
@@ -137,7 +167,7 @@ func createStagedOutputDirectory(parent string, invocationDir string) (*stagedOu
 		ownerUID:        uint32(unix.Geteuid()),
 		path:            filepath.Join(parent, invocationDir),
 		name:            invocationDir,
-		filename:        stagedOutputFilename,
+		filename:        filename,
 	}
 	if err := lease.recordIdentity(); err != nil {
 		return nil, stagedOutputCreationFailure(parentDirectory, lease.directory, invocationDir, err)
@@ -196,6 +226,13 @@ func (lease *stagedOutputLease) Destination() (ports.StagedOutputDestination, er
 // mutate the staging directory, so an earlier call proves nothing about the
 // bytes it returns. The bytes remain untrusted provider output.
 func (lease *stagedOutputLease) Validate() ([]byte, ports.StagedOutputReceipt, error) {
+	return lease.ValidateWithOptions(stagedOutputValidateOptions{})
+}
+
+// ValidateWithOptions validates the staged file and optionally enforces B-1
+// Control 5 (profile-sentinel survivor check plus mtime/ctime stability across
+// a post-teardown settle window).
+func (lease *stagedOutputLease) ValidateWithOptions(opts stagedOutputValidateOptions) ([]byte, ports.StagedOutputReceipt, error) {
 	if lease == nil || lease.directory == nil || lease.released {
 		return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("staged output lease is not open")
 	}
@@ -221,7 +258,7 @@ func (lease *stagedOutputLease) Validate() ([]byte, ports.StagedOutputReceipt, e
 			return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("open staged file: %w", err)
 		}
 	}
-	content, receipt, err := lease.readStagedFile(fileFD)
+	content, receipt, err := lease.readStagedFileWithOptions(fileFD, opts)
 	if closeErr := unix.Close(fileFD); closeErr != nil && err == nil {
 		return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("close staged file: %w", closeErr)
 	}
@@ -273,6 +310,10 @@ func (lease *stagedOutputLease) verifyStagedEntries() error {
 // reported. Every rule is descriptor-bound: the staged path is never consulted
 // again once the file is open.
 func (lease *stagedOutputLease) readStagedFile(fileFD int) ([]byte, ports.StagedOutputReceipt, error) {
+	return lease.readStagedFileWithOptions(fileFD, stagedOutputValidateOptions{})
+}
+
+func (lease *stagedOutputLease) readStagedFileWithOptions(fileFD int, opts stagedOutputValidateOptions) ([]byte, ports.StagedOutputReceipt, error) {
 	var staged unix.Stat_t
 	if err := unix.Fstat(fileFD, &staged); err != nil {
 		return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("inspect staged file: %w", err)
@@ -294,6 +335,39 @@ func (lease *stagedOutputLease) readStagedFile(fileFD int) ([]byte, ports.Staged
 		return nil, ports.StagedOutputReceipt{}, stagedOutputFileInvalid("staged file is empty")
 	}
 
+	survivorCheck := opts.survivorCheck
+	if opts.requireStabilityCheck {
+		if opts.profileSentinel == "" {
+			return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("B-1 stability check requires a profile sentinel")
+		}
+		if survivorCheck == nil {
+			stagingPath := lease.path
+			survivorCheck = func(sentinel string) error {
+				return checkSameUIDProfileSentinelSurvivors(sentinel, stagingPath)
+			}
+		}
+		if err := survivorCheck(opts.profileSentinel); err != nil {
+			return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("B-1 survivor check failed: %w", err)
+		}
+		window := opts.stabilityWindow
+		if window <= 0 {
+			window = defaultStagedStabilityWindow
+		}
+		if opts.afterFirstStatHook != nil {
+			opts.afterFirstStatHook()
+		}
+		time.Sleep(window)
+		var settled unix.Stat_t
+		if err := unix.Fstat(fileFD, &settled); err != nil {
+			return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("re-inspect staged file stability: %w", err)
+		}
+		if settled.Dev != staged.Dev || settled.Ino != staged.Ino || settled.Size != staged.Size ||
+			settled.Nlink != 1 || settled.Mode != staged.Mode || settled.Uid != lease.ownerUID ||
+			settled.Mtim != staged.Mtim || settled.Ctim != staged.Ctim {
+			return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("staged file metadata or mtime/ctime drifted after teardown")
+		}
+	}
+
 	content := make([]byte, staged.Size)
 	if err := readStagedOutputBytes(fileFD, content); err != nil {
 		return nil, ports.StagedOutputReceipt{}, err
@@ -302,8 +376,18 @@ func (lease *stagedOutputLease) readStagedFile(fileFD int) ([]byte, ports.Staged
 	if err := unix.Fstat(fileFD, &current); err != nil {
 		return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("re-inspect staged file: %w", err)
 	}
-	if current.Dev != staged.Dev || current.Ino != staged.Ino || current.Size != staged.Size {
+	if current.Dev != staged.Dev || current.Ino != staged.Ino || current.Size != staged.Size ||
+		current.Nlink != 1 || current.Mode != staged.Mode || current.Uid != lease.ownerUID ||
+		(opts.requireStabilityCheck && (current.Mtim != staged.Mtim || current.Ctim != staged.Ctim)) {
 		return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("staged file changed while it was read")
+	}
+	if opts.requireStabilityCheck {
+		if err := lease.verifyStagedEntries(); err != nil {
+			return nil, ports.StagedOutputReceipt{}, err
+		}
+		if err := survivorCheck(opts.profileSentinel); err != nil {
+			return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("B-1 post-read survivor check failed: %w", err)
+		}
 	}
 	if err := validateStagedOutputContent(content); err != nil {
 		return nil, ports.StagedOutputReceipt{}, err
@@ -314,6 +398,45 @@ func (lease *stagedOutputLease) readStagedFile(fileFD int) ([]byte, ports.Staged
 		return nil, ports.StagedOutputReceipt{}, stagedOutputFileInvalid("staged output receipt: %w", err)
 	}
 	return content, receipt, nil
+}
+
+// checkSameUIDProfileSentinelSurvivors scans same-UID Darwin processes via
+// kern.proc.uid and kern.procargs2 and fails closed if any other live process
+// carries the invocation's unique profile sentinel (envp/argv on non-SIP
+// binaries) or any optional staging-path needle (argv even on Apple SIP shells).
+func checkSameUIDProfileSentinelSurvivors(sentinel string, extraNeedles ...string) error {
+	if sentinel == "" {
+		return fmt.Errorf("empty profile sentinel")
+	}
+	euid := unix.Geteuid()
+	selfPID := os.Getpid()
+	procs, err := unix.SysctlKinfoProcSlice("kern.proc.uid", euid)
+	if err != nil {
+		return fmt.Errorf("enumerate same-UID processes: %w", err)
+	}
+	needles := make([][]byte, 0, 1+len(extraNeedles))
+	needles = append(needles, []byte(sentinel))
+	for _, extra := range extraNeedles {
+		if extra != "" {
+			needles = append(needles, []byte(extra))
+		}
+	}
+	for _, proc := range procs {
+		pid := int(proc.Proc.P_pid)
+		if pid <= 1 || pid == selfPID {
+			continue
+		}
+		raw, err := unix.SysctlRaw("kern.procargs2", pid)
+		if err != nil {
+			continue
+		}
+		for _, needle := range needles {
+			if bytes.Contains(raw, needle) {
+				return fmt.Errorf("surviving same-UID process pid=%d matches invocation sentinel", pid)
+			}
+		}
+	}
+	return nil
 }
 
 // readStagedOutputBytes reads exactly len(content) bytes through the descriptor

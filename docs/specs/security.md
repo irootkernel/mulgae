@@ -171,35 +171,56 @@ Git transport protocols. This does not rewrite caller configuration.
 
 ### Provider read and write boundaries
 
-All live reports come from complete, correlated assistant turns. Review, repair
-and extraction receive no report-file write grant. Private namespaces and
-scratch are removed after verified provider drain.
+Protocol providers (ZCode, Codex, Cursor, and AGY) produce all live reports from
+complete, correlated assistant turns and receive no report-file write grant for
+review, repair, or extraction. Managed terminal providers (Grok) stage one
+per-invocation output file inside their private namespace scratch directory
+(`role-report.md`, `extraction.json`, or `probe.json`), validated strictly after
+verified process-group absence (`ESRCH`) and projected under
+`result_transport: "stdout"`. Private namespaces and scratch are removed after
+verified provider drain.
 
 - ZCode uses its app-owned Electron runtime and app-server launcher, fixed
   protocol configuration and disabled write/plan tools. Review and extraction
   require an outer Seatbelt guard; the adapter never falls back to an unguarded
   launch. Fixed runtime preferences remain local-only. Unexpected interaction
   requests, incomplete turns and protocol parse failures fail closed.
-- Grok uses ACP v1 without MCP servers or subagents and admits text roles only.
-  Its native sandbox is off only inside the mandatory outer Seatbelt guard.
-  An app-owned `requirements.toml` with root `fail_closed = true` retains
-  compatibility, discovery, plugin and MCP restrictions; `sandbox.toml` retains
-  the native deny roots. Native `config.toml` and managed-cache bookkeeping are
-  not policy authority. Protected files must retain their exact bytes, inode,
-  user ownership, single link and mode `0600`. Checks run before launch and
-  after verified process drain for qualification, review and extraction.
-  Drift rejects the affected invocation through the existing security failure
-  path; policy is never restored to make a later invocation pass. An uncertain
-  drain retains the existing terminal ownership and protection files.
-  In live review conversations, admitted file and Git reads remain correlated
-  and bounded at the protocol boundary. Completed and failed native tool
-  operations must match the read plan even when Grok omits a permission request.
-  Missing tool identity, inputs or completion prevents report acceptance;
-  partial input grants no authority.
-  Structured extraction receives no review read plan; its filesystem access
-  remains subject to the outer guard.
-  Optional model and reasoning policy comes only from shared project
-  configuration; exact acknowledgement is required before prompting.
+- Grok (`1.0.89` and newer) runs through an isolated per-run Mulgae-owned
+  `herdr-core` terminal runtime inside the mandatory outer Seatbelt guard and
+  admits text roles only. Each pane launches through Mulgae's integrity-bound
+  `__mulgae_paneexec_v1` trampoline with a verified `PaneTTY` (never `OwnedPTY`),
+  strict `{0,1,2}` FD isolation, scrubbed `envp` (admitting only a validated
+  `HC_TERMINAL_ID` pass-through), foreign `/dev/ttys*` denial, and `TIOCSTI`
+  (`#x80017472`) `EPERM` denial. Grok runs with a disposable `HOME` and
+  disposable `GROK_HOME` containing only a minimal `requirements.toml` (disabling
+  compat hooks, MCPs, rules, skills, plugins, managed configs, and ambient repo
+  status, with zero native-home paths and no `sandbox.toml`) and a mode-`0600`
+  projected `.grok/auth.json` (never written back). Native `~/.grok` remains
+  kernel-denied in `CredentialRoots` (`file-read*`/`file-write*`/`file-link`/
+  Unix sockets); installed `~/.grok/downloads/grok-*` binaries execute directly
+  without widening `~/.grok` denies. Tools are purpose-scoped: workspace review
+  runs strictly shell-free (`read_file,grep,list_dir,Write`), extraction and
+  qualification run shell-free (`read_file,Write`), and index/commit reviews
+  enable `Bash` only under all five `B-1` controls: (1) Seatbelt default-deny
+  outbound Unix sockets (`network-outbound (remote unix-socket)`) with only a
+  narrow literal system-resolver allowlist (`/private/var/run/mDNSResponder` by
+  default), (2) localhost IP (TCP and UDP) denial (`network-outbound (remote ip
+  "localhost:*")`), (3) 14 terminal secret-root plus 3 ancestor-literal denials,
+  (4) sensitive-binary plus `WritableRoot`/`RuntimeTempRoot`/`ReadOnlyRoots`
+  `process-exec` denials, and (5) post-`ESRCH` session-scoped plus same-UID
+  profile-sentinel survivor checks and `mtime`/`ctime` stability checks before
+  reading staged output. Prompts are staged read-only
+  (`0400`) inside `<scratch>/input/<id>/prompt.md` with `<scratch>/input/` in
+  `ReadOnlyRoots` to protect sibling prompt directories across concurrent roles
+  and pre/post SHA-256 receipts. Outputs (`role-report.md`, `extraction.json`,
+  `probe.json`) are validated strictly after verified process-group absence
+  (`ESRCH`) via `O_NOFOLLOW`, single regular file, `Nlink == 1`, non-empty UTF-8,
+  and a mandatory per-invocation end-of-prompt completion nonce (for review and
+  extraction) stripped before publication. Qualification and heartbeat run on
+  the neutral `~/.mulgae/home` cwd inside `LiveReadOnlyBoundary` while `--version`
+  and doctor checks remain offline with zero `herdr-core` starts. Optional
+  `providers.grok.model` and `providers.grok.reasoning_effort` come only from
+  shared project configuration and are bound to qualification identity.
 - Codex uses one app-server process and ephemeral thread per invocation, native
   read-only permissions and approvals disabled. All configured credential roots
   are denied to model tools. Only the selected authentication file enters its
@@ -241,14 +262,18 @@ Shared provider path translation runs only after the family's existing
 authority, revalidation, scope and canonical-path checks. The source reader
 continues to own protected-root, namespace and file-kind admission, including
 its final revalidation, without reading file bodies or caching approval.
-Final Grok and Cursor tool validation uses ascending raw native string IDs
+Final Cursor tool validation uses ascending raw native string IDs
 to select a diagnostic. It preserves per-operation checks, immediate failure
 and typed refusal; sorting grants no permission and omits no final check.
 
 The outer guard denies writes outside admitted private runtime directories and
 protects source, Git and neutral-guide roots from writes. It
 also denies reads, writes, links and Unix sockets at every configured credential
-root, including unselected profiles and aliases. These controls are not general
+root, including unselected profiles and aliases, plus shared `herdr-core`
+control-plane roots (`~/.local/state/herdr-core`, `~/.config/herdr-core`,
+`/private/tmp/mgh-<uid>`, and any inherited `HC_SOCKET` / `HC_TERMINAL_SOCKET`
+paths) across every provider's live boundary (including Codex's
+`permissions.mulgae` deny table). These controls are not general
 process, IPC, network or read containment: ordinary network requests and reads
 outside protected credential roots remain possible. Ignore rules select scope;
 they do not restrict filesystem access. Historical staged-file receipts and
@@ -369,8 +394,11 @@ When `validation.extraction.enabled` is set, an accepted role report re-enters
 one further prompt on the same provider as an untrusted `prior_report` payload,
 never as a trusted layer, and the extraction contract states that it is data to
 transcribe rather than instructions or authority. That invocation gets the same
-read-only live source authority, no write grant, and always returns on
-stdout. It cannot emit identity, verification, coverage, or publication state,
+read-only live source authority and always publishes through `stdout` transport
+(protocol providers receive no report-file write grant and return on stdout;
+managed terminal providers such as Grok stage `extraction.json` shell-free
+inside private namespace scratch, validate it post-`ESRCH` with its completion
+nonce, and project the accepted bytes as isolated `stdout`). It cannot emit identity, verification, coverage, or publication state,
 and Mulgae rather than the provider owns the resulting completeness and
 limitations. Only a bounded extraction failure is absorbed into the accepted report. A
 protected failure observed during that invocation keeps its canonical

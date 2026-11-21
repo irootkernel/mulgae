@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -531,7 +532,7 @@ func TestRetryableOperationalProbeFailurePredicate(t *testing.T) {
 		{name: "invalid output execution failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProviderExecutionFailed), retry: true},
 		{name: "invalid output spawn failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProviderSpawnFailed), retry: true},
 		{name: "invalid output process wait failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProviderProcessWaitFailed), retry: true},
-		{name: "invalid output process group cleanup failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProcessGroupCleanupFailed), retry: true},
+		{name: "invalid output process group cleanup failed", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseProcessGroupCleanupFailed), retry: false},
 		{name: "invalid output timed out", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseTimedOut), retry: true},
 		{name: "invalid output rate limited", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseRateLimited), retry: true},
 		{name: "invalid output quota exceeded", err: currentQualifierProbeFailure(t, domain.FailureInvalidOutput, domain.DiagnosticCauseQuotaExceeded), retry: true},
@@ -789,9 +790,9 @@ type authorityProbeRunner struct {
 func (r *authorityProbeRunner) Run(_ context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
 	r.t.Helper()
 	r.calls++
-	file, _, ok := request.BoundLaunchDirectory()
+	file, _, ok := request.LaunchDirectory()
 	if !ok {
-		r.t.Fatal("current probe request was not bound to the fixture")
+		r.t.Fatal("current probe request was not bound to a launch directory")
 	}
 	_ = file.Close()
 	if r.calls == 1 {
@@ -809,41 +810,13 @@ func (r *authorityProbeRunner) Run(_ context.Context, request ports.ProcessReque
 	if r.family == FamilyZCode {
 		output = []byte("{\"role\":\"assistant\",\"content\":\"{\\\"root\\\":\\\"nonce\\\",\\\"link\\\":\\\"linked\\\",\\\"role\\\":\\\"logic\\\"}\"}\n")
 	}
-	var lifecycle ports.ProcessLifecycleReceipt
-	if r.family == FamilyGrok {
-		policy, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, time.Second)
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		frame, err := ports.NewProcessOutputFrameReceipt(policy.Framing(), output, policy.StabilityGrace())
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		signal, err := ports.NewProcessSignal(15, "SIGTERM")
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		signalReceipt, err := ports.NewAcceptedPostOutputProcessGroupSignalRequestReceipt(signal, binding.PacketIdentity(), frame)
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		final, err := ports.NewExitedProcessFinalTermination(0)
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		lifecycle, err = ports.NewProcessLifecycleReceipt(final, true, []ports.ProcessGroupSignalRequestReceipt{signalReceipt}, frame)
-		if err != nil {
-			r.t.Fatal(err)
-		}
-	} else {
-		final, err := ports.NewExitedProcessFinalTermination(0)
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		lifecycle, err = ports.NewProcessLifecycleReceipt(final, true, nil)
-		if err != nil {
-			r.t.Fatal(err)
-		}
+	final, err := ports.NewExitedProcessFinalTermination(0)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	lifecycle, err := ports.NewProcessLifecycleReceipt(final, true, nil)
+	if err != nil {
+		r.t.Fatal(err)
 	}
 	return authorityProbeObservation(r.t, output, binding.Channel(), binding.PacketIdentity(), binding.PromptFileReference(), binding.SnapshotCWD(), binding.Packet().Bytes(), &lifecycle), nil
 }
@@ -852,29 +825,12 @@ func (r *authorityProbeRunner) Run(_ context.Context, request ports.ProcessReque
 // observations while the real session driver runs against a scripted
 // exchange whose assistant message carries the controlled proof.
 func (r *authorityProbeRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	if r.family == FamilyGrok {
+		r.t.Fatal("unexpected legacy protocol Converse call for Grok (must execute via TerminalSessionRunner)")
+	}
 	observation, err := r.Run(ctx, request)
 	if err != nil {
 		return observation, err
-	}
-	if r.family == FamilyGrok {
-		proof := `{"root":"nonce","link":"linked","role":"logic"}`
-		script := []string{
-			`{"jsonrpc":"2.0","id":"mulgae-initialize","result":{"protocolVersion":1,"authMethods":[{"id":"cached_token","name":"Cached token"}],"agentCapabilities":{"promptCapabilities":{"image":false}}}}`,
-			`{"jsonrpc":"2.0","id":"mulgae-authenticate","result":null}`,
-			`{"jsonrpc":"2.0","id":"mulgae-session-new","result":{"sessionId":"session-script"}}`,
-			`{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-script","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":` + strconv.Quote(proof) + `}}}}`,
-			`{"jsonrpc":"2.0","id":"mulgae-session-prompt","result":{"stopReason":"end_turn"}}`,
-			`{"jsonrpc":"2.0","id":"mulgae-session-close","result":null}`,
-		}
-		exchange := &authorityProbeProtocolExchange{lines: make(chan string, len(script))}
-		for _, line := range script {
-			exchange.lines <- line
-		}
-		close(exchange.lines)
-		if driveErr := driver.Drive(ctx, exchange); driveErr != nil {
-			r.t.Fatalf("grok protocol conversation failed: %v", driveErr)
-		}
-		return observation, nil
 	}
 	if r.family == FamilyCodex {
 		proof := `{"root":"nonce","link":"linked","role":"logic"}`
@@ -1004,20 +960,158 @@ func currentProbeAuthorityInput(t *testing.T, family Family, version string) Qua
 	return currentProbeAuthorityInputForInstance(t, family, string(family)+"-current", version)
 }
 
+type authorityProbeTerminalRunner struct {
+	t *testing.T
+}
+
+func (r *authorityProbeTerminalRunner) RunTerminal(_ context.Context, req ports.TerminalExecutionRequest) (ports.TerminalExecutionObservation, error) {
+	r.t.Helper()
+	if file, _, ok := req.Process().LaunchDirectory(); ok && file != nil {
+		_ = file.Close()
+	}
+	promptBytes, err := os.ReadFile(req.PromptFilePath().String())
+	if err != nil {
+		r.t.Fatalf("read staged prompt file: %v", err)
+	}
+	promptPacket, err := ports.NewProviderPacketFromBytes(promptBytes)
+	if err != nil {
+		r.t.Fatalf("prompt packet identity: %v", err)
+	}
+	// Extract staged output path ending with probe.json from InitialInput.
+	outputPath := ""
+	for _, field := range strings.Fields(req.InitialInput()) {
+		trimmed := strings.Trim(field, ".,;:\"'()")
+		if strings.HasSuffix(trimmed, "/probe.json") {
+			outputPath = trimmed
+			break
+		}
+	}
+	if outputPath == "" {
+		r.t.Fatalf("could not find probe.json path in initial input %q", req.InitialInput())
+	}
+	if err := os.WriteFile(outputPath, []byte(`{"root":"nonce","link":"linked","role":"logic"}`+"\n"), 0o600); err != nil {
+		r.t.Fatalf("write staged probe.json: %v", err)
+	}
+	binding, _ := req.Process().ProviderPacketBinding()
+	stdin, err := ports.NewStdinWriteReceipt(0, 0, authorityProbeStdinDigest(nil), true)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	transport, err := ports.NewTerminalProviderPacketTransportReceipt(binding.PacketIdentity(), promptPacket.Identity(), promptPacket.Identity())
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	sig, err := ports.NewProcessSignal(15, "SIGTERM")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	sigReceipt, err := ports.NewAcceptedProcessGroupSignalRequestReceipt(ports.ProcessGroupSignalRequestTerminalTeardown, sig)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	final, err := ports.NewSignaledProcessFinalTermination(sig)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	lifecycle, err := ports.NewProcessLifecycleReceipt(final, true, []ports.ProcessGroupSignalRequestReceipt{sigReceipt})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	procObs, err := ports.NewStartedProviderProcessObservation(
+		[]byte("grok terminal screen"), nil, ports.ProcessTerminationSignaled, stdin, transport, lifecycle,
+		time.Unix(0, 0).UTC(), time.Unix(1, 0).UTC(),
+	)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	rtIdentity, err := ports.NewTerminalRuntimeIdentity("/opt/homebrew/bin/hc", "sha256:"+qualifierTestSHA, "0.1.20", 1)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return ports.NewTerminalExecutionObservation(ports.TerminalExecutionObservationInput{
+		Process:         procObs,
+		RuntimeIdentity: rtIdentity,
+		ProgramStatus:   ports.TerminalProgramStatusDone,
+		Reported:        true,
+		TurnCount:       1,
+		ScreenCapture:   []byte("grok terminal screen"),
+		PaneID:          "pane-1",
+	})
+}
+
+func (*authorityProbeTerminalRunner) DrainLabeledPanes(context.Context, string, string) error {
+	return nil
+}
+func (*authorityProbeTerminalRunner) RuntimeIdentity(context.Context) (ports.TerminalRuntimeIdentity, error) {
+	return ports.NewTerminalRuntimeIdentity("/opt/homebrew/bin/hc", "sha256:"+qualifierTestSHA, "0.1.20", 1)
+}
+func (*authorityProbeTerminalRunner) Close(context.Context) error { return nil }
+
 func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance, version string) QualificationInput {
 	t.Helper()
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	probeVersion := version
-	if version == "current" {
+	if version == "current" || (family == FamilyGrok && !providercli.VersionAtLeast(version, 1, 0, 89)) {
 		probeVersion = "0.16.5"
 		if family == FamilyCodex {
 			probeVersion = "0.154.0"
+		} else if family == FamilyGrok {
+			probeVersion = "1.0.89"
 		}
 	}
-	directory := filepath.Join(t.TempDir(), "snapshot-0123456789abcdef0123456789abcdef")
-	definition, namespace := authorityProbeDefinition(t, family, instance, probeVersion, directory)
+	tempRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(tempRoot, "snapshot-0123456789abcdef0123456789abcdef")
+	definition, syntheticNamespace := authorityProbeDefinition(t, family, instance, probeVersion, directory)
+	var namespace providercli.QualificationNamespace = syntheticNamespace
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
+	}
+	var terminalRunner ports.TerminalSessionRunner
+	if family == FamilyGrok {
+		nativeHome := filepath.Join(tempRoot, "native-home")
+		nsParent := filepath.Join(tempRoot, "namespaces")
+		if err := os.MkdirAll(filepath.Join(nativeHome, ".grok"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(nativeHome, ".grok", "auth.json"), []byte(`{"token":"test"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		baseFactory, err := providercli.NewNamespaceFactory(nsParent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grokPolicy, err := providercli.RuntimeSafetyPolicyForFamily(providercli.CredentialSourceGrok)
+		if err != nil {
+			t.Fatal(err)
+		}
+		projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithPolicies(
+			baseFactory,
+			nativeHome,
+			map[string]providercli.CredentialSourceFamily{instance: providercli.CredentialSourceGrok},
+			map[string]providercli.RuntimeSafetyPolicy{instance: grokPolicy},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		definition = authorityProbeGrokDefinitionWithPolicy(t, instance, probeVersion, directory, grokPolicy.Identity())
+		reg, err := providercli.NewRegistryWithNamespaceFactory(
+			&authorityProbeRunner{t: t, family: family, version: probeVersion},
+			projected,
+			definition,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = reg.Close(context.Background()) })
+		qn, ok := reg.QualificationNamespace(instance)
+		if !ok {
+			t.Fatalf("missing Grok qualification namespace for %s", instance)
+		}
+		namespace = qn
+		terminalRunner = &authorityProbeTerminalRunner{t: t}
 	}
 	workspace, err := ports.NewWorkspaceSnapshotIdentity(directory, "snapshot-0123456789abcdef0123456789abcdef", "sha256:"+authorityProbeDigest([]byte("workspace")), "qualification", 1, 2, 3, 4)
 	if err != nil {
@@ -1029,7 +1123,7 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 	}
 	fixture := authorityProbeFixture{root: root, identity: workspace}
 	runner := &authorityProbeRunner{t: t, family: family, version: probeVersion}
-	probe, err := providercli.NewCurrentProbe(runner, authorityProbeVerifier{})
+	probe, err := providercli.NewCurrentProbeWithTerminalRunner(runner, authorityProbeVerifier{}, terminalRunner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1043,14 +1137,39 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 		}
 		t.Fatalf("current probe failed: %q", causes)
 	}
+	portReceipts := portCurrentProbeReceipts(result.Receipts)
+	receiptGen := namespace.Generation()
+	if family == FamilyGrok && receiptGen != "generation-1" {
+		for index := range portReceipts {
+			if portReceipts[index].DirectExecutionAuthority == nil {
+				continue
+			}
+			derived, deriveErr := providercli.DeriveEquivalentRouteDirectExecutionAuthority(
+				portReceipts[index].DirectExecutionAuthority,
+				definition,
+				definition,
+				probeVersion,
+				receiptGen,
+				"generation-1",
+				[]domain.Role{domain.RoleLogic},
+				[]domain.Role{domain.RoleLogic},
+			)
+			if deriveErr != nil {
+				t.Fatalf("derive Grok test authority: %v", deriveErr)
+			}
+			portReceipts[index].DirectExecutionAuthority = derived
+			portReceipts[index].EvidenceID = derived.AuthorityID()
+		}
+		receiptGen = "generation-1"
+	}
 	identity := Identity{
 		Family: family, Instance: definition.Instance(), ProfileGeneration: definition.ProfileGeneration(), AdapterProfile: definition.ProfileID(),
 		Version: probeVersion, Executable: definition.Executable(), ExecutableSHA256: definition.ExecutableSHA256(),
 		Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
 		ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
-		NamespaceLease: definition.Instance() + ":" + namespace.Generation(), NamespaceGeneration: namespace.Generation(), ExecutionTargetIdentity: "manifest-1",
+		NamespaceLease: definition.Instance() + ":" + receiptGen, NamespaceGeneration: receiptGen, ExecutionTargetIdentity: "manifest-1",
 	}
-	receipts, err := currentProbeAppReceipts(portCurrentProbeReceipts(result.Receipts), identity, definition, namespace.Generation(), []domain.Role{domain.RoleLogic})
+	receipts, err := currentProbeAppReceipts(portReceipts, identity, definition, receiptGen, []domain.Role{domain.RoleLogic})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1066,21 +1185,46 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 	return input
 }
 
+func authorityProbeGrokDefinitionWithPolicy(t *testing.T, instance, version, workingDirectory, policyID string) providercli.RuntimeDefinition {
+	t.Helper()
+	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelTerminal, -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := "/private/bin/grok"
+	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
+		Family: string(FamilyGrok), Instance: instance, Version: version, Executable: executable, ExecutableSHA256: qualifierTestSHA,
+		Launcher: executable, LauncherSHA256: qualifierTestSHA,
+		ProfileID: "grok-profile", ProfileGeneration: "profile-1", RuntimeSafetyPolicyIdentity: policyID,
+		BaseArgv: []string{executable}, TransportChannel: transport.Channel(), TransportArgvIndex: transport.ArgvIndex(), TransportReference: transport.Reference(),
+		WorkingDirectory: workingDirectory, Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return definitionPort.(providercli.RuntimeDefinition)
+}
+
 func authorityProbeDefinition(t *testing.T, family Family, instance, version, workingDirectory string) (providercli.RuntimeDefinition, authorityProbeNamespace) {
 	t.Helper()
 	argvIndex := 4
 	channel, reference := ports.ProviderPacketChannelPromptFile, "@roadmap.md"
-	if family == FamilyCodex {
+	if family == FamilyCodex || family == FamilyZCode {
 		channel, argvIndex, reference = ports.ProviderPacketChannelProtocol, -1, ""
 	}
-	if family == FamilyZCode || family == FamilyGrok {
-		channel, argvIndex, reference = ports.ProviderPacketChannelProtocol, -1, ""
+	policy := string(family) + "-policy"
+	if family == FamilyGrok {
+		channel, argvIndex, reference = ports.ProviderPacketChannelTerminal, -1, ""
+		grokPolicy, err := providercli.RuntimeSafetyPolicyForFamily(providercli.CredentialSourceGrok)
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy = grokPolicy.Identity()
 	}
 	transport, err := providercli.NewRuntimeTransport(channel, argvIndex, reference)
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := string(family) + "-policy"
 	namespace := authorityProbeNamespace{instance: instance, generation: "generation-1", policy: policy, environment: authorityProbeEnvironment(t, family)}
 	executable := "/private/bin/" + string(family)
 	launcher := executable

@@ -349,6 +349,89 @@ func productionLiveSources(config appconfig.Config, project ports.AnchoredRoot, 
 	return opener, credentials, nil
 }
 
+// productionLiveControlPlanePaths computes the shared herdr-core control-plane
+// roots and literal socket denials applied to every live provider boundary
+// (ZCode, Codex, Cursor, AGY, and Grok).
+func productionLiveControlPlanePaths(nativeHome string) ([]ports.AnchoredRoot, []ports.AnchoredRoot, error) {
+	homeRoot, err := ports.NewAnchoredRoot(nativeHome)
+	if err != nil {
+		return nil, nil, fmt.Errorf("live control-plane boundaries: invalid native home: %w", err)
+	}
+	uid := uint32(os.Geteuid())
+	roots, err := ports.DefaultControlPlaneRoots(homeRoot, uid)
+	if err != nil {
+		return nil, nil, fmt.Errorf("live control-plane boundaries: %w", err)
+	}
+	var resolvedExtras []ports.AnchoredRoot
+	for _, root := range roots {
+		resolved, resolveErr := resolvePathComponentsMissingTolerant(root.String())
+		if resolveErr != nil {
+			return nil, nil, fmt.Errorf("live control-plane boundaries: default root (%q): %w", root.String(), resolveErr)
+		}
+		if resolved != root.String() {
+			resolvedRoot, rootErr := ports.NewAnchoredRoot(resolved)
+			if rootErr != nil {
+				return nil, nil, fmt.Errorf("live control-plane boundaries: resolved default root (%q -> %q): %w", root.String(), resolved, rootErr)
+			}
+			resolvedExtras = append(resolvedExtras, resolvedRoot)
+		}
+	}
+	if len(resolvedExtras) > 0 {
+		roots, err = ports.DefaultControlPlaneRoots(homeRoot, uid, resolvedExtras...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("live control-plane boundaries: validate resolved default roots: %w", err)
+		}
+	}
+	var literals []ports.AnchoredRoot
+	for _, envName := range []string{"HC_SOCKET", "HC_TERMINAL_SOCKET"} {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			continue
+		}
+		if strings.TrimSpace(raw) != raw || !filepath.IsAbs(raw) || filepath.Clean(raw) != raw {
+			return nil, nil, fmt.Errorf("live control-plane boundaries: %s (%q) must be a clean absolute path without surrounding whitespace", envName, raw)
+		}
+		rawRoots, rawLiterals, rawErr := ports.ControlPlanePathsForSocket(raw, homeRoot)
+		if rawErr != nil {
+			return nil, nil, fmt.Errorf("live control-plane boundaries: %s (%q): %w", envName, raw, rawErr)
+		}
+		roots = append(roots, rawRoots...)
+		literals = append(literals, rawLiterals...)
+		resolved, resolveErr := resolvePathComponentsMissingTolerant(raw)
+		if resolveErr != nil {
+			return nil, nil, fmt.Errorf("live control-plane boundaries: %s (%q): %w", envName, raw, resolveErr)
+		}
+		if resolved != raw {
+			resolvedRoots, resolvedLiterals, resolvedErr := ports.ControlPlanePathsForSocket(resolved, homeRoot)
+			if resolvedErr != nil {
+				return nil, nil, fmt.Errorf("live control-plane boundaries: %s (%q -> %q): %w", envName, raw, resolved, resolvedErr)
+			}
+			roots = append(roots, resolvedRoots...)
+			literals = append(literals, resolvedLiterals...)
+		}
+	}
+	return uniqueAnchoredRoots(roots), uniqueAnchoredRoots(literals), nil
+}
+
+func uniqueAnchoredRoots(items []ports.AnchoredRoot) []ports.AnchoredRoot {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(items))
+	out := make([]ports.AnchoredRoot, 0, len(items))
+	for _, item := range items {
+		if !item.Valid() {
+			continue
+		}
+		if _, exists := seen[item.String()]; exists {
+			continue
+		}
+		seen[item.String()] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
 type productionLiveRequestAdmission struct{ policy productionRunPolicy }
 
 func (admission productionLiveRequestAdmission) AdmitLive(ctx context.Context, request reviewrun.LiveRequest, source ports.LiveSourceReader, binding domain.ProjectBinding) (reviewrun.ExecutionPlan, error) {

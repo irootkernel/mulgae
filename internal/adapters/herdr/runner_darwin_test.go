@@ -3255,3 +3255,46 @@ func TestOfflineClosePersistsConcurrentRefreshHoldersUpdateOnFailedClose(t *test
 		t.Fatalf("holder PID %d updated by refreshHolders during closeInFlight was NOT persisted to owner.lock.json: %+v", holderPID, rec.Holders)
 	}
 }
+
+func TestRunTerminalUnsafeExecutableReturnsSecurityProcessExecutionError(t *testing.T) {
+	fix := newOfflineFixture(t)
+	unsafeBin := filepath.Join(fix.base, "unsafe-herdr-core")
+	if err := os.WriteFile(unsafeBin, []byte("#!/bin/sh\nexit 0\n"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(unsafeBin, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvHerdrCoreBin, unsafeBin)
+
+	nativeHomeRoot, err := ports.NewAnchoredRoot(fix.nativeHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := NewSession(SessionOptions{
+		Clock:                    runtimeadapter.SystemClock{},
+		LaunchBuilder:            fix.launchBuilder,
+		NativeHome:               nativeHomeRoot,
+		BaseDir:                  filepath.Join(fix.base, "mgh-unsafe-exec"),
+		HasInheritedSocket:       true,
+		HasAmbientTerminalSocket: true,
+		TeardownTimeout:          time.Second,
+		DisableWatchdog:          true,
+		DisableStaleReaper:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Close(context.Background()) })
+
+	req, launchDir := fix.newTerminalRequest(t, []byte("review prompt\n"), "work", true, 2*time.Second, 5*time.Second, 0, nil, true)
+	_, err = sess.RunTerminal(context.Background(), req)
+	assertLaunchDirClosed(t, launchDir)
+	if !errors.Is(err, ErrUnsafeExecutable) {
+		t.Fatalf("RunTerminal(unsafe binary) err = %v, want wrap of ErrUnsafeExecutable", err)
+	}
+	var procErr *ports.ProcessExecutionError
+	if !errors.As(err, &procErr) || procErr.PrimaryCause() != domain.DiagnosticCauseTransportVerificationFailed {
+		t.Fatalf("RunTerminal(unsafe binary) err = %T (%v), want *ports.ProcessExecutionError(%s)", err, err, domain.DiagnosticCauseTransportVerificationFailed)
+	}
+}

@@ -732,7 +732,9 @@ func (observation ProviderExecutionObservation) Validate() error {
 	}
 	if observation.hasProcess && !providerExecutionStatusMatchesProcessObservation(observation.status, canonicalProcess) {
 		if !observation.failedProtocolConversationMatches(canonicalProcess) &&
-			!(observation.status == ProviderExecutionStatusSecurityViolation && providerSecurityCauseMayOverrideTermination(observation.primaryCause)) {
+			!(observation.status == ProviderExecutionStatusSecurityViolation &&
+				(providerSecurityCauseMayOverrideTermination(observation.primaryCause) ||
+					observation.cleanupCause == domain.DiagnosticCauseProcessGroupCleanupFailed)) {
 			return fmt.Errorf("provider execution observation: status does not match process termination")
 		}
 	}
@@ -755,7 +757,8 @@ func providerSecurityCauseMayOverrideTermination(cause domain.RuntimeDiagnosticC
 		domain.DiagnosticCauseOutputFrameMismatch,
 		domain.DiagnosticCauseSignalReceiptMismatch,
 		domain.DiagnosticCauseWorkspaceRevalidationFailed,
-		domain.DiagnosticCauseProviderOutputStagingViolation:
+		domain.DiagnosticCauseProviderOutputStagingViolation,
+		domain.DiagnosticCauseProcessGroupCleanupFailed:
 		return true
 	default:
 		return false

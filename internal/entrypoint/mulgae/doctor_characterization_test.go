@@ -89,7 +89,7 @@ func (spy *doctorBeforeSpy) ObserveExecutableIdentity(ctx context.Context, name 
 
 func (spy *doctorBeforeSpy) ObserveExecutable(ctx context.Context, name string) (ports.ExecutableObservation, error) {
 	spy.record("discover." + filepath.Base(name))
-	return ports.NewExecutableObservation(name, true, name, "1.0.40", "sha256:"+strings.Repeat("a", 64))
+	return ports.NewExecutableObservation(name, true, name, "1.0.89", "sha256:"+strings.Repeat("a", 64))
 }
 
 func (spy *doctorBeforeSpy) ObserveReadableFileIdentity(_ context.Context, name string) (ports.FileIdentityObservation, error) {
@@ -197,7 +197,7 @@ func newDoctorBeforeFixture(t *testing.T, families string) *doctorBeforeFixture 
 		t.Fatal(err)
 	}
 	runFoundationGit(t, root, "init", "-q")
-	spy := &doctorBeforeSpy{appVersion: "3.12.3", versionState: ports.ProviderVersionObserved, version: "1.0.40"}
+	spy := &doctorBeforeSpy{appVersion: "3.12.3", versionState: ports.ProviderVersionObserved, version: "1.0.89"}
 	reader := &doctorBeforeReader{TrustedProjectReader: base.application.projectReader, spy: spy}
 	base.application.inspector, base.application.versionObserver, base.application.projectReader = spy, spy, reader
 	live, reviews := &heartbeatServiceStub{}, &reviewRunFake{}
@@ -315,7 +315,7 @@ func assertDoctorBefore(t *testing.T, key string, actual doctorBefore) {
 		t.Fatal(err)
 	}
 	want, exists := snapshots[key]
-	want = currentDoctorTransportExpectation(want)
+	want = currentDoctorGrokMinimumExpectation(currentDoctorTransportExpectation(want))
 	if !exists || !reflect.DeepEqual(actual, want) {
 		raw, _ := json.MarshalIndent(actual, "", "  ")
 		t.Fatalf("predecessor %s changed (exists=%t):\n%s\nwant: %+v", key, exists, raw, want)
@@ -629,6 +629,20 @@ func currentDoctorTransportExpectation(want doctorBefore) doctorBefore {
 	if strings.HasPrefix(want.Stdout, historicalPrefix) {
 		want.Stdout = `{"schema_version":"mulgae-command-result.v23",` + strings.TrimPrefix(want.Stdout, historicalPrefix)
 	}
+	return want
+}
+
+// Project Grok's reviewed minimum/verified_latest baseline bump (1.0.34/1.0.40 -> 1.0.89)
+// without modifying the immutable predecessor fixture.
+func currentDoctorGrokMinimumExpectation(want doctorBefore) doctorBefore {
+	replacer := strings.NewReplacer(
+		`"minimum_version":"1.0.34"`, `"minimum_version":"1.0.89"`,
+		`"verified_latest":"1.0.40"`, `"verified_latest":"1.0.89"`,
+		`"observed_version":"1.0.40"`, `"observed_version":"1.0.89"`,
+		`cli=1.0.40`, `cli=1.0.89`,
+		`version=1.0.40`, `version=1.0.89`,
+	)
+	want.Stdout = replacer.Replace(want.Stdout)
 	return want
 }
 

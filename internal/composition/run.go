@@ -207,6 +207,7 @@ func Run(argv []string, stdin io.Reader, stdout, stderr io.Writer, overrides Bui
 		TrustedProjectReader:    gitAdapter,
 		EnvironmentInspector:    startupInspector,
 		ProviderVersionObserver: environment.NewProviderVersionObserver(),
+		TerminalRuntimeObserver: herdradapter.NewExecutableObserver(),
 		Heartbeats:              heartbeats,
 		// SOT defines no canonical non-hidden production evidence source. Doctor
 		// reports that absence without blocking readiness; every review still

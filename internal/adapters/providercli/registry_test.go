@@ -449,11 +449,11 @@ func TestRegistryObserveSecurityBoundaryOutranksConcurrentInterruption(t *testin
 				err:         ports.ErrProviderSessionExchangeClosed,
 				events:      &events,
 			}
-			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			observed, observeErr := registry.Observe(context.Background(), testWorkspaceInvocation(t, "grok_default", authority))
+			observed, observeErr := registry.Observe(context.Background(), testWorkspaceInvocation(t, "codex_default", authority))
 			if observeErr == nil || observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
 				observed.PrimaryCause() != domain.DiagnosticCauseWorkspaceRevalidationFailed {
 				t.Fatalf("security boundary result = status %q cause %q err %v", observed.Status(), observed.PrimaryCause(), observeErr)
@@ -1452,20 +1452,20 @@ func TestNewRegistryPreservesProfileAndDefensiveCopies(t *testing.T) {
 
 func TestRegistryAcceptsDistinctInstancesOfSameFamilyAndRejectsDuplicateInstance(t *testing.T) {
 	runner := newBarrierRunner()
-	first := testDefinition(t, FamilyGrok, "grok_primary")
-	second := testDefinition(t, FamilyGrok, "grok_secondary")
+	first := testDefinition(t, FamilyCodex, "codex_primary")
+	second := testDefinition(t, FamilyCodex, "codex_secondary")
 	registry, err := newRegistry(context.Background(), runner, first, second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := registry.definitions["grok_primary"]; !ok {
-		t.Fatal("primary Grok instance was not registered")
+	if _, ok := registry.definitions["codex_primary"]; !ok {
+		t.Fatal("primary Codex instance was not registered")
 	}
-	if _, ok := registry.definitions["grok_secondary"]; !ok {
-		t.Fatal("secondary Grok instance was not registered")
+	if _, ok := registry.definitions["codex_secondary"]; !ok {
+		t.Fatal("secondary Codex instance was not registered")
 	}
 	observed := make(chan error, 1)
-	secondaryInvocation := testInvocation(t, "grok_secondary")
+	secondaryInvocation := testInvocation(t, "codex_secondary")
 	go func() {
 		_, observeErr := registry.Observe(context.Background(), secondaryInvocation)
 		observed <- observeErr
@@ -1473,7 +1473,7 @@ func TestRegistryAcceptsDistinctInstancesOfSameFamilyAndRejectsDuplicateInstance
 	<-runner.started
 	close(runner.release)
 	if observeErr := <-observed; observeErr != nil {
-		t.Fatalf("secondary Grok dispatch failed: %v", observeErr)
+		t.Fatalf("secondary Codex dispatch failed: %v", observeErr)
 	}
 	if _, err := newRegistry(context.Background(), runner, first, first); err == nil {
 		t.Fatal("duplicate provider instance accepted")
@@ -1499,9 +1499,9 @@ func TestRegistryRejectsUnregisteredProviderBeforeRunnerCall(t *testing.T) {
 
 func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
 	runner := newBarrierRunner()
-	grok := testDefinition(t, FamilyGrok, "grok_default")
+	codex := testDefinition(t, FamilyCodex, "codex_default")
 	zcode := testDefinition(t, FamilyZcode, "zcode_default")
-	registry, err := newRegistry(context.Background(), runner, grok, zcode)
+	registry, err := newRegistry(context.Background(), runner, codex, zcode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1510,7 +1510,7 @@ func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
 	calls.Add(2)
 	go func() {
 		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 	}()
 	go func() {
 		defer calls.Done()
@@ -1532,7 +1532,7 @@ func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
 
 func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *testing.T) {
 	runner := newBarrierRunner()
-	definition := testDefinition(t, FamilyGrok, "grok_default")
+	definition := testDefinition(t, FamilyCodex, "codex_default")
 	first, err := newRegistry(context.Background(), runner, definition)
 	if err != nil {
 		t.Fatal(err)
@@ -1551,7 +1551,7 @@ func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *tes
 		registry := registry
 		go func() {
 			defer calls.Done()
-			_, _ = registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+			_, _ = registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 		}()
 	}
 	for range 2 {
@@ -1567,20 +1567,20 @@ func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *tes
 
 func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
 	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstDone := make(chan error, 1)
 	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 		firstDone <- observeErr
 	}()
 	<-runner.started
 
 	refused := make(chan error, 1)
 	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 		refused <- observeErr
 	}()
 	select {
@@ -1602,7 +1602,7 @@ func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
 		t.Fatalf("first observe failed: %v", observeErr)
 	}
 
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 	if err != nil {
 		t.Fatalf("instance remained active after completion: %v", err)
 	}
@@ -1613,9 +1613,9 @@ func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
 
 func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
 	runner := newBarrierRunner()
-	grok := testDefinition(t, FamilyGrok, "grok_default")
+	codex := testDefinition(t, FamilyCodex, "codex_default")
 	zcode := testDefinition(t, FamilyZcode, "zcode_default")
-	registry, err := newRegistry(context.Background(), runner, grok, zcode)
+	registry, err := newRegistry(context.Background(), runner, codex, zcode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1627,7 +1627,7 @@ func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
 	}()
 	go func() {
 		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 	}()
 	<-runner.started
 	select {
@@ -1641,19 +1641,19 @@ func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
 
 func TestRegistryConcurrentSameInstanceRefusalDoesNotLeakActiveState(t *testing.T) {
 	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	firstDone := make(chan error, 1)
 	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 		firstDone <- observeErr
 	}()
 	<-runner.started
 
-	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default")); !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
+	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default")); !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
 		t.Fatalf("duplicate active invocation error = %v", observeErr)
 	}
 	select {
@@ -1669,7 +1669,7 @@ func TestRegistryConcurrentSameInstanceRefusalDoesNotLeakActiveState(t *testing.
 	if observeErr := <-firstDone; observeErr != nil {
 		t.Fatalf("first observe failed: %v", observeErr)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 	if err != nil {
 		t.Fatalf("active instance was not released after completion: %v", err)
 	}
@@ -1687,11 +1687,11 @@ func TestRegistryObservePreservesRunnerErrorWithObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &observationRunner{observation: process, err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1707,11 +1707,11 @@ func TestRegistryObservePreservesRunnerErrorWithObservation(t *testing.T) {
 func TestRegistryObservePreservesCoherentCancellationFromRunnerError(t *testing.T) {
 	process := testProcessObservation(t, nil, nil, ports.ProcessTerminationCancelled, 0)
 	runner := &observationRunner{observation: process, err: context.Canceled}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1734,11 +1734,11 @@ func TestRegistryObservePreservesPartialStreamsAndCleanupCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &observationRunner{err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1750,8 +1750,41 @@ func TestRegistryObservePreservesPartialStreamsAndCleanupCause(t *testing.T) {
 		!ok || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
 		t.Fatalf("primary = %q, cleanup = %q, present = %t", observed.PrimaryCause(), cleanup, ok)
 	}
+	if observed.Status() != ports.ProviderExecutionStatusSecurityViolation || observed.DiagnosticCode() != "process_security" {
+		t.Fatalf("cleanup failure status = %q diag = %q, want security_violation / process_security", observed.Status(), observed.DiagnosticCode())
+	}
 	if string(observed.Stdout()) != "partial stdout" || string(observed.Stderr()) != "partial stderr" {
 		t.Fatal("partial runner streams were lost")
+	}
+}
+
+func TestRegistryObservePromotesCleanupFailureToSecurityViolationOnValidTimedOutProcess(t *testing.T) {
+	runnerFailure, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseTimedOut,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		nil,
+		nil,
+		errors.New("timed out with residual process group"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timedOutObs := testProcessObservation(t, nil, nil, ports.ProcessTerminationTimedOut, 0)
+	runner := &observationRunner{observation: timedOutObs, err: runnerFailure}
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_cleanup"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_cleanup"))
+	if err != nil {
+		t.Fatalf("Observe returned error %v, want valid SecurityViolation observation", err)
+	}
+	cleanup, ok := observed.CleanupCause()
+	if observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
+		observed.DiagnosticCode() != "process_security" ||
+		!ok || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
+		t.Fatalf("status=%q diag=%q cleanup=%q(%t), want security_violation/process_security/process_group_cleanup_failed",
+			observed.Status(), observed.DiagnosticCode(), cleanup, ok)
 	}
 }
 
@@ -1764,11 +1797,11 @@ func TestRegistryObservePreservesTransportVerificationCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &observationRunner{err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1800,11 +1833,11 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			invocation := testInvocation(t, "grok_default")
+			invocation := testInvocation(t, "codex_default")
 			runner := &observationRunner{
 				observation: testProcessObservation(t, []byte("raw stdout"), []byte("raw stderr"), test.termination, test.exitCode),
 			}
-			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1825,7 +1858,7 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 }
 
 func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
-	invocation := testInvocation(t, "grok_default")
+	invocation := testInvocation(t, "codex_default")
 	runner := &observationRunner{
 		observation: testProcessObservation(
 			t,
@@ -1835,7 +1868,7 @@ func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
 			1,
 		),
 	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1853,7 +1886,7 @@ func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
 }
 
 func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *testing.T) {
-	invocation := testInvocation(t, "grok_default")
+	invocation := testInvocation(t, "codex_default")
 	runner := &observationRunner{
 		observation: testProcessObservation(
 			t,
@@ -1863,7 +1896,7 @@ func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *tes
 			1,
 		),
 	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1880,7 +1913,7 @@ func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *tes
 }
 
 func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
-	invocation := testInvocation(t, "grok_default")
+	invocation := testInvocation(t, "codex_default")
 	runner := &observationRunner{
 		observation: testProcessObservation(
 			t,
@@ -1890,7 +1923,7 @@ func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
 			1,
 		),
 	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2177,13 +2210,13 @@ func TestRegistryCloseRetriesAfterCancellation(t *testing.T) {
 
 func TestRegistryCloseCancellationWhileObservationIsActiveIsRetryable(t *testing.T) {
 	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyGrok, "grok_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	observed := make(chan error, 1)
 	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "grok_default"))
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
 		observed <- observeErr
 	}()
 	<-runner.started

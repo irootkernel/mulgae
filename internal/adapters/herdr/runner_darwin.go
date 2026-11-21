@@ -141,6 +141,9 @@ func (s *Session) RunTerminal(ctx context.Context, request ports.TerminalExecuti
 	}
 
 	if err := s.ensureStarted(ctx); err != nil {
+		if errors.Is(err, ErrUnsafeExecutable) {
+			return processExecutionFailure(domain.DiagnosticCauseTransportVerificationFailed, "", nil, err)
+		}
 		return ports.TerminalExecutionObservation{}, err
 	}
 

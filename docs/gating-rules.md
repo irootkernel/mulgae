@@ -57,7 +57,8 @@ access.
   `internal/adapters/process` descriptor, Seatbelt and terminal cleanup policy.
 - **Positive scenarios:** Codex completes an ephemeral turn, ZCode collects a
   complete correlated report and omits tool-call narration only during structured
-  extraction, Grok admits the declared read plan, and private credential projection
+  extraction, Grok enforces purpose-scoped terminal tools and the `B-1` Bash
+  gate alongside the declared live read plan, and private credential projection
   remains bound to its selected profile. Missing optional
   credential homes remain protected if they appear after policy assembly.
 - **Failure scenarios:** Write authority, unexpected protocol requests, missing
@@ -91,4 +92,5 @@ access.
 - **Owner:** [Provider adapter package map](architecture/README.md#package-map).
 
 Historical staged-file protocol fixtures remain internal regression checks.
-Their presence grants no staged-file write authority to current live reviews.
+Terminal-runtime providers (Grok) validate invocation-scoped staged outputs
+strictly after verified `ESRCH` teardown and publish under `stdout` transport.

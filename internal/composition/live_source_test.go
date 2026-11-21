@@ -436,3 +436,150 @@ func TestLiveSourceBoundariesRejectProjectAncestorOfReviewerHome(t *testing.T) {
 		})
 	}
 }
+
+func TestProductionLiveControlPlanePathsIncludesDefaultsAndInheritedSockets(t *testing.T) {
+	home := canonicalTestTempDir(t)
+	privateSubdir := filepath.Join(home, "custom-herdr")
+	if err := os.MkdirAll(privateSubdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	customSocket := filepath.Join(privateSubdir, "server.sock")
+	tmpSocket := "/private/tmp/mulgae-inherited-test.sock"
+	t.Setenv("HC_SOCKET", customSocket)
+	t.Setenv("HC_TERMINAL_SOCKET", tmpSocket)
+
+	roots, literals, err := productionLiveControlPlanePaths(home)
+	if err != nil {
+		t.Fatalf("productionLiveControlPlanePaths() error = %v", err)
+	}
+	rootSet := make(map[string]bool, len(roots))
+	for _, root := range roots {
+		rootSet[root.String()] = true
+	}
+	literalSet := make(map[string]bool, len(literals))
+	for _, literal := range literals {
+		literalSet[literal.String()] = true
+	}
+	for _, expectedRoot := range []string{
+		filepath.Join(home, ".local", "state", "herdr-core"),
+		filepath.Join(home, ".config", "herdr-core"),
+		privateSubdir,
+	} {
+		if !rootSet[expectedRoot] {
+			t.Fatalf("missing expected control-plane root %q in %v", expectedRoot, roots)
+		}
+	}
+	if rootSet["/private/tmp"] || rootSet["/tmp"] {
+		t.Fatalf("shared /private/tmp must never be emitted as a subpath control-plane root: %v", roots)
+	}
+	if !literalSet[tmpSocket] {
+		t.Fatalf("missing inherited /private/tmp HC_TERMINAL_SOCKET %q in literals: %v", tmpSocket, literals)
+	}
+}
+
+func TestProductionLiveControlPlanePathsFailsClosedAndExpandsMissingLeafSymlinks(t *testing.T) {
+	home := canonicalTestTempDir(t)
+
+	for _, envName := range []string{"HC_SOCKET", "HC_TERMINAL_SOCKET"} {
+		for _, tc := range []struct {
+			name string
+			val  string
+		}{
+			{"leading_space", " /private/tmp/mgh-live/s.sock"},
+			{"trailing_space", "/private/tmp/mgh-live/s.sock "},
+			{"relative", "relative/s.sock"},
+			{"unclean", "/private/tmp/a/../b/s.sock"},
+			{"non_printable", "/private/tmp/bad\tpath/s.sock"},
+		} {
+			t.Run(envName+"/"+tc.name, func(t *testing.T) {
+				t.Setenv("HC_SOCKET", "")
+				t.Setenv("HC_TERMINAL_SOCKET", "")
+				t.Setenv(envName, tc.val)
+				if _, _, err := productionLiveControlPlanePaths(home); err == nil {
+					t.Fatalf("productionLiveControlPlanePaths accepted malformed %s=%q", envName, tc.val)
+				}
+			})
+		}
+	}
+
+	t.Run("missing-leaf /tmp socket emits both raw and /private/tmp canonical roots and literals", func(t *testing.T) {
+		t.Setenv("HC_SOCKET", "/tmp/mulgae-missing-live-cp/core.sock")
+		t.Setenv("HC_TERMINAL_SOCKET", "")
+		roots, literals, err := productionLiveControlPlanePaths(home)
+		if err != nil {
+			t.Fatalf("productionLiveControlPlanePaths error = %v", err)
+		}
+		rootSet := make(map[string]bool, len(roots))
+		for _, r := range roots {
+			rootSet[r.String()] = true
+		}
+		literalSet := make(map[string]bool, len(literals))
+		for _, l := range literals {
+			literalSet[l.String()] = true
+		}
+		for _, wantRoot := range []string{"/tmp/mulgae-missing-live-cp", "/private/tmp/mulgae-missing-live-cp"} {
+			if !rootSet[wantRoot] {
+				t.Fatalf("missing expected root %q in %v", wantRoot, roots)
+			}
+		}
+		for _, wantLit := range []string{"/tmp/mulgae-missing-live-cp/core.sock", "/private/tmp/mulgae-missing-live-cp/core.sock"} {
+			if !literalSet[wantLit] {
+				t.Fatalf("missing expected literal %q in %v", wantLit, literals)
+			}
+		}
+	})
+
+	t.Run("symlinked ~/.config and ~/.local/state expand missing-tolerantly for default control-plane roots", func(t *testing.T) {
+		t.Setenv("HC_SOCKET", "")
+		t.Setenv("HC_TERMINAL_SOCKET", "")
+		base := canonicalTestTempDir(t)
+		dotfilesConfig := filepath.Join(base, "dotfiles", "config")
+		dotfilesState := filepath.Join(base, "dotfiles", "state")
+		symHome := filepath.Join(base, "home")
+		for _, dir := range []string{dotfilesConfig, dotfilesState, filepath.Join(symHome, ".local")} {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Symlink(dotfilesConfig, filepath.Join(symHome, ".config")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(dotfilesState, filepath.Join(symHome, ".local", "state")); err != nil {
+			t.Fatal(err)
+		}
+		roots, _, err := productionLiveControlPlanePaths(symHome)
+		if err != nil {
+			t.Fatalf("productionLiveControlPlanePaths(symlinked dotfiles) error = %v", err)
+		}
+		rootSet := make(map[string]bool, len(roots))
+		for _, r := range roots {
+			rootSet[r.String()] = true
+		}
+		for _, want := range []string{
+			filepath.Join(symHome, ".config", "herdr-core"),
+			filepath.Join(dotfilesConfig, "herdr-core"),
+			filepath.Join(symHome, ".local", "state", "herdr-core"),
+			filepath.Join(dotfilesState, "herdr-core"),
+		} {
+			if !rootSet[want] {
+				t.Fatalf("missing expected default control-plane root %q in %v", want, roots)
+			}
+		}
+	})
+
+	t.Run("symlinked ~/.config/herdr-core -> / fails closed via validLivePolicyRoot", func(t *testing.T) {
+		t.Setenv("HC_SOCKET", "")
+		t.Setenv("HC_TERMINAL_SOCKET", "")
+		base := canonicalTestTempDir(t)
+		badHome := filepath.Join(base, "bad-home")
+		if err := os.MkdirAll(filepath.Join(badHome, ".config"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("/", filepath.Join(badHome, ".config", "herdr-core")); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := productionLiveControlPlanePaths(badHome); err == nil {
+			t.Fatal("productionLiveControlPlanePaths accepted ~/.config/herdr-core -> /")
+		}
+	})
+}

@@ -22,13 +22,15 @@ func (read LiveSourceRead) GitCommand() string          { return read.command }
 // LiveReviewExecution keeps source and neutral launch authority separate. Its
 // target is a selection of original state, never a captured workspace identity.
 type LiveReviewExecution struct {
-	source      LiveSourceReader
-	home        ReviewerHome
-	binding     ProjectBindingObservation
-	neutral     AnchoredRoot
-	target      LiveSourceTarget
-	credentials []AnchoredRoot
-	reads       []LiveSourceRead
+	source               LiveSourceReader
+	home                 ReviewerHome
+	binding              ProjectBindingObservation
+	neutral              AnchoredRoot
+	target               LiveSourceTarget
+	credentials          []AnchoredRoot
+	controlPlaneRoots    []AnchoredRoot
+	controlPlaneLiterals []AnchoredRoot
+	reads                []LiveSourceRead
 }
 
 func NewLiveReviewExecution(ctx context.Context, source LiveSourceReader, home ReviewerHome, credentials []AnchoredRoot) (LiveReviewExecution, error) {
@@ -116,6 +118,33 @@ func (execution LiveReviewExecution) ReviewerHome() ReviewerHome         { retur
 func (execution LiveReviewExecution) Target() LiveSourceTarget           { return execution.target }
 func (execution LiveReviewExecution) CredentialRoots() []AnchoredRoot {
 	return append([]AnchoredRoot(nil), execution.credentials...)
+}
+func (execution LiveReviewExecution) ControlPlaneRoots() []AnchoredRoot {
+	return append([]AnchoredRoot(nil), execution.controlPlaneRoots...)
+}
+func (execution LiveReviewExecution) ControlPlaneLiterals() []AnchoredRoot {
+	return append([]AnchoredRoot(nil), execution.controlPlaneLiterals...)
+}
+
+// NewLiveReviewExecutionWithControlPlane binds missing-tolerant control-plane
+// roots and literal socket paths onto an already validated LiveReviewExecution
+// so every provider's live boundary denies terminal-multiplexer control-plane
+// state without altering source or credential authority.
+func NewLiveReviewExecutionWithControlPlane(execution LiveReviewExecution, controlPlaneRoots, controlPlaneLiterals []AnchoredRoot) (LiveReviewExecution, error) {
+	if !execution.Valid() {
+		return LiveReviewExecution{}, fmt.Errorf("live review execution: invalid authority")
+	}
+	mergedRoots, err := appendUniqueLivePolicyRoots(execution.controlPlaneRoots, controlPlaneRoots)
+	if err != nil {
+		return LiveReviewExecution{}, fmt.Errorf("live review execution: control-plane roots: %w", err)
+	}
+	mergedLiterals, err := appendUniqueLivePolicyRoots(execution.controlPlaneLiterals, controlPlaneLiterals)
+	if err != nil {
+		return LiveReviewExecution{}, fmt.Errorf("live review execution: control-plane literals: %w", err)
+	}
+	execution.controlPlaneRoots = mergedRoots
+	execution.controlPlaneLiterals = mergedLiterals
+	return execution, nil
 }
 
 func (execution LiveReviewExecution) SourceReader() LiveSourceReader { return execution.source }

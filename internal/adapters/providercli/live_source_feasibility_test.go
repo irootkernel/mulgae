@@ -324,65 +324,6 @@ func runLiveCodexSourceProbe(t *testing.T, fixture liveSourceProbeFixture, mode 
 	}
 }
 
-func TestLiveGrokLiveSourceFeasibility(t *testing.T) {
-	testLiveSourceCases(t, runLiveGrokSourceProbe)
-}
-
-func runLiveGrokSourceProbe(t *testing.T, fixture liveSourceProbeFixture, mode string) {
-	executable := copyLiveGrokExecutable(t, filepath.Join(mustLiveGrokHome(t), ".grok", "bin", "grok"))
-	base, err := NewNamespaceFactory(mustCanonicalLiveTempDir(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy, err := RuntimeSafetyPolicyForFamily(CredentialSourceGrok)
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := NewCredentialProjectingNamespaceFactoryWithPolicies(base, mustLiveGrokHome(t),
-		map[string]CredentialSourceFamily{"grok-live-source": CredentialSourceGrok},
-		map[string]RuntimeSafetyPolicy{"grok-live-source": policy})
-	if err != nil {
-		t.Fatal(err)
-	}
-	acquired, err := factory.AcquireProviderNamespace(context.Background(), "grok-live-source", FamilyGrok)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease := acquired.(*namespaceLease)
-	defer drainLiveGrokNamespace(t, lease)
-	assertLiveSourceNamespace(t, lease, FamilyGrok)
-	contents, err := grokBoundaryFileContents(mustLiveGrokHome(t), fixture.source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The native base also permits temp writes. Explicit read-only paths keep
-	// externally readable fixture source and shared guidance outside that grant.
-	contents["sandbox.toml"] = []byte("[profiles.mulgae]\nextends = \"workspace\"\nread_only = [" + strconv.Quote(fixture.source) + ", " + strconv.Quote(fixture.neutral) + "]\ndeny = [" + strconv.Quote(mustLiveGrokHome(t)) + "]\n")
-	for name, body := range contents {
-		if err := os.WriteFile(filepath.Join(lease.root, "home", ".grok", name), body, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	environment, err := isolatedProcessEnvironment(FamilyGrok, liveSourceProbeEnvironment(t, fixture), lease.Environment())
-	if err != nil {
-		t.Fatal(err)
-	}
-	prompt := fixture.prompt(mode)
-	driver := &liveSourceGrokProbe{cwd: fixture.neutral, prompt: string(prompt), source: fixture.source, commit: fixture.commit}
-	if mode != "mutations" {
-		prompt = append(prompt, []byte("\nFor this ACP probe, use read_file for the three declared files. Submit each exact Git command as a separate Bash call. Do not combine commands, add echo/printf or exit-status markers, or use cat. Other commands are rejected by the application permission policy.")...)
-		driver.prompt = string(prompt)
-	}
-	t.Cleanup(func() {
-		for _, diagnostic := range driver.permissions {
-			t.Log(diagnostic)
-		}
-	})
-	argv := []string{executable, "--no-auto-update", "--sandbox", "mulgae", "--disable-web-search", "--no-subagents",
-		"--permission-mode", "plan", "--tools", "read_file,grep,list_dir,Bash", "--deny", "MCPTool", "agent", "--no-leader", "stdio"}
-	liveSourceProbeConversation(t, fixture, executable, argv, environment, prompt, driver, func() []byte { return driver.report }, mode)
-}
-
 func (fixture liveSourceProbeFixture) readPrompt() []byte {
 	return []byte(fmt.Sprintf(`Static read-only review prerequisite. Keep process and session cwd at %s.
 The separate authorized source root is %s. Do not copy it or change cwd.
@@ -497,15 +438,6 @@ func liveSourceProbeConversation(t *testing.T, fixture liveSourceProbeFixture, e
 		}
 		return
 	}
-	if mode == "mutations" {
-		if grok, ok := driver.(*liveSourceGrokProbe); ok {
-			var failure *grokACPError
-			if !grok.mutationDenied || !errors.As(runErr, &failure) || !strings.Contains(failure.Error(), `session/prompt stopped with "cancelled"`) {
-				t.Fatalf("native mutation denial missing: denied=%t error=%v", grok.mutationDenied, runErr)
-			}
-			return
-		}
-	}
 	if runErr != nil {
 		t.Fatalf("native source prerequisite: %v (stderr=%s)", runErr, observation.Stderr())
 	}
@@ -523,194 +455,6 @@ func liveSourceProbeConversation(t *testing.T, fixture liveSourceProbeFixture, e
 	if strings.Contains(string(report()), "ANCESTOR_GUIDE_EXECUTED") {
 		t.Error("ancestor guide appeared in the native report without an authorized source read")
 	}
-}
-
-// Reuse the existing ACP handshake, message correlation and terminal checks,
-// while observing the additional native Bash tool allowed by this test policy.
-// No production qualification or review driver is changed by the probe.
-type liveSourceGrokProbe struct {
-	cwd, prompt, source, commit string
-	report                      []byte
-	permissions                 []string
-	mutationDenied              bool
-}
-
-func (probe *liveSourceGrokProbe) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
-	state := grokACPConversation{
-		purpose: protocolPurposeQualification, workspacePath: probe.cwd, prompt: probe.prompt,
-		phase: ports.ProviderSessionPhaseCreate, toolLocations: make(map[string]string),
-		toolVariants: make(map[string]bool), deniedLocations: make(map[string]bool),
-	}
-	if err := sendGrokACPRequest(ctx, exchange, grokACPInitializeID, grokACPInitializeMethod, map[string]any{
-		"protocolVersion":    grokACPProtocolVersion,
-		"clientCapabilities": map[string]any{"fs": map[string]bool{"readTextFile": false, "writeTextFile": false}, "terminal": false},
-		"clientInfo":         map[string]string{"name": "mulgae", "title": "Mulgae", "version": "1"},
-	}); err != nil {
-		return err
-	}
-	for {
-		line, err := exchange.ReceiveLine(ctx)
-		if err != nil {
-			return err
-		}
-		message, err := parseGrokACPMessage(line)
-		if err != nil {
-			return err
-		}
-		if message.Method == grokACPRequestPermission && len(message.ID) != 0 {
-			if err := probe.permission(ctx, exchange, state.sessionID, message); err != nil {
-				return err
-			}
-			continue
-		}
-		if message.Method == grokACPSessionUpdateMethod && len(message.ID) == 0 {
-			var params struct {
-				SessionID string `json:"sessionId"`
-				Update    struct {
-					Type     string `json:"sessionUpdate"`
-					RawInput struct {
-						Variant string `json:"variant"`
-					} `json:"rawInput"`
-				} `json:"update"`
-			}
-			if err := json.Unmarshal(message.Params, &params); err != nil {
-				return err
-			}
-			if params.Update.Type == grokACPToolCall || params.Update.Type == grokACPToolCallUpdate {
-				if !state.sessionCreated || params.SessionID != state.sessionID {
-					return fmt.Errorf("uncorrelated live-source tool update")
-				}
-				switch params.Update.RawInput.Variant {
-				case "", "ReadFile", "Grep", "ListDir", "Bash":
-					continue
-				default:
-					return fmt.Errorf("unexpected live-source tool variant %q", params.Update.RawInput.Variant)
-				}
-			}
-		}
-		done, err := state.handle(ctx, exchange, message)
-		if err != nil {
-			return err
-		}
-		if done {
-			probe.report = []byte(strings.Join(state.assistantEvidence, ""))
-			return nil
-		}
-	}
-}
-
-func TestLiveSourceGrokProbeReadFilePermission(t *testing.T) {
-	for _, scenario := range []string{"admitted", "outside-plan", "missing-target", "obsolete-field", "wrong-session", "missing-tool-id", "missing-created-session"} {
-		t.Run(scenario, func(t *testing.T) {
-			source := filepath.Join(t.TempDir(), "source")
-			probe := &liveSourceGrokProbe{source: source}
-			createdSession, requestSession, toolID := "fixture-session", "fixture-session", "fixture-tool"
-			input := map[string]string{"variant": "ReadFile", "target_file": filepath.Join(source, "target.txt")}
-			switch scenario {
-			case "outside-plan":
-				input["target_file"] = filepath.Join(source, "outside.txt")
-			case "missing-target":
-				delete(input, "target_file")
-			case "obsolete-field":
-				input["file_path"] = input["target_file"]
-				delete(input, "target_file")
-			case "wrong-session":
-				requestSession = "other-session"
-			case "missing-tool-id":
-				toolID = ""
-			case "missing-created-session":
-				createdSession = ""
-			}
-			params, err := json.Marshal(map[string]any{
-				"sessionId": requestSession,
-				"toolCall":  map[string]any{"toolCallId": toolID, "kind": "read", "rawInput": input},
-				"options":   []map[string]string{{"optionId": "reject-17", "kind": "reject_once"}, {"optionId": "allow-17", "kind": "allow_once"}},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			exchange := &scriptedCodexExchange{}
-			err = probe.permission(context.Background(), exchange, createdSession, grokACPMessage{Method: grokACPRequestPermission, ID: json.RawMessage("17"), Params: params})
-			if scenario == "wrong-session" || scenario == "missing-tool-id" || scenario == "missing-created-session" {
-				if err == nil || !strings.Contains(err.Error(), "uncorrelated live-source permission request") || len(exchange.sent) != 0 {
-					t.Fatalf("uncorrelated permission answered: error=%v responses=%s", err, exchange.sent)
-				}
-				return
-			}
-			if err != nil || len(exchange.sent) != 1 {
-				t.Fatalf("permission response: error=%v responses=%s", err, exchange.sent)
-			}
-			var response struct {
-				ID     int `json:"id"`
-				Result struct {
-					Outcome struct {
-						Outcome  string `json:"outcome"`
-						OptionID string `json:"optionId"`
-					} `json:"outcome"`
-				} `json:"result"`
-			}
-			if err := json.Unmarshal(exchange.sent[0], &response); err != nil {
-				t.Fatal(err)
-			}
-			want := "reject-17"
-			if scenario == "admitted" {
-				want = "allow-17"
-			}
-			if response.ID != 17 || response.Result.Outcome.Outcome != "selected" || response.Result.Outcome.OptionID != want {
-				t.Fatalf("ReadFile permission response=%s want=%q", exchange.sent[0], want)
-			}
-		})
-	}
-}
-
-func (probe *liveSourceGrokProbe) permission(ctx context.Context, exchange ports.ProviderSessionExchange, sessionID string, message grokACPMessage) error {
-	var params struct {
-		SessionID string `json:"sessionId"`
-		ToolCall  struct {
-			ID    string `json:"toolCallId"`
-			Kind  string `json:"kind"`
-			Input struct {
-				Variant, Command string
-				TargetFile       string `json:"target_file"`
-			} `json:"rawInput"`
-		} `json:"toolCall"`
-		Options []struct {
-			ID   string `json:"optionId"`
-			Kind string `json:"kind"`
-		} `json:"options"`
-	}
-	if err := json.Unmarshal(message.Params, &params); err != nil {
-		return err
-	}
-	if sessionID == "" || params.SessionID != sessionID || params.ToolCall.ID == "" {
-		return fmt.Errorf("uncorrelated live-source permission request")
-	}
-	probe.permissions = append(probe.permissions, fmt.Sprintf("native permission kind=%q variant=%q file=%q command=%q", params.ToolCall.Kind, params.ToolCall.Input.Variant, params.ToolCall.Input.TargetFile, params.ToolCall.Input.Command))
-	allowed := false
-	switch params.ToolCall.Input.Variant {
-	case "ReadFile":
-		for _, name := range []string{"target.txt", "AGENTS.md", "CLAUDE.md"} {
-			if params.ToolCall.Kind == "read" && params.ToolCall.Input.TargetFile == filepath.Join(probe.source, name) {
-				allowed = true
-			}
-		}
-	case "Bash":
-		command := strings.TrimSpace(params.ToolCall.Input.Command)
-		allowed = params.ToolCall.Kind == "execute" && (command == "git --no-pager show :target.txt" || command == "git --no-pager show "+probe.commit+":target.txt")
-	}
-	want := "reject_once"
-	if allowed {
-		want = "allow_once"
-	}
-	for _, option := range params.Options {
-		if option.Kind == want {
-			if !allowed && params.ToolCall.Input.Variant == "Bash" && strings.TrimSpace(params.ToolCall.Input.Command) == (liveSourceProbeFixture{source: probe.source, neutral: probe.cwd, commit: probe.commit}).mutationCommand() {
-				probe.mutationDenied = true
-			}
-			return sendGrokACPResponse(ctx, exchange, message.ID, map[string]any{"outcome": map[string]string{"outcome": "selected", "optionId": option.ID}})
-		}
-	}
-	return fmt.Errorf("live-source permission response unavailable for kind=%q variant=%q", params.ToolCall.Kind, params.ToolCall.Input.Variant)
 }
 
 type liveSourceCodexProbe struct {
@@ -776,13 +520,9 @@ type liveSourceAdmissionProbe struct {
 	mode                 string
 	cancel               context.CancelFunc
 	wantResponse, method string
-	grokSession          string
-	grokPrompt, accepted bool
+	accepted             bool
 	overlapped           bool
 	driverErr            error
-	grokTools            []string
-	grokReadObservations map[string]grokLiveToolObservation
-	grokReadCompleted    bool
 	codexReadCompleted   bool
 }
 
@@ -815,44 +555,6 @@ func TestLiveSourceAdmissionReportsMissingPeer(t *testing.T) {
 	}
 }
 
-func TestLiveSourceAdmissionRecordsGrokCompletedRead(t *testing.T) {
-	fixture := liveSourceProbeFixture{source: t.TempDir()}
-	target := filepath.Join(fixture.source, "target.txt")
-	message := func(session, id, kind, variant, path, status string) string {
-		return fmt.Sprintf(`{"method":"session/update","params":{"sessionId":%q,"update":{"sessionUpdate":"tool_call_update","toolCallId":%q,"kind":%q,"status":%q,"rawInput":{"variant":%q,"target_file":%q}}}}`, session, id, kind, status, variant, path)
-	}
-	initial := message("session-read", "read-target", "read", "ReadFile", target, "in_progress")
-	for _, test := range []struct {
-		name     string
-		messages []string
-		want     bool
-	}{
-		{"complete input", []string{message("session-read", "read-target", "read", "ReadFile", target, "completed")}, true},
-		{"partial completion", []string{initial, message("session-read", "read-target", "", "", "", "completed")}, true},
-		{"missing identity", []string{message("session-read", "", "read", "ReadFile", target, "completed")}, false},
-		{"different session", []string{message("other-session", "read-target", "read", "ReadFile", target, "completed")}, false},
-		{"different path", []string{message("session-read", "read-target", "read", "ReadFile", filepath.Join(fixture.source, "AGENTS.md"), "completed")}, false},
-		{"missing variant", []string{message("session-read", "read-target", "read", "", target, "completed")}, false},
-		{"non-read variant", []string{message("session-read", "read-target", "execute", "Bash", target, "completed")}, false},
-		{"failed operation", []string{message("session-read", "read-target", "read", "ReadFile", target, "failed")}, false},
-		{"unfinished operation", []string{initial}, false},
-		{"different tool completes", []string{initial, message("session-read", "other-tool", "", "", "", "completed")}, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			probe := &liveSourceAdmissionProbe{fixture: fixture, grokSession: "session-read"}
-			exchange := &liveSourceAdmissionExchange{ProviderSessionExchange: &scriptedCodexExchange{lines: test.messages}, probe: probe}
-			for range test.messages {
-				if _, err := exchange.ReceiveLine(context.Background()); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if probe.grokReadCompleted != test.want {
-				t.Fatalf("correlated Grok source-read completion = %t, want %t", probe.grokReadCompleted, test.want)
-			}
-		})
-	}
-}
-
 func (exchange *liveSourceAdmissionExchange) SendLine(ctx context.Context, line []byte) error {
 	var message struct {
 		ID     json.RawMessage
@@ -865,8 +567,6 @@ func (exchange *liveSourceAdmissionExchange) SendLine(ctx context.Context, line 
 	case zcodeProtocolSendMethod, "turn/start":
 		exchange.probe.wantResponse = string(message.ID)
 		exchange.probe.method = message.Method
-	case grokACPSessionPromptMethod:
-		exchange.probe.grokPrompt = true
 	}
 	return exchange.ProviderSessionExchange.SendLine(ctx, line)
 }
@@ -880,23 +580,11 @@ func (exchange *liveSourceAdmissionExchange) ReceiveLine(ctx context.Context) ([
 		ID, Result, Error json.RawMessage
 		Method            string
 		Params            struct {
-			SessionID string `json:"sessionId"`
-			Item      struct {
+			Item struct {
 				Type             string `json:"type"`
 				ExitCode         *int   `json:"exitCode"`
 				AggregatedOutput string `json:"aggregatedOutput"`
 			} `json:"item"`
-			Update struct {
-				ToolCallID string `json:"toolCallId"`
-				Type       string `json:"sessionUpdate"`
-				Kind       string `json:"kind"`
-				Status     string `json:"status"`
-				Input      struct {
-					Variant    string `json:"variant"`
-					TargetFile string `json:"target_file"`
-					Command    string `json:"command"`
-				} `json:"rawInput"`
-			} `json:"update"`
 		} `json:"params"`
 	}
 	if err := json.Unmarshal(line, &message); err != nil {
@@ -907,45 +595,15 @@ func (exchange *liveSourceAdmissionExchange) ReceiveLine(ctx context.Context) ([
 	if message.Method == "item/completed" && item.Type == "commandExecution" && item.ExitCode != nil && *item.ExitCode == 0 && token != "" && strings.Contains(item.AggregatedOutput, token) {
 		exchange.probe.codexReadCompleted = true
 	}
-	if message.Method == grokACPSessionUpdateMethod && (message.Params.Update.Type == grokACPToolCall || message.Params.Update.Type == grokACPToolCallUpdate) {
-		update := message.Params.Update
-		exchange.probe.grokTools = append(exchange.probe.grokTools, fmt.Sprintf("kind=%s variant=%s status=%s path_present=%t path_absolute=%t command_present=%t", update.Kind, update.Input.Variant, update.Status, update.Input.TargetFile != "", filepath.IsAbs(update.Input.TargetFile), update.Input.Command != ""))
-		if update.ToolCallID != "" && exchange.probe.grokSession != "" && message.Params.SessionID == exchange.probe.grokSession {
-			if exchange.probe.grokReadObservations == nil {
-				exchange.probe.grokReadObservations = make(map[string]grokLiveToolObservation)
-			}
-			observed := exchange.probe.grokReadObservations[update.ToolCallID]
-			if update.Kind != "" {
-				observed.kind = update.Kind
-			}
-			if update.Input.Variant != "" {
-				observed.variant = update.Input.Variant
-			}
-			if update.Input.TargetFile != "" {
-				observed.path = update.Input.TargetFile
-			}
-			exchange.probe.grokReadObservations[update.ToolCallID] = observed
-			if strings.EqualFold(update.Status, "completed") && observed.kind == "read" && observed.variant == "ReadFile" && observed.path == filepath.Join(exchange.probe.fixture.source, "target.txt") {
-				exchange.probe.grokReadCompleted = true
-			}
-		}
-	}
 	var result struct {
-		Accepted  bool                `json:"accepted"`
-		SessionID string              `json:"sessionId"`
-		Turn      struct{ ID string } `json:"turn"`
+		Accepted bool                `json:"accepted"`
+		Turn     struct{ ID string } `json:"turn"`
 	}
 	if len(message.Result) != 0 && json.Unmarshal(message.Result, &result) != nil {
 		return nil, fmt.Errorf("unreadable native admission receipt")
 	}
-	if string(message.ID) == strconv.Quote(grokACPNewID) {
-		exchange.probe.grokSession = result.SessionID
-	}
 	ack := exchange.probe.wantResponse != "" && string(message.ID) == exchange.probe.wantResponse && (len(message.Error) == 0 || string(message.Error) == "null")
 	ack = ack && ((exchange.probe.method == zcodeProtocolSendMethod && result.Accepted) || (exchange.probe.method == "turn/start" && sanitizeProtocolDiagnosticIdentifier(result.Turn.ID) != ""))
-	if exchange.probe.grokPrompt && message.Method == grokACPSessionUpdateMethod {
-		ack = exchange.probe.grokSession != "" && message.Params.SessionID == exchange.probe.grokSession && (message.Params.Update.Type == grokACPAgentMessageChunk || message.Params.Update.Type == grokACPToolCall)
-	}
 	if ack && !exchange.probe.accepted {
 		exchange.probe.accepted = true
 		admissionCtx, stopAdmissionWait := context.WithTimeout(ctx, time.Minute)

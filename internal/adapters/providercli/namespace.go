@@ -282,12 +282,15 @@ type namespaceLease struct {
 	agyQualifiedRuntime           string
 	agyConfiguredRoots            []string
 	agyDrainUnverified            bool
+	grokRuntimeHome               string
+	grokConfiguredRoots           []string
+	grokTerminalMu                sync.Mutex
+	grokTerminalIdentity          ports.TerminalRuntimeIdentity
 	seedMu                        sync.RWMutex
 	nativeHomeLaunchAuthority     ports.NativeHomeLaunchAuthority
 	seeds                         map[ports.CredentialProjectionDestination]credentialSeed
 	policyMu                      sync.RWMutex
 	policy                        RuntimeSafetyPolicy
-	grokBoundary                  *grokBoundaryBundle
 	terminalMu                    sync.Mutex
 	terminalDrain                 ports.ProviderNamespaceTerminalDrain
 	terminalErr                   error
@@ -701,10 +704,25 @@ func (lease *namespaceLease) ValidateForSpawn() error {
 			return fmt.Errorf("provider namespace: runtime safety policy drift")
 		}
 	}
-	if lease.grokBoundary != nil {
-		if err := lease.grokBoundary.Validate(); err != nil {
-			return fmt.Errorf("provider namespace: Grok boundary drift")
-		}
+	return nil
+}
+
+// bindGrokTerminalRuntimeIdentity records or verifies consistency of the
+// verified herdr-core identity across Grok invocations within one namespace.
+func (lease *namespaceLease) bindGrokTerminalRuntimeIdentity(identity ports.TerminalRuntimeIdentity) error {
+	if lease == nil || !identity.Valid() {
+		return fmt.Errorf("provider namespace: invalid terminal runtime identity")
+	}
+	lease.grokTerminalMu.Lock()
+	defer lease.grokTerminalMu.Unlock()
+	if !lease.grokTerminalIdentity.Valid() {
+		lease.grokTerminalIdentity = identity
+		return nil
+	}
+	if lease.grokTerminalIdentity.Executable() != identity.Executable() ||
+		lease.grokTerminalIdentity.ExecutableSHA256() != identity.ExecutableSHA256() ||
+		lease.grokTerminalIdentity.Version() != identity.Version() {
+		return fmt.Errorf("provider namespace: terminal runtime identity drift")
 	}
 	return nil
 }

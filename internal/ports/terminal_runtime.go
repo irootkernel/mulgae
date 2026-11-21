@@ -555,6 +555,70 @@ type TerminalSessionRunner interface {
 	Close(ctx context.Context) error
 }
 
+// TerminalRuntimeAvailabilityState describes offline discovery of the terminal
+// runtime binary (herdr-core / hc) without starting a daemon or touching any
+// socket.
+type TerminalRuntimeAvailabilityState string
+
+const (
+	TerminalRuntimeAvailable      TerminalRuntimeAvailabilityState = "available"
+	TerminalRuntimeMissing        TerminalRuntimeAvailabilityState = "missing"
+	TerminalRuntimeUnsafeIdentity TerminalRuntimeAvailabilityState = "unsafe_identity"
+)
+
+func (state TerminalRuntimeAvailabilityState) Valid() bool {
+	switch state {
+	case TerminalRuntimeAvailable, TerminalRuntimeMissing, TerminalRuntimeUnsafeIdentity:
+		return true
+	default:
+		return false
+	}
+}
+
+// TerminalRuntimeExecutableObservation is an immutable offline inspection of
+// the herdr-core / hc executable identity.
+type TerminalRuntimeExecutableObservation struct {
+	state      TerminalRuntimeAvailabilityState
+	executable string
+	sha256     string
+}
+
+func NewTerminalRuntimeExecutableObservation(state TerminalRuntimeAvailabilityState, executable, digest string) (TerminalRuntimeExecutableObservation, error) {
+	if !state.Valid() {
+		return TerminalRuntimeExecutableObservation{}, fmt.Errorf("terminal runtime observation: invalid state %q", state)
+	}
+	if state == TerminalRuntimeAvailable {
+		root, rootErr := NewAnchoredRoot(executable)
+		if rootErr != nil || !validLivePolicyRoot(root) || validateSHA256(digest) != nil {
+			return TerminalRuntimeExecutableObservation{}, fmt.Errorf("terminal runtime observation: available state requires canonical path and sha256")
+		}
+	} else if executable != "" || digest != "" {
+		return TerminalRuntimeExecutableObservation{}, fmt.Errorf("terminal runtime observation: unavailable state must omit executable identity")
+	}
+	return TerminalRuntimeExecutableObservation{
+		state:      state,
+		executable: executable,
+		sha256:     digest,
+	}, nil
+}
+
+func (obs TerminalRuntimeExecutableObservation) State() TerminalRuntimeAvailabilityState {
+	return obs.state
+}
+func (obs TerminalRuntimeExecutableObservation) Executable() string       { return obs.executable }
+func (obs TerminalRuntimeExecutableObservation) ExecutableSHA256() string { return obs.sha256 }
+func (obs TerminalRuntimeExecutableObservation) Valid() bool {
+	_, err := NewTerminalRuntimeExecutableObservation(obs.state, obs.executable, obs.sha256)
+	return err == nil
+}
+
+// TerminalRuntimeObserver inspects offline availability and descriptor identity
+// of the local herdr-core / hc binary without starting any daemon or contacting
+// any live socket.
+type TerminalRuntimeObserver interface {
+	ObserveTerminalRuntime(ctx context.Context, nativeHome string, excludedRoots ...string) (TerminalRuntimeExecutableObservation, error)
+}
+
 // ValidTerminalLabel reports whether key and value satisfy Mulgae's safe
 // terminal-pane label grammar used for label-scoped drain isolation.
 func ValidTerminalLabel(key, value string) bool {

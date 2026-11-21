@@ -94,7 +94,8 @@ func (application *Application) diagnoseLocalDoctor(ctx context.Context, root po
 	service := application.newLocalDoctor(doctor.LocalDependencies{
 		Clock: application.clock, Sources: application.configSources, Codec: application.configCodec,
 		Accounts: application.accounts, Locality: attestor, Inspector: application.inspector,
-		Versions: application.versionObserver, Platform: application.doctorPlatform,
+		Versions: application.versionObserver, TerminalRuntime: application.terminalRuntimeObserver,
+		Platform: application.doctorPlatform,
 	})
 	return service.DiagnoseLocal(ctx, root)
 }

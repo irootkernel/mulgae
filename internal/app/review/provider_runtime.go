@@ -683,7 +683,9 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 					return runtimeCondition(job, diagnosticConditionForPersistence(err))
 				}
 				condition := runtimeProviderErrorCondition(providerCtx, observeErr)
-				if !observation.Succeeded() && observedStatusCondition(observation.Status(), observation.PrimaryCause()) == AttemptConditionProviderTimeout {
+				if cleanup, hasCleanup := observation.CleanupCause(); hasCleanup && runtimeCauseCondition(cleanup) == AttemptConditionSecurityViolation {
+					condition = AttemptConditionSecurityViolation
+				} else if !observation.Succeeded() && condition != AttemptConditionSecurityViolation && observedStatusCondition(observation.Status(), observation.PrimaryCause()) == AttemptConditionProviderTimeout {
 					condition = AttemptConditionProviderTimeout
 				}
 				return runtimeObservedCondition(job, condition, observation, providerElapsed)
@@ -702,7 +704,11 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
 				return runtimeCondition(job, diagnosticConditionForPersistence(err))
 			}
-			return runtimeObservedCondition(job, observedStatusCondition(observation.Status(), observation.PrimaryCause()), observation, providerElapsed)
+			condition := observedStatusCondition(observation.Status(), observation.PrimaryCause())
+			if cleanup, hasCleanup := observation.CleanupCause(); hasCleanup && runtimeCauseCondition(cleanup) == AttemptConditionSecurityViolation {
+				condition = AttemptConditionSecurityViolation
+			}
+			return runtimeObservedCondition(job, condition, observation, providerElapsed)
 		}
 		result, ok := observation.Result()
 		if !ok || result.StdinByteLength() != material.Prompt.CompleteStdinByteLength() || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
@@ -1609,6 +1615,12 @@ func sha256Identifier(bytes []byte) string {
 	return fmt.Sprintf("sha256:%x", sum)
 }
 func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondition {
+	var processFailure *ports.ProcessExecutionError
+	if errors.As(err, &processFailure) {
+		if cleanup, ok := processFailure.CleanupCause(); ok && runtimeCauseCondition(cleanup) == AttemptConditionSecurityViolation {
+			return runtimeConditionAfterContext(ctx, AttemptConditionSecurityViolation)
+		}
+	}
 	var condition AttemptCondition
 	if runtimeProviderObservedTimeout(err) {
 		condition = AttemptConditionProviderTimeout
@@ -1620,7 +1632,6 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 		condition = AttemptConditionLoginRequired
 	} else {
 		var providerFailure *ports.ProviderRuntimeError
-		var processFailure *ports.ProcessExecutionError
 		switch {
 		case errors.As(err, &providerFailure):
 			condition = runtimeCauseCondition(providerFailure.Cause())
@@ -1680,6 +1691,7 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		domain.DiagnosticCauseOutputFrameMismatch,
 		domain.DiagnosticCauseSignalReceiptMismatch,
 		domain.DiagnosticCauseObservationMismatch,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
 		// A provider that wrote outside the single staged file it was granted
 		// breached a boundary, so staging violations fail the run closed.
 		domain.DiagnosticCauseProviderOutputStagingViolation:
@@ -1773,14 +1785,22 @@ func observedStatusCondition(status ports.ProviderExecutionStatus, cause domain.
 		return AttemptConditionProtocolEventDecodeFailed
 	case domain.DiagnosticCausePermissionDenied:
 		return AttemptConditionProviderPermissionDenied
-	case domain.DiagnosticCauseProviderOutputStagingViolation:
+	case domain.DiagnosticCauseProviderOutputStagingViolation,
+		domain.DiagnosticCauseProcessGroupCleanupFailed:
 		return AttemptConditionSecurityViolation
 	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
 		return AttemptConditionArtifactFailure
 	}
 	switch status {
 	case ports.ProviderExecutionStatusUnavailable:
-		return AttemptConditionProviderUnavailable
+		switch cause {
+		case domain.DiagnosticCauseProviderSpawnFailed:
+			return AttemptConditionProviderSpawnFailed
+		case domain.DiagnosticCauseProviderTurnFailed:
+			return AttemptConditionProviderTurnFailed
+		default:
+			return AttemptConditionProviderUnavailable
+		}
 	case ports.ProviderExecutionStatusTimedOut:
 		return AttemptConditionProviderTimeout
 	case ports.ProviderExecutionStatusAuthentication:

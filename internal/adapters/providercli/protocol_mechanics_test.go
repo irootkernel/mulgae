@@ -41,13 +41,10 @@ func TestProtocolStringResponseMatches(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			zcode := zcodeProtocolMessage{ID: json.RawMessage(test.raw), Method: test.method}
-			grok := grokACPMessage{ID: json.RawMessage(test.raw), Method: test.method}
-			for family, got := range map[string]bool{"zcode": zcode.correlatesTo(test.expected...), "grok": grok.correlatesTo(test.expected...)} {
-				if got != test.want {
-					t.Errorf("%s correlation = %t, want %t", family, got, test.want)
-				}
+			if got := zcode.correlatesTo(test.expected...); got != test.want {
+				t.Errorf("zcode correlation = %t, want %t", got, test.want)
 			}
-			if len(test.expected) == 1 && (zcode.isResponseID(test.expected[0]) != test.want || grok.isResponseID(test.expected[0]) != test.want) {
+			if len(test.expected) == 1 && zcode.isResponseID(test.expected[0]) != test.want {
 				t.Error("single-ID wrapper differs from expected correlation")
 			}
 		})
@@ -121,10 +118,6 @@ func TestProtocolStringResponseMatches(t *testing.T) {
 				if err != nil || !zcode.isResponseID("own") {
 					t.Fatalf("ZCode existing line tolerance changed: %v", err)
 				}
-				grok, err := parseGrokACPMessage([]byte(`{"jsonrpc":"2.0","id":"own"` + test.suffix))
-				if err != nil || !grok.isResponseID("own") {
-					t.Fatalf("Grok existing line tolerance changed: %v", err)
-				}
 			})
 		}
 	})
@@ -171,23 +164,6 @@ func TestProtocolDiagnosticIdentifierGrammar(t *testing.T) {
 			}
 		})
 	}
-	t.Run("grok authoritative session rejects unsafe ID", func(t *testing.T) {
-		for _, id := range []string{"safe-session", "", " session", strings.Repeat("s", 513), "session\tprivate"} {
-			raw, err := json.Marshal(map[string]string{"sessionId": id})
-			if err != nil {
-				t.Fatal(err)
-			}
-			state := grokACPConversation{authenticated: true}
-			err = state.acceptSessionNew(raw)
-			if id == "safe-session" {
-				if err != nil || !state.sessionCreated || state.sessionID != id {
-					t.Fatalf("safe authoritative Grok session rejected: %v", err)
-				}
-			} else if err == nil || state.sessionCreated || !strings.Contains(err.Error(), "safe session id") {
-				t.Fatalf("unsafe authoritative Grok session lost its ID rejection: %q: %v", id, err)
-			}
-		}
-	})
 	t.Run("codex authoritative turn rejects unsafe ID", func(t *testing.T) {
 		for _, id := range []string{"turn-1", "", " turn-1", strings.Repeat("t", 513), "turn\tprivate"} {
 			session, err := newCodexProtocolSession("/neutral", []byte("review"), protocolPurposeReview, nil)

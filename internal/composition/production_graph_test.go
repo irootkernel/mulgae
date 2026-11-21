@@ -4,6 +4,7 @@ package composition
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,6 +19,7 @@ import (
 	appconfig "github.com/irootkernel/mulgae/internal/app/config"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/domain"
+	mulgaeentry "github.com/irootkernel/mulgae/internal/entrypoint/mulgae"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
@@ -393,4 +395,130 @@ func environmentValue(t *testing.T, vars []ports.EnvironmentVariable, name strin
 	}
 	t.Fatalf("environment variable %q missing from namespace lease", name)
 	return ""
+}
+
+type stubTerminalSession struct {
+	closeCalls int
+	closeErr   error
+	onClose    func()
+}
+
+func (s *stubTerminalSession) RunTerminal(context.Context, ports.TerminalExecutionRequest) (ports.TerminalExecutionObservation, error) {
+	return ports.TerminalExecutionObservation{}, errors.New("unused")
+}
+
+func (s *stubTerminalSession) DrainLabeledPanes(context.Context, string, string) error {
+	return nil
+}
+
+func (s *stubTerminalSession) RuntimeIdentity(context.Context) (ports.TerminalRuntimeIdentity, error) {
+	return ports.TerminalRuntimeIdentity{}, errors.New("unused")
+}
+
+func (s *stubTerminalSession) Close(context.Context) error {
+	s.closeCalls++
+	if s.onClose != nil {
+		s.onClose()
+	}
+	return s.closeErr
+}
+
+func TestProductionRuntimeGraphCleanupRootsClosesTerminalSessionFirstAndRetainsNamespaceOnFailure(t *testing.T) {
+	t.Run("failure stops before removing namespace parent", func(t *testing.T) {
+		nsPath := canonicalTestTempDir(t)
+		wsPath := canonicalTestTempDir(t)
+		nsRoot, err := ports.NewAnchoredRoot(nsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wsRoot, err := ports.NewAnchoredRoot(wsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		closeFailure := errors.New("herdr-core daemon exit unproven")
+		stub := &stubTerminalSession{closeErr: closeFailure}
+		graph := &productionRuntimeGraph{
+			namespaceRoot:   nsRoot,
+			workspaceRoot:   wsRoot,
+			terminalSession: stub,
+		}
+		err = graph.cleanupRoots()
+		if !errors.Is(err, closeFailure) {
+			t.Fatalf("cleanupRoots() error = %v, want %v", err, closeFailure)
+		}
+		if stub.closeCalls != 1 {
+			t.Fatalf("terminalSession.Close calls = %d, want 1", stub.closeCalls)
+		}
+		// Namespace root MUST be retained when terminal session teardown is unproven.
+		if info, statErr := os.Lstat(nsPath); statErr != nil || !info.IsDir() {
+			t.Fatalf("namespace parent was removed despite unproven terminal session exit: %v", statErr)
+		}
+		// Once terminal close succeeds, retry cleans up the roots.
+		stub.closeErr = nil
+		if err := graph.cleanupRoots(); err != nil {
+			t.Fatalf("retry cleanupRoots() error = %v", err)
+		}
+		if _, statErr := os.Lstat(nsPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("namespace parent survived clean retry: %v", statErr)
+		}
+	})
+
+	t.Run("happy path closes terminal session before removing namespace parent", func(t *testing.T) {
+		nsPath := canonicalTestTempDir(t)
+		wsPath := canonicalTestTempDir(t)
+		nsRoot, _ := ports.NewAnchoredRoot(nsPath)
+		wsRoot, _ := ports.NewAnchoredRoot(wsPath)
+		nsExistedAtClose := false
+		stub := &stubTerminalSession{
+			onClose: func() {
+				if info, err := os.Lstat(nsPath); err == nil && info.IsDir() {
+					nsExistedAtClose = true
+				}
+			},
+		}
+		graph := &productionRuntimeGraph{
+			namespaceRoot:   nsRoot,
+			workspaceRoot:   wsRoot,
+			terminalSession: stub,
+		}
+		if err := graph.cleanupRoots(); err != nil {
+			t.Fatalf("cleanupRoots() error = %v", err)
+		}
+		if stub.closeCalls != 1 || !nsExistedAtClose {
+			t.Fatalf("close ordering violated: calls=%d nsExistedAtClose=%t", stub.closeCalls, nsExistedAtClose)
+		}
+		if _, statErr := os.Lstat(nsPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("namespace parent survived cleanup: %v", statErr)
+		}
+	})
+}
+
+func TestRootCleaningReviewRunServiceRetainedErrorClosesTerminalSessionWhileKeepingRoots(t *testing.T) {
+	nsPath := canonicalTestTempDir(t)
+	wsPath := canonicalTestTempDir(t)
+	nsRoot, _ := ports.NewAnchoredRoot(nsPath)
+	wsRoot, _ := ports.NewAnchoredRoot(wsPath)
+	cause := errors.New("provider drain remains unproven")
+	retained := &reviewrun.LiveRunCleanup{}
+	stub := &stubTerminalSession{}
+	service := &rootCleaningReviewRunService{
+		inner: failingReviewRunService{err: retainedLiveCleanupFailure{cause: cause, cleanup: retained}},
+		graph: &productionRuntimeGraph{
+			namespaceRoot:   nsRoot,
+			workspaceRoot:   wsRoot,
+			terminalSession: stub,
+		},
+	}
+	_, err := service.StartReviewRun(context.Background(), mulgaeentry.ReviewRequest{}, ports.AnchoredRoot{})
+	if owner, ok := reviewrun.LiveCleanupFromError(err); !ok || owner != retained || !errors.Is(err, cause) {
+		t.Fatalf("retained error lost live cleanup ownership: %v", err)
+	}
+	if stub.closeCalls != 1 {
+		t.Fatalf("retained-error branch terminalSession.Close calls = %d, want 1", stub.closeCalls)
+	}
+	for _, root := range []string{nsPath, wsPath} {
+		if info, statErr := os.Lstat(root); statErr != nil || !info.IsDir() {
+			t.Fatalf("retained root %s was deleted on retained error: %v", root, statErr)
+		}
+	}
 }

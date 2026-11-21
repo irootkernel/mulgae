@@ -19,7 +19,7 @@ func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
 	}
 	guidance := []VersionGuidance{
 		{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
-		{Family: FamilyGrok, Minimum: "1.0.34", VerifiedLatest: "1.0.40"},
+		{Family: FamilyGrok, Minimum: "1.0.89", VerifiedLatest: "1.0.89"},
 		{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
 		{Family: FamilyCursor, Minimum: "2026.10.14-0f9edde", VerifiedLatest: "2026.10.14-0f9edde"},
 		{Family: FamilyAgy, Minimum: "1.2.9", VerifiedLatest: "1.4.2"},
@@ -61,12 +61,11 @@ func TestClassifyVersion(t *testing.T) {
 		{name: "minimum", family: FamilyZCode, version: "0.16.5", want: VersionGreen},
 		{name: "verified latest", family: FamilyZCode, version: "0.16.5", want: VersionGreen},
 		{name: "above verified latest", family: FamilyZCode, version: "0.16.6", want: VersionYellow},
-		{name: "below minimum", family: FamilyGrok, version: "1.0.33", want: VersionRed},
-		{name: "minimum", family: FamilyGrok, version: "1.0.34", want: VersionGreen},
-		{name: "verified latest", family: FamilyGrok, version: "1.0.40", want: VersionGreen},
-		{name: "above verified latest", family: FamilyGrok, version: "1.0.41", want: VersionYellow},
-		{name: "grok 1.0.89 yellow", family: FamilyGrok, version: "1.0.89", want: VersionYellow},
-		{name: "grok 1.0.90 yellow", family: FamilyGrok, version: "1.0.90", want: VersionYellow},
+		{name: "below minimum", family: FamilyGrok, version: "1.0.40", want: VersionRed},
+		{name: "below minimum 1.0.88", family: FamilyGrok, version: "1.0.88", want: VersionRed},
+		{name: "minimum", family: FamilyGrok, version: "1.0.89", want: VersionGreen},
+		{name: "verified latest", family: FamilyGrok, version: "1.0.89", want: VersionGreen},
+		{name: "above verified latest", family: FamilyGrok, version: "1.0.90", want: VersionYellow},
 		{name: "unparseable", family: FamilyZCode, version: "latest", want: VersionUnknown},
 		{name: "unknown family", family: "other", version: "1.0.0", want: VersionUnknown},
 		{name: "october semver remains semver", family: FamilyZCode, version: "2026.10.14", want: VersionYellow},
@@ -146,7 +145,7 @@ func TestValidateQualificationBlocksKnownIncompatibleProvider(t *testing.T) {
 
 func TestValidateQualificationRejectsMissingAndExpiredReceipts(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
-		input := completeInput(t, FamilyGrok, "1.0.34")
+		input := completeInput(t, FamilyGrok, "1.0.89")
 		input.Receipts = input.Receipts[:len(input.Receipts)-1]
 		qualification := ValidateQualification(input)
 		if qualification.Available() || qualification.Reason() != "missing_receipt" {
@@ -154,7 +153,7 @@ func TestValidateQualificationRejectsMissingAndExpiredReceipts(t *testing.T) {
 		}
 	})
 	t.Run("expired", func(t *testing.T) {
-		input := completeInput(t, FamilyGrok, "1.0.34")
+		input := completeInput(t, FamilyGrok, "1.0.89")
 		input.Receipts[0].ExpiresAt = input.Now
 		qualification := ValidateQualification(input)
 		if qualification.Available() || qualification.Reason() != "expired_receipt" {
@@ -167,7 +166,7 @@ func TestValidateQualificationRejectsEveryNonPassReceiptState(t *testing.T) {
 	states := []ReceiptState{ReceiptMissing, ReceiptStale, ReceiptSkipped, ReceiptInconclusive, ReceiptFailed}
 	for _, state := range states {
 		t.Run(string(state), func(t *testing.T) {
-			input := completeInput(t, FamilyGrok, "1.0.34")
+			input := completeInput(t, FamilyGrok, "1.0.89")
 			input.Receipts[0].State = state
 			qualification := ValidateQualification(input)
 			if qualification.Available() || qualification.Reason() != "non_passing_receipt" {
@@ -188,7 +187,7 @@ func TestValidateQualificationRejectsIdentityMismatches(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			input := completeInput(t, FamilyGrok, "1.0.34")
+			input := completeInput(t, FamilyGrok, "1.0.89")
 			test.change(&input.Receipts[0].Identity)
 			qualification := ValidateQualification(input)
 			if qualification.Available() || qualification.Reason() != "identity_mismatch" {
@@ -199,7 +198,7 @@ func TestValidateQualificationRejectsIdentityMismatches(t *testing.T) {
 }
 
 func TestValidateQualificationAdmitsCompleteNewerPassSet(t *testing.T) {
-	input := completeInput(t, FamilyGrok, "1.0.41")
+	input := completeInput(t, FamilyGrok, "1.0.90")
 	qualification := ValidateQualification(input)
 	if !qualification.Available() {
 		t.Fatalf("qualification unavailable: %s", qualification.Reason())
@@ -209,7 +208,7 @@ func TestValidateQualificationAdmitsCompleteNewerPassSet(t *testing.T) {
 	}
 }
 func TestValidateQualificationTreatsProvenanceAsDiagnostic(t *testing.T) {
-	input := completeInput(t, FamilyGrok, "1.0.34")
+	input := completeInput(t, FamilyGrok, "1.0.89")
 	input.Receipts[0].Provenance = Provenance{
 		Version: "older-version",
 		Path:    "/former/path",
@@ -223,7 +222,7 @@ func TestValidateQualificationTreatsProvenanceAsDiagnostic(t *testing.T) {
 
 func TestValidateQualificationRequiresScopedAuthorities(t *testing.T) {
 	t.Run("missing capability authority", func(t *testing.T) {
-		input := completeInput(t, FamilyGrok, "1.0.34")
+		input := completeInput(t, FamilyGrok, "1.0.89")
 		for index := range input.Receipts {
 			if input.Receipts[index].Kind == ReceiptCapability {
 				input.Receipts[index].AuthorityID = ""
@@ -234,7 +233,7 @@ func TestValidateQualificationRequiresScopedAuthorities(t *testing.T) {
 		}
 	})
 	t.Run("wrong authority scope", func(t *testing.T) {
-		input := completeInput(t, FamilyGrok, "1.0.34")
+		input := completeInput(t, FamilyGrok, "1.0.89")
 		for index := range input.Receipts {
 			if input.Receipts[index].Kind == ReceiptSecurityPolicy {
 				input.Receipts[index].AuthorityScope = AuthorityScope("retired-provider-controls")
@@ -288,7 +287,7 @@ func TestValidateQualificationRejectsCallerManufacturedAuthorities(t *testing.T)
 	}{
 		{family: FamilyZCode, version: "0.16.5"},
 		{family: FamilyZCode, version: "0.16.5"},
-		{family: FamilyGrok, version: "1.0.34"},
+		{family: FamilyGrok, version: "1.0.89"},
 	} {
 		t.Run(string(test.family), func(t *testing.T) {
 			input := completeInput(t, test.family, test.version)
@@ -322,7 +321,7 @@ func TestAdapterIssuedAuthorityBaselinesRejectBindingMutations(t *testing.T) {
 				input.Receipts[index].Identity.NamespaceGeneration = "stale-generation"
 			}
 		}},
-		{name: "expiry", family: FamilyGrok, version: "1.0.34", mutate: func(input *QualificationInput) {
+		{name: "expiry", family: FamilyGrok, version: "1.0.89", mutate: func(input *QualificationInput) {
 			for index := range input.Receipts {
 				input.Receipts[index].ExpiresAt = input.Receipts[index].ExpiresAt.Add(time.Second)
 			}
@@ -332,7 +331,7 @@ func TestAdapterIssuedAuthorityBaselinesRejectBindingMutations(t *testing.T) {
 				input.Receipts[index].Identity.Family = FamilyGrok
 			}
 		}},
-		{name: "canonical control scope", family: FamilyGrok, version: "1.0.34", mutate: func(input *QualificationInput) {
+		{name: "canonical control scope", family: FamilyGrok, version: "1.0.89", mutate: func(input *QualificationInput) {
 			for index := range input.Receipts {
 				if input.Receipts[index].Kind == ReceiptSecurityPolicy {
 					input.Receipts[index].AuthorityScope = AuthorityScope("retired-provider-controls")
@@ -353,7 +352,7 @@ func TestAdapterIssuedAuthorityBaselinesRejectBindingMutations(t *testing.T) {
 	}
 }
 func TestQualificationReceiptIDIncludesAuthorityScope(t *testing.T) {
-	input := completeInput(t, FamilyGrok, "1.0.34")
+	input := completeInput(t, FamilyGrok, "1.0.89")
 	var receipt Receipt
 	for _, candidate := range input.Receipts {
 		if candidate.Kind == ReceiptSecurityPolicy {
@@ -369,7 +368,7 @@ func TestQualificationReceiptIDIncludesAuthorityScope(t *testing.T) {
 }
 
 func TestQualificationDefensivelyCopiesMutableInput(t *testing.T) {
-	input := completeInput(t, FamilyGrok, "1.0.34")
+	input := completeInput(t, FamilyGrok, "1.0.89")
 	qualification := ValidateQualification(input)
 	input.Receipts[0].State = ReceiptFailed
 	got := qualification.Receipts()
@@ -397,14 +396,12 @@ func TestValidateQualificationVersionPolicy(t *testing.T) {
 		class     VersionClassification
 	}{
 		{name: "below minimum", family: FamilyZCode, version: "0.16.4", available: false, reason: "ineligible_version", class: VersionRed},
-		{name: "below AGY baseline", family: FamilyGrok, version: "1.0.33", available: false, reason: "ineligible_version", class: VersionRed},
-		{name: "minimum", family: FamilyGrok, version: "1.0.34", available: true, reason: "eligible", class: VersionGreen},
-		{name: "verified latest", family: FamilyGrok, version: "1.0.40", available: true, reason: "eligible", class: VersionGreen},
-		{name: "newer AGY", family: FamilyGrok, version: "1.0.41", available: true, reason: "eligible", class: VersionYellow},
-		{name: "grok 1.0.89 yellow eligible", family: FamilyGrok, version: "1.0.89", available: true, reason: "eligible", class: VersionYellow},
+		{name: "below Grok minimum", family: FamilyGrok, version: "1.0.40", available: false, reason: "ineligible_version", class: VersionRed},
+		{name: "minimum", family: FamilyGrok, version: "1.0.89", available: true, reason: "eligible", class: VersionGreen},
+		{name: "verified latest", family: FamilyGrok, version: "1.0.89", available: true, reason: "eligible", class: VersionGreen},
 		{name: "grok 1.0.90 yellow eligible", family: FamilyGrok, version: "1.0.90", available: true, reason: "eligible", class: VersionYellow},
-		{name: "newer with current pass", family: FamilyGrok, version: "1.0.41", available: true, reason: "eligible", class: VersionYellow},
-		{name: "newer with failed current pass", family: FamilyGrok, version: "1.0.41", mutate: func(input *QualificationInput) { input.Receipts[0].State = ReceiptFailed }, available: false, reason: "non_passing_receipt", class: VersionYellow},
+		{name: "newer with current pass", family: FamilyGrok, version: "1.0.90", available: true, reason: "eligible", class: VersionYellow},
+		{name: "newer with failed current pass", family: FamilyGrok, version: "1.0.90", mutate: func(input *QualificationInput) { input.Receipts[0].State = ReceiptFailed }, available: false, reason: "non_passing_receipt", class: VersionYellow},
 		{name: "unparseable", family: FamilyZCode, version: "current", available: false, reason: "unparseable_version", class: VersionUnknown},
 	}
 	for _, test := range tests {
@@ -438,7 +435,7 @@ func TestDiscoverProviderProfilesUsesIdentityOnlyZCodeNodeLauncher(t *testing.T)
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
 		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
 		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
-		"grok":          discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.34"),
+		"grok":          discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.89"),
 		"codex":         discoveredExecutable(t, "codex", "/opt/providers/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
@@ -461,7 +458,7 @@ func TestDiscoverProviderProfilesUsesIdentityOnlyZCodeNodeLauncher(t *testing.T)
 func TestDiscoverProviderProfileObservesOnlyRequestedFamily(t *testing.T) {
 	inspector := &recordingDiscoveryInspector{
 		executables: map[string]ports.ExecutableObservation{
-			"grok": discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.34"),
+			"grok": discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.89"),
 		},
 		errors: map[string]error{"node": errors.New("poisoned ZCode")},
 	}
@@ -599,7 +596,7 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
 		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
 		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
-		"grok":          discoveredExecutable(t, "grok", "/new/location/grok", "1.0.34"),
+		"grok":          discoveredExecutable(t, "grok", "/new/location/grok", "1.0.89"),
 		"codex":         discoveredExecutable(t, "codex", "/new/location/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
@@ -630,7 +627,7 @@ func TestDiscoverProviderProfilesTreatsUnparseableAsYellowUnavailable(t *testing
 	inspector := discoveryInspector{executables: map[string]ports.ExecutableObservation{
 		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
 		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
-		"grok":          discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.34"),
+		"grok":          discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.89"),
 		"codex":         discoveredExecutable(t, "codex", "/opt/providers/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)

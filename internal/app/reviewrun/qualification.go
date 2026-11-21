@@ -58,7 +58,7 @@ const cursorVerifiedVersion = "2026.10.14-0f9edde"
 var guidance = [...]VersionGuidance{
 	// ZCode launcher protocol guidance is independent from the app version.
 	{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
-	{Family: FamilyGrok, Minimum: "1.0.34", VerifiedLatest: "1.0.40"},
+	{Family: FamilyGrok, Minimum: "1.0.89", VerifiedLatest: "1.0.89"},
 	{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
 	// Cursor guidance is one pinned calendar date and commit hash. The hash
 	// identifies that tuple; it is not an ordering key.

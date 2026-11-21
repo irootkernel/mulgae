@@ -89,6 +89,92 @@ func TestGrokCredentialProjectionRejectsNonPrivateAuth(t *testing.T) {
 	}
 }
 
+func TestGrokCredentialProjectionRejectsHardlinkedAndEmptyAuth(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin descriptor traversal is required")
+	}
+	t.Run("rejects 0-byte auth.json at admission", func(t *testing.T) {
+		home := credentialSourceTempDir(t)
+		writeCredentialSource(t, home, ".grok/auth.json", "")
+		base, err := NewNamespaceFactory(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy := mustCredentialSourcePolicy(t, CredentialSourceGrok)
+		factory, err := NewCredentialProjectingNamespaceFactoryWithPolicies(
+			base, home,
+			map[string]CredentialSourceFamily{"grok": CredentialSourceGrok},
+			map[string]RuntimeSafetyPolicy{"grok": policy},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := factory.AcquireProviderNamespace(context.Background(), "grok", FamilyGrok); err == nil {
+			t.Fatal("0-byte Grok auth.json was admitted")
+		}
+	})
+
+	t.Run("rejects hardlinked auth.json at admission", func(t *testing.T) {
+		home := credentialSourceTempDir(t)
+		writeCredentialSource(t, home, ".grok/auth.json", `{"token":"secret"}`)
+		authPath := filepath.Join(home, ".grok", "auth.json")
+		aliasPath := filepath.Join(home, ".grok", "auth-hardlink.json")
+		if err := os.Link(authPath, aliasPath); err != nil {
+			t.Fatal(err)
+		}
+		base, err := NewNamespaceFactory(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy := mustCredentialSourcePolicy(t, CredentialSourceGrok)
+		factory, err := NewCredentialProjectingNamespaceFactoryWithPolicies(
+			base, home,
+			map[string]CredentialSourceFamily{"grok": CredentialSourceGrok},
+			map[string]RuntimeSafetyPolicy{"grok": policy},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := factory.AcquireProviderNamespace(context.Background(), "grok", FamilyGrok); err == nil {
+			t.Fatal("hardlinked Grok auth.json (Nlink > 1) was admitted")
+		}
+	})
+
+	t.Run("rejects hardlink added after projection on ValidateForSpawn", func(t *testing.T) {
+		home := credentialSourceTempDir(t)
+		writeCredentialSource(t, home, ".grok/auth.json", `{"token":"secret"}`)
+		base, err := NewNamespaceFactory(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy := mustCredentialSourcePolicy(t, CredentialSourceGrok)
+		factory, err := NewCredentialProjectingNamespaceFactoryWithPolicies(
+			base, home,
+			map[string]CredentialSourceFamily{"grok": CredentialSourceGrok},
+			map[string]RuntimeSafetyPolicy{"grok": policy},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lease, err := factory.AcquireProviderNamespace(context.Background(), "grok", FamilyGrok)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lease.DrainTerminal(context.Background())
+		if err := lease.ValidateForSpawn(); err != nil {
+			t.Fatalf("initial ValidateForSpawn failed: %v", err)
+		}
+		authPath := filepath.Join(home, ".grok", "auth.json")
+		aliasPath := filepath.Join(home, ".grok", "auth-post-hardlink.json")
+		if err := os.Link(authPath, aliasPath); err != nil {
+			t.Fatal(err)
+		}
+		if err := lease.ValidateForSpawn(); err == nil {
+			t.Fatal("ValidateForSpawn failed to reject post-projection hardlink on Grok auth.json")
+		}
+	})
+}
+
 func TestCodexCredentialProjectionUsesConfiguredCodexHome(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("Darwin descriptor traversal is required")

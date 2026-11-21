@@ -305,7 +305,7 @@ func productionCandidateTemplatesWithAllProviderSettingsAndTimeouts(identities m
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
 			case FamilyGrok:
 				template.grokModel, template.grokReasoningEffort = grokModel, grokReasoningEffort
-				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
+				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelTerminal, -1
 			case FamilyAgy:
 				template.agyModel, template.agyReasoningEffort = agyModel, agyReasoningEffort
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
@@ -412,8 +412,11 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		if template.family == FamilyCodex {
 			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1
 		}
-		if template.family == FamilyZCode || template.family == FamilyGrok || template.family == FamilyCursor || template.family == FamilyAgy {
+		if template.family == FamilyZCode || template.family == FamilyCursor || template.family == FamilyAgy {
 			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1
+		}
+		if template.family == FamilyGrok {
+			validTransport = template.transportChannel == ports.ProviderPacketChannelTerminal && template.transportArgvIndex == -1
 		}
 		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" || !validTransport || template.transportReference != "" ||
 			!validIdentity || len(template.supportedRoles) == 0 {

@@ -63,11 +63,8 @@ func TestProviderToolDiagnosticOrder(t *testing.T) {
 		},
 		{name: "identical pending diagnostics", operations: []operation{{"2", "good.txt", "pending"}, {"10", "other.txt", "pending"}}, pending: true},
 	}
-	for _, family := range []string{"grok", "cursor"} {
+	for _, family := range []string{"cursor"} {
 		stages := []string{"prompt"}
-		if family == "grok" {
-			stages = append(stages, "close with late updates")
-		}
 		for _, stage := range stages {
 			for _, test := range cases {
 				for _, reverse := range []bool{false, true} {
@@ -80,89 +77,38 @@ func TestProviderToolDiagnosticOrder(t *testing.T) {
 								t.Fatal(err)
 							}
 						}
-						var observe func(operation) error
-						var finish func() error
-						if family == "grok" {
-							authority, err := newGrokLiveReadAuthority(ctx, execution)
-							if err != nil {
+						authority, err := newCursorLiveReadAuthority(ctx, execution)
+						if err != nil {
+							t.Fatal(err)
+						}
+						session := cursorMatrixSession(t, authority)
+						state := cursorACPConversation{session: session, tools: make(map[string]*cursorToolState), outstanding: "cursor-initialize"}
+						for _, line := range cursorMatrixAppend(cursorMatrixPrefix(true), cursorMatrixMessage("report")) {
+							var message cursorACPMessage
+							if err := json.Unmarshal(line, &message); err != nil {
 								t.Fatal(err)
 							}
-							state := grokACPConversation{purpose: protocolPurposeLiveReview, workspacePath: "/neutral", prompt: "review", liveReads: authority, phase: ports.ProviderSessionPhaseCreate, toolVariants: make(map[string]bool)}
-							for _, line := range []string{grokInitializeResult, grokAuthResult, grokNewResult} {
-								message, err := parseGrokACPMessage([]byte(line))
-								if err != nil {
-									t.Fatal(err)
-								}
-								if done, err := state.handle(ctx, &scriptedCodexExchange{}, message); err != nil || done {
-									t.Fatalf("prefix did not reach live prompt: done=%t error=%v", done, err)
-								}
+							if done, err := state.handle(ctx, &scriptedCodexExchange{}, message); err != nil || done {
+								t.Fatalf("Cursor prefix did not reach live prompt: done=%t error=%v", done, err)
 							}
-							if !state.promptSent {
-								t.Fatal("prefix never sent the prompt")
-							}
-							message := grokACPMessage{Method: grokACPSessionUpdateMethod, Params: agyTestJSON(map[string]any{"sessionId": state.sessionID, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "report"}}})}
-							if err := state.handleNotification(ctx, nil, message); err != nil || !state.messageReceived {
-								t.Fatalf("assistant prefix rejected: %v", err)
-							}
-							terminalID := grokACPPromptID
-							if stage != "prompt" {
-								if done, err := state.handle(ctx, &scriptedCodexExchange{}, grokACPMessage{ID: json.RawMessage(`"` + grokACPPromptID + `"`), Result: json.RawMessage(`{"stopReason":"end_turn"}`)}); err != nil || done || !state.closeSent {
-									t.Fatalf("late-update window not reached: done=%t error=%v", done, err)
-								}
-								terminalID = grokACPCloseID
-							}
-							observe = func(op operation) error {
-								return state.handleNotification(ctx, nil, grokACPMessage{Method: grokACPSessionUpdateMethod, Params: agyTestJSON(map[string]any{
-									"sessionId": state.sessionID, "update": map[string]any{"sessionUpdate": grokACPToolCallUpdate, "toolCallId": op.id, "kind": "read", "status": op.status, "rawInput": map[string]string{"variant": "ReadFile", "target_file": filepath.Join(project, op.path)}},
-								})})
-							}
-							finish = func() error {
-								current := state
-								exchange := &scriptedCodexExchange{}
-								done, err := current.handle(ctx, exchange, grokACPMessage{ID: json.RawMessage(`"` + terminalID + `"`), Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
-								if err != nil {
-									if !done || current.closeAccepted || len(exchange.sent) != 0 || stage == "prompt" && current.promptCompleted {
-										t.Fatalf("Grok final rejection advanced acceptance: done=%t error=%v", done, err)
-									}
-								} else if stage == "prompt" && (done || !current.closeSent || len(exchange.sent) != 1) || stage != "prompt" && (!done || !current.closeAccepted) {
-									t.Fatalf("Grok final control did not complete: done=%t error=%v", done, err)
-								}
-								return err
-							}
-						} else {
-							authority, err := newCursorLiveReadAuthority(ctx, execution)
-							if err != nil {
+						}
+						if !state.promptSent || len(session.assistant) == 0 {
+							t.Fatal("Cursor prefix never established a report turn")
+						}
+						observe := func(op operation) error {
+							var message cursorACPMessage
+							if err := json.Unmarshal(cursorMatrixUpdate(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": op.id, "kind": "read", "status": op.status, "rawInput": map[string]string{"path": filepath.Join(project, op.path)}}), &message); err != nil {
 								t.Fatal(err)
 							}
-							session := cursorMatrixSession(t, authority)
-							state := cursorACPConversation{session: session, tools: make(map[string]*cursorToolState), outstanding: "cursor-initialize"}
-							for _, line := range cursorMatrixAppend(cursorMatrixPrefix(true), cursorMatrixMessage("report")) {
-								var message cursorACPMessage
-								if err := json.Unmarshal(line, &message); err != nil {
-									t.Fatal(err)
-								}
-								if done, err := state.handle(ctx, &scriptedCodexExchange{}, message); err != nil || done {
-									t.Fatalf("Cursor prefix did not reach live prompt: done=%t error=%v", done, err)
-								}
+							return state.handleUpdate(ctx, nil, message)
+						}
+						finish := func() error {
+							current := state
+							done, err := current.handle(ctx, &scriptedCodexExchange{}, cursorACPMessage{ID: json.RawMessage(`"cursor-prompt"`), Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
+							if !done || (err == nil) != current.promptCompleted {
+								t.Fatalf("Cursor final acceptance disagrees with error: done=%t completed=%t error=%v", done, current.promptCompleted, err)
 							}
-							if !state.promptSent || len(session.assistant) == 0 {
-								t.Fatal("Cursor prefix never established a report turn")
-							}
-							observe = func(op operation) error {
-								var message cursorACPMessage
-								if err := json.Unmarshal(cursorMatrixUpdate(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": op.id, "kind": "read", "status": op.status, "rawInput": map[string]string{"path": filepath.Join(project, op.path)}}), &message); err != nil {
-									t.Fatal(err)
-								}
-								return state.handleUpdate(ctx, nil, message)
-							}
-							finish = func() error {
-								current := state
-								done, err := current.handle(ctx, &scriptedCodexExchange{}, cursorACPMessage{ID: json.RawMessage(`"cursor-prompt"`), Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
-								if !done || (err == nil) != current.promptCompleted {
-									t.Fatalf("Cursor final acceptance disagrees with error: done=%t completed=%t error=%v", done, current.promptCompleted, err)
-								}
-								return err
-							}
+							return err
 						}
 						completed := 0
 						for i := range test.operations {

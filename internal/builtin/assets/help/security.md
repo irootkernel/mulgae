@@ -10,19 +10,36 @@ neutral `~/.mulgae/home` process/session directory. Mulgae preserves a safe
 regular guide there and injects it once. It does not load project or ancestor
 instruction files as authority. Project context remains framed untrusted data.
 
-ZCode and Grok require an outer Seatbelt policy for review and extraction.
-It denies source, Git and guide writes; credential-root reads, writes and links;
-and Unix sockets at protected roots. Grok's native sandbox is off only inside
-this mandatory guard. Cursor review and extraction require that same outer
-Seatbelt policy. The adapter does not launch Cursor without it. Cursor uses
-ACP ask mode from the neutral cwd. Planned reads stay admitted, and each exact
-Git command is a separate `allow_once`. The process receives the selected
-`CURSOR_AUTH_TOKEN` and forces an in-memory credential store. User rules,
-skills and MCP configuration are not projected. Codex uses its native
-read-only profile, approvals never, and explicit credential-root denial. All
+ZCode, Grok, Cursor and AGY require an outer Seatbelt policy for review and
+extraction, and every provider live boundary (including Codex's
+`permissions.mulgae` profile) denies shared `herdr-core` control-plane roots
+and sockets. The Seatbelt guard denies source, Git and guide writes;
+credential-root reads, writes and links; control-plane root and socket access;
+and Unix sockets at protected roots.
+
+Grok runs inside an isolated Mulgae-owned `herdr-core` terminal pane with a
+trampoline-verified `PaneTTY` (blocking foreign `/dev/ttys*` and `TIOCSTI`),
+disposable `HOME` and `GROK_HOME` containing only a minimal `requirements.toml`
+and projected `0600` `auth.json` (never written back, while `~/.grok` remains
+protected in `CredentialRoots`). Workspace review, extraction and qualification
+are strictly shell-free; index and commit reviews enable `Bash` only under all
+five `B-1` controls (Seatbelt process/socket/file limits plus post-`ESRCH`
+same-UID sentinel survivor and `mtime`/`ctime` stability checks). Staged
+prompts live read-only (`0400`) under `<scratch>/input/` (protected in
+`ReadOnlyRoots`), and staged outputs are read strictly after `ESRCH` via
+`O_NOFOLLOW` single-file `Nlink == 1` validation and completion-nonce
+verification.
+
+Cursor review and extraction require that same outer Seatbelt policy. The
+adapter does not launch Cursor without it. Cursor uses ACP ask mode from the
+neutral cwd. Planned reads stay admitted, and each exact Git command is a
+separate `allow_once`. The process receives the selected `CURSOR_AUTH_TOKEN`
+and forces an in-memory credential store. User rules, skills and MCP
+configuration are not projected. Codex uses its native read-only profile,
+approvals never, and explicit credential-root and control-plane denial. All
 configured credential homes are protected, including unselected profiles and
-aliases. Provider namespaces and
-scratch are private and are removed after verified process drain.
+aliases. Provider namespaces and scratch are private and are removed after
+verified process drain and terminal-session close.
 
 AGY requires native plan mode and the outer guard. It imports only the default
 Gemini token into a private writable Gemini directory. The original token is
@@ -55,8 +72,10 @@ filters, pagers, credential helpers and unknown settings are rejected. Both main
 and worktree configuration are checked again during execution; caller Git
 configuration is not rewritten. Provider Git transport protocols are disabled.
 
-Every provider returns a complete correlated protocol assistant report. There
-is no live-review report-file write grant. Reports, prompt payloads and complete
+Protocol providers return correlated assistant reports directly; terminal
+providers (Grok) write one invocation-scoped staged file inside the private
+writable namespace that Mulgae validates strictly after `ESRCH` and publishes
+under `result_transport: "stdout"`. Reports, prompt payloads and complete
 provider streams have no product byte ceiling. Optional repair and extraction
 use the same provider and bounded role path; protected failures always deny
 repair or publication.

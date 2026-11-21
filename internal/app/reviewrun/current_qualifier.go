@@ -355,7 +355,7 @@ func retryableOperationalProbeFailure(err error) bool {
 		}
 		switch cause {
 		case domain.DiagnosticCauseProviderExecutionFailed, domain.DiagnosticCauseProviderSpawnFailed,
-			domain.DiagnosticCauseProviderProcessWaitFailed, domain.DiagnosticCauseProcessGroupCleanupFailed,
+			domain.DiagnosticCauseProviderProcessWaitFailed,
 			domain.DiagnosticCauseTimedOut, domain.DiagnosticCauseRateLimited, domain.DiagnosticCauseQuotaExceeded:
 			return true
 		}

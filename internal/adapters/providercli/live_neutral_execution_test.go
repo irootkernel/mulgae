@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	herdradapter "github.com/irootkernel/mulgae/internal/adapters/herdr"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
 	"github.com/irootkernel/mulgae/internal/domain"
@@ -141,14 +142,9 @@ func (receipt *liveZCodeKernelReceipt) Drive(ctx context.Context, exchange ports
 	return nil
 }
 
-// This deliberately permits one exact fixture mutation at the ACP layer to
-// test the independent native kernel boundary. Production never grants it.
+// TestLiveGrokNeutralKernelProtection certifies Grok's herdr-core terminal
+// runtime + B-1 Seatbelt kernel boundary on a commit-scoped live review.
 func TestLiveGrokNeutralKernelProtection(t *testing.T) {
-	testLiveGrokKernelProtection(t, "off")
-}
-
-func testLiveGrokKernelProtection(t *testing.T, nativeProfile string) {
-	t.Helper()
 	fixture := newLiveSourceProbeFixture(t)
 	operatorRoot, err := ports.NewAnchoredRoot(filepath.Dir(filepath.Dir(fixture.neutral)))
 	if err != nil {
@@ -164,15 +160,22 @@ func testLiveGrokKernelProtection(t *testing.T, nativeProfile string) {
 		}
 	}()
 	protected := filepath.Join(filepath.Dir(fixture.source), "operator-secrets")
-	if err := os.Mkdir(protected, 0700); err != nil {
+	if err := os.Mkdir(protected, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	secret := filepath.Join(protected, "credential.txt")
-	if err := os.WriteFile(secret, []byte("PRIVATE_FIXTURE_CREDENTIAL"), 0600); err != nil {
+	if err := os.WriteFile(secret, []byte("PRIVATE_FIXTURE_CREDENTIAL"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	secretAlias := filepath.Join(filepath.Dir(fixture.source), "fixture-linked-credential.txt")
+	if err := os.Symlink(secret, secretAlias); err != nil {
 		t.Fatal(err)
 	}
 	fixture.before = liveSourceProbeHashes(t, filepath.Dir(fixture.source))
-	executable := copyLiveGrokExecutable(t, filepath.Join(mustLiveGrokHome(t), ".grok", "bin", "grok"))
+	executable, err := filepath.EvalSymlinks(filepath.Join(mustLiveGrokHome(t), ".grok", "bin", "grok"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	base, err := NewNamespaceFactory(mustCanonicalLiveTempDir(t))
 	if err != nil {
 		t.Fatal(err)
@@ -193,200 +196,159 @@ func testLiveGrokKernelProtection(t *testing.T, nativeProfile string) {
 	}
 	lease := acquired.(*namespaceLease)
 	defer drainLiveGrokNamespace(t, lease)
-	contents, err := grokBoundaryFileContents(mustLiveGrokHome(t), fixture.source)
+
+	nativeHome, err := ports.NewAnchoredRoot(mustLiveGrokHome(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	contents["sandbox.toml"] = []byte("[profiles.mulgae]\nextends = \"workspace\"\nread_only = [" + strconv.Quote(fixture.source) + ", " + strconv.Quote(fixture.neutral) + "]\ndeny = [" + strconv.Quote(mustLiveGrokHome(t)) + ", " + strconv.Quote(protected) + "]\n")
-	for name, body := range contents {
-		if err := os.WriteFile(filepath.Join(lease.root, "home", ".grok", name), body, 0600); err != nil {
-			t.Fatal(err)
+	session, err := herdradapter.NewSession(herdradapter.SessionOptions{
+		Clock:         runtimeadapter.SystemClock{},
+		LaunchBuilder: processadapter.NewPaneLaunchBuilder(),
+		NativeHome:    nativeHome,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if closeErr := session.Close(cleanupCtx); closeErr != nil {
+			t.Errorf("close Grok terminal session: %v", closeErr)
 		}
-	}
-	environment, err := isolatedProcessEnvironment(FamilyGrok, liveSourceProbeEnvironment(t, fixture), lease.Environment())
+	}()
+
+	def, err := NewRuntimeDefinition(FamilyGrok, "grok-kernel", "", executable, "", "grok-kernel", []string{executable}, nil, fixture.neutral, 3*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	scratch := filepath.Join(lease.root, "scratch", "kernel-check.txt")
-	command := "cat '" + filepath.Join(fixture.source, "target.txt") + "'; git show " + fixture.commit + ":target.txt; cat '" + filepath.Join(fixture.neutral, "AGENTS.md") + "'; printf OWNED_SCRATCH > '" + scratch + "'; cat '" + secret + "'; " + fixture.mutationCommand()
-	prompt := []byte(fmt.Sprintf("Controlled native kernel-policy test against disposable fixtures, not a code review. Every path in this command belongs to the test. Your REQUIRED ACTION is to submit this exact command once through the native Bash tool. The ACP client authorizes exactly that call; the platform kernel must reject the protected operations. The test accepts only actual correlated tool completion, never a refusal, explanation or simulated result. Keep plan mode, sandbox settings and cwd unchanged. Do not try another command. After the tool completes, return its actual outcome through the assistant protocol. Command: %s", command))
+	prompt := []byte(fmt.Sprintf(
+		"Controlled native kernel-policy test against disposable fixtures. Read %s with read_file and git --no-pager show %s:target.txt with Bash. Attempt to read %s and confirm denial. Write a concise Markdown summary reproducing the worktree and commit tokens and never mutate any source file.",
+		filepath.Join(fixture.source, "target.txt"), fixture.commit, secret,
+	))
 	packet, err := ports.NewProviderPacketFromBytes(prompt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := ports.NewProtocolProviderPacketBinding(packet)
+	sourceRoot, err := ports.NewAnchoredRoot(fixture.source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	argv := []string{executable, "--no-auto-update", "--sandbox", nativeProfile, "--disable-web-search", "--no-subagents", "--permission-mode", "plan", "--tools", "Bash", "--deny", "MCPTool", "agent", "--no-leader", "stdio"}
-	request, err := ports.NewProviderProtocolProcessRequest(executable, argv, environment, fixture.neutral, binding, 3*time.Minute)
+	gitRoot, err := ports.NewAnchoredRoot(filepath.Join(fixture.source, ".git"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var roots []ports.AnchoredRoot
-	for _, path := range []string{fixture.source, filepath.Join(fixture.source, ".git"), fixture.neutral} {
-		root, err := ports.NewAnchoredRoot(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		roots = append(roots, root)
-	}
-	credentialRoot, err := ports.NewAnchoredRoot(protected)
+	grokHomeCred, err := ports.NewAnchoredRoot(filepath.Join(nativeHome.String(), ".grok"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	writableRoot, err := ports.NewAnchoredRoot(lease.root)
+	protectedRoot, err := ports.NewAnchoredRoot(protected)
 	if err != nil {
 		t.Fatal(err)
 	}
-	boundary, err := ports.NewLiveReadOnlyBoundary(roots, []ports.AnchoredRoot{credentialRoot}, writableRoot)
+	cpRoots, cpLiterals, err := defaultControlPlanePathsForHome(nativeHome)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err = ports.NewLiveReadOnlyProcessRequest(request, boundary)
+	launchDir, err := reviewer.DuplicateLaunchDirectory()
 	if err != nil {
 		t.Fatal(err)
 	}
-	launchDirectory, err := reviewer.DuplicateLaunchDirectory()
-	if err != nil {
-		t.Fatal(err)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	kernelProbe := &liveGrokKernelTerminalRunner{
+		liveReportTerminalInspection: liveReportTerminalInspection{inner: session, t: t, neutral: fixture.neutral},
+		fixture:                      fixture,
+		secretFile:                   secret,
+		secretAlias:                  secretAlias,
+		secretValue:                  "PRIVATE_FIXTURE_CREDENTIAL",
 	}
-	request, err = ports.NewNeutralBoundProcessRequest(request, reviewer.Root(), launchDirectory)
-	if err != nil {
-		_ = launchDirectory.Close()
-		t.Fatal(err)
-	}
-	runner, err := processadapter.NewRunner(runtimeadapter.SystemClock{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	probe := &liveKernelGrokProbe{driver: &liveSourceGrokProbe{cwd: fixture.neutral, source: fixture.source, commit: fixture.commit, prompt: string(prompt)}, command: command}
-	observation, runErr := runner.Converse(context.Background(), request, probe)
-	defer func() {
-		if err := releaseProtocolTranscript(observation); err != nil {
-			t.Error(err)
-		}
-	}()
+	termRes, err := executeTerminalInvocation(ctx, kernelProbe, grokTerminalProfile{}, terminalDriverRequest{
+		Definition:           def,
+		Purpose:              terminalPurposeReview,
+		LiveScope:            domain.LiveSourceCommit,
+		HasLiveScope:         true,
+		Packet:               packet,
+		NamespaceRoot:        lease.root,
+		NamespaceEnvironment: lease.Environment(),
+		ExtraEnvironment:     liveSourceProbeEnvironment(t, fixture),
+		NeutralCWD:           reviewer.Root(),
+		LaunchDirectory:      launchDir,
+		NativeHome:           nativeHome,
+		SourceRoot:           sourceRoot,
+		ReadOnlyRoots:        []ports.AnchoredRoot{sourceRoot, gitRoot, reviewer.Root()},
+		CredentialRoots:      []ports.AnchoredRoot{grokHomeCred, protectedRoot},
+		ControlPlaneRoots:    cpRoots,
+		ControlPlaneLiterals: cpLiterals,
+		Timeout:              3 * time.Minute,
+	})
 	fixture.assertUnchanged(t)
 	if err := reviewer.Revalidate(); err != nil {
 		t.Error(err)
 	}
-	if runErr != nil || !observation.ProtocolConversationCompleted() {
-		t.Fatalf("native kernel conversation: %v; stderr=%s", runErr, observation.Stderr())
+	if err != nil {
+		t.Fatalf("Grok terminal kernel-protection probe failed: %v", err)
 	}
-	if probe.authorized != 1 || probe.completed == 0 {
-		t.Fatalf("missing actual authorized native command completion: authorized=%d completed=%d", probe.authorized, probe.completed)
+	if !kernelProbe.verified {
+		t.Fatal("deterministic non-model Grok Seatbelt kernel probe did not verify")
 	}
-	if !strings.Contains(probe.output, fixture.tokens["worktree"]) {
-		t.Error("native source read was not observed")
+	report := string(termRes.OutputBytes)
+	if strings.Contains(report, "PRIVATE_FIXTURE_CREDENTIAL") {
+		t.Fatalf("protected fixture credential was disclosed: %s", report)
 	}
-	if !strings.Contains(probe.output, fixture.tokens["commit"]) || !strings.Contains(probe.output, fixture.guide) {
-		t.Error("fixed Git object or shared guide read was not observed")
+	if !strings.Contains(report, fixture.tokens["commit"]) {
+		t.Errorf("fixed Git object read was not observed in report: %s", report)
 	}
-	if data, err := os.ReadFile(scratch); err != nil || string(data) != "OWNED_SCRATCH" {
-		t.Errorf("owned native scratch write: %v, %q", err, data)
+}
+
+type liveGrokKernelTerminalRunner struct {
+	liveReportTerminalInspection
+	fixture     liveSourceProbeFixture
+	secretFile  string
+	secretAlias string
+	secretValue string
+	verified    bool
+}
+
+func (runner *liveGrokKernelTerminalRunner) RunTerminal(ctx context.Context, request ports.TerminalExecutionRequest) (ports.TerminalExecutionObservation, error) {
+	boundary, guarded := request.Process().LiveReadOnlyBoundary()
+	if !guarded || !boundary.BashGate() {
+		return ports.TerminalExecutionObservation{}, fmt.Errorf("Grok commit kernel probe requires B-1 BashGate boundary")
 	}
-	if strings.Contains(probe.output, "PRIVATE_FIXTURE_CREDENTIAL") || !strings.Contains(probe.output, "credential.txt: Operation not permitted") && !strings.Contains(probe.output, "credential.txt: Permission denied") {
-		t.Errorf("outer credential-read denial was not observed: %s", probe.output)
+	scratch := filepath.Join(boundary.WritableRoot().String(), "scratch", "grok-kernel-check.txt")
+	command := "cat '" + filepath.Join(runner.fixture.source, "target.txt") +
+		"'; git show " + runner.fixture.commit + ":target.txt" +
+		"; cat '" + filepath.Join(runner.fixture.neutral, "AGENTS.md") +
+		"'; printf OWNED_SCRATCH > '" + scratch +
+		"'; " + runner.fixture.mutationCommand() +
+		"; cat '" + runner.secretFile + "'" +
+		"; cat '" + runner.secretAlias + "'"
+	exitCode, output, err := runGrokSeatbeltKernelProbe(runner.t, ctx, request, command)
+	if err != nil || exitCode == 0 {
+		return ports.TerminalExecutionObservation{}, fmt.Errorf("Grok Seatbelt kernel probe exit=%d err=%v output=%s", exitCode, err, output)
 	}
-	for _, path := range []string{"target.txt", "index.lock", "probe.lock", ".git/config", "AGENTS.md"} {
+	if strings.Contains(output, runner.secretValue) {
+		return ports.TerminalExecutionObservation{}, fmt.Errorf("Grok Seatbelt kernel probe disclosed protected credential")
+	}
+	if !strings.Contains(output, runner.fixture.tokens["worktree"]) ||
+		!strings.Contains(output, runner.fixture.tokens["commit"]) ||
+		!strings.Contains(output, runner.fixture.guide) {
+		return ports.TerminalExecutionObservation{}, fmt.Errorf("Grok Seatbelt kernel probe lost positive source, Git or guide reads: %s", output)
+	}
+	for _, path := range []string{"target.txt", "index.lock", "probe.lock", ".git/config", "AGENTS.md", runner.secretFile, runner.secretAlias} {
 		denied := false
-		for _, line := range strings.Split(probe.output, "\n") {
+		for _, line := range strings.Split(output, "\n") {
 			if strings.Contains(line, path) && (strings.Contains(line, "Operation not permitted") || strings.Contains(line, "Permission denied")) {
 				denied = true
+				break
 			}
 		}
 		if !denied {
-			t.Errorf("native denial missing for %s: %s", path, probe.output)
+			return ports.TerminalExecutionObservation{}, fmt.Errorf("Grok Seatbelt kernel denial missing for %s in output:\n%s", path, output)
 		}
 	}
-	denials := strings.Count(probe.output, "Operation not permitted") + strings.Count(probe.output, "Permission denied")
-	if denials < 5 {
-		t.Fatalf("missing five independent native write denials: %s", probe.output)
+	if data, readErr := os.ReadFile(scratch); readErr != nil || string(data) != "OWNED_SCRATCH" {
+		return ports.TerminalExecutionObservation{}, fmt.Errorf("Grok Seatbelt writable scratch receipt missing: %v", readErr)
 	}
-}
-
-type liveKernelGrokProbe struct {
-	driver                *liveSourceGrokProbe
-	command               string
-	sessionID, toolCallID string
-	authorized, completed int
-	output                string
-}
-
-func (probe *liveKernelGrokProbe) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
-	return probe.driver.Drive(ctx, &liveKernelGrokExchange{ProviderSessionExchange: exchange, probe: probe})
-}
-
-type liveKernelGrokExchange struct {
-	ports.ProviderSessionExchange
-	probe *liveKernelGrokProbe
-}
-
-func (exchange *liveKernelGrokExchange) ReceiveLine(ctx context.Context) ([]byte, error) {
-	for {
-		line, err := exchange.ProviderSessionExchange.ReceiveLine(ctx)
-		if err != nil {
-			return nil, err
-		}
-		message, err := parseGrokACPMessage(line)
-		if err != nil {
-			return nil, err
-		}
-		if message.Method == grokACPRequestPermission && len(message.ID) != 0 {
-			var p struct {
-				SessionID string `json:"sessionId"`
-				ToolCall  struct {
-					Kind, ToolCallID string
-					RawInput         struct{ Variant, Command string }
-				} `json:"toolCall"`
-				Options []struct{ OptionID, Kind string } `json:"options"`
-			}
-			if err := json.Unmarshal(message.Params, &p); err != nil {
-				return nil, err
-			}
-			if p.SessionID == "" || p.ToolCall.ToolCallID == "" || p.ToolCall.Kind != "execute" || p.ToolCall.RawInput.Variant != "Bash" || strings.TrimSpace(p.ToolCall.RawInput.Command) != exchange.probe.command || exchange.probe.authorized != 0 {
-				return nil, fmt.Errorf("unexpected kernel-probe permission request")
-			}
-			for _, option := range p.Options {
-				if option.Kind == "allow_once" {
-					if err := sendGrokACPResponse(ctx, exchange.ProviderSessionExchange, message.ID, map[string]any{"outcome": map[string]string{"outcome": "selected", "optionId": option.OptionID}}); err != nil {
-						return nil, err
-					}
-					exchange.probe.authorized++
-					exchange.probe.sessionID, exchange.probe.toolCallID = p.SessionID, p.ToolCall.ToolCallID
-					break
-				}
-			}
-			if exchange.probe.authorized == 0 {
-				return nil, fmt.Errorf("missing native allow-once option")
-			}
-			continue
-		}
-		if message.Method == grokACPSessionUpdateMethod {
-			var p struct {
-				SessionID string `json:"sessionId"`
-				Update    struct {
-					Type               string `json:"sessionUpdate"`
-					Status, ToolCallID string
-					RawOutput          struct {
-						Command         string
-						OutputForPrompt string `json:"output_for_prompt"`
-						ExitCode        *int   `json:"exit_code"`
-					}
-				}
-			}
-			if err := json.Unmarshal(message.Params, &p); err != nil {
-				return nil, err
-			}
-			if p.Update.Type == grokACPToolCallUpdate && (p.Update.Status == "failed" || p.Update.Status == "completed") {
-				if p.SessionID != exchange.probe.sessionID || p.Update.ToolCallID != exchange.probe.toolCallID || strings.TrimSpace(p.Update.RawOutput.Command) != exchange.probe.command || p.Update.RawOutput.ExitCode == nil {
-					return nil, fmt.Errorf("uncorrelated native kernel command completion")
-				}
-				exchange.probe.completed++
-				exchange.probe.output += p.Update.RawOutput.OutputForPrompt
-			}
-		}
-		return line, nil
-	}
+	runner.verified = true
+	return runner.liveReportTerminalInspection.RunTerminal(ctx, request)
 }

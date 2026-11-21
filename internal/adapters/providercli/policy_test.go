@@ -63,6 +63,10 @@ func TestCurrentProbeDirectExecutionAuthorityBindsDirectRoleProofs(t *testing.T)
 			proof.ApplicationVersion = ""
 			proof.ApplicationMetadata = ""
 			proof.ApplicationMetadataSHA256 = ""
+			proof.TerminalRuntimeExecutable = "/private/bin/herdr-core"
+			proof.TerminalRuntimeExecutableSHA256 = "sha256:" + strings.Repeat("d", 64)
+			proof.TerminalRuntimeVersion = "0.1.0"
+			proof.TerminalRuntimePolicyIdentity = "sha256:" + strings.Repeat("e", 64)
 		},
 		"instance":       func(proof *currentProbeDirectExecutionRoleProof) { proof.ProviderInstance = "other" },
 		"version":        func(proof *currentProbeDirectExecutionRoleProof) { proof.ObservedVersion = "2.0.0" },
@@ -130,6 +134,57 @@ func TestCurrentProbeDirectExecutionAuthorityBindsDirectRoleProofs(t *testing.T)
 	}
 	if _, err := newCurrentProbeDirectExecutionAuthorityReceipt(nil, expires); err == nil {
 		t.Fatal("missing role proof accepted")
+	}
+
+	// Verify every Grok terminal runtime identity field is bound and required.
+	grokProof := proof
+	grokProof.Family = FamilyGrok
+	grokProof.ProviderInstance = "grok_current"
+	grokProof.Executable = "/private/bin/grok"
+	grokProof.Launcher = "/private/bin/grok"
+	grokProof.ZCodeProviderConfig = ""
+	grokProof.ZCodeProviderConfigSHA256 = ""
+	grokProof.ApplicationVersion = ""
+	grokProof.ApplicationMetadata = ""
+	grokProof.ApplicationMetadataSHA256 = ""
+	grokProof.TerminalRuntimeExecutable = "/private/bin/herdr-core"
+	grokProof.TerminalRuntimeExecutableSHA256 = "sha256:" + strings.Repeat("d", 64)
+	grokProof.TerminalRuntimeVersion = "0.1.0"
+	grokProof.TerminalRuntimePolicyIdentity = "sha256:" + strings.Repeat("e", 64)
+	grokReceipt, err := newCurrentProbeDirectExecutionAuthorityReceipt([]currentProbeDirectExecutionRoleProof{grokProof}, expires)
+	if err != nil || !grokReceipt.Valid() {
+		t.Fatalf("grok terminal receipt = %#v, %v", grokReceipt, err)
+	}
+	for name, mutate := range map[string]func(*currentProbeDirectExecutionRoleProof){
+		"grok terminal executable": func(p *currentProbeDirectExecutionRoleProof) { p.TerminalRuntimeExecutable = "/private/bin/hc-other" },
+		"grok terminal sha256": func(p *currentProbeDirectExecutionRoleProof) {
+			p.TerminalRuntimeExecutableSHA256 = "sha256:" + strings.Repeat("f", 64)
+		},
+		"grok terminal version": func(p *currentProbeDirectExecutionRoleProof) { p.TerminalRuntimeVersion = "0.2.0" },
+		"grok terminal policy": func(p *currentProbeDirectExecutionRoleProof) {
+			p.TerminalRuntimePolicyIdentity = "sha256:" + strings.Repeat("9", 64)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutated := grokProof
+			mutate(&mutated)
+			changed, err := newCurrentProbeDirectExecutionAuthorityReceipt([]currentProbeDirectExecutionRoleProof{mutated}, expires)
+			if err != nil || changed.AuthorityID() == grokReceipt.AuthorityID() {
+				t.Fatalf("bound grok terminal fact %q did not change authority: %#v, %v", name, changed, err)
+			}
+		})
+	}
+	for _, clearField := range []func(*currentProbeDirectExecutionRoleProof){
+		func(p *currentProbeDirectExecutionRoleProof) { p.TerminalRuntimeExecutable = "" },
+		func(p *currentProbeDirectExecutionRoleProof) { p.TerminalRuntimeExecutableSHA256 = "" },
+		func(p *currentProbeDirectExecutionRoleProof) { p.TerminalRuntimeVersion = "" },
+		func(p *currentProbeDirectExecutionRoleProof) { p.TerminalRuntimePolicyIdentity = "" },
+	} {
+		invalid := grokProof
+		clearField(&invalid)
+		if _, err := newCurrentProbeDirectExecutionAuthorityReceipt([]currentProbeDirectExecutionRoleProof{invalid}, expires); err == nil {
+			t.Fatal("incomplete Grok terminal runtime proof accepted")
+		}
 	}
 }
 

@@ -140,7 +140,9 @@ func composeReviewRuns(
 		Coordination:       coordination,
 		RequirementsPrompt: requirementsPrompt, PublicationWriter: writer,
 		Sources: graph.liveSources, ReviewerHome: graph.reviewerHome, CredentialRoots: graph.credentialRoots,
-		Admission: productionLiveRequestAdmission{policy: graph.policy}, Clock: clock, IDs: ids, Build: build,
+		ControlPlaneRoots:    graph.controlPlaneRoots,
+		ControlPlaneLiterals: graph.controlPlaneLiterals,
+		Admission:            productionLiveRequestAdmission{policy: graph.policy}, Clock: clock, IDs: ids, Build: build,
 		Authority: graph.authority, Validator: graph.reviewValidator, Publication: graph.publisher,
 		Templates: graph.templates, Common: graph.liveCommon, Diagnostics: graph.diagnostics, Detector: graph.detector, ProjectContext: []byte(graph.policy.config.Project.Context),
 	})
@@ -334,6 +336,10 @@ func (service *rootCleaningReviewRunService) StartReviewRun(ctx context.Context,
 	}
 	defer func() {
 		if _, retained := reviewrun.LiveCleanupFromError(err); retained {
+			// Stop the isolated herdr-core daemon and holder immediately even
+			// when namespace/workspace/source leases are retained for caller
+			// retry, preventing background daemon leaks in CLI and MCP modes.
+			err = errors.Join(err, service.graph.closeTerminalSession(context.Background()))
 			return
 		}
 		err = errors.Join(err, service.graph.cleanupRoots())

@@ -636,10 +636,15 @@ manifest inventory. Attempt `stdout.raw` remains private capture evidence and
 is never the primary report URI.
 
 `transport` is adapter-owned, not configurable. All current provider review
-invocations use `stdout`: the complete accepted assistant message comes from
-correlated native protocol frames. Raw frame streams remain private process
-evidence. Historical manifests retain their original `staged_file` or `stdout`
-transport value; neither implies a current staged-file write grant.
+invocations project accepted bytes under `transport: "stdout"`: protocol
+providers (ZCode, Codex, Cursor, and AGY) collect the complete accepted
+assistant message from correlated native protocol frames with no report-file
+write grant, while managed terminal providers (Grok) validate one per-invocation
+staged file inside private namespace scratch strictly after `ESRCH` teardown and
+project the accepted bytes as isolated `stdout`. Raw protocol frame streams and
+bounded post-kill terminal screen captures remain private process evidence.
+Historical manifests retain their original `staged_file` or `stdout`
+transport value; neither implies a public `staged_file` publication contract.
 For a failed review invocation, model-authored stdout remains private process
 evidence but never classifies a native provider condition; stderr has that
 authority. Qualification may classify native failures from both stdout and
@@ -661,26 +666,41 @@ determines the typed rate-limit outcome while the protocol session and process
 evidence remain attached. Other rate-limit prose does not override the generic
 turn-failure classification.
 
-Grok review, extraction, qualification, and heartbeat invocations speak ACP v1
-over stdio. Review, qualification, and extraction accept only complete,
-correlated assistant-message chunks. Tool requests that write a report file are
-denied, and Grok runs with its native sandbox disabled inside Mulgae's mandatory
-outer macOS process boundary.
-Its app-owned native requirements policy remains immutable across review and
-same-provider extraction, while native configuration bookkeeping may change.
-After verified process drain, qualification and review execution audit that
-policy before accepting the invocation result. Drift retains the existing
-typed security failure at the affected invocation rather than waiting for the
-next launch; it does not authorize repair or publication.
-Protocol negotiation, authentication, session completion, permission denial,
-and teardown failures retain typed provider causes. Optional
-`providers.grok.model` and `providers.grok.reasoning_effort` values come only
-from Git-shareable project policy. Omitted dimensions preserve Grok's provider
-defaults independently in an existing Config v5 file. New initialization writes
-`grok-4.7` and `high` unless the corresponding dimension is explicitly
-overridden. Mulgae preserves configured spelling, binds both values to
-qualification identity, and requires exact ACP acknowledgement before any
-prompt; rejection or normalization fails closed without fallback.
+Grok review, extraction, qualification, and heartbeat invocations run through
+Mulgae's isolated per-run `herdr-core` terminal runtime (`ProviderPacketChannelTerminal`,
+`PaneTTY`-only, `--permission-mode bypassPermissions`, `--no-alt-screen`) inside
+Mulgae's mandatory outer macOS Seatbelt boundary. Prompts are written read-only
+(`0400`) to `<scratch>/input/<id>/prompt.md` inside `ReadOnlyRoots` with pre/post
+SHA-256 verification and a mandatory per-invocation completion nonce (for review
+and extraction), while concise fixed instructions with explicit pagination
+guidance are sent via `terminal.send` after OSC 7501 readiness. Grok writes its
+output to a parameterized per-invocation staging directory (`role-report.md`,
+`extraction.json`, `probe.json`) that Mulgae validates strictly after verified
+process-group absence (`ESRCH`) — including all five `B-1` controls when `Bash`
+is enabled on index/commit reviews — strips the verified completion nonce, and
+publishes under `result_transport: "stdout"`.
+
+Workspace reviews run strictly shell-free (`--tools read_file,grep,list_dir,Write`),
+extraction and qualification run shell-free (`--tools read_file,Write`), and
+index/commit reviews enable `Bash` (`--tools read_file,grep,list_dir,Write,Bash`)
+solely under the `B-1` Seatbelt and post-`ESRCH` stability/survivor gate.
+`StartupTimeout` is carved inside the family timeout budget; pane exits before
+reporting readiness classify as launch-boundary `provider_spawn_failed`
+independent of exit code. Auth, quota, rate-limit, and permission outcomes are
+derived from structured `herdr-core` state (`blocked(auth)`, `blocked(quota)`,
+`blocked(rate_limit)`, `blocked(permission)`, or `error`); bounded post-kill
+`terminal.read(lines: 0)` screen diagnostics are routed through Mulgae's
+credential scanner with no stdout/stderr separation and never override security,
+launch-boundary, or staging failures.
+
+Optional `providers.grok.model` and `providers.grok.reasoning_effort` values
+come only from Git-shareable project policy. Omitted dimensions preserve Grok's
+provider defaults independently in an existing Config v5 file. New
+initialization writes `grok-4.7` and `high` unless the corresponding dimension
+is explicitly overridden. Mulgae preserves configured spelling, passes `-m` and
+`--reasoning-effort` unchanged, and binds both values to qualification identity;
+see [Provider qualification readiness](#provider-qualification-readiness) for
+Grok `1.0.89` interactive TUI best-effort silent-fallback behavior.
 
 Codex review, extraction, and qualification use one ephemeral app-server thread
 and one turn per invocation over stdio. Mulgae sends `initialize`,
@@ -711,15 +731,14 @@ omitted without invalidating an otherwise valid session observation.
 All five families use the same diagnostic identifier grammar: at most 512
 bytes, valid UTF-8, no surrounding whitespace and no Unicode controls. Unsafe
 diagnostic identifiers become empty; native correlation retains its raw IDs.
-Grok session admission and Codex thread/turn admission still reject unsafe
-authoritative identifiers under their existing protocol rules.
+Codex thread/turn admission still rejects unsafe authoritative identifiers
+under its existing protocol rules.
 
-When multiple observed tools violate the read plan at final validation, Grok
-and Cursor select the first diagnostic by ascending raw native string ID.
-Grok validates at both prompt completion and close acknowledgement; Cursor
-validates at end turn. Each operation retains its existing check order and
-typed refusal, and an immediate event failure still terminates immediately.
-This ordering adds no diagnostic identifier to public output.
+When multiple observed tools violate the read plan at final validation, Cursor
+selects the first diagnostic by ascending raw native string ID at end turn.
+Each operation retains its existing check order and typed refusal, and an
+immediate event failure still terminates immediately. This ordering adds no
+diagnostic identifier to public output.
 
 Historical child lineage may contain `source_attempt_id`, replay modes, and
 staged-file transport receipts. Retained readers validate these fields without
@@ -736,7 +755,10 @@ describe Mulgae's structured extraction coverage for that attempt, not whether
 the provider's stdout happened to be JSON. `manifest.role_reports[]` is
 unaffected: `path`, `sha256`, `byte_length`, `attempt_id`, `provider_instance`,
 and `transport` continue to describe the accepted free-form bytes and the
-invocation that carried them. Extraction is `stdout` and receives no file write grant. Extraction and repair share the one second
+invocation that carried them. Extraction always projects as `stdout` (protocol
+providers receive no file write grant; managed terminal providers stage
+`extraction.json` shell-free inside private namespace scratch and validate it
+strictly post-`ESRCH` before projecting accepted bytes as `stdout`). Extraction and repair share the one second
 invocation a role may use, so `budget.role_paths[].invocation_count` stays `2`
 and no preflight or command-result contract version changes.
 A transcribed finding is a provider claim, not a Mulgae assertion that the
@@ -951,9 +973,9 @@ offline readiness. `mulgae providers --output json` exposes the independent
 human static profiles remain `unverified` when no static source exists. A
 successful or failed live review never mutates these offline observations.
 The underlying `providers` service profile projection (`Result.JSON()`) reports
-`result_transport: "stdout"` for the current ZCode, Grok, Codex, Cursor, and
-AGY protocol profiles, while the `mulgae providers --output json` CLI result
-retains its closed four-field summary.
+`result_transport: "stdout"` for the current ZCode, Codex, Cursor, and AGY
+protocol profiles and the Grok managed terminal profile, while the
+`mulgae providers --output json` CLI result retains its closed four-field summary.
 
 Stable doctor reasons are grouped as follows:
 
@@ -961,7 +983,7 @@ Stable doctor reasons are grouped as follows:
 |---|---|
 | Config/local | `config_missing`, `local_config_missing`, `config_yaml_invalid`, `config_size_invalid`, `config_provider_timeout_invalid`, `config_credential_key_detected`, `config_credential_value_detected`, `config_locality_unsafe`, `config_locality_drifted`, `native_home_mismatch` |
 | Provider/role identity | `config_provider_identity_invalid`, `config_role_mapping_invalid` |
-| Binary | `provider_executable_missing`, `provider_executable_not_executable`, `provider_binary_observation_failed`, `provider_executable_unsafe_identity`, `zcode_launcher_missing`, `zcode_launcher_unreadable`, `zcode_launcher_observation_failed`, `zcode_launcher_unsafe_identity`, `zcode_provider_config_missing`, `zcode_provider_config_unreadable`, `zcode_provider_config_observation_failed`, `zcode_provider_config_unsafe_identity`, `zcode_application_metadata_unreadable`, `zcode_application_metadata_observation_failed`, `zcode_application_metadata_unsafe_identity`, `zcode_application_version_malformed`, `zcode_application_version_below_minimum`, `zcode_application_version_supported`, `zcode_application_version_newer_than_verified` |
+| Binary | `provider_executable_missing`, `provider_executable_not_executable`, `provider_binary_observation_failed`, `provider_executable_unsafe_identity`, `herdr_core_missing`, `herdr_core_unsafe_identity`, `herdr_core_observation_failed`, `zcode_launcher_missing`, `zcode_launcher_unreadable`, `zcode_launcher_observation_failed`, `zcode_launcher_unsafe_identity`, `zcode_provider_config_missing`, `zcode_provider_config_unreadable`, `zcode_provider_config_observation_failed`, `zcode_provider_config_unsafe_identity`, `zcode_application_metadata_unreadable`, `zcode_application_metadata_observation_failed`, `zcode_application_metadata_unsafe_identity`, `zcode_application_version_malformed`, `zcode_application_version_below_minimum`, `zcode_application_version_supported`, `zcode_application_version_newer_than_verified` |
 | CLI version | `provider_cli_version_supported`, `provider_cli_version_newer_than_verified`, `provider_cli_version_below_minimum`, `provider_cli_version_malformed`, `provider_cli_version_command_failed`, `provider_cli_version_timeout`, `provider_cli_version_unsafe_identity`, `provider_cli_version_observation_failed` |
 | Aggregate | `provider_offline_readiness_failed`, `provider_role_route_unavailable`, `provider_security_admission_failed` |
 
@@ -1031,37 +1053,57 @@ rejects an observed false value when the configuration requested true.
 
 ## Provider qualification readiness
 
-Grok CLI 1.0.34 is the minimum release for configurable selection and 1.0.40
-is the latest verified release. Mulgae accepts both untagged
+Grok CLI `1.0.89` is both the minimum supported release and the verified latest
+release for the `herdr-core` terminal runtime. Mulgae accepts both untagged
 `grok <semver> (<hex>)` banners and optional release-channel tagged
 `grok <semver> (<hex>) [<channel>]` banners (such as `[stable]` or `[beta]`),
-including the verified Apple Silicon binaries
-`grok 1.0.34 (3736acbc8658) [stable]` and
-`grok 1.0.40 (eb1a2256660d) [stable]`. Minimum remains `1.0.34` and verified
-latest remains `1.0.40` (so newer releases such as `1.0.89` remain eligible as
-`yellow` / `newer_than_verified` / `provider_cli_version_newer_than_verified`)
-until live `1.0.89` certification lands in EPIC-017. Both verified releases
-accept selection only through the ACP conversation: after `session/new`, Mulgae
-sends `session/set_model` with the exact `modelId` and, when configured,
-`_meta.reasoningEffort`. Omitting a setting leaves that dimension at the
-provider default; an effort-only request reuses the current model reported by
-`session/new` without guessing or persisting it.
+including `grok 1.0.89 (7f62c11d16e9) [stable]`. Grok `--version` runs offline
+on the plain process runner at neutral `~/.mulgae/home` with zero `herdr-core`
+starts. Qualification and heartbeat execute on neutral `~/.mulgae/home` inside
+`LiveReadOnlyBoundary` via `herdr-core`, binding the verified `herdr-core`
+canonical executable path, SHA-256, and `hello` version into the qualification
+proof (`currentProbeDirectExecutionRoleProof`) and Grok's `RuntimeSafetyPolicy`,
+and binding `OutputSHA256` strictly to accepted staged `probe.json` bytes
+(never to post-kill screen capture).
 
-Grok CLI 1.0.40 also acknowledges the `grok-4.7` model with `high` reasoning
-effort exactly before prompting. Mulgae uses that pair only as the policy written
-for newly initialized projects; existing Config v5 omission retains the generic
-provider-default behavior above.
+For Grok `1.0.89` interactive TUI launches, Mulgae passes configured
+`providers.grok.model` (`-m <model>`) and `providers.grok.reasoning_effort`
+(`--reasoning-effort <effort>`) unchanged, binds both values to qualification
+identity, and never rewrites, strips, or substitutes defaults on failure.
+Unlike legacy ACP `session/set_model`, Grok `1.0.89`'s interactive TUI provides
+no pre-prompt model/effort acknowledgement frame and applies `-m` /
+`--reasoning-effort` best-effort with silent provider-side fallback when an
+unknown token is supplied; Mulgae preserves configured spelling and surfaces
+any provider rejection or output failure without substituting another model or
+provider. New project initialization continues to write `grok-4.7` and `high`
+while existing Config v5 omission retains provider defaults independently.
 
-Mulgae does not send `session/prompt` until the `session/set_model` result and
-the following `config_option_update` confirm the requested model and reasoning
-effort exactly. Provider rejection remains a provider-execution failure;
-normalization or an ignored setting is an invalid output envelope. Neither
-case removes or rewrites a setting, retries with provider defaults, or changes
-providers. Unknown models are rejected by the verified provider. Unknown
-reasoning-effort tokens are currently normalized by Grok, so Mulgae detects
-the mismatch and fails before prompting. The verified ACP contract does not
-publish a model/effort compatibility catalog, so an unsupported-combination
-case is not separately defined.
+When Grok is configured, `mulgae doctor` inspects the `herdr-core` (`hc` /
+`herdr-core`) executable offline without starting any daemon and reports
+additive readiness reasons when unavailable or unsafe:
+- `herdr_core_missing` (provider unavailable, exit code `4`) when no valid
+  `hc` / `herdr-core` executable is found via `MULGAE_HERDR_CORE_BIN` or the
+  safe search path;
+- `herdr_core_unsafe_identity` (security policy, exit code `8` / `unsafe`) when
+  a candidate path resolves to a non-regular, world/group-writable,
+  untrusted-owner symlink, symlink loop, excluded root, setuid/setgid, or
+  otherwise unsafe executable;
+- `herdr_core_observation_failed` (provider unavailable, exit code `4`) when
+  offline executable verification fails unexpectedly.
+
+Isolated `herdr-core` runs are headless (`herdr-core serve` with minimal
+environment and `SSH_CONNECTION=1`, bypassing `launchd`), so non-GUI contexts
+(`SSH`, `launchd`, cron/CI agents, and long-lived MCP servers) operate without
+a WindowServer or graphical session, and never contact the operator's `default`
+`herdr-core` session. On macOS, project roots or executables located on
+removable or external `/Volumes/...` mounts remain subject to macOS TCC
+permissions granted to the invoking terminal or daemon process.
+
+`productionRuntimeGraph` owns the isolated `herdr-core` session lifecycle and
+always stops the core daemon and holder first during `cleanupRoots()` (skipping
+namespace-parent removal if exit is unproven) and on retained-cleanup failure
+paths, preventing background daemon leaks across CLI and MCP modes. ZCode,
+Codex, Cursor, and AGY never start `herdr-core`.
 
 Review qualification preserves private request packets and nonempty
 version/capability stdout and stderr under the diagnostic run before fixture

@@ -46,24 +46,26 @@ type LivePublicationCommitter interface {
 }
 
 type LiveDependencies struct {
-	Coordination       *ReviewCoordinator
-	PublicationWriter  ports.SecureFileWriter
-	RequirementsPrompt prompt.TrustedLayer
-	Sources            ports.LiveSourceOpener
-	ReviewerHome       ports.ReviewerHome
-	CredentialRoots    []ports.AnchoredRoot
-	Admission          LiveRequestAdmission
-	Clock              ports.Clock
-	IDs                review.IdentityGenerator
-	Build              BuildIdentity
-	Authority          LiveRunAuthorityFactory
-	Validator          *validation.ReviewValidator
-	Publication        LivePublicationCommitter
-	Templates          review.TemplateSet
-	Common             prompt.TrustedLayer
-	Diagnostics        ports.RuntimeDiagnosticSinkFactory
-	Detector           ports.ReviewInputContentDetector
-	ProjectContext     []byte
+	Coordination         *ReviewCoordinator
+	PublicationWriter    ports.SecureFileWriter
+	RequirementsPrompt   prompt.TrustedLayer
+	Sources              ports.LiveSourceOpener
+	ReviewerHome         ports.ReviewerHome
+	CredentialRoots      []ports.AnchoredRoot
+	ControlPlaneRoots    []ports.AnchoredRoot
+	ControlPlaneLiterals []ports.AnchoredRoot
+	Admission            LiveRequestAdmission
+	Clock                ports.Clock
+	IDs                  review.IdentityGenerator
+	Build                BuildIdentity
+	Authority            LiveRunAuthorityFactory
+	Validator            *validation.ReviewValidator
+	Publication          LivePublicationCommitter
+	Templates            review.TemplateSet
+	Common               prompt.TrustedLayer
+	Diagnostics          ports.RuntimeDiagnosticSinkFactory
+	Detector             ports.ReviewInputContentDetector
+	ProjectContext       []byte
 }
 
 type LiveService struct{ dependencies LiveDependencies }
@@ -73,6 +75,8 @@ func NewLiveService(dependencies LiveDependencies) (*LiveService, error) {
 		return nil, fmt.Errorf("live review: invalid dependencies")
 	}
 	dependencies.CredentialRoots = append([]ports.AnchoredRoot(nil), dependencies.CredentialRoots...)
+	dependencies.ControlPlaneRoots = append([]ports.AnchoredRoot(nil), dependencies.ControlPlaneRoots...)
+	dependencies.ControlPlaneLiterals = append([]ports.AnchoredRoot(nil), dependencies.ControlPlaneLiterals...)
 	dependencies.ProjectContext = append([]byte(nil), dependencies.ProjectContext...)
 	return &LiveService{dependencies: dependencies}, nil
 }
@@ -284,6 +288,12 @@ func (service *LiveService) Execute(ctx context.Context, request LiveRequest) (r
 		execution, err = ports.NewLiveReviewExecution(ctx, source, service.dependencies.ReviewerHome, service.dependencies.CredentialRoots)
 		if err != nil {
 			return Result{}, projectAdmissionFailure(err)
+		}
+		if len(service.dependencies.ControlPlaneRoots) > 0 || len(service.dependencies.ControlPlaneLiterals) > 0 {
+			execution, err = ports.NewLiveReviewExecutionWithControlPlane(execution, service.dependencies.ControlPlaneRoots, service.dependencies.ControlPlaneLiterals)
+			if err != nil {
+				return Result{}, projectAdmissionFailure(err)
+			}
 		}
 		if err := diagnostics.observeRunEvent(ctx, domain.DiagnosticQualificationStarted, "qualification", "admit", ""); err != nil {
 			return Result{}, err

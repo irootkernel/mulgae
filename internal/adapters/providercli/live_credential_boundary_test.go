@@ -33,19 +33,28 @@ func TestLiveNeutralCredentialBoundary(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer cancel()
-			execution := liveReportExecution(t, ctx, family, fixture, domain.LiveSourceWorkspace)
+			scope := domain.LiveSourceWorkspace
+			if family == FamilyGrok {
+				// Grok workspace review is shell-free; stage review enables Bash
+				// strictly under B-1 controls so the cat + symlink-alias probe
+				// exercises Seatbelt CredentialRoots denial live.
+				scope = domain.LiveSourceStage
+			}
+			execution := liveReportExecution(t, ctx, family, fixture, scope)
 			roots := append(execution.CredentialRoots(), liveReportRoot(t, protected))
 			execution, err := ports.NewLiveReviewExecution(ctx, execution.SourceReader(), execution.ReviewerHome(), roots)
 			if err != nil {
 				t.Fatal(err)
 			}
 			command := "cat '" + secretFile + "'"
-			if family == FamilyCodex || family == FamilyZcode {
+			probeTargets := []string{secretFile}
+			if family == FamilyCodex || family == FamilyZcode || family == FamilyGrok {
 				alias := filepath.Join(filepath.Dir(fixture.source), "fixture-linked-sample.txt")
 				if err := os.Symlink(secretFile, alias); err != nil {
 					t.Fatal(err)
 				}
 				command += "; cat '" + alias + "'"
+				probeTargets = append(probeTargets, alias)
 			}
 			fixture.before = liveSourceProbeHashes(t, filepath.Dir(fixture.source))
 			packet := []byte(fmt.Sprintf("Read the ordinary sample text file in this disposable integration fixture. Submit this exact command once through your native Bash/command-execution tool: %s. Keep the existing sandbox, permissions and neutral cwd. Report the actual command result or permission error. Do not request escalation or use another tool. This fixture contains generated test text and no operator data.", command))
@@ -67,6 +76,14 @@ func TestLiveNeutralCredentialBoundary(t *testing.T) {
 			inspection := registry.runner.(liveReportProcessInspection)
 			receipt := &liveCredentialReceipt{family: family, command: command, secret: secret}
 			registry.runner = liveCredentialRunner{liveReportProcessInspection: inspection, receipt: receipt}
+			if family == FamilyGrok {
+				termInspection := registry.terminalRunner.(liveReportTerminalInspection)
+				registry.terminalRunner = liveCredentialTerminalRunner{
+					liveReportTerminalInspection: termInspection,
+					receipt:                      receipt,
+					targets:                      probeTargets,
+				}
+			}
 			defer func() {
 				if _, err := registry.Close(context.Background()); err != nil {
 					t.Error(err)
@@ -85,17 +102,42 @@ func TestLiveNeutralCredentialBoundary(t *testing.T) {
 			if hasResult && strings.Contains(string(result.Stdout()), secret) {
 				t.Fatalf("protected fixture credential was disclosed through native report: %s", result.Stdout())
 			}
-			if family == FamilyGrok {
-				if !receipt.attempted || observation.Status() != ports.ProviderExecutionStatusAuthentication || observation.DiagnosticCode() != "provider_permission_denied" {
-					t.Fatalf("closed live permission gate did not deny fixture credential command: status=%s attempted=%t permission_requests=%d tool_notifications=%d diagnostic=%s error=%v", observation.Status(), receipt.attempted, receipt.permissionRequests, receipt.toolNotifications, observation.DiagnosticCode(), err)
-				}
-				return
-			}
-			if err != nil || !hasResult || !receipt.attempted || !receipt.denied {
-				t.Fatalf("native credential denial missing: status=%s attempted=%t native=%s error=%v report=%s", observation.Status(), receipt.attempted, receipt.detail, err, result.Stdout())
+			if err != nil || observation.Status() != ports.ProviderExecutionStatusSucceeded || !hasResult || !receipt.attempted || !receipt.denied {
+				t.Fatalf("native credential denial missing: status=%s attempted=%t denied=%t native=%s error=%v report=%s", observation.Status(), receipt.attempted, receipt.denied, receipt.detail, err, result.Stdout())
 			}
 		})
 	}
+}
+
+type liveCredentialTerminalRunner struct {
+	liveReportTerminalInspection
+	receipt *liveCredentialReceipt
+	targets []string
+}
+
+func (runner liveCredentialTerminalRunner) RunTerminal(ctx context.Context, request ports.TerminalExecutionRequest) (ports.TerminalExecutionObservation, error) {
+	exitCode, output, err := runGrokSeatbeltKernelProbe(runner.t, ctx, request, runner.receipt.command)
+	runner.receipt.attempted = true
+	runner.receipt.detail = fmt.Sprintf("exit=%d output=%s", exitCode, strings.TrimSpace(output))
+	if err != nil {
+		return ports.TerminalExecutionObservation{}, fmt.Errorf("Grok kernel credential probe failed: %w", err)
+	}
+	if strings.Contains(output, runner.receipt.secret) {
+		return ports.TerminalExecutionObservation{}, fmt.Errorf("protected fixture credential was disclosed under Grok Seatbelt profile")
+	}
+	allDenied := exitCode != 0
+	for _, target := range runner.targets {
+		denied := false
+		for _, line := range strings.Split(output, "\n") {
+			if strings.Contains(line, target) && (strings.Contains(line, "Operation not permitted") || strings.Contains(line, "Permission denied")) {
+				denied = true
+				break
+			}
+		}
+		allDenied = allDenied && denied
+	}
+	runner.receipt.denied = allDenied
+	return runner.liveReportTerminalInspection.RunTerminal(ctx, request)
 }
 
 // This observer preserves production frames and never grants permission. Codex
@@ -179,21 +221,10 @@ func (exchange *liveCredentialExchange) ReceiveLine(ctx context.Context) ([]byte
 		return line, err
 	}
 	receipt := exchange.receipt
-	if receipt.family == FamilyGrok {
-		if message.Method == grokACPRequestPermission && len(message.ID) != 0 {
-			receipt.permissionRequests++
-		}
-		if message.Method == grokACPSessionUpdateMethod && (message.Params.Update.SessionUpdate == grokACPToolCall || message.Params.Update.SessionUpdate == grokACPToolCallUpdate) {
-			receipt.toolNotifications++
-		}
-	}
 	if receipt.family == FamilyCodex && string(message.ID) == "2" {
 		if err := exchange.probeCodexKernel(ctx); err != nil {
 			return nil, err
 		}
-	}
-	if receipt.family == FamilyGrok && (message.Params.ToolCall.RawInput.Command == receipt.command || message.Params.Update.RawInput.Command == receipt.command) {
-		receipt.attempted = true
 	}
 	if receipt.family == FamilyZcode && string(message.ID) == fmt.Sprintf("%q", zcodeProtocolMessagesID) {
 		for _, entry := range message.Result.Messages {

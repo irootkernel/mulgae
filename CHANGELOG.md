@@ -8,6 +8,7 @@ This file records concise shipped outcomes and the planned next stable release.
 
 - Require pinned Go/Python toolchains for development and VM qualification,
   migrate VM requests to v2, and automatically format Go files before verification.
+- Migrate Grok (`1.0.89`+) review, structured extraction, qualification, and heartbeat from legacy ACP to a reusable isolated `herdr-core` terminal runtime (`PaneTTY`, disposable `HOME`/`GROK_HOME` with minimal `requirements.toml`, purpose-scoped tools with the five-control `B-1` Seatbelt Bash gate on index/commit scopes only, read-only staged prompts with completion nonces, post-`ESRCH` staged output validation published under `result_transport: "stdout"`, graph-owned `herdr-core` lifecycle teardown, shared control-plane boundary denials across all providers, and offline doctor `herdr-core` readiness checks) without starting `herdr-core` for ZCode, Codex, Cursor, AGY, or Grok `--version`.
 
 ### Fixed
 
