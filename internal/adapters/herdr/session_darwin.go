@@ -1068,36 +1068,35 @@ func (s *Session) Close(ctx context.Context) error {
 
 			watchdogStopped := false
 			if closeErr == nil {
-				stopWatchdogCleanly(watchdogCmd, watchdogPipe, watchdogWaitCh)
-				watchdogStopped = true
-				if sessionDir != "" {
-					// Serialize against persistTrackingFiles (lock order: persistMu -> mu)
-					// and verify neither late tracked panes nor unstopped holders arrived
-					// before committing to removing sessionDir.
-					s.persistMu.Lock()
-					s.mu.Lock()
-					latePanes := len(s.trackedPanes)
-					lateHolders := s.hasUnstoppedHoldersLocked(stoppedHolders, fake)
-					if latePanes == 0 && !lateHolders {
-						s.dirRemovalStarted = true
+				// Serialize against persistTrackingFiles (lock order: persistMu -> mu)
+				// and verify neither late tracked panes nor unstopped holders arrived
+				// before committing to directory removal and stopping the watchdog.
+				s.persistMu.Lock()
+				s.mu.Lock()
+				latePanes := len(s.trackedPanes)
+				lateHolders := s.hasUnstoppedHoldersLocked(stoppedHolders, fake)
+				committed := latePanes == 0 && !lateHolders
+				if committed && sessionDir != "" {
+					s.dirRemovalStarted = true
+				}
+				s.mu.Unlock()
+				s.persistMu.Unlock()
+				if !committed {
+					var lateErrs []error
+					if latePanes > 0 {
+						lateErrs = append(lateErrs, fmt.Errorf("herdr session close: %d tracked pane(s) arrived before directory removal", latePanes))
 					}
-					s.mu.Unlock()
-					var rmErr error
-					if latePanes > 0 || lateHolders {
-						var lateErrs []error
-						if latePanes > 0 {
-							lateErrs = append(lateErrs, fmt.Errorf("herdr session close: %d tracked pane(s) arrived before directory removal", latePanes))
-						}
-						if lateHolders {
-							lateErrs = append(lateErrs, fmt.Errorf("herdr session close: unstopped holder(s) arrived before directory removal"))
-						}
-						closeErr = errors.Join(lateErrs...)
-					} else {
-						rmErr = os.RemoveAll(sessionDir)
+					if lateHolders {
+						lateErrs = append(lateErrs, fmt.Errorf("herdr session close: unstopped holder(s) arrived before directory removal"))
 					}
-					s.persistMu.Unlock()
-					if rmErr != nil {
-						closeErr = fmt.Errorf("herdr session close: remove session dir: %w", rmErr)
+					closeErr = errors.Join(lateErrs...)
+				} else {
+					stopWatchdogCleanly(watchdogCmd, watchdogPipe, watchdogWaitCh)
+					watchdogStopped = true
+					if sessionDir != "" {
+						if rmErr := os.RemoveAll(sessionDir); rmErr != nil {
+							closeErr = fmt.Errorf("herdr session close: remove session dir: %w", rmErr)
+						}
 					}
 				}
 			}
@@ -1198,14 +1197,34 @@ func (s *Session) performClose(
 		if rem := time.Until(gracefulDeadline); rem > 50*time.Millisecond {
 			listCtx, cancelList := context.WithTimeout(teardownCtx, min(time.Second, rem/3))
 			if listRes, err := rpc.TerminalList(listCtx, ListParams{All: true}); err == nil {
-				for _, term := range listRes.Terminals {
+				for idx, term := range listRes.Terminals {
 					paneID := term.Address
+					termPID := terminalPID(term)
 					if !ports.ValidTerminalPaneID(paneID) {
 						errs = append(errs, fmt.Errorf("herdr session close: invalid pane address %q", paneID))
+						if validTargetPID(termPID) {
+							alreadyTrackedPID := false
+							for _, existing := range trackedPanes {
+								if existing.PID == termPID {
+									alreadyTrackedPID = true
+									break
+								}
+							}
+							if !alreadyTrackedPID {
+								pane := trackedPane{
+									PID:       termPID,
+									SID:       s.capturePaneSID(termPID),
+									CreatedMS: term.CreatedMS,
+								}
+								if term.State != "finished" {
+									pane.StartSec, pane.StartUsec = s.capturePaneStartTime(termPID, term.CreatedMS)
+								}
+								trackedPanes[fmt.Sprintf("invalid-address-close-%d-%d", idx, termPID)] = pane
+							}
+						}
 						continue
 					}
 					existing, alreadyTracked := trackedPanes[paneID]
-					termPID := terminalPID(term)
 					if alreadyTracked || term.State != "finished" || term.PID != nil {
 						pane := mergeTrackedPane(existing, termPID, 0, 0, 0, term.CreatedMS)
 						if validTargetPID(pane.PID) {

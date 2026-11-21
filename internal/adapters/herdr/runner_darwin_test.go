@@ -3298,3 +3298,271 @@ func TestRunTerminalUnsafeExecutableReturnsSecurityProcessExecutionError(t *test
 		t.Fatalf("RunTerminal(unsafe binary) err = %T (%v), want *ports.ProcessExecutionError(%s)", err, err, domain.DiagnosticCauseTransportVerificationFailed)
 	}
 }
+
+func TestOfflineInvalidPaneAddressCleanupFailureFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("orphaned run-nonce drain failure promotes CleanupCause to ProcessGroupCleanupFailed", func(t *testing.T) {
+		fix := newOfflineFixture(t)
+		srv := startFakeHerdrServer(t)
+		inspector := newFakeProcessInspector()
+		sess := fix.newFakeSession(t, srv, inspector)
+
+		srv.onRun = func(_ *fakeHerdrServer, params RunParams) (Terminal, *RPCError) {
+			return Terminal{
+				Address: "../invalid-pane",
+				State:   "live",
+				Labels:  params.Labels,
+			}, nil
+		}
+		srv.onList = func(_ *fakeHerdrServer, _ ListParams) (ListResult, *RPCError, bool) {
+			return ListResult{}, &RPCError{Code: -32000, Message: "list failed", Kind: "internal"}, false
+		}
+
+		req, launchDir := fix.newTerminalRequest(t, []byte("review prompt body\n"), "work", true, 2*time.Second, 5*time.Second, 0, nil, true)
+		_, err := sess.RunTerminal(context.Background(), req)
+		assertLaunchDirClosed(t, launchDir)
+
+		var procErr *ports.ProcessExecutionError
+		if !errors.As(err, &procErr) {
+			t.Fatalf("RunTerminal err = %T (%v), want *ports.ProcessExecutionError", err, err)
+		}
+		cleanupCause, hasCleanupCause := procErr.CleanupCause()
+		if procErr.PrimaryCause() != domain.DiagnosticCauseProviderSpawnFailed ||
+			!hasCleanupCause || cleanupCause != domain.DiagnosticCauseProcessGroupCleanupFailed {
+			t.Fatalf("ProcessExecutionError primary=%q cleanup=%q (present=%t), want primary=%q cleanup=%q (err=%v)",
+				procErr.PrimaryCause(), cleanupCause, hasCleanupCause,
+				domain.DiagnosticCauseProviderSpawnFailed, domain.DiagnosticCauseProcessGroupCleanupFailed, err)
+		}
+	})
+
+	t.Run("invalid pane address with live stubborn PID fails closed after local SIGKILL escalation", func(t *testing.T) {
+		fix := newOfflineFixture(t)
+		srv := startFakeHerdrServer(t)
+		inspector := newFakeProcessInspector()
+		sess := fix.newFakeSession(t, srv, inspector)
+
+		stubbornPID := uint32(59101)
+		nowMS := uint64(time.Now().UnixMilli())
+		inspector.mu.Lock()
+		inspector.procInfo[int(stubbornPID)] = processInfo{
+			Exists:    true,
+			StartSec:  time.Now().Unix(),
+			StartUsec: 0,
+			PGID:      int(stubbornPID),
+		}
+		inspector.killZeroErr[int(stubbornPID)] = nil
+		inspector.mu.Unlock()
+
+		srv.onRun = func(_ *fakeHerdrServer, params RunParams) (Terminal, *RPCError) {
+			return Terminal{
+				Address:   "../invalid-stubborn",
+				State:     "live",
+				PID:       &stubbornPID,
+				CreatedMS: nowMS,
+				Labels:    params.Labels,
+			}, nil
+		}
+		// terminal.list returns empty so ONLY local PID teardown/verification catches stubbornPID.
+		srv.onList = func(_ *fakeHerdrServer, _ ListParams) (ListResult, *RPCError, bool) {
+			return ListResult{}, nil, false
+		}
+
+		req, launchDir := fix.newTerminalRequest(t, []byte("review prompt body\n"), "work", true, 2*time.Second, 5*time.Second, 0, nil, true)
+		_, err := sess.RunTerminal(context.Background(), req)
+		assertLaunchDirClosed(t, launchDir)
+
+		var procErr *ports.ProcessExecutionError
+		if !errors.As(err, &procErr) {
+			t.Fatalf("RunTerminal err = %T (%v), want *ports.ProcessExecutionError", err, err)
+		}
+		cleanupCause, hasCleanupCause := procErr.CleanupCause()
+		if procErr.PrimaryCause() != domain.DiagnosticCauseProviderSpawnFailed ||
+			!hasCleanupCause || cleanupCause != domain.DiagnosticCauseProcessGroupCleanupFailed {
+			t.Fatalf("ProcessExecutionError primary=%q cleanup=%q (present=%t), want primary=%q cleanup=%q (err=%v)",
+				procErr.PrimaryCause(), cleanupCause, hasCleanupCause,
+				domain.DiagnosticCauseProviderSpawnFailed, domain.DiagnosticCauseProcessGroupCleanupFailed, err)
+		}
+		inspector.mu.Lock()
+		killCalls := append([]int(nil), inspector.killCalls...)
+		inspector.mu.Unlock()
+		if len(killCalls) == 0 {
+			t.Fatal("expected local SIGKILL escalation against stubborn invalid-address pane PID")
+		}
+
+		// Surviving invalid-address PID must stay tracked so Session.Close() fails
+		// closed and retains sessionDir until stubbornPID reaches ESRCH.
+		sessionDir := sess.SessionDir()
+		closeErr1 := sess.Close(context.Background())
+		if closeErr1 == nil || !strings.Contains(closeErr1.Error(), "invalid-address-") {
+			t.Fatalf("Close #1 err = %v, want failure citing retained invalid-address pane", closeErr1)
+		}
+		if _, statErr := os.Lstat(sessionDir); statErr != nil {
+			t.Fatalf("sessionDir was prematurely removed while invalid-address stubborn PID stayed alive: %v", statErr)
+		}
+
+		inspector.mu.Lock()
+		delete(inspector.procInfo, int(stubbornPID))
+		inspector.killZeroErr[int(stubbornPID)] = unix.ESRCH
+		inspector.mu.Unlock()
+
+		if closeErr2 := sess.Close(context.Background()); closeErr2 != nil {
+			t.Fatalf("Close #2 after invalid-address stubborn PID cleared: %v", closeErr2)
+		}
+		if _, statErr := os.Lstat(sessionDir); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("sessionDir survived Close #2: %v", statErr)
+		}
+	})
+
+	t.Run("invalid pane address with clearable PID cleans up locally and keeps empty CleanupCause", func(t *testing.T) {
+		fix := newOfflineFixture(t)
+		srv := startFakeHerdrServer(t)
+		inspector := newFakeProcessInspector()
+		sess := fix.newFakeSession(t, srv, inspector)
+
+		clearablePID := uint32(59102)
+		nowMS := uint64(time.Now().UnixMilli())
+		inspector.mu.Lock()
+		inspector.clearOnKill = true
+		inspector.procInfo[int(clearablePID)] = processInfo{
+			Exists:    true,
+			StartSec:  time.Now().Unix(),
+			StartUsec: 0,
+			PGID:      int(clearablePID),
+		}
+		inspector.killZeroErr[int(clearablePID)] = nil
+		inspector.mu.Unlock()
+
+		// Ensure signalGroupKill also clears procInfo.Exists so ESRCH verification succeeds.
+		wrapped := &clearingProcessInspector{fakeProcessInspector: inspector}
+		sess.inspector = wrapped
+
+		srv.onRun = func(_ *fakeHerdrServer, params RunParams) (Terminal, *RPCError) {
+			return Terminal{
+				Address:   "../invalid-clearable",
+				State:     "live",
+				PID:       &clearablePID,
+				CreatedMS: nowMS,
+				Labels:    params.Labels,
+			}, nil
+		}
+		srv.onList = func(_ *fakeHerdrServer, _ ListParams) (ListResult, *RPCError, bool) {
+			return ListResult{}, nil, false
+		}
+
+		req, launchDir := fix.newTerminalRequest(t, []byte("review prompt body\n"), "work", true, 2*time.Second, 5*time.Second, 0, nil, true)
+		_, err := sess.RunTerminal(context.Background(), req)
+		assertLaunchDirClosed(t, launchDir)
+
+		var procErr *ports.ProcessExecutionError
+		if !errors.As(err, &procErr) {
+			t.Fatalf("RunTerminal err = %T (%v), want *ports.ProcessExecutionError", err, err)
+		}
+		cleanupCause, hasCleanupCause := procErr.CleanupCause()
+		if procErr.PrimaryCause() != domain.DiagnosticCauseProviderSpawnFailed || hasCleanupCause {
+			t.Fatalf("ProcessExecutionError primary=%q cleanup=%q (present=%t), want primary=%q without cleanup cause (err=%v)",
+				procErr.PrimaryCause(), cleanupCause, hasCleanupCause,
+				domain.DiagnosticCauseProviderSpawnFailed, err)
+		}
+		inspector.mu.Lock()
+		killCalls := append([]int(nil), inspector.killCalls...)
+		inspector.mu.Unlock()
+		if len(killCalls) == 0 {
+			t.Fatal("expected local SIGKILL against clearable invalid-address pane PID")
+		}
+		sess.mu.Lock()
+		remainingTracked := len(sess.trackedPanes)
+		sess.mu.Unlock()
+		if remainingTracked != 0 {
+			t.Fatalf("trackedPanes = %d after clearable invalid-address cleanup, want 0", remainingTracked)
+		}
+		sessionDir := sess.SessionDir()
+		if closeErr := sess.Close(context.Background()); closeErr != nil {
+			t.Fatalf("Close after clearable invalid-address cleanup: %v", closeErr)
+		}
+		if _, statErr := os.Lstat(sessionDir); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("sessionDir survived Close after clearable invalid-address cleanup: %v", statErr)
+		}
+	})
+
+	t.Run("performClose retains surviving invalid-address pane PID from TerminalList across Close retries", func(t *testing.T) {
+		fix := newOfflineFixture(t)
+		srv := startFakeHerdrServer(t)
+		inspector := newFakeProcessInspector()
+		sess := fix.newFakeSession(t, srv, inspector)
+
+		if _, err := sess.RuntimeIdentity(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+
+		stubbornPID := uint32(59103)
+		nowMS := uint64(time.Now().UnixMilli())
+		inspector.mu.Lock()
+		inspector.procInfo[int(stubbornPID)] = processInfo{
+			Exists:    true,
+			StartSec:  time.Now().Unix(),
+			StartUsec: 0,
+			PGID:      int(stubbornPID),
+		}
+		inspector.killZeroErr[int(stubbornPID)] = nil
+		inspector.mu.Unlock()
+
+		var listCalls atomic.Int32
+		srv.onList = func(_ *fakeHerdrServer, _ ListParams) (ListResult, *RPCError, bool) {
+			if listCalls.Add(1) == 1 {
+				return ListResult{Terminals: []Terminal{{
+					Address:   "../invalid-from-list",
+					State:     "live",
+					PID:       &stubbornPID,
+					CreatedMS: nowMS,
+				}}}, nil, false
+			}
+			return ListResult{}, nil, false
+		}
+
+		sessionDir := sess.SessionDir()
+		closeErr1 := sess.Close(context.Background())
+		if closeErr1 == nil || !strings.Contains(closeErr1.Error(), "invalid-address-close-") {
+			t.Fatalf("Close #1 err = %v, want failure citing retained invalid-address-close pane", closeErr1)
+		}
+		if _, statErr := os.Lstat(sessionDir); statErr != nil {
+			t.Fatalf("sessionDir prematurely removed on Close #1: %v", statErr)
+		}
+
+		// Close #2 gets an empty list (daemon stopped), yet must STILL fail closed
+		// because performClose merged the surviving PID into s.trackedPanes.
+		closeErr2 := sess.Close(context.Background())
+		if closeErr2 == nil || !strings.Contains(closeErr2.Error(), "invalid-address-close-") {
+			t.Fatalf("Close #2 err = %v, want failure citing retained invalid-address-close pane", closeErr2)
+		}
+		if _, statErr := os.Lstat(sessionDir); statErr != nil {
+			t.Fatalf("sessionDir prematurely removed on Close #2: %v", statErr)
+		}
+
+		inspector.mu.Lock()
+		delete(inspector.procInfo, int(stubbornPID))
+		inspector.killZeroErr[int(stubbornPID)] = unix.ESRCH
+		inspector.mu.Unlock()
+
+		if closeErr3 := sess.Close(context.Background()); closeErr3 != nil {
+			t.Fatalf("Close #3 after survivor cleared: %v", closeErr3)
+		}
+		if _, statErr := os.Lstat(sessionDir); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("sessionDir survived Close #3: %v", statErr)
+		}
+	})
+}
+
+type clearingProcessInspector struct {
+	*fakeProcessInspector
+}
+
+func (c *clearingProcessInspector) signalGroupKill(pid int) error {
+	if err := c.fakeProcessInspector.signalGroupKill(pid); err != nil {
+		return err
+	}
+	c.fakeProcessInspector.mu.Lock()
+	delete(c.fakeProcessInspector.procInfo, pid)
+	c.fakeProcessInspector.mu.Unlock()
+	return nil
+}

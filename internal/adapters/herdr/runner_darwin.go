@@ -284,9 +284,42 @@ func (s *Session) RunTerminal(ctx context.Context, request ports.TerminalExecuti
 			fmt.Errorf("herdr runner: terminal.run: %w", runErr))
 	}
 	if !ports.ValidTerminalPaneID(term.Address) {
-		_ = s.cleanupOrphanedRunNonce(rpc, runNonce)
-		return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil,
-			fmt.Errorf("herdr runner: invalid pane address %q", term.Address))
+		invalidErr := fmt.Errorf("herdr runner: invalid pane address %q", term.Address)
+		panePID := terminalPID(term)
+		var invalidPane trackedPane
+		var invalidKey string
+		if validTargetPID(panePID) {
+			invalidPane = trackedPane{
+				PID:       panePID,
+				SID:       s.capturePaneSID(panePID),
+				CreatedMS: term.CreatedMS,
+			}
+			if term.State != "finished" {
+				invalidPane.StartSec, invalidPane.StartUsec = s.capturePaneStartTime(panePID, term.CreatedMS)
+			}
+			invalidKey = fmt.Sprintf("invalid-address-%s-%d", runNonce, panePID)
+			s.recordTrackedPane(invalidKey, invalidPane)
+		}
+		cleanupErr := s.cleanupOrphanedRunNonce(rpc, runNonce)
+		if validTargetPID(panePID) {
+			localDeadline := time.Now().Add(s.teardownTimeout)
+			if _, verifyErr := s.verifyPaneProcessGroupAndSessionAbsent(invalidPane, localDeadline, true, 0); verifyErr != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("herdr runner: invalid-address pane pid %d still alive: %w", panePID, verifyErr))
+			} else {
+				s.clearTrackedPane(invalidKey)
+			}
+		} else if term.PID != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("herdr runner: invalid-address pane has unsafe pid %d", *term.PID))
+		}
+		if cleanupErr != nil {
+			return processExecutionFailure(
+				domain.DiagnosticCauseProviderSpawnFailed,
+				domain.DiagnosticCauseProcessGroupCleanupFailed,
+				nil,
+				errors.Join(invalidErr, cleanupErr),
+			)
+		}
+		return processExecutionFailure(domain.DiagnosticCauseProviderSpawnFailed, "", nil, invalidErr)
 	}
 	paneID := term.Address
 	s.refreshHolders(context.Background())

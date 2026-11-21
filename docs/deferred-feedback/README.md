@@ -57,6 +57,8 @@ work.
   successful read admission and target invalidation, opposite insertion
   orders, numeric/Unicode IDs, admission traces and Grok late close-time
   updates. AGY retains its identical unfinished-operation diagnostic.
+  `EPIC-017` retired Grok ACP, leaving Cursor in
+  `TestProviderToolDiagnosticOrder`.
 
 - `DF-008` Compound qualification failures: an operational
   persistence/artifact failure may lose a secondary qualification cause. A
@@ -195,10 +197,10 @@ work.
   introduces fragment assembly, assert split string operands and reject
   ambiguous assembly before changing admission.
 
-- `DF-019` Grok variant fields: live ReadFile uses target_file and rejects
-  the obsolete file_path representation. Legacy staged Write has a separate
-  wire contract. Re-entry: before changing a variant or invocation purpose,
-  assert its own input field and retain the existing rejection controls.
+- `DF-019` Grok variant fields: historically tracked Grok ACP `ReadFile`
+  (`target_file` vs. obsolete `file_path`) and legacy staged `Write` wire
+  contracts. `EPIC-017` retired Grok ACP (`grok_acp_protocol.go` and
+  `grok_live_review.go`), closing `DF-019`. No deferred work remains.
 
 - `DF-020` Qualification guard tests: the receipt-loop controls now show
   position independence, with the first and a later invalid entry both

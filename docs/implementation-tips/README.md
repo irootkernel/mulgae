@@ -641,9 +641,9 @@ It compares literal raw-ID admission order and the selected diagnostic across
 both insertion directions and a fixed 64-trial corpus. Only a wrong-order
 observation with unchanged typed refusal establishes the pre-repair failure;
 setup, EOF or unrelated failures do not. An all-green pre-repair corpus is
-inconclusive. Preserve Grok's late close-time updates, Cursor permission and
-ask-phase controls, AGY permission codecs and natural exit, and ZCode's
-post-turn stream-end acceptance. Run focused checks and completion gates
+inconclusive. Preserve Cursor permission and ask-phase controls, AGY
+permission codecs and natural exit, and ZCode's post-turn stream-end
+acceptance. Run focused checks and completion gates
 serially in the native default environment; scripted and compile-only checks
 do not certify deferred non-ZCode live behavior.
 
@@ -797,6 +797,7 @@ supported tagged sets from the repository root:
 
 ```sh
 ./dev go vet -tags=liveprovider ./...
+./dev go vet -tags=live_herdr ./internal/adapters/herdr
 ./dev go vet -tags=live_e2e ./test/e2e
 ./dev go vet -tags="live_e2e live_grok" ./test/e2e
 ./dev go vet -tags="live_e2e live_cursor" ./test/e2e

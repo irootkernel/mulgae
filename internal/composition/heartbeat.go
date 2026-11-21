@@ -87,14 +87,53 @@ func (graph *productionRuntimeGraph) probeHeartbeat(ctx context.Context, request
 	if err != nil {
 		result.Attempted = heartbeatLiveAttempted(err)
 		result.Status, result.ReasonCode = heartbeatFailure(err)
+		if cleanupErr := drainRetainedHeartbeatOwners(ctx, err); cleanupErr != nil {
+			result.Status, result.ReasonCode = "execution_failure", "heartbeat_cleanup_failed"
+		}
 		return result, nil
 	}
 	result.Attempted = true
-	if _, err := run.DrainTerminal(ctx); err != nil {
+	if cleanupErr := drainHeartbeatTerminal(ctx, run); cleanupErr != nil {
+		result.Status, result.ReasonCode = "execution_failure", "heartbeat_cleanup_failed"
 		return result, nil
 	}
 	result.Status, result.ReasonCode = "succeeded", "heartbeat_succeeded"
 	return result, nil
+}
+
+type heartbeatTerminalDrainer interface {
+	DrainTerminal(context.Context) (reviewrun.QualifiedRunTerminalReceipt, error)
+}
+
+func drainHeartbeatTerminal(ctx context.Context, drainer heartbeatTerminalDrainer) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	drainCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	defer cancel()
+	receipt, err := drainer.DrainTerminal(drainCtx)
+	if err != nil {
+		return err
+	}
+	if !receipt.Drained() {
+		return fmt.Errorf("heartbeat: terminal drain returned incomplete receipt")
+	}
+	return nil
+}
+
+func drainRetainedHeartbeatOwners(ctx context.Context, err error) error {
+	var errs []error
+	if owner, ok := reviewrun.CleanupOwnerFromError(err); ok {
+		if cleanupErr := drainHeartbeatTerminal(ctx, owner); cleanupErr != nil {
+			errs = append(errs, cleanupErr)
+		}
+	}
+	if owner, ok := reviewrun.RunAuthorityFromError(err); ok {
+		if cleanupErr := drainHeartbeatTerminal(ctx, owner); cleanupErr != nil {
+			errs = append(errs, cleanupErr)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func heartbeatLiveAttempted(err error) bool {

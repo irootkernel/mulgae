@@ -136,7 +136,9 @@ authority.
 
 Providers read admitted original workspace, index and resolved Git sources.
 Their process and session cwd is the pinned neutral `~/.mulgae/home`, with a safe
-regular guide preserved and injected once. Project and ancestor instructions are
+regular guide preserved and injected once. Live execution rejects configurations
+whose canonical, symlinked, or firmlinked project root equals or is an ancestor
+of `~/.mulgae/home`. Project and ancestor instructions are
 not loaded as authority; selected project context is framed as untrusted data.
 No source tree, patch or full-source archive is copied for a new review.
 
