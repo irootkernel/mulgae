@@ -37,6 +37,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-015](#epic-015-development-verification-simplification) | Completed | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
 | [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | In Progress | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
 | [EPIC-017](#epic-017-herdr-core-terminal-runtime-and-grok-migration) | Completed | Build a reusable isolated `herdr-core` terminal runtime with shared outer macOS Seatbelt and scratch-file delivery, and migrate Grok CLI (`FamilyGrok`) onto it first. |
+| [EPIC-018](#epic-018-live-review-reliability-extraction-fidelity-and-zcode-efficiency) | Planned | Eliminate live-review timeout/requirements run-loss crashes, align extraction prompts and lossless read-plan compaction, enable same-profile ZCode qualification sharing and Git-scope tool hygiene, harden readiness probe wording, and remove the coordinator wave barrier. |
 
 ## Adopted execution order
 
@@ -109,6 +110,14 @@ accepted the completed Epic result on 2026-11-21. Remaining
 interactive provider migrations (Codex, Cursor, AGY) and Config v5 changes stay
 outside EPIC-017 and belong to separate future Epics. Release, installation,
 commit, push, and external-effect authority remain separate.
+
+EPIC-018 follows completed EPIC-017 with no dependency on EPIC-016. Execute
+TASK-088 through TASK-093 in table order as independent sequential goals; each
+Task after TASK-088 depends on acceptance of the preceding Task. Gradual ZCode
+outer Seatbelt hardening (`DF-030`), Config v5 schema changes, per-item findings
+isolation, and ZCode non-extraction narration filtering remain outside EPIC-018.
+Release, installation, commit, push, and external-effect authority remain
+separate.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -1154,3 +1163,107 @@ copying; no dual ACP fallback for Grok.
 - [x] Deterministic offline (`make test-offline`, `945.0s`), release-binary (`make test-release`, `95.1s`), tagged real-`hc` (`make test-herdr`, `16.6s`), mandatory ZCode regression (`make test-e2e`, `150.0s`), and live Grok 1.0.89 (`make test-grok`, `895.4s` + `liveprovider` 6-test suite `136.2s`) gates pass on the integrated candidate.
 - [x] Durable outcomes are promoted to `docs/architecture/README.md`, `docs/specs/security.md`, `docs/specs/contracts.md`, `docs/specs/live-workspace-and-git-review.md`, `docs/gating-rules.md`, embedded help assets, and the accepted ADR; deferred non-`herdr-core` ZCode control-plane hardening is recorded in `docs/deferred-feedback/README.md` (`DF-030`); `Detailed SOT` is replaced with `Canonical Outcomes` and the temporary dossier and TODO entry are removed in the approved closeout diff.
 - [x] Master explicitly accepts this Epic; completing its Tasks does not substitute for Epic acceptance (Master accepted the completed Epic result on 2026-11-21).
+
+## EPIC-018: Live review reliability, extraction fidelity, and ZCode efficiency
+
+Status: Planned
+
+Depends on: completed EPIC-017 (`97e7697`). No dependency on EPIC-016.
+
+Detailed SOT: [temporary execution dossier](../todo/TODO-LIVE-REVIEW-RELIABILITY-AND-ZCODE-EFFICIENCY.md)
+
+Goal: eliminate live-review run-loss crashes on provider timeouts,
+deadline-interrupted extractions, and requirements-mode citation/key faults;
+enable reliable structured extraction and requirements evaluation through
+aligned prompts and lossless read-plan compaction; adopt same-profile ZCode
+qualification sharing and Git-scope tool hygiene; harden the shared readiness
+fixture wording (`v4`); and replace the coordinator wave barrier with a
+single-goroutine batched FIFO event loop while preserving Mulgae's trust
+boundaries, Config v5, and public JSON schemas.
+
+Adopted design boundaries (detailed mechanics and rejected alternatives live in
+the [temporary execution dossier](../todo/TODO-LIVE-REVIEW-RELIABILITY-AND-ZCODE-EFFICIENCY.md)):
+
+- **Fail-safe timeouts and requirements isolation (`TASK-088`)**: align
+  `AttemptConditionProviderTimeout` -> `AttemptTimedOut` in
+  `transitionFailedInvocation`, preserve `attempt.acceptedOutput` on run
+  deadlines during `AttemptValidating` (with unconditional role-derived
+  `RunCompleted` in `finishRun` when all roles succeeded on timeout), enforce an
+  exact-match closed Mulgae-owned key set with protected-precedence full-key
+  scan (`2C`) and an admission-based typed port split between bad provider path
+  citations and real source drift across Git and `--workspace` scopes (`M1`),
+  propagate distinct security diagnostic causes (`M2`), and record complete
+  `invokeRequirements` parse/validation diagnostics and raw capture.
+- **Extraction alignment (`TASK-089`)**: drop repository-wide `reads` from
+  `002-extract` (`3B`), unify `002-extract` as pure transcription from verbatim
+  `001-initial` target excerpts across all providers (refusing findings
+  transcription to stay `reports_only` whenever a claimed defect lacks a
+  verbatim excerpt, rather than emitting false `findings: []`), and isolate
+  requirements failures per item while keeping findings extraction
+  all-or-nothing.
+- **Lossless `001-initial` compaction (`TASK-090`)**: compact
+  `review:live-read-plan` (v2, HTML escaping off, no size cap) using explicit
+  `execution.Reads()` candidate commands plus positive-allowlist supporting
+  templates preserving byte-exact command parity for Cursor and AGY.
+- **ZCode sharing, Git-scope tools, fixture `v4`, and batched loop
+  (`TASK-091`–`TASK-093`)**: adopt same-profile ZCode qualification sharing
+  through `DeriveEquivalentRouteDirectExecutionAuthority` (amending
+  `contracts.md`), drop `Grep`/`Glob` on ZCode Git scopes while keeping
+  `Bash` + `Read`, bump the five-provider readiness fixture to `v4`, and replace
+  the coordinator wave barrier with a single-goroutine batched FIFO event loop.
+
+Non-goals: no changes to `DF-030` ZCode outer Seatbelt hardening (separate
+security track); no Config v5 or public artifact/manifest JSON Schema breaking
+changes; no per-item findings isolation; no reversal of `dd91e69` complete
+non-extraction ZCode role-report retention (`TestZCodeNonExtractionPreservesToolCallNarration`).
+
+| Task | Status | Objective | Verification |
+|---|---|---|---|
+| TASK-088 | Planned | Fix `AttemptConditionProviderTimeout` -> `AttemptTimedOut` in `transitionFailedInvocation`, `AttemptValidating` (`attempt.acceptedOutput != nil`, queued/running, `ValidReview` trace) preservation in `cancelAll`, and unconditional role-derived `RunCompleted` in `finishRun` (updating `TestCoordinatorRunDeadlineBeforeWorkerCloseForcesFailedRun` and `architecture/README.md`); enforce exact-match closed Mulgae-owned key set with protected-precedence full-key scan (`2C`) and admission-based typed port citation-vs-drift split across Git and `--workspace` scopes (`M1`, pinning workspace admission to `reader.target.Changes()`, amending `security.md` and `review-completeness-and-iteration.md`, noting non-requirements drift strengthening for `CHANGELOG.md`); propagate distinct security diagnostic causes (`M2`, updating `contracts.md`) and complete `invokeRequirements` parse/validation diagnostics and raw capture (`P5`/`M3`). | Offline end-to-end coordinator -> `PrepareLiveCandidate` -> `WithRequirements` -> `PublishLiveNext` timeout and deadline-during-extraction tests (including trace/diagnostics checks) plus one `reviewrun` live-service expired-deadline test; dual-path `AttemptTimedOut == (FailureClass == FailureTimeout)` property/matrix tests (`commitOutcome` and `cancelAll -> stopCoordinatorAttempt`); `2C` mixed-key and `M1` Git + `--workspace` (requirements + non-requirements) bounded-citation vs admitted-path drift tests; requirements diagnostics/raw-capture regressions; `-race`. |
+| TASK-089 | Planned | Remove repository-wide `reads` from `002-extract` prompts (`3B`); align `extract-provider-review.v1.txt` (removing lines 12–13), `requirements.v1.txt`, and `reviewer-guide.v1.txt` for exact verbatim `001-initial` excerpts and pure-transcription `002-extract` (when a claimed defect lacks a verbatim excerpt, refusing transcription via no JSON in non-requirements mode and omitting top-level `findings` while keeping `requirements` intact in `--requirements` mode so verified requirements survive and findings stay `reports_only` rather than false `findings: []`); add per-item requirement verification isolation, `assessmentPending` trigger handling, and bidirectional `initial -> extract` merge in `DecodeProviderRequirements`, `invokeRequirements`, and `NormalizeRequirements` (amending `review-completeness-and-iteration.md` and `security.md`, keeping findings all-or-nothing); regenerate embedded checksums twice idempotently. | Extraction prompt size/content regressions; quote-fidelity tests (tabs, CRLF, trailing whitespace, terminating LF); regressions verifying a claimed high finding without verbatim excerpt keeps role `reports_only` (not false `no_findings` / `CI pass`) in non-requirements mode AND retains verified requirement rows while keeping role `reports_only` in `--requirements` mode; per-item requirements isolation/bidirectional-merge/duplicate/source-drift tests; unchanged findings all-or-nothing tests; double `./dev go generate ./internal/app/init && ./dev go generate ./internal/builtin` idempotence. |
+| TASK-090 | Planned | Implement lossless `3A'` `001-initial` read-plan compaction (`review:live-read-plan` v2, HTML escaping off, no size cap): explicit `execution.Reads()` candidate commands, positive-allowlist supporting templates (`^[A-Za-z0-9._/-]+$`), and explicit fallback commands while keeping in-memory `execution.Reads()` unchanged; update `common.v1.txt` and `agy_profile.go` (`git_command` drift + guard-prefix template guidance); regenerate assets twice idempotently. | Lossless round-trip parity tests (`'`, spaces, `&<>`, Unicode, single-side candidates) against Cursor `liveReadPlanGitCommands` and AGY guarded command sets; updated `live_execution_darwin_test.go` and `live_prompt_source_test.go`; double generator idempotence; live `make test-cursor` and `make test-agy` verification (intentional departure from `EPIC-014` quota deferral; requires Master's live-gate authorization). |
+| TASK-091 | Planned | Enable same-profile ZCode qualification sharing in `family_qualification.go` (keeping `FamilyAgy` per-instance and routing authority strictly through `DeriveEquivalentRouteDirectExecutionAuthority`), amending `docs/specs/contracts.md` and `docs/architecture/README.md`; wire `LiveSourceScope` into `zcodeProtocolSession` to drop `Grep`/`Glob` on Git scopes while keeping `Bash` + `Read` (for spilled Bash output logs) and updating `reviewer-guide.v1.txt` and `zcode-app-server-transport.md`. | Rewritten `TestGroupCandidatesByFamilyRuntimeProfileKeepsZCodeNamespacesDistinct`, `TestFamilyQualificationProbesEachZCodeNamespace`, `TestFamilyQualificationRetainsRetryMitigatedRejectionOnSuccess`, and `family_qualification_batches_test.go` (keeping `TestRemapCurrentQualificationResultRejectsAuthorityBleedAcrossInstances` unchanged); ZCode->ZCode derivation and sibling execution-time config-failure negative tests; ZCode Git-scope `toolAllowlist` regressions; double generator idempotence. |
+| TASK-092 | Planned | Bump `internal/adapters/providercli/fixture.go` readiness probe to `current-qualification-fixture-v4` keeping the first line intact and adding neutral synthetic-test-identifier framing preserving exact `{"root","link","role"}` JSON and nonce/link verification across all five providers and `mulgae heartbeat`; update fixture, qualifier, heartbeat, and affected protocol tests. | Deterministic fixture, qualifier, heartbeat, and five-provider protocol/E2E fake tests; live ZCode capability probe (`make test-e2e`), with non-ZCode live probes executed or explicitly deferred to the release gate per `EPIC-014` quota policy. |
+| TASK-093 | Planned | Replace `Coordinator.execute`'s wave barrier with a single-goroutine batched FIFO event loop preserving `PrepareInitial`, deadline derivation, `run_max_invocations` enforcement and scheduler `jobs`/`results` channel capacity, `InvocationDispatched` ordering, global outstanding-ordinal validation, and stop-condition drain barriers; update `docs/architecture/README.md` (and specs only if affected) and `coordinator_test.go` (keeping `TestCoordinatorWaveBarrierPrecedesEveryRuntimeStart` unchanged and rewriting `TestCoordinatorRepairStartsOnlyAfterInitialWaveCompletes`), then certify the integrated Epic candidate. | `-race` coordinator concurrency, per-role trace determinism, cancellation/deadline drain, and overlapped-extraction tests; full `make test-offline`, `make test-release`, and live ZCode certification (`make test-e2e` plus multi-role `--stage` + `--requirements` review on a satisfiable fixture confirming 1 shared probe, compact prompts, and at least one verified-evidence provider verdict). |
+
+### Epic acceptance
+
+- [ ] Every member Task (`TASK-088` through `TASK-093`) has implementation and
+      verification evidence matching its acceptance criteria.
+- [ ] Provider timeouts (`AttemptConditionProviderTimeout`) and run deadlines
+      during `AttemptValidating` (or pre-close after all roles succeeded)
+      publish deterministically in offline E2E and live-service tests without
+      `publication_candidate_invalid` crashes; `AttemptTimedOut == (FailureClass
+      == FailureTimeout)` holds across both `commitOutcome` and `cancelAll ->
+      stopCoordinatorAttempt`.
+- [ ] Ordinary unknown requirements JSON keys (with protected keys taking
+      precedence in mixed-key objects) and untrusted provider-cited
+      absent/excluded paths across both Git and `--workspace` scopes stay
+      bounded without cancelling sibling roles, while closed Mulgae-owned trust
+      field injection and real admitted-path/revalidation drift remain
+      fail-closed with distinct diagnostic causes and preserved `reject=true`
+      raw non-serialization.
+- [ ] `002-extract` prompts omit the repository-wide `reads` list and never
+      emit false `findings: []` when a claimed defect lacks a verbatim excerpt,
+      `001-initial` lossless compaction (`3A'`) preserves byte-exact read-plan
+      parity for Cursor and AGY (with full in-memory `execution.Reads()`
+      unchanged and no byte/count ceiling), and live ZCode `--stage` +
+      `--requirements` verification on a satisfiable fixture produces at least
+      one verified-evidence provider verdict (`met`/`partially_met`/`unmet`)
+      while keeping findings extraction all-or-nothing.
+- [ ] Identical ZCode role profiles share one live qualification probe via
+      `DeriveEquivalentRouteDirectExecutionAuthority` while any
+      model/effort/config/version difference splits groups; Git-scope ZCode
+      sessions omit `Grep`/`Glob` while keeping `Bash` + `Read`; readiness
+      fixture `v4` passes deterministic and live checks; and the batched
+      coordinator event loop overlaps peer follow-ups safely under `-race`.
+- [ ] Embedded prompt assets and `CHECKSUMS.sha256` pass double-run generator
+      idempotence; integrated candidate passes `make test-offline`,
+      `make test-release`, live `make test-cursor` and `make test-agy` for
+      `TASK-090`, and mandatory live ZCode certification (`make test-e2e` plus
+      multi-role `--stage` + `--requirements` verification), with any
+      quota-deferred non-ZCode `TASK-092` live probes explicitly recorded.
+- [ ] Durable outcomes are promoted to canonical specs, architecture, and ADR;
+      `Detailed SOT` is replaced with `Canonical Outcomes`; the temporary
+      dossier and its `docs/todo/README.md` entry are retired; and Master
+      explicitly accepts the completed Epic.

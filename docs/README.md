@@ -139,6 +139,24 @@ product requirements, rationale, epic-squad execution and guest qualification
 entrypoints. At final closeout, promote durable outcomes,
 replace temporary links and retire the dossier and its TODO entry.
 
+## Live review reliability and ZCode efficiency
+
+[EPIC-018](roadmap/README.md#epic-018-live-review-reliability-extraction-fidelity-and-zcode-efficiency)
+targets verified live-review reliability, structured-extraction, requirements
+assessment, and ZCode execution bottlenecks across six sequential Tasks
+(`TASK-088` through `TASK-093`): fail-safe timeout publication and requirements
+error/diagnostic isolation, extraction prompt alignment and per-item
+requirements verification, lossless `001-initial` read-plan compaction,
+same-profile ZCode qualification sharing and Git-scope tool hygiene, readiness
+fixture wording hardening (`v4`), and a single-goroutine batched coordinator
+event loop. Its
+[temporary execution dossier](todo/TODO-LIVE-REVIEW-RELIABILITY-AND-ZCODE-EFFICIENCY.md)
+serves as the `Detailed SOT` during implementation while keeping `DF-030` ZCode
+Seatbelt hardening, Config v5, and `dd91e69` complete-report retention
+unchanged. At final closeout, promote durable outcomes to the canonical
+specifications, architecture, and ZCode ADR, replace temporary links, and retire
+the dossier and its TODO entry.
+
 ## Source-of-truth precedence
 
 Current source and tests are authoritative for implemented runtime behavior.

@@ -16,6 +16,10 @@ task identity, ordering, dependencies, and status.
   is the temporary execution SOT for EPIC-016. Its roadmap owns status. Retire
   the dossier and this entry only through the approved final closeout after
   durable promotion and last-consumer reference checks.
+- [Live review reliability, extraction fidelity, and ZCode efficiency](TODO-LIVE-REVIEW-RELIABILITY-AND-ZCODE-EFFICIENCY.md)
+  is the temporary execution SOT for EPIC-018. Its roadmap owns status. Retire
+  the dossier and this entry only through the approved final closeout after
+  durable promotion and last-consumer reference checks.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply
