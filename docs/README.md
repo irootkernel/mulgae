@@ -99,6 +99,28 @@ and measured outcomes are promoted to
 the [roadmap](roadmap/README.md#epic-015-development-verification-simplification);
 Master accepted the completed Epic result on 2026-10-31.
 
+[EPIC-017 herdr-core terminal runtime and Grok migration](roadmap/README.md#epic-017-herdr-core-terminal-runtime-and-grok-migration)
+introduces a reusable isolated `herdr-core` terminal runtime backed by Mulgae's
+trusted pane trampoline (`__mulgae_paneexec_v1`), hardened outer macOS Seatbelt
+(control-plane socket denials, exact `PANE_TTY` binding, and the five-control
+`B-1` Bash gate on Git scopes), disposable `HOME`/`GROK_HOME`, and scratch-file
+prompt/output delivery, migrating Grok CLI (`FamilyGrok`, `1.0.89`+) in Phase 1
+while leaving ZCode, Codex, Cursor, AGY transports, Config v5, and embedded JSON
+schemas/examples unchanged (following standalone maintenance `TASK-083`). Its
+member Tasks (`TASK-084` through `TASK-087`), cold whole-Epic validation, and
+exact-candidate gates (`make test-offline`, `make test-release`,
+`make test-herdr`, `make test-e2e`, and live `make test-grok`) are complete, its
+temporary execution dossier is retired, and its durable outcomes are promoted to
+[architecture](architecture/README.md), [security](specs/security.md),
+[contracts](specs/contracts.md),
+[live workspace and Git review](specs/live-workspace-and-git-review.md),
+[gating rules](gating-rules.md),
+[implementation guidance](implementation-tips/README.md), the accepted
+[herdr-core terminal transport ADR](architecture-decision-records/herdr-core-terminal-transport.md),
+embedded help assets, and `DF-030` in
+[deferred feedback](deferred-feedback/README.md); Master accepted the completed
+Epic result on 2026-11-21.
+
 The [roadmap](roadmap/README.md#adopted-execution-order) owns Task identities,
 execution order, dependencies, and status. The
 [design decision](architecture-decision-records/verified-review-iteration.md)
@@ -116,22 +138,6 @@ with complete paired-skill migration and released guest qualification. Its
 product requirements, rationale, epic-squad execution and guest qualification
 entrypoints. At final closeout, promote durable outcomes,
 replace temporary links and retire the dossier and its TODO entry.
-
-## Planned herdr-core terminal runtime
-
-[EPIC-017](roadmap/README.md#epic-017-herdr-core-terminal-runtime-and-grok-migration)
-adopts a reusable, isolated `herdr-core` terminal runtime backed by Mulgae's
-trusted pane trampoline (`__mulgae_paneexec_v1`), hardened outer macOS Seatbelt
-(control-plane socket denials and exact `PANE_TTY` binding), disposable
-`HOME`/`GROK_HOME`, and scratch-file prompt/output delivery, migrating Grok CLI
-(`FamilyGrok`) in Phase 1 while leaving ZCode, Codex, Cursor, AGY transports,
-and Config v5 unchanged (following standalone maintenance `TASK-083`). Its
-[decision](architecture-decision-records/herdr-core-terminal-transport.md) and
-[temporary execution dossier](todo/TODO-HERDR-CORE-TERMINAL-RUNTIME.md) separate
-architectural rationale from sequential task execution. At final closeout,
-promote durable outcomes to specifications, architecture, gating rules, and the
-accepted ADR, replace temporary links, and retire the dossier and its TODO
-entry.
 
 ## Source-of-truth precedence
 

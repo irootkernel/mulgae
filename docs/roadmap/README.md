@@ -36,7 +36,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 | [EPIC-015](#epic-015-development-verification-simplification) | Completed | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
 | [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | In Progress | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
-| [EPIC-017](#epic-017-herdr-core-terminal-runtime-and-grok-migration) | In Progress | Build a reusable isolated `herdr-core` terminal runtime with shared outer macOS Seatbelt and scratch-file delivery, and migrate Grok CLI (`FamilyGrok`) onto it first. |
+| [EPIC-017](#epic-017-herdr-core-terminal-runtime-and-grok-migration) | Completed | Build a reusable isolated `herdr-core` terminal runtime with shared outer macOS Seatbelt and scratch-file delivery, and migrate Grok CLI (`FamilyGrok`) onto it first. |
 
 ## Adopted execution order
 
@@ -92,15 +92,23 @@ order. Each Task after TASK-076 depends on acceptance of the preceding Task.
 Release and external-effect authority remain separate prerequisites for the
 affected work, even after implementation passes.
 
-EPIC-017 adopts the reusable `herdr-core` terminal runtime and Phase 1 Grok CLI
-migration with no dependency on EPIC-016. Standalone maintenance TASK-083
-(Grok version-channel parsing and heartbeat `grok-logic` registration) precedes
-EPIC-017. Execute TASK-084 through TASK-087 in table order; each Task after
-TASK-084 depends on acceptance of the preceding Task, and a short approved Grok
-1.0.89 live spike gates TASK-086. Remaining interactive provider migrations
-(Codex, Cursor, AGY) and Config v5 changes stay outside EPIC-017 and belong to
-separate future Epics. Release, installation, commit, push, and external-effect
-authority remain separate.
+EPIC-017 is complete with no dependency on EPIC-016, preceded by standalone
+maintenance TASK-083 (`5ae1105`, Grok version-channel parsing and heartbeat
+`grok-logic` registration). TASK-084 through TASK-087 (`754c452`, `ff2d65f`,
+`9903a3d`, `5790c80`), the pre-cutover 12-item Grok `1.0.89` live spike, and
+cold whole-Epic validation remediation (`a6ff96d`) are complete; the integrated
+candidate passed `make test-offline` (`945.0s`), `make test-release` (`95.1s`),
+`make test-herdr` (`16.6s`), mandatory ZCode regression `make test-e2e`
+(`150.0s`), and live Grok `1.0.89` certification (`make test-grok` `895.4s` +
+6-test `liveprovider` Grok suite `136.2s`); the temporary execution dossier is
+retired; and durable outcomes are promoted to the canonical specifications,
+architecture, gating rules, implementation guidance, embedded help assets,
+accepted [herdr-core terminal transport ADR](../architecture-decision-records/herdr-core-terminal-transport.md),
+and `DF-030` in [deferred feedback](../deferred-feedback/README.md); Master
+accepted the completed Epic result on 2026-11-21. Remaining
+interactive provider migrations (Codex, Cursor, AGY) and Config v5 changes stay
+outside EPIC-017 and belong to separate future Epics. Release, installation,
+commit, push, and external-effect authority remain separate.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -1059,11 +1067,9 @@ acceptance remain separate.
 
 ## EPIC-017: herdr-core terminal runtime and Grok migration
 
-Status: In Progress
+Status: Completed
 
-Detailed SOT: [herdr-core terminal runtime dossier](../todo/TODO-HERDR-CORE-TERMINAL-RUNTIME.md)
-
-Decision: [herdr-core terminal transport](../architecture-decision-records/herdr-core-terminal-transport.md)
+Canonical Outcomes: [architecture](../architecture/README.md), [security](../specs/security.md), [contracts](../specs/contracts.md), [live workspace and Git review](../specs/live-workspace-and-git-review.md), [gating rules](../gating-rules.md), [implementation guidance](../implementation-tips/README.md), [herdr-core terminal transport ADR](../architecture-decision-records/herdr-core-terminal-transport.md), [deferred feedback (`DF-030`)](../deferred-feedback/README.md), and embedded help assets (`internal/builtin/assets/help/{providers,security,prompts}.md`)
 
 Goal: build a reusable, provider-agnostic `herdr-core` terminal execution layer
 backed by Mulgae's trusted pane trampoline (`__mulgae_paneexec_v1`), hardened
@@ -1073,13 +1079,13 @@ scratch-file (`staged_file`) prompt/output delivery, and migrate Grok CLI
 qualification, and heartbeat while leaving ZCode, Codex, Cursor, AGY
 transports, Config v5, and embedded JSON schemas/examples unchanged.
 
-Design decisions accepted at design time (hardened across two rounds of
-independent architecture, security, and empirical `hc 0.1.20` / `grok 1.0.89`
-reviews):
+Delivered architecture and security invariants (verified through two design
+review rounds, the 12-item `hc 0.1.20` / `grok 1.0.89` live spike, exact-candidate
+certification, and cold whole-Epic validation):
 
 - **Trusted pane trampoline (`__mulgae_paneexec_v1`) and hardened Seatbelt**:
   launch panes through Mulgae's canonicalized verified binary (`fdexec_darwin.go`
-  extension, dispatched via `internal/composition/run.go:60`, behind a narrow
+  extension, dispatched via `internal/composition/run.go`, behind a narrow
   `ports` interface) reading `0400` env and Seatbelt profile files from a
   `ControlPlaneRoots`-denied per-pane directory
   (`/private/tmp/mgh-<uid>/<16hex>/panes/<id>/`), verifying argv-bound
@@ -1089,24 +1095,24 @@ reviews):
   enforcing exact `envp` (fixed terminal values + validated `HC_TERMINAL_ID`
   pass-through, stripping `HC_TERMINAL_SOCKET`/`HC_SOCKET`/`HC_SESSION`/`HC_SCOPE`/`DYLD_*`/`GODEBUG`),
   and `execve`ing compiled-in `/usr/bin/sandbox-exec -D PANE_TTY=<slave> -f <profile-file> ...`.
-  Add missing-tolerant `ControlPlaneRoots` (excluded from hardlink walks) plus
-  `~/.cursor`/`~/.config/cursor` denials across shared boundaries, add
+  Added missing-tolerant `ControlPlaneRoots` (excluded from hardlink walks) plus
+  `~/.cursor`/`~/.config/cursor` denials across shared boundaries, added
   terminal secret-root and ancestor-file denials (`~/.ssh`, `~/.aws`,
   `Keychains`, `~/.claude`, `~/.config/herdr`, `~/.local/state`, `~/AGENTS.md`,
-  `~/CLAUDE.md`, `~/.mcp.json`), keep AGY `OwnedPTY` clauses byte-identical,
-  and enforce the hard review-lane `Bash` Seatbelt gate (shell-free default;
-  default-deny unix-socket + localhost TCP + `process-exec` + survivor/mtime
-  controls mandatory if the spike proves `Bash` is required for index/commit
-  Git reads).
+  `~/CLAUDE.md`, `~/.mcp.json`), kept AGY `OwnedPTY` clauses byte-identical,
+  and enforced the hard review-lane `Bash` Seatbelt gate (shell-free workspace,
+  extraction, and qualification; five-control `B-1` default-deny unix-socket,
+  localhost TCP/UDP, secret-root/ancestor, `process-exec`, and post-`ESRCH`
+  survivor/mtime controls strictly for index/commit Git reads).
 - **Disposable `HOME` + disposable `GROK_HOME` (no writable native `~/.grok`)**:
-  retain Mulgae's disposable namespace `HOME`/`GROK_HOME` with read-only
-  `.grok/auth.json` projection (`0600`, no write-back), keeping `~/.grok`
-  kernel-denied in `CredentialRoots` (`leader.sock`, `downloads/grok-*`,
-  `config.toml`, `hooks/`, `AGENTS.md`, `plugins/`, `skills/`, `sandbox.toml`,
-  `trusted_folders.toml`, `memory-v2/`), moving Grok qualification/heartbeat
-  onto neutral-cwd + Seatbelt, and retiring Grok ACP and `grok_boundary.go`
-  post-drain native audits (retaining minimal disposable `requirements.toml` if
-  spike hook/rule canaries warrant).
+  retained Mulgae's disposable namespace `HOME`/`GROK_HOME` with read-only
+  `.grok/auth.json` projection (`0600` single-link owner-only, no write-back),
+  minimal disposable `requirements.toml` (no `sandbox.toml`), and `--trust`
+  scoped strictly to verified read-only neutral `~/.mulgae/home` `--cwd` inside
+  disposable `GROK_HOME`, keeping `~/.grok` kernel-denied in `CredentialRoots`
+  (while executing installed `~/.grok/downloads/grok-*` directly), moving Grok
+  qualification/heartbeat onto neutral-cwd + Seatbelt, and retiring Grok ACP and
+  `grok_boundary.go` post-drain native audits.
 - **Isolated per-run `herdr-core` daemon, graph ownership, and truthful teardown**:
   lazily launch foreground `herdr-core serve` with explicit minimal `Env` under
   canonical `/private/tmp/mgh-<uid>/<16hex>/s.sock` (no `launchd`,
@@ -1142,9 +1148,9 @@ copying; no dual ACP fallback for Grok.
 
 ### Epic acceptance
 
-- [ ] Prerequisite maintenance `TASK-083` and every member Task (`TASK-084` through `TASK-087`) have implementation and exact-candidate verification evidence.
-- [ ] `internal/adapters/herdr`, `__mulgae_paneexec_v1`, and `internal/adapters/providercli/terminal_provider.go` pass unit tests with a second fake non-OSC multi-home terminal profile while keeping ZCode, Codex, Cursor, AGY transports, Config v5, and embedded JSON schemas/examples unchanged.
-- [ ] Real-holder-PTY kernel tests, isolated `herdr-core` lifecycle tests, and live `make test-grok` confirm zero source copying, read-only project/`.git` protection, enumerated control-plane socket escape denial (`HC_TERMINAL_SOCKET`, operator `herdr-core`, `~/.grok/leader.sock`), exact `PANE_TTY` isolation, terminal secret-root denies, disposable `HOME`/`GROK_HOME` without native `~/.grok` mutation, truthful `ESRCH` + session teardown, complete core/holder/pane/socket cleanup (including retained and MCP paths), and `ps`-verified zero interference with the operator's `default` `herdr-core` session.
-- [ ] Deterministic offline (`make test-offline`), release-binary (`make test-release`), tagged real-`hc` (`make test-herdr`), mandatory ZCode regression (`make test-e2e`), and live Grok 1.0.89 (`make test-grok`) gates pass on the integrated candidate.
-- [ ] Durable outcomes are promoted to `docs/architecture/README.md`, `docs/specs/security.md`, `docs/specs/contracts.md`, `docs/specs/live-workspace-and-git-review.md`, `docs/gating-rules.md`, embedded help assets, and the accepted ADR; deferred non-`herdr-core` ZCode control-plane hardening is recorded in `docs/deferred-feedback/README.md`; `Detailed SOT` is replaced with `Canonical Outcomes` and the temporary dossier and TODO entry are removed in the approved closeout diff.
-- [ ] Master explicitly accepts this Epic; completing its Tasks does not substitute for Epic acceptance.
+- [x] Prerequisite maintenance `TASK-083` (`5ae1105`) and every member Task (`TASK-084` `754c452`, `TASK-085` `ff2d65f`, `TASK-086` `9903a3d`, `TASK-087` `5790c80`, plus whole-Epic validation remediation `a6ff96d`) have implementation and exact-candidate verification evidence.
+- [x] `internal/adapters/herdr`, `__mulgae_paneexec_v1`, and `internal/adapters/providercli/terminal_provider.go` pass unit tests with a second fake non-OSC multi-home terminal profile (`TestTerminalProviderNonOSCMultiHomeProfileSuccessAndExtensibility`) while keeping ZCode, Codex, Cursor, AGY transports, Config v5, and embedded JSON schemas/examples unchanged.
+- [x] Real-holder-PTY kernel tests (`make test-herdr`), isolated `herdr-core` lifecycle tests, and live `make test-grok` confirm zero source copying, read-only project/`.git` protection, enumerated control-plane socket escape denial (`HC_TERMINAL_SOCKET`, operator `herdr-core`, `~/.grok/leader.sock`), exact `PANE_TTY` isolation, terminal secret-root denies, disposable `HOME`/`GROK_HOME` without native `~/.grok` mutation, truthful `ESRCH` + session teardown, complete core/holder/pane/socket cleanup (including retained and MCP paths), and `ps`-verified zero interference with the operator's `default` `herdr-core` session (`4066`/`5157`).
+- [x] Deterministic offline (`make test-offline`, `945.0s`), release-binary (`make test-release`, `95.1s`), tagged real-`hc` (`make test-herdr`, `16.6s`), mandatory ZCode regression (`make test-e2e`, `150.0s`), and live Grok 1.0.89 (`make test-grok`, `895.4s` + `liveprovider` 6-test suite `136.2s`) gates pass on the integrated candidate.
+- [x] Durable outcomes are promoted to `docs/architecture/README.md`, `docs/specs/security.md`, `docs/specs/contracts.md`, `docs/specs/live-workspace-and-git-review.md`, `docs/gating-rules.md`, embedded help assets, and the accepted ADR; deferred non-`herdr-core` ZCode control-plane hardening is recorded in `docs/deferred-feedback/README.md` (`DF-030`); `Detailed SOT` is replaced with `Canonical Outcomes` and the temporary dossier and TODO entry are removed in the approved closeout diff.
+- [x] Master explicitly accepts this Epic; completing its Tasks does not substitute for Epic acceptance (Master accepted the completed Epic result on 2026-11-21).
