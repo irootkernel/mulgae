@@ -767,10 +767,11 @@ func assertCommandRoleReportInventory(t *testing.T, project string, envelope com
 }
 
 type fakeZCodeObservation struct {
-	Argv        []string `json:"argv"`
-	CWD         string   `json:"cwd"`
-	Prompt      string   `json:"prompt"`
-	Destination string   `json:"destination"`
+	Argv          []string `json:"argv"`
+	CWD           string   `json:"cwd"`
+	Prompt        string   `json:"prompt"`
+	Destination   string   `json:"destination"`
+	ToolAllowlist []string `json:"tool_allowlist"`
 }
 
 func initializeReviewGitRepository(t *testing.T, directory string) {
@@ -828,15 +829,17 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
 
 type observation struct {
-	Argv        []string ` + "`json:\"argv\"`" + `
-	CWD         string   ` + "`json:\"cwd\"`" + `
-	Prompt      string   ` + "`json:\"prompt\"`" + `
-	Destination string   ` + "`json:\"destination,omitempty\"`" + `
+	Argv          []string ` + "`json:\"argv\"`" + `
+	CWD           string   ` + "`json:\"cwd\"`" + `
+	Prompt        string   ` + "`json:\"prompt\"`" + `
+	Destination   string   ` + "`json:\"destination,omitempty\"`" + `
+	ToolAllowlist []string ` + "`json:\"tool_allowlist\"`" + `
 }
 
 const barrierDirectory = __FAKE_ZCODE_BARRIER__
@@ -996,12 +999,34 @@ func serve(argv []string) {
 			}
 			prompt = params.Content
 			capability = strings.Contains(prompt, "Prove readiness by returning exactly one JSON object and nothing else.")
+			extraction := strings.Contains(prompt, "Mulgae admitted extraction target metadata")
 			if capability {
 				if mode != "plan" || denylist != "*" || allowlist == nil || len(allowlist) != 0 {
 					panic("non-canonical ZCode capability conversation")
 				}
-			} else if mode != "plan" || !strings.Contains(denylist, "Write") || len(allowlist) != 4 {
-				panic("non-canonical ZCode review conversation")
+			} else if extraction {
+				if mode != "plan" || denylist != "*" || allowlist == nil || len(allowlist) != 0 {
+					panic("non-canonical ZCode extraction conversation")
+				}
+			} else {
+				if mode != "plan" || !strings.Contains(denylist, "Write") {
+					panic("non-canonical ZCode review conversation")
+				}
+				switch {
+				case strings.Contains(prompt, "\"scope\":\"workspace\""):
+					if !slices.Equal(allowlist, []string{"Read", "Grep", "Glob", "Bash"}) {
+						panic("non-canonical ZCode workspace review allowlist")
+					}
+				case strings.Contains(prompt, "\"scope\":\"stage\""),
+					strings.Contains(prompt, "\"scope\":\"head\""),
+					strings.Contains(prompt, "\"scope\":\"commit\""),
+					strings.Contains(prompt, "\"scope\":\"diff\""):
+					if !slices.Equal(allowlist, []string{"Read", "Bash"}) {
+						panic("non-canonical ZCode git review allowlist")
+					}
+				default:
+					panic("unrecognized ZCode review scope")
+				}
 			}
 			destination := ""
 			if strings.Contains(prompt, "Write your complete final Markdown role report to this exact absolute file path") { panic("live review granted report-file output") }
@@ -1009,7 +1034,7 @@ func serve(argv []string) {
 			if cwdErr != nil {
 				panic(cwdErr)
 			}
-			observe(observation{Argv: argv, CWD: cwd, Prompt: prompt, Destination: destination}, false)
+			observe(observation{Argv: argv, CWD: cwd, Prompt: prompt, Destination: destination, ToolAllowlist: allowlist}, false)
 			reply(message.ID, map[string]any{"accepted": true, "sessionId": sessionID, "stateRevision": 1})
 			if capability {
 				proof = capabilityProof(prompt)

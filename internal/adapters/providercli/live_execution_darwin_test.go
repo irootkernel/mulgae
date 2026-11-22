@@ -651,3 +651,199 @@ func (runner *liveTerminalMutationRunner) Converse(ctx context.Context, request 
 	runner.afterConversation()
 	return runner.observation, nil
 }
+
+type liveZCodeWireCaptureRunner struct {
+	observation ports.ProcessObservation
+	sent        [][]byte
+	t           *testing.T
+}
+
+func (runner *liveZCodeWireCaptureRunner) Run(context.Context, ports.ProcessRequest) (ports.ProcessObservation, error) {
+	return runner.observation, nil
+}
+
+func (runner *liveZCodeWireCaptureRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+	if directory, _, bound := request.LaunchDirectory(); bound {
+		defer directory.Close()
+	}
+	exchange := newScriptedProtocolExchange(
+		protocolCreateResult,
+		protocolSendAck,
+		protocolTurnDone,
+		protocolMessagesResult("live report"),
+		protocolCloseResult,
+	)
+	err := driver.Drive(ctx, exchange)
+	runner.sent = exchange.sentLines(runner.t)
+	return runner.observation, err
+}
+
+func TestLiveExecutionZCodeWiresScopeToWireToolAllowlist(t *testing.T) {
+	ctx := context.Background()
+	root := reviewerHomeTestRoot(t)
+	project := filepath.Join(root.String(), "project")
+	operator := filepath.Join(root.String(), "operator")
+	credentials := filepath.Join(project, "operator-secrets")
+	for _, path := range []string{project, operator, credentials} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, value string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(project, "target.go"), "package target\nconst v = 1\n")
+	write(filepath.Join(credentials, "auth.txt"), "SECRET")
+	git := func(args ...string) {
+		t.Helper()
+		command := exec.Command("/usr/bin/git", append([]string{"-C", project}, args...)...)
+		command.Env = []string{"PATH=/usr/bin:/bin", "HOME=/var/empty", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("fixture Git: %v (%s)", err, output)
+		}
+	}
+	git("init", "--quiet")
+	git("add", "target.go")
+	git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "initial")
+	write(filepath.Join(project, "target.go"), "package target\nconst v = 2\n")
+	git("add", "target.go")
+	git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "second")
+	write(filepath.Join(project, "target.go"), "package target\nconst v = 3\n")
+	git("add", "target.go")
+	write(filepath.Join(project, "target.go"), "package target\nconst v = 4\n")
+
+	operatorRoot, _ := ports.NewAnchoredRoot(operator)
+	home, err := OpenReviewerHome(operatorRoot, []byte("fixture guide"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer home.Close()
+	credentialRoot, _ := ports.NewAnchoredRoot(credentials)
+	adapter, err := gittargetadapter.NewLiveSourceAdapter(gittargetadapter.NewExecRunner(), []ports.AnchoredRoot{credentialRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectRoot, _ := ports.NewAnchoredRoot(project)
+
+	for _, tc := range []struct {
+		name          string
+		scope         domain.LiveSourceScope
+		operand       string
+		purpose       ports.ProviderInvocationPurpose
+		wantAllowlist []string
+		wantDenylist  []string
+	}{
+		{
+			name:          "workspace review",
+			scope:         domain.LiveSourceWorkspace,
+			purpose:       ports.ProviderInvocationInitial,
+			wantAllowlist: []string{"Read", "Grep", "Glob", "Bash"},
+			wantDenylist:  zcodeLiveReviewProtocolDenylist,
+		},
+		{
+			name:          "stage review",
+			scope:         domain.LiveSourceStage,
+			purpose:       ports.ProviderInvocationInitial,
+			wantAllowlist: []string{"Read", "Bash"},
+			wantDenylist:  zcodeLiveReviewProtocolDenylist,
+		},
+		{
+			name:          "diff review",
+			scope:         domain.LiveSourceDiff,
+			operand:       "HEAD~1..HEAD",
+			purpose:       ports.ProviderInvocationInitial,
+			wantAllowlist: []string{"Read", "Bash"},
+			wantDenylist:  zcodeLiveReviewProtocolDenylist,
+		},
+		{
+			name:          "workspace extraction",
+			scope:         domain.LiveSourceWorkspace,
+			purpose:       ports.ProviderInvocationExtract,
+			wantAllowlist: []string{},
+			wantDenylist:  zcodeCapabilityProtocolDenylist,
+		},
+		{
+			name:          "stage extraction",
+			scope:         domain.LiveSourceStage,
+			purpose:       ports.ProviderInvocationExtract,
+			wantAllowlist: []string{},
+			wantDenylist:  zcodeCapabilityProtocolDenylist,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			selector, err := ports.NewLiveSourceSelector(tc.scope, tc.operand)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source, err := adapter.OpenLiveSource(ctx, projectRoot, selector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer source.Close()
+			execution, err := ports.NewLiveReviewExecution(ctx, source, home, []ports.AnchoredRoot{credentialRoot})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner := &liveZCodeWireCaptureRunner{
+				t:           t,
+				observation: testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 0),
+			}
+			const instance = "zcode_live_scope"
+			registry, err := newRegistry(ctx, runner, testDefinition(t, FamilyZcode, instance))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if receipt, err := registry.Close(context.Background()); err != nil || !receipt.Valid() {
+					t.Errorf("close zcode live scope registry: %v", err)
+				}
+			}()
+			packet := []byte("review bytes")
+			baseInvocation, err := ports.NewProviderInvocation(
+				domain.RoleLogic, instance, testInvocation(t, instance).AttemptID(),
+				tc.purpose, packet,
+				"i_019f596a-cf80-7c67-b265-f37053d51ccd",
+				"019f596a-cf80-7c67-b265-f37053d51cce",
+				testStdinDigest(packet),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation, err := ports.NewProviderInvocationInLiveSource(baseInvocation, execution)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed, err := registry.Observe(ctx, invocation)
+			if err != nil || observed.Status() != ports.ProviderExecutionStatusSucceeded {
+				t.Fatalf("Observe(%s) status=%q err=%v", tc.name, observed.Status(), err)
+			}
+			var foundCreate bool
+			for _, raw := range runner.sent {
+				var message struct {
+					Method string                     `json:"method"`
+					Params map[string]json.RawMessage `json:"params"`
+				}
+				if err := json.Unmarshal(raw, &message); err != nil {
+					t.Fatal(err)
+				}
+				if message.Method != zcodeProtocolCreateMethod {
+					continue
+				}
+				foundCreate = true
+				var allowed, denied []string
+				if err := json.Unmarshal(message.Params["toolAllowlist"], &allowed); err != nil || allowed == nil || !slices.Equal(allowed, tc.wantAllowlist) {
+					t.Fatalf("%s toolAllowlist = %v (err=%v), want %v", tc.name, allowed, err, tc.wantAllowlist)
+				}
+				if err := json.Unmarshal(message.Params["toolDenylist"], &denied); err != nil || !slices.Equal(denied, tc.wantDenylist) {
+					t.Fatalf("%s toolDenylist = %v (err=%v), want %v", tc.name, denied, err, tc.wantDenylist)
+				}
+			}
+			if !foundCreate {
+				t.Fatalf("%s missing wire session/create request", tc.name)
+			}
+		})
+	}
+}

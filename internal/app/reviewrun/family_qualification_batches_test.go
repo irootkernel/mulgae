@@ -38,7 +38,9 @@ func TestScheduleFamilyQualificationGroupsBatchesByFamily(t *testing.T) {
 		d.transportArgvIndex++
 	})
 	zcodeLogic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
-	zcodeSecurity := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
+	zcodeSecurity := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
+		d.zcodeModel = "account:zai-individual-coding-plan/GLM-5.3-Flash"
+	})
 	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeSecurity, grokPrimary, grokMutated})
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +153,9 @@ func TestScheduledFamilyQualificationOverlapsDistinctFamilies(t *testing.T) {
 // batch has finished, whatever the arrival timing.
 func TestScheduledFamilyQualificationExcludesSameFamily(t *testing.T) {
 	zcodeLogic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
-	zcodeSecurity := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
+	zcodeSecurity := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
+		d.zcodeModel = "account:zai-individual-coding-plan/GLM-5.3-Flash"
+	})
 	grok := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
 	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeSecurity, grok})
 	if err != nil {
@@ -960,12 +964,16 @@ func factoryGuardRegistries(factory *QualifiedRunFactory, candidates ...Qualifie
 	return registries
 }
 
-// TestConcurrentBatchesPreserveInstanceAndProfileAuthority holds on the base
-// and after the change: every ZCode instance is probed exactly once, distinct
-// Codex credential profiles never share qualification, and derivation never
-// crosses a family profile.
+// TestConcurrentBatchesPreserveInstanceAndProfileAuthority verifies that
+// equivalent ZCode profiles share one probe with sibling derivation while
+// distinct-model ZCode candidates, AGY instances, and distinct Codex credential
+// profiles remain independently probed, and derivation never crosses a family
+// profile.
 func TestConcurrentBatchesPreserveInstanceAndProfileAuthority(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	zcodeDistinctModel := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleDocumentation), func(d *testRuntimeMutation) {
+		d.zcodeModel = "account:zai-individual-coding-plan/GLM-5.3-Flash"
+	})
 	codexPersonalLogic := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic), func(d *testRuntimeMutation) {
 		d.instance, d.profileID = "codex-personal-logic", "codex-personal"
 	})
@@ -978,6 +986,9 @@ func TestConcurrentBatchesPreserveInstanceAndProfileAuthority(t *testing.T) {
 	candidates := []QualifiedRunCandidate{
 		authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic),
 		authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity),
+		zcodeDistinctModel,
+		authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleLogic),
+		authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleSecurity),
 		authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic),
 		codexPersonalLogic, codexPersonalSecurity, codexWorkSecurity,
 	}
@@ -1012,19 +1023,23 @@ func TestConcurrentBatchesPreserveInstanceAndProfileAuthority(t *testing.T) {
 	if routes := run.Routes(); len(routes) != len(candidates) {
 		t.Fatalf("routes = %d, want one per candidate (%d)", len(routes), len(candidates))
 	}
-	for _, instance := range []string{"zcode-logic", "zcode-security", "grok-logic", "codex-personal-logic", "codex-work-security"} {
+	for _, instance := range []string{"zcode-logic", "zcode-documentation", "agy-logic", "agy-security", "grok-logic", "codex-personal-logic", "codex-work-security"} {
 		if calls := qualifyCalls[instance]; calls != 1 {
-			t.Fatalf("QualifyCurrent calls for %s = %d, want exactly one namespace-bound probe", instance, calls)
+			t.Fatalf("QualifyCurrent calls for %s = %d, want 1", instance, calls)
 		}
 	}
-	if calls := deriveCalls["codex-personal-security"]; calls != 1 {
-		t.Fatalf("DeriveEquivalentFamilyRoute calls for codex-personal-security = %d, want 1", calls)
+	for _, instance := range []string{"zcode-documentation", "agy-logic", "agy-security", "codex-work-security"} {
+		if calls := deriveCalls[instance]; calls != 0 {
+			t.Fatalf("distinct or per-instance candidate %s derived from another profile: %d calls", instance, calls)
+		}
 	}
-	if calls := qualifyCalls["codex-personal-security"]; calls != 0 {
-		t.Fatalf("same-profile sibling was probed directly: %d calls", calls)
-	}
-	if calls := deriveCalls["codex-work-security"]; calls != 0 {
-		t.Fatalf("distinct-profile sibling derived from another profile: %d calls", calls)
+	for _, instance := range []string{"zcode-security", "codex-personal-security"} {
+		if calls := deriveCalls[instance]; calls != 1 {
+			t.Fatalf("DeriveEquivalentFamilyRoute calls for %s = %d, want 1", instance, calls)
+		}
+		if calls := qualifyCalls[instance]; calls != 0 {
+			t.Fatalf("same-profile sibling %s was probed directly: %d calls", instance, calls)
+		}
 	}
 }
 

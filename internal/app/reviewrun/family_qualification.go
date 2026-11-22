@@ -28,13 +28,14 @@ type familyQualificationGroup struct {
 
 // familyRuntimeProfileKeyFor binds every capability-relevant runtime field that
 // must match before same-command family qualification may be shared. Instance,
-// timeout, profile id, and configured version are excluded so
-// sibling role routes can share one probe; transport, argv, environment,
-// working directory, output bounds, lifecycle, model, digests, and safety
+// timeout, profile id, and configured version are excluded so sibling role
+// routes can share one probe; transport, argv, environment, working directory,
+// output bounds, lifecycle, model, reasoning effort, digests, and safety
 // identity remain part of the share key. Codex credential-profile identity is
-// included so different authenticated homes never share qualification. ZCode
-// instances are deliberately distinct because each acquired namespace owns a
-// provider/model selection that is not part of the provider-independent port.
+// included so different authenticated homes never share qualification.
+// Equivalent ZCode instances share one probe, with sibling direct-execution
+// authority minted via DeriveEquivalentRouteDirectExecutionAuthority; AGY
+// instances remain strictly per-instance.
 func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) familyRuntimeProfileKey {
 	environment := definition.Environment()
 	environmentValues := make([]string, len(environment))
@@ -81,7 +82,7 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 	if definition.Family() == string(FamilyCodex) && definition.ProfileID() != definition.Instance() {
 		parts = append(parts, definition.ProfileID())
 	}
-	if definition.Family() == string(FamilyZCode) || definition.Family() == string(FamilyAgy) {
+	if definition.Family() == string(FamilyAgy) {
 		parts = append(parts, definition.Instance())
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))

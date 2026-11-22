@@ -52,7 +52,10 @@ const (
 	zcodeProtocolTurnFailedKind    = "turn-failed"
 )
 
-var errZCodeSelectedModelUnavailable = errors.New("selected ZCode model is unavailable")
+var (
+	errZCodeSelectedModelUnavailable   = errors.New("selected ZCode model is unavailable")
+	errZCodeAccountConfigurationFailed = errors.New("ZCode account configuration failed")
+)
 
 // zcodeProtocolError is the typed fail-closed classification for a protocol
 // conversation that ended without a complete provider turn.
@@ -127,6 +130,7 @@ type zcodeProtocolSession struct {
 	extraction           bool
 	liveSource           bool
 	liveReadTools        bool
+	liveSourceScope      domain.LiveSourceScope
 	toolFree             bool
 	assistantEvidence    []string
 	observation          ports.ProviderSessionObservation
@@ -199,7 +203,7 @@ func (session *zcodeProtocolSession) AssistantEvidenceText() []byte {
 }
 
 func (session *zcodeProtocolSession) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) (driveErr error) {
-	state := &zcodeProtocolConversation{prompt: session.prompt, workspacePath: session.workspacePath, mode: session.mode, toolDenylist: append([]string(nil), session.toolDenylist...), captureAssistantText: session.captureAssistantText, extraction: session.extraction, liveSource: session.liveSource, liveReadTools: session.liveReadTools, toolFree: session.toolFree, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection), reasoningEffort: session.reasoningEffort, account: session.account}
+	state := &zcodeProtocolConversation{prompt: session.prompt, workspacePath: session.workspacePath, mode: session.mode, toolDenylist: append([]string(nil), session.toolDenylist...), captureAssistantText: session.captureAssistantText, extraction: session.extraction, liveSource: session.liveSource, liveReadTools: session.liveReadTools, liveSourceScope: session.liveSourceScope, toolFree: session.toolFree, phase: ports.ProviderSessionPhaseCreate, modelSelection: cloneZCodeModelSelection(session.modelSelection), reasoningEffort: session.reasoningEffort, account: session.account}
 	defer func() {
 		terminal := ports.ProviderSessionCompleted
 		if driveErr != nil {
@@ -275,7 +279,9 @@ type zcodeProtocolConversation struct {
 	sessionID             string
 	turnID                string
 	phase                 ports.ProviderSessionPhase
+	createSent            bool
 	createAccepted        bool
+	sendSent              bool
 	sendAccepted          bool
 	turnObserved          bool
 	turnCompleted         bool
@@ -289,6 +295,7 @@ type zcodeProtocolConversation struct {
 	extraction            bool
 	liveSource            bool
 	liveReadTools         bool
+	liveSourceScope       domain.LiveSourceScope
 	toolFree              bool
 	assistantEvidence     []string
 	modelSelection        *zcodeModelSelection
@@ -296,6 +303,7 @@ type zcodeProtocolConversation struct {
 	reasoningEffort       string
 	account               *zcodeAccountRuntime
 	accountPending        bool
+	accountAccepted       bool
 	modelRequestPending   bool
 	modelAccepted         bool
 	thoughtRequestPending bool
@@ -310,17 +318,39 @@ func (state *zcodeProtocolConversation) start(ctx context.Context, exchange port
 	return sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolAccountID, zcodeProtocolAccountMethod, state.account.accountConfigParams())
 }
 
+func zcodeLiveReviewToolAllowlist(scope domain.LiveSourceScope) ([]string, error) {
+	switch scope {
+	case domain.LiveSourceStage, domain.LiveSourceHead, domain.LiveSourceCommit, domain.LiveSourceDiff:
+		return []string{"Read", "Bash"}, nil
+	case domain.LiveSourceWorkspace, "":
+		return []string{"Read", "Grep", "Glob", "Bash"}, nil
+	default:
+		return nil, zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, fmt.Errorf("invalid live source scope %q", scope))
+	}
+}
+
 func (state *zcodeProtocolConversation) sendCreate(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	if state.accountPending || (state.account != nil && !state.accountAccepted) {
+		return zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, errors.New("invalid session create state"))
+	}
 	params := map[string]any{
 		"workspace": map[string]string{"workspacePath": state.workspacePath, "workspaceKey": state.workspacePath},
 		"mode":      state.mode, "toolDenylist": state.toolDenylist, "titleGenerationEnabled": false,
 	}
 	if state.liveReadTools {
-		params["toolAllowlist"] = []string{"Read", "Grep", "Glob", "Bash"}
+		allowlist, err := zcodeLiveReviewToolAllowlist(state.liveSourceScope)
+		if err != nil {
+			return err
+		}
+		params["toolAllowlist"] = allowlist
 	} else if state.toolFree {
 		params["toolAllowlist"] = []string{}
 	}
-	return sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolCreateID, zcodeProtocolCreateMethod, params)
+	if err := sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolCreateID, zcodeProtocolCreateMethod, params); err != nil {
+		return err
+	}
+	state.createSent = true
+	return nil
 }
 
 func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange ports.ProviderSessionExchange, message zcodeProtocolMessage) (bool, error) {
@@ -346,15 +376,19 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		state.accountPending = false
 		if message.Error != nil {
 			state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
-			return true, zcodeProtocolFailure(domain.DiagnosticCauseProviderExecutionFailed, fmt.Errorf("account configuration failed: %s", message.Error.Message))
+			return true, zcodeAccountConfigurationFailure()
 		}
 		var result struct {
 			ReceivedRevision string `json:"receivedRevision"`
 			ProviderCount    int    `json:"providerCount"`
 		}
-		if json.Unmarshal(message.Result, &result) != nil || result.ReceivedRevision != state.account.revision || result.ProviderCount != 1 {
+		if len(message.Result) == 0 || bytes.Equal(bytes.TrimSpace(message.Result), []byte("null")) || json.Unmarshal(message.Result, &result) != nil {
 			return true, zcodeProtocolFailure(domain.DiagnosticCauseOutputEnvelopeInvalid, errors.New("account configuration result is invalid"))
 		}
+		if result.ReceivedRevision != state.account.revision || result.ProviderCount != 1 {
+			return true, zcodeAccountConfigurationFailure()
+		}
+		state.accountAccepted = true
 		return false, state.sendCreate(ctx, exchange)
 	}
 	if state.isModelSelectionResponse(message) {
@@ -389,7 +423,7 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		state.thoughtAccepted = true
 		return false, state.sendPrompt(ctx, exchange)
 	}
-	if message.Error != nil && message.correlatesTo(zcodeProtocolCreateID, zcodeProtocolSendID, zcodeProtocolMessagesID, zcodeProtocolCloseID) {
+	if message.Error != nil && state.correlatesPendingCoreRequest(message) {
 		state.providerErrorCode, state.hasProviderErrorCode = message.Error.Code, true
 		return true, zcodeProtocolFailure(domain.DiagnosticCauseProviderExecutionFailed,
 			fmt.Errorf("request %s failed: %s", string(message.ID), message.Error.Message))
@@ -435,6 +469,14 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 
 func zcodeModelSelectionFailure() error {
 	failure, err := domain.NewFailure("zcode_model_selection", domain.FailureConfiguration, "selected ZCode model is unavailable", errZCodeSelectedModelUnavailable)
+	if err != nil {
+		return zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, err)
+	}
+	return failure
+}
+
+func zcodeAccountConfigurationFailure() error {
+	failure, err := domain.NewFailure("zcode_account_configuration", domain.FailureConfiguration, "ZCode account configuration failed", errZCodeAccountConfigurationFailed)
 	if err != nil {
 		return zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, err)
 	}
@@ -561,12 +603,38 @@ func (state *zcodeProtocolConversation) acceptThoughtLevel(result json.RawMessag
 	return nil
 }
 
+func (state *zcodeProtocolConversation) correlatesPendingCoreRequest(message zcodeProtocolMessage) bool {
+	switch {
+	case message.isResponseID(zcodeProtocolCreateID):
+		return state.createSent && !state.createAccepted && !state.accountPending && (state.account == nil || state.accountAccepted)
+	case message.isResponseID(zcodeProtocolSendID):
+		return state.sendSent && !state.sendAccepted && !state.modelRequestPending && !state.thoughtRequestPending
+	case message.isResponseID(zcodeProtocolMessagesID):
+		return state.messagesRequested && !state.messagesReceived
+	case message.isResponseID(zcodeProtocolCloseID):
+		return state.closeSent && !state.closeAccepted
+	default:
+		return false
+	}
+}
+
 func (state *zcodeProtocolConversation) sendPrompt(ctx context.Context, exchange ports.ProviderSessionExchange) error {
+	if state.accountPending || !state.createAccepted || state.sessionID == "" ||
+		state.modelRequestPending || state.thoughtRequestPending ||
+		(state.account != nil && !state.accountAccepted) ||
+		(state.modelSelection != nil && !state.modelAccepted) ||
+		(state.reasoningEffort != "" && !state.thoughtAccepted) {
+		return zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, errors.New("invalid prompt send state"))
+	}
 	state.phase = ports.ProviderSessionPhaseSend
-	return sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolSendID, zcodeProtocolSendMethod, map[string]any{
+	if err := sendZcodeProtocolRequest(ctx, exchange, zcodeProtocolSendID, zcodeProtocolSendMethod, map[string]any{
 		"sessionId": state.sessionID,
 		"content":   state.prompt,
-	})
+	}); err != nil {
+		return err
+	}
+	state.sendSent = true
+	return nil
 }
 
 func (state *zcodeProtocolConversation) sendClose(ctx context.Context, exchange ports.ProviderSessionExchange) error {
@@ -678,6 +746,9 @@ func (state *zcodeProtocolConversation) handleServerRequest(ctx context.Context,
 }
 
 func (state *zcodeProtocolConversation) acceptCreate(result json.RawMessage) error {
+	if state.accountPending || (state.account != nil && !state.accountAccepted) || !state.createSent {
+		return errors.New("session create response before session create was requested")
+	}
 	if state.createAccepted {
 		return errors.New("duplicate session create response")
 	}
@@ -727,6 +798,12 @@ func (state *zcodeProtocolConversation) acceptSend(result json.RawMessage) error
 	}
 	if !state.createAccepted || state.sessionID == "" {
 		return errors.New("session send response before the conversation was established")
+	}
+	if !state.sendSent || state.accountPending || state.modelRequestPending || state.thoughtRequestPending ||
+		(state.account != nil && !state.accountAccepted) ||
+		(state.modelSelection != nil && !state.modelAccepted) ||
+		(state.reasoningEffort != "" && !state.thoughtAccepted) {
+		return errors.New("session send response before session send was requested")
 	}
 	var payload struct {
 		Accepted bool `json:"accepted"`

@@ -516,8 +516,13 @@ slot preserves the existing two-invocation ceiling. There is no user-global capa
 concurrency or rate limits remain provider outcomes, and operators choose the
 number of Mulgae processes they run.
 
-Provider qualification runs in original-order batches that hold at most one
-group per family, so only distinct families overlap and same-family groups
+Provider qualification groups equivalent shareable runtime profiles—including
+same-profile ZCode role routes, whose sibling direct-execution authorities are
+minted by the adapter through `DeriveEquivalentRouteDirectExecutionAuthority`
+while retaining independent per-instance namespaces—and keeps AGY instances,
+distinct-profile ZCode routes, and distinct Codex credential profiles in
+separate groups. Qualification runs in original-order batches that hold at most
+one group per family, so only distinct families overlap and same-family groups
 wait for a later batch. The batch runner merges route, evidence, failure and
 observation contributions in original group order through the first failed
 group, while cleanup ownership merges from every started group, including

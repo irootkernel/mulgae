@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,7 @@ func TestIntegrationIsolatedReleaseFixtureLiveSelectors(t *testing.T) {
 	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic", bundle)
 	for _, selector := range [][]string{{"--workspace"}, {"--stage"}, {"--head"}, {"--commit", "HEAD"}, {"--diff", "HEAD~1..HEAD"}, {"--diff", "HEAD~1...HEAD"}} {
 		t.Run(selector[0]+selector[len(selector)-1], func(t *testing.T) {
+			beforeReviews := len(fakeZCodeReviewObservations(t, log))
 			arguments := append(append([]string{"review"}, selector...), "--roles", "logic", "--output", "json")
 			plan := runMulgaeBinaryWithEnv(t, binary, project, environment, append(arguments, "--preflight")...)
 			if plan.exitCode != 0 {
@@ -49,6 +51,17 @@ func TestIntegrationIsolatedReleaseFixtureLiveSelectors(t *testing.T) {
 			if result.exitCode != 0 || envelope.Result.RunID == nil {
 				logFakeProviderPanic(t, project)
 				t.Fatalf("selector %v: %s %s", selector, result.stdout, result.stderr)
+			}
+			afterReviews := fakeZCodeReviewObservations(t, log)
+			if len(afterReviews) != beforeReviews+1 {
+				t.Fatalf("selector %v review launches = %d, want %d", selector, len(afterReviews)-beforeReviews, 1)
+			}
+			wantAllowlist := []string{"Read", "Bash"}
+			if selector[0] == "--workspace" {
+				wantAllowlist = []string{"Read", "Grep", "Glob", "Bash"}
+			}
+			if got := afterReviews[len(afterReviews)-1].ToolAllowlist; !slices.Equal(got, wantAllowlist) {
+				t.Fatalf("selector %v toolAllowlist = %v, want %v", selector, got, wantAllowlist)
 			}
 			inspected := runMulgaeBinaryWithEnv(t, binary, project, environment, "inspect", "--run", *envelope.Result.RunID, "--output", "json")
 			var inspection struct {
@@ -218,6 +231,44 @@ func TestIntegrationIsolatedReleaseFixtureLiveSelectors(t *testing.T) {
 		completed := tool("await_review", map[string]any{"invocation_id": started.InvocationID}, false)
 		if completed.RunID == "" || completed.TerminalExitCode != 0 || completed.Guarded || completed.ProjectBinding != "" || completed.SourceIdentity != mcpPlan.SourceIdentity || len(fakeZCodeReviewObservations(t, log)) != before+2 {
 			t.Fatalf("non-Git MCP completion lost authority: %+v", completed)
+		}
+	})
+	t.Run("two-role shared ZCode qualification", func(t *testing.T) {
+		sharedProject := canonicalTestTempDir(t)
+		initializeReviewGitRepository(t, sharedProject)
+		runTestCommand(t, sharedProject, "git", "add", "review.go")
+		initializeOfflineProvidersForRoles(t, binary, sharedProject, environment, "zcode", "logic,security", bundle)
+		countCapabilities := func() int {
+			count := 0
+			for _, obs := range readFakeZCodeObservations(t, log) {
+				if strings.Contains(obs.Prompt, "Prove readiness by returning exactly one JSON object and nothing else.") {
+					count++
+				}
+			}
+			return count
+		}
+		beforeCapabilities := countCapabilities()
+		beforeReviews := len(fakeZCodeReviewObservations(t, log))
+		result := runMulgaeBinaryWithEnv(t, binary, sharedProject, environment, "review", "--stage", "--roles", "logic,security", "--output", "json")
+		var envelope commandEnvelope
+		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if result.exitCode != 0 || envelope.Result.RunID == nil {
+			logFakeProviderPanic(t, sharedProject)
+			t.Fatalf("two-role shared ZCode review failed: %s %s", result.stdout, result.stderr)
+		}
+		if got := countCapabilities() - beforeCapabilities; got != 1 {
+			t.Fatalf("two-role ZCode capability probes = %d, want 1 shared probe", got)
+		}
+		afterReviews := fakeZCodeReviewObservations(t, log)
+		if len(afterReviews) != beforeReviews+2 {
+			t.Fatalf("two-role ZCode review launches = %d, want 2", len(afterReviews)-beforeReviews)
+		}
+		for _, launch := range afterReviews[beforeReviews:] {
+			if !slices.Equal(launch.ToolAllowlist, []string{"Read", "Bash"}) {
+				t.Fatalf("two-role stage toolAllowlist = %v, want [Read Bash]", launch.ToolAllowlist)
+			}
 		}
 	})
 	for _, launch := range fakeZCodeReviewObservations(t, log) {

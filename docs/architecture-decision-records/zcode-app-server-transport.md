@@ -70,12 +70,16 @@ following facts, verified end to end including one real model turn:
   `toolDenylist` as a string array. `titleGenerationEnabled:false` suppresses
   the auxiliary title model call. In bundled launcher 0.16.5,
   `registerBuiltInTools` evaluates `toolDenylist` by exact tool-name `Set`
-  membership rather than glob matching `"*"`. Live review sessions therefore
-  send `toolAllowlist:["Read","Grep","Glob","Bash"]`, whereas tool-free
-  qualification and live-extraction sessions send `toolAllowlist:[]` together
-  with `toolDenylist:["*"]` so `registerBuiltInTools` constructs an empty
-  allowed `Set` and registers zero built-in tools (including `ExitPlanMode` in
-  `plan` mode).
+  membership rather than glob matching `"*"`. Workspace live-review sessions
+  therefore send `toolAllowlist:["Read","Grep","Glob","Bash"]`, whereas
+  Git-backed live-review scopes (`stage`, `head`, `commit`, `diff`) narrow
+  `toolAllowlist` to `["Read","Bash"]`—dropping workspace search tools
+  (`Grep`/`Glob`) against the neutral working directory while keeping `Read` so
+  ZCode can read spilled Bash stdout logs under `/tmp/mulgae-zcode`. Tool-free
+  qualification and live-extraction sessions continue to send
+  `toolAllowlist:[]` together with `toolDenylist:["*"]` so
+  `registerBuiltInTools` constructs an empty allowed `Set` and registers zero
+  built-in tools (including `ExitPlanMode` in `plan` mode).
 - Immediately after `session/create` the server sends a server-initiated
   `session/requestRuntimePreferences` request (id `server-N`, scope
   `runtime-materialization`, and again at `user-execution` before the first
@@ -128,9 +132,11 @@ This makes the selected wire visible in the fixed argv even though the original
   `provider_output_decode_failed`, an unreadable payload on a recognized
   `computer-use/operation-event` is
   `provider_protocol_event_decode_failed`, a reported `turn-failed` or a missing
-  turn completion is a provider turn failure, an unavailable selected model is
-  a configuration failure, and a failed create, send, messages, or close exchange
-  is a provider execution failure. Additive notifications with other method
+  turn completion is a provider turn failure, a rejected or mismatched
+  `provider/updateAccountConfig` response or an unavailable selected model or
+  thought level is a configuration failure, and a failed create, send, messages,
+  or close exchange is a provider execution failure. Additive notifications with
+  other method
   names are inert, regardless of their provider-owned payload shape. Stderr token
   classification remains the fallback, notably for login-required states the
   protocol does not represent on the wire.

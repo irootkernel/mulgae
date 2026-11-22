@@ -188,6 +188,13 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 	if err != nil {
 		return observation, nil, fail(err)
 	}
+	if definition.family == FamilyZcode && !extraction {
+		scope := execution.Target().Selector().Scope()
+		if !scope.Valid() {
+			return observation, nil, fail(fmt.Errorf("invalid live source scope"))
+		}
+		configuration.liveSourceScope = scope
+	}
 	if agyProfile != nil {
 		configuration.agyAgentName = agyProfile.agentName
 		if !extraction {

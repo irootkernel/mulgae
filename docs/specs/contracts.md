@@ -1109,19 +1109,29 @@ Mulgae performs one version-plus-capability probe per distinct provider family
 profile, with at most one bounded operational retry, then derives role admission
 for configured role routes that share that profile. Shareable
 profiles are equivalent across base argv, transport channel/reference/index,
-environment, working directory, lifecycle, model, Codex reasoning effort,
-executable/launcher identity, ZCode built-in provider-config identity, and
-runtime safety policy identity. ZCode
+environment, working directory, lifecycle, ZCode model and reasoning effort,
+Grok settings identity (with Codex model and reasoning effort configured
+provider-wide), executable/launcher identity, ZCode app-bundle
+version/metadata and built-in provider-config identities, and runtime safety
+policy identity. ZCode
 qualification probes use the app-server protocol conversation in plan mode
 with every tool denied; their capability evidence is the conversation's
 captured assistant response text, read back through the protocol after the
 turn completes, and the protocol transcript on stdout is never evidence.
-ZCode qualification is additionally namespace-scoped: each role instance owns
-its selected provider/model namespace and therefore performs its own probe even
-when the remaining runtime profile fields match. Direct-execution authority
-construction and Matches bind currentProbeRuntimeDefinitionIdentity for the
-exact destination runtime, including instance. Application-layer identity
-rewriting cannot copy authority between those namespaces.
+Same-profile ZCode role instances share one qualification probe and mint
+distinct destination-bound direct-execution authorities through
+`DeriveEquivalentRouteDirectExecutionAuthority`, while retaining independent
+per-instance namespaces for execution; AGY remains strictly per-instance and
+cannot share qualification or authority across instances or namespaces.
+Direct-execution authority construction and `Matches` bind
+`currentProbeRuntimeDefinitionIdentity` for the exact destination runtime,
+including instance, so application-layer identity rewriting cannot copy
+authority between instances or namespaces. Because sibling ZCode namespaces
+still establish their own `provider/updateAccountConfig`, `session/setModel`,
+and `session/setThoughtLevel` handshakes at execution time, any rejected or
+mismatched `account.revision`, unavailable model, or rejected thought level on
+a derived sibling surfaces as a typed configuration failure with zero
+publication authority.
 Named Codex credential profiles additionally participate in qualification-group
 identity. Roles using the same credential profile may share one probe; roles
 using different profiles never share qualification or direct-execution

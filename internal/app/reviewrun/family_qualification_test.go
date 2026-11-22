@@ -2,27 +2,34 @@ package reviewrun
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/app/review"
+	"github.com/irootkernel/mulgae/internal/app/validation"
+	"github.com/irootkernel/mulgae/internal/builtin"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestGroupCandidatesByFamilyRuntimeProfileKeepsZCodeNamespacesDistinct(t *testing.T) {
+func TestGroupCandidatesByFamilyRuntimeProfileSharesEquivalentZCodeProfiles(t *testing.T) {
 	zcodeLogic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	zcodeSecurity := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
 	grokLogic := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
-	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeSecurity, grokLogic})
+	agyLogic := authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleLogic)
+	agySecurity := authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleSecurity)
+	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeSecurity, grokLogic, agyLogic, agySecurity})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 3 {
-		t.Fatalf("groups = %d, want 3", len(groups))
+	if len(groups) != 4 {
+		t.Fatalf("groups = %d, want 4 (1 shared ZCode, 1 Grok, 2 distinct AGY)", len(groups))
 	}
 	batches := scheduleFamilyQualificationGroups(groups)
 	scheduled := 0
@@ -32,24 +39,44 @@ func TestGroupCandidatesByFamilyRuntimeProfileKeepsZCodeNamespacesDistinct(t *te
 	if scheduled != len(groups) {
 		t.Fatalf("scheduled groups = %d, want %d: %#v", scheduled, len(groups), batches)
 	}
-	var zcodeGroups int
-	var grokRoles []domain.Role
+	var zcodeGroups, agyGroups int
+	var zcodeRoles, grokRoles []domain.Role
 	for _, group := range groups {
 		switch group.family {
 		case FamilyZCode:
 			zcodeGroups++
-			if len(group.roles) != 1 {
-				t.Fatalf("zcode group roles = %v, want one namespace-bound role", group.roles)
-			}
+			zcodeRoles = group.roles
 		case FamilyGrok:
 			grokRoles = group.roles
+		case FamilyAgy:
+			agyGroups++
+			if len(group.roles) != 1 {
+				t.Fatalf("agy group roles = %v, want one per-instance role", group.roles)
+			}
 		}
 	}
-	if zcodeGroups != 2 {
-		t.Fatalf("zcode groups = %d, want 2", zcodeGroups)
+	if zcodeGroups != 1 {
+		t.Fatalf("zcode groups = %d, want 1 shared group", zcodeGroups)
+	}
+	if !reflect.DeepEqual(zcodeRoles, []domain.Role{domain.RoleLogic, domain.RoleSecurity}) {
+		t.Fatalf("zcode roles = %v, want [logic security]", zcodeRoles)
+	}
+	if agyGroups != 2 {
+		t.Fatalf("agy groups = %d, want 2 per-instance groups", agyGroups)
 	}
 	if !reflect.DeepEqual(grokRoles, []domain.Role{domain.RoleLogic}) {
 		t.Fatalf("grok roles = %v", grokRoles)
+	}
+
+	zcodeMutated := mutateFamilyCandidateDefinition(t, zcodeSecurity, func(d *testRuntimeMutation) {
+		d.zcodeModel = "account:zai-individual-coding-plan/GLM-5.3-Flash"
+	})
+	splitGroups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeMutated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(splitGroups) != 2 {
+		t.Fatalf("capability-mutated ZCode groups = %d, want 2 distinct groups", len(splitGroups))
 	}
 }
 
@@ -57,18 +84,30 @@ func TestFamilyRuntimeProfileKeyRejectsCapabilityRelevantMutations(t *testing.T)
 	base := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	baseKey := familyRuntimeProfileKeyFor(base.Definition)
 	sibling := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
-	if familyRuntimeProfileKeyFor(sibling.Definition) == baseKey {
-		t.Fatal("distinct ZCode namespaces shared the family profile key")
+	if familyRuntimeProfileKeyFor(sibling.Definition) != baseKey {
+		t.Fatal("equivalent ZCode siblings did not share the family profile key")
+	}
+	agyLogic := authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleLogic)
+	agySecurity := authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleSecurity)
+	if familyRuntimeProfileKeyFor(agyLogic.Definition) == familyRuntimeProfileKeyFor(agySecurity.Definition) {
+		t.Fatal("distinct AGY instances shared the family profile key")
 	}
 
 	for name, mutate := range map[string]func(*testRuntimeMutation){
-		"transport-index": func(d *testRuntimeMutation) { d.transportArgvIndex++ },
-		"base-argv":       func(d *testRuntimeMutation) { d.baseArgv = append(append([]string(nil), d.baseArgv...), "--other") },
-		"transport-ref":   func(d *testRuntimeMutation) { d.transportReference = "@other.md" },
-		"working-dir":     func(d *testRuntimeMutation) { d.workingDirectory = "/private/other" },
-		"executable":      func(d *testRuntimeMutation) { d.executable = "/private/bin/other-node" },
-		"launcher":        func(d *testRuntimeMutation) { d.launcher = "/private/bin/other-launcher" },
-		"safety-policy":   func(d *testRuntimeMutation) { d.runtimeSafetyPolicyIdentity = "other-policy" },
+		"transport-index":             func(d *testRuntimeMutation) { d.transportArgvIndex++ },
+		"base-argv":                   func(d *testRuntimeMutation) { d.baseArgv = append(append([]string(nil), d.baseArgv...), "--other") },
+		"transport-ref":               func(d *testRuntimeMutation) { d.transportReference = "@other.md" },
+		"working-dir":                 func(d *testRuntimeMutation) { d.workingDirectory = "/private/other" },
+		"executable":                  func(d *testRuntimeMutation) { d.executable = "/private/bin/other-node" },
+		"launcher":                    func(d *testRuntimeMutation) { d.launcher = "/private/bin/other-launcher" },
+		"zcode-model":                 func(d *testRuntimeMutation) { d.zcodeModel = "account:zai-individual-coding-plan/GLM-5.3-Flash" },
+		"zcode-reasoning-effort":      func(d *testRuntimeMutation) { d.zcodeReasoningEffort = "high" },
+		"zcode-provider-config":       func(d *testRuntimeMutation) { d.zcodeProviderConfig = "/private/other/zcode-builtin.json" },
+		"zcode-provider-config-sha":   func(d *testRuntimeMutation) { d.zcodeProviderConfigSHA256 = "sha256:" + strings.Repeat("d", 64) },
+		"application-version":         func(d *testRuntimeMutation) { d.applicationVersion = "3.19.0" },
+		"application-metadata":        func(d *testRuntimeMutation) { d.applicationMetadata = "/private/other/Info.plist" },
+		"application-metadata-sha256": func(d *testRuntimeMutation) { d.applicationMetadataSHA256 = "sha256:" + strings.Repeat("e", 64) },
+		"safety-policy":               func(d *testRuntimeMutation) { d.runtimeSafetyPolicyIdentity = "other-policy" },
 		"lifecycle": func(d *testRuntimeMutation) {
 			lifecycle, err := ports.NewBoundedPostOutputLifecycle(ports.ProcessOutputFramingTerminalJSONObject, time.Second, 2*time.Second)
 			if err != nil {
@@ -90,64 +129,93 @@ func TestFamilyRuntimeProfileKeyRejectsCapabilityRelevantMutations(t *testing.T)
 	}
 }
 
-func TestFamilyQualificationProbesEachZCodeNamespace(t *testing.T) {
+func TestFamilyQualificationSharesEquivalentZCodeProfile(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
-	var calls atomic.Int32
-	var derives atomic.Int32
-	qualifier := &familyDerivingQualifier{
-		qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
-			calls.Add(1)
-			return syntheticFamilyQualificationResult(t, request, now), nil
-		},
-		derive: func(_ context.Context, request FamilyRouteDerivationRequest) (CurrentQualificationResult, error) {
-			derives.Add(1)
-			if familyRuntimeProfileKeyFor(request.SourceDefinition) != familyRuntimeProfileKeyFor(request.Destination.Definition) {
-				t.Fatal("derivation invoked across unequal family profiles")
-			}
-			return syntheticDerivedFamilyRoute(t, request, now), nil
-		},
-	}
-	registryFactory := qualifierRegistryFactory{registry: newAuthorityRegistry(t)}
-	factory, err := NewQualifiedRunFactory(qualifier, registryFactory, qualifierClock{now: now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidates := []QualifiedRunCandidate{
-		authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic),
-		authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity),
-	}
-	run, err := factory.NewQualifiedRun(context.Background(), candidates)
-	if err != nil {
-		t.Fatalf("candidates=%q/%q err=%v failures=%v", candidates[0].Definition.Instance(), candidates[1].Definition.Instance(), err, func() []ProviderQualificationFailure {
-			if run != nil {
-				return run.QualificationFailures()
-			}
-			return nil
-		}())
-	}
-	if calls.Load() != 2 {
-		t.Fatalf("QualifyCurrent calls = %d, want 2 namespace-bound probes", calls.Load())
-	}
-	if derives.Load() != 0 {
-		t.Fatalf("DeriveEquivalentFamilyRoute calls = %d, want no cross-namespace derivation", derives.Load())
-	}
-	if len(run.Routes()) != 2 {
-		t.Fatalf("routes = %d, want 2 derived role routes", len(run.Routes()))
-	}
-	observations := run.QualificationObservations()
-	if len(observations) != 2 {
-		t.Fatalf("qualification observations = %d, want one per admitted sibling route", len(observations))
-	}
-	seen := map[string]bool{}
-	for _, observation := range observations {
-		if observation.Outcome() != "qualified" {
-			t.Fatalf("observation outcome = %q, want qualified", observation.Outcome())
+	runQualification := func(t *testing.T, candidates []QualifiedRunCandidate) (*QualifiedRun, int32, int32) {
+		t.Helper()
+		var calls atomic.Int32
+		var derives atomic.Int32
+		qualifier := &familyDerivingQualifier{
+			qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
+				calls.Add(1)
+				return syntheticFamilyQualificationResult(t, request, now), nil
+			},
+			derive: func(_ context.Context, request FamilyRouteDerivationRequest) (CurrentQualificationResult, error) {
+				derives.Add(1)
+				if familyRuntimeProfileKeyFor(request.SourceDefinition) != familyRuntimeProfileKeyFor(request.Destination.Definition) {
+					t.Fatal("derivation invoked across unequal family profiles")
+				}
+				return syntheticDerivedFamilyRoute(t, request, now), nil
+			},
 		}
-		seen[observation.ProviderInstance()] = true
+		factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, candidates...), qualifierClock{now: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := factory.NewQualifiedRun(context.Background(), candidates)
+		if err != nil {
+			t.Fatalf("candidates=%q/%q err=%v failures=%v", candidates[0].Definition.Instance(), candidates[1].Definition.Instance(), err, func() []ProviderQualificationFailure {
+				if run != nil {
+					return run.QualificationFailures()
+				}
+				return nil
+			}())
+		}
+		return run, calls.Load(), derives.Load()
 	}
-	if !seen[candidates[0].Definition.Instance()] || !seen[candidates[1].Definition.Instance()] {
-		t.Fatalf("sibling routes missing qualification observations: %#v", observations)
-	}
+
+	t.Run("same-profile ZCode shares one probe and derives sibling", func(t *testing.T) {
+		candidates := []QualifiedRunCandidate{
+			authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic),
+			authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity),
+		}
+		run, calls, derives := runQualification(t, candidates)
+		if calls != 1 {
+			t.Fatalf("QualifyCurrent calls = %d, want 1 shared ZCode probe", calls)
+		}
+		if derives != 1 {
+			t.Fatalf("DeriveEquivalentFamilyRoute calls = %d, want 1 sibling derivation", derives)
+		}
+		if len(run.Routes()) != 2 {
+			t.Fatalf("routes = %d, want 2 role routes", len(run.Routes()))
+		}
+		observations := run.QualificationObservations()
+		if len(observations) != 2 {
+			t.Fatalf("qualification observations = %d, want one per admitted sibling route", len(observations))
+		}
+		seen := map[string]bool{}
+		for _, observation := range observations {
+			if observation.Outcome() != qualificationOutcomeQualified {
+				t.Fatalf("observation outcome = %q, want qualified", observation.Outcome())
+			}
+			seen[observation.ProviderInstance()] = true
+		}
+		if !seen["zcode-logic"] || !seen["zcode-security"] {
+			t.Fatalf("sibling routes missing qualification observations: %#v", observations)
+		}
+	})
+
+	t.Run("distinct-profile ZCode probes independently", func(t *testing.T) {
+		logic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
+		security := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
+			d.zcodeModel = "account:zai-individual-coding-plan/GLM-5.3-Flash"
+		})
+		run, calls, derives := runQualification(t, []QualifiedRunCandidate{logic, security})
+		if calls != 2 || derives != 0 || len(run.Routes()) != 2 {
+			t.Fatalf("distinct ZCode calls=%d derives=%d routes=%d, want 2/0/2", calls, derives, len(run.Routes()))
+		}
+	})
+
+	t.Run("AGY siblings remain per-instance", func(t *testing.T) {
+		candidates := []QualifiedRunCandidate{
+			authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleLogic),
+			authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleSecurity),
+		}
+		run, calls, derives := runQualification(t, candidates)
+		if calls != 2 || derives != 0 || len(run.Routes()) != 2 {
+			t.Fatalf("AGY siblings calls=%d derives=%d routes=%d, want 2/0/2", calls, derives, len(run.Routes()))
+		}
+	})
 }
 
 func TestFamilyQualificationRetainsRetryMitigatedRejectionOnSuccess(t *testing.T) {
@@ -183,17 +251,20 @@ func TestFamilyQualificationRetainsRetryMitigatedRejectionOnSuccess(t *testing.T
 		t.Fatalf("routes = %d, want 2 derived role routes", len(run.Routes()))
 	}
 	observations := run.QualificationObservations()
-	if len(observations) != 4 {
-		t.Fatalf("qualification observations = %#v, want one retry rejection and one admission per ZCode namespace", observations)
+	if len(observations) != 3 {
+		t.Fatalf("qualification observations = %#v, want [rejected(zcode-logic), qualified(zcode-logic), qualified(zcode-security)]", observations)
 	}
-	for index := 0; index < len(observations); index += 2 {
-		if observations[index].Outcome() != qualificationOutcomeRejected ||
-			observations[index].Mitigation() != qualificationMitigationRetry ||
-			observations[index].Cause() != domain.DiagnosticCauseProviderExecutionFailed ||
-			observations[index+1].Outcome() != qualificationOutcomeQualified ||
-			observations[index].ProviderInstance() != observations[index+1].ProviderInstance() {
-			t.Fatalf("namespace retry/admission evidence = %#v, want paired rejection and qualification", observations[index:index+2])
-		}
+	if observations[0].Outcome() != qualificationOutcomeRejected ||
+		observations[0].Mitigation() != qualificationMitigationRetry ||
+		observations[0].Cause() != domain.DiagnosticCauseProviderExecutionFailed ||
+		observations[0].ProviderInstance() != "zcode-logic" {
+		t.Fatalf("observations[0] = %#v, want retry-mitigated rejection for zcode-logic", observations[0])
+	}
+	if observations[1].Outcome() != qualificationOutcomeQualified || observations[1].ProviderInstance() != "zcode-logic" {
+		t.Fatalf("observations[1] = %#v, want qualified for zcode-logic", observations[1])
+	}
+	if observations[2].Outcome() != qualificationOutcomeQualified || observations[2].ProviderInstance() != "zcode-security" {
+		t.Fatalf("observations[2] = %#v, want qualified for zcode-security", observations[2])
 	}
 }
 
@@ -332,6 +403,27 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 	if familyGuidance, ok := Guidance(family); ok {
 		version = familyGuidance.VerifiedLatest
 	}
+	if family == FamilyAgy {
+		base := authorityCandidateForFamilyRole(t, FamilyCodex, role)
+		executable := "/private/bin/agy"
+		mutated := mutateFamilyCandidateDefinition(t, base, func(d *testRuntimeMutation) {
+			d.family = string(FamilyAgy)
+			d.instance = instance
+			d.version = version
+			d.executable = executable
+			d.launcher = executable
+			d.baseArgv = []string{executable}
+			d.profileID = "agy-profile"
+			d.runtimeSafetyPolicyIdentity = "agy-policy"
+			d.workingDirectory = "/private/work/agy"
+		})
+		mutated.Profile = DiscoveredProviderProfile{
+			family: FamilyAgy, executable: executable, launcher: executable,
+			argv: []string{executable}, sha256: mutated.Definition.ExecutableSHA256(), launcherSHA256: mutated.Definition.LauncherSHA256(),
+			reason: "unqualified_discovery",
+		}
+		return mutated
+	}
 	definition, _ := authorityProbeDefinition(t, family, instance, version, "/private/work/"+string(family))
 	limits, err := review.NewInvocationLimits(time.Second)
 	if err != nil {
@@ -369,6 +461,8 @@ type testRuntimeMutation struct {
 	profileGeneration           string
 	profileID                   string
 	runtimeSafetyPolicyIdentity string
+	zcodeModel                  string
+	zcodeReasoningEffort        string
 	grokSettingsIdentity        string
 	baseArgv                    []string
 	transportChannel            ports.ProviderPacketChannel
@@ -397,8 +491,8 @@ func (d testRuntimeMutation) ProfileGeneration() string         { return d.profi
 func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
-func (d testRuntimeMutation) ZCodeModel() string           { return "" }
-func (d testRuntimeMutation) ZCodeReasoningEffort() string { return "" }
+func (d testRuntimeMutation) ZCodeModel() string           { return d.zcodeModel }
+func (d testRuntimeMutation) ZCodeReasoningEffort() string { return d.zcodeReasoningEffort }
 func (d testRuntimeMutation) GrokSettingsIdentity() string { return d.grokSettingsIdentity }
 func (d testRuntimeMutation) AgySettingsIdentity() string  { return d.agySettingsIdentity }
 func (d testRuntimeMutation) ProfileID() string {
@@ -433,6 +527,8 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 		zcodeProviderConfig: definition.ZCodeProviderConfig(), zcodeProviderConfigSHA256: definition.ZCodeProviderConfigSHA256(),
 		applicationVersion: definition.ApplicationVersion(), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
 		profileGeneration: definition.ProfileGeneration(), profileID: definition.ProfileID(), runtimeSafetyPolicyIdentity: definition.RuntimeSafetyPolicyIdentity(),
+		zcodeModel:           definition.ZCodeModel(),
+		zcodeReasoningEffort: definition.ZCodeReasoningEffort(),
 		grokSettingsIdentity: definition.GrokSettingsIdentity(),
 		agySettingsIdentity:  definition.AgySettingsIdentity(),
 		baseArgv:             append([]string(nil), definition.BaseArgv()...),
@@ -555,5 +651,317 @@ func syntheticDerivedFamilyRoute(t *testing.T, request FamilyRouteDerivationRequ
 		familyDefinition:          request.Destination.Definition,
 		familyNamespaceGeneration: request.DestinationNamespace.Generation(),
 		familyProvedRoles:         append([]domain.Role(nil), request.Source.familyProvedRoles...),
+	}
+}
+
+type sharedZCodeExecutionRegistry struct {
+	*qualifierRegistry
+	observe func(context.Context, ports.ProviderInvocation) (ports.ProviderExecutionObservation, error)
+}
+
+func (registry *sharedZCodeExecutionRegistry) Observe(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+	return registry.observe(ctx, invocation)
+}
+
+type sharedZCodeExecutionRegistryFactory struct {
+	registries map[string]*sharedZCodeExecutionRegistry
+}
+
+func (factory *sharedZCodeExecutionRegistryFactory) NewProviderQualificationRegistry(_ context.Context, definitions []ports.ProviderRuntimeDefinition) (ports.ProviderQualificationRegistry, error) {
+	if len(definitions) != 1 {
+		return nil, errors.New("expected one runtime definition per qualification registry")
+	}
+	registry, ok := factory.registries[definitions[0].Instance()]
+	if !ok {
+		return nil, errors.New("missing test registry for " + definitions[0].Instance())
+	}
+	return registry, nil
+}
+
+func (factory *sharedZCodeExecutionRegistryFactory) RegistryFromConstructionError(error) (ports.ProviderQualificationRegistry, bool) {
+	return nil, false
+}
+
+type qualifiedRunLiveAuthorityAdapter struct {
+	run   *QualifiedRun
+	plan  ExecutionPlan
+	build BuildIdentity
+}
+
+func (authority *qualifiedRunLiveAuthorityAdapter) Provider() ports.ObservedReviewProvider {
+	return authority.run.Registry()
+}
+
+func (authority *qualifiedRunLiveAuthorityAdapter) Planner() ExecutionPlanner {
+	return sharedZCodeLivePlanner{plan: authority.plan}
+}
+
+func (authority *qualifiedRunLiveAuthorityAdapter) BuildIdentity() BuildIdentity {
+	return authority.build
+}
+
+func (authority *qualifiedRunLiveAuthorityAdapter) QualificationObservations() []ProviderQualificationObservation {
+	return authority.run.QualificationObservations()
+}
+
+func (authority *qualifiedRunLiveAuthorityAdapter) DrainTerminal(ctx context.Context) (QualifiedRunTerminalReceipt, error) {
+	return authority.run.DrainTerminal(ctx)
+}
+
+type sharedZCodeLivePlanner struct{ plan ExecutionPlan }
+
+func (planner sharedZCodeLivePlanner) PlanSelectedRoles(context.Context, []domain.Role) (ExecutionPlan, error) {
+	return planner.plan.clone(), nil
+}
+
+type sharedZCodeLiveAuthorityFactory struct {
+	factory    *QualifiedRunFactory
+	candidates []QualifiedRunCandidate
+	plan       ExecutionPlan
+	build      BuildIdentity
+	mu         sync.Mutex
+	runs       int
+}
+
+func (factory *sharedZCodeLiveAuthorityFactory) NewQualifiedLiveRun(ctx context.Context, _ ports.LiveReviewExecution, _ RunSelection) (RunAuthority, error) {
+	factory.mu.Lock()
+	factory.runs++
+	factory.mu.Unlock()
+	run, err := factory.factory.NewQualifiedRun(ctx, factory.candidates)
+	if err != nil {
+		return nil, err
+	}
+	return &qualifiedRunLiveAuthorityAdapter{run: run, plan: factory.plan, build: factory.build}, nil
+}
+
+type sharedZCodeTestIDs struct {
+	seq atomic.Uint64
+}
+
+func (ids *sharedZCodeTestIDs) nextSuffix() string {
+	return fmt.Sprintf("%012x", ids.seq.Add(1))
+}
+
+func (ids *sharedZCodeTestIDs) NewSessionID(time.Time) (domain.SessionID, error) {
+	return domain.ParseSessionID("s_019f5a09-5eec-7001-8001-" + ids.nextSuffix())
+}
+
+func (ids *sharedZCodeTestIDs) NewRunID(time.Time) (domain.RunID, error) {
+	return domain.ParseRunID("r_019f5a09-5eec-7001-8001-" + ids.nextSuffix())
+}
+
+func (ids *sharedZCodeTestIDs) NewAttemptID(time.Time) (domain.AttemptID, error) {
+	return domain.ParseAttemptID("a_019f5a09-5eec-7001-8001-" + ids.nextSuffix())
+}
+
+func (ids *sharedZCodeTestIDs) NewRoleTaskID(time.Time) (string, error) {
+	return "rt_019f5a09-5eec-7001-8001-" + ids.nextSuffix(), nil
+}
+
+func (ids *sharedZCodeTestIDs) NewSourceInvocationID(time.Time) (string, error) {
+	return "i_019f5a09-5eec-7001-8001-" + ids.nextSuffix(), nil
+}
+
+func (ids *sharedZCodeTestIDs) NewExecutionInvocationID(time.Time) (string, error) {
+	return "019f5a09-5eec-7001-8001-" + ids.nextSuffix(), nil
+}
+
+type sharedZCodeCleanDetector struct{}
+
+func (sharedZCodeCleanDetector) DetectReviewInput(context.Context, ports.ReviewInputChannel, string, []byte) (ports.ReviewInputDetection, error) {
+	return ports.NewReviewInputDetection(ports.ReviewInputClean, "", 0)
+}
+
+func TestDerivedZCodeSiblingExecutionConfigurationFailureBlocksPublication(t *testing.T) {
+	for _, diagnosticCode := range []string{"zcode_account_configuration", "zcode_model_selection"} {
+		t.Run(diagnosticCode, func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			logic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
+			security := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
+			candidates := []QualifiedRunCandidate{logic, security}
+
+			var probeCalls atomic.Int32
+			var deriveCalls atomic.Int32
+			qualifier := &familyDerivingQualifier{
+				qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
+					probeCalls.Add(1)
+					return syntheticFamilyQualificationResult(t, request, now), nil
+				},
+				derive: func(_ context.Context, request FamilyRouteDerivationRequest) (CurrentQualificationResult, error) {
+					deriveCalls.Add(1)
+					return syntheticDerivedFamilyRoute(t, request, now), nil
+				},
+			}
+
+			var observedLogic, observedSecurity atomic.Int32
+			registries := map[string]*sharedZCodeExecutionRegistry{
+				"zcode-logic": {
+					qualifierRegistry: guardRegistry(t, "zcode-logic", logic.Definition.RuntimeSafetyPolicyIdentity()),
+					observe: func(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+						observedLogic.Add(1)
+						raw := []byte(`{"schema_version":"mulgae-provider-review-output.v1","summary":"No logic findings.","completeness":"complete","limitations":[],"findings":[]}`)
+						receipt, err := ports.NewStdinWriteReceipt(int64(invocation.InputIdentity().ByteLength()), int64(invocation.InputIdentity().ByteLength()), invocation.CompleteStdinSHA256(), true)
+						if err != nil {
+							return ports.ProviderExecutionObservation{}, err
+						}
+						code := 0
+						process, err := ports.NewProcessObservation(raw, nil, &code, ports.ProcessTerminationExited, receipt, now, now.Add(time.Millisecond))
+						if err != nil {
+							return ports.ProviderExecutionObservation{}, err
+						}
+						result, err := ports.NewProviderResultForInput(raw, invocation.InputIdentity())
+						if err != nil {
+							return ports.ProviderExecutionObservation{}, err
+						}
+						return ports.NewSuccessfulProviderExecutionObservation(invocation, result, process)
+					},
+				},
+				"zcode-security": {
+					qualifierRegistry: guardRegistry(t, "zcode-security", security.Definition.RuntimeSafetyPolicyIdentity()),
+					observe: func(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+						observedSecurity.Add(1)
+						receipt, err := ports.NewStdinWriteReceipt(int64(invocation.InputIdentity().ByteLength()), int64(invocation.InputIdentity().ByteLength()), invocation.CompleteStdinSHA256(), true)
+						if err != nil {
+							return ports.ProviderExecutionObservation{}, err
+						}
+						code := 1
+						process, err := ports.NewProcessObservation(nil, []byte("configuration rejected"), &code, ports.ProcessTerminationExited, receipt, now, now.Add(time.Millisecond))
+						if err != nil {
+							return ports.ProviderExecutionObservation{}, err
+						}
+						return ports.NewFailedProviderExecutionObservationWithCause(
+							ports.ProviderExecutionStatusConfigurationViolation,
+							invocation,
+							process,
+							diagnosticCode,
+							domain.DiagnosticCauseObservationInvalid,
+							"",
+						)
+					},
+				},
+			}
+
+			qualifiedFactory, err := NewQualifiedRunFactory(qualifier, &sharedZCodeExecutionRegistryFactory{registries: registries}, qualifierClock{now: now})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			limits, err := review.NewInvocationLimits(time.Minute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			logicRoute, err := ports.NewProviderRoute("zcode-logic")
+			if err != nil {
+				t.Fatal(err)
+			}
+			securityRoute, err := ports.NewProviderRoute("zcode-security")
+			if err != nil {
+				t.Fatal(err)
+			}
+			logicAssignment, err := review.NewScheduledAssignment(domain.RoleLogic, false, logicRoute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			securityAssignment, err := review.NewScheduledAssignment(domain.RoleSecurity, false, securityRoute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			logicRouteBudget, err := review.NewRouteBudget(logicRoute, limits)
+			if err != nil {
+				t.Fatal(err)
+			}
+			securityRouteBudget, err := review.NewRouteBudget(securityRoute, limits)
+			if err != nil {
+				t.Fatal(err)
+			}
+			logicBudget, err := review.NewRoleBudget(domain.RoleLogic, logicRouteBudget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			securityBudget, err := review.NewRoleBudget(domain.RoleSecurity, securityRouteBudget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := ExecutionPlan{
+				Assignments: []review.Assignment{logicAssignment, securityAssignment},
+				Budgets:     []review.RoleBudget{logicBudget, securityBudget},
+				Threshold:   domain.SeverityLow,
+				MaxWorkers:  2,
+				Ceilings:    review.DefaultHarnessCeilings(),
+			}
+
+			selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
+			path, _ := ports.NewSafeRelativePath("source.go")
+			target, _ := ports.NewLiveSourceTarget(selector, ports.GitObjectID{}, ports.GitObjectID{}, false, []ports.LiveSourceChange{{Kind: "included", After: path}})
+			root, _ := ports.NewAnchoredRoot("/project")
+			git, _ := ports.NewAnchoredRoot("/project/.git")
+			neutral, _ := ports.NewAnchoredRoot("/neutral")
+			credential, _ := ports.NewAnchoredRoot("/credentials")
+			binding := ports.ProjectBindingObservation{
+				Root: root, GitDirectory: git, CommonDirectory: git,
+				RootIdentity:   ports.ProjectDirectoryIdentity{Device: 1, Inode: 2},
+				GitIdentity:    ports.ProjectDirectoryIdentity{Device: 1, Inode: 3},
+				CommonIdentity: ports.ProjectDirectoryIdentity{Device: 1, Inode: 3},
+			}
+			source := &serviceLiveSource{promptLiveReader: promptLiveReader{target: target, binding: binding}}
+			build := BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: "abc123"}
+			publisher := &serviceLivePublisher{t: t, source: source, stop: errors.New("unexpected publication")}
+			calls := []string{}
+			diagnostics := &serviceDiagnosticFactory{calls: &calls}
+			common, err := LoadLiveReviewCommon(context.Background(), builtin.NewCatalog())
+			if err != nil {
+				t.Fatal(err)
+			}
+			authorityFactory := &sharedZCodeLiveAuthorityFactory{
+				factory:    qualifiedFactory,
+				candidates: candidates,
+				plan:       plan,
+				build:      build,
+			}
+			service, err := NewLiveService(LiveDependencies{
+				Coordination:    testLiveCoordination(t),
+				Sources:         serviceLiveOpener{source},
+				ReviewerHome:    promptLiveHome{root: neutral},
+				CredentialRoots: []ports.AnchoredRoot{credential},
+				Admission:       serviceLiveAdmission{plan},
+				Clock:           serviceClock{},
+				IDs:             &sharedZCodeTestIDs{},
+				Build:           build,
+				Authority:       authorityFactory,
+				Validator:       &validation.ReviewValidator{},
+				Publication:     publisher,
+				Templates:       mustServiceTemplates(t),
+				Common:          common,
+				Diagnostics:     diagnostics,
+				Detector:        sharedZCodeCleanDetector{},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			selection, err := NewRunSelection([]domain.Role{domain.RoleLogic, domain.RoleSecurity}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			result, err := service.Execute(context.Background(), LiveRequest{
+				ProjectRoot: root, ArtifactRoot: root, Target: selector, Selection: selection,
+			})
+			if probeCalls.Load() != 1 || deriveCalls.Load() != 1 {
+				t.Fatalf("shared ZCode qualification calls=%d derives=%d, want 1/1", probeCalls.Load(), deriveCalls.Load())
+			}
+			if observedLogic.Load() != 1 || observedSecurity.Load() != 1 {
+				t.Fatalf("execution observations logic=%d security=%d, want 1/1", observedLogic.Load(), observedSecurity.Load())
+			}
+			var failure *domain.Failure
+			if !errors.As(err, &failure) || failure.Class() != domain.FailureConfiguration {
+				t.Fatalf("derived sibling configuration failure err = %v, want typed FailureConfiguration", err)
+			}
+			if publisher.calls != 0 {
+				t.Fatalf("publisher calls = %d, want 0", publisher.calls)
+			}
+			if !reflect.DeepEqual(result, Result{}) {
+				t.Fatalf("non-publishable result = %+v, want empty Result", result)
+			}
+		})
 	}
 }

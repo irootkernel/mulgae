@@ -41,12 +41,13 @@ type providerProtocolDriverConstructor interface {
 }
 
 type protocolSessionConfiguration struct {
-	zcodeSelection *zcodeModelSelection
-	zcodeEffort    string
-	zcodeAccount   *zcodeAccountRuntime
-	agySettings    agyInvocationSettings
-	agyLiveReads   *agyLiveReadAuthority
-	agyAgentName   string
+	zcodeSelection  *zcodeModelSelection
+	zcodeEffort     string
+	zcodeAccount    *zcodeAccountRuntime
+	liveSourceScope domain.LiveSourceScope
+	agySettings     agyInvocationSettings
+	agyLiveReads    *agyLiveReadAuthority
+	agyAgentName    string
 }
 
 type zcodeAccountRuntimeAuthority interface {
@@ -97,11 +98,15 @@ func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 	case protocolPurposeQualification:
 		session, err = newZcodeCapabilityProtocolSession(workspacePath, prompt, configuration.zcodeSelection)
 	case protocolPurposeLiveReview:
+		if configuration.liveSourceScope != "" && !configuration.liveSourceScope.Valid() {
+			return nil, fmt.Errorf("zcode protocol: invalid live source scope")
+		}
 		session, err = newZcodeProtocolSession(workspacePath, "plan", zcodeLiveReviewProtocolDenylist, prompt, configuration.zcodeSelection)
 		if err == nil {
 			session.captureAssistantText = true
 			session.liveSource = true
 			session.liveReadTools = true
+			session.liveSourceScope = configuration.liveSourceScope
 		}
 	case protocolPurposeLiveExtraction:
 		session, err = newZcodeCapabilityProtocolSession(workspacePath, prompt, configuration.zcodeSelection)

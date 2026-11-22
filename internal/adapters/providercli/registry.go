@@ -1304,15 +1304,15 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			}
 		}
 		var configurationFailure *domain.Failure
-		if errors.As(runErr, &configurationFailure) && configurationFailure.Class() == domain.FailureConfiguration &&
-			configurationFailure.Stage() == "zcode_model_selection" && processObservation.Valid() {
+		if !protectedFailure && errors.As(runErr, &configurationFailure) && configurationFailure.Class() == domain.FailureConfiguration &&
+			(configurationFailure.Stage() == "zcode_model_selection" || configurationFailure.Stage() == "zcode_account_configuration") && processObservation.Valid() {
 			var conversationFailure interface {
 				SessionObservation() ports.ProviderSessionObservation
 			}
 			if errors.As(runErr, &conversationFailure) && conversationFailure.SessionObservation().Valid() {
 				observation, observationErr := ports.NewFailedProtocolProviderExecutionObservationWithCause(
 					ports.ProviderExecutionStatusConfigurationViolation, invocation, processObservation,
-					conversationFailure.SessionObservation(), "zcode_model_selection",
+					conversationFailure.SessionObservation(), configurationFailure.Stage(),
 					domain.DiagnosticCauseObservationInvalid, "",
 				)
 				if observationErr != nil {
@@ -1332,7 +1332,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			}
 			return ports.NewFailedProviderExecutionObservationWithCause(
 				ports.ProviderExecutionStatusConfigurationViolation, invocation, processObservation,
-				"zcode_model_selection", domain.DiagnosticCauseObservationInvalid, "",
+				configurationFailure.Stage(), domain.DiagnosticCauseObservationInvalid, "",
 			)
 		}
 		var protocolFailure protocolDiagnosticFailure

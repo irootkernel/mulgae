@@ -281,6 +281,9 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.LauncherSHA256() != right.LauncherSHA256() ||
 		left.ZCodeProviderConfig() != right.ZCodeProviderConfig() ||
 		left.ZCodeProviderConfigSHA256() != right.ZCodeProviderConfigSHA256() ||
+		left.ApplicationVersion() != right.ApplicationVersion() ||
+		left.ApplicationMetadata() != right.ApplicationMetadata() ||
+		left.ApplicationMetadataSHA256() != right.ApplicationMetadataSHA256() ||
 		left.ZCodeModel() != right.ZCodeModel() ||
 		left.ZCodeReasoningEffort() != right.ZCodeReasoningEffort() ||
 		left.ProfileGeneration() != right.ProfileGeneration() ||

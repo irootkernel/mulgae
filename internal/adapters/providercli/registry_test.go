@@ -1114,6 +1114,194 @@ func TestRegistryObservePreservesModelSelectionEvidenceWhenProcessIsIncoherent(t
 	}
 }
 
+type zcodeAccountTestNamespace struct {
+	ports.ProviderNamespaceLease
+	account *zcodeAccountRuntime
+}
+
+func (namespace zcodeAccountTestNamespace) zcodeAccountRuntime(context.Context, RuntimeDefinition) (*zcodeAccountRuntime, error) {
+	return namespace.account, nil
+}
+
+func TestRegistryObserveProjectsZCodeAccountAndThoughtFailuresAsConfiguration(t *testing.T) {
+	home, builtin := writeZCodeAccountFixture(t, "account-one", "key-one")
+	account, err := loadZCodeAccountRuntime(home, builtin, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name              string
+		useAccount        bool
+		reasoningEffort   string
+		protocolLines     []string
+		wantStatus        ports.ProviderExecutionStatus
+		wantDiagnostic    string
+		wantCause         domain.RuntimeDiagnosticCause
+		wantHasErrorCode  bool
+		wantProviderError int
+	}{
+		{
+			name:           "account revision mismatch",
+			useAccount:     true,
+			protocolLines:  []string{`{"id":"mulgae-account","result":{"receivedRevision":"wrong-revision","providerCount":1}}`},
+			wantStatus:     ports.ProviderExecutionStatusConfigurationViolation,
+			wantDiagnostic: "zcode_account_configuration",
+			wantCause:      domain.DiagnosticCauseObservationInvalid,
+		},
+		{
+			name:              "account wire error",
+			useAccount:        true,
+			protocolLines:     []string{`{"id":"mulgae-account","error":{"code":-32001,"message":"account rejected"}}`},
+			wantStatus:        ports.ProviderExecutionStatusConfigurationViolation,
+			wantDiagnostic:    "zcode_account_configuration",
+			wantCause:         domain.DiagnosticCauseObservationInvalid,
+			wantHasErrorCode:  true,
+			wantProviderError: -32001,
+		},
+		{
+			name:            "thought level error",
+			reasoningEffort: "high",
+			protocolLines: []string{
+				protocolCreateResult,
+				`{"id":"mulgae-thought","error":{"code":-32602,"message":"thought level unavailable"}}`,
+			},
+			wantStatus:        ports.ProviderExecutionStatusConfigurationViolation,
+			wantDiagnostic:    "zcode_model_selection",
+			wantCause:         domain.DiagnosticCauseObservationInvalid,
+			wantHasErrorCode:  true,
+			wantProviderError: -32602,
+		},
+		{
+			name:           "account null result remains envelope invalid",
+			useAccount:     true,
+			protocolLines:  []string{`{"id":"mulgae-account","result":null}`},
+			wantStatus:     ports.ProviderExecutionStatusArtifactFailure,
+			wantDiagnostic: "invalid_provider_output",
+			wantCause:      domain.DiagnosticCauseOutputEnvelopeInvalid,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &stagedOutputRunnerFake{
+				observation:   protocolTeardownObservation(t, []byte("protocol transcript")),
+				protocolLines: tc.protocolLines,
+			}
+			registry, invocation, destination := stagedZcodeRegistry(t, runner)
+			if tc.useAccount {
+				registry.namespaces["zcode_default"] = zcodeAccountTestNamespace{
+					ProviderNamespaceLease: registry.namespaces["zcode_default"],
+					account:                account,
+				}
+			}
+			if tc.reasoningEffort != "" {
+				definition := registry.definitions["zcode_default"]
+				definition.zcodeReasoningEffort = tc.reasoningEffort
+				registry.definitions["zcode_default"] = definition
+			}
+
+			observed, err := registry.Observe(context.Background(), invocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observed.Status() != tc.wantStatus ||
+				observed.DiagnosticCode() != tc.wantDiagnostic ||
+				observed.PrimaryCause() != tc.wantCause {
+				t.Fatalf("status=%q diagnostic=%q cause=%q, want %q/%q/%q",
+					observed.Status(), observed.DiagnosticCode(), observed.PrimaryCause(),
+					tc.wantStatus, tc.wantDiagnostic, tc.wantCause)
+			}
+			if _, present := observed.Result(); present {
+				t.Fatal("failed configuration observation retained report bytes")
+			}
+			session, ok := observed.SessionObservation()
+			if !ok || session.Terminal() != ports.ProviderSessionFailed {
+				t.Fatalf("session = %#v, present = %t", session.Input(), ok)
+			}
+			if session.Input().HasProviderErrorCode != tc.wantHasErrorCode ||
+				(tc.wantHasErrorCode && session.Input().ProviderErrorCode != tc.wantProviderError) {
+				t.Fatalf("provider error code = (%t, %d), want (%t, %d)",
+					session.Input().HasProviderErrorCode, session.Input().ProviderErrorCode,
+					tc.wantHasErrorCode, tc.wantProviderError)
+			}
+			requireStagingRemoved(t, destination)
+		})
+	}
+}
+
+func TestRegistryObserveDoesNotShadowProtectedFailureWithZCodeConfigurationFailure(t *testing.T) {
+	home, builtin := writeZCodeAccountFixture(t, "account-one", "key-one")
+	account, err := loadZCodeAccountRuntime(home, builtin, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	protectedErr, err := ports.NewProcessExecutionError(
+		domain.DiagnosticCauseProviderExecutionFailed,
+		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		nil,
+		nil,
+		errors.New("residual process group"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name          string
+		useAccount    bool
+		zcodeModel    string
+		protocolLines []string
+	}{
+		{
+			name:          "account configuration failure",
+			useAccount:    true,
+			protocolLines: []string{`{"id":"mulgae-account","error":{"code":-32001,"message":"account rejected"}}`},
+		},
+		{
+			name:       "model selection failure",
+			zcodeModel: zcodeIndividualPlanProviderID + "/missing",
+			protocolLines: []string{
+				protocolCreateResultForModel(zcodeIndividualPlanProviderID, "missing", "max"),
+				`{"id":"mulgae-model-0","error":{"code":-32603,"message":"missing","data":{"code":"model_not_found"}}}`,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &stagedOutputRunnerFake{
+				observation:   testProcessObservation(t, nil, nil, ports.ProcessTerminationResidualProcessGroup, 0),
+				err:           protectedErr,
+				protocolLines: tc.protocolLines,
+			}
+			registry, invocation, destination := stagedZcodeRegistry(t, runner)
+			if tc.useAccount {
+				registry.namespaces["zcode_default"] = zcodeAccountTestNamespace{
+					ProviderNamespaceLease: registry.namespaces["zcode_default"],
+					account:                account,
+				}
+			}
+			if tc.zcodeModel != "" {
+				definition := registry.definitions["zcode_default"]
+				definition.zcodeModel = tc.zcodeModel
+				registry.definitions["zcode_default"] = definition
+			}
+
+			observed, err := registry.Observe(context.Background(), invocation)
+			if err != nil {
+				t.Fatalf("Observe returned error %v, want security_violation observation", err)
+			}
+			cleanup, hasCleanup := observed.CleanupCause()
+			if observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
+				!hasCleanup || cleanup != domain.DiagnosticCauseProcessGroupCleanupFailed {
+				t.Fatalf("status=%q cleanup=%q(%t), want security_violation with process_group_cleanup_failed",
+					observed.Status(), cleanup, hasCleanup)
+			}
+			if _, present := observed.Result(); present {
+				t.Fatal("protected security failure retained report bytes")
+			}
+			requireStagingRemoved(t, destination)
+		})
+	}
+}
+
 func TestRegistryObservePreservesRateLimitedZCodeConversationTeardown(t *testing.T) {
 	runner := &stagedOutputRunnerFake{
 		observation: protocolTeardownObservationWithStderr(t, []byte("protocol transcript"), []byte("ProviderBusinessError [1302][Rate limit reached for requests] rate_limit_error\nError: Turn execution failed")),
