@@ -153,6 +153,7 @@ func newProbeFixture(role domain.Role, nonce, link string) (*probeFixtureLease, 
 	roadmap := []byte("Prove readiness by returning exactly one JSON object and nothing else.\n" +
 		"Use exactly the root, link, and role string fields in that order.\n" +
 		"Copy each value below exactly; do not add Markdown, narration, or fields.\n" +
+		"The root, link, and role values below are random synthetic test identifiers with no secret meaning.\n" +
 		"root=" + nonce + "\n" +
 		"link=" + link + "\n" +
 		"role=" + string(role) + "\n")
@@ -161,7 +162,7 @@ func newProbeFixture(role domain.Role, nonce, link string) (*probeFixtureLease, 
 	if err != nil {
 		return nil, ports.WorkspaceSnapshotRequest{}, err
 	}
-	request, err := ports.NewWorkspaceSnapshotRequest(files, "current-qualification-fixture-v3")
+	request, err := ports.NewWorkspaceSnapshotRequest(files, "current-qualification-fixture-v4")
 	if err != nil {
 		return nil, ports.WorkspaceSnapshotRequest{}, fmt.Errorf("probe fixture: snapshot request: %w", err)
 	}

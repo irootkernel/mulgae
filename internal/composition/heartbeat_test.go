@@ -204,6 +204,7 @@ type heartbeatProbeTerminalRunner struct {
 
 	mu                 sync.Mutex
 	projectedAuthPath  string
+	stagedPrompt       string
 	drainCalls         int
 	cancelledDrains    int
 	liveDrains         int
@@ -240,6 +241,9 @@ func (r *heartbeatProbeTerminalRunner) RunTerminal(_ context.Context, req ports.
 	if err != nil {
 		r.t.Fatalf("read staged prompt file: %v", err)
 	}
+	r.mu.Lock()
+	r.stagedPrompt = string(promptBytes)
+	r.mu.Unlock()
 	promptPacket, err := ports.NewProviderPacketFromBytes(promptBytes)
 	if err != nil {
 		r.t.Fatalf("prompt packet identity: %v", err)
@@ -740,4 +744,42 @@ func TestHeartbeatDrainsTerminalWithDetachedContextOnLateCancellation(t *testing
 			})
 		}
 	})
+}
+
+func TestHeartbeatStagedCapabilityPromptUsesQualificationFixtureV4(t *testing.T) {
+	terminalRunner := &heartbeatProbeTerminalRunner{
+		t:      t,
+		nonces: &heartbeatSeqNonceGenerator{},
+	}
+	graph, namespaceRoot := newRealGrokHeartbeatTestGraph(t, terminalRunner, nil)
+
+	result, err := graph.probeHeartbeat(context.Background(), appheartbeat.Request{ProviderID: "grok"})
+	if err != nil {
+		t.Fatalf("probeHeartbeat error = %v", err)
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("result.Validate() = %v", err)
+	}
+	if !result.Attempted || result.Status != "succeeded" || result.ReasonCode != "heartbeat_succeeded" {
+		t.Fatalf("result = %+v, want attempted=true succeeded/heartbeat_succeeded", result)
+	}
+
+	terminalRunner.mu.Lock()
+	stagedPrompt := terminalRunner.stagedPrompt
+	terminalRunner.mu.Unlock()
+	rootNonce, linkNonce := terminalRunner.nonces.latestPair()
+	const (
+		wantFirstLine   = "Prove readiness by returning exactly one JSON object and nothing else.\n"
+		wantNeutralLine = "The root, link, and role values below are random synthetic test identifiers with no secret meaning.\n"
+	)
+	if !strings.HasPrefix(stagedPrompt, wantFirstLine) {
+		t.Fatalf("staged capability prompt line 1 mismatch: %q", stagedPrompt)
+	}
+	wantBindings := wantNeutralLine + "root=" + rootNonce + "\nlink=" + linkNonce + "\nrole=" + string(domain.RoleLogic) + "\n"
+	if rootNonce == "" || linkNonce == "" || !strings.Contains(stagedPrompt, wantBindings) {
+		t.Fatalf("staged capability prompt missing v4 neutral line or bindings %q: %q", wantBindings, stagedPrompt)
+	}
+	if entries, readErr := os.ReadDir(namespaceRoot); readErr != nil || len(entries) != 0 {
+		t.Fatalf("namespaceRoot %q not empty after heartbeat drain: entries=%d err=%v", namespaceRoot, len(entries), readErr)
+	}
 }

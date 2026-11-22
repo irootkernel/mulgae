@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -875,5 +876,127 @@ func TestCurrentProbeRejectsPairwiseRoleWorkspaceReuseBeforeLaunch(t *testing.T)
 	})
 	if err == nil || len(runner.requests) != 0 || verifier.calls != 0 || len(result.Receipts) != 0 {
 		t.Fatalf("result=%#v err=%v launches=%d verifier=%d", result, err, len(runner.requests), verifier.calls)
+	}
+}
+
+func TestQualificationFixtureV4EvidenceAcrossActiveProviderFamilies(t *testing.T) {
+	t.Parallel()
+	var schema struct {
+		Type                 string         `json:"type"`
+		AdditionalProperties *bool          `json:"additionalProperties"`
+		Required             []string       `json:"required"`
+		Properties           map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(probeFixtureOutputSchema), &schema); err != nil {
+		t.Fatalf("unmarshal probeFixtureOutputSchema: %v", err)
+	}
+	if schema.Type != "object" || schema.AdditionalProperties == nil || *schema.AdditionalProperties ||
+		len(schema.Required) != 3 || len(schema.Properties) != 3 ||
+		schema.Properties["root"] == nil || schema.Properties["link"] == nil || schema.Properties["role"] == nil {
+		t.Fatalf("probeFixtureOutputSchema lost strict closed root/link/role schema: %s", probeFixtureOutputSchema)
+	}
+
+	nonce, err := SecureProbeNonceGenerator{}.NewProbeNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := SecureProbeNonceGenerator{}.NewProbeNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nonce == link {
+		t.Fatal("generated identical nonces")
+	}
+	mismatchNonce := func(value string) string {
+		if strings.HasPrefix(value, "0") {
+			return "1" + value[1:]
+		}
+		return "0" + value[1:]
+	}
+	wrongNonce := mismatchNonce(nonce)
+	wrongLink := mismatchNonce(link)
+
+	role := domain.RoleSecurity
+	fixture, request, err := newProbeFixture(role, nonce, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.PolicyIdentity() != "current-qualification-fixture-v4" {
+		t.Fatalf("fixture policy = %q, want current-qualification-fixture-v4", request.PolicyIdentity())
+	}
+
+	exactJSON := fmt.Sprintf(`{"root":%q,"link":%q,"role":%q}`, nonce, link, role)
+	extraFieldJSON := fmt.Sprintf(`{"root":%q,"link":%q,"role":%q,"extra":"x"}`, nonce, link, role)
+	narratedOnly := fmt.Sprintf("Readiness confirmed with root=%s link=%s role=%s after transport.", nonce, link, role)
+
+	requireStrictAgyRejection := func(t *testing.T, err error) {
+		t.Helper()
+		var failure *domain.Failure
+		if !errors.As(err, &failure) || failure.Class() != domain.FailureInvalidOutput || failure.Stage() != "capability" {
+			t.Fatalf("AGY capability rejection = %v, want invalid_output at capability stage", err)
+		}
+		requireProviderDiagnosticCause(t, err, domain.DiagnosticCauseOutputEnvelopeInvalid)
+	}
+
+	for _, family := range []string{FamilyZcode, FamilyGrok, FamilyCodex, FamilyAgy} {
+		t.Run(family, func(t *testing.T) {
+			t.Parallel()
+			if err := acceptCapabilityResponse(context.Background(), family, []byte(exactJSON), nil, fixture); err != nil {
+				t.Fatalf("%s rejected exact v4 JSON: %v", family, err)
+			}
+
+			for _, tc := range []struct {
+				name   string
+				output []byte
+			}{
+				{"exact v4 packet echo", fixture.Packet()},
+				{"narrated v4 packet echo without binding", []byte("I received:\n" + string(fixture.Packet()))},
+				{"nonce mismatch", []byte(fmt.Sprintf(`{"root":%q,"link":%q,"role":%q}`, wrongNonce, link, role))},
+				{"link mismatch", []byte(fmt.Sprintf(`{"root":%q,"link":%q,"role":%q}`, nonce, wrongLink, role))},
+				{"role mismatch", []byte(fmt.Sprintf(`{"root":%q,"link":%q,"role":%q}`, nonce, link, domain.RoleLogic))},
+				{"duplicate JSON key same value", []byte(fmt.Sprintf(`{"root":%q,"root":%q,"link":%q,"role":%q}`, nonce, nonce, link, role))},
+				{"duplicate JSON key different value", []byte(fmt.Sprintf(`{"root":%q,"root":%q,"link":%q,"role":%q}`, nonce, wrongNonce, link, role))},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					err := acceptCapabilityResponse(context.Background(), family, tc.output, nil, fixture)
+					if err == nil {
+						t.Fatalf("%s accepted %s", family, tc.name)
+					}
+					if family == FamilyAgy {
+						requireStrictAgyRejection(t, err)
+						return
+					}
+					requireOperationalCapabilityMismatch(t, err)
+				})
+			}
+
+			t.Run("extra JSON field", func(t *testing.T) {
+				err := acceptCapabilityResponse(context.Background(), family, []byte(extraFieldJSON), nil, fixture)
+				if family == FamilyAgy {
+					if err == nil {
+						t.Fatal("AGY accepted extra JSON field")
+					}
+					requireStrictAgyRejection(t, err)
+					return
+				}
+				if err != nil {
+					t.Fatalf("%s rejected positive-capability JSON with extra field: %v", family, err)
+				}
+			})
+
+			t.Run("narrated-only output", func(t *testing.T) {
+				err := acceptCapabilityResponse(context.Background(), family, []byte(narratedOnly), nil, fixture)
+				if family == FamilyAgy {
+					if err == nil {
+						t.Fatal("AGY accepted narrated-only output")
+					}
+					requireStrictAgyRejection(t, err)
+					return
+				}
+				if err != nil {
+					t.Fatalf("%s rejected positive-capability narrated output: %v", family, err)
+				}
+			})
+		})
 	}
 }

@@ -187,7 +187,7 @@ type barrierWorkspaceFactory struct {
 	next     atomic.Int32
 }
 
-func (factory *barrierWorkspaceFactory) MaterializeQualificationLease(_ context.Context, _ ports.WorkspaceSnapshotRequest) (ports.QualificationWorkspaceLease, error) {
+func (factory *barrierWorkspaceFactory) MaterializeQualificationLease(_ context.Context, request ports.WorkspaceSnapshotRequest) (ports.QualificationWorkspaceLease, error) {
 	if factory.arrivals.Add(1) == 2 {
 		factory.once.Do(func() { close(factory.release) })
 	} else {
@@ -198,13 +198,14 @@ func (factory *barrierWorkspaceFactory) MaterializeQualificationLease(_ context.
 			return nil, fmt.Errorf("second fixture materialization never started; acquisitions appear serialized")
 		}
 	}
+	policyIdentity := request.PolicyIdentity()
 	lease, err := ports.AcquireQualificationWorkspaceLease(context.Background(), func(_ context.Context, binding ports.QualificationWorkspaceTerminalBinding) (ports.QualificationWorkspaceLease, error) {
 		index := int(factory.next.Add(1))
 		identity, identityErr := ports.NewWorkspaceSnapshotIdentity(
 			fmt.Sprintf("fixture-root-%d", index),
 			fmt.Sprintf("snapshot-%032d", index),
 			"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"current-qualification-fixture-v1", 1, 2, 3, 4,
+			policyIdentity, 1, 2, 3, 4,
 		)
 		if identityErr != nil {
 			return nil, identityErr
@@ -263,14 +264,30 @@ func TestProbeFixtureLeaseFactoryConcurrentAcquire(t *testing.T) {
 	if acquired[0].Nonce() == acquired[1].Nonce() || acquired[0].Link() == acquired[1].Link() {
 		t.Fatal("concurrent fixture acquisition shared a nonce or link")
 	}
+	const (
+		wantPolicy      = "current-qualification-fixture-v4"
+		wantFirstLine   = "Prove readiness by returning exactly one JSON object and nothing else.\n"
+		wantNeutralLine = "The root, link, and role values below are random synthetic test identifiers with no secret meaning.\n"
+	)
 	for _, fixture := range acquired {
 		if err := fixture.Validate(); err != nil {
 			t.Fatalf("concurrently acquired fixture invalid: %v", err)
+		}
+		if got := fixture.WorkspaceSnapshotIdentity().PolicyIdentity(); got != wantPolicy {
+			t.Fatalf("concurrently acquired fixture policy = %q, want %q", got, wantPolicy)
+		}
+		packet := string(fixture.Packet())
+		if !strings.HasPrefix(packet, wantFirstLine) ||
+			!strings.Contains(packet, wantNeutralLine+"root="+fixture.Nonce()+"\nlink="+fixture.Link()+"\nrole="+string(fixture.Role())+"\n") {
+			t.Fatalf("concurrently acquired fixture packet lost v4 framing or bindings: %q", packet)
 		}
 	}
 	close(workspaces.leases)
 	identities := make(map[string]struct{}, 2)
 	for lease := range workspaces.leases {
+		if got := lease.WorkspaceSnapshotIdentity().PolicyIdentity(); got != wantPolicy {
+			t.Fatalf("materialized workspace policy = %q, want %q", got, wantPolicy)
+		}
 		identities[lease.WorkspaceSnapshotIdentity().SnapshotPath()] = struct{}{}
 		if _, err := lease.DrainTerminal(context.Background()); err != nil {
 			t.Fatalf("concurrently acquired workspace drain: %v", err)

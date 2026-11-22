@@ -1,7 +1,12 @@
 package providercli
 
 import (
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/irootkernel/mulgae/internal/domain"
 )
 
 // TestCapabilityEvidenceCandidatesFallbackCharacterization is a labeled
@@ -65,5 +70,124 @@ func TestCapabilityEvidenceCandidatesFallbackCharacterization(t *testing.T) {
 	}
 	if err := acceptCapabilityEvidence(FamilyGrok, unbound, fixture); err == nil {
 		t.Fatal("all-invalid candidate evidence accepted")
+	}
+}
+
+func TestCapabilityEvidenceV4FixtureNarratedEchoAndBindingCharacterization(t *testing.T) {
+	t.Parallel()
+	nonce, err := SecureProbeNonceGenerator{}.NewProbeNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := SecureProbeNonceGenerator{}.NewProbeNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nonce == link {
+		t.Fatal("generated identical nonces")
+	}
+	wrongNonce := "0" + nonce[1:]
+	if strings.HasPrefix(nonce, "0") {
+		wrongNonce = "1" + nonce[1:]
+	}
+
+	role := domain.RoleSecurity
+	fixture, request, err := newProbeFixture(role, nonce, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.PolicyIdentity() != "current-qualification-fixture-v4" {
+		t.Fatalf("fixture policy = %q, want current-qualification-fixture-v4", request.PolicyIdentity())
+	}
+
+	exactJSON := fmt.Sprintf(`{"root":%q,"link":%q,"role":%q}`, nonce, link, role)
+	validFence := "```json\n" + exactJSON + "\n```"
+	invalidFence := fmt.Sprintf("```json\n{\"root\":%q,\"link\":%q,\"role\":%q}\n```", wrongNonce, link, role)
+
+	// Narrated echo of the real v4 packet without independent valid binding
+	// must be rejected as invalid output, even when paired with an invalid fence.
+	for _, echoed := range []struct {
+		name  string
+		bytes []byte
+	}{
+		{"narrated v4 packet echo", []byte("I received:\n" + string(fixture.Packet()) + "\nUnable to proceed.")},
+		{"invalid fence plus v4 packet echo", []byte(invalidFence + "\n" + string(fixture.Packet()))},
+	} {
+		for _, family := range []string{FamilyZcode, FamilyGrok, FamilyCodex} {
+			candidates, candErr := capabilityEvidenceCandidates(family, echoed.bytes)
+			if candErr != nil {
+				t.Fatalf("%s/%s candidates error: %v", family, echoed.name, candErr)
+			}
+			if len(candidates) != 1 {
+				t.Fatalf("%s/%s candidates = %d, want 1", family, echoed.name, len(candidates))
+			}
+			if valErr := validateProbeEvidence(candidates[0], fixture); valErr == nil {
+				t.Fatalf("%s/%s candidate unexpectedly accepted", family, echoed.name)
+			}
+			err := acceptCapabilityEvidence(family, echoed.bytes, fixture)
+			if err == nil {
+				t.Fatalf("%s/%s unexpectedly accepted", family, echoed.name)
+			}
+			requireOperationalCapabilityMismatch(t, err)
+		}
+		if agyErr := acceptCapabilityEvidence(FamilyAgy, echoed.bytes, fixture); agyErr == nil {
+			t.Fatalf("agy/%s unexpectedly accepted", echoed.name)
+		} else {
+			var failure *domain.Failure
+			if !errors.As(agyErr, &failure) || failure.Class() != domain.FailureInvalidOutput {
+				t.Fatalf("agy/%s failure = %v, want invalid_output", echoed.name, agyErr)
+			}
+		}
+	}
+
+	// Genuine narrated binding with real v4 nonces remains admitted for non-AGY
+	// families and strictly rejected for AGY.
+	for _, narrated := range [][]byte{
+		[]byte(fmt.Sprintf("Readiness confirmed with root=%s link=%s role=%s after transport.", nonce, link, role)),
+		[]byte(invalidFence + "\n" + fmt.Sprintf("Readiness confirmed with root=%s link=%s role=%s after transport.", nonce, link, role)),
+	} {
+		for _, family := range []string{FamilyZcode, FamilyGrok, FamilyCodex} {
+			candidates, candErr := capabilityEvidenceCandidates(family, narrated)
+			if candErr != nil {
+				t.Fatalf("%s narrated candidates error: %v", family, candErr)
+			}
+			if len(candidates) != 1 {
+				t.Fatalf("%s narrated candidates = %d, want 1", family, len(candidates))
+			}
+			if valErr := validateProbeEvidence(candidates[0], fixture); valErr != nil {
+				t.Fatalf("%s narrated candidate rejected: %v", family, valErr)
+			}
+			if acceptErr := acceptCapabilityEvidence(family, narrated, fixture); acceptErr != nil {
+				t.Fatalf("%s narrated evidence rejected: %v", family, acceptErr)
+			}
+		}
+		if agyErr := acceptCapabilityEvidence(FamilyAgy, narrated, fixture); agyErr == nil {
+			t.Fatal("agy accepted narrated v4 binding")
+		}
+	}
+
+	// Genuine exact and fenced JSON bindings with real v4 nonces remain admitted
+	// across all four active families.
+	for _, structured := range [][]byte{[]byte(exactJSON), []byte(validFence)} {
+		for _, family := range []string{FamilyZcode, FamilyGrok, FamilyCodex} {
+			candidates, candErr := capabilityEvidenceCandidates(family, structured)
+			if candErr != nil {
+				t.Fatalf("%s JSON candidates error: %v", family, candErr)
+			}
+			if len(candidates) != 2 {
+				t.Fatalf("%s JSON candidates = %d, want 2", family, len(candidates))
+			}
+			for index, candidate := range candidates {
+				if valErr := validateProbeEvidence(candidate, fixture); valErr != nil {
+					t.Fatalf("%s JSON candidate %d rejected: %v", family, index, valErr)
+				}
+			}
+			if acceptErr := acceptCapabilityEvidence(family, structured, fixture); acceptErr != nil {
+				t.Fatalf("%s JSON evidence rejected: %v", family, acceptErr)
+			}
+		}
+		if agyErr := acceptCapabilityEvidence(FamilyAgy, structured, fixture); agyErr != nil {
+			t.Fatalf("agy rejected structured v4 JSON evidence: %v", agyErr)
+		}
 	}
 }

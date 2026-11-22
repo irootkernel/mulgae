@@ -102,6 +102,16 @@ func TestProbeFixtureCapabilityPacketDoesNotInduceWorkspaceToolReads(t *testing.
 		t.Fatal(err)
 	}
 	packet := string(fixture.packet)
+	const (
+		wantFirstLine   = "Prove readiness by returning exactly one JSON object and nothing else.\n"
+		wantNeutralLine = "The root, link, and role values below are random synthetic test identifiers with no secret meaning.\n"
+	)
+	if !strings.HasPrefix(packet, wantFirstLine) {
+		t.Fatalf("capability packet line 1 changed: %q", packet)
+	}
+	if !strings.Contains(packet, wantNeutralLine+"root=root-nonce\nlink=link-nonce\nrole=security\n") {
+		t.Fatalf("capability packet missing neutral synthetic-identifier line before bindings: %q", packet)
+	}
 	for _, forbidden := range []string{
 		"._mulgae_workspace_manifest.json",
 		"selectively read",
@@ -117,6 +127,21 @@ func TestProbeFixtureCapabilityPacketDoesNotInduceWorkspaceToolReads(t *testing.
 			t.Fatalf("capability packet induces workspace/tool reads via %q: %q", forbidden, packet)
 		}
 	}
+	lowerPacket := strings.ToLower(packet)
+	for _, trigger := range []string{
+		"credential",
+		"token",
+		"forward",
+		"verify identity",
+	} {
+		if strings.Contains(lowerPacket, trigger) {
+			t.Fatalf("capability packet contains forbidden trigger wording %q: %q", trigger, packet)
+		}
+	}
+	prose, _, hasBindings := strings.Cut(packet, "root=root-nonce\n")
+	if !hasBindings || strings.Contains(prose, "=") || strings.Contains(packet, "role:") {
+		t.Fatalf("capability packet prose contains unexpected assignment or role claim: %q", packet)
+	}
 	if !strings.Contains(packet, "root=root-nonce") ||
 		!strings.Contains(packet, "link=link-nonce") ||
 		!strings.Contains(packet, "role=security") ||
@@ -124,7 +149,7 @@ func TestProbeFixtureCapabilityPacketDoesNotInduceWorkspaceToolReads(t *testing.
 		!strings.Contains(packet, "do not add Markdown, narration, or fields") {
 		t.Fatalf("capability packet lost embedded fixture bindings: %q", packet)
 	}
-	if request.PolicyIdentity() != "current-qualification-fixture-v3" {
+	if request.PolicyIdentity() != "current-qualification-fixture-v4" {
 		t.Fatalf("capability fixture policy = %q", request.PolicyIdentity())
 	}
 }
