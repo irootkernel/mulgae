@@ -90,6 +90,19 @@ remain outside this policy's containment claim. Live policy roots must be valid
 UTF-8 with printable characters so Seatbelt and native provider configuration
 name the exact admitted paths; non-printable roots fail before launch.
 
+Initial and repair prompts encode the admitted read set in
+`review:live-read-plan` v2 with HTML escaping disabled and no byte or item
+ceiling: changed candidate entries matching `target.Changes()` (excluding
+whole-tree `included` entries) and any paths outside the positive ASCII path
+allowlist (`[A-Za-z0-9._/-]` without leading `-`, leading/trailing `/`, or
+empty/`.`/`..` segments) or failing the runtime template parity self-check
+appear verbatim in `reads`, while remaining allowlisted paths compact
+losslessly into side-scoped `supporting_reads` groups paired with
+`native_path_template` or `git_command_template`. In-memory `execution.Reads()`
+and native provider permission policies remain uncompacted and byte-exact, and
+structured extraction continues to use compact `review:live-extract-target` v1
+metadata without `reads` or `supporting_reads`.
+
 Guard admission inspects credential and writable-root file metadata through
 directory descriptors, without following symlinks or reading file contents.
 Regular files with existing hardlink aliases fail admission. Links outside the

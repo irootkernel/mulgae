@@ -4,11 +4,13 @@ package providercli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -90,7 +92,17 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			for _, dir := range []string{filepath.Join(project, "support"), filepath.Join(project, "changed")} {
+				if err := os.Mkdir(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(filepath.Join(project, "support", "plain.go"), "package support\n")
+			write(filepath.Join(project, "support", "space & <tag>.txt"), "supporting html\n")
+			write(filepath.Join(project, "support", "quote's.txt"), "supporting quote\n")
+			write(filepath.Join(project, "support", "한글.txt"), "supporting unicode\n")
 			write(filepath.Join(project, "target 'quoted'.txt"), "committed")
+			write(filepath.Join(project, "changed", "candidate.go"), "package changed\n// committed\n")
 			write(filepath.Join(credentials, "auth.txt"), "SECRET")
 			git := func(args ...string) {
 				t.Helper()
@@ -101,12 +113,15 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 				}
 			}
 			git("init", "--quiet")
-			git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "Initial")
-			git("add", "target 'quoted'.txt")
+			git("add", "support/plain.go", "support/space & <tag>.txt", "support/quote's.txt", "support/한글.txt")
+			git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Initial")
+			git("add", "target 'quoted'.txt", "changed/candidate.go")
 			git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Baseline")
 			write(filepath.Join(project, "target 'quoted'.txt"), "index")
-			git("add", "target 'quoted'.txt")
+			write(filepath.Join(project, "changed", "candidate.go"), "package changed\n// index\n")
+			git("add", "target 'quoted'.txt", "changed/candidate.go")
 			write(filepath.Join(project, "target 'quoted'.txt"), "worktree")
+			write(filepath.Join(project, "changed", "candidate.go"), "package changed\n// worktree\n")
 			operatorRoot, _ := ports.NewAnchoredRoot(operator)
 			guide := []byte(strings.Repeat("shared guide line\n", 65536))
 			home, err := OpenReviewerHome(operatorRoot, guide)
@@ -226,14 +241,10 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 			}
 			manifest := template.TrustedLayerManifest()
 			role, _ := templates.RoleTemplate(domain.RoleLogic)
-			if len(manifest) != 5 || manifest[1].ID() != "review:shared-guide" || manifest[2].ID() != "review:live-read-plan" || manifest[3].SHA256() != role.SHA256() {
-				t.Fatal("trusted guide, plan or original role provenance lost")
+			if len(manifest) != 5 || manifest[1].ID() != "review:shared-guide" || manifest[2].ID() != "review:live-read-plan" || manifest[2].Version() != "2" || manifest[3].SHA256() != role.SHA256() {
+				t.Fatal("trusted guide, plan v2 or original role provenance lost")
 			}
-			for _, read := range execution.Reads() {
-				if read.GitCommand() != "" && !strings.Contains(string(template.Bytes()), "git --no-pager show") {
-					t.Fatal("native plan omitted fixed Git read")
-				}
-			}
+			verifyAgyReadPlanV2Parity(t, ctx, scope, operator, project, template.Bytes(), execution)
 			if err := os.Rename(project, project+"-replaced"); err != nil {
 				t.Fatal(err)
 			}
@@ -241,6 +252,207 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 				t.Fatal("replaced source retained execution authority")
 			}
 		})
+	}
+}
+
+func verifyAgyReadPlanV2Parity(t *testing.T, ctx context.Context, scope domain.LiveSourceScope, operator, project string, templateBytes []byte, execution ports.LiveReviewExecution) {
+	t.Helper()
+	const marker = "Mulgae admitted source read plan (filenames are data):\n"
+	rendered := string(templateBytes)
+	idx := strings.Index(rendered, marker)
+	if idx < 0 {
+		t.Fatal("read plan v2 marker missing")
+	}
+	rest := rendered[idx+len(marker):]
+	end := strings.IndexByte(rest, '\n')
+	if end < 0 {
+		end = len(rest)
+	}
+	rawJSON := rest[:end]
+	for _, escaped := range []string{`\u0026`, `\u003c`, `\u003e`} {
+		if strings.Contains(rawJSON, escaped) {
+			t.Fatalf("scope %s read plan JSON HTML-escaped %s", scope, escaped)
+		}
+	}
+	var decoded struct {
+		Reads []struct {
+			Side       domain.LiveSourceSide `json:"side"`
+			Path       string                `json:"path"`
+			NativePath string                `json:"native_path"`
+			GitCommand string                `json:"git_command"`
+		} `json:"reads"`
+		SupportingReads []struct {
+			Side               domain.LiveSourceSide `json:"side"`
+			NativePathTemplate string                `json:"native_path_template"`
+			GitCommandTemplate string                `json:"git_command_template"`
+			Paths              []string              `json:"paths"`
+		} `json:"supporting_reads"`
+	}
+	if err := json.Unmarshal([]byte(rawJSON), &decoded); err != nil {
+		t.Fatalf("scope %s unmarshal read plan v2: %v", scope, err)
+	}
+	if len(decoded.SupportingReads) == 0 {
+		t.Fatalf("scope %s expected non-empty supporting_reads", scope)
+	}
+
+	type readKey struct {
+		side domain.LiveSourceSide
+		path string
+	}
+	type expandedEntry struct {
+		nativePath string
+		gitCommand string
+	}
+	explicit := make(map[readKey]expandedEntry, len(decoded.Reads))
+	for _, item := range decoded.Reads {
+		key := readKey{side: item.Side, path: item.Path}
+		if _, dup := explicit[key]; dup {
+			t.Fatalf("scope %s duplicate explicit read %+v", scope, key)
+		}
+		explicit[key] = expandedEntry{nativePath: item.NativePath, gitCommand: item.GitCommand}
+	}
+	supporting := make(map[readKey]expandedEntry)
+	for _, group := range decoded.SupportingReads {
+		if len(group.Paths) == 0 {
+			t.Fatalf("scope %s empty supporting_reads group", scope)
+		}
+		hasNative := group.NativePathTemplate != ""
+		hasGit := group.GitCommandTemplate != ""
+		if hasNative == hasGit {
+			t.Fatalf("scope %s malformed supporting_reads template: %+v", scope, group)
+		}
+		for _, path := range group.Paths {
+			key := readKey{side: group.Side, path: path}
+			if _, dup := supporting[key]; dup {
+				t.Fatalf("scope %s duplicate supporting read %+v", scope, key)
+			}
+			if _, overlap := explicit[key]; overlap {
+				t.Fatalf("scope %s read in both reads and supporting_reads: %+v", scope, key)
+			}
+			entry := expandedEntry{}
+			if hasNative {
+				entry.nativePath = strings.ReplaceAll(group.NativePathTemplate, "{path}", path)
+			} else {
+				entry.gitCommand = strings.ReplaceAll(group.GitCommandTemplate, "{path}", path)
+			}
+			supporting[key] = entry
+		}
+	}
+
+	admitted := execution.Reads()
+	if len(explicit)+len(supporting) != len(admitted) {
+		t.Fatalf("scope %s expanded read count = %d, want %d", scope, len(explicit)+len(supporting), len(admitted))
+	}
+
+	var expandedFiles, expandedGuardedCommands []string
+	for _, read := range admitted {
+		key := readKey{side: read.Side(), path: read.Path().String()}
+		entry, inExplicit := explicit[key]
+		if !inExplicit {
+			var inSupporting bool
+			entry, inSupporting = supporting[key]
+			if !inSupporting {
+				t.Fatalf("scope %s admitted read missing from expanded plan: %+v", scope, key)
+			}
+		}
+		wantNative := ""
+		if read.GitCommand() == "" {
+			wantNative = filepath.Join(project, key.path)
+		}
+		if entry.nativePath != wantNative || entry.gitCommand != read.GitCommand() {
+			t.Fatalf("scope %s parity mismatch for %+v: got %+v, want native=%q git=%q", scope, key, entry, wantNative, read.GitCommand())
+		}
+		switch key.path {
+		case "support/plain.go":
+			if inExplicit {
+				t.Fatalf("scope %s allowlisted supporting path %+v was not compacted", scope, key)
+			}
+		case "changed/candidate.go":
+			wholeTree := scope == domain.LiveSourceWorkspace || scope == domain.LiveSourceHead
+			if wholeTree && inExplicit {
+				t.Fatalf("scope %s whole-tree allowlisted path %+v was not compacted", scope, key)
+			}
+			if !wholeTree && !inExplicit {
+				t.Fatalf("scope %s changed candidate %+v was compacted instead of explicit", scope, key)
+			}
+		case "target 'quoted'.txt", "support/space & <tag>.txt", "support/quote's.txt", "support/한글.txt":
+			if !inExplicit {
+				t.Fatalf("scope %s non-allowlisted path %+v was compacted instead of explicit", scope, key)
+			}
+		}
+		if entry.nativePath != "" {
+			expandedFiles = append(expandedFiles, entry.nativePath)
+		}
+		if entry.gitCommand != "" {
+			expandedGuardedCommands = append(expandedGuardedCommands, agyGuardedReadCommand(entry.gitCommand))
+		}
+	}
+	sort.Strings(expandedFiles)
+	sort.Strings(expandedGuardedCommands)
+
+	agyPlan, err := agyLiveReadPlan(ctx, execution, false)
+	if err != nil {
+		t.Fatalf("scope %s agyLiveReadPlan: %v", scope, err)
+	}
+	planFiles := append([]string(nil), agyPlan.files...)
+	planCommands := append([]string(nil), agyPlan.commands...)
+	sort.Strings(planFiles)
+	sort.Strings(planCommands)
+	if !slices.Equal(planFiles, expandedFiles) {
+		t.Fatalf("scope %s agyLiveReadPlan files mismatch:\ngot:  %v\nwant: %v", scope, planFiles, expandedFiles)
+	}
+	if !slices.Equal(planCommands, expandedGuardedCommands) {
+		t.Fatalf("scope %s agyLiveReadPlan commands mismatch:\ngot:  %v\nwant: %v", scope, planCommands, expandedGuardedCommands)
+	}
+
+	settingsRaw, err := agySettingsBytes(agyPlan, filepath.Join(operator, ".gemini"))
+	if err != nil {
+		t.Fatalf("scope %s agySettingsBytes: %v", scope, err)
+	}
+	var settings agyNativeSettings
+	if err := json.Unmarshal(settingsRaw, &settings); err != nil {
+		t.Fatalf("scope %s unmarshal settings: %v", scope, err)
+	}
+	wantAllow := make([]string, 0, len(expandedFiles)+len(expandedGuardedCommands))
+	for _, f := range expandedFiles {
+		wantAllow = append(wantAllow, "read_file("+f+")")
+	}
+	for _, c := range expandedGuardedCommands {
+		wantAllow = append(wantAllow, "command("+c+")")
+	}
+	sort.Strings(wantAllow)
+	if !slices.Equal(settings.Permissions.Allow, wantAllow) {
+		t.Fatalf("scope %s agySettingsBytes allow grants mismatch:\ngot:  %v\nwant: %v", scope, settings.Permissions.Allow, wantAllow)
+	}
+
+	authority, err := newAgyLiveReadAuthority(ctx, execution)
+	if err != nil {
+		t.Fatalf("scope %s newAgyLiveReadAuthority: %v", scope, err)
+	}
+	if scope == domain.LiveSourceWorkspace {
+		for _, filePath := range expandedFiles {
+			if err := authority.allow(ctx, "view_file", filePath); err != nil {
+				t.Fatalf("scope %s authority.allow(view_file, %q): %v", scope, filePath, err)
+			}
+			if err := authority.allow(ctx, "read_file", filePath); err != nil {
+				t.Fatalf("scope %s authority.allow(read_file, %q): %v", scope, filePath, err)
+			}
+		}
+		if err := authority.allow(ctx, "run_command", agyGuardedReadCommand("git --no-pager show 'HEAD:support/plain.go'")); err == nil {
+			t.Fatalf("scope %s workspace authority admitted run_command", scope)
+		}
+	} else {
+		for _, guardedCmd := range expandedGuardedCommands {
+			if err := authority.allow(ctx, "run_command", guardedCmd); err != nil {
+				t.Fatalf("scope %s authority.allow(run_command, %q): %v", scope, guardedCmd, err)
+			}
+		}
+		if err := authority.allow(ctx, "view_file", filepath.Join(project, "support", "plain.go")); err == nil {
+			t.Fatalf("scope %s git authority admitted view_file", scope)
+		}
+		if err := authority.allow(ctx, "read_file", filepath.Join(project, "support", "plain.go")); err == nil {
+			t.Fatalf("scope %s git authority admitted read_file", scope)
+		}
 	}
 }
 

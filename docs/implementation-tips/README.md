@@ -175,10 +175,12 @@ configuration, and is the standalone Grok live provider gate outside
 `make test-agy` builds the exact current candidate release binary with the
 release version and HEAD revision linker values. It requires `darwin/arm64`,
 the installed `agy` (or `MULGAE_E2E_AGY_EXECUTABLE`) and the OS user's existing
-default Gemini token. It first runs the installed CLI's six native command
+default Gemini token. It first runs the installed CLI's seven native command
 controls: the default-agent MCP baseline, the paired isolated-agent read,
-the guarded read without disclosing the guard in its prompt, and appended,
-fallback and bare-command denial. The controls bind the observed version and
+the guarded read without disclosing the guard in its prompt, the guarded
+`supporting_reads` (`templated`) read without disclosing the guard or
+pre-expanded bare command in its prompt, and appended, fallback and
+bare-command denial. The controls bind the observed version and
 executable digest for that run, accept the supported minimum `1.2.9` and newer,
 and stop at the first failed or inconclusive control. The target then performs
 one documentation review, with model and effort omitted, and no automatic

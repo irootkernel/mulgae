@@ -103,6 +103,14 @@ func TestAgyCommandPolicyRequiresGuardAcrossSupportedVersions(t *testing.T) {
 			if !bytes.Contains(profile.agentContent, []byte("`MULGAE_READ_GUARD[1]=1 `")) {
 				t.Fatal("agent omitted exact command translation")
 			}
+			for _, required := range []string{"git_command", "git_command_template", "native_path_template", "supporting_reads"} {
+				if !bytes.Contains(profile.agentContent, []byte(required)) {
+					t.Fatalf("agent omitted read-plan v2 token %q", required)
+				}
+			}
+			if bytes.Contains(profile.agentContent, []byte("native_git_command")) {
+				t.Fatal("agent retained stale native_git_command key")
+			}
 			if err := profile.validateAfterRun(); err != nil {
 				t.Fatal(err)
 			}

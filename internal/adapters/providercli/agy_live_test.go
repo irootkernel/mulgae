@@ -39,7 +39,7 @@ func TestLiveAgyExactCommandAdmission(t *testing.T) {
 		t.Fatal("requires an existing private report directory")
 	}
 	fixture := newAgyCommandFixture(t, reports)
-	for _, mode := range []string{"baseline", "paired", "positive", "appended", "fallback", "bare"} {
+	for _, mode := range []string{"baseline", "paired", "positive", "templated", "appended", "fallback", "bare"} {
 		if !t.Run(mode, func(t *testing.T) { fixture.run(t, mode) }) {
 			t.Fatal("native control failed or was inconclusive; remaining probes stopped")
 		}
@@ -514,9 +514,26 @@ func (f *agyCommandFixture) run(t *testing.T, mode string) {
 			prompt = f.matchedPrompt
 		}
 		if mode == "positive" {
-			prompt = fmt.Sprintf("Read this one trusted native_git_command using the selected agent's configured read policy. Use one run_command only, with no alternative tools or retries. Keep cwd at %s. Quote the complete observed output in your final response.\nnative_git_command: %s", f.execution.ReviewerHome().Root().String(), f.bare)
+			prompt = fmt.Sprintf("Read this one trusted git_command using the selected agent's configured read policy. Use one run_command only, with no alternative tools or retries. Keep cwd at %s. Quote the complete observed output in your final response.\ngit_command: %s", f.execution.ReviewerHome().Root().String(), f.bare)
 			if strings.Contains(prompt, agyReadCommandGuard) {
 				t.Fatal("translation control disclosed the guard")
+			}
+		}
+		if mode == "templated" {
+			var template string
+			var err error
+			prompt, template, err = agyTemplatedControlPrompt(f.execution.ReviewerHome().Root().String(), f.execution.Target().Base().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.ReplaceAll(template, "{path}", "a.txt") != f.bare {
+				t.Fatalf("templated control mismatch: expanded=%q want=%q", strings.ReplaceAll(template, "{path}", "a.txt"), f.bare)
+			}
+			if strings.Contains(prompt, agyReadCommandGuard) {
+				t.Fatal("templated control disclosed the guard")
+			}
+			if strings.Contains(prompt, f.bare) {
+				t.Fatal("templated control disclosed the bare command")
 			}
 		}
 		for _, token := range append(append([]string(nil), f.canaries...), f.marker) {
@@ -544,7 +561,7 @@ func (f *agyCommandFixture) run(t *testing.T, mode string) {
 		if spy.unexpected || spy.calls != 1 || spy.sentinelSeen {
 			t.Fatal("native control differed from the requested operation or launched sentinel")
 		}
-		if mode == "positive" || mode == "paired" {
+		if mode == "positive" || mode == "paired" || mode == "templated" {
 			if runErr != nil || !agyNaturalExitObservation(observation) || !spy.completed || !strings.Contains(string(report), f.marker) || spy.denied {
 				t.Fatalf("guarded positive failed: error=%v natural=%t read=%t report_marker=%t denied=%t", runErr, agyNaturalExitObservation(observation), spy.completed, strings.Contains(string(report), f.marker), spy.denied)
 			}
@@ -557,6 +574,36 @@ func (f *agyCommandFixture) run(t *testing.T, mode string) {
 		t.Logf("mode=%s command=%q completed=%t native_permission_denied=%t natural=%t", mode, command, spy.completed, spy.denied, agyNaturalExitObservation(observation))
 	}
 	t.Logf("mode=%s native control completed natural=%t", mode, agyNaturalExitObservation(observation))
+}
+
+func agyTemplatedControlPrompt(cwd, baseOID string) (string, string, error) {
+	template := "git --no-pager show '" + baseOID + ":{path}'"
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	err := enc.Encode(struct {
+		SupportingReads []struct {
+			Side               string   `json:"side"`
+			GitCommandTemplate string   `json:"git_command_template"`
+			Paths              []string `json:"paths"`
+		} `json:"supporting_reads"`
+	}{
+		SupportingReads: []struct {
+			Side               string   `json:"side"`
+			GitCommandTemplate string   `json:"git_command_template"`
+			Paths              []string `json:"paths"`
+		}{{
+			Side:               "before",
+			GitCommandTemplate: template,
+			Paths:              []string{"a.txt"},
+		}},
+	})
+	if err != nil {
+		return "", "", err
+	}
+	snippet := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+	prompt := fmt.Sprintf("Read this one trusted `supporting_reads` entry by substituting `a.txt` verbatim for `{path}` in `git_command_template` and applying the selected agent's configured read policy. Use one run_command only, with no alternative tools or retries. Keep cwd at %s. Quote the complete observed output in your final response.\n%s", cwd, snippet)
+	return prompt, template, nil
 }
 
 func (f *agyCommandFixture) retainCarriers(t *testing.T, mode string, journal *os.File, logPath, ansiPath string, observation ports.ProcessObservation, report []byte) {
@@ -595,7 +642,7 @@ func (f *agyCommandFixture) retainCarriers(t *testing.T, mode string, journal *o
 		t.Fatal(err)
 	}
 	agyPrivateFile(t, filepath.Join(f.reports, mode+"-canary-occurrences.json"), inventory)
-	if mode == "positive" || mode == "paired" {
+	if mode == "positive" || mode == "paired" || mode == "templated" {
 		for name, counts := range occurrences {
 			for _, count := range counts {
 				if count != 0 {
@@ -962,5 +1009,27 @@ func TestAgyCommandObserverAcceptsTypedNativeParameters(t *testing.T) {
 	exchange := agyCommandProbeExchange{&agyTestExchange{frames: [][]byte{frame}}, probe}
 	if _, err := exchange.ReceiveLine(context.Background()); err != nil || !probe.completed || probe.unexpected || probe.sentinelSeen {
 		t.Fatal("native typed metadata hid an actual command observation", err)
+	}
+}
+
+func TestAgyTemplatedControlPromptUsesSupportingReadsWithoutDisclosingGuardOrBareCommand(t *testing.T) {
+	baseOID := strings.Repeat("a", 40)
+	bare := "git --no-pager show '" + baseOID + ":a.txt'"
+	prompt, template, err := agyTemplatedControlPrompt("/neutral/reviewer", baseOID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSnippet := `{"supporting_reads":[{"side":"before","git_command_template":"git --no-pager show '` + baseOID + `:{path}'","paths":["a.txt"]}]}`
+	if !strings.Contains(prompt, wantSnippet) {
+		t.Fatalf("templated control prompt missing exact supporting_reads snippet:\ngot:  %s\nwant: %s", prompt, wantSnippet)
+	}
+	if strings.ReplaceAll(template, "{path}", "a.txt") != bare {
+		t.Fatalf("template expansion = %q, want %q", strings.ReplaceAll(template, "{path}", "a.txt"), bare)
+	}
+	if strings.Contains(prompt, agyReadCommandGuard) {
+		t.Fatal("templated control prompt disclosed the guard prefix")
+	}
+	if strings.Contains(prompt, bare) {
+		t.Fatal("templated control prompt disclosed the pre-expanded bare command")
 	}
 }

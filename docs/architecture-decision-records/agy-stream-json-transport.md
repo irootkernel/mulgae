@@ -98,9 +98,11 @@ documentation; it still requires
 explicit live-request authorization.
 
 `make test-agy` builds the exact candidate release binary and first runs the
-installed CLI's command-admission controls: a default-agent MCP baseline,
+installed CLI's seven command-admission controls: a default-agent MCP baseline,
 a paired isolated-agent read, a guarded read whose prompt omits the guard,
-and appended, fallback and bare-command denial. It records the selected
+a guarded `supporting_reads` (`templated`) read whose prompt omits both the
+guard and pre-expanded bare command, and appended, fallback and bare-command
+denial. It records the selected
 executable's observed version and digest and checks that binary remains
 unchanged throughout the controls. These test-only controls issue no production
 qualification authority. The target then performs one documentation review
