@@ -397,12 +397,21 @@ historical publication.
 
 The provider assessment section belongs to its one scheduled role and provider.
 Duplicate, foreign and wrong-owner requirement IDs reject that role's whole
-assessment section; omitted IDs receive derived rows. Providers cannot set owner,
-origin, counts, input digest, verification, publication or execution identity.
-Existing protected ownership failures remain protected. A structural or semantic
-failure confined to one ordinary section does not discard a valid other section
-or its accepted primary role report. A syntactically invalid complete response
-supplies no independently validated section. A protected failure in either section
+assessment section; omitted IDs receive derived rows. Providers cannot set
+Mulgae-owned fields in the closed protected key sets for `requirements`,
+`assessment`, `evidence`, `current`, and `visual` (owner, origin, counts,
+input/source/excerpt digests, verification, publication, or execution identity;
+`visual.sha256` remains an allowed provider digest and `schema_version` is
+outside the protected set). Object key validation scans all keys before
+classifying so any protected key deterministically fails closed with
+`security_violation` (`provider_ownership_violation`) ahead of ordinary unknown
+keys, while ordinary unknown keys (and provider-cited absent, excluded,
+invalid, or unsupported paths) remain bounded section-scoped failures
+(`invalid_assessment`). A structural, unknown-key, or citation failure confined
+to one ordinary section does not discard a valid other section or its accepted
+primary role report. A syntactically invalid complete response supplies no
+independently validated section. A protected failure in either section (such as
+a Mulgae-owned key violation or real live-source drift on an admitted path)
 still denies publication.
 
 The provider section is prose-bearing input. Its strict production decoder must
@@ -448,12 +457,20 @@ section or an accepted reports-only result when extraction is enabled. A valid
 available section owns its omissions. Retry or malformed-document repair still
 consumes that same slot. The extraction prompt remains transcription-only, and
 ordinary peer failure retains accepted findings, assessments and the primary
-report independently. Original free-form, parsed-invalid and exhausted-repair
-states remain distinct in attempt metadata. Trusted source and validator failures
-use the existing canonical failure selector, including every joined cause;
-internal, artifact, security and cancellation observations cannot become ordinary
-section success. Bare cancellation/deadline leaves retain the selector's cancelled
-classification; an explicit typed timeout retains its own class.
+report independently while still emitting single-pass parse/validation
+diagnostics, updating invocation status states, cleaning up extraction/repair
+state, and capturing raw stdout/stderr streams (retaining the findings
+projection in `candidate.*.json` only when it fits within the 8 MiB structured
+member bound, omitting `candidate.*.json` when oversized, and always preserving
+the full unbounded response in `stdout.raw` and normalized
+`requirements/items/*.json`). Original free-form, parsed-invalid and
+exhausted-repair states remain distinct in attempt metadata. Trusted source and
+validator failures use the existing canonical failure selector, including every
+joined cause; internal, artifact, security and cancellation observations cannot
+become ordinary section success, while typed admission-based provider citation
+faults stay bounded instead of aborting the run. Bare cancellation/deadline
+leaves retain the selector's cancelled classification; an explicit typed timeout
+retains its own class.
 
 ### Publication and historical compatibility
 

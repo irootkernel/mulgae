@@ -157,6 +157,10 @@ const (
 	DiagnosticCauseResultBindingFailed                          RuntimeDiagnosticCause = "provider_result_binding_failed"
 	DiagnosticCauseObservationInvalid                           RuntimeDiagnosticCause = "provider_observation_invalid"
 	DiagnosticCauseObservationMismatch                          RuntimeDiagnosticCause = "provider_observation_mismatch"
+	DiagnosticCauseProviderOwnershipViolation                   RuntimeDiagnosticCause = "provider_ownership_violation"
+	DiagnosticCauseLiveSourceUnsafe                             RuntimeDiagnosticCause = "live_source_unsafe"
+	DiagnosticCauseProviderPacketSecurityRejected               RuntimeDiagnosticCause = "provider_packet_security_rejected"
+	DiagnosticCauseDiagnosticSecurityRejected                   RuntimeDiagnosticCause = "diagnostic_security_rejected"
 	DiagnosticCauseCandidateValidationFailed                    RuntimeDiagnosticCause = "candidate_validation_failed"
 	DiagnosticCauseCandidateRepairPlanInvalid                   RuntimeDiagnosticCause = "candidate_repair_plan_invalid"
 	DiagnosticCauseWorkspaceRevalidationFailed                  RuntimeDiagnosticCause = "workspace_revalidation_failed"
@@ -199,7 +203,9 @@ func (cause RuntimeDiagnosticCause) Valid() bool {
 		DiagnosticCauseProviderOutputFileMissing, DiagnosticCauseProviderOutputFileInvalid,
 		DiagnosticCauseProviderOutputStagingViolation, DiagnosticCauseProviderOutputStagingCleanupFailed,
 		DiagnosticCauseResultBindingFailed, DiagnosticCauseObservationInvalid,
-		DiagnosticCauseObservationMismatch, DiagnosticCauseCandidateValidationFailed, DiagnosticCauseCandidateRepairPlanInvalid,
+		DiagnosticCauseObservationMismatch, DiagnosticCauseProviderOwnershipViolation,
+		DiagnosticCauseLiveSourceUnsafe, DiagnosticCauseProviderPacketSecurityRejected,
+		DiagnosticCauseDiagnosticSecurityRejected, DiagnosticCauseCandidateValidationFailed, DiagnosticCauseCandidateRepairPlanInvalid,
 		DiagnosticCauseWorkspaceRevalidationFailed, DiagnosticCausePersistenceFailed,
 		DiagnosticCausePublicationCandidateInvalid, DiagnosticCausePublicationEvidenceFailed,
 		DiagnosticCausePublicationSchemaFailed, DiagnosticCausePublicationSerializationFailed,

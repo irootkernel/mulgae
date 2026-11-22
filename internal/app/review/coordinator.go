@@ -579,6 +579,7 @@ type coordinatorAttempt struct {
 	acceptedOutput  *ValidatedRoleOutput
 	failureClass    domain.FailureClass
 	reasonCode      string
+	diagnosticCause domain.RuntimeDiagnosticCause
 	timeoutFacts    ProviderTimeoutFacts
 	hasTimeoutFacts bool
 	parseState      domain.ParseState
@@ -599,26 +600,28 @@ type coordinatorRole struct {
 type coordinatorExecution struct {
 	// extractionAdmitted is the immutable per-execution snapshot of the
 	// coordinator's structured extraction policy.
-	extractionAdmitted       bool
-	coordinator              *Coordinator
-	run                      *domain.Run
-	issuer                   *coordinatorIssuer
-	roles                    map[domain.Role]*coordinatorRole
-	trace                    []CoordinatorTraceEvent
-	nextEvent                uint64
-	nextJob                  uint64
-	stopping                 bool
-	runContext               context.Context
-	callerCtx                context.Context
-	cancelled                bool
-	runStarted               bool
-	workersCloseAuthorized   bool
-	runTerminalRecorded      bool
-	terminalRoles            map[domain.Role]struct{}
-	dispatchStopRecorded     bool
-	stopCondition            AttemptCondition
-	dispatchStopCondition    AttemptCondition
-	diagnosticAttemptStarted map[domain.AttemptID]time.Time
+	extractionAdmitted          bool
+	coordinator                 *Coordinator
+	run                         *domain.Run
+	issuer                      *coordinatorIssuer
+	roles                       map[domain.Role]*coordinatorRole
+	trace                       []CoordinatorTraceEvent
+	nextEvent                   uint64
+	nextJob                     uint64
+	stopping                    bool
+	runContext                  context.Context
+	callerCtx                   context.Context
+	cancelled                   bool
+	runStarted                  bool
+	workersCloseAuthorized      bool
+	runTerminalRecorded         bool
+	terminalRoles               map[domain.Role]struct{}
+	dispatchStopRecorded        bool
+	stopCondition               AttemptCondition
+	stopDiagnosticCause         domain.RuntimeDiagnosticCause
+	dispatchStopCondition       AttemptCondition
+	dispatchStopDiagnosticCause domain.RuntimeDiagnosticCause
+	diagnosticAttemptStarted    map[domain.AttemptID]time.Time
 }
 
 // Execute runs every selected role. It owns all mutable Run and Attempt state
@@ -862,7 +865,7 @@ func (coordinator *Coordinator) execute(
 	}); ok {
 		if prepareErr := preparer.PrepareInitial(workCtx, wave); prepareErr != nil {
 			if contextErr := workCtx.Err(); contextErr != nil && errors.Is(prepareErr, contextErr) {
-				if cancelErr := execution.cancelAll(scheduler, execution.contextCondition()); cancelErr != nil {
+				if cancelErr := execution.cancelAll(scheduler, execution.contextCondition(), ""); cancelErr != nil {
 					return CoordinatorResult{}, errors.Join(
 						fmt.Errorf("review coordinator: prepare initial inputs: %w", prepareErr),
 						cancelErr,
@@ -875,7 +878,7 @@ func (coordinator *Coordinator) execute(
 
 	for len(wave) > 0 {
 		if workCtx.Err() != nil {
-			if err := execution.cancelAll(scheduler, execution.contextCondition()); err != nil {
+			if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
 				return CoordinatorResult{}, err
 			}
 			break
@@ -886,7 +889,7 @@ func (coordinator *Coordinator) execute(
 			return CoordinatorResult{}, err
 		}
 		if len(dispatched) == 0 {
-			if err := execution.cancelAll(scheduler, execution.contextCondition()); err != nil {
+			if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
 				return CoordinatorResult{}, err
 			}
 			break
@@ -900,7 +903,7 @@ func (coordinator *Coordinator) execute(
 			return CoordinatorResult{}, err
 		}
 		if workCtx.Err() != nil {
-			if err := execution.cancelAll(scheduler, execution.contextCondition()); err != nil {
+			if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
 				return CoordinatorResult{}, err
 			}
 		}
@@ -910,13 +913,13 @@ func (coordinator *Coordinator) execute(
 		wave = next
 	}
 	if workCtx.Err() != nil {
-		if err := execution.cancelAll(scheduler, execution.contextCondition()); err != nil {
+		if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
 			return CoordinatorResult{}, err
 		}
 	}
 
 	if !execution.allRolesTerminal() {
-		if err := execution.cancelAll(scheduler, AttemptConditionInternalInvariant); err != nil {
+		if err := execution.cancelAll(scheduler, AttemptConditionInternalInvariant, ""); err != nil {
 			return CoordinatorResult{}, err
 		}
 	}
@@ -926,7 +929,7 @@ func (coordinator *Coordinator) execute(
 	// This context sample is the worker-close linearization point. A cancellation
 	// observed after authorization belongs after this coordinator execution.
 	if workCtx.Err() != nil {
-		if err := execution.cancelAll(scheduler, execution.contextCondition()); err != nil {
+		if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
 			return CoordinatorResult{}, err
 		}
 	}
@@ -991,7 +994,7 @@ func (execution *coordinatorExecution) abort(
 	if !execution.allRolesTerminal() {
 		finalizationErrors = append(
 			finalizationErrors,
-			execution.cancelAll(scheduler, AttemptConditionInternalInvariant),
+			execution.cancelAll(scheduler, AttemptConditionInternalInvariant, ""),
 		)
 	}
 	if !execution.workersCloseAuthorized {
@@ -1374,6 +1377,7 @@ func (execution *coordinatorExecution) commitWave(
 	if err != nil {
 		return nil, fmt.Errorf("review coordinator: reduce wave conditions: %w", err)
 	}
+	waveCause := waveDiagnosticCauseForCondition(ordered, outcomes, condition)
 	contextFacts := execution.contextConditions()
 	if len(contextFacts) > 0 {
 		contextCondition, err := ReduceAttemptConditions(contextFacts...)
@@ -1381,11 +1385,11 @@ func (execution *coordinatorExecution) commitWave(
 			return nil, fmt.Errorf("review coordinator: reduce context conditions: %w", err)
 		}
 		if !conditionRetainsAuthorityAfterContext(condition, contextCondition) {
-			return nil, execution.cancelAll(scheduler, contextCondition)
+			return nil, execution.cancelAll(scheduler, contextCondition, "")
 		}
 	}
 	if conditionStopsCoordinatorRun(condition) {
-		if err := execution.requestDispatchStop(scheduler, condition); err != nil {
+		if err := execution.requestDispatchStop(scheduler, condition, waveCause); err != nil {
 			return nil, err
 		}
 		for _, job := range ordered {
@@ -1424,7 +1428,7 @@ func (execution *coordinatorExecution) commitWave(
 				return nil, err
 			}
 		}
-		if err := execution.cancelAll(scheduler, condition); err != nil {
+		if err := execution.cancelAll(scheduler, condition, waveCause); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -1642,7 +1646,11 @@ func (execution *coordinatorExecution) commitOutcome(
 			return nil, fmt.Errorf("review coordinator: normalized successful outcome has no output")
 		}
 	}
-	if err := execution.record(CoordinatorEventInvocationCommitted, job.Role(), attempt, &job.purpose, &condition, "", domain.RunState("")); err != nil {
+	outcomeCause := domain.RuntimeDiagnosticCause("")
+	if condition == coordinatorOutcomeCondition(outcome) && outcome.diagnosticCause.Valid() {
+		outcomeCause = outcome.diagnosticCause
+	}
+	if err := execution.recordWithCause(CoordinatorEventInvocationCommitted, job.Role(), attempt, &job.purpose, &condition, outcomeCause, "", domain.RunState("")); err != nil {
 		return nil, err
 	}
 	if condition == AttemptConditionProviderTimeout {
@@ -1701,7 +1709,7 @@ func (execution *coordinatorExecution) commitOutcome(
 		return []InvocationJob{job}, nil
 	}
 	if !conditionRequiresValidation(condition) {
-		if err := transitionFailedInvocation(&attempt.attempt, job.Purpose(), condition); err != nil {
+		if err := transitionFailedInvocation(&attempt.attempt, job.Purpose(), decision.Condition()); err != nil {
 			return nil, err
 		}
 	}
@@ -1741,9 +1749,14 @@ func (execution *coordinatorExecution) commitOutcome(
 	if err := terminalizeAttempt(&attempt.attempt, decision.Condition()); err != nil {
 		return nil, err
 	}
+	decisionCause := outcomeCause
+	if decision.Condition() != condition {
+		decisionCause = ""
+	}
 	if attempt.attempt.State() != domain.AttemptSucceeded {
 		attempt.failureClass = decision.TerminalClass()
 		attempt.reasonCode = decision.ReasonCode()
+		attempt.diagnosticCause = decisionCause
 	}
 	switch decision.TerminalProjection() {
 	case TerminalProjectionSucceeded:
@@ -1773,7 +1786,8 @@ func (execution *coordinatorExecution) commitOutcome(
 	default:
 		return nil, fmt.Errorf("review coordinator: terminal decision has no terminal projection")
 	}
-	if err := execution.record(CoordinatorEventRoleTerminal, job.Role(), attempt, nil, &condition, decision.ReasonCode(), domain.RunState("")); err != nil {
+	terminalCondition := decision.Condition()
+	if err := execution.recordWithCause(CoordinatorEventRoleTerminal, job.Role(), attempt, nil, &terminalCondition, decisionCause, decision.ReasonCode(), domain.RunState("")); err != nil {
 		return nil, err
 	}
 	return nil, nil
@@ -1861,32 +1875,57 @@ func (execution *coordinatorExecution) commitExtractionOutcome(
 	} else if err := transitionFailedExtractionInvocation(&attempt.attempt, invocationSequence(job.Purpose()), condition); err != nil {
 		return nil, err
 	}
-	if err := terminalizeAttempt(&attempt.attempt, AttemptConditionValidReview); err != nil {
+	if err := execution.completeAttemptWithAcceptedOutput(job.Role(), state, attempt, output); err != nil {
 		return nil, err
 	}
-	if err := execution.run.TransitionRole(job.Role(), domain.RoleTaskSucceeded); err != nil {
-		return nil, fmt.Errorf("review coordinator: succeed role: %w", err)
+	return nil, nil
+}
+
+// completeAttemptWithAcceptedOutput transitions a validating attempt that
+// already holds an accepted role output to AttemptSucceeded / RoleTaskSucceeded
+// without failure facts, recording CoordinatorEventRoleTerminal with
+// AttemptConditionValidReview so trace, diagnostics, and publication agree.
+func (execution *coordinatorExecution) completeAttemptWithAcceptedOutput(
+	role domain.Role,
+	state *coordinatorRole,
+	attempt *coordinatorAttempt,
+	output ValidatedRoleOutput,
+) error {
+	if err := terminalizeAttempt(&attempt.attempt, AttemptConditionValidReview); err != nil {
+		return err
+	}
+	if err := execution.run.TransitionRole(role, domain.RoleTaskSucceeded); err != nil {
+		return fmt.Errorf("review coordinator: succeed role: %w", err)
 	}
 	copied := output.clone()
 	state.output = &copied
 	state.repaired = output.ValidationState() == domain.ValidationRepairedValid
+	state.failureClass = ""
+	state.reasonCode = ""
+	attempt.failureClass = ""
+	attempt.reasonCode = ""
+	attempt.diagnosticCause = ""
 	attempt.parseState = output.ParseState()
 	attempt.validationState = output.ValidationState()
 	valid := AttemptConditionValidReview
-	if err := execution.record(CoordinatorEventRoleTerminal, job.Role(), attempt, nil, &valid, string(AttemptConditionValidReview), domain.RunState("")); err != nil {
-		return nil, err
+	if err := execution.record(CoordinatorEventRoleTerminal, role, attempt, nil, &valid, string(AttemptConditionValidReview), domain.RunState("")); err != nil {
+		return err
 	}
-	return nil, nil
+	return nil
+}
+
+func conditionTimedOut(condition AttemptCondition) bool {
+	return condition == AttemptConditionTimeout || condition == AttemptConditionProviderTimeout
 }
 
 // transitionFailedExtractionInvocation fails only the extraction trailer. The
 // attempt stays in validation so the already accepted report can still succeed.
 func transitionFailedExtractionInvocation(attempt *domain.Attempt, sequence uint64, condition AttemptCondition) error {
 	next := domain.InvocationFailed
-	switch condition {
-	case AttemptConditionTimeout, AttemptConditionProviderTimeout:
+	switch {
+	case conditionTimedOut(condition):
 		next = domain.InvocationTimedOut
-	case AttemptConditionCancelled:
+	case condition == AttemptConditionCancelled:
 		next = domain.InvocationCancelled
 	}
 	if err := attempt.TransitionInvocation(sequence, next); err != nil {
@@ -1935,10 +1974,10 @@ func transitionFailedInvocation(attempt *domain.Attempt, purpose domain.Invocati
 	sequence := invocationSequence(purpose)
 	nextInvocation := domain.InvocationFailed
 	nextAttempt := domain.AttemptFailed
-	switch condition {
-	case AttemptConditionTimeout:
+	switch {
+	case conditionTimedOut(condition):
 		nextInvocation, nextAttempt = domain.InvocationTimedOut, domain.AttemptTimedOut
-	case AttemptConditionCancelled:
+	case condition == AttemptConditionCancelled:
 		nextInvocation, nextAttempt = domain.InvocationCancelled, domain.AttemptCancelled
 	}
 	if err := attempt.TransitionInvocation(sequence, nextInvocation); err != nil {
@@ -1956,12 +1995,12 @@ func terminalizeAttempt(attempt *domain.Attempt, condition AttemptCondition) err
 		return nil
 	}
 	next := domain.AttemptFailed
-	switch condition {
-	case AttemptConditionValidReview:
+	switch {
+	case condition == AttemptConditionValidReview:
 		next = domain.AttemptSucceeded
-	case AttemptConditionTimeout:
+	case conditionTimedOut(condition):
 		next = domain.AttemptTimedOut
-	case AttemptConditionCancelled:
+	case condition == AttemptConditionCancelled:
 		next = domain.AttemptCancelled
 	}
 	if err := attempt.Transition(next); err != nil {
@@ -2042,7 +2081,7 @@ func (execution *coordinatorExecution) prepareOutcomeCommit(
 		return "", false, false, fmt.Errorf("review coordinator: reduce transition context: %w", err)
 	}
 	if contextObserved {
-		if err := execution.requestDispatchStop(scheduler, effective); err != nil {
+		if err := execution.requestDispatchStop(scheduler, effective, ""); err != nil {
 			return "", false, false, err
 		}
 	}
@@ -2052,6 +2091,7 @@ func (execution *coordinatorExecution) prepareOutcomeCommit(
 func (execution *coordinatorExecution) requestDispatchStop(
 	scheduler *invocationScheduler,
 	condition AttemptCondition,
+	cause domain.RuntimeDiagnosticCause,
 ) error {
 	scheduler.cancelDispatch()
 	if execution.dispatchStopRecorded {
@@ -2064,11 +2104,12 @@ func (execution *coordinatorExecution) requestDispatchStop(
 		}
 		condition = reduced
 	}
-	if err := execution.record(CoordinatorEventCancellationRequested, domain.Role(""), nil, nil, &condition, string(condition), domain.RunState("")); err != nil {
+	if err := execution.recordWithCause(CoordinatorEventCancellationRequested, domain.Role(""), nil, nil, &condition, cause, string(condition), domain.RunState("")); err != nil {
 		return err
 	}
 	execution.dispatchStopRecorded = true
 	execution.dispatchStopCondition = condition
+	execution.dispatchStopDiagnosticCause = cause
 	return nil
 }
 
@@ -2082,37 +2123,82 @@ func (execution *coordinatorExecution) contextCondition() AttemptCondition {
 	return AttemptConditionCancelled
 }
 
-func (execution *coordinatorExecution) cancelAll(scheduler *invocationScheduler, condition AttemptCondition) error {
+func (execution *coordinatorExecution) cancelAll(
+	scheduler *invocationScheduler,
+	condition AttemptCondition,
+	cause domain.RuntimeDiagnosticCause,
+) error {
 	effective := condition
+	effectiveCause := cause
 	if execution.stopCondition.Valid() {
 		reduced, err := ReduceAttemptConditions(execution.stopCondition, condition)
 		if err != nil {
 			return fmt.Errorf("review coordinator: reduce run stop: %w", err)
 		}
-		effective = reduced
+		if reduced == execution.stopCondition {
+			effective = execution.stopCondition
+			effectiveCause = execution.stopDiagnosticCause
+		} else {
+			effective = reduced
+		}
 	}
 	execution.stopping = true
 	execution.stopCondition = effective
+	execution.stopDiagnosticCause = effectiveCause
 	execution.cancelled = conditionCancelsCoordinatorRun(effective)
-	if err := execution.requestDispatchStop(scheduler, effective); err != nil {
+	if err := execution.requestDispatchStop(scheduler, effective, effectiveCause); err != nil {
 		return err
 	}
-	roleCondition := execution.contextCondition()
+	roleCondition := AttemptConditionCancelled
+	if effective == AttemptConditionTimeout && (execution.callerCtx == nil || execution.callerCtx.Err() == nil) {
+		roleCondition = AttemptConditionTimeout
+	}
 	for _, role := range domain.FixedRoleOrder() {
 		state := execution.roles[role]
 		if state == nil || coordinatorRoleTerminal(execution.run, role) {
 			continue
 		}
 		var attempt *coordinatorAttempt
-		if state.currentAttempt >= 0 {
+		stopCondition := roleCondition
+		if state.currentAttempt < 0 {
+			stopCondition = AttemptConditionCancelled
+		} else {
 			attempt = &state.attempts[state.currentAttempt]
-			if err := stopCoordinatorAttempt(&attempt.attempt, roleCondition); err != nil {
+			if effective == AttemptConditionTimeout &&
+				roleCondition == AttemptConditionTimeout &&
+				attempt.attempt.State() == domain.AttemptValidating &&
+				attempt.acceptedOutput != nil {
+				invocations := attempt.attempt.Invocations()
+				if len(invocations) > 0 {
+					current := invocations[len(invocations)-1]
+					switch current.State() {
+					case domain.InvocationRunning:
+						if err := attempt.attempt.TransitionInvocation(current.Sequence(), domain.InvocationTimedOut); err != nil {
+							return fmt.Errorf("review coordinator: time out extraction invocation: %w", err)
+						}
+					case domain.InvocationQueued:
+						if err := attempt.attempt.TransitionInvocation(current.Sequence(), domain.InvocationCancelled); err != nil {
+							return fmt.Errorf("review coordinator: cancel queued extraction invocation: %w", err)
+						}
+					}
+				}
+				if err := execution.completeAttemptWithAcceptedOutput(role, state, attempt, *attempt.acceptedOutput); err != nil {
+					return err
+				}
+				continue
+			}
+			if conditionTimedOut(stopCondition) &&
+				(attempt.attempt.State() == domain.AttemptValidating || attempt.attempt.State() == domain.AttemptQueued) {
+				stopCondition = AttemptConditionCancelled
+			}
+			if err := stopCoordinatorAttempt(&attempt.attempt, stopCondition); err != nil {
 				return err
 			}
-			attempt.failureClass = conditionFailureClass(roleCondition)
-			attempt.reasonCode = string(roleCondition)
+			attempt.failureClass = conditionFailureClass(stopCondition)
+			attempt.reasonCode = string(stopCondition)
+			attempt.diagnosticCause = ""
 		}
-		if roleCondition == AttemptConditionCancelled {
+		if stopCondition == AttemptConditionCancelled {
 			if err := execution.run.TransitionRole(role, domain.RoleTaskCancelled); err != nil {
 				return fmt.Errorf("review coordinator: cancel role %q: %w", role, err)
 			}
@@ -2122,10 +2208,10 @@ func (execution *coordinatorExecution) cancelAll(scheduler *invocationScheduler,
 			if err := execution.run.TransitionRole(role, domain.RoleTaskFailed); err != nil {
 				return fmt.Errorf("review coordinator: fail role %q: %w", role, err)
 			}
-			state.failureClass = conditionFailureClass(roleCondition)
-			state.reasonCode = string(roleCondition)
+			state.failureClass = conditionFailureClass(stopCondition)
+			state.reasonCode = string(stopCondition)
 		}
-		if err := execution.record(CoordinatorEventRoleTerminal, role, attempt, nil, &roleCondition, state.reasonCode, domain.RunState("")); err != nil {
+		if err := execution.record(CoordinatorEventRoleTerminal, role, attempt, nil, &stopCondition, state.reasonCode, domain.RunState("")); err != nil {
 			return err
 		}
 	}
@@ -2144,10 +2230,10 @@ func stopCoordinatorAttempt(attempt *domain.Attempt, condition AttemptCondition)
 	current := invocations[len(invocations)-1]
 	if current.State() == domain.InvocationQueued || current.State() == domain.InvocationRunning {
 		next := domain.InvocationFailed
-		switch condition {
-		case AttemptConditionCancelled:
+		switch {
+		case condition == AttemptConditionCancelled:
 			next = domain.InvocationCancelled
-		case AttemptConditionTimeout:
+		case conditionTimedOut(condition):
 			if current.State() == domain.InvocationRunning {
 				next = domain.InvocationTimedOut
 			} else {
@@ -2159,10 +2245,10 @@ func stopCoordinatorAttempt(attempt *domain.Attempt, condition AttemptCondition)
 		}
 	}
 	nextAttempt := domain.AttemptFailed
-	switch condition {
-	case AttemptConditionCancelled:
+	switch {
+	case condition == AttemptConditionCancelled:
 		nextAttempt = domain.AttemptCancelled
-	case AttemptConditionTimeout:
+	case conditionTimedOut(condition):
 		if attempt.State() == domain.AttemptRunning || attempt.State() == domain.AttemptRepairing {
 			nextAttempt = domain.AttemptTimedOut
 		}
@@ -2205,7 +2291,8 @@ func (execution *coordinatorExecution) finishRun() error {
 		return nil
 	}
 	if execution.stopCondition.Valid() &&
-		execution.stopCondition != AttemptConditionValidReview {
+		execution.stopCondition != AttemptConditionValidReview &&
+		execution.stopCondition != AttemptConditionTimeout {
 		if err := execution.run.Transition(domain.RunFailed); err != nil {
 			return fmt.Errorf("review coordinator: fail stopped run: %w", err)
 		}
@@ -2453,12 +2540,46 @@ func coordinatorAttemptSnapshots(attempts []coordinatorAttempt) []CoordinatorAtt
 	return snapshots
 }
 
+func waveDiagnosticCauseForCondition(
+	ordered []InvocationJob,
+	outcomes map[uint64]AttemptOutcome,
+	condition AttemptCondition,
+) domain.RuntimeDiagnosticCause {
+	for _, job := range ordered {
+		outcome, exists := outcomes[job.Ordinal()]
+		if !exists {
+			continue
+		}
+		jobCondition := coordinatorOutcomeCondition(outcome)
+		if extractionOutcomeIsBounded(job, jobCondition) {
+			continue
+		}
+		if jobCondition == condition && outcome.diagnosticCause.Valid() {
+			return outcome.diagnosticCause
+		}
+	}
+	return ""
+}
+
 func (execution *coordinatorExecution) record(
 	kind CoordinatorEventKind,
 	role domain.Role,
 	attempt *coordinatorAttempt,
 	purpose *domain.InvocationPurpose,
 	condition *AttemptCondition,
+	reason string,
+	runState domain.RunState,
+) error {
+	return execution.recordWithCause(kind, role, attempt, purpose, condition, "", reason, runState)
+}
+
+func (execution *coordinatorExecution) recordWithCause(
+	kind CoordinatorEventKind,
+	role domain.Role,
+	attempt *coordinatorAttempt,
+	purpose *domain.InvocationPurpose,
+	condition *AttemptCondition,
+	diagnosticCause domain.RuntimeDiagnosticCause,
 	reason string,
 	runState domain.RunState,
 ) error {
@@ -2529,6 +2650,9 @@ func (execution *coordinatorExecution) record(
 	if condition != nil {
 		event.condition = *condition
 		event.hasCondition = true
+		if diagnosticCause.Valid() {
+			event.diagnosticCause = diagnosticCause
+		}
 	}
 	if err := event.validate(); err != nil {
 		return fmt.Errorf("review coordinator: record trace: %w", err)

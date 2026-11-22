@@ -161,6 +161,21 @@ an atomic content snapshot. Committed scopes use resolved object IDs. Trusted
 Git reads disable hooks, fsmonitor, external diff, textconv and lazy fetch.
 Project configuration cannot introduce executable commands.
 
+Evidence verification separates untrusted provider citation faults from live
+source drift using the immutable admission-time path set recorded when the
+source lease opens (never re-scanning the repository during verification). In
+both `--workspace` and Git scopes and in both requirements and non-requirements
+review modes, invalid or excluded cited paths, non-admitted absent or
+non-regular/symlink/directory `--workspace` paths on initial open, and absent
+non-admitted Git index or committed paths are classified as bounded provider
+citation faults (`invalid_assessment` in requirements mode;
+`unrepairable_evidence_claim` in non-requirements mode). In contrast, failures
+on any admitted path, post-open TOCTOU reopen or file-identity drift, root or
+index revalidation errors, `git cat-file` failures, closed readers, and
+cancelled contexts remain fail-closed (denying publication, rejecting captured
+streams on `live_source_unsafe` security violations, and preserving originating
+diagnostic causes). `AdmitPath` never marks errors as provider citation faults.
+
 Preflight and provider execution reject local Git configuration outside the
 closed data-only set in [live review](live-workspace-and-git-review.md#reviewer-execution).
 Both main and worktree configuration are read through verified descriptors and
@@ -492,10 +507,17 @@ hashed; this creates no source inventory or persisted content lock. Visual
 references must retain their selected-side binary binding.
 
 The assessment section is decoded strictly without the generic 8 MiB envelope
-limit on prose. Trusted ownership violations and source/validator failures retain
-canonical joined-error precedence and deny publication. Ordinary content failure
-in one section preserves a valid peer and its accepted primary report. Bound
-input/content bodies remain private publication support. Verified public content
+limit on prose. Key validation scans every key of each requirements object
+(`requirements`, `assessment`, `evidence`, `current`, and `visual`) against a
+closed Mulgae-owned protected key set (`visual.sha256` remains allowed as a
+provider-supplied visual digest and `schema_version` is excluded from the
+protected set); any unexpected protected key deterministically takes precedence
+over ordinary unknown keys and fails closed with `security_violation`
+(`provider_ownership_violation`), whereas ordinary unknown keys remain bounded
+section validation failures (`invalid_assessment`). Trusted ownership violations
+and source/validator failures retain canonical joined-error precedence and deny
+publication. Ordinary content failure in one section preserves a valid peer and
+its accepted primary report. Bound input/content bodies remain private publication support. Verified public content
 reads expose assessment rationale/evidence through receipt-bound chunks, without
 including the raw invocation input. Portable export admits neither body. Readers
 verify the whole selected set and every content binding before paging, then

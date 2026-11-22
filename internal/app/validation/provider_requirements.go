@@ -20,14 +20,14 @@ const RequirementsProviderOutputVersion = "mulgae-provider-review-output.v3"
 func SplitRequirementsResponse(raw []byte) ([]byte, []byte, bool, error) {
 	object, err := decodeJSONObject(raw, "requirements response")
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, false, wrapRuntimeError(err, domain.DiagnosticCauseOutputDecodeFailed)
 	}
 	section, present := object["requirements"]
 	delete(object, "requirements")
 	if object["schema_version"] == RequirementsProviderOutputVersion {
 		object["schema_version"] = "mulgae-provider-review-output.v1"
 	} else if present {
-		return nil, nil, true, fmt.Errorf("requirements response: wrong version")
+		return nil, nil, true, wrapRuntimeError(fmt.Errorf("requirements response: wrong version"), domain.DiagnosticCauseCandidateValidationFailed)
 	}
 	findings, err := json.Marshal(object)
 	if err != nil {
@@ -38,6 +38,207 @@ func SplitRequirementsResponse(raw []byte) ([]byte, []byte, bool, error) {
 	}
 	sectionRaw, err := json.Marshal(section)
 	return findings, sectionRaw, true, err
+}
+
+var (
+	requirementsSectionAllowedKeys = map[string]struct{}{
+		"schema_version": {},
+		"assessments":    {},
+	}
+	requirementsSectionProtectedKeys = map[string]struct{}{
+		"owner":                   {},
+		"owner_role":              {},
+		"origin":                  {},
+		"counts":                  {},
+		"selected_count":          {},
+		"evaluated_count":         {},
+		"availability":            {},
+		"input_path":              {},
+		"input_sha256":            {},
+		"input_digest":            {},
+		"input_byte_length":       {},
+		"verification":            {},
+		"publication_status":      {},
+		"review_id":               {},
+		"run_id":                  {},
+		"session_id":              {},
+		"attempt_id":              {},
+		"invocation_id":           {},
+		"execution_invocation_id": {},
+		"source_identity_sha256":  {},
+		"target_sha256":           {},
+	}
+	requirementsAssessmentAllowedKeys = map[string]struct{}{
+		"requirement_id": {},
+		"verdict":        {},
+		"rationale":      {},
+		"evidence":       {},
+		"examined_scope": {},
+		"limitations":    {},
+		"reason":         {},
+	}
+	requirementsAssessmentProtectedKeys = map[string]struct{}{
+		"owner":                   {},
+		"owner_role":              {},
+		"origin":                  {},
+		"counts":                  {},
+		"input_digest":            {},
+		"input_sha256":            {},
+		"verification":            {},
+		"publication_status":      {},
+		"review_id":               {},
+		"run_id":                  {},
+		"session_id":              {},
+		"attempt_id":              {},
+		"invocation_id":           {},
+		"execution_invocation_id": {},
+		"source_identity_sha256":  {},
+		"target_sha256":           {},
+		"content_path":            {},
+		"content_sha256":          {},
+		"content_byte_length":     {},
+	}
+	requirementsEvidenceAllowedKeys = map[string]struct{}{
+		"current": {},
+		"visual":  {},
+	}
+	requirementsEvidenceProtectedKeys = map[string]struct{}{
+		"verification":           {},
+		"owner":                  {},
+		"owner_role":             {},
+		"origin":                 {},
+		"source_identity_sha256": {},
+		"target_sha256":          {},
+		"current_excerpt_sha256": {},
+		"excerpt_sha256":         {},
+	}
+	requirementsCurrentAllowedKeys = map[string]struct{}{
+		"path":       {},
+		"side":       {},
+		"line_start": {},
+		"line_end":   {},
+		"quote":      {},
+	}
+	requirementsCurrentProtectedKeys = map[string]struct{}{
+		"verification":           {},
+		"source_identity_sha256": {},
+		"target_sha256":          {},
+		"current_excerpt_sha256": {},
+		"excerpt_sha256":         {},
+		"owner":                  {},
+		"owner_role":             {},
+		"origin":                 {},
+		"review_id":              {},
+		"run_id":                 {},
+		"session_id":             {},
+		"attempt_id":             {},
+	}
+	requirementsVisualAllowedKeys = map[string]struct{}{
+		"path":   {},
+		"sha256": {},
+		"bbox":   {},
+	}
+	requirementsVisualProtectedKeys = map[string]struct{}{
+		"verification":           {},
+		"owner":                  {},
+		"owner_role":             {},
+		"origin":                 {},
+		"source_identity_sha256": {},
+		"target_sha256":          {},
+	}
+)
+
+// findProtectedRequirementsKey scans every key in object and returns the
+// lexicographically smallest unexpected Mulgae-owned key violation, if any.
+func findProtectedRequirementsKey(object map[string]any, location string, allowed, protected map[string]struct{}) error {
+	var protectedKey string
+	hasProtected := false
+	for key := range object {
+		if _, ok := allowed[key]; ok {
+			continue
+		}
+		if _, ok := protected[key]; ok {
+			if !hasProtected || key < protectedKey {
+				protectedKey = key
+				hasProtected = true
+			}
+		}
+	}
+	if hasProtected {
+		return &ownershipViolation{err: fmt.Errorf("review validation: provider supplied system-owned field %s.%s", location, protectedKey)}
+	}
+	return nil
+}
+
+// scanRequirementsOwnershipViolations performs a complete deterministic pre-pass
+// over the decoded requirements JSON tree so an untrusted provider cannot mask a
+// nested or later-row Mulgae-owned key behind an earlier ordinary unknown key or
+// content validation failure.
+func scanRequirementsOwnershipViolations(object map[string]any) error {
+	if err := findProtectedRequirementsKey(object, "requirements", requirementsSectionAllowedKeys, requirementsSectionProtectedKeys); err != nil {
+		return err
+	}
+	rows, ok := object["assessments"].([]any)
+	if !ok {
+		return nil
+	}
+	for _, value := range rows {
+		row, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		if err := findProtectedRequirementsKey(row, "assessment", requirementsAssessmentAllowedKeys, requirementsAssessmentProtectedKeys); err != nil {
+			return err
+		}
+		items, ok := row["evidence"].([]any)
+		if !ok {
+			continue
+		}
+		for _, v := range items {
+			item, ok := v.(map[string]any)
+			if !ok {
+				continue
+			}
+			if err := findProtectedRequirementsKey(item, "evidence", requirementsEvidenceAllowedKeys, requirementsEvidenceProtectedKeys); err != nil {
+				return err
+			}
+			if current, ok := item["current"].(map[string]any); ok {
+				if err := findProtectedRequirementsKey(current, "current", requirementsCurrentAllowedKeys, requirementsCurrentProtectedKeys); err != nil {
+					return err
+				}
+			}
+			if visual, ok := item["visual"].(map[string]any); ok {
+				if err := findProtectedRequirementsKey(visual, "visual", requirementsVisualAllowedKeys, requirementsVisualProtectedKeys); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateRequirementsObjectKeys scans every key in object before classifying
+// so protected Mulgae-owned fields deterministically take precedence over
+// ordinary unknown keys regardless of Go map iteration order.
+func validateRequirementsObjectKeys(object map[string]any, location string, allowed, protected map[string]struct{}) error {
+	if err := findProtectedRequirementsKey(object, location, allowed, protected); err != nil {
+		return err
+	}
+	var unknownKey string
+	hasUnknown := false
+	for key := range object {
+		if _, ok := allowed[key]; ok {
+			continue
+		}
+		if !hasUnknown || key < unknownKey {
+			unknownKey = key
+			hasUnknown = true
+		}
+	}
+	if hasUnknown {
+		return fmt.Errorf("review validation: provider supplied unknown field %s.%s", location, unknownKey)
+	}
+	return nil
 }
 
 // ValidatedRequirementAnswer retains only content verified while the original
@@ -67,7 +268,10 @@ func DecodeProviderRequirements(ctx context.Context, raw []byte, selected []doma
 	if err != nil {
 		return nil, err
 	}
-	if err := requireOnlyKeys(object, "requirements", "schema_version", "assessments"); err != nil {
+	if err := scanRequirementsOwnershipViolations(object); err != nil {
+		return nil, wrapRuntimeError(err, domain.DiagnosticCauseCandidateValidationFailed)
+	}
+	if err := validateRequirementsObjectKeys(object, "requirements", requirementsSectionAllowedKeys, requirementsSectionProtectedKeys); err != nil {
 		return nil, wrapRuntimeError(err, domain.DiagnosticCauseCandidateValidationFailed)
 	}
 	if !requirementObjectFields(object, "schema_version", "assessments") || object["schema_version"] != "mulgae-provider-requirements.v1" {
@@ -90,7 +294,7 @@ func DecodeProviderRequirements(ctx context.Context, raw []byte, selected []doma
 		if !ok {
 			return nil, fmt.Errorf("requirements: invalid answer")
 		}
-		if err := requireOnlyKeys(row, "assessment", "requirement_id", "verdict", "rationale", "evidence", "examined_scope", "limitations", "reason"); err != nil {
+		if err := validateRequirementsObjectKeys(row, "assessment", requirementsAssessmentAllowedKeys, requirementsAssessmentProtectedKeys); err != nil {
 			return nil, wrapRuntimeError(err, domain.DiagnosticCauseCandidateValidationFailed)
 		}
 		if !requirementObjectFields(row, "requirement_id", "verdict", "rationale", "evidence", "examined_scope", "limitations", "reason") {
@@ -140,14 +344,14 @@ func DecodeProviderRequirements(ctx context.Context, raw []byte, selected []doma
 			if !ok {
 				return nil, fmt.Errorf("requirements: invalid evidence item")
 			}
-			if err := requireOnlyKeys(item, "evidence", "current", "visual"); err != nil {
+			if err := validateRequirementsObjectKeys(item, "evidence", requirementsEvidenceAllowedKeys, requirementsEvidenceProtectedKeys); err != nil {
 				return nil, wrapRuntimeError(err, domain.DiagnosticCauseCandidateValidationFailed)
 			}
 			current, ok := item["current"].(map[string]any)
 			if !ok {
 				return nil, fmt.Errorf("requirements: missing current evidence")
 			}
-			if err := requireOnlyKeys(current, "current", "path", "side", "line_start", "line_end", "quote"); err != nil {
+			if err := validateRequirementsObjectKeys(current, "current", requirementsCurrentAllowedKeys, requirementsCurrentProtectedKeys); err != nil {
 				return nil, wrapRuntimeError(err, domain.DiagnosticCauseCandidateValidationFailed)
 			}
 			if !requirementObjectFields(current, "path", "side", "line_start", "line_end", "quote") {
@@ -187,7 +391,7 @@ func DecodeProviderRequirements(ctx context.Context, raw []byte, selected []doma
 				if !ok {
 					return nil, fmt.Errorf("requirements: invalid visual")
 				}
-				if err := requireOnlyKeys(object, "visual", "path", "sha256", "bbox"); err != nil {
+				if err := validateRequirementsObjectKeys(object, "visual", requirementsVisualAllowedKeys, requirementsVisualProtectedKeys); err != nil {
 					return nil, wrapRuntimeError(err, domain.DiagnosticCauseCandidateValidationFailed)
 				}
 				bbox, ok := object["bbox"].(map[string]any)

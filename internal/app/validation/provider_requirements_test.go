@@ -128,7 +128,7 @@ func TestRequirementsProviderRejectsInvalidOwningSectionsAndProtectedFields(t *t
 				t.Fatal("invalid section accepted")
 			}
 			cause, ok := RuntimeCause(err)
-			if test.protected && (!ok || cause != domain.DiagnosticCauseObservationMismatch) {
+			if test.protected && (!ok || cause != domain.DiagnosticCauseProviderOwnershipViolation) {
 				t.Fatalf("ownership attack lost protected identity: %v", err)
 			}
 		})
@@ -190,4 +190,228 @@ func TestRequirementsProviderVisualEvidenceKeepsRoleAndSourceSide(t *testing.T) 
 			}
 		})
 	}
+}
+
+func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
+	input, _, identity, verifier := assessmentFixture(t)
+	artistReq, err := domain.NewRequirement("A", "Design", []string{"criterion"}, domain.RoleArtist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	visualImages := map[string]string{"index\x00design.png": digest}
+
+	makeVisualRow := func() map[string]any {
+		row := assessmentRow("A", "met")
+		row["evidence"].([]any)[0].(map[string]any)["visual"] = map[string]any{
+			"path":   "design.png",
+			"sha256": digest,
+			"bbox":   map[string]any{"x": 0, "y": 0, "width": 1, "height": 1},
+		}
+		return row
+	}
+	decodeSection := func(section map[string]any, role domain.Role) error {
+		raw, marshalErr := json.Marshal(section)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		reqs := input.Requirements()
+		images := map[string]string(nil)
+		if role == domain.RoleArtist {
+			reqs = []domain.Requirement{artistReq}
+			images = visualImages
+		}
+		_, decodeErr := DecodeProviderRequirements(context.Background(), raw, reqs, role, identity, verifier, images, "requirements.json", input.SHA256())
+		return decodeErr
+	}
+
+	t.Run("ordinary unknown keys are bounded non-security failures across all five objects", func(t *testing.T) {
+		locations := []struct {
+			name   string
+			role   domain.Role
+			mutate func(section map[string]any, key string)
+		}{
+			{"requirements", domain.RoleLogic, func(s map[string]any, k string) { s[k] = "extra" }},
+			{"assessment", domain.RoleLogic, func(s map[string]any, k string) {
+				s["assessments"].([]any)[0].(map[string]any)[k] = "extra"
+			}},
+			{"evidence", domain.RoleLogic, func(s map[string]any, k string) {
+				s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)[k] = "extra"
+			}},
+			{"current", domain.RoleLogic, func(s map[string]any, k string) {
+				s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)[k] = "extra"
+			}},
+			{"visual", domain.RoleArtist, func(s map[string]any, k string) {
+				s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)["visual"].(map[string]any)[k] = "extra"
+			}},
+		}
+		for _, loc := range locations {
+			for _, key := range []string{"notes", "confidence_score", "schema_version", ""} {
+				if loc.name == "requirements" && key == "schema_version" {
+					continue // schema_version is an allowed key on requirements section
+				}
+				row := assessmentRow("A", "met")
+				if loc.role == domain.RoleArtist {
+					row = makeVisualRow()
+				}
+				section := map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{row}}
+				loc.mutate(section, key)
+				decodeErr := decodeSection(section, loc.role)
+				if decodeErr == nil {
+					t.Fatalf("%s unknown key %q was accepted", loc.name, key)
+				}
+				cause, ok := RuntimeCause(decodeErr)
+				if !ok || cause != domain.DiagnosticCauseCandidateValidationFailed {
+					t.Fatalf("%s unknown key %q cause = (%q, %t), want candidate_validation_failed (err=%v)", loc.name, key, cause, ok, decodeErr)
+				}
+			}
+		}
+	})
+
+	t.Run("every closed protected key across all five objects fails with provider_ownership_violation", func(t *testing.T) {
+		protectedSets := []struct {
+			name   string
+			role   domain.Role
+			keys   []string
+			mutate func(section map[string]any, key string)
+		}{
+			{
+				name: "requirements",
+				role: domain.RoleLogic,
+				keys: []string{"owner", "owner_role", "origin", "counts", "selected_count", "evaluated_count", "availability", "input_path", "input_sha256", "input_digest", "input_byte_length", "verification", "publication_status", "review_id", "run_id", "session_id", "attempt_id", "invocation_id", "execution_invocation_id", "source_identity_sha256", "target_sha256"},
+				mutate: func(s map[string]any, k string) {
+					s[k] = "forged"
+				},
+			},
+			{
+				name: "assessment",
+				role: domain.RoleLogic,
+				keys: []string{"owner", "owner_role", "origin", "counts", "input_digest", "input_sha256", "verification", "publication_status", "review_id", "run_id", "session_id", "attempt_id", "invocation_id", "execution_invocation_id", "source_identity_sha256", "target_sha256", "content_path", "content_sha256", "content_byte_length"},
+				mutate: func(s map[string]any, k string) {
+					s["assessments"].([]any)[0].(map[string]any)[k] = "forged"
+				},
+			},
+			{
+				name: "evidence",
+				role: domain.RoleLogic,
+				keys: []string{"verification", "owner", "owner_role", "origin", "source_identity_sha256", "target_sha256", "current_excerpt_sha256", "excerpt_sha256"},
+				mutate: func(s map[string]any, k string) {
+					s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)[k] = "forged"
+				},
+			},
+			{
+				name: "current",
+				role: domain.RoleLogic,
+				keys: []string{"verification", "source_identity_sha256", "target_sha256", "current_excerpt_sha256", "excerpt_sha256", "owner", "owner_role", "origin", "review_id", "run_id", "session_id", "attempt_id"},
+				mutate: func(s map[string]any, k string) {
+					s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)[k] = "forged"
+				},
+			},
+			{
+				name: "visual",
+				role: domain.RoleArtist,
+				keys: []string{"verification", "owner", "owner_role", "origin", "source_identity_sha256", "target_sha256"},
+				mutate: func(s map[string]any, k string) {
+					s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)["visual"].(map[string]any)[k] = "forged"
+				},
+			},
+		}
+		for _, set := range protectedSets {
+			for _, key := range set.keys {
+				row := assessmentRow("A", "met")
+				if set.role == domain.RoleArtist {
+					row = makeVisualRow()
+				}
+				section := map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{row}}
+				set.mutate(section, key)
+				decodeErr := decodeSection(section, set.role)
+				if decodeErr == nil {
+					t.Fatalf("%s protected key %q was accepted", set.name, key)
+				}
+				cause, ok := RuntimeCause(decodeErr)
+				if !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
+					t.Fatalf("%s protected key %q cause = (%q, %t), want provider_ownership_violation (err=%v)", set.name, key, cause, ok, decodeErr)
+				}
+			}
+		}
+	})
+
+	t.Run("mixed protected and ordinary unknown keys deterministically prioritize protected keys", func(t *testing.T) {
+		for i := 0; i < 64; i++ {
+			row := assessmentRow("A", "met")
+			row["aaa_unknown"] = "ordinary"
+			row["000_unknown"] = "ordinary"
+			row["zzz_unknown"] = "ordinary"
+			row["verification"] = "verified"
+			row["attempt_id"] = "a_forged"
+			section := map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{row}}
+			decodeErr := decodeSection(section, domain.RoleLogic)
+			cause, ok := RuntimeCause(decodeErr)
+			if !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
+				t.Fatalf("iteration %d: mixed keys cause = (%q, %t), want provider_ownership_violation", i, cause, ok)
+			}
+			var ownership *ownershipViolation
+			if !errors.As(decodeErr, &ownership) || !strings.Contains(ownership.Unwrap().Error(), "assessment.attempt_id") {
+				t.Fatalf("iteration %d: expected lexicographically smallest protected key assessment.attempt_id, got %v", i, decodeErr)
+			}
+		}
+	})
+
+	t.Run("outer unknown key or earlier invalid row cannot mask nested or later protected keys", func(t *testing.T) {
+		// Case 1: outer ordinary unknown key + nested assessment protected key.
+		rowWithProtected := assessmentRow("A", "met")
+		rowWithProtected["owner_role"] = "logic"
+		outerUnknown := map[string]any{
+			"schema_version": "mulgae-provider-requirements.v1",
+			"notes":          "ordinary unknown outer key",
+			"assessments":    []any{rowWithProtected},
+		}
+		errOuter := decodeSection(outerUnknown, domain.RoleLogic)
+		if cause, ok := RuntimeCause(errOuter); !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
+			t.Fatalf("outer unknown + nested protected cause = (%q, %t), want provider_ownership_violation (err=%v)", cause, ok, errOuter)
+		}
+
+		// Case 2: earlier row has ordinary unknown key AND invalid verdict, later row has nested current.verification.
+		badFirst := assessmentRow("A", "invalid_verdict")
+		badFirst["extra_note"] = "ordinary unknown"
+		secondProtected := assessmentRow("A", "met")
+		secondProtected["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["verification"] = "verified"
+		laterProtected := map[string]any{
+			"schema_version": "mulgae-provider-requirements.v1",
+			"assessments":    []any{badFirst, secondProtected},
+		}
+		errLater := decodeSection(laterProtected, domain.RoleLogic)
+		if cause, ok := RuntimeCause(errLater); !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
+			t.Fatalf("earlier invalid + later protected cause = (%q, %t), want provider_ownership_violation (err=%v)", cause, ok, errLater)
+		}
+	})
+
+	t.Run("visual sha256 remains allowed and verified", func(t *testing.T) {
+		section := map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{makeVisualRow()}}
+		if decodeErr := decodeSection(section, domain.RoleArtist); decodeErr != nil {
+			t.Fatalf("valid visual.sha256 rejected: %v", decodeErr)
+		}
+	})
+
+	t.Run("SplitRequirementsResponse wraps decode and version errors with typed causes", func(t *testing.T) {
+		_, _, _, decodeErr := SplitRequirementsResponse([]byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`))
+		if cause, ok := RuntimeCause(decodeErr); !ok || cause != domain.DiagnosticCauseOutputDecodeFailed {
+			t.Fatalf("malformed split cause = (%q, %t), want provider_output_decode_failed", cause, ok)
+		}
+		_, _, present, versionErr := SplitRequirementsResponse([]byte(`{"schema_version":"mulgae-provider-review-output.v1","requirements":{}}`))
+		if !present {
+			t.Fatal("wrong version lost present flag")
+		}
+		if cause, ok := RuntimeCause(versionErr); !ok || cause != domain.DiagnosticCauseCandidateValidationFailed {
+			t.Fatalf("wrong version split cause = (%q, %t), want candidate_validation_failed", cause, ok)
+		}
+	})
+
+	t.Run("repair patch requireOnlyKeys remains strict ownership protection", func(t *testing.T) {
+		patchErr := requireOnlyKeys(map[string]any{"schema_version": "mulgae-repair-patch.v1", "repairs": []any{}, "extra_note": true}, "repair patch", "schema_version", "repairs")
+		wrapped := wrapRuntimeError(patchErr, domain.DiagnosticCauseCandidateRepairPlanInvalid)
+		if cause, ok := RuntimeCause(wrapped); !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
+			t.Fatalf("repair.go requireOnlyKeys cause = (%q, %t), want provider_ownership_violation", cause, ok)
+		}
+	})
 }

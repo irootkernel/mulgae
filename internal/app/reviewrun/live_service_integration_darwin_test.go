@@ -58,6 +58,7 @@ func mustSharedReviewRunTestAssets(t *testing.T) (*builtin.Catalog, *jsonschema.
 
 type integratedLiveSource struct {
 	ports.LiveSourceReader
+	mu       sync.Mutex
 	closed   bool
 	reads    int
 	closeErr error
@@ -67,12 +68,16 @@ func (source *integratedLiveSource) Close() error {
 	if source.closeErr != nil {
 		return source.closeErr
 	}
+	source.mu.Lock()
 	source.closed = true
+	source.mu.Unlock()
 	return source.LiveSourceReader.Close()
 }
 
 func (source *integratedLiveSource) Read(ctx context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+	source.mu.Lock()
 	source.reads++
+	source.mu.Unlock()
 	return source.LiveSourceReader.Read(ctx, side, path)
 }
 

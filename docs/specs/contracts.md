@@ -777,7 +777,14 @@ Publication causes distinguish candidate, evidence, schema, serialization,
 store-lock, path-preparation, persistence, installation, and commit failures.
 `diagnostic_persistence_failed` is reserved for failure to write or finalize
 the diagnostic record itself; it does not replace an earlier publication
-cause.
+cause. Coordinator and provider security rejections preserve their originating
+closed `RuntimeDiagnosticCause` across coordinator diagnostic events and attempt
+status (including `provider_ownership_violation`, `live_source_unsafe`,
+`provider_packet_security_rejected`, `diagnostic_security_rejected`,
+`workspace_revalidation_failed`, `provider_output_staging_violation`, and
+`provider_process_group_cleanup_failed`) while keeping public failure reason codes on
+`security_violation` and leaving attempt `terminal_cause` empty on
+`AttemptSucceeded`.
 
 Runtime event logs and diagnostic-only run status use the role-path vocabulary
 (`role_path_scheduled`, `role_path_started`,

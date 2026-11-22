@@ -485,3 +485,415 @@ func TestIntegrationRequirementsLiveServicePublishesOrdinaryAndEveryNoChange(t *
 		})
 	}
 }
+
+type requirementsTimeoutObservedProvider struct {
+	side        string
+	scenario    string
+	runDeadline time.Duration
+	callerCtx   context.Context
+}
+
+func (p *requirementsTimeoutObservedProvider) Observe(ctx context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
+	receipt, err := ports.NewStdinWriteReceipt(int64(invocation.InputIdentity().ByteLength()), int64(invocation.InputIdentity().ByteLength()), invocation.CompleteStdinSHA256(), true)
+	if err != nil {
+		return ports.ProviderExecutionObservation{}, err
+	}
+	start := time.Now().UTC()
+	if invocation.Role() == domain.RoleSecurity {
+		switch p.scenario {
+		case "partial-provider-timeout":
+			proc, err := ports.NewProcessObservation(nil, nil, nil, ports.ProcessTerminationTimedOut, receipt, start, start.Add(5*time.Millisecond))
+			if err != nil {
+				return ports.ProviderExecutionObservation{}, err
+			}
+			return ports.NewFailedProviderExecutionObservationWithCause(
+				ports.ProviderExecutionStatusTimedOut, invocation, proc, "provider_timeout", domain.DiagnosticCauseTimedOut, "",
+			)
+		case "deadline-during-extraction":
+			if invocation.Purpose() == ports.ProviderInvocationInitial {
+				raw := []byte("# Security prose report\n\nPrimary prose accepted before extraction deadline.\n")
+				code := 0
+				proc, err := ports.NewProcessObservation(raw, nil, &code, ports.ProcessTerminationExited, receipt, start, start.Add(time.Millisecond))
+				if err != nil {
+					return ports.ProviderExecutionObservation{}, err
+				}
+				result, err := ports.NewProviderResultForInput(raw, invocation.InputIdentity())
+				if err != nil {
+					return ports.ProviderExecutionObservation{}, err
+				}
+				return ports.NewSuccessfulProviderExecutionObservation(invocation, result, proc)
+			}
+			// Outlive the coordinator's real enclosing run deadline (not just
+			// the shorter per-invocation child providerCtx) so workCtx expires
+			// with context.DeadlineExceeded and triggers cancelAll(Timeout)
+			// plus post-deadline LiveService publication steps.
+			<-ctx.Done()
+			timer := time.NewTimer(p.runDeadline + 150*time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-p.callerCtx.Done():
+			}
+			proc, err := ports.NewProcessObservation(nil, nil, nil, ports.ProcessTerminationTimedOut, receipt, start, time.Now().UTC())
+			if err != nil {
+				return ports.ProviderExecutionObservation{}, err
+			}
+			return ports.NewFailedProviderExecutionObservationWithCause(
+				ports.ProviderExecutionStatusTimedOut, invocation, proc, "provider_timeout", domain.DiagnosticCauseTimedOut, "",
+			)
+		}
+	}
+
+	row := map[string]any{
+		"requirement_id": "A",
+		"verdict":        "met",
+		"rationale":      "Verified on source.go.",
+		"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": p.side, "line_start": 1, "line_end": 1, "quote": "observed\n"}}},
+		"examined_scope": "source.go",
+		"limitations":    []string{},
+		"reason":         "",
+	}
+	payload := map[string]any{
+		"schema_version": validation.RequirementsProviderOutputVersion,
+		"summary":        "Logic primary report.",
+		"completeness":   "complete",
+		"limitations":    []string{},
+		"findings":       []any{},
+		"requirements":   map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{row}},
+	}
+	if p.scenario == "oversized-findings-projection" && invocation.Role() == domain.RoleLogic {
+		payload["oversized_top_level_note"] = strings.Repeat("x", int(ports.PublicationStructuredMemberMaxBytes)+1024)
+	}
+	if p.scenario == "oversized-findings-projection" && invocation.Role() == domain.RoleSecurity {
+		secRow := map[string]any{
+			"requirement_id": "B",
+			"verdict":        "unverified",
+			"rationale":      "No security defect observed.",
+			"evidence":       []any{},
+			"examined_scope": "source.go",
+			"limitations":    []string{},
+			"reason":         "insufficient_evidence",
+		}
+		payload["requirements"] = map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{secRow}}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ports.ProviderExecutionObservation{}, err
+	}
+	code := 0
+	proc, err := ports.NewProcessObservation(raw, nil, &code, ports.ProcessTerminationExited, receipt, start, start.Add(time.Millisecond))
+	if err != nil {
+		return ports.ProviderExecutionObservation{}, err
+	}
+	result, err := ports.NewProviderResultForInput(raw, invocation.InputIdentity())
+	if err != nil {
+		return ports.ProviderExecutionObservation{}, err
+	}
+	return ports.NewSuccessfulProviderExecutionObservation(invocation, result, proc)
+}
+
+func TestIntegrationLiveServicePostDeadlineAndPartialTimeoutPublication(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		extraction      bool
+		wantRunState    domain.RunState
+		wantCoverage    domain.CoverageStatus
+		wantReportCount int
+		wantEvaluated   int
+		wantExitCode    domain.OperationalExitCode
+	}{
+		{
+			name:            "partial-provider-timeout",
+			extraction:      true,
+			wantRunState:    domain.RunFailed,
+			wantCoverage:    domain.CoverageIncomplete,
+			wantReportCount: 1,
+			wantEvaluated:   1,
+			wantExitCode:    domain.ExitIncompleteCoverage,
+		},
+		{
+			name:            "deadline-during-extraction",
+			extraction:      true,
+			wantRunState:    domain.RunCompleted,
+			wantCoverage:    domain.CoverageComplete,
+			wantReportCount: 2,
+			wantEvaluated:   1,
+			wantExitCode:    domain.ExitCommittedPass,
+		},
+		{
+			name:            "oversized-findings-projection",
+			extraction:      true,
+			wantRunState:    domain.RunCompleted,
+			wantCoverage:    domain.CoverageComplete,
+			wantReportCount: 2,
+			wantEvaluated:   2,
+			wantExitCode:    domain.ExitCommittedPass,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			directory, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			git := func(args ...string) {
+				command := exec.Command("git", append([]string{"-C", directory, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+				if raw, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("fixture Git: %v %s", err, raw)
+				}
+			}
+			git("init", "-q")
+			if err := os.WriteFile(filepath.Join(directory, "source.go"), []byte("baseline\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			git("add", "source.go")
+			git("commit", "-qm", "Baseline")
+			if err := os.WriteFile(filepath.Join(directory, "source.go"), []byte("observed\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			rawReq := []byte(`{"schema_version":"mulgae-requirements-input.v1","requirements":[{"id":"A","text":"LOGIC_ONLY_REQUIREMENT","acceptance_criteria":["criterion"],"owner_role":"logic"},{"id":"B","text":"SECURITY_ONLY_REQUIREMENT","acceptance_criteria":["criterion"],"owner_role":"security"}]}`)
+			if err := os.WriteFile(filepath.Join(directory, "requirements.json"), rawReq, 0600); err != nil {
+				t.Fatal(err)
+			}
+			root, _ := ports.NewAnchoredRoot(directory)
+			selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
+			opener, _ := gittarget.NewLiveSourceAdapter(gittarget.ExecRunner{}, nil)
+			reader, err := opener.OpenLiveSource(ctx, root, selector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := &requirementsLiveSource{integratedLiveSource: &integratedLiveSource{LiveSourceReader: reader}}
+			defer source.Close()
+
+			neutral, _ := ports.NewAnchoredRoot(t.TempDir())
+			credential, _ := ports.NewAnchoredRoot(t.TempDir())
+			artifacts, _ := ports.NewAnchoredRoot(t.TempDir())
+			catalog, schema := mustSharedReviewRunTestAssets(t)
+			ids := adapterruntime.NewUUIDv7Generator()
+			clock := adapterruntime.SystemClock{}
+			store, err := filesystem.NewPublicationStore(schema, clock, ids, filesystem.NewSecureWriter())
+			if err != nil {
+				t.Fatal(err)
+			}
+			publisherService, _ := publication.NewService(store, schema, clock, 8<<20)
+			roles := []domain.Role{domain.RoleLogic, domain.RoleSecurity}
+			plan := reviewRunPlan(t, roles)
+			switch tc.name {
+			case "deadline-during-extraction":
+				// Short invocation limits keep the real coordinator run deadline (~7.02s) fast and deterministic.
+				limits, err := review.NewInvocationLimits(10 * time.Millisecond)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i, budget := range plan.Budgets {
+					route, err := review.NewRouteBudget(budget.Primary().Route(), limits)
+					if err != nil {
+						t.Fatal(err)
+					}
+					plan.Budgets[i], err = review.NewRoleBudget(budget.Role(), route)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "oversized-findings-projection":
+				// Allow race-instrumented JSON validation of the >8 MiB response.
+				limits, err := review.NewInvocationLimits(time.Minute)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i, budget := range plan.Budgets {
+					route, err := review.NewRouteBudget(budget.Primary().Route(), limits)
+					if err != nil {
+						t.Fatal(err)
+					}
+					plan.Budgets[i], err = review.NewRoleBudget(budget.Role(), route)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			plan.Threshold = domain.SeverityHigh
+			plan.Ceilings = review.DefaultHarnessCeilings()
+			plan.MaxWorkers = len(roles)
+			plan.Extraction = tc.extraction
+			budgetReceipt, err := review.PreflightRunBudgetWithCapacity(plan.Budgets, plan.Ceilings, plan.MaxWorkers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			build := BuildIdentity{Product: "mulgae", Version: "1.0.0", Module: "github.com/irootkernel/mulgae", VCSRevision: strings.Repeat("a", 40)}
+			provider := &requirementsTimeoutObservedProvider{
+				side:        "worktree",
+				scenario:    tc.name,
+				runDeadline: budgetReceipt.RunDeadline(),
+				callerCtx:   ctx,
+			}
+			terminal := serviceQualifiedTerminal(t)
+			for i := range terminal.providers {
+				terminal.providers[i].identity.ExecutableSHA256 = "sha256:" + strings.Repeat("b", 64)
+				terminal.providers[i].identity.LauncherSHA256 = "sha256:" + strings.Repeat("c", 64)
+				terminal.providers[i].qualificationReceiptIDs = []string{"qualification:v1:" + strings.Repeat("d", 64)}
+				terminal.providers[i].packetTransportReceiptIDs = []string{"transport:v1:" + strings.Repeat("e", 64)}
+			}
+			authority := &integratedLiveAuthority{provider: provider, plan: plan, build: build, terminal: terminal}
+			factory := &integratedLiveFactory{authority: authority}
+			publisher := &integratedLivePublisher{t: t, source: source.integratedLiveSource, authority: authority, service: publisherService}
+			wire, _ := ports.ParseAssetID(validation.ProviderReviewSchemaID)
+			validator, _ := validation.NewReviewValidator(schema, wire)
+			common, _ := LoadLiveReviewCommon(ctx, catalog)
+			contract, err := LoadRequirementsPrompt(ctx, catalog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := []string{}
+			diagnostics := &serviceDiagnosticFactory{calls: &calls}
+			service, err := NewLiveService(LiveDependencies{
+				Coordination:       testLiveCoordination(t),
+				Sources:            requirementsLiveOpener{source},
+				ReviewerHome:       promptLiveHome{root: neutral},
+				CredentialRoots:    []ports.AnchoredRoot{credential},
+				Admission:          serviceLiveAdmission{plan},
+				Clock:              clock,
+				IDs:                ids,
+				Build:              build,
+				Authority:          factory,
+				Validator:          validator,
+				Publication:        publisher,
+				Templates:          mustServiceTemplates(t),
+				Common:             common,
+				RequirementsPrompt: contract,
+				Diagnostics:        diagnostics,
+				Detector:           filesystem.NewContentDetector(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			selection, _ := NewRunSelection(roles, nil)
+			request := LiveRequest{
+				ProjectRoot:      root,
+				ArtifactRoot:     artifacts,
+				Target:           selector,
+				Selection:        selection,
+				HasRequirements:  true,
+				RequirementsPath: "requirements.json",
+			}
+
+			result, err := service.Execute(ctx, request)
+			if err != nil {
+				t.Fatalf("LiveService.Execute (%s): %v", tc.name, err)
+			}
+			if !source.closed || !authority.drained || publisher.calls != 1 {
+				t.Fatalf("cleanup/publication invariant broken: closed=%t drained=%t publications=%d", source.closed, authority.drained, publisher.calls)
+			}
+			if result.Coordinator().RunState() != tc.wantRunState || result.TerminalExit().Code() != tc.wantExitCode {
+				t.Fatalf("result state=%q exit=%d, want %q/%d", result.Coordinator().RunState(), result.TerminalExit().Code(), tc.wantRunState, tc.wantExitCode)
+			}
+
+			queries, err := query.NewService(store, schema, nil, ports.PublicationStructuredMemberMaxBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runRef, err := ports.NewPublicationRun(artifacts, result.SessionID(), result.RunID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			committed, err := queries.ReadCommitted(ctx, runRef)
+			if err != nil {
+				t.Fatalf("ReadCommitted (%s): %v", tc.name, err)
+			}
+			if committed.CoverageStatus() != tc.wantCoverage || len(committed.RoleReports()) != tc.wantReportCount {
+				t.Fatalf("committed coverage=%q reports=%d, want %q/%d", committed.CoverageStatus(), len(committed.RoleReports()), tc.wantCoverage, tc.wantReportCount)
+			}
+			contexts, err := query.NewProjectContextService(gittarget.ProjectBindingObserver{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed, err := contexts.Read(ctx, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding, err := domain.ParseProjectBinding(observed.ProjectBinding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := queries.Inspect(ctx, runRef, binding, query.InspectionRequest{QueryKind: "inspect", RequirementsLimit: 10})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Requirements == nil || *page.Requirements.SelectedCount != 2 || *page.Requirements.EvaluatedCount != tc.wantEvaluated {
+				t.Fatalf("requirements counts = %+v, want selected=2 evaluated=%d", page.Requirements, tc.wantEvaluated)
+			}
+			for _, item := range page.Requirements.Items {
+				if item.RequirementID == "A" && (item.Verdict != domain.RequirementMet || item.Origin != domain.AssessmentProvider) {
+					t.Fatalf("requirement A = %+v, want provider met", item)
+				}
+				if tc.name == "oversized-findings-projection" {
+					if item.RequirementID == "B" && (item.Verdict != domain.RequirementUnverified || item.Origin != domain.AssessmentProvider) {
+						t.Fatalf("requirement B = %+v, want provider unverified", item)
+					}
+				} else if item.RequirementID == "B" && (item.Origin != domain.AssessmentDerived || item.Reason != domain.AssessmentAnswerOmitted) {
+					t.Fatalf("requirement B = %+v, want derived answer_omitted", item)
+				}
+			}
+			if tc.name == "deadline-during-extraction" {
+				// Confirm the real enclosing run deadline (not only the child
+				// providerCtx) fired during extraction, recording
+				// CoordinatorEventCancellationRequested(AttemptConditionTimeout)
+				// and completing security as AttemptSucceeded/ValidReview with
+				// extraction invocation InvocationTimedOut.
+				sawTimeoutCancel := false
+				sawSecurityValidTerminal := false
+				for _, ev := range result.Coordinator().Trace() {
+					cond, hasCond := ev.Condition()
+					if ev.Kind() == review.CoordinatorEventCancellationRequested && hasCond && cond == review.AttemptConditionTimeout {
+						sawTimeoutCancel = true
+					}
+					if role, hasRole := ev.Role(); ev.Kind() == review.CoordinatorEventRoleTerminal && hasRole && role == domain.RoleSecurity {
+						if hasCond && cond == review.AttemptConditionValidReview && ev.Reason() == string(review.AttemptConditionValidReview) {
+							sawSecurityValidTerminal = true
+						}
+					}
+				}
+				if !sawTimeoutCancel {
+					t.Fatalf("missing CoordinatorEventCancellationRequested(timeout) in trace; run deadline did not fire")
+				}
+				if !sawSecurityValidTerminal {
+					t.Fatalf("missing CoordinatorEventRoleTerminal(security, valid_review) in trace")
+				}
+				foundSec := false
+				for _, summary := range result.Coordinator().RoleSummaries() {
+					if summary.Role() != domain.RoleSecurity {
+						continue
+					}
+					foundSec = true
+					att := summary.Attempts()[0]
+					if summary.State() != domain.RoleTaskSucceeded || att.State() != domain.AttemptSucceeded || att.FailureClass() != "" || att.ReasonCode() != "" {
+						t.Fatalf("security summary/attempt unexpected: %+v", summary)
+					}
+					if len(att.Invocations()) != 2 || att.Invocations()[1].Purpose() != domain.InvocationExtract || att.Invocations()[1].State() != domain.InvocationTimedOut {
+						t.Fatalf("security extraction invocation = %+v, want extract/timed_out", att.Invocations())
+					}
+				}
+				if !foundSec {
+					t.Fatal("missing security role summary")
+				}
+				secReport, err := queries.ReadReport(ctx, runRef, binding, string(domain.RoleSecurity), query.ContentContinuation{}, nil)
+				if err != nil || !strings.Contains(secReport.Content, "Primary prose accepted before extraction deadline.") {
+					t.Fatalf("security report = %+v, err=%v", secReport, err)
+				}
+			}
+			if tc.name == "oversized-findings-projection" {
+				prefix := filepath.Join(artifacts.String(), result.SessionID().String(), result.RunID().String())
+				logicSummary := result.Coordinator().RoleSummaries()[0]
+				attemptRoot := filepath.Join(prefix, "attempts", logicSummary.Attempts()[0].ID().String())
+				if _, err := os.Stat(filepath.Join(attemptRoot, "candidate.initial.json")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("oversized findings candidate.initial.json should be omitted, stat err = %v", err)
+				}
+				stdoutBytes, err := os.ReadFile(filepath.Join(attemptRoot, "invocations", "001-initial", "stdout.raw"))
+				if err != nil || int64(len(stdoutBytes)) <= ports.PublicationStructuredMemberMaxBytes {
+					t.Fatalf("stdout.raw = %d bytes (err=%v), want > %d", len(stdoutBytes), err, ports.PublicationStructuredMemberMaxBytes)
+				}
+			}
+		})
+	}
+}

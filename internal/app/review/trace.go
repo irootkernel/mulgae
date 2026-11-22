@@ -49,17 +49,18 @@ func (kind CoordinatorEventKind) Valid() bool {
 // intentionally excludes observed timestamps because timing has no transition
 // authority.
 type CoordinatorTraceEvent struct {
-	ordinal      uint64
-	kind         CoordinatorEventKind
-	role         domain.Role
-	attemptID    domain.AttemptID
-	hasAttempt   bool
-	purpose      domain.InvocationPurpose
-	hasPurpose   bool
-	condition    AttemptCondition
-	hasCondition bool
-	reason       string
-	runState     domain.RunState
+	ordinal         uint64
+	kind            CoordinatorEventKind
+	role            domain.Role
+	attemptID       domain.AttemptID
+	hasAttempt      bool
+	purpose         domain.InvocationPurpose
+	hasPurpose      bool
+	condition       AttemptCondition
+	hasCondition    bool
+	diagnosticCause domain.RuntimeDiagnosticCause
+	reason          string
+	runState        domain.RunState
 }
 
 // Ordinal returns the canonical event order.
@@ -124,6 +125,9 @@ func (event CoordinatorTraceEvent) validate() error {
 		}
 	} else if event.condition != "" {
 		return fmt.Errorf("review coordinator trace: hidden condition")
+	}
+	if event.diagnosticCause != "" && (!event.hasCondition || !event.diagnosticCause.Valid()) {
+		return fmt.Errorf("review coordinator trace: invalid diagnostic cause")
 	}
 
 	var wantRole, wantAttempt, wantPurpose, wantCondition, wantReason, wantRunState bool

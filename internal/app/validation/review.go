@@ -104,7 +104,7 @@ func wrapRuntimeError(err error, fallback domain.RuntimeDiagnosticCause) error {
 	}
 	var ownership *ownershipViolation
 	if errors.As(err, &ownership) {
-		return &RuntimeError{cause: domain.DiagnosticCauseObservationMismatch, err: err}
+		return &RuntimeError{cause: domain.DiagnosticCauseProviderOwnershipViolation, err: err}
 	}
 	return &RuntimeError{cause: fallback, err: err}
 }

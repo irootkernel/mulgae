@@ -88,15 +88,25 @@ type liveSourceReader struct {
 	protectedRoots []ports.AnchoredRoot
 	closed         bool
 	// Reader-local retention, guarded by mu and cleared by Close: the fixed
-	// commit-side inventories already admitted for the selector, and the last
-	// successful execution-config parse digest per config file. Nothing is
-	// shared across readers or processes.
-	inventories   map[domain.LiveSourceSide]retainedInventory
-	configDigests map[string]executionConfigDigest
+	// commit-side inventories already admitted for the selector, the
+	// admission-time workspace and index path inventories used to distinguish
+	// real drift on admitted paths from untrusted provider citation faults, and
+	// the last successful execution-config parse digest per config file.
+	// Nothing is shared across readers or processes.
+	inventories                 map[domain.LiveSourceSide]retainedInventory
+	admittedWorkspace           map[string]struct{}
+	admittedWorkspaceFolded     map[string][]string
+	admittedWorkspaceDirs       map[string]struct{}
+	admittedWorkspaceDirsFolded map[string][]string
+	admittedIndex               map[string]struct{}
+	configDigests               map[string]executionConfigDigest
 	// readExecutionConfig reads one execution config file through the
 	// descriptor-verified metadata walk. The field only lets in-package tests
 	// observe the read; production always uses readCanonicalGitMetadata.
 	readExecutionConfig func(string) ([]byte, error)
+	// beforeReadReopen runs in-package test instrumentation right before the
+	// post-read stability reopen. Production leaves it nil.
+	beforeReadReopen func()
 }
 
 func (adapter *LiveSourceAdapter) OpenLiveSource(ctx context.Context, root ports.AnchoredRoot, selector ports.LiveSourceSelector) (ports.LiveSourceReader, error) {
@@ -362,8 +372,29 @@ func (reader *liveSourceReader) admit(ctx context.Context, selector ports.LiveSo
 		if listErr != nil {
 			return listErr
 		}
+		reader.admittedWorkspace = make(map[string]struct{}, len(paths))
+		reader.admittedWorkspaceFolded = make(map[string][]string, len(paths))
+		reader.admittedWorkspaceDirs = make(map[string]struct{})
+		reader.admittedWorkspaceDirsFolded = make(map[string][]string)
 		for _, path := range paths {
 			changes = append(changes, ports.LiveSourceChange{Kind: "included", After: path})
+			p := path.String()
+			reader.admittedWorkspace[p] = struct{}{}
+			foldedFile := liveFoldPath(p)
+			reader.admittedWorkspaceFolded[foldedFile] = appendUniqueString(reader.admittedWorkspaceFolded[foldedFile], p)
+			for dir := p; ; {
+				slash := strings.LastIndexByte(dir, '/')
+				if slash <= 0 {
+					break
+				}
+				dir = dir[:slash]
+				if _, seen := reader.admittedWorkspaceDirs[dir]; seen {
+					break
+				}
+				reader.admittedWorkspaceDirs[dir] = struct{}{}
+				foldedDir := liveFoldPath(dir)
+				reader.admittedWorkspaceDirsFolded[foldedDir] = appendUniqueString(reader.admittedWorkspaceDirsFolded[foldedDir], dir)
+			}
 		}
 	case domain.LiveSourceStage:
 		if _, err := reader.index(ctx, nil); err != nil {
@@ -447,6 +478,12 @@ func (reader *liveSourceReader) admit(ctx context.Context, selector ports.LiveSo
 		after, err := reader.list(ctx, afterSide)
 		if err != nil {
 			return err
+		}
+		if selector.Scope() == domain.LiveSourceStage {
+			reader.admittedIndex = make(map[string]struct{}, len(after))
+			for _, path := range after {
+				reader.admittedIndex[path.String()] = struct{}{}
+			}
 		}
 		if selector.Scope() == domain.LiveSourceHead {
 			for _, path := range after {
@@ -714,19 +751,81 @@ func liveObjectEntries(data []byte, index bool, excluded func(string) bool) (map
 func (reader *liveSourceReader) Read(ctx context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
 	reader.mu.Lock()
 	defer reader.mu.Unlock()
-	if !path.Valid() || reader.excluded(path.String()) {
-		return ports.LiveSourceFile{}, sourceError(ports.LiveSourceUnsafe, fmt.Errorf("invalid source path"))
+	if ctx == nil {
+		return ports.LiveSourceFile{}, sourceError(ports.LiveSourceInvalid, fmt.Errorf("nil source context"))
+	}
+	if err := ctx.Err(); err != nil {
+		return ports.LiveSourceFile{}, err
+	}
+	if reader.closed {
+		return ports.LiveSourceFile{}, sourceError(ports.LiveSourceUnavailable, fmt.Errorf("source reader is closed"))
 	}
 	if err := reader.revalidate(ctx); err != nil {
 		return ports.LiveSourceFile{}, err
+	}
+	if !path.Valid() || reader.excluded(path.String()) {
+		return ports.LiveSourceFile{}, citationSourceError(ports.LiveSourceUnsafe, fmt.Errorf("invalid source path"))
 	}
 	var data []byte
 	var err error
 	if side == domain.LiveSourceWorktree && reader.target.Selector().Scope() == domain.LiveSourceWorkspace {
 		// Ignore rules select candidates; they do not forbid relevant support.
 		data, err = reader.readRegular(path)
-		if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) || errors.Is(err, errLiveDirectory) || errors.Is(err, errLiveNotRegular) {
-			return ports.LiveSourceFile{}, sourceError(ports.LiveSourceUnsafe, err)
+		pathStr := path.String()
+		foldedPath := liveFoldPath(pathStr)
+		ancestors := workspaceProperAncestors(pathStr)
+		if err == nil {
+			if _, exactDir := reader.admittedWorkspaceDirs[pathStr]; exactDir {
+				return ports.LiveSourceFile{}, sourceError(ports.LiveSourceUnsafe, fmt.Errorf("admitted directory replaced by regular file"))
+			}
+			if driftErr := reader.verifyAdmittedDirectories(reader.admittedWorkspaceDirsFolded[foldedPath]); driftErr != nil {
+				return ports.LiveSourceFile{}, driftErr
+			}
+			for _, anc := range ancestors {
+				if _, exactFile := reader.admittedWorkspace[anc]; exactFile {
+					return ports.LiveSourceFile{}, sourceError(ports.LiveSourceUnsafe, fmt.Errorf("admitted regular file replaced by directory"))
+				}
+				if driftErr := reader.verifyAdmittedRegularFiles(reader.admittedWorkspaceFolded[liveFoldPath(anc)]); driftErr != nil {
+					return ports.LiveSourceFile{}, driftErr
+				}
+			}
+		} else {
+			var initialErr initialOpenError
+			_, admittedExact := reader.admittedWorkspace[pathStr]
+			isInitial := errors.As(err, &initialErr)
+			unsafeKind := errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) || errors.Is(err, errLiveDirectory) || errors.Is(err, errLiveNotRegular)
+			if isInitial && !admittedExact {
+				var driftErr error
+				driftErr = combineWorkspaceDriftError(driftErr, reader.verifyAdmittedRegularFiles(reader.admittedWorkspaceFolded[foldedPath]))
+				if _, exactDir := reader.admittedWorkspaceDirs[pathStr]; exactDir && !errors.Is(err, errLiveDirectory) {
+					if unsafeKind {
+						driftErr = combineWorkspaceDriftError(driftErr, sourceError(ports.LiveSourceUnsafe, err))
+					} else {
+						driftErr = combineWorkspaceDriftError(driftErr, sourceError(ports.LiveSourceUnavailable, err))
+					}
+				}
+				driftErr = combineWorkspaceDriftError(driftErr, reader.verifyAdmittedDirectories(reader.admittedWorkspaceDirsFolded[foldedPath]))
+				for _, anc := range ancestors {
+					foldedAnc := liveFoldPath(anc)
+					driftErr = combineWorkspaceDriftError(driftErr, reader.verifyAdmittedDirectories(reader.admittedWorkspaceDirsFolded[foldedAnc]))
+					driftErr = combineWorkspaceDriftError(driftErr, reader.verifyAdmittedRegularFiles(reader.admittedWorkspaceFolded[foldedAnc]))
+				}
+				if driftErr != nil {
+					return ports.LiveSourceFile{}, driftErr
+				}
+				if revalErr := reader.revalidate(ctx); revalErr != nil {
+					return ports.LiveSourceFile{}, revalErr
+				}
+				if unsafeKind {
+					return ports.LiveSourceFile{}, citationSourceError(ports.LiveSourceUnsafe, err)
+				}
+				if errors.Is(err, unix.ENOENT) {
+					return ports.LiveSourceFile{}, citationSourceError(ports.LiveSourceUnavailable, err)
+				}
+			}
+			if unsafeKind {
+				return ports.LiveSourceFile{}, sourceError(ports.LiveSourceUnsafe, err)
+			}
 		}
 	} else {
 		entries, entriesErr := reader.entries(ctx, side, &path)
@@ -735,7 +834,12 @@ func (reader *liveSourceReader) Read(ctx context.Context, side domain.LiveSource
 		}
 		oid, found := entries[path.String()]
 		if !found {
-			return ports.LiveSourceFile{}, sourceError(ports.LiveSourceUnavailable, fmt.Errorf("path is absent from source side"))
+			if side == domain.LiveSourceIndex {
+				if _, admitted := reader.admittedIndex[path.String()]; admitted {
+					return ports.LiveSourceFile{}, sourceError(ports.LiveSourceUnavailable, fmt.Errorf("path is absent from source side"))
+				}
+			}
+			return ports.LiveSourceFile{}, citationSourceError(ports.LiveSourceUnavailable, fmt.Errorf("path is absent from source side"))
 		}
 		result, readErr := reader.run(ctx, "cat-file", "blob", oid.String())
 		data, err = result.Stdout, readErr
@@ -821,13 +925,31 @@ func (reader *liveSourceReader) AdmitPath(ctx context.Context, side domain.LiveS
 	return reader.revalidate(ctx)
 }
 
+type rootOpenError struct{ err error }
+
+func (failure rootOpenError) Error() string { return failure.err.Error() }
+func (failure rootOpenError) Unwrap() error { return failure.err }
+
 func (reader *liveSourceReader) openRegular(path ports.SafeRelativePath) (int, error) {
-	fd, err := reader.openPath(path.String(), false)
+	fd, err := reader.openRegularObserved(path)
+	var rootErr rootOpenError
+	if errors.As(err, &rootErr) {
+		return -1, rootErr.err
+	}
+	return fd, err
+}
+
+func (reader *liveSourceReader) openRegularObserved(path ports.SafeRelativePath) (int, error) {
+	fd, err := reader.openPathObserved(path.String(), false)
 	if err != nil {
 		return -1, err
 	}
 	var stat unix.Stat_t
-	if err := unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG {
+	if err := unix.Fstat(fd, &stat); err != nil {
+		_ = unix.Close(fd)
+		return -1, err
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
 		_ = unix.Close(fd)
 		if stat.Mode&unix.S_IFMT == unix.S_IFDIR {
 			return -1, errLiveDirectory
@@ -838,9 +960,21 @@ func (reader *liveSourceReader) openRegular(path ports.SafeRelativePath) (int, e
 }
 
 func (reader *liveSourceReader) openPath(relative string, directory bool) (int, error) {
+	fd, err := reader.openPathObserved(relative, directory)
+	var rootErr rootOpenError
+	if errors.As(err, &rootErr) {
+		return -1, rootErr.err
+	}
+	return fd, err
+}
+
+func (reader *liveSourceReader) openPathObserved(relative string, directory bool) (int, error) {
 	fd, err := unix.Openat(int(reader.rootDir.file.Fd()), ".", unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
-	if err != nil || relative == "" {
-		return fd, err
+	if err != nil {
+		return -1, rootOpenError{err: err}
+	}
+	if relative == "" {
+		return fd, nil
 	}
 	parts := strings.Split(relative, "/")
 	for i, part := range parts {
@@ -858,8 +992,15 @@ func (reader *liveSourceReader) openPath(relative string, directory bool) (int, 
 	return fd, nil
 }
 
+type initialOpenError struct {
+	err error
+}
+
+func (failure initialOpenError) Error() string { return failure.err.Error() }
+func (failure initialOpenError) Unwrap() error { return failure.err }
+
 func (reader *liveSourceReader) readRegular(path ports.SafeRelativePath) ([]byte, error) {
-	return reader.readRegularWithLimit(path, 0)
+	return reader.readRegularObserved(path, 0)
 }
 
 // sameNamespaceFile reports whether two stat observations name the same file
@@ -870,9 +1011,22 @@ func sameNamespaceFile(left, right unix.Stat_t) bool {
 }
 
 func (reader *liveSourceReader) readRegularWithLimit(path ports.SafeRelativePath, limit int64) ([]byte, error) {
-	fd, err := reader.openRegular(path)
+	data, err := reader.readRegularObserved(path, limit)
+	var initial initialOpenError
+	if errors.As(err, &initial) {
+		return nil, initial.err
+	}
+	return data, err
+}
+
+func (reader *liveSourceReader) readRegularObserved(path ports.SafeRelativePath, limit int64) ([]byte, error) {
+	fd, err := reader.openRegularObserved(path)
 	if err != nil {
-		return nil, err
+		var rootErr rootOpenError
+		if errors.As(err, &rootErr) {
+			return nil, rootErr.err
+		}
+		return nil, initialOpenError{err: err}
 	}
 	file := os.NewFile(uintptr(fd), path.String())
 	defer file.Close()
@@ -894,6 +1048,9 @@ func (reader *liveSourceReader) readRegularWithLimit(path ports.SafeRelativePath
 	if err := unix.Fstat(fd, &after); err != nil || !sameStableFile(before, after) {
 		return nil, fmt.Errorf("source file changed during read")
 	}
+	if reader.beforeReadReopen != nil {
+		reader.beforeReadReopen()
+	}
 	reopened, err := reader.openRegular(path)
 	if err != nil {
 		return nil, err
@@ -914,6 +1071,11 @@ func (reader *liveSourceReader) Close() error {
 	}
 	reader.closed = true
 	reader.inventories = nil
+	reader.admittedWorkspace = nil
+	reader.admittedWorkspaceFolded = nil
+	reader.admittedWorkspaceDirs = nil
+	reader.admittedWorkspaceDirsFolded = nil
+	reader.admittedIndex = nil
 	reader.configDigests = nil
 	var err error
 	if reader.lease != nil {
@@ -922,12 +1084,98 @@ func (reader *liveSourceReader) Close() error {
 	return errors.Join(err, reader.source.close())
 }
 
+func liveFoldPath(path string) string {
+	return cases.Fold().String(norm.NFC.String(path))
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func workspaceProperAncestors(pathStr string) []string {
+	var ancestors []string
+	for idx := 0; idx < len(pathStr); idx++ {
+		if pathStr[idx] == '/' {
+			ancestors = append(ancestors, pathStr[:idx])
+		}
+	}
+	return ancestors
+}
+
+func combineWorkspaceDriftError(current, next error) error {
+	if next == nil {
+		return current
+	}
+	if current == nil {
+		return next
+	}
+	var curTyped, nextTyped *ports.LiveSourceError
+	if errors.As(next, &nextTyped) && nextTyped.Code() == ports.LiveSourceUnsafe {
+		if !errors.As(current, &curTyped) || curTyped.Code() != ports.LiveSourceUnsafe {
+			return next
+		}
+	}
+	return current
+}
+
+func (reader *liveSourceReader) verifyAdmittedRegularFiles(paths []string) error {
+	var worst error
+	for _, orig := range paths {
+		origPath, err := ports.NewSafeRelativePath(orig)
+		if err != nil {
+			worst = combineWorkspaceDriftError(worst, sourceError(ports.LiveSourceUnsafe, err))
+			continue
+		}
+		fd, err := reader.openRegular(origPath)
+		if err == nil {
+			_ = unix.Close(fd)
+			continue
+		}
+		if errors.Is(err, unix.ENOENT) {
+			worst = combineWorkspaceDriftError(worst, sourceError(ports.LiveSourceUnavailable, err))
+		} else {
+			worst = combineWorkspaceDriftError(worst, sourceError(ports.LiveSourceUnsafe, err))
+		}
+	}
+	return worst
+}
+
+func (reader *liveSourceReader) verifyAdmittedDirectories(paths []string) error {
+	var worst error
+	for _, orig := range paths {
+		fd, err := reader.openPath(orig, true)
+		if err == nil {
+			_ = unix.Close(fd)
+			continue
+		}
+		if errors.Is(err, unix.ENOENT) {
+			worst = combineWorkspaceDriftError(worst, sourceError(ports.LiveSourceUnavailable, err))
+		} else {
+			worst = combineWorkspaceDriftError(worst, sourceError(ports.LiveSourceUnsafe, err))
+		}
+	}
+	return worst
+}
+
 func sourceError(code ports.LiveSourceErrorCode, cause error) error {
 	var typed *ports.LiveSourceError
 	if errors.As(cause, &typed) || errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
 		return cause
 	}
 	return ports.NewLiveSourceError(code, cause)
+}
+
+func citationSourceError(code ports.LiveSourceErrorCode, cause error) error {
+	var typed *ports.LiveSourceError
+	if errors.As(cause, &typed) || errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		return cause
+	}
+	return ports.NewLiveSourceCitationError(code, cause)
 }
 
 func liveExcluded(path string) bool {

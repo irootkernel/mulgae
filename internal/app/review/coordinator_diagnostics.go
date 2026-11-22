@@ -50,7 +50,7 @@ func (execution *coordinatorExecution) persistInitiatingFailure(job InvocationJo
 		Level: domain.RuntimeDiagnosticError, Component: "coordinator", Operation: "stop",
 		Event: domain.DiagnosticAttemptFailed, SessionID: execution.run.SessionID(), RunID: execution.run.ID(),
 		AttemptID: job.AttemptID(), Role: job.Role(), Provider: job.Route().ProviderInstance(),
-		Cause: diagnosticCauseForCondition(condition), Failure: string(condition), State: string(domain.AttemptRunning), Outcome: string(condition),
+		Cause: diagnosticCauseForConditionWithOrigin(condition, outcome.diagnosticCause), Failure: string(condition), State: string(domain.AttemptRunning), Outcome: string(condition),
 	})
 	if err != nil {
 		return coordinatorDiagnosticFailure(err)
@@ -71,7 +71,7 @@ func (execution *coordinatorExecution) coordinatorDiagnosticInputs(trace Coordin
 		base.Provider = execution.diagnosticAttemptProvider(trace.attemptID)
 	}
 	if trace.hasCondition {
-		base.Cause = diagnosticCauseForCondition(trace.condition)
+		base.Cause = diagnosticCauseForConditionWithOrigin(trace.condition, trace.diagnosticCause)
 		base.Failure = string(trace.condition)
 	}
 	add := func(level domain.RuntimeDiagnosticLevel, code domain.RuntimeDiagnosticEventCode, state, outcome string) domain.RuntimeDiagnosticEventInput {
@@ -187,17 +187,55 @@ func (execution *coordinatorExecution) replaceDiagnosticAttemptStatus(trace Coor
 		completed = now
 	}
 	selection := ports.RuntimeDiagnosticPrimary
+	terminalCause := domain.RuntimeDiagnosticCause("")
+	if state != domain.AttemptSucceeded {
+		terminalCause = execution.diagnosticAttemptTerminalCause(trace)
+	}
 	status, err := ports.NewRuntimeDiagnosticAttemptStatus(ports.RuntimeDiagnosticAttemptStatusInput{
 		SessionID: execution.run.SessionID(), RunID: execution.run.ID(), AttemptID: trace.attemptID,
 		Role: trace.role, Provider: execution.diagnosticAttemptProvider(trace.attemptID), Selection: selection,
 		State: state, StartedAt: started, UpdatedAt: now, CompletedAt: completed, HasCompletedAt: hasCompleted,
 		InvocationCount: execution.diagnosticAttemptInvocationCount(trace.attemptID), LastSequence: lastSequence,
-		TerminalCause: diagnosticCauseForCondition(trace.condition),
+		TerminalCause: terminalCause,
 	})
 	if err != nil {
 		return err
 	}
 	return execution.coordinator.diagnostics.ReplaceAttemptStatus(context.WithoutCancel(execution.runContext), status)
+}
+
+func (execution *coordinatorExecution) diagnosticAttemptTerminalCause(trace CoordinatorTraceEvent) domain.RuntimeDiagnosticCause {
+	if trace.hasCondition {
+		if trace.diagnosticCause.Valid() {
+			return trace.diagnosticCause
+		}
+		if stored := execution.diagnosticAttemptCause(trace.attemptID); stored.Valid() {
+			return stored
+		}
+		return diagnosticCauseForCondition(trace.condition)
+	}
+	return execution.diagnosticAttemptCause(trace.attemptID)
+}
+
+func (execution *coordinatorExecution) diagnosticAttemptCause(id domain.AttemptID) domain.RuntimeDiagnosticCause {
+	for _, role := range execution.roles {
+		for index := range role.attempts {
+			if role.attempts[index].attempt.ID() == id {
+				return role.attempts[index].diagnosticCause
+			}
+		}
+	}
+	return ""
+}
+
+func diagnosticCauseForConditionWithOrigin(condition AttemptCondition, origin domain.RuntimeDiagnosticCause) domain.RuntimeDiagnosticCause {
+	if condition == AttemptConditionValidReview || !condition.Valid() {
+		return ""
+	}
+	if origin.Valid() {
+		return origin
+	}
+	return diagnosticCauseForCondition(condition)
 }
 
 func (execution *coordinatorExecution) diagnosticAttemptInvocationCount(id domain.AttemptID) int {

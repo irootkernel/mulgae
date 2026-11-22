@@ -517,3 +517,332 @@ func TestIntegrationLiveNoChangePublishesP2WithoutProviderOrCaptureWork(t *testi
 		t.Fatalf("repeat live no-change: %v", err)
 	}
 }
+
+type liveTimeoutPublicationRuntime struct {
+	source   ports.LiveSourceReader
+	schema   *jsonschema.Validator
+	scenario string
+	t        *testing.T
+}
+
+func (runtime *liveTimeoutPublicationRuntime) Invoke(ctx context.Context, job review.InvocationJob) review.AttemptOutcome {
+	fail := func(format string, args ...any) review.AttemptOutcome {
+		runtime.t.Errorf(format, args...)
+		cond := review.AttemptConditionInternalInvariant
+		outcome, _ := review.NewAttemptOutcome(job, nil, &cond)
+		return outcome
+	}
+	if (runtime.scenario == "required-role-provider-timeout" && job.Role() == domain.RoleLogic) ||
+		(runtime.scenario == "non-required-role-provider-timeout" && job.Role() == domain.RoleSecurity) {
+		outcome, err := review.NewProviderTimeoutAttemptOutcome(job, 10*time.Millisecond)
+		if err != nil {
+			return fail("provider timeout outcome: %v", err)
+		}
+		return outcome
+	}
+	if runtime.scenario == "run-deadline-during-extraction" && job.Role() == domain.RoleSecurity {
+		if job.Purpose() == domain.InvocationInitial {
+			output, err := review.NewReportsOnlyValidatedRoleOutput(
+				job.Role(), job.Route().ProviderInstance(), job.Target(),
+				[]byte("# Security prose report\n\nAccepted before extraction deadline.\n"),
+			)
+			if err != nil {
+				return fail("reports-only output: %v", err)
+			}
+			outcome, err := review.NewAttemptOutcome(job, &output, nil)
+			if err != nil {
+				return fail("reports-only outcome: %v", err)
+			}
+			return outcome
+		}
+		// Block until the real coordinator run deadline expires.
+		<-ctx.Done()
+		cond := review.AttemptConditionTimeout
+		outcome, err := review.NewAttemptOutcome(job, nil, &cond)
+		if err != nil {
+			return fail("timeout outcome: %v", err)
+		}
+		return outcome
+	}
+
+	findings := "[]"
+	if job.Role() == domain.RoleLogic {
+		findings = `[{"severity":"high","title":"Observed defect","description":"The original source contains the cited statement.","evidence":[{"current":{"path":"source.go","side":"worktree","line_start":1,"line_end":1,"quote":"observed\n"}}],"recommendation":"Correct the statement.","confidence":"high"}]`
+	}
+	identity, err := evidence.NewLiveSourceIdentity(runtime.source.Target())
+	if err != nil {
+		return fail("live identity: %v", err)
+	}
+	schemaID, _ := ports.ParseAssetID(validation.ProviderReviewSchemaID)
+	validator, _ := validation.NewReviewValidator(runtime.schema, schemaID)
+	raw := []byte(fmt.Sprintf(`{"schema_version":"mulgae-provider-review-output.v1","summary":"A live observation.","completeness":"complete","limitations":[],"findings":%s}`, findings))
+	validated, plan, err := validator.Validate(ctx, raw, validation.ReviewValidationScope{LiveSource: identity, Role: job.Role(), ProviderInstance: job.Route().ProviderInstance()})
+	if err != nil || plan != nil {
+		return fail("validate live timeout fixture: %v", err)
+	}
+	verifier, err := evidence.NewLiveVerifier(runtime.source)
+	if err != nil {
+		return fail("live verifier: %v", err)
+	}
+	groups, err := review.VerifyValidatedEvidence(ctx, verifier, validated.EvidenceClaims())
+	if err != nil {
+		return fail("verify evidence: %v", err)
+	}
+	output, err := review.NewEvidenceValidatedRoleOutput(job.Role(), job.Route().ProviderInstance(), job.Target(), validated.Findings(), validated.Completeness(), validated.Limitations(), groups)
+	if err != nil {
+		return fail("role output: %v", err)
+	}
+	outcome, err := review.NewAttemptOutcome(job, &output, nil)
+	if err != nil {
+		return fail("attempt outcome: %v", err)
+	}
+	return outcome
+}
+
+func TestIntegrationLivePublicationTimeoutScenarios(t *testing.T) {
+	schema := mustSharedPublicationTestValidator(t)
+	rawReq := []byte(`{"schema_version":"mulgae-requirements-input.v1","requirements":[{"id":"R1","text":"Logic obligation","acceptance_criteria":["checked"],"owner_role":"logic"},{"id":"R2","text":"Security obligation","acceptance_criteria":["checked"],"owner_role":"security"}]}`)
+	roles := []domain.Role{domain.RoleLogic, domain.RoleSecurity}
+	reqInput, err := validation.DecodeRequirementsInput(rawReq, roles)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name               string
+		wantRunState       domain.RunState
+		wantCoverage       domain.CoverageStatus
+		wantTimedOutRole   domain.Role
+		wantRetainedReport domain.Role
+		wantReportCount    int
+		wantOmittedReqID   string
+		wantEvaluatedCount int
+	}{
+		{
+			name:               "required-role-provider-timeout",
+			wantRunState:       domain.RunFailed,
+			wantCoverage:       domain.CoverageIncomplete,
+			wantTimedOutRole:   domain.RoleLogic,
+			wantRetainedReport: domain.RoleSecurity,
+			wantReportCount:    1,
+			wantOmittedReqID:   "R1",
+			wantEvaluatedCount: 1,
+		},
+		{
+			name:               "non-required-role-provider-timeout",
+			wantRunState:       domain.RunFailed,
+			wantCoverage:       domain.CoverageIncomplete,
+			wantTimedOutRole:   domain.RoleSecurity,
+			wantRetainedReport: domain.RoleLogic,
+			wantReportCount:    1,
+			wantOmittedReqID:   "R2",
+			wantEvaluatedCount: 1,
+		},
+		{
+			name:               "run-deadline-during-extraction",
+			wantRunState:       domain.RunCompleted,
+			wantCoverage:       domain.CoverageComplete,
+			wantRetainedReport: domain.RoleSecurity,
+			wantReportCount:    2,
+			wantEvaluatedCount: 1,
+			wantOmittedReqID:   "R2",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			sourcePath := t.TempDir()
+			if err := os.WriteFile(filepath.Join(sourcePath, "source.go"), []byte("observed\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			sourceRoot, _ := ports.NewAnchoredRoot(sourcePath)
+			opener, err := gittarget.NewLiveSourceAdapter(gittarget.ExecRunner{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
+			source, err := opener.OpenLiveSource(ctx, sourceRoot, selector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer source.Close()
+
+			identity, err := evidence.NewLiveSourceIdentity(source.Target())
+			if err != nil {
+				t.Fatal(err)
+			}
+			target, err := identity.RunTarget()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var assignments []review.Assignment
+			var budgets []review.RoleBudget
+			limits, err := review.NewInvocationLimits(10 * time.Millisecond)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, role := range roles {
+				route, _ := ports.NewProviderRoute([]string{"zcode-logic", "grok-security"}[i])
+				required := role == domain.RoleLogic
+				assignment, err := review.NewScheduledAssignment(role, required, route)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assignments = append(assignments, assignment)
+				routeBudget, _ := review.NewRouteBudget(route, limits)
+				budget, _ := review.NewRoleBudget(role, routeBudget)
+				budgets = append(budgets, budget)
+			}
+			receipt, err := review.PreflightRunBudgetWithCapacity(budgets, review.DefaultHarnessCeilings(), len(roles))
+			if err != nil {
+				t.Fatal(err)
+			}
+			rt := &liveTimeoutPublicationRuntime{source: source, schema: schema, scenario: tc.name, t: t}
+			coordinator, err := review.NewCoordinator(publicationServiceClock{now: publicationTestTime()}, &failedRecoveryIDs{}, rt, len(roles), receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "run-deadline-during-extraction" {
+				if err := coordinator.AdmitStructuredExtraction(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, err := coordinator.Execute(ctx, target, assignments, domain.SeverityHigh, nil)
+			if err != nil {
+				t.Fatalf("coordinator execute (%s): %v", tc.name, err)
+			}
+			if result.RunState() != tc.wantRunState {
+				t.Fatalf("run state = %q, want %q", result.RunState(), tc.wantRunState)
+			}
+
+			// Decode one verified answer for the succeeding structured role; omit the timed-out or prose-only role.
+			verifier, err := evidence.NewLiveVerifier(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var answers []validation.ValidatedRequirementAnswer
+			switch tc.name {
+			case "required-role-provider-timeout":
+				secSection := []byte(`{"schema_version":"mulgae-provider-requirements.v1","assessments":[{"requirement_id":"R2","verdict":"met","rationale":"Verified on source.go.","evidence":[{"current":{"path":"source.go","side":"worktree","line_start":1,"line_end":1,"quote":"observed\n"}}],"examined_scope":"source.go","limitations":[],"reason":""}]}`)
+				answers, err = validation.DecodeProviderRequirements(ctx, secSection, reqInput.Requirements(), domain.RoleSecurity, identity, verifier, nil, "requirements.json", reqInput.SHA256())
+				if err != nil {
+					t.Fatal(err)
+				}
+			default:
+				logicSection := []byte(`{"schema_version":"mulgae-provider-requirements.v1","assessments":[{"requirement_id":"R1","verdict":"met","rationale":"Verified on source.go.","evidence":[{"current":{"path":"source.go","side":"worktree","line_start":1,"line_end":1,"quote":"observed\n"}}],"examined_scope":"source.go","limitations":[],"reason":""}]}`)
+				answers, err = validation.DecodeProviderRequirements(ctx, logicSection, reqInput.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", reqInput.SHA256())
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			reqResults, err := validation.NormalizeRequirements(reqInput, answers, nil, identity.SHA256(), false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := source.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			candidate, err := PrepareLiveCandidate(LiveCandidateInput{
+				Result:            result,
+				Target:            source.Target(),
+				SeverityThreshold: domain.SeverityHigh,
+				Provenance: LiveProductionProvenance{
+					BuildProduct:          "mulgae",
+					BuildVersion:          "0.1.0",
+					BuildCommit:           "0123456789abcdef",
+					SourceIdentitySHA256:  identity.SHA256(),
+					SourceTerminalReceipt: "source-terminal:v1:" + sha256Identifier([]byte("closed source")),
+					Providers:             retainedProviderProvenance(),
+				},
+			})
+			if err != nil {
+				t.Fatalf("PrepareLiveCandidate (%s): %v", tc.name, err)
+			}
+			candidate, err = WithRequirements(candidate, reqResults)
+			if err != nil {
+				t.Fatalf("WithRequirements (%s): %v", tc.name, err)
+			}
+
+			artifactRoot, _ := ports.NewAnchoredRoot(t.TempDir())
+			clock := publicationServiceClock{now: publicationTestTime()}
+			store, err := filesystem.NewPublicationStore(schema, clock, compositeTestIDs{publicationTestReviewID(t)}, filesystem.NewSecureWriter())
+			if err != nil {
+				t.Fatal(err)
+			}
+			service, err := NewService(store, schema, clock, 8<<20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			published, err := service.PublishLiveNext(ctx, artifactRoot, candidate)
+			if err != nil {
+				t.Fatalf("PublishLiveNext (%s): %v", tc.name, err)
+			}
+			if published.Decision().Authority() != domain.PublicationAuthorityP2 {
+				t.Fatalf("authority = %q, want P2", published.Decision().Authority())
+			}
+
+			runRef, _ := ports.NewPublicationRun(artifactRoot, candidate.SessionID(), candidate.RunID())
+			queries, _ := appquery.NewService(store, schema, nil, 8<<20)
+			committed, err := queries.ReadCommitted(ctx, runRef)
+			if err != nil {
+				t.Fatalf("ReadCommitted (%s): %v", tc.name, err)
+			}
+			if committed.CoverageStatus() != tc.wantCoverage {
+				t.Fatalf("coverage = %q, want %q", committed.CoverageStatus(), tc.wantCoverage)
+			}
+			if len(committed.RoleReports()) != tc.wantReportCount {
+				t.Fatalf("role reports = %d, want %d", len(committed.RoleReports()), tc.wantReportCount)
+			}
+			binding, _ := domain.ParseProjectBinding("sha256:" + strings.Repeat("d", 64))
+			reportChunk, err := queries.ReadReport(ctx, runRef, binding, string(tc.wantRetainedReport), appquery.ContentContinuation{}, nil)
+			if err != nil || len(reportChunk.Content) == 0 {
+				t.Fatalf("ReadReport(%s): %+v %v", tc.wantRetainedReport, reportChunk, err)
+			}
+			if tc.name == "run-deadline-during-extraction" && !strings.Contains(reportChunk.Content, "Accepted before extraction deadline.") {
+				t.Fatalf("security report lost accepted prose body: %q", reportChunk.Content)
+			}
+			if tc.wantTimedOutRole != "" {
+				foundTimedOut := false
+				for _, att := range committed.Attempts() {
+					if att.Role() == tc.wantTimedOutRole {
+						foundTimedOut = true
+						if att.State() != domain.AttemptTimedOut {
+							t.Fatalf("timed-out role %q committed attempt state = %q, want timed_out", tc.wantTimedOutRole, att.State())
+						}
+					}
+				}
+				if !foundTimedOut {
+					t.Fatalf("missing timed-out attempt for role %q", tc.wantTimedOutRole)
+				}
+				for _, summary := range result.RoleSummaries() {
+					if summary.Role() == tc.wantTimedOutRole {
+						if summary.FailureClass() != domain.FailureTimeout || summary.Attempts()[0].State() != domain.AttemptTimedOut || summary.Attempts()[0].FailureClass() != domain.FailureTimeout {
+							t.Fatalf("timed-out role %q coordinator summary = %+v, want timed_out/timeout", tc.wantTimedOutRole, summary)
+						}
+					}
+				}
+			}
+			inspection, err := queries.Inspect(ctx, runRef, binding, appquery.InspectionRequest{QueryKind: "inspect", RequirementsLimit: 10})
+			if err != nil {
+				t.Fatalf("Inspect (%s): %v", tc.name, err)
+			}
+			if inspection.Requirements == nil || *inspection.Requirements.EvaluatedCount != tc.wantEvaluatedCount {
+				t.Fatalf("requirements inspection = %+v, want evaluated=%d", inspection.Requirements, tc.wantEvaluatedCount)
+			}
+			foundOmitted := false
+			for _, item := range inspection.Requirements.Items {
+				if item.RequirementID == tc.wantOmittedReqID {
+					foundOmitted = true
+					if item.Origin != domain.AssessmentDerived || item.Reason != domain.AssessmentAnswerOmitted {
+						t.Fatalf("requirement %s = origin:%q reason:%q, want derived/answer_omitted", item.RequirementID, item.Origin, item.Reason)
+					}
+				}
+			}
+			if !foundOmitted {
+				t.Fatalf("missing requirement %s in inspection", tc.wantOmittedReqID)
+			}
+		})
+	}
+}

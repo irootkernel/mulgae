@@ -539,3 +539,550 @@ func TestRequirementsRuntimeSerializesUnboundedNormalizedV3(t *testing.T) {
 		t.Fatal("large normalized support content lost")
 	}
 }
+
+type requirementsRecordingSink struct {
+	providerRuntimeInvocationStatusSink
+	inputs          []domain.RuntimeDiagnosticEventInput
+	statuses        []ports.RuntimeDiagnosticInvocationStatus
+	rawPersistCalls int
+	rawStreams      []map[domain.RuntimeDiagnosticStream][]byte
+}
+
+func (sink *requirementsRecordingSink) Emit(ctx context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
+	sink.inputs = append(sink.inputs, draft.Input())
+	return sink.providerRuntimeInvocationStatusSink.Emit(ctx, draft)
+}
+
+func (sink *requirementsRecordingSink) PersistRaw(ctx context.Context, request ports.RuntimeDiagnosticRawRequest) (ports.RuntimeDiagnosticRawResult, error) {
+	sink.rawPersistCalls++
+	res, err := sink.providerRuntimeInvocationStatusSink.PersistRaw(ctx, request)
+	if err == nil {
+		cp := make(map[domain.RuntimeDiagnosticStream][]byte, len(sink.streams))
+		for k, v := range sink.streams {
+			cp[k] = append([]byte(nil), v...)
+		}
+		sink.rawStreams = append(sink.rawStreams, cp)
+	}
+	return res, err
+}
+
+func (sink *requirementsRecordingSink) ReplaceInvocationStatus(ctx context.Context, status ports.RuntimeDiagnosticInvocationStatus) error {
+	sink.statuses = append(sink.statuses, status)
+	return sink.providerRuntimeInvocationStatusSink.ReplaceInvocationStatus(ctx, status)
+}
+
+func requirementsRuntimeFixtureWithScopeAndSink(t *testing.T, scope domain.LiveSourceScope, responses ...[]byte) (*ProviderInvocationRuntime, InvocationJob, *recordingObservedProvider, *requirementsRecordingSink) {
+	t.Helper()
+	selector, err := ports.NewLiveSourceSelector(scope, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _ := ports.NewSafeRelativePath("source.go")
+	var base ports.GitObjectID
+	changes := []ports.LiveSourceChange{{Kind: "included", After: path}}
+	if scope == domain.LiveSourceStage {
+		base, _ = ports.ParseGitObjectID(strings.Repeat("a", 40))
+		changes = []ports.LiveSourceChange{{Kind: "modified", Before: path, After: path}}
+	}
+	target, err := ports.NewLiveSourceTarget(selector, base, ports.GitObjectID{}, false, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, _ := ports.NewAnchoredRoot("/source")
+	neutral, _ := ports.NewAnchoredRoot("/neutral")
+	credential, _ := ports.NewAnchoredRoot("/credentials")
+	reader := &runtimeLiveReader{coordinatorLiveReader: coordinatorLiveReader{target}, binding: ports.ProjectBindingObservation{Root: root, RootIdentity: ports.ProjectDirectoryIdentity{Device: 1, Inode: 2}}}
+	execution, err := ports.NewLiveReviewExecution(context.Background(), reader, runtimeLiveHome{root: neutral}, []ports.AnchoredRoot{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := evidence.NewLiveSourceIdentity(target)
+	_, job, material := providerRuntimeExplicitFixture(t, nil)
+	job.target, _ = identity.RunTarget()
+	compiler, _ := prompt.NewCompiler(material.Prompt.TrustedTemplate(), explicitRuntimeTestIssuer{source: material.Prompt.Scope().SourceInvocationID(), execution: material.Prompt.Scope().ExecutionInvocationID()})
+	material.Target = identity.Bytes()
+	material.Prompt, err = compiler.Compile(prompt.CompileInput{Scope: material.Prompt.Scope().FrameScope().Coordinates(), ReviewTarget: prompt.NewPayload(material.Target)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &recordingObservedProvider{t: t}
+	for _, raw := range responses {
+		provider.responses = append(provider.responses, providerRuntimeObservation{stdout: raw})
+	}
+	sink := &requirementsRecordingSink{}
+	runtime, err := NewObservedProviderInvocationRuntimeInLiveSource(provider, requirementsTestPrompts{explicitRuntimePromptSource{material}}, execution, newReviewValidator(t), providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: sink})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := validation.DecodeRequirementsInput([]byte(`{"schema_version":"mulgae-requirements-input.v1","requirements":[{"id":"A","text":"description","acceptance_criteria":["criterion"],"owner_role":"logic"},{"id":"B","text":"description","acceptance_criteria":["criterion"],"owner_role":"logic"},{"id":"C","text":"description","acceptance_criteria":["criterion"],"owner_role":"logic"}]}`), []domain.Role{domain.RoleLogic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.BindRequirements(input, "requirements.json"); err != nil {
+		t.Fatal(err)
+	}
+	return runtime, job, provider, sink
+}
+
+func TestRequirementsRuntime2COwnershipAndOrdinaryUnknownKeys(t *testing.T) {
+	t.Run("ordinary unknown key in requirements section stays bounded invalid_assessment", func(t *testing.T) {
+		row := requirementsRuntimeRow("A")
+		row["extra_note"] = "harmless provider note"
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, requirementsRuntimeResponse([]any{}, row))
+		outcome := runtime.Invoke(context.Background(), job)
+		if !outcome.Succeeded() {
+			t.Fatalf("ordinary unknown key aborted invocation: %+v", outcome)
+		}
+		if sink.rawPersistCalls != 1 {
+			t.Fatalf("rawPersistCalls = %d, want 1 (non-security persists streams normally)", sink.rawPersistCalls)
+		}
+		result, err := runtime.RequirementsResult(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := result.Evaluation().Assessments()[0].Reason(); got != domain.AssessmentInvalidContent {
+			t.Fatalf("assessment reason = %q, want %q", got, domain.AssessmentInvalidContent)
+		}
+	})
+
+	t.Run("protected key mixed with ordinary unknown key fails closed with provider_ownership_violation", func(t *testing.T) {
+		row := requirementsRuntimeRow("A")
+		row["aaa_extra_note"] = "ordinary"
+		row["owner_role"] = "logic"
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, requirementsRuntimeResponse([]any{}, row))
+		outcome := runtime.Invoke(context.Background(), job)
+		cond, ok := outcome.Condition()
+		if outcome.Succeeded() || !ok || cond != AttemptConditionSecurityViolation || outcome.diagnosticCause != domain.DiagnosticCauseProviderOwnershipViolation {
+			t.Fatalf("protected ownership attack = cond:%q cause:%q, want security_violation/provider_ownership_violation", cond, outcome.diagnosticCause)
+		}
+		if sink.rawPersistCalls != 0 {
+			t.Fatalf("security-rejected invocation persisted raw streams (%d calls)", sink.rawPersistCalls)
+		}
+		capRec, captured := runtime.Capture(job.AttemptID(), 1)
+		if !captured || len(capRec.Artifacts()) == 0 {
+			t.Fatal("security-rejected invocation missing capture markers")
+		}
+		for _, artifact := range capRec.Artifacts() {
+			if !artifact.SecurityRejected() || len(artifact.Bytes()) != 0 {
+				t.Fatalf("security-rejected artifact leaked bytes or lost marker: %+v", artifact)
+			}
+		}
+	})
+
+	t.Run("outer unknown key or earlier invalid row cannot mask nested protected key at runtime", func(t *testing.T) {
+		badFirst := requirementsRuntimeRow("A")
+		badFirst["extra_note"] = "ordinary unknown"
+		secondProtected := requirementsRuntimeRow("B")
+		secondProtected["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["verification"] = "verified"
+		raw, _ := json.Marshal(map[string]any{
+			"schema_version": validation.RequirementsProviderOutputVersion,
+			"summary":        "Report.",
+			"completeness":   "complete",
+			"limitations":    []string{},
+			"findings":       []any{},
+			"requirements": map[string]any{
+				"schema_version": "mulgae-provider-requirements.v1",
+				"outer_note":     "ordinary unknown outer key",
+				"assessments":    []any{badFirst, secondProtected},
+			},
+		})
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		outcome := runtime.Invoke(context.Background(), job)
+		cond, ok := outcome.Condition()
+		if outcome.Succeeded() || !ok || cond != AttemptConditionSecurityViolation || outcome.diagnosticCause != domain.DiagnosticCauseProviderOwnershipViolation {
+			t.Fatalf("masked nested protected key = cond:%q cause:%q, want security_violation/provider_ownership_violation", cond, outcome.diagnosticCause)
+		}
+		if sink.rawPersistCalls != 0 {
+			t.Fatalf("masked nested protected key leaked raw streams: %d", sink.rawPersistCalls)
+		}
+	})
+}
+
+func TestRequirementsRuntimeM1CitationFaultVsRealSourceDrift(t *testing.T) {
+	for _, scope := range []domain.LiveSourceScope{domain.LiveSourceWorkspace, domain.LiveSourceStage} {
+		side := "worktree"
+		if scope == domain.LiveSourceStage {
+			side = "index"
+		}
+		t.Run(string(scope)+"/citation-fault-in-requirements-is-bounded", func(t *testing.T) {
+			for _, code := range []ports.LiveSourceErrorCode{ports.LiveSourceUnavailable, ports.LiveSourceUnsafe} {
+				row := requirementsRuntimeRow("A")
+				row["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["side"] = side
+				runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, scope, requirementsRuntimeResponse([]any{}, row))
+				runtime.verifier, _ = evidence.NewLiveVerifier(requirementsFaultReader{
+					LiveSourceReader: runtime.liveExecution.SourceReader(),
+					err:              ports.NewLiveSourceCitationError(code, errors.New("hallucinated path")),
+				})
+				outcome := runtime.Invoke(context.Background(), job)
+				if !outcome.Succeeded() {
+					t.Fatalf("citation fault %q aborted requirements invocation: %+v", code, outcome)
+				}
+				if sink.rawPersistCalls != 1 {
+					t.Fatalf("citation fault %q rawPersistCalls = %d, want 1", code, sink.rawPersistCalls)
+				}
+				result, err := runtime.RequirementsResult(false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := result.Evaluation().Assessments()[0].Reason(); got != domain.AssessmentInvalidContent {
+					t.Fatalf("citation fault %q reason = %q, want invalid_assessment", code, got)
+				}
+			}
+		})
+
+		t.Run(string(scope)+"/citation-fault-in-findings-is-bounded", func(t *testing.T) {
+			finding := map[string]any{
+				"severity": "high", "title": "Cited finding", "description": "References an absent path.",
+				"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": side, "line_start": 1, "line_end": 1, "quote": "observed\n"}}},
+				"recommendation": "Check citation.", "confidence": "high",
+			}
+			runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, scope, requirementsRuntimeResponse([]any{finding}))
+			runtime.verifier, _ = evidence.NewLiveVerifier(requirementsFaultReader{
+				LiveSourceReader: runtime.liveExecution.SourceReader(),
+				err:              ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, errors.New("absent path")),
+			})
+			outcome := runtime.Invoke(context.Background(), job)
+			output, ok := outcome.Output()
+			if !outcome.Succeeded() || !ok || !output.ReportsOnly() {
+				t.Fatalf("citation fault in findings did not stay bounded reports-only: %+v", outcome)
+			}
+			if sink.rawPersistCalls != 1 {
+				t.Fatalf("citation fault in findings rawPersistCalls = %d, want 1", sink.rawPersistCalls)
+			}
+		})
+
+		t.Run(string(scope)+"/real-drift-unsafe-fails-closed-with-live-source-unsafe", func(t *testing.T) {
+			row := requirementsRuntimeRow("A")
+			row["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["side"] = side
+			runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, scope, requirementsRuntimeResponse([]any{}, row))
+			runtime.verifier, _ = evidence.NewLiveVerifier(requirementsFaultReader{
+				LiveSourceReader: runtime.liveExecution.SourceReader(),
+				err:              ports.NewLiveSourceError(ports.LiveSourceUnsafe, errors.New("admitted file replaced by symlink")),
+			})
+			outcome := runtime.Invoke(context.Background(), job)
+			cond, ok := outcome.Condition()
+			if outcome.Succeeded() || !ok || cond != AttemptConditionSecurityViolation || outcome.diagnosticCause != domain.DiagnosticCauseLiveSourceUnsafe {
+				t.Fatalf("real unsafe drift = cond:%q cause:%q, want security_violation/live_source_unsafe", cond, outcome.diagnosticCause)
+			}
+			if sink.rawPersistCalls != 0 {
+				t.Fatalf("real unsafe drift persisted raw streams (%d)", sink.rawPersistCalls)
+			}
+		})
+	}
+}
+
+func TestRequirementsRuntimeP5M3DiagnosticsAndCaptureAcrossPurposes(t *testing.T) {
+	hasEvent := func(events []domain.RuntimeDiagnosticEventCode, want domain.RuntimeDiagnosticEventCode) bool {
+		for _, e := range events {
+			if e == want {
+				return true
+			}
+		}
+		return false
+	}
+	countEvents := func(events []domain.RuntimeDiagnosticEventCode, want domain.RuntimeDiagnosticEventCode) int {
+		n := 0
+		for _, e := range events {
+			if e == want {
+				n++
+			}
+		}
+		return n
+	}
+
+	statusStates := func(status ports.RuntimeDiagnosticInvocationStatus) (domain.ParseState, domain.ValidationState) {
+		_, p, v := status.States()
+		return p, v
+	}
+
+	t.Run("pure prose skips parse/validation diagnostics and records ParseNotStarted/ValidationNotStarted", func(t *testing.T) {
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, []byte("# Prose review\n\nNo JSON.\n"))
+		outcome := runtime.Invoke(context.Background(), job)
+		if !outcome.Succeeded() {
+			t.Fatal("pure prose failed")
+		}
+		for _, forbidden := range []domain.RuntimeDiagnosticEventCode{
+			domain.DiagnosticOutputParseStarted,
+			domain.DiagnosticValidationStarted,
+			domain.DiagnosticOutputParsed,
+			domain.DiagnosticValidationSucceeded,
+			domain.DiagnosticValidationFailed,
+		} {
+			if hasEvent(sink.events, forbidden) {
+				t.Fatalf("pure prose emitted %q: %v", forbidden, sink.events)
+			}
+		}
+		if len(sink.statuses) != 1 {
+			t.Fatalf("pure prose status count = %d, want 1", len(sink.statuses))
+		}
+		if p, v := statusStates(sink.statuses[0]); p != domain.ParseNotStarted || v != domain.ValidationNotStarted {
+			t.Fatalf("pure prose invocation status = %s/%s, want not_started/not_started", p, v)
+		}
+		if sink.rawPersistCalls != 1 {
+			t.Fatalf("pure prose rawPersistCalls = %d, want 1 (no double capture)", sink.rawPersistCalls)
+		}
+	})
+
+	t.Run("valid initial emits parse/validation/discarded diagnostics and captures once", func(t *testing.T) {
+		rawObj := map[string]any{
+			"schema_version": validation.RequirementsProviderOutputVersion,
+			"summary":        "Complete.",
+			"completeness":   "complete",
+			"limitations":    []string{},
+			"findings":       []any{},
+			"extra_top":      "discarded by findings projection",
+			"requirements":   map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{requirementsRuntimeRow("A")}},
+		}
+		raw, _ := json.Marshal(rawObj)
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		outcome := runtime.Invoke(context.Background(), job)
+		if !outcome.Succeeded() {
+			t.Fatal("valid initial failed")
+		}
+		for _, want := range []domain.RuntimeDiagnosticEventCode{
+			domain.DiagnosticOutputParseStarted,
+			domain.DiagnosticValidationStarted,
+			domain.DiagnosticOutputParsed,
+			domain.DiagnosticProviderFieldsDiscarded,
+			domain.DiagnosticValidationSucceeded,
+		} {
+			if !hasEvent(sink.events, want) {
+				t.Fatalf("valid initial missing %q in %v", want, sink.events)
+			}
+		}
+		if countEvents(sink.events, domain.DiagnosticValidationSucceeded)+countEvents(sink.events, domain.DiagnosticValidationFailed) != 1 {
+			t.Fatalf("expected exactly one terminal validation event, got %v", sink.events)
+		}
+		if len(sink.statuses) != 1 {
+			t.Fatalf("valid initial status count = %d, want 1", len(sink.statuses))
+		}
+		if p, v := statusStates(sink.statuses[0]); p != domain.ParseValid || v != domain.ValidationValid {
+			t.Fatalf("valid initial invocation status = %s/%s, want valid/valid", p, v)
+		}
+		if sink.rawPersistCalls != 1 || string(sink.streams[domain.DiagnosticStdout]) != string(raw) {
+			t.Fatalf("raw capture count=%d or stdout mismatch", sink.rawPersistCalls)
+		}
+	})
+
+	t.Run("malformed initial emits OutputParseFailed and ValidationFailed then repair succeeded/failed", func(t *testing.T) {
+		malformed := []byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`)
+		repairedOK := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"))
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, malformed, repairedOK)
+		first := runtime.Invoke(context.Background(), job)
+		if first.Succeeded() {
+			t.Fatal("malformed initial succeeded")
+		}
+		if !hasEvent(sink.events, domain.DiagnosticOutputParseFailed) || !hasEvent(sink.events, domain.DiagnosticValidationFailed) {
+			t.Fatalf("malformed initial missing parse/validation failure events: %v", sink.events)
+		}
+		if len(sink.statuses) != 1 {
+			t.Fatalf("malformed initial status count = %d, want 1", len(sink.statuses))
+		}
+		if p, v := statusStates(sink.statuses[0]); p != domain.ParseInvalidJSON || v != domain.ValidationInvalid {
+			t.Fatalf("malformed initial invocation status = %s/%s, want invalid_json/invalid", p, v)
+		}
+
+		repairJob, err := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationRepair, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second := runtime.Invoke(context.Background(), repairJob)
+		if !second.Succeeded() {
+			t.Fatalf("succeeded repair failed: %+v", second)
+		}
+		if !hasEvent(sink.events, domain.DiagnosticRepairCompleted) {
+			t.Fatalf("succeeded repair missing DiagnosticRepairCompleted: %v", sink.events)
+		}
+		if len(sink.statuses) != 2 {
+			t.Fatalf("succeeded repair status count = %d, want 2", len(sink.statuses))
+		}
+		if p, v := statusStates(sink.statuses[1]); p != domain.ParseValid || v != domain.ValidationRepairedValid {
+			t.Fatalf("succeeded repair invocation status = %s/%s, want valid/repaired_valid", p, v)
+		}
+		if len(runtime.pending) != 0 {
+			t.Fatal("pending repair was not cleaned up")
+		}
+		if sink.rawPersistCalls != 2 {
+			t.Fatalf("rawPersistCalls = %d, want 2 (1 initial + 1 repair)", sink.rawPersistCalls)
+		}
+	})
+
+	t.Run("failed repair emits DiagnosticRepairExhausted and passes nil repaired candidate", func(t *testing.T) {
+		malformed := []byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`)
+		badRepair := []byte(`{"schema_version":"mulgae-provider-review-output.v3","findings":"still-bad","requirements":{"schema_version":"mulgae-provider-requirements.v1","assessments":[]}}`)
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, malformed, badRepair)
+		if runtime.Invoke(context.Background(), job).Succeeded() {
+			t.Fatal("malformed initial succeeded")
+		}
+		repairJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationRepair, 2)
+		second := runtime.Invoke(context.Background(), repairJob)
+		if !second.Succeeded() {
+			t.Fatalf("failed repair fallback did not preserve primary report: %+v", second)
+		}
+		if !hasEvent(sink.events, domain.DiagnosticRepairExhausted) {
+			t.Fatalf("failed repair missing DiagnosticRepairExhausted: %v", sink.events)
+		}
+		if len(sink.statuses) != 2 {
+			t.Fatalf("failed repair status count = %d, want 2", len(sink.statuses))
+		}
+		if p, v := statusStates(sink.statuses[1]); p != domain.ParseValid || v != domain.ValidationRepairExhausted {
+			t.Fatalf("failed repair invocation status = %s/%s, want valid/repair_exhausted", p, v)
+		}
+		capRec, ok := runtime.Capture(job.AttemptID(), 2)
+		if !ok {
+			t.Fatal("failed repair was not captured")
+		}
+		for _, artifact := range capRec.Artifacts() {
+			if artifact.Kind() == ports.AttemptArtifactRepairedCandidate {
+				t.Fatal("failed repair created a repaired_candidate artifact")
+			}
+		}
+		if sink.rawPersistCalls != 2 {
+			t.Fatalf("failed repair rawPersistCalls = %d, want 2 (no double capture)", sink.rawPersistCalls)
+		}
+	})
+
+	t.Run("extract hasPrior fallback captures raw streams and cleans up pendingExtraction", func(t *testing.T) {
+		initial := requirementsRuntimeResponse([]any{})
+		extractBad := requirementsRuntimeResponse("invalid findings", requirementsRuntimeRow("A"))
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractBad)
+		if !runtime.Invoke(context.Background(), job).Succeeded() {
+			t.Fatal("initial failed")
+		}
+		if len(runtime.pendingExtraction) != 1 {
+			t.Fatal("initial did not populate pendingExtraction")
+		}
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		second := runtime.Invoke(context.Background(), extractJob)
+		if !second.Succeeded() {
+			t.Fatalf("extract fallback failed: %+v", second)
+		}
+		if len(runtime.pendingExtraction) != 0 {
+			t.Fatal("extract did not clean up pendingExtraction")
+		}
+		if sink.rawPersistCalls != 2 {
+			t.Fatalf("extract hasPrior fallback rawPersistCalls = %d, want 2", sink.rawPersistCalls)
+		}
+		if string(sink.streams[domain.DiagnosticStdout]) != string(extractBad) {
+			t.Fatal("extract hasPrior fallback did not capture raw stdout")
+		}
+		capRec, ok := runtime.Capture(job.AttemptID(), 2)
+		if !ok || len(capRec.Artifacts()) == 0 {
+			t.Fatal("extract hasPrior fallback missing AttemptCapture")
+		}
+		if len(sink.statuses) != 2 {
+			t.Fatalf("extract fallback status count = %d, want 2", len(sink.statuses))
+		}
+		if p, v := statusStates(sink.statuses[1]); p != domain.ParseValid || v != domain.ValidationInvalid {
+			t.Fatalf("extract fallback invocation status = %s/%s, want valid/invalid", p, v)
+		}
+	})
+
+	t.Run("protected acceptExtraction failure runs capture reject=true and cleans up pendingExtraction", func(t *testing.T) {
+		finding := map[string]any{
+			"severity": "high", "title": "Observed defect", "description": "Defect in source.go.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "observed\n"}}},
+			"recommendation": "Fix it.", "confidence": "high",
+		}
+		initial := []byte("# Prose report\n\nObserved defect in source.go.\n")
+		extractResp := requirementsRuntimeResponse([]any{finding})
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+		if !runtime.Invoke(context.Background(), job).Succeeded() {
+			t.Fatal("initial prose failed")
+		}
+		// Inject real source drift (unmarked LiveSourceUnsafe) during extraction findings verification.
+		runtime.verifier, _ = evidence.NewLiveVerifier(requirementsFaultReader{
+			LiveSourceReader: runtime.liveExecution.SourceReader(),
+			err:              ports.NewLiveSourceError(ports.LiveSourceUnsafe, errors.New("root replaced")),
+		})
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		second := runtime.Invoke(context.Background(), extractJob)
+		cond, ok := second.Condition()
+		if second.Succeeded() || !ok || cond != AttemptConditionSecurityViolation || second.diagnosticCause != domain.DiagnosticCauseLiveSourceUnsafe {
+			t.Fatalf("protected acceptExtraction = cond:%q cause:%q, want security_violation/live_source_unsafe", cond, second.diagnosticCause)
+		}
+		if len(runtime.pendingExtraction) != 0 {
+			t.Fatal("protected acceptExtraction did not clean up pendingExtraction")
+		}
+		// Only initial persisted raw; extraction was security-rejected so rawPersistCalls must stay 1.
+		if sink.rawPersistCalls != 1 {
+			t.Fatalf("protected acceptExtraction leaked raw streams: rawPersistCalls=%d, want 1", sink.rawPersistCalls)
+		}
+		capRec, captured := runtime.Capture(job.AttemptID(), 2)
+		if !captured || len(capRec.Artifacts()) == 0 {
+			t.Fatal("protected acceptExtraction missing security-rejected capture markers")
+		}
+		for _, artifact := range capRec.Artifacts() {
+			if !artifact.SecurityRejected() || len(artifact.Bytes()) != 0 {
+				t.Fatalf("protected acceptExtraction artifact not security-rejected: %+v", artifact)
+			}
+		}
+	})
+
+	t.Run("initial quote mismatch fallback clears pending repair and records ValidationInvalid/ValidationFailed", func(t *testing.T) {
+		mismatchFinding := map[string]any{
+			"severity": "high", "title": "Quote mismatch", "description": "Quote differs from source.go.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "wrong quote\n"}}},
+			"recommendation": "Fix quote.", "confidence": "high",
+		}
+		raw := requirementsRuntimeResponse([]any{mismatchFinding}, requirementsRuntimeRow("A"))
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		outcome := runtime.Invoke(context.Background(), job)
+		if !outcome.Succeeded() {
+			t.Fatalf("initial quote mismatch fallback failed: %+v", outcome)
+		}
+		out, _ := outcome.Output()
+		if !out.ReportsOnly() {
+			t.Fatal("initial quote mismatch did not fall back to reports_only")
+		}
+		if len(runtime.pending) != 0 {
+			t.Fatalf("initial quote mismatch leaked runtime.pending (%d entries)", len(runtime.pending))
+		}
+		if hasEvent(sink.events, domain.DiagnosticValidationSucceeded) {
+			t.Fatalf("initial quote mismatch falsely emitted DiagnosticValidationSucceeded: %v", sink.events)
+		}
+		if !hasEvent(sink.events, domain.DiagnosticValidationFailed) {
+			t.Fatalf("initial quote mismatch missing DiagnosticValidationFailed: %v", sink.events)
+		}
+		if len(sink.statuses) != 1 {
+			t.Fatalf("status count = %d, want 1", len(sink.statuses))
+		}
+		if p, v := statusStates(sink.statuses[0]); p != domain.ParseValid || v != domain.ValidationInvalid {
+			t.Fatalf("initial quote mismatch status = %s/%s, want valid/invalid", p, v)
+		}
+	})
+
+	t.Run("repair bounded evidence failure fallback records ValidationRepairExhausted without DiagnosticRepairCompleted", func(t *testing.T) {
+		malformed := []byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`)
+		mismatchFinding := map[string]any{
+			"severity": "high", "title": "Quote mismatch", "description": "Quote differs from source.go.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "wrong quote\n"}}},
+			"recommendation": "Fix quote.", "confidence": "high",
+		}
+		repairResp := requirementsRuntimeResponse([]any{mismatchFinding}, requirementsRuntimeRow("A"))
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, malformed, repairResp)
+		if runtime.Invoke(context.Background(), job).Succeeded() {
+			t.Fatal("malformed initial succeeded")
+		}
+		repairJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationRepair, 2)
+		second := runtime.Invoke(context.Background(), repairJob)
+		if !second.Succeeded() {
+			t.Fatalf("repair bounded evidence fallback failed: %+v", second)
+		}
+		if len(runtime.pending) != 0 {
+			t.Fatalf("repair bounded evidence failure leaked runtime.pending (%d entries)", len(runtime.pending))
+		}
+		if hasEvent(sink.events, domain.DiagnosticValidationSucceeded) || hasEvent(sink.events, domain.DiagnosticRepairCompleted) {
+			t.Fatalf("repair bounded evidence fallback falsely emitted success/repair_completed: %v", sink.events)
+		}
+		if !hasEvent(sink.events, domain.DiagnosticRepairExhausted) {
+			t.Fatalf("repair bounded evidence fallback missing DiagnosticRepairExhausted: %v", sink.events)
+		}
+		if len(sink.statuses) != 2 {
+			t.Fatalf("status count = %d, want 2", len(sink.statuses))
+		}
+		if p, v := statusStates(sink.statuses[1]); p != domain.ParseValid || v != domain.ValidationRepairExhausted {
+			t.Fatalf("repair bounded evidence status = %s/%s, want valid/repair_exhausted", p, v)
+		}
+	})
+}

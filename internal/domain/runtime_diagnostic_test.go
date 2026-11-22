@@ -176,6 +176,19 @@ func TestRuntimeDiagnosticClosedCodeSets(t *testing.T) {
 		DiagnosticCauseReviewCoordinatorAdmissionPreparationFailed != "review_coordinator_admission_preparation_failed" {
 		t.Fatal("review preparation causes do not follow the public stage naming contract")
 	}
+	for _, cause := range []struct {
+		value RuntimeDiagnosticCause
+		wire  string
+	}{
+		{DiagnosticCauseProviderOwnershipViolation, "provider_ownership_violation"},
+		{DiagnosticCauseLiveSourceUnsafe, "live_source_unsafe"},
+		{DiagnosticCauseProviderPacketSecurityRejected, "provider_packet_security_rejected"},
+		{DiagnosticCauseDiagnosticSecurityRejected, "diagnostic_security_rejected"},
+	} {
+		if !cause.value.Valid() || string(cause.value) != cause.wire {
+			t.Fatalf("security diagnostic cause %q (want %q) is invalid", cause.value, cause.wire)
+		}
+	}
 	if !DiagnosticStdout.Valid() || RuntimeDiagnosticStream("combined").Valid() {
 		t.Fatal("stream set is not closed")
 	}

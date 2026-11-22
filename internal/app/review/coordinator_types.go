@@ -510,6 +510,7 @@ type AttemptOutcome struct {
 	job                      InvocationJob
 	output                   ValidatedRoleOutput
 	condition                AttemptCondition
+	diagnosticCause          domain.RuntimeDiagnosticCause
 	timeoutFacts             ProviderTimeoutFacts
 	hasOutput                bool
 	hasCondition             bool
@@ -637,12 +638,18 @@ func (outcome AttemptOutcome) validFor(job InvocationJob) bool {
 		return false
 	}
 	if outcome.hasOutput {
+		if outcome.diagnosticCause != "" {
+			return false
+		}
 		if err := outcome.output.validate(); err != nil {
 			return false
 		}
 		return outcome.output.role == job.role &&
 			outcome.output.providerInstance == job.route.ProviderInstance() &&
 			outcome.output.target == job.target
+	}
+	if outcome.diagnosticCause != "" && !outcome.diagnosticCause.Valid() {
+		return false
 	}
 	return outcome.condition.Valid() && outcome.condition != AttemptConditionValidReview
 }

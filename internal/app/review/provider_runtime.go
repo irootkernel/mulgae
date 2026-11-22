@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/validation"
@@ -548,7 +549,11 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			return
 		}
 		if err := runtime.replaceInvocationDiagnosticStatus(ctx, job, *diagnosticObservation, parseState, validationState); err != nil {
-			outcome = runtimeCondition(job, diagnosticConditionForPersistence(err))
+			persisted := runtimePersistenceOutcome(job, err)
+			curCond, curFailed := outcome.Condition()
+			if outcome.Succeeded() || !curFailed || persistenceOverridesCondition(curCond, persisted) {
+				outcome = persisted
+			}
 		}
 	}()
 	if runtime == nil || !job.Limits().Valid() {
@@ -629,18 +634,19 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	runtimeArtifactsExpected = !runtime.liveIdentity.Valid()
 	if runtime.liveIdentity.Valid() {
 		if err := runtime.liveExecution.Revalidate(invocationCtx); err != nil {
-			if invocationCtx.Err() != nil {
-				return runtimeCondition(job, runtimeContextCondition(invocationCtx.Err()))
+			if isPureContextError(err) {
+				return runtimeCondition(job, runtimeContextCondition(err))
 			}
-			return runtimeCondition(job, AttemptConditionSecurityViolation)
+			return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, domain.DiagnosticCauseWorkspaceRevalidationFailed)
 		}
 	}
 	providerInvocation, err := runtime.providerInvocation(job, material)
 	if err != nil {
-		return runtimeCondition(job, runtimeProviderErrorCondition(invocationCtx, err))
+		condition, cause := runtimeProviderErrorConditionAndCause(invocationCtx, err)
+		return runtimeConditionWithCause(job, condition, cause)
 	}
 	if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticInvocationPrepared, "", string(domain.InvocationQueued), "", "", 0, false, "", 0); err != nil {
-		return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		return runtimePersistenceOutcome(job, err)
 	}
 	// Never start a provider with an enclosing deadline that would truncate its
 	// configured process window. Capacity waiting and prompt preparation may use
@@ -663,56 +669,92 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			var invariant *ports.ProviderObservationInvariantError
 			if errors.As(observeErr, &invariant) {
 				if err := runtime.emitInvariantDiagnostic(invocationCtx, job, invariant); err != nil {
-					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+					if persisted := runtimePersistenceOutcome(job, err); persistenceOverridesCondition(AttemptConditionInternalInvariant, persisted) {
+						return persisted
+					}
 				}
 				process := invariant.ProcessObservation()
 				if err := runtime.capture(invocationCtx, job, nil, process.Stdout(), process.Stderr(), false); err != nil {
-					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+					if persisted := runtimePersistenceOutcome(job, err); persistenceOverridesCondition(AttemptConditionInternalInvariant, persisted) {
+						return persisted
+					}
 				}
 				if err := runtime.replaceInvariantInvocationDiagnosticStatus(invocationCtx, job, invariant); err != nil {
-					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+					if persisted := runtimePersistenceOutcome(job, err); persistenceOverridesCondition(AttemptConditionInternalInvariant, persisted) {
+						return persisted
+					}
 				}
 				return runtimeProviderCondition(job, AttemptConditionInternalInvariant, providerElapsed)
 			}
 			if observation.Validate() == nil && sameProviderInvocation(observation.Invocation(), providerInvocation) {
 				diagnosticObservation = diagnosticObservationPointer(observation)
+				condition, cause := runtimeProviderErrorConditionAndCause(providerCtx, observeErr)
+				if cleanup, hasCleanup := observation.CleanupCause(); hasCleanup && isSecurityRejectionCondition(runtimeCauseCondition(cleanup)) {
+					condition, cause = runtimeCauseCondition(cleanup), cleanup
+				} else if !observation.Succeeded() && !isSecurityRejectionCondition(condition) {
+					obsCond := observedStatusCondition(observation.Status(), observation.PrimaryCause())
+					switch obsCond {
+					case AttemptConditionSecurityViolation, AttemptConditionMutationViolation:
+						condition = obsCond
+						if observation.PrimaryCause().Valid() {
+							cause = observation.PrimaryCause()
+						}
+					case AttemptConditionProviderTimeout:
+						if app.FailurePrecedence(conditionFailureClass(condition)) <= app.FailurePrecedence(domain.FailureTimeout) {
+							condition = runtimeConditionAfterContext(providerCtx, AttemptConditionProviderTimeout)
+							cause = ""
+						}
+					}
+				}
+				reject := isSecurityRejectionCondition(condition)
 				if err := runtime.emitObservationDiagnostics(invocationCtx, job, observation); err != nil {
-					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+					if persisted := runtimePersistenceOutcome(job, err); persistenceOverridesCondition(condition, persisted) {
+						return persisted
+					}
 				}
-				if err := runtime.capture(invocationCtx, job, nil, observation.Stdout(), observation.Stderr(), false); err != nil {
-					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				if err := runtime.capture(invocationCtx, job, nil, observation.Stdout(), observation.Stderr(), reject); err != nil {
+					if persisted := runtimePersistenceOutcome(job, err); persistenceOverridesCondition(condition, persisted) {
+						return persisted
+					}
 				}
-				condition := runtimeProviderErrorCondition(providerCtx, observeErr)
-				if cleanup, hasCleanup := observation.CleanupCause(); hasCleanup && runtimeCauseCondition(cleanup) == AttemptConditionSecurityViolation {
-					condition = AttemptConditionSecurityViolation
-				} else if !observation.Succeeded() && condition != AttemptConditionSecurityViolation && observedStatusCondition(observation.Status(), observation.PrimaryCause()) == AttemptConditionProviderTimeout {
-					condition = AttemptConditionProviderTimeout
-				}
-				return runtimeObservedCondition(job, condition, observation, providerElapsed)
+				return runtimeObservedConditionWithCause(job, condition, cause, observation, providerElapsed)
 			}
-			return runtimeProviderCondition(job, runtimeProviderErrorCondition(providerCtx, observeErr), providerElapsed)
+			condition, cause := runtimeProviderErrorConditionAndCause(providerCtx, observeErr)
+			return runtimeProviderConditionWithCause(job, condition, cause, providerElapsed)
 		}
 		if err := observation.Validate(); err != nil || !sameProviderInvocation(observation.Invocation(), providerInvocation) {
-			return runtimeCondition(job, AttemptConditionSecurityViolation)
+			return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, domain.DiagnosticCauseObservationMismatch)
 		}
 		diagnosticObservation = diagnosticObservationPointer(observation)
-		if err := runtime.emitObservationDiagnostics(invocationCtx, job, observation); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
-		}
 		rawStdout, stderr = observation.Stdout(), observation.Stderr()
 		if !observation.Succeeded() {
-			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
-			}
 			condition := observedStatusCondition(observation.Status(), observation.PrimaryCause())
-			if cleanup, hasCleanup := observation.CleanupCause(); hasCleanup && runtimeCauseCondition(cleanup) == AttemptConditionSecurityViolation {
-				condition = AttemptConditionSecurityViolation
+			var cause domain.RuntimeDiagnosticCause
+			if isSecurityRejectionCondition(condition) && observation.PrimaryCause().Valid() {
+				cause = observation.PrimaryCause()
 			}
-			return runtimeObservedCondition(job, condition, observation, providerElapsed)
+			if cleanup, hasCleanup := observation.CleanupCause(); hasCleanup && isSecurityRejectionCondition(runtimeCauseCondition(cleanup)) {
+				condition, cause = runtimeCauseCondition(cleanup), cleanup
+			}
+			reject := isSecurityRejectionCondition(condition)
+			if err := runtime.emitObservationDiagnostics(invocationCtx, job, observation); err != nil {
+				if persisted := runtimePersistenceOutcome(job, err); persistenceOverridesCondition(condition, persisted) {
+					return persisted
+				}
+			}
+			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, reject); err != nil {
+				if persisted := runtimePersistenceOutcome(job, err); persistenceOverridesCondition(condition, persisted) {
+					return persisted
+				}
+			}
+			return runtimeObservedConditionWithCause(job, condition, cause, observation, providerElapsed)
+		}
+		if err := runtime.emitObservationDiagnostics(invocationCtx, job, observation); err != nil {
+			return runtimePersistenceOutcome(job, err)
 		}
 		result, ok := observation.Result()
 		if !ok || result.StdinByteLength() != material.Prompt.CompleteStdinByteLength() || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
-			return runtimeCondition(job, AttemptConditionSecurityViolation)
+			return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, domain.DiagnosticCauseObservationMismatch)
 		}
 		transport = observation.OutputTransport()
 		stdout = result.Stdout()
@@ -721,12 +763,13 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		result, invokeErr := runtime.provider.Invoke(providerCtx, providerInvocation)
 		providerElapsed := time.Since(providerStarted)
 		if invokeErr != nil {
-			return runtimeProviderCondition(job, runtimeProviderErrorCondition(providerCtx, invokeErr), providerElapsed)
+			condition, cause := runtimeProviderErrorConditionAndCause(providerCtx, invokeErr)
+			return runtimeProviderConditionWithCause(job, condition, cause, providerElapsed)
 		}
 		stdout = result.Stdout()
 		rawStdout = stdout
 		if result.StdinByteLength() != material.Prompt.CompleteStdinByteLength() || result.CompleteStdinSHA256() != material.Prompt.CompleteStdinSHA256() {
-			return runtimeCondition(job, AttemptConditionSecurityViolation)
+			return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, domain.DiagnosticCauseObservationMismatch)
 		}
 	}
 
@@ -754,10 +797,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	assistantContent := append([]byte(nil), stdout...)
 	contentClass, validateBytes := classifyAssistantContent(assistantContent)
 	if runtime.requirements != nil {
-		outcome = runtime.invokeRequirements(invocationCtx, job, validateBytes, assistantContent, rawStdout, stderr, transport, scope)
-		if output, ok := outcome.Output(); ok {
-			parseState, validationState = output.ParseState(), output.ValidationState()
-		}
+		outcome, parseState, validationState = runtime.invokeRequirements(invocationCtx, job, validateBytes, assistantContent, rawStdout, stderr, transport, scope)
 		return outcome
 	}
 	if job.Purpose() == domain.InvocationExtract {
@@ -773,15 +813,15 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			// Prose is not a transcription. Capture the streams and stop here;
 			// the trailer never enters Validate and never mints a repair plan.
 			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				return runtimePersistenceOutcome(job, err)
 			}
 			return runtimeCondition(job, AttemptConditionInvalidProviderOutput)
 		}
 		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticOutputParseStarted, "", "", "", "", 0, false, "", 0); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			return runtimePersistenceOutcome(job, err)
 		}
 		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticValidationStarted, "", "", "", "", 0, false, "", 0); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			return runtimePersistenceOutcome(job, err)
 		}
 		// The repair plan a decode failure may mint is deliberately discarded:
 		// the trailer owns no invocation slot of its own to repair into.
@@ -790,28 +830,29 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 		if validationErr == nil {
 			validationState = domain.ValidationValid
 			if err := runtime.emitDiscardedFieldDiagnostics(invocationCtx, job, validated.DiscardedPaths()); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				return runtimePersistenceOutcome(job, err)
 			}
 		} else {
 			validationState = domain.ValidationInvalid
 		}
-		if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, false); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		securityRejected := validationErr != nil && isSecurityValidationError(validationErr)
+		if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, false); err != nil && !securityRejected {
+			return runtimePersistenceOutcome(job, err)
 		}
 		if validationErr != nil {
-			securityRejected := isSecurityValidationError(validationErr)
 			if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, securityRejected); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				if securityRejected {
+					return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, validationSecurityCause(validationErr))
+				}
+				return runtimePersistenceOutcome(job, err)
 			}
 			if securityRejected {
-				return runtimeCondition(job, AttemptConditionSecurityViolation)
+				return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, validationSecurityCause(validationErr))
 			}
 			return runtimeCondition(job, runtimeErrorCondition(invocationCtx, validationErr))
 		}
-		if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
-		}
-		return runtime.acceptExtraction(invocationCtx, job, validated, extraction.AcceptedReport(), extraction.ReportTransport())
+		outcome = runtime.acceptExtraction(invocationCtx, job, validated, extraction.AcceptedReport(), extraction.ReportTransport())
+		return runtime.captureOutcome(invocationCtx, job, validateBytes, rawStdout, stderr, outcome)
 	}
 	if job.Purpose() == domain.InvocationInitial || job.Purpose() == domain.InvocationRetry {
 		if contentClass == assistantContentFreeForm {
@@ -825,40 +866,41 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 				return outcome
 			}
 			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				return runtimePersistenceOutcome(job, err)
 			}
 			return runtimeCondition(job, AttemptConditionArtifactFailure)
 		}
 		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticOutputParseStarted, "", "", "", "", 0, false, "", 0); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			return runtimePersistenceOutcome(job, err)
 		}
 		if err := runtime.emitInvocationDiagnostic(invocationCtx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticValidationStarted, "", "", "", "", 0, false, "", 0); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			return runtimePersistenceOutcome(job, err)
 		}
 		validated, plan, validationErr := runtime.validator.Validate(invocationCtx, validateBytes, scope)
 		parseState = diagnosticParseState(validationErr, validateBytes)
 		if validationErr == nil {
 			validationState = domain.ValidationValid
 			if err := runtime.emitDiscardedFieldDiagnostics(invocationCtx, job, validated.DiscardedPaths()); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				return runtimePersistenceOutcome(job, err)
 			}
 		} else {
 			validationState = domain.ValidationInvalid
 		}
-		if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, false); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+		securityRejected := validationErr != nil && isSecurityValidationError(validationErr)
+		if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, false); err != nil && !securityRejected {
+			return runtimePersistenceOutcome(job, err)
 		}
 		if validationErr != nil {
-			securityRejected := isSecurityValidationError(validationErr)
 			if securityRejected {
+				securityCause := validationSecurityCause(validationErr)
 				if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, true); err != nil {
-					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+					return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, securityCause)
 				}
-				return runtimeCondition(job, AttemptConditionSecurityViolation)
+				return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, securityCause)
 			}
 			if plan != nil {
 				if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
-					return runtimeCondition(job, diagnosticConditionForPersistence(err))
+					return runtimePersistenceOutcome(job, err)
 				}
 				if job.Purpose() == domain.InvocationRetry {
 					return runtimeCondition(job, AttemptConditionUnrepairableProviderOutput)
@@ -883,17 +925,15 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 				return outcome
 			}
 			if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				return runtimePersistenceOutcome(job, err)
 			}
 			return runtimeCondition(job, initialValidationFailureCondition(plan, validationErr))
 		}
 		if plan != nil {
 			return runtimeCondition(job, AttemptConditionInternalInvariant)
 		}
-		if err := runtime.capture(invocationCtx, job, validateBytes, rawStdout, stderr, false); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
-		}
-		return runtime.accept(invocationCtx, job, validated, assistantContent, transport)
+		outcome = runtime.accept(invocationCtx, job, validated, assistantContent, transport)
+		return runtime.captureOutcome(invocationCtx, job, validateBytes, rawStdout, stderr, outcome)
 	}
 	if contentClass == assistantContentFreeForm {
 		// Repair responses without a structured/structured-like candidate cannot
@@ -909,7 +949,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			return outcome
 		}
 		if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			return runtimePersistenceOutcome(job, err)
 		}
 		runtime.mu.Lock()
 		delete(runtime.pending, job.AttemptID())
@@ -921,24 +961,28 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	if validationErr == nil {
 		validationState = domain.ValidationRepairedValid
 		if err := runtime.emitDiscardedFieldDiagnostics(invocationCtx, job, validated.DiscardedPaths()); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			return runtimePersistenceOutcome(job, err)
 		}
 	} else {
 		validationState = domain.ValidationRepairExhausted
 	}
-	if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, true); err != nil {
-		return runtimeCondition(job, diagnosticConditionForPersistence(err))
-	}
 	securityRejected := validationErr != nil && isSecurityValidationError(validationErr)
+	if err := runtime.emitValidationDiagnostics(invocationCtx, job, validationErr, true); err != nil && !securityRejected {
+		return runtimePersistenceOutcome(job, err)
+	}
 	if validationErr != nil {
 		if securityRejected {
+			securityCause := validationSecurityCause(validationErr)
 			if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, true); err != nil {
-				return runtimeCondition(job, diagnosticConditionForPersistence(err))
+				runtime.mu.Lock()
+				delete(runtime.pending, job.AttemptID())
+				runtime.mu.Unlock()
+				return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, securityCause)
 			}
 			runtime.mu.Lock()
 			delete(runtime.pending, job.AttemptID())
 			runtime.mu.Unlock()
-			return runtimeCondition(job, AttemptConditionSecurityViolation)
+			return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, securityCause)
 		}
 		// Repair responses must not replace the original primary report and
 		// must not persist that report as a repaired candidate.
@@ -952,21 +996,23 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 			return outcome
 		}
 		if err := runtime.capture(invocationCtx, job, nil, rawStdout, stderr, false); err != nil {
-			return runtimeCondition(job, diagnosticConditionForPersistence(err))
+			return runtimePersistenceOutcome(job, err)
 		}
 		runtime.mu.Lock()
 		delete(runtime.pending, job.AttemptID())
 		runtime.mu.Unlock()
 		return runtimeCondition(job, runtimeErrorCondition(invocationCtx, validationErr))
 	}
-	if err := runtime.capture(invocationCtx, job, repairedCandidate, rawStdout, stderr, false); err != nil {
-		return runtimeCondition(job, diagnosticConditionForPersistence(err))
-	}
 	primaryReport := append([]byte(nil), repair.primaryReport...)
 	runtime.mu.Lock()
 	delete(runtime.pending, job.AttemptID())
 	runtime.mu.Unlock()
-	return runtime.accept(invocationCtx, job, validated, primaryReport, transport)
+	outcome = runtime.accept(invocationCtx, job, validated, primaryReport, transport)
+	candidate := repairedCandidate
+	if cond, failed := outcome.Condition(); failed && isSecurityRejectionCondition(cond) {
+		candidate = nil
+	}
+	return runtime.captureOutcome(invocationCtx, job, candidate, rawStdout, stderr, outcome)
 }
 
 type explicitRuntimePromptSource struct {
@@ -998,9 +1044,10 @@ func (runtime *ProviderInvocationRuntime) accept(ctx context.Context, job Invoca
 	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
 	if err != nil {
 		if runtime.requirements != nil {
-			return runtimeCondition(job, requirementsSourceCondition(ctx, err))
+			condition, cause := requirementsSourceCondition(ctx, err)
+			return runtimeConditionWithCause(job, condition, cause)
 		}
-		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
+		return runtimeEvidenceErrorOutcome(ctx, job, runtime.liveIdentity.Valid(), err)
 	}
 	if paths, ok := exactEvidenceRepairPaths(verified); ok {
 		if job.Purpose() != domain.InvocationInitial {
@@ -1070,9 +1117,10 @@ func (runtime *ProviderInvocationRuntime) acceptExtraction(
 	verified, err := VerifyValidatedEvidence(ctx, runtime.verifier, validated.EvidenceClaims())
 	if err != nil {
 		if runtime.requirements != nil {
-			return runtimeCondition(job, requirementsSourceCondition(ctx, err))
+			condition, cause := requirementsSourceCondition(ctx, err)
+			return runtimeConditionWithCause(job, condition, cause)
 		}
-		return runtimeCondition(job, runtimeErrorCondition(ctx, err))
+		return runtimeEvidenceErrorOutcome(ctx, job, runtime.liveIdentity.Valid(), err)
 	}
 	reduced, err := ReduceVerifiedFindingEvidence(validated.Findings(), verified, runtime.policy)
 	if err != nil {
@@ -1152,7 +1200,7 @@ func (runtime *ProviderInvocationRuntime) acceptFreeFormReport(
 		return AttemptOutcome{}, false
 	}
 	if err := runtime.capture(ctx, job, candidate, rawStdout, stderr, false); err != nil {
-		return runtimeCondition(job, diagnosticConditionForPersistence(err)), true
+		return runtimePersistenceOutcome(job, err), true
 	}
 	// Retain the accepted report so the coordinator may schedule the structured
 	// extraction trailer. Only an initial invocation leaves the second slot free,
@@ -1512,6 +1560,38 @@ func runtimePurpose(purpose domain.InvocationPurpose) ports.ProviderInvocationPu
 		return ports.ProviderInvocationInitial
 	}
 }
+func isSecurityRejectionCondition(condition AttemptCondition) bool {
+	return condition == AttemptConditionSecurityViolation || condition == AttemptConditionMutationViolation
+}
+
+func persistenceOverridesCondition(current AttemptCondition, persisted AttemptOutcome) bool {
+	persistedCond, ok := persisted.Condition()
+	return ok && app.FailurePrecedence(conditionFailureClass(current)) < app.FailurePrecedence(conditionFailureClass(persistedCond))
+}
+
+func (runtime *ProviderInvocationRuntime) captureOutcome(
+	ctx context.Context,
+	job InvocationJob,
+	candidate, rawStdout, stderr []byte,
+	outcome AttemptOutcome,
+) AttemptOutcome {
+	cond, failed := outcome.Condition()
+	reject := failed && isSecurityRejectionCondition(cond)
+	if err := runtime.capture(ctx, job, candidate, rawStdout, stderr, reject); err != nil {
+		persisted := runtimePersistenceOutcome(job, err)
+		if failed && !persistenceOverridesCondition(cond, persisted) {
+			return outcome
+		}
+		if job.Purpose() == domain.InvocationInitial && cond == AttemptConditionInvalidEvidenceClaim {
+			runtime.mu.Lock()
+			delete(runtime.pending, job.AttemptID())
+			runtime.mu.Unlock()
+		}
+		return persisted
+	}
+	return outcome
+}
+
 func runtimeCondition(job InvocationJob, condition AttemptCondition) AttemptOutcome {
 	outcome, err := NewAttemptOutcome(job, nil, &condition)
 	if err != nil {
@@ -1520,9 +1600,21 @@ func runtimeCondition(job InvocationJob, condition AttemptCondition) AttemptOutc
 	return outcome
 }
 
+func runtimeConditionWithCause(job InvocationJob, condition AttemptCondition, cause domain.RuntimeDiagnosticCause) AttemptOutcome {
+	outcome := runtimeCondition(job, condition)
+	if cause.Valid() {
+		outcome.diagnosticCause = cause
+	}
+	return outcome
+}
+
 func runtimeObservedCondition(job InvocationJob, condition AttemptCondition, observation ports.ProviderExecutionObservation, measuredElapsed time.Duration) AttemptOutcome {
+	return runtimeObservedConditionWithCause(job, condition, "", observation, measuredElapsed)
+}
+
+func runtimeObservedConditionWithCause(job InvocationJob, condition AttemptCondition, cause domain.RuntimeDiagnosticCause, observation ports.ProviderExecutionObservation, measuredElapsed time.Duration) AttemptOutcome {
 	if condition != AttemptConditionProviderTimeout || observation.Validate() != nil {
-		return runtimeCondition(job, condition)
+		return runtimeConditionWithCause(job, condition, cause)
 	}
 	process, ok := observation.AvailableProcessObservation()
 	elapsed := measuredElapsed
@@ -1532,21 +1624,160 @@ func runtimeObservedCondition(job InvocationJob, condition AttemptCondition, obs
 	if elapsed < 0 {
 		elapsed = 0
 	}
-	return runtimeProviderCondition(job, condition, elapsed)
+	return runtimeProviderConditionWithCause(job, condition, cause, elapsed)
 }
 
 func runtimeProviderCondition(job InvocationJob, condition AttemptCondition, elapsed time.Duration) AttemptOutcome {
+	return runtimeProviderConditionWithCause(job, condition, "", elapsed)
+}
+
+func runtimeProviderConditionWithCause(job InvocationJob, condition AttemptCondition, cause domain.RuntimeDiagnosticCause, elapsed time.Duration) AttemptOutcome {
 	if condition != AttemptConditionProviderTimeout {
-		return runtimeCondition(job, condition)
+		return runtimeConditionWithCause(job, condition, cause)
 	}
 	if elapsed < 0 {
 		elapsed = 0
 	}
 	outcome, err := NewProviderTimeoutAttemptOutcome(job, elapsed)
 	if err != nil {
-		return runtimeCondition(job, condition)
+		return runtimeConditionWithCause(job, condition, cause)
 	}
 	return outcome
+}
+
+func classifyLiveSourceErrorNode(source *ports.LiveSourceError) (AttemptCondition, domain.RuntimeDiagnosticCause) {
+	if source.ProviderCitation() {
+		return AttemptConditionUnrepairableEvidence, ""
+	}
+	switch source.Code() {
+	case ports.LiveSourceInvalid, ports.LiveSourceUnsupported:
+		return AttemptConditionUnrepairableEvidence, ""
+	case ports.LiveSourceUnsafe:
+		return AttemptConditionSecurityViolation, domain.DiagnosticCauseLiveSourceUnsafe
+	case ports.LiveSourceUnavailable:
+		return AttemptConditionArtifactFailure, ""
+	case ports.LiveSourceConflict, ports.LiveSourceRevision, ports.LiveSourceNoMergeBase:
+		return AttemptConditionConfigurationViolation, ""
+	default:
+		return AttemptConditionInternalInvariant, ""
+	}
+}
+
+func attemptConditionForFailureClass(class domain.FailureClass) AttemptCondition {
+	switch class {
+	case domain.FailureInternal:
+		return AttemptConditionInternalInvariant
+	case domain.FailureSecurityPolicy:
+		return AttemptConditionSecurityViolation
+	case domain.FailureArtifact:
+		return AttemptConditionArtifactFailure
+	case domain.FailureConfiguration:
+		return AttemptConditionConfigurationViolation
+	case domain.FailureCancelled:
+		return AttemptConditionCancelled
+	case domain.FailureTimeout:
+		return AttemptConditionTimeout
+	case domain.FailureAuthentication:
+		return AttemptConditionAuthentication
+	case domain.FailureQuota:
+		return AttemptConditionQuota
+	case domain.FailureRateLimit:
+		return AttemptConditionRateLimit
+	case domain.FailureProviderUnavailable:
+		return AttemptConditionProviderUnavailable
+	default:
+		return AttemptConditionUnrepairableEvidence
+	}
+}
+
+func isPureContextError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var sourceErr *ports.LiveSourceError
+	var domainFailure *domain.Failure
+	if errors.As(err, &sourceErr) || errors.As(err, &domainFailure) {
+		return false
+	}
+	switch nested := err.(type) {
+	case interface{ Unwrap() []error }:
+		children := nested.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if child != nil && !isPureContextError(child) {
+				return false
+			}
+		}
+		return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	case interface{ Unwrap() error }:
+		if inner := nested.Unwrap(); inner != nil {
+			return isPureContextError(inner)
+		}
+	}
+	return err == context.Canceled || err == context.DeadlineExceeded
+}
+
+func runtimeEvidenceErrorOutcome(ctx context.Context, job InvocationJob, liveMode bool, err error) AttemptOutcome {
+	var bestCondition AttemptCondition
+	var bestCause domain.RuntimeDiagnosticCause
+	found := false
+	record := func(cond AttemptCondition, cause domain.RuntimeDiagnosticCause) {
+		if !found {
+			bestCondition, bestCause, found = cond, cause, true
+			return
+		}
+		bestPrec := app.FailurePrecedence(conditionFailureClass(bestCondition))
+		candPrec := app.FailurePrecedence(conditionFailureClass(cond))
+		if candPrec > bestPrec {
+			bestCondition, bestCause = cond, cause
+		} else if candPrec == bestPrec && bestCondition == AttemptConditionSecurityViolation && !bestCause.Valid() && cause.Valid() {
+			bestCause = cause
+		}
+	}
+	var visit func(error)
+	visit = func(current error) {
+		if current == nil {
+			return
+		}
+		switch typed := current.(type) {
+		case *ports.LiveSourceError:
+			cond, cause := classifyLiveSourceErrorNode(typed)
+			record(cond, cause)
+		case *domain.Failure:
+			record(attemptConditionForFailureClass(typed.Class()), "")
+		default:
+			if current == context.Canceled {
+				record(AttemptConditionCancelled, "")
+			} else if current == context.DeadlineExceeded {
+				record(AttemptConditionTimeout, "")
+			}
+		}
+		switch nested := current.(type) {
+		case interface{ Unwrap() []error }:
+			for _, child := range nested.Unwrap() {
+				visit(child)
+			}
+		case interface{ Unwrap() error }:
+			visit(nested.Unwrap())
+		}
+	}
+	visit(err)
+	if found {
+		effective := runtimeConditionAfterContext(ctx, bestCondition)
+		if effective != bestCondition {
+			bestCause = ""
+		}
+		return runtimeConditionWithCause(job, effective, bestCause)
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return runtimeCondition(job, runtimeContextCondition(ctx.Err()))
+	}
+	if liveMode {
+		return runtimeCondition(job, AttemptConditionInternalInvariant)
+	}
+	return runtimeCondition(job, runtimeErrorCondition(ctx, err))
 }
 
 func contextCanRunFor(ctx context.Context, duration time.Duration) bool {
@@ -1576,6 +1807,9 @@ func newProviderExecutionContext(parent context.Context, duration time.Duration)
 	return providerCtx, cancel, true
 }
 func runtimeContextCondition(err error) AttemptCondition {
+	if errors.Is(err, context.Canceled) {
+		return AttemptConditionCancelled
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return AttemptConditionTimeout
 	}
@@ -1608,26 +1842,49 @@ func runtimePromptErrorCondition(ctx context.Context, err error) AttemptConditio
 }
 func isSecurityValidationError(err error) bool {
 	cause, ok := validation.RuntimeCause(err)
-	return ok && cause == domain.DiagnosticCauseObservationMismatch
+	return ok && (cause == domain.DiagnosticCauseProviderOwnershipViolation || cause == domain.DiagnosticCauseObservationMismatch)
 }
+
+func validationSecurityCause(err error) domain.RuntimeDiagnosticCause {
+	if cause, ok := validation.RuntimeCause(err); ok && (cause == domain.DiagnosticCauseProviderOwnershipViolation || cause == domain.DiagnosticCauseObservationMismatch) {
+		return cause
+	}
+	return domain.DiagnosticCauseObservationMismatch
+}
+
 func sha256Identifier(bytes []byte) string {
 	sum := sha256.Sum256(bytes)
 	return fmt.Sprintf("sha256:%x", sum)
 }
+
 func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondition {
+	condition, _ := runtimeProviderErrorConditionAndCause(ctx, err)
+	return condition
+}
+
+func runtimeProviderErrorConditionAndCause(ctx context.Context, err error) (AttemptCondition, domain.RuntimeDiagnosticCause) {
 	var processFailure *ports.ProcessExecutionError
 	if errors.As(err, &processFailure) {
 		if cleanup, ok := processFailure.CleanupCause(); ok && runtimeCauseCondition(cleanup) == AttemptConditionSecurityViolation {
-			return runtimeConditionAfterContext(ctx, AttemptConditionSecurityViolation)
+			effective := runtimeConditionAfterContext(ctx, AttemptConditionSecurityViolation)
+			if effective != AttemptConditionSecurityViolation {
+				return effective, ""
+			}
+			return effective, cleanup
 		}
 	}
 	var condition AttemptCondition
+	var cause domain.RuntimeDiagnosticCause
 	if runtimeProviderObservedTimeout(err) {
 		condition = AttemptConditionProviderTimeout
 	} else if errors.Is(err, ports.ErrProviderInstanceAlreadyActive) {
 		condition = AttemptConditionInternalInvariant
-	} else if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) || errors.Is(err, ports.ErrProviderPacketSecurity) {
+	} else if errors.Is(err, ports.ErrWorkspaceSnapshotDrift) {
 		condition = AttemptConditionSecurityViolation
+		cause = domain.DiagnosticCauseWorkspaceRevalidationFailed
+	} else if errors.Is(err, ports.ErrProviderPacketSecurity) {
+		condition = AttemptConditionSecurityViolation
+		cause = domain.DiagnosticCauseProviderPacketSecurityRejected
 	} else if errors.Is(err, ports.ErrProviderLoginRequired) {
 		condition = AttemptConditionLoginRequired
 	} else {
@@ -1635,8 +1892,14 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 		switch {
 		case errors.As(err, &providerFailure):
 			condition = runtimeCauseCondition(providerFailure.Cause())
+			if condition == AttemptConditionSecurityViolation && providerFailure.Cause().Valid() {
+				cause = providerFailure.Cause()
+			}
 		case errors.As(err, &processFailure):
 			condition = runtimeCauseCondition(processFailure.PrimaryCause())
+			if condition == AttemptConditionSecurityViolation && processFailure.PrimaryCause().Valid() {
+				cause = processFailure.PrimaryCause()
+			}
 		case errors.Is(err, context.DeadlineExceeded):
 			condition = AttemptConditionTimeout
 		case errors.Is(err, context.Canceled):
@@ -1645,7 +1908,11 @@ func runtimeProviderErrorCondition(ctx context.Context, err error) AttemptCondit
 			condition = AttemptConditionInternalInvariant
 		}
 	}
-	return runtimeConditionAfterContext(ctx, condition)
+	effective := runtimeConditionAfterContext(ctx, condition)
+	if effective != condition {
+		cause = ""
+	}
+	return effective, cause
 }
 
 func runtimeConditionAfterContext(ctx context.Context, condition AttemptCondition) AttemptCondition {
@@ -1692,6 +1959,10 @@ func runtimeCauseCondition(cause domain.RuntimeDiagnosticCause) AttemptCondition
 		domain.DiagnosticCauseSignalReceiptMismatch,
 		domain.DiagnosticCauseObservationMismatch,
 		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		domain.DiagnosticCauseProviderOwnershipViolation,
+		domain.DiagnosticCauseLiveSourceUnsafe,
+		domain.DiagnosticCauseProviderPacketSecurityRejected,
+		domain.DiagnosticCauseDiagnosticSecurityRejected,
 		// A provider that wrote outside the single staged file it was granted
 		// breached a boundary, so staging violations fail the run closed.
 		domain.DiagnosticCauseProviderOutputStagingViolation:
@@ -1785,11 +2056,11 @@ func observedStatusCondition(status ports.ProviderExecutionStatus, cause domain.
 		return AttemptConditionProtocolEventDecodeFailed
 	case domain.DiagnosticCausePermissionDenied:
 		return AttemptConditionProviderPermissionDenied
-	case domain.DiagnosticCauseProviderOutputStagingViolation,
-		domain.DiagnosticCauseProcessGroupCleanupFailed:
-		return AttemptConditionSecurityViolation
 	case domain.DiagnosticCauseProviderOutputStagingCleanupFailed:
 		return AttemptConditionArtifactFailure
+	}
+	if status != ports.ProviderExecutionStatusMutationViolation && runtimeCauseCondition(cause) == AttemptConditionSecurityViolation {
+		return AttemptConditionSecurityViolation
 	}
 	switch status {
 	case ports.ProviderExecutionStatusUnavailable:

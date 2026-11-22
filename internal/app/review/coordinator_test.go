@@ -1939,8 +1939,11 @@ func TestCoordinatorRunDeadlineBeforeWorkerCloseForcesFailedRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RunState() != domain.RunFailed {
-		t.Fatalf("pre-close deadline run state = %q, want %q", result.RunState(), domain.RunFailed)
+	// When the enclosing run deadline fires after every role has already
+	// succeeded, finishRun projects RunCompleted from the role states rather
+	// than RunFailed with zero failed roles (which publication rejects).
+	if result.RunState() != domain.RunCompleted {
+		t.Fatalf("pre-close deadline run state = %q, want %q", result.RunState(), domain.RunCompleted)
 	}
 	for _, summary := range result.RoleSummaries() {
 		if summary.State() != domain.RoleTaskSucceeded {
@@ -2933,19 +2936,30 @@ type coordinatorTestRuntime struct {
 
 type coordinatorDiagnosticSink struct {
 	ports.RuntimeDiagnosticSink
-	events []domain.RuntimeDiagnosticEventCode
-	inputs []domain.RuntimeDiagnosticEventInput
-	failOn domain.RuntimeDiagnosticEventCode
+	events   []domain.RuntimeDiagnosticEventCode
+	inputs   []domain.RuntimeDiagnosticEventInput
+	statuses []ports.RuntimeDiagnosticAttemptStatus
+	failOn   domain.RuntimeDiagnosticEventCode
+	onEmit   func(domain.RuntimeDiagnosticEventInput)
 }
 
 func (sink *coordinatorDiagnosticSink) Emit(ctx context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
-	code := draft.Input().Event
+	input := draft.Input()
+	code := input.Event
 	sink.events = append(sink.events, code)
-	sink.inputs = append(sink.inputs, draft.Input())
+	sink.inputs = append(sink.inputs, input)
+	if sink.onEmit != nil {
+		sink.onEmit(input)
+	}
 	if code == sink.failOn {
 		return domain.RuntimeDiagnosticEvent{}, errors.New("injected diagnostic failure")
 	}
 	return sink.RuntimeDiagnosticSink.Emit(ctx, draft)
+}
+
+func (sink *coordinatorDiagnosticSink) ReplaceAttemptStatus(ctx context.Context, status ports.RuntimeDiagnosticAttemptStatus) error {
+	sink.statuses = append(sink.statuses, status)
+	return sink.RuntimeDiagnosticSink.ReplaceAttemptStatus(ctx, status)
 }
 
 func coordinatorDiagnosticRoot(t *testing.T, assignments []Assignment) (domain.Run, ports.RuntimeDiagnosticOpenRequest) {
@@ -3597,4 +3611,473 @@ func coordinatorStagedFileSuccessOutcome(job InvocationJob) AttemptOutcome {
 		return coordinatorInternalInvariantOutcome(job)
 	}
 	return coordinatorOutputOutcome(job, output)
+}
+
+func TestCoordinatorTimeoutAttemptStateFailureClassDualPathMatrix(t *testing.T) {
+	t.Run("commitOutcome-all-attempt-conditions", func(t *testing.T) {
+		for _, cancellationObserved := range []bool{false, true} {
+			for _, condition := range AttemptConditions() {
+				name := fmt.Sprintf("%s/cancelled=%t", condition, cancellationObserved)
+				t.Run(name, func(t *testing.T) {
+					assignments, receipt := coordinatorTestPlan(t)
+					var outcome AttemptOutcome
+					runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+						if job.Role() != domain.RoleLogic {
+							return coordinatorSuccessOutcome(t, job)
+						}
+						if condition == AttemptConditionValidReview {
+							outcome = coordinatorSuccessOutcome(t, job)
+							return outcome
+						}
+						if condition == AttemptConditionProviderTimeout {
+							var err error
+							outcome, err = NewProviderTimeoutAttemptOutcome(job, 250*time.Millisecond)
+							if err != nil {
+								t.Fatal(err)
+							}
+							return outcome
+						}
+						outcome = coordinatorConditionOutcome(t, job, condition)
+						return outcome
+					}}
+					// Directly exercise commitOutcome with suppressFollowup=true so every
+					// condition reaches a terminal attempt state on the initial invocation.
+					coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+					execution := coordinatorRecordExecution(t)
+					execution.coordinator = coordinator
+					execution.issuer = newCoordinatorIssuer(coordinator.clock, coordinator.ids)
+					execution.roles = make(map[domain.Role]*coordinatorRole, len(assignments))
+					for _, assignment := range assignments {
+						execution.roles[assignment.Role()] = &coordinatorRole{assignment: assignment, currentAttempt: -1}
+					}
+					if err := execution.record(CoordinatorEventRunStarted, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
+						t.Fatal(err)
+					}
+					job, err := execution.startPrimary(domain.RoleLogic)
+					if err != nil {
+						t.Fatal(err)
+					}
+					attempt := &execution.roles[domain.RoleLogic].attempts[0]
+					if err := attempt.attempt.TransitionInvocation(1, domain.InvocationRunning); err != nil {
+						t.Fatal(err)
+					}
+					invOutcome := runtime.invoke(context.Background(), job)
+					if _, err := execution.commitOutcome(job, invOutcome, condition, cancellationObserved, true); err != nil {
+						t.Fatalf("commitOutcome(%q, cancel=%t): %v", condition, cancellationObserved, err)
+					}
+					gotState := attempt.attempt.State()
+					gotClass := attempt.failureClass
+					if (gotState == domain.AttemptTimedOut) != (gotClass == domain.FailureTimeout) {
+						t.Fatalf("condition %q (cancel=%t) broke invariant AttemptTimedOut==(FailureClass==FailureTimeout): state=%q class=%q",
+							condition, cancellationObserved, gotState, gotClass)
+					}
+					if conditionTimedOut(condition) {
+						inv := attempt.attempt.Invocations()[0]
+						if cancellationObserved {
+							if gotState != domain.AttemptCancelled || gotClass != domain.FailureCancelled || inv.State() != domain.InvocationCancelled {
+								t.Fatalf("cancelled timeout condition %q = attempt:%q class:%q inv:%q, want cancelled/cancelled/cancelled",
+									condition, gotState, gotClass, inv.State())
+							}
+						} else if gotState != domain.AttemptTimedOut || gotClass != domain.FailureTimeout || inv.State() != domain.InvocationTimedOut {
+							t.Fatalf("timeout condition %q = attempt:%q class:%q inv:%q, want timed_out/timeout/timed_out",
+								condition, gotState, gotClass, inv.State())
+						}
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("cancelAll-stopCoordinatorAttempt-matrix", func(t *testing.T) {
+		type stateCase struct {
+			name           string
+			setup          func(*testing.T, *coordinatorAttempt, domain.TargetIdentity)
+			wantOnTimeout  domain.AttemptState
+			wantInvTimeout domain.InvocationState
+			wantRoleOnTO   domain.RoleTaskState
+		}
+		stateCases := []stateCase{
+			{
+				name: "running",
+				setup: func(_ *testing.T, a *coordinatorAttempt, _ domain.TargetIdentity) {
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationRunning)
+				},
+				wantOnTimeout:  domain.AttemptTimedOut,
+				wantInvTimeout: domain.InvocationTimedOut,
+				wantRoleOnTO:   domain.RoleTaskFailed,
+			},
+			{
+				name: "validating-extract-queued-accepted",
+				setup: func(t *testing.T, a *coordinatorAttempt, target domain.TargetIdentity) {
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationRunning)
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationSucceeded)
+					_ = a.attempt.Transition(domain.AttemptValidating)
+					extract, err := domain.NewInvocation(2, domain.InvocationExtract)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := a.attempt.AppendExtractInvocation(extract); err != nil {
+						t.Fatal(err)
+					}
+					out, err := NewReportsOnlyValidatedRoleOutput(domain.RoleLogic, a.route.ProviderInstance(), target, []byte("# Report\n\nAccepted.\n"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					a.extractUsed = true
+					a.acceptedOutput = &out
+				},
+				wantOnTimeout:  domain.AttemptSucceeded,
+				wantInvTimeout: domain.InvocationCancelled,
+				wantRoleOnTO:   domain.RoleTaskSucceeded,
+			},
+			{
+				name: "validating-extract-running-accepted",
+				setup: func(t *testing.T, a *coordinatorAttempt, target domain.TargetIdentity) {
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationRunning)
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationSucceeded)
+					_ = a.attempt.Transition(domain.AttemptValidating)
+					extract, err := domain.NewInvocation(2, domain.InvocationExtract)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := a.attempt.AppendExtractInvocation(extract); err != nil {
+						t.Fatal(err)
+					}
+					if err := a.attempt.TransitionInvocation(2, domain.InvocationRunning); err != nil {
+						t.Fatal(err)
+					}
+					out, err := NewReportsOnlyValidatedRoleOutput(domain.RoleLogic, a.route.ProviderInstance(), target, []byte("# Report\n\nAccepted.\n"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					a.extractUsed = true
+					a.acceptedOutput = &out
+				},
+				wantOnTimeout:  domain.AttemptSucceeded,
+				wantInvTimeout: domain.InvocationTimedOut,
+				wantRoleOnTO:   domain.RoleTaskSucceeded,
+			},
+			{
+				name: "validating-without-accepted-output",
+				setup: func(_ *testing.T, a *coordinatorAttempt, _ domain.TargetIdentity) {
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationRunning)
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationSucceeded)
+					_ = a.attempt.Transition(domain.AttemptValidating)
+				},
+				wantOnTimeout:  domain.AttemptCancelled,
+				wantInvTimeout: domain.InvocationSucceeded,
+				wantRoleOnTO:   domain.RoleTaskCancelled,
+			},
+			{
+				name: "repairing-queued",
+				setup: func(t *testing.T, a *coordinatorAttempt, _ domain.TargetIdentity) {
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationRunning)
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationSucceeded)
+					_ = a.attempt.Transition(domain.AttemptValidating)
+					_ = a.attempt.Transition(domain.AttemptRepairing)
+					repair, err := domain.NewInvocation(2, domain.InvocationRepair)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := a.attempt.AppendRepairInvocation(repair); err != nil {
+						t.Fatal(err)
+					}
+				},
+				wantOnTimeout:  domain.AttemptTimedOut,
+				wantInvTimeout: domain.InvocationCancelled,
+				wantRoleOnTO:   domain.RoleTaskFailed,
+			},
+			{
+				name: "repairing-running",
+				setup: func(t *testing.T, a *coordinatorAttempt, _ domain.TargetIdentity) {
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationRunning)
+					_ = a.attempt.TransitionInvocation(1, domain.InvocationSucceeded)
+					_ = a.attempt.Transition(domain.AttemptValidating)
+					_ = a.attempt.Transition(domain.AttemptRepairing)
+					repair, err := domain.NewInvocation(2, domain.InvocationRepair)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := a.attempt.AppendRepairInvocation(repair); err != nil {
+						t.Fatal(err)
+					}
+					if err := a.attempt.TransitionInvocation(2, domain.InvocationRunning); err != nil {
+						t.Fatal(err)
+					}
+				},
+				wantOnTimeout:  domain.AttemptTimedOut,
+				wantInvTimeout: domain.InvocationTimedOut,
+				wantRoleOnTO:   domain.RoleTaskFailed,
+			},
+		}
+		stopCases := []struct {
+			name      string
+			condition AttemptCondition
+			expireCtx bool
+			expectTO  bool
+		}{
+			{"timeout", AttemptConditionTimeout, true, true},
+			{"cancelled", AttemptConditionCancelled, false, false},
+			{"security-with-expired-workctx", AttemptConditionSecurityViolation, true, false},
+			{"internal-with-expired-workctx", AttemptConditionInternalInvariant, true, false},
+		}
+		for _, sc := range stateCases {
+			for _, stop := range stopCases {
+				t.Run(sc.name+"/"+stop.name, func(t *testing.T) {
+					assignments, receipt := coordinatorTestPlan(t)
+					runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+						return coordinatorSuccessOutcome(t, job)
+					}}
+					coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+					deadline := newCoordinatorManualDeadlineContext(context.Background())
+					if stop.expireCtx {
+						deadline.expire()
+					}
+					execution := coordinatorRecordExecution(t)
+					execution.coordinator = coordinator
+					execution.issuer = newCoordinatorIssuer(coordinator.clock, coordinator.ids)
+					execution.callerCtx = context.Background()
+					execution.runContext = deadline
+					execution.roles = make(map[domain.Role]*coordinatorRole, len(assignments))
+					for _, assignment := range assignments {
+						execution.roles[assignment.Role()] = &coordinatorRole{assignment: assignment, currentAttempt: -1}
+					}
+					if err := execution.record(CoordinatorEventRunStarted, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := execution.startPrimary(domain.RoleLogic); err != nil {
+						t.Fatal(err)
+					}
+					attempt := &execution.roles[domain.RoleLogic].attempts[0]
+					sc.setup(t, attempt, execution.run.Target())
+
+					scheduler := newInvocationScheduler(deadline, runtime, 1, receipt.TotalInvocations())
+					defer scheduler.close()
+					if err := execution.cancelAll(scheduler, stop.condition, ""); err != nil {
+						t.Fatalf("cancelAll(%q): %v", stop.condition, err)
+					}
+					gotState := attempt.attempt.State()
+					gotClass := attempt.failureClass
+					if (gotState == domain.AttemptTimedOut) != (gotClass == domain.FailureTimeout) {
+						t.Fatalf("broke invariant AttemptTimedOut==(FailureClass==FailureTimeout): state=%q class=%q", gotState, gotClass)
+					}
+					invs := attempt.attempt.Invocations()
+					lastInv := invs[len(invs)-1]
+					roleState := coordinatorRoleState(execution.run, domain.RoleLogic)
+					if stop.expectTO {
+						if gotState != sc.wantOnTimeout || lastInv.State() != sc.wantInvTimeout || roleState != sc.wantRoleOnTO {
+							t.Fatalf("timeout stop = attempt:%q inv:%q role:%q, want %q/%q/%q",
+								gotState, lastInv.State(), roleState, sc.wantOnTimeout, sc.wantInvTimeout, sc.wantRoleOnTO)
+						}
+						if sc.wantOnTimeout == domain.AttemptSucceeded {
+							role := execution.roles[domain.RoleLogic]
+							if role.output == nil || role.failureClass != "" || role.reasonCode != "" || attempt.failureClass != "" || attempt.reasonCode != "" {
+								t.Fatalf("preserved attempt retained failure facts or lost output: role=%+v attempt=%+v", role, attempt)
+							}
+						}
+					} else {
+						if gotState != domain.AttemptCancelled || gotClass != domain.FailureCancelled || roleState != domain.RoleTaskCancelled {
+							t.Fatalf("non-timeout stop %q = attempt:%q class:%q role:%q, want cancelled/cancelled/cancelled",
+								stop.condition, gotState, gotClass, roleState)
+						}
+					}
+				})
+			}
+		}
+	})
+}
+
+func TestCoordinatorDeadlineDuringFinalRoleExtractionCompletesWithConsistentDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		expireBeforeW2 bool
+		wantInv2State  domain.InvocationState
+	}{
+		{"extraction-queued-before-dispatch", true, domain.InvocationCancelled},
+		{"extraction-running", false, domain.InvocationTimedOut},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t)
+			deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
+			runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+				if job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationInitial {
+					return coordinatorReportsOnlyOutcome(t, job)
+				}
+				if job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationExtract {
+					deadlineSource.expire()
+					return coordinatorConditionOutcome(t, job, AttemptConditionTimeout)
+				}
+				return coordinatorSuccessOutcome(t, job)
+			}}
+			root, request := coordinatorDiagnosticRoot(t, assignments)
+			base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := coordinator.AdmitStructuredExtraction(); err != nil {
+				t.Fatal(err)
+			}
+			coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
+				return deadlineSource, func() {}
+			}
+			if tc.expireBeforeW2 {
+				diagnostics.onEmit = func(input domain.RuntimeDiagnosticEventInput) {
+					if input.Role == domain.RoleTesting && input.Event == domain.DiagnosticRolePathCompleted {
+						// Expire right after wave 1 finishes committing all wave-1 roles
+						// (with security's extraction queued) and before wave 2 dispatches.
+						deadlineSource.expire()
+					}
+				}
+			}
+
+			result, err := coordinator.ExecuteRun(context.Background(), &root, assignments, "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.RunState() != domain.RunCompleted {
+				t.Fatalf("run state = %q, want %q", result.RunState(), domain.RunCompleted)
+			}
+			for _, summary := range result.RoleSummaries() {
+				if summary.State() != domain.RoleTaskSucceeded || !summary.Valid() || summary.FailureClass() != "" || summary.ReasonCode() != "" {
+					t.Fatalf("role %q unexpectedly failed: %+v", summary.Role(), summary)
+				}
+			}
+			sec := coordinatorRoleByRole(t, result, domain.RoleSecurity)
+			if !sec.ReportsOnly() || string(sec.ReportMarkdown()) != coordinatorExtractionReport {
+				t.Fatalf("security lost accepted reports-only body: reportsOnly=%t body=%q", sec.ReportsOnly(), sec.ReportMarkdown())
+			}
+			secAttempt := sec.Attempts()[0]
+			if secAttempt.State() != domain.AttemptSucceeded || secAttempt.FailureClass() != "" || secAttempt.ReasonCode() != "" {
+				t.Fatalf("security attempt inconsistent: %+v", secAttempt)
+			}
+			if len(secAttempt.Invocations()) != 2 || secAttempt.Invocations()[1].State() != tc.wantInv2State {
+				t.Fatalf("security invocations = %+v, want extract state %q", secAttempt.Invocations(), tc.wantInv2State)
+			}
+
+			// Trace must record ValidReview on CoordinatorEventRoleTerminal for security.
+			foundTerminal := false
+			for _, event := range result.Trace() {
+				role, ok := event.Role()
+				if event.Kind() == CoordinatorEventRoleTerminal && ok && role == domain.RoleSecurity {
+					cond, hasCond := event.Condition()
+					if !hasCond || cond != AttemptConditionValidReview || event.Reason() != string(AttemptConditionValidReview) {
+						t.Fatalf("security role_terminal trace = cond:%q reason:%q, want valid_review", cond, event.Reason())
+					}
+					foundTerminal = true
+				}
+			}
+			if !foundTerminal {
+				t.Fatal("missing security role_terminal trace event")
+			}
+
+			// Diagnostics events and final ReplaceAttemptStatus must agree with AttemptSucceeded and empty cause.
+			foundCompletedDiag := false
+			for _, input := range diagnostics.inputs {
+				if input.Role == domain.RoleSecurity && input.Event == domain.DiagnosticAttemptCompleted {
+					if input.State != string(domain.AttemptSucceeded) || input.Cause != "" {
+						t.Fatalf("security DiagnosticAttemptCompleted = state:%q cause:%q", input.State, input.Cause)
+					}
+					foundCompletedDiag = true
+				}
+			}
+			if !foundCompletedDiag {
+				t.Fatal("missing DiagnosticAttemptCompleted for preserved security role")
+			}
+			var lastSecStatus *ports.RuntimeDiagnosticAttemptStatus
+			for i := range diagnostics.statuses {
+				if diagnostics.statuses[i].Role() == domain.RoleSecurity {
+					lastSecStatus = &diagnostics.statuses[i]
+				}
+			}
+			if lastSecStatus == nil || lastSecStatus.State() != domain.AttemptSucceeded || lastSecStatus.TerminalCause() != "" {
+				t.Fatalf("final security diagnostic attempt status = %+v, want succeeded with empty terminal cause", lastSecStatus)
+			}
+		})
+	}
+}
+
+func TestCoordinatorDiagnosticsPreserveOriginatingSecurityCauses(t *testing.T) {
+	causes := []domain.RuntimeDiagnosticCause{
+		domain.DiagnosticCauseProviderOwnershipViolation,
+		domain.DiagnosticCauseLiveSourceUnsafe,
+		domain.DiagnosticCauseWorkspaceRevalidationFailed,
+		domain.DiagnosticCauseProviderPacketSecurityRejected,
+		domain.DiagnosticCauseDiagnosticSecurityRejected,
+		domain.DiagnosticCauseObservationMismatch,
+	}
+	for _, wantCause := range causes {
+		t.Run(string(wantCause), func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t)
+			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+				if job.Role() == domain.RoleSecurity {
+					return runtimeConditionWithCause(job, AttemptConditionSecurityViolation, wantCause)
+				}
+				return coordinatorSuccessOutcome(t, job)
+			}}
+			root, request := coordinatorDiagnosticRoot(t, assignments)
+			base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := coordinator.ExecuteRun(context.Background(), &root, assignments, "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.RunState() != domain.RunCancelled {
+				t.Fatalf("run state = %q, want cancelled", result.RunState())
+			}
+			sec := coordinatorRoleByRole(t, result, domain.RoleSecurity)
+			if sec.ReasonCode() != string(AttemptConditionSecurityViolation) {
+				t.Fatalf("public reason code changed: %q", sec.ReasonCode())
+			}
+
+			var sawStopEvent, sawCancelReqEvent, sawTerminalEvent bool
+			for _, input := range diagnostics.inputs {
+				switch {
+				case input.Operation == "stop" && input.Event == domain.DiagnosticAttemptFailed && input.Role == domain.RoleSecurity:
+					if input.Cause != wantCause {
+						t.Fatalf("persistInitiatingFailure cause = %q, want %q", input.Cause, wantCause)
+					}
+					sawStopEvent = true
+				case input.Event == domain.DiagnosticRolePathCancelled:
+					if input.Cause != wantCause {
+						t.Fatalf("CoordinatorEventCancellationRequested cause = %q, want %q", input.Cause, wantCause)
+					}
+					sawCancelReqEvent = true
+				case input.Operation == "transition" && input.Event == domain.DiagnosticAttemptFailed && input.Role == domain.RoleSecurity:
+					if input.Cause != wantCause {
+						t.Fatalf("CoordinatorEventRoleTerminal cause = %q, want %q", input.Cause, wantCause)
+					}
+					sawTerminalEvent = true
+				}
+			}
+			if !sawStopEvent || !sawCancelReqEvent || !sawTerminalEvent {
+				t.Fatalf("missing expected diagnostic events: stop=%t cancelReq=%t terminal=%t", sawStopEvent, sawCancelReqEvent, sawTerminalEvent)
+			}
+
+			var lastSecStatus *ports.RuntimeDiagnosticAttemptStatus
+			for i := range diagnostics.statuses {
+				if diagnostics.statuses[i].Role() == domain.RoleSecurity {
+					lastSecStatus = &diagnostics.statuses[i]
+				}
+			}
+			if lastSecStatus == nil || lastSecStatus.TerminalCause() != wantCause {
+				t.Fatalf("ReplaceAttemptStatus TerminalCause = %v, want %q", lastSecStatus, wantCause)
+			}
+		})
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -422,6 +423,7 @@ func (*serviceIDs) NewExecutionInvocationID(time.Time) (string, error) {
 }
 
 type serviceDiagnosticFactory struct {
+	mu               sync.Mutex
 	calls            *[]string
 	openErr          error
 	finalizeErr      error
@@ -435,9 +437,12 @@ type serviceDiagnosticFactory struct {
 }
 
 func (factory *serviceDiagnosticFactory) Open(_ context.Context, request ports.RuntimeDiagnosticOpenRequest) (ports.RuntimeDiagnosticSink, error) {
+	factory.mu.Lock()
 	*factory.calls = append(*factory.calls, "sink")
-	if factory.openErr != nil {
-		return nil, factory.openErr
+	openErr := factory.openErr
+	factory.mu.Unlock()
+	if openErr != nil {
+		return nil, openErr
 	}
 	sink, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
 	if err != nil {
@@ -453,22 +458,32 @@ type serviceDiagnosticSink struct {
 
 func (sink *serviceDiagnosticSink) Emit(ctx context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
 	event := draft.Input().Event
-	if sink.factory.emitCheck != nil {
-		sink.factory.emitCheck(ctx, event)
+	sink.factory.mu.Lock()
+	emitCheck := sink.factory.emitCheck
+	sink.factory.mu.Unlock()
+	if emitCheck != nil {
+		emitCheck(ctx, event)
 	}
+	sink.factory.mu.Lock()
 	if sink.factory.refuseEvent != "" && event == sink.factory.refuseEvent && sink.factory.refusals == 0 {
 		sink.factory.refusals++
-		return domain.RuntimeDiagnosticEvent{}, sink.factory.refusal
+		refusal := sink.factory.refusal
+		sink.factory.mu.Unlock()
+		return domain.RuntimeDiagnosticEvent{}, refusal
 	}
 	sink.factory.events = append(sink.factory.events, event)
 	sink.factory.inputs = append(sink.factory.inputs, draft.Input())
+	sink.factory.mu.Unlock()
 	return sink.RuntimeDiagnosticSink.Emit(ctx, draft)
 }
 
 func (sink *serviceDiagnosticSink) Finalize(ctx context.Context, request ports.RuntimeDiagnosticFinalizeRequest) (ports.RuntimeDiagnosticFinalizeResult, error) {
+	sink.factory.mu.Lock()
 	sink.factory.finalizeRequests = append(sink.factory.finalizeRequests, request)
-	if sink.factory.finalizeErr != nil {
-		return ports.RuntimeDiagnosticFinalizeResult{}, sink.factory.finalizeErr
+	finalizeErr := sink.factory.finalizeErr
+	sink.factory.mu.Unlock()
+	if finalizeErr != nil {
+		return ports.RuntimeDiagnosticFinalizeResult{}, finalizeErr
 	}
 	return sink.RuntimeDiagnosticSink.Finalize(ctx, request)
 }

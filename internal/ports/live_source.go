@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -170,16 +171,38 @@ const (
 // LiveSourceError exposes only a typed code; native paths and Git diagnostics
 // remain in the private wrapped cause.
 type LiveSourceError struct {
-	code  LiveSourceErrorCode
-	cause error
+	code          LiveSourceErrorCode
+	cause         error
+	citationFault bool
 }
 
 func NewLiveSourceError(code LiveSourceErrorCode, cause error) *LiveSourceError {
 	return &LiveSourceError{code: code, cause: cause}
 }
+
+// NewLiveSourceCitationError marks a live-source read failure attributable to
+// an untrusted provider-cited path rather than drift or tampering of an
+// admitted source boundary.
+func NewLiveSourceCitationError(code LiveSourceErrorCode, cause error) *LiveSourceError {
+	return &LiveSourceError{code: code, cause: cause, citationFault: true}
+}
+
 func (err *LiveSourceError) Error() string             { return "live source: " + string(err.code) }
 func (err *LiveSourceError) Code() LiveSourceErrorCode { return err.code }
 func (err *LiveSourceError) Unwrap() error             { return err.cause }
+
+// ProviderCitation reports whether this error was caused by an untrusted
+// provider citation rather than real source drift or anchor failure.
+func (err *LiveSourceError) ProviderCitation() bool {
+	return err != nil && err.citationFault
+}
+
+// IsLiveSourceCitationError reports whether err wraps a provider-citation
+// live-source error.
+func IsLiveSourceCitationError(err error) bool {
+	var typed *LiveSourceError
+	return errors.As(err, &typed) && typed.ProviderCitation()
+}
 
 // LiveSourceReader owns a root lease. List and Read observe live workspace/index
 // state or fixed committed objects. Callers keep mutable state unchanged during

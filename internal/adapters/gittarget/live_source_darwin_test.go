@@ -1690,3 +1690,496 @@ func TestIntegrationLiveSourceAdmitPathObservesCurrentPath(t *testing.T) {
 	}
 	assertLiveError(t, admit("anchor.txt"), ports.LiveSourceUnsafe)
 }
+
+func TestIntegrationLiveSourceCitationFaultVsAdmittedDrift(t *testing.T) {
+	t.Run("workspace scope separates un-admitted citation faults from admitted drift and TOCTOU", func(t *testing.T) {
+		root := reviewCaptureRepository(t)
+		writeReviewFile(t, filepath.Join(root, ".gitignore"), "ignored.txt\nignored_toctou.txt\nignored_toctou_del.txt\n")
+		writeReviewFile(t, filepath.Join(root, "ignored.txt"), "ignored support\n")
+		writeReviewFile(t, filepath.Join(root, "ignored_toctou.txt"), "ignored toctou\n")
+		writeReviewFile(t, filepath.Join(root, "ignored_toctou_del.txt"), "ignored del\n")
+		writeReviewFile(t, filepath.Join(root, "admitted_del.txt"), "admitted delete\n")
+		writeReviewFile(t, filepath.Join(root, "admitted_sym.txt"), "admitted symlink\n")
+		writeReviewFile(t, filepath.Join(root, "admitted_dir.txt"), "admitted dir\n")
+		writeReviewFile(t, filepath.Join(root, "admitted_fifo.txt"), "admitted fifo\n")
+		if err := os.Mkdir(filepath.Join(root, "folder"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("tracked.txt", filepath.Join(root, "unadmitted_sym")); err != nil {
+			t.Fatal(err)
+		}
+		if err := unix.Mkfifo(filepath.Join(root, "unadmitted_fifo"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(root, ".mulgae"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeReviewFile(t, filepath.Join(root, ".mulgae", "config.yaml"), "version: 5\n")
+
+		// Open reader AFTER creating admitted files, BEFORE mutating them.
+		// Note: ignored_sym / folder / fifo are not regular admitted files;
+		// admitted_*.txt ARE in reader.admittedWorkspace.
+		// Remove unadmitted_sym/unadmitted_fifo before opening so OpenLiveSource
+		// does not fail on untracked non-regular files in workspace discovery.
+		if err := os.Remove(filepath.Join(root, "unadmitted_sym")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(root, "unadmitted_fifo")); err != nil {
+			t.Fatal(err)
+		}
+		reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+		// Now create un-admitted non-regular files post-admission (ignored/unadmitted paths).
+		if err := os.Symlink("tracked.txt", filepath.Join(root, "unadmitted_sym")); err != nil {
+			t.Fatal(err)
+		}
+		if err := unix.Mkfifo(filepath.Join(root, "unadmitted_fifo"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Readable non-excluded ignored regular support file still succeeds.
+		readTestLiveSource(t, reader, domain.LiveSourceWorktree, "ignored.txt", "ignored support\n")
+
+		// Un-admitted citation faults:
+		for _, tc := range []struct {
+			name string
+			path string
+			code ports.LiveSourceErrorCode
+		}{
+			{"missing", "does_not_exist.go", ports.LiveSourceUnavailable},
+			{"symlink", "unadmitted_sym", ports.LiveSourceUnsafe},
+			{"enotdir", "tracked.txt/sub", ports.LiveSourceUnsafe},
+			{"directory", "folder", ports.LiveSourceUnsafe},
+			{"fifo", "unadmitted_fifo", ports.LiveSourceUnsafe},
+			{"excluded-mulgae", ".mulgae/config.yaml", ports.LiveSourceUnsafe},
+			{"excluded-git", ".git/HEAD", ports.LiveSourceUnsafe},
+		} {
+			p, err := ports.NewSafeRelativePath(tc.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, readErr := reader.Read(context.Background(), domain.LiveSourceWorktree, p)
+			assertLiveError(t, readErr, tc.code)
+			if !ports.IsLiveSourceCitationError(readErr) {
+				t.Fatalf("workspace un-admitted %s: want citation fault, got unmarked %v", tc.name, readErr)
+			}
+			// AdmitPath must NEVER mark errors as citation faults.
+			admitErr := reader.AdmitPath(context.Background(), domain.LiveSourceWorktree, p)
+			assertLiveError(t, admitErr, tc.code)
+			if ports.IsLiveSourceCitationError(admitErr) {
+				t.Fatalf("AdmitPath %s unexpectedly marked citation fault", tc.name)
+			}
+		}
+		// Invalid path directly to Read -> citation fault.
+		_, invalidReadErr := reader.Read(context.Background(), domain.LiveSourceWorktree, ports.SafeRelativePath{})
+		assertLiveError(t, invalidReadErr, ports.LiveSourceUnsafe)
+		if !ports.IsLiveSourceCitationError(invalidReadErr) {
+			t.Fatalf("invalid path Read: want citation fault, got %v", invalidReadErr)
+		}
+
+		// Admitted-path drift must stay UNMARKED fail-closed:
+		if err := os.Remove(filepath.Join(root, "admitted_del.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(root, "admitted_sym.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("tracked.txt", filepath.Join(root, "admitted_sym.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(root, "admitted_dir.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(root, "admitted_dir.txt"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(root, "admitted_fifo.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := unix.Mkfifo(filepath.Join(root, "admitted_fifo.txt"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range []struct {
+			name string
+			path string
+			code ports.LiveSourceErrorCode
+		}{
+			{"admitted-deleted", "admitted_del.txt", ports.LiveSourceUnavailable},
+			{"admitted-symlink", "admitted_sym.txt", ports.LiveSourceUnsafe},
+			{"admitted-directory", "admitted_dir.txt", ports.LiveSourceUnsafe},
+			{"admitted-fifo", "admitted_fifo.txt", ports.LiveSourceUnsafe},
+		} {
+			p, _ := ports.NewSafeRelativePath(tc.path)
+			_, readErr := reader.Read(context.Background(), domain.LiveSourceWorktree, p)
+			assertLiveError(t, readErr, tc.code)
+			if ports.IsLiveSourceCitationError(readErr) {
+				t.Fatalf("workspace %s drift was wrongly downgraded to citation fault", tc.name)
+			}
+		}
+
+		// Mid-read TOCTOU reopen failure on an UN-ADMITTED ignored regular file
+		// must remain UNMARKED fail-closed (never tagged as initialOpenError).
+		concrete := reader.(*liveSourceReader)
+		pToctouSym, _ := ports.NewSafeRelativePath("ignored_toctou.txt")
+		concrete.beforeReadReopen = func() {
+			_ = os.Remove(filepath.Join(root, "ignored_toctou.txt"))
+			_ = os.Symlink("tracked.txt", filepath.Join(root, "ignored_toctou.txt"))
+		}
+		_, toctouSymErr := reader.Read(context.Background(), domain.LiveSourceWorktree, pToctouSym)
+		concrete.beforeReadReopen = nil
+		assertLiveError(t, toctouSymErr, ports.LiveSourceUnsafe)
+		if ports.IsLiveSourceCitationError(toctouSymErr) {
+			t.Fatalf("mid-read TOCTOU symlink swap on ignored file was wrongly marked as citation fault")
+		}
+
+		pToctouDel, _ := ports.NewSafeRelativePath("ignored_toctou_del.txt")
+		concrete.beforeReadReopen = func() {
+			_ = os.Remove(filepath.Join(root, "ignored_toctou_del.txt"))
+		}
+		_, toctouDelErr := reader.Read(context.Background(), domain.LiveSourceWorktree, pToctouDel)
+		concrete.beforeReadReopen = nil
+		assertLiveError(t, toctouDelErr, ports.LiveSourceUnavailable)
+		if ports.IsLiveSourceCitationError(toctouDelErr) {
+			t.Fatalf("mid-read TOCTOU deletion on ignored file was wrongly marked as citation fault")
+		}
+
+		// Cancelled ctx, nil ctx, and closed reader must fail closed BEFORE
+		// excluded/invalid path checks (never marked as citation faults).
+		excludedPath, _ := ports.NewSafeRelativePath(".mulgae/config.yaml")
+		cancelledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := reader.Read(cancelledCtx, domain.LiveSourceWorktree, excludedPath); !errors.Is(err, context.Canceled) || ports.IsLiveSourceCitationError(err) {
+			t.Fatalf("cancelled ctx with excluded path = %v, want unmarked context.Canceled", err)
+		}
+		if _, err := reader.Read(nil, domain.LiveSourceWorktree, excludedPath); err == nil || ports.IsLiveSourceCitationError(err) {
+			t.Fatalf("nil ctx with excluded path = %v, want unmarked error", err)
+		}
+		if err := reader.Close(); err != nil {
+			t.Fatal(err)
+		}
+		_, closedErr := reader.Read(context.Background(), domain.LiveSourceWorktree, excludedPath)
+		assertLiveError(t, closedErr, ports.LiveSourceUnavailable)
+		if ports.IsLiveSourceCitationError(closedErr) {
+			t.Fatalf("closed reader with excluded path was wrongly marked as citation fault")
+		}
+	})
+
+	t.Run("git scopes separate absent citations from admitted index drift and cat-file or revalidate failures", func(t *testing.T) {
+		root := reviewCaptureRepository(t)
+		writeReviewFile(t, filepath.Join(root, "staged_file.txt"), "staged\n")
+		reviewGit(t, root, "add", "staged_file.txt")
+		stage := openTestLiveSource(t, root, domain.LiveSourceStage, "")
+
+		// Un-admitted path absent on index or before -> citation fault.
+		missingPath, _ := ports.NewSafeRelativePath("never_existed.go")
+		for _, side := range []domain.LiveSourceSide{domain.LiveSourceIndex, domain.LiveSourceBefore} {
+			_, err := stage.Read(context.Background(), side, missingPath)
+			assertLiveError(t, err, ports.LiveSourceUnavailable)
+			if !ports.IsLiveSourceCitationError(err) {
+				t.Fatalf("stage %s absent path: want citation fault, got unmarked %v", side, err)
+			}
+			admitErr := stage.AdmitPath(context.Background(), side, missingPath)
+			assertLiveError(t, admitErr, ports.LiveSourceUnavailable)
+			if ports.IsLiveSourceCitationError(admitErr) {
+				t.Fatalf("stage AdmitPath %s unexpectedly marked citation fault", side)
+			}
+		}
+		// Excluded path on stage -> citation fault.
+		gitPath, _ := ports.NewSafeRelativePath(".git/config")
+		_, exclErr := stage.Read(context.Background(), domain.LiveSourceIndex, gitPath)
+		assertLiveError(t, exclErr, ports.LiveSourceUnsafe)
+		if !ports.IsLiveSourceCitationError(exclErr) {
+			t.Fatalf("stage excluded path: want citation fault, got unmarked %v", exclErr)
+		}
+
+		// Admitted index path removed after admission -> unmarked fail-closed drift!
+		reviewGit(t, root, "rm", "--cached", "staged_file.txt")
+		stagedPath, _ := ports.NewSafeRelativePath("staged_file.txt")
+		_, driftErr := stage.Read(context.Background(), domain.LiveSourceIndex, stagedPath)
+		assertLiveError(t, driftErr, ports.LiveSourceUnavailable)
+		if ports.IsLiveSourceCitationError(driftErr) {
+			t.Fatalf("admitted index path removal was wrongly marked as citation fault")
+		}
+
+		// cat-file failure (removed blob object) -> unmarked fail-closed!
+		trackedPath, _ := ports.NewSafeRelativePath("tracked.txt")
+		blobOID := reviewGitOutput(t, root, "rev-parse", "HEAD:tracked.txt")
+		objPath := filepath.Join(root, ".git", "objects", blobOID[:2], blobOID[2:])
+		if err := os.Chmod(objPath, 0o600); err == nil {
+			if err := os.Remove(objPath); err != nil {
+				t.Fatal(err)
+			}
+			_, catErr := stage.Read(context.Background(), domain.LiveSourceBefore, trackedPath)
+			assertLiveError(t, catErr, ports.LiveSourceUnavailable)
+			if ports.IsLiveSourceCitationError(catErr) {
+				t.Fatalf("cat-file failure was wrongly marked as citation fault")
+			}
+		}
+
+		// Root replacement (revalidate failure) -> unmarked fail-closed!
+		if err := os.Rename(root, root+"-moved"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, revalErr := stage.Read(context.Background(), domain.LiveSourceIndex, trackedPath)
+		assertLiveError(t, revalErr, ports.LiveSourceUnsafe)
+		if ports.IsLiveSourceCitationError(revalErr) {
+			t.Fatalf("root revalidation failure was wrongly marked as citation fault")
+		}
+	})
+
+	t.Run("workspace case-variant tampered file and tampered admitted ancestor dirs fail closed while preserving bounded citations", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "src"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, "intact"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, "gone"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeReviewFile(t, filepath.Join(root, "tracked.txt"), "regular\n")
+		writeReviewFile(t, filepath.Join(root, "src", "auth.go"), "package src\n")
+		writeReviewFile(t, filepath.Join(root, "pkg", "a.go"), "package pkg\n")
+		writeReviewFile(t, filepath.Join(root, "intact", "ok.go"), "package intact\n")
+		writeReviewFile(t, filepath.Join(root, "gone", "f.go"), "package gone\n")
+
+		reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+
+		// Bounded citations that MUST remain citation faults:
+		// 1. Intact admitted directory cited directly (errLiveDirectory) -> citation fault.
+		intactDir, _ := ports.NewSafeRelativePath("intact")
+		_, dirCiteErr := reader.Read(context.Background(), domain.LiveSourceWorktree, intactDir)
+		assertLiveError(t, dirCiteErr, ports.LiveSourceUnsafe)
+		if !ports.IsLiveSourceCitationError(dirCiteErr) {
+			t.Fatalf("intact dir citation should be bounded citation fault, got unmarked %v", dirCiteErr)
+		}
+		// 2. Non-existent file typo inside intact admitted directory (ENOENT) -> citation fault.
+		typoInIntact, _ := ports.NewSafeRelativePath("intact/typo.go")
+		_, typoErr := reader.Read(context.Background(), domain.LiveSourceWorktree, typoInIntact)
+		assertLiveError(t, typoErr, ports.LiveSourceUnavailable)
+		if !ports.IsLiveSourceCitationError(typoErr) {
+			t.Fatalf("typo inside intact dir should be bounded citation fault, got unmarked %v", typoErr)
+		}
+		// 3. ENOTDIR through an admitted regular FILE (tracked.txt/sub) -> citation fault.
+		subUnderFile, _ := ports.NewSafeRelativePath("tracked.txt/sub")
+		_, fileSubErr := reader.Read(context.Background(), domain.LiveSourceWorktree, subUnderFile)
+		assertLiveError(t, fileSubErr, ports.LiveSourceUnsafe)
+		if !ports.IsLiveSourceCitationError(fileSubErr) {
+			t.Fatalf("ENOTDIR on admitted file tracked.txt/sub should be bounded citation fault, got unmarked %v", fileSubErr)
+		}
+
+		// Tamper admitted file src/auth.go with a symlink; case-variant src/Auth.go
+		// on case-insensitive APFS MUST fail closed (unmarked LiveSourceUnsafe).
+		if err := os.Remove(filepath.Join(root, "src", "auth.go")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(root, "tracked.txt"), filepath.Join(root, "src", "auth.go")); err != nil {
+			t.Fatal(err)
+		}
+		// Check whether the host temp filesystem resolves src/Auth.go to the symlink (APFS default).
+		caseVariant, _ := ports.NewSafeRelativePath("src/Auth.go")
+		_, caseErr := reader.Read(context.Background(), domain.LiveSourceWorktree, caseVariant)
+		if errors.Is(caseErr, unix.ELOOP) {
+			assertLiveError(t, caseErr, ports.LiveSourceUnsafe)
+			if ports.IsLiveSourceCitationError(caseErr) {
+				t.Fatalf("case-variant tampered admitted file src/Auth.go downgraded to citation fault")
+			}
+		}
+
+		// Replace admitted ancestor directory pkg with a symlink -> citing pkg/other.go
+		// MUST fail closed (unmarked LiveSourceUnsafe).
+		if err := os.RemoveAll(filepath.Join(root, "pkg")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(root, "intact"), filepath.Join(root, "pkg")); err != nil {
+			t.Fatal(err)
+		}
+		pkgOther, _ := ports.NewSafeRelativePath("pkg/other.go")
+		_, symDirErr := reader.Read(context.Background(), domain.LiveSourceWorktree, pkgOther)
+		assertLiveError(t, symDirErr, ports.LiveSourceUnsafe)
+		if ports.IsLiveSourceCitationError(symDirErr) {
+			t.Fatalf("symlink-replaced admitted ancestor dir pkg/other.go downgraded to citation fault")
+		}
+		pkgDirect, _ := ports.NewSafeRelativePath("pkg")
+		_, symDirLeafErr := reader.Read(context.Background(), domain.LiveSourceWorktree, pkgDirect)
+		assertLiveError(t, symDirLeafErr, ports.LiveSourceUnsafe)
+		if ports.IsLiveSourceCitationError(symDirLeafErr) {
+			t.Fatalf("symlink-replaced admitted dir leaf pkg downgraded to citation fault")
+		}
+
+		// Replace pkg with a regular file (ENOTDIR on admitted ancestor dir) -> unmarked LiveSourceUnsafe.
+		// Direct Read("pkg") and case-alias Read("PKG") MUST also fail closed instead of returning tampered regular bytes (O2-3).
+		if err := os.Remove(filepath.Join(root, "pkg")); err != nil {
+			t.Fatal(err)
+		}
+		writeReviewFile(t, filepath.Join(root, "pkg"), "not a directory\n")
+		_, fileDirErr := reader.Read(context.Background(), domain.LiveSourceWorktree, pkgOther)
+		assertLiveError(t, fileDirErr, ports.LiveSourceUnsafe)
+		if ports.IsLiveSourceCitationError(fileDirErr) {
+			t.Fatalf("regular-file-replaced admitted ancestor dir pkg/other.go downgraded to citation fault")
+		}
+		_, directRegErr := reader.Read(context.Background(), domain.LiveSourceWorktree, pkgDirect)
+		assertLiveError(t, directRegErr, ports.LiveSourceUnsafe)
+		if ports.IsLiveSourceCitationError(directRegErr) {
+			t.Fatalf("direct Read of regular-file-replaced admitted dir pkg downgraded or succeeded: %v", directRegErr)
+		}
+		pkgUpper, _ := ports.NewSafeRelativePath("PKG")
+		_, upperRegErr := reader.Read(context.Background(), domain.LiveSourceWorktree, pkgUpper)
+		if upperRegErr == nil {
+			t.Fatal("direct Read of case-alias PKG returned tampered regular-file bytes")
+		}
+		if ports.IsLiveSourceCitationError(upperRegErr) {
+			t.Fatalf("direct Read of case-alias PKG downgraded to citation fault: %v", upperRegErr)
+		}
+
+		// Delete admitted ancestor directory gone -> citing gone/other.go MUST fail closed (unmarked).
+		if err := os.RemoveAll(filepath.Join(root, "gone")); err != nil {
+			t.Fatal(err)
+		}
+		goneOther, _ := ports.NewSafeRelativePath("gone/other.go")
+		_, delDirErr := reader.Read(context.Background(), domain.LiveSourceWorktree, goneOther)
+		assertLiveError(t, delDirErr, ports.LiveSourceUnavailable)
+		if ports.IsLiveSourceCitationError(delDirErr) {
+			t.Fatalf("deleted admitted ancestor dir gone/other.go downgraded to citation fault")
+		}
+	})
+
+	t.Run("O2-5 admitted file ancestor tamper, deleted case-alias, and Unicode NFD/NFC alias tamper fail closed", func(t *testing.T) {
+		root := t.TempDir()
+		writeReviewFile(t, filepath.Join(root, "tracked.txt"), "intact\n")
+		writeReviewFile(t, filepath.Join(root, "symfile.go"), "package sym\n")
+		writeReviewFile(t, filepath.Join(root, "delfile.go"), "package del\n")
+		nfcName := "caf\u00e9.go"
+		nfdName := "cafe\u0301.go"
+		writeReviewFile(t, filepath.Join(root, nfcName), "package cafe\n")
+
+		reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+
+		// Intact admitted regular file cited as ancestor prefix (tracked.txt/sub -> ENOTDIR) stays bounded citation fault.
+		intactSub, _ := ports.NewSafeRelativePath("tracked.txt/sub")
+		_, intactSubErr := reader.Read(context.Background(), domain.LiveSourceWorktree, intactSub)
+		assertLiveError(t, intactSubErr, ports.LiveSourceUnsafe)
+		if !ports.IsLiveSourceCitationError(intactSubErr) {
+			t.Fatalf("intact tracked.txt/sub should stay bounded citation fault, got unmarked %v", intactSubErr)
+		}
+
+		// Replace admitted regular file symfile.go with a symlink -> symfile.go/sub (and SYMFILE.GO/sub) MUST fail closed.
+		if err := os.Remove(filepath.Join(root, "symfile.go")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(root, "tracked.txt"), filepath.Join(root, "symfile.go")); err != nil {
+			t.Fatal(err)
+		}
+		for _, candidate := range []string{"symfile.go/sub", "SYMFILE.GO/sub"} {
+			symSub, _ := ports.NewSafeRelativePath(candidate)
+			_, symSubErr := reader.Read(context.Background(), domain.LiveSourceWorktree, symSub)
+			assertLiveError(t, symSubErr, ports.LiveSourceUnsafe)
+			if ports.IsLiveSourceCitationError(symSubErr) {
+				t.Fatalf("symlink-replaced admitted file ancestor %q downgraded to citation fault", candidate)
+			}
+		}
+
+		// Delete admitted regular file delfile.go -> delfile.go/sub, DELFILE.GO/sub, and leaf DELFILE.GO MUST fail closed.
+		if err := os.Remove(filepath.Join(root, "delfile.go")); err != nil {
+			t.Fatal(err)
+		}
+		for _, candidate := range []string{"delfile.go/sub", "DELFILE.GO/sub", "DELFILE.GO"} {
+			p, _ := ports.NewSafeRelativePath(candidate)
+			_, delErr := reader.Read(context.Background(), domain.LiveSourceWorktree, p)
+			assertLiveError(t, delErr, ports.LiveSourceUnavailable)
+			if ports.IsLiveSourceCitationError(delErr) {
+				t.Fatalf("deleted admitted file citation %q downgraded to citation fault", candidate)
+			}
+		}
+
+		// Replace Unicode admitted file with a symlink -> NFD alias MUST fail closed.
+		if err := os.Remove(filepath.Join(root, nfcName)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(root, "tracked.txt"), filepath.Join(root, nfcName)); err != nil {
+			t.Fatal(err)
+		}
+		nfdPath, _ := ports.NewSafeRelativePath(nfdName)
+		_, nfdErr := reader.Read(context.Background(), domain.LiveSourceWorktree, nfdPath)
+		assertLiveError(t, nfdErr, ports.LiveSourceUnsafe)
+		if ports.IsLiveSourceCitationError(nfdErr) {
+			t.Fatalf("Unicode NFD alias of tampered admitted file downgraded to citation fault")
+		}
+	})
+
+	t.Run("O3-2/O3-3 admitted file replaced by directory and root replacement with excluded path fail closed", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeReviewFile(t, filepath.Join(root, "pkg", "a.go"), "package pkg\n")
+		writeReviewFile(t, filepath.Join(root, "tracked.txt"), "intact\n")
+		writeReviewFile(t, filepath.Join(root, "dir_victim.txt"), "original regular file\n")
+
+		reader := openTestLiveSource(t, root, domain.LiveSourceWorkspace, "")
+
+		// Intact pkg/missing.go, PKG/missing.go (wrong-case lookup on intact dir), and tracked.txt/sub stay bounded citation faults.
+		for _, tc := range []struct {
+			path string
+			code ports.LiveSourceErrorCode
+		}{
+			{"pkg/missing.go", ports.LiveSourceUnavailable},
+			{"PKG/missing.go", ports.LiveSourceUnavailable},
+			{"tracked.txt/sub", ports.LiveSourceUnsafe},
+		} {
+			p, _ := ports.NewSafeRelativePath(tc.path)
+			_, err := reader.Read(context.Background(), domain.LiveSourceWorktree, p)
+			assertLiveError(t, err, tc.code)
+			if !ports.IsLiveSourceCitationError(err) {
+				t.Fatalf("intact bounded citation %q unexpectedly failed closed: %v", tc.path, err)
+			}
+		}
+
+		// Replace admitted regular file dir_victim.txt with a directory containing sub and link ->
+		// ALL descendant lookups (existing regular, case alias, missing, symlink, nested missing dir) MUST fail closed with unmarked LiveSourceUnsafe (O3-2).
+		if err := os.Remove(filepath.Join(root, "dir_victim.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, "dir_victim.txt"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeReviewFile(t, filepath.Join(root, "dir_victim.txt", "sub"), "tampered bytes\n")
+		if err := os.Symlink(filepath.Join(root, "tracked.txt"), filepath.Join(root, "dir_victim.txt", "link")); err != nil {
+			t.Fatal(err)
+		}
+		for _, candidate := range []string{
+			"dir_victim.txt/sub",
+			"DIR_VICTIM.TXT/sub",
+			"dir_victim.txt/missing",
+			"dir_victim.txt/link",
+			"dir_victim.txt/missingdir/x",
+		} {
+			p, _ := ports.NewSafeRelativePath(candidate)
+			_, err := reader.Read(context.Background(), domain.LiveSourceWorktree, p)
+			assertLiveError(t, err, ports.LiveSourceUnsafe)
+			if ports.IsLiveSourceCitationError(err) {
+				t.Fatalf("directory-replaced admitted file citation %q downgraded to citation fault", candidate)
+			}
+		}
+
+		// O3-3: Replacing project root MUST fail closed with unmarked LiveSourceUnsafe even when citing an excluded path (.mulgae/config.yaml).
+		if err := os.Rename(root, root+"-replaced"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		excludedPath, _ := ports.NewSafeRelativePath(".mulgae/config.yaml")
+		_, revalExcludedErr := reader.Read(context.Background(), domain.LiveSourceWorktree, excludedPath)
+		assertLiveError(t, revalExcludedErr, ports.LiveSourceUnsafe)
+		if ports.IsLiveSourceCitationError(revalExcludedErr) {
+			t.Fatalf("replaced project root with excluded path downgraded to citation fault")
+		}
+	})
+}

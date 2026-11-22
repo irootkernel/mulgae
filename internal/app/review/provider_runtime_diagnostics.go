@@ -363,6 +363,18 @@ func diagnosticConditionForPersistence(err error) AttemptCondition {
 	return AttemptConditionArtifactFailure
 }
 
+func diagnosticCauseForPersistence(err error) domain.RuntimeDiagnosticCause {
+	var rejection *ports.RuntimeDiagnosticSecurityRejectionError
+	if errors.As(err, &rejection) {
+		return domain.DiagnosticCauseDiagnosticSecurityRejected
+	}
+	return ""
+}
+
+func runtimePersistenceOutcome(job InvocationJob, err error) AttemptOutcome {
+	return runtimeConditionWithCause(job, diagnosticConditionForPersistence(err), diagnosticCauseForPersistence(err))
+}
+
 func diagnosticParseState(err error, output []byte) domain.ParseState {
 	if err == nil {
 		return domain.ParseValid

@@ -531,7 +531,17 @@ Role-path deadlines are calculated from initial-to-second-invocation dependencie
 process capacity. Before an invocation starts, the runtime still requires
 enough enclosing budget for the provider's complete configured timeout window;
 removing provider locks does not weaken that check. Provider-observed timeouts
-remain distinct from an enclosing deadline exhausted before provider start.
+remain distinct from an enclosing deadline exhausted before provider start, and
+both timeout conditions project `AttemptTimedOut` paired with `FailureTimeout`
+so published run manifests preserve the `AttemptTimedOut == (FailureClass == FailureTimeout)`
+invariant. When an enclosing run deadline expires while a role with an already
+accepted output is awaiting or executing optional structured extraction, the
+coordinator terminates only the extraction invocation and completes the role as
+`AttemptSucceeded` / `RoleTaskSucceeded` with its accepted report intact. A run
+stopped by the enclosing run deadline projects `RunCompleted` when every role
+ended `RoleTaskSucceeded` and `RunFailed` when any role failed; higher-precedence
+non-timeout stops never project `AttemptTimedOut` even if the run deadline
+expires concurrently.
 
 Project-local publication retains a context-aware filesystem lock because it
 mutates shared durable state. It serializes publication to one project across
