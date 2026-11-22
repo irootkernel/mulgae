@@ -29,7 +29,7 @@ func TestProtocolStringResponseMatches(t *testing.T) {
 		{name: "empty string", raw: `""`, expected: []string{""}, want: true},
 		{name: "matching", raw: `"mulgae-create"`, expected: []string{"mulgae-create"}, want: true},
 		{name: "other request", raw: `"mulgae-send"`, expected: []string{"mulgae-create"}},
-		{name: "other family prefix", raw: `"cursor-new"`, expected: []string{"mulgae-create"}},
+		{name: "other prefix", raw: `"other-new"`, expected: []string{"mulgae-create"}},
 		{name: "escaped equivalent", raw: `"mulgae-\u0063reate"`, expected: []string{"mulgae-create"}, want: true},
 		{name: "surrounding JSON whitespace", raw: " \t\"mulgae-create\"\n", expected: []string{"mulgae-create"}, want: true},
 		{name: "trailing value", raw: `"mulgae-create" {}`, expected: []string{"mulgae-create"}},
@@ -50,16 +50,6 @@ func TestProtocolStringResponseMatches(t *testing.T) {
 		})
 	}
 
-	t.Run("cursor retains textual ID projection", func(t *testing.T) {
-		for _, test := range []struct{ raw, want string }{
-			{`17`, "17"}, {`"17"`, "17"}, {`null`, "null"}, {`"cursor-new"`, "cursor-new"},
-			{`"cursor-\u006eew"`, `cursor-\u006eew`}, {" \"cursor-new\" \n", "cursor-new"},
-		} {
-			if got := messageIDText(json.RawMessage(test.raw)); got != test.want {
-				t.Errorf("Cursor ID %q = %q, want %q", test.raw, got, test.want)
-			}
-		}
-	})
 	t.Run("codex retains integer response IDs", func(t *testing.T) {
 		for _, raw := range []string{`1`, `"1"`, `null`, `0`, `4`, `1.0`, `true`, `{}`} {
 			state := codexConversation{phase: ports.ProviderSessionPhaseCreate}
@@ -147,7 +137,7 @@ func TestProtocolDiagnosticIdentifierGrammar(t *testing.T) {
 				want = test.value
 			}
 			for family, sanitize := range map[string]func(string) string{
-				"zcode": sanitizeProtocolDiagnosticIdentifier, "cursor": sanitizeProtocolDiagnosticIdentifier, "agy": sanitizeProtocolDiagnosticIdentifier,
+				"zcode": sanitizeProtocolDiagnosticIdentifier, "agy": sanitizeProtocolDiagnosticIdentifier,
 			} {
 				got := sanitize(test.value)
 				if got != want {

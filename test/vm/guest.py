@@ -281,18 +281,14 @@ def run(suite: str, mode: str, job: str, lease: int, uuid: str, bundle: Path, re
                            MULGAE_TEST_PREPARED_MANIFEST=str(bundle/"artifacts/candidate.json"),
                            MULGAE_E2E_ZCODE_APP_BUNDLE=live["zcode"]["app_bundle"],
                            MULGAE_E2E_GROK_EXECUTABLE=live["grok"]["executable"],
-                           MULGAE_E2E_CURSOR_EXECUTABLE=live["cursor"]["executable"],
                            MULGAE_E2E_AGY_EXECUTABLE=live["agy"]["executable"],
                            MULGAE_E2E_CODEX_EXECUTABLE=live["codex"]["executable"],
                            MULGAE_E2E_CODEX_PRIMARY_HOME=live["codex"]["primary_home"],
                            MULGAE_MCP_CODEX_BINARY=live["mcp_clients"]["codex_binary"],
                            MULGAE_MCP_CLAUDE_BINARY=live["mcp_clients"]["claude_binary"])
-                token_name = live["cursor"]["token_env_var"]
-                if token_name != "CURSOR_AUTH_TOKEN" or not os.environ.get(token_name):
-                    raise Refusal("the guest invoking process lacks the admitted Cursor token")
                 # Pin declared executable paths before the first live call. No sign-in,
                 # profile, launcher or account configuration is performed here.
-                for path in (live["grok"]["executable"], live["cursor"]["executable"],
+                for path in (live["grok"]["executable"],
                              live["agy"]["executable"], live["codex"]["executable"],
                              live["mcp_clients"]["codex_binary"], live["mcp_clients"]["claude_binary"]):
                     if not Path(path).is_absolute() or not os.access(path, os.X_OK):
@@ -314,7 +310,7 @@ def run(suite: str, mode: str, job: str, lease: int, uuid: str, bundle: Path, re
                     write_json(resource, {"schema":"haepari.resource/v1","id":"mulgae-review","kind":"lock","capacity":1})
                     execute([native, "resource", "register", "--file", str(resource), "--json"],
                             work, env, results/"live-resource.log")
-                    for target in ("test-e2e", "test-grok", "test-cursor", "test-agy",
+                    for target in ("test-e2e", "test-grok", "test-agy",
                                    "test-e2e-opt-in", "test-mcp-requirements-clients"):
                         target_env = dict(env, MULGAE_E2E_OPT_IN="1")
                         execute(["make", target], bundle/"source", target_env, results/(target+".log"))
@@ -332,7 +328,7 @@ def run(suite: str, mode: str, job: str, lease: int, uuid: str, bundle: Path, re
                     UNVERIFIED_GROUPS.append(daemon.pid if daemon is not None else os.getpid())
                 write_json(results/"live-providers-summary.json", dict(
                     identity, schema="mulgae.vm-live-providers-summary/v1", serial_execution=True,
-                    targets=targets, status="pass" if len(targets) == 6 else "fail",
+                    targets=targets, status="pass" if len(targets) == 5 else "fail",
                 ))
         else:
             raise Refusal("unsupported guest suite")

@@ -83,7 +83,7 @@ func decodeVerifiedConsumerEnvelope(raw []byte, transport, operation string, leg
 		return nil, err
 	}
 	if transport == "cli" {
-		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19" && envelope.SchemaVersion != "mulgae-command-result.v20" && envelope.SchemaVersion != "mulgae-command-result.v21" && envelope.SchemaVersion != "mulgae-command-result.v22" && envelope.SchemaVersion != "mulgae-command-result.v23") {
+		if envelope.Command != operation || envelope.SchemaVersion != "mulgae-command-result.v13" && (legacy || envelope.SchemaVersion != "mulgae-command-result.v18" && envelope.SchemaVersion != "mulgae-command-result.v19" && envelope.SchemaVersion != "mulgae-command-result.v20" && envelope.SchemaVersion != "mulgae-command-result.v21" && envelope.SchemaVersion != "mulgae-command-result.v22" && envelope.SchemaVersion != "mulgae-command-result.v23" && envelope.SchemaVersion != "mulgae-command-result.v24") {
 			return nil, fmt.Errorf("unsupported CLI contract")
 		}
 		if envelope.Exit == nil || envelope.Exit.Code == nil || *envelope.Exit.Code != 0 || envelope.Exit.Kind != "success" || envelope.Reasons == nil {
@@ -222,7 +222,7 @@ func TestVerifiedWorkflowFrozenConsumers(t *testing.T) {
 	}
 }
 
-func TestVerifiedConsumerAcceptsCurrentV23WithoutUpgradingHistoricalIdentity(t *testing.T) {
+func TestVerifiedConsumerAcceptsCurrentV24WithoutUpgradingHistoricalIdentity(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "verified-consumer", "current-cli.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +231,7 @@ func TestVerifiedConsumerAcceptsCurrentV23WithoutUpgradingHistoricalIdentity(t *
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	envelope["schema_version"] = json.RawMessage(`"mulgae-command-result.v23"`)
+	envelope["schema_version"] = json.RawMessage(`"mulgae-command-result.v24"`)
 	raw, err = json.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)

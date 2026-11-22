@@ -116,8 +116,6 @@ func credentialFamilyForRuntime(family string) (CredentialSourceFamily, error) {
 		return CredentialSourceGrok, nil
 	case FamilyCodex:
 		return CredentialSourceCodex, nil
-	case FamilyCursor:
-		return CredentialSourceCursor, nil
 	case FamilyAgy:
 		return CredentialSourceAgy, nil
 	default:

@@ -769,7 +769,7 @@ func TestNonGrokFamiliesNeverTouchHerdrCoreAndReceiveSharedControlPlaneRoots(t *
 		t.Fatal(err)
 	}
 
-	for _, family := range []string{FamilyZcode, FamilyCodex, FamilyCursor, FamilyAgy} {
+	for _, family := range []string{FamilyZcode, FamilyCodex, FamilyAgy} {
 		t.Run(family, func(t *testing.T) {
 			nsRoot := filepath.Join(base, "ns-"+family)
 			nsBase, err := NewNamespaceFactory(nsRoot)

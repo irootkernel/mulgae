@@ -351,7 +351,7 @@ func productionLiveSources(config appconfig.Config, project ports.AnchoredRoot, 
 
 // productionLiveControlPlanePaths computes the shared herdr-core control-plane
 // roots and literal socket denials applied to every live provider boundary
-// (ZCode, Codex, Cursor, AGY, and Grok).
+// (ZCode, Codex, AGY, and Grok).
 func productionLiveControlPlanePaths(nativeHome string) ([]ports.AnchoredRoot, []ports.AnchoredRoot, error) {
 	homeRoot, err := ports.NewAnchoredRoot(nativeHome)
 	if err != nil {

@@ -152,6 +152,29 @@ func TestAgyProtocolRejectsInvalidFramesAndNeverReturnsPartialEvidence(t *testin
 		}
 	}
 }
+
+func TestAgyMultipleUnfinishedStepsRetainSameRefusal(t *testing.T) {
+	for _, indices := range [][]int{{2}, {2, 10}, {10, 2}} {
+		session := agyTestSession(t)
+		frames := [][]byte{agyTestInit()}
+		for _, index := range indices {
+			frames = append(frames, agyTestStep(map[string]any{
+				"conversation_id": "conversation-1",
+				"step_index":      index,
+				"step_type":       "tool",
+				"state":           "ACTIVE",
+				"tool_name":       "view_file",
+				"tool_info":       map[string]any{"parameters": map[string]string{"AbsolutePath": "/source/a"}},
+			}))
+		}
+		frames = append(frames, agyTestResult(nil))
+		err := session.Drive(context.Background(), &agyTestExchange{frames: frames})
+		assertTask064ProtocolCause(t, err, domain.DiagnosticCauseProviderTurnFailed)
+		if !strings.Contains(err.Error(), "unfinished tool operation at result") || len(session.AssistantEvidenceText()) != 0 {
+			t.Fatalf("unfinished AGY steps %v changed acceptance: %v", indices, err)
+		}
+	}
+}
 func TestAgyCanonicalFileReadKeepsClosedOperandsAndPurpose(t *testing.T) {
 	for _, test := range []struct {
 		name       string
@@ -262,7 +285,7 @@ func TestAgySettingsAndArgvPreserveNativeSelection(t *testing.T) {
 
 func TestAgyRuntimeBuilderRejectsCrossFamilySettings(t *testing.T) {
 	const identity = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	for _, family := range []string{FamilyCodex, FamilyGrok, FamilyCursor, FamilyAgy} {
+	for _, family := range []string{FamilyCodex, FamilyGrok, FamilyAgy} {
 		t.Run(family, func(t *testing.T) {
 			channel := ports.ProviderPacketChannelProtocol
 			if family == FamilyGrok {

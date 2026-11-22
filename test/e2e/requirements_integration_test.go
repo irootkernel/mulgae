@@ -71,13 +71,13 @@ func TestIntegrationIsolatedReleaseFixtureRequirements(t *testing.T) {
 		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
 			t.Fatal(err)
 		}
-		if envelope["schema_version"] != "mulgae-command-result.v23" {
+		if envelope["schema_version"] != "mulgae-command-result.v24" {
 			t.Fatal("obsolete public envelope")
 		}
 		return envelope["result"].(map[string]any)
 	}
 	preflight := cli(0, "review", "--workspace", "--roles", "logic", "--requirements", "requirements.json", "--preflight")["preflight"].(map[string]any)
-	if preflight["schema_version"] != "mulgae-review-preflight.v11" || preflight["requirements"].(map[string]any)["execution_available"] != true {
+	if preflight["schema_version"] != "mulgae-review-preflight.v12" || preflight["requirements"].(map[string]any)["execution_available"] != true {
 		t.Fatal("Git requirements execution not advertised")
 	}
 	binding := preflight["project_binding"].(string)

@@ -122,8 +122,6 @@ read its independent recorded evidence; those reads do not grant live review or
 publication authority. Native-home cancellation retains its original cause in
 the application service. Doctor projects public exit 9; providers retains its
 existing public exit 7 projection for requested cancellation.
-Cursor uses the same direct version argv, disposable home and identity checks;
-calendar/hash normalization does not authorize a model request.
 
 The separate `heartbeat` command crosses the live boundary only when
 `--authorize-live-request` is present. The handler rejects an unapproved request
@@ -173,7 +171,7 @@ Git transport protocols. This does not rewrite caller configuration.
 
 ### Provider read and write boundaries
 
-Protocol providers (ZCode, Codex, Cursor, and AGY) produce all live reports from
+Protocol providers (ZCode, Codex, and AGY) produce all live reports from
 complete, correlated assistant turns and receive no report-file write grant for
 review, repair, or extraction. Managed terminal providers (Grok) stage one
 per-invocation output file inside their private namespace scratch directory
@@ -230,19 +228,6 @@ verified provider drain.
   are denied to model tools. Only the selected authentication file enters its
   disposable home; user config, rules, skills and plugins are not projected.
   Loaded project instructions and unexpected server requests fail closed.
-- Cursor uses ACP over stdio. Review and extraction
-  require an outer Seatbelt guard; the adapter never falls back to an unguarded
-  launch. `session/prompt` waits until the matching session acknowledges ask.
-  Planned app-mediated workspace reads stay allowed. Each exact admitted Git
-  command is a separate `allow_once`. An unplanned, forbidden, or mismatched
-  live tool receives the non-authorizing answer and then fails the turn. A
-  later `end_turn` does not accept that turn. Exceptions that leave the turn
-  running are in
-  [Cursor ACP transport](../architecture-decision-records/cursor-acp-transport.md).
-  A general read permission is not granted. The process receives
-  only the selected `CURSOR_AUTH_TOKEN` and an in-memory credential store. User
-  rules, skills, and MCP configuration are not projected. Explicit selection
-  does not assign Cursor to a role by default.
 - AGY uses native plan mode and bidirectional stream-JSON inside the mandatory
   outer guard. Its adapter-owned settings, agent and empty MCP configuration
   are audited after invocation. It imports only a disposable copy of the OS
@@ -266,9 +251,6 @@ Shared provider path translation runs only after the family's existing
 authority, revalidation, scope and canonical-path checks. The source reader
 continues to own protected-root, namespace and file-kind admission, including
 its final revalidation, without reading file bodies or caching approval.
-Final Cursor tool validation uses ascending raw native string IDs
-to select a diagnostic. It preserves per-operation checks, immediate failure
-and typed refusal; sorting grants no permission and omits no final check.
 
 The outer guard denies writes outside admitted private runtime directories and
 protects source, Git and neutral-guide roots from writes. It

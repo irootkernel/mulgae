@@ -18,14 +18,13 @@ import (
 type Family string
 
 const (
-	FamilyZCode  Family = "zcode"
-	FamilyGrok   Family = "grok"
-	FamilyCodex  Family = "codex"
-	FamilyCursor Family = "cursor"
-	FamilyAgy    Family = "agy"
+	FamilyZCode Family = "zcode"
+	FamilyGrok  Family = "grok"
+	FamilyCodex Family = "codex"
+	FamilyAgy   Family = "agy"
 )
 
-var families = [...]Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyCursor, FamilyAgy}
+var families = [...]Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyAgy}
 
 // Families returns the allowlisted families in canonical order. The returned
 // slice is caller-owned.
@@ -33,7 +32,7 @@ func Families() []Family { return append([]Family(nil), families[:]...) }
 
 // Valid reports whether family is allowlisted.
 func (family Family) Valid() bool {
-	return family == FamilyZCode || family == FamilyGrok || family == FamilyCodex || family == FamilyCursor || family == FamilyAgy
+	return family == FamilyZCode || family == FamilyGrok || family == FamilyCodex || family == FamilyAgy
 }
 
 // VersionClassification describes a version's qualification guidance.
@@ -53,16 +52,11 @@ type VersionGuidance struct {
 	VerifiedLatest string
 }
 
-const cursorVerifiedVersion = "2026.10.14-0f9edde"
-
 var guidance = [...]VersionGuidance{
 	// ZCode launcher protocol guidance is independent from the app version.
 	{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 	{Family: FamilyGrok, Minimum: "1.0.89", VerifiedLatest: "1.0.89"},
 	{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
-	// Cursor guidance is one pinned calendar date and commit hash. The hash
-	// identifies that tuple; it is not an ordering key.
-	{Family: FamilyCursor, Minimum: cursorVerifiedVersion, VerifiedLatest: cursorVerifiedVersion},
 	{Family: FamilyAgy, Minimum: "1.2.9", VerifiedLatest: "1.4.2"},
 }
 
@@ -89,9 +83,6 @@ func ClassifyVersion(family Family, text string) VersionClassification {
 	familyGuidance, ok := Guidance(family)
 	if !ok {
 		return VersionUnknown
-	}
-	if family == FamilyCursor {
-		return classifyCursorVersion(familyGuidance, text)
 	}
 	if _, ok := parseVersion(text); !ok {
 		return VersionUnknown
@@ -528,7 +519,7 @@ func (profile DiscoveredProviderProfile) WithQualifiedVersion(argv []string, ver
 		profile.reason = "unqualified_discovery"
 		return profile
 	}
-	if !observedVersionParsed(profile.family, version) {
+	if !observedVersionParsed(version) {
 		profile.reason = "unparseable_version"
 		return profile
 	}
@@ -770,7 +761,7 @@ func ValidateQualification(input QualificationInput) Qualification {
 		decision.reason = "known_incompatible"
 		return decision
 	}
-	if !observedVersionParsed(input.Identity.Family, input.Version) {
+	if !observedVersionParsed(input.Version) {
 		decision.reason = "unparseable_version"
 		return decision
 	}
@@ -906,61 +897,9 @@ func compareInt(left, right int) int {
 	return 0
 }
 
-func observedVersionParsed(family Family, text string) bool {
-	if family == FamilyCursor {
-		_, ok := parseCursorDate(text)
-		return ok
-	}
+func observedVersionParsed(text string) bool {
 	_, ok := parseVersion(text)
 	return ok
-}
-
-func classifyCursorVersion(familyGuidance VersionGuidance, text string) VersionClassification {
-	actual, ok := parseCursorDate(text)
-	if !ok {
-		return VersionUnknown
-	}
-	floor, floorOK := parseCursorDate(familyGuidance.Minimum)
-	verified, verifiedOK := parseCursorDate(familyGuidance.VerifiedLatest)
-	if !floorOK || !verifiedOK {
-		return VersionUnknown
-	}
-	if actual.day.Before(floor.day) {
-		return VersionRed
-	}
-	if actual.day.Equal(verified.day) && actual.hash == verified.hash {
-		return VersionGreen
-	}
-	return VersionYellow
-}
-
-type cursorDate struct {
-	day  time.Time
-	hash string
-}
-
-func parseCursorDate(text string) (cursorDate, bool) {
-	dateText, hash, ok := strings.Cut(text, "-")
-	if !ok || len(dateText) != len("2006.01.02") || !lowercaseHex(hash) {
-		return cursorDate{}, false
-	}
-	day, err := time.Parse("2006.01.02", dateText)
-	if err != nil || day.Format("2006.01.02") != dateText {
-		return cursorDate{}, false
-	}
-	return cursorDate{day: day, hash: hash}, true
-}
-
-func lowercaseHex(text string) bool {
-	if text == "" {
-		return false
-	}
-	for _, character := range text {
-		if character < '0' || (character > '9' && character < 'a') || character > 'f' {
-			return false
-		}
-	}
-	return true
 }
 
 func parseVersion(text string) (version, bool) {

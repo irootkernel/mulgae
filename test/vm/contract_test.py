@@ -260,11 +260,6 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
             req["live_accounts"] = {
                 "zcode": {"app_bundle": "/Applications/ZCode.app", "account_alias": "guest-zcode"},
                 "grok": {"executable": "/usr/local/bin/grok", "account_alias": "guest-grok"},
-                "cursor": {
-                    "executable": "/usr/local/bin/cursor-agent",
-                    "account_alias": "guest-cursor",
-                    "token_env_var": "CURSOR_AUTH_TOKEN",
-                },
                 "agy": {"executable": "/usr/local/bin/agy", "account_alias": "guest-agy"},
                 "codex": {
                     "executable": "/usr/local/bin/codex",
@@ -528,6 +523,20 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
                     "live-providers",
                     haepari_inputs.DEFAULT_SUITES["live-providers"],
                 )
+
+        # 5. Retired Cursor live_accounts entry is refused.
+        with_retired_cursor = self._base_request(include_live=True)
+        with_retired_cursor["live_accounts"]["cursor"] = {
+            "executable": "/usr/local/bin/agent",
+            "account_alias": "retired-cursor",
+        }
+        with self.assertRaises(haepari_inputs.Refusal):
+            haepari_inputs.validate_execution_request(
+                with_retired_cursor,
+                REPO_ROOT,
+                "live-providers",
+                haepari_inputs.DEFAULT_SUITES["live-providers"],
+            )
 
     def test_request_refuses_unsupported_local_toolchain(self) -> None:
         request = self._base_request()

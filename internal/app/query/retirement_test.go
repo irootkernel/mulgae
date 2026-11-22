@@ -60,12 +60,14 @@ func TestAgyRetirementRequiresValidatedCurrentLiveBinding(t *testing.T) {
 		"role outcome":                  func(f *finalDTO, _ *manifestDTO) { f.RoleOutcomes[0].Outcome = "not_applicable" },
 		"Kimi attempt":                  func(_ *finalDTO, m *manifestDTO) { m.Attempts[0].ProviderInstance = "KIMI-logic" },
 		"Kimi live provenance":          func(f *finalDTO, _ *manifestDTO) { f.Provenance.LiveProduction.Providers[0].Family = "kimi" },
+		"Cursor attempt":                func(_ *finalDTO, m *manifestDTO) { m.Attempts[0].ProviderInstance = "cursor-logic" },
+		"Cursor live provenance":        func(f *finalDTO, _ *manifestDTO) { f.Provenance.LiveProduction.Providers[0].Family = "cursor" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			f, m := liveAgyRetirementFixture(t)
 			mutate(&f, &m)
 			if !finalRecordRetired(f, m) {
-				t.Fatal("historical, malformed, or Kimi provider escaped retirement")
+				t.Fatal("historical, malformed, or retired provider escaped retirement")
 			}
 		})
 	}
@@ -74,7 +76,7 @@ func TestAgyRetirementRequiresValidatedCurrentLiveBinding(t *testing.T) {
 func TestCommittedProviderRetirementUsesValidatedLiveContext(t *testing.T) {
 	run, _, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
 	for _, live := range []bool{false, true} {
-		for _, family := range []string{"agy", "kimi"} {
+		for _, family := range []string{"agy", "kimi", "cursor"} {
 			final, manifest := liveAgyRetirementFixture(t)
 			final.Provenance.LiveProduction.Providers[0].Family = family
 			final.Provenance.LiveProduction.Providers[0].Instance = family + "-documentation"
@@ -92,7 +94,7 @@ func TestCommittedProviderRetirementUsesValidatedLiveContext(t *testing.T) {
 			}
 			readContext := (&Service{}).newReadContext()
 			retired, err := readContext.committedRetired(context.Background(), readContext.adoptReview(run, review))
-			if err != nil || retired != (!live || family == "kimi") {
+			if err != nil || retired != (!live || family == "kimi" || family == "cursor") {
 				t.Fatalf("family=%s live=%t retired=%t err=%v", family, live, retired, err)
 			}
 		}
@@ -100,12 +102,12 @@ func TestCommittedProviderRetirementUsesValidatedLiveContext(t *testing.T) {
 }
 
 func TestRetiredProviderInstanceUsesFamilyBoundaries(t *testing.T) {
-	for _, value := range []string{"kimi", "KIMI-logic", "agy.security", "agy_profile"} {
+	for _, value := range []string{"kimi", "KIMI-logic", "cursor", "CURSOR-logic", "agy.security", "agy_profile"} {
 		if !retiredProviderInstance(value) {
 			t.Errorf("retired provider instance %q was not recognized", value)
 		}
 	}
-	for _, value := range []string{"zcode", "grok-logic", "codex-primary-security", "kimiko", "agyx"} {
+	for _, value := range []string{"zcode", "grok-logic", "codex-primary-security", "kimiko", "cursorx", "agyx"} {
 		if retiredProviderInstance(value) {
 			t.Errorf("supported or unrelated provider instance %q was retired", value)
 		}
@@ -156,7 +158,7 @@ func retiredProductionFixture(t *testing.T, family string) (*Service, *queryStor
 }
 
 func TestReadCommittedRejectsRetiredProductionProvider(t *testing.T) {
-	for _, family := range []string{"kimi", "agy"} {
+	for _, family := range []string{"kimi", "cursor", "agy"} {
 		service, _, run := retiredProductionFixture(t, family)
 		_, err := service.ReadCommitted(context.Background(), run)
 		var failure *domain.Failure
@@ -167,7 +169,7 @@ func TestReadCommittedRejectsRetiredProductionProvider(t *testing.T) {
 }
 
 func TestCurrentLiveAgyStillRejectsRetiredSourceLineage(t *testing.T) {
-	for _, family := range []string{"agy", "kimi"} {
+	for _, family := range []string{"agy", "kimi", "cursor"} {
 		service, store, sourceRun := retiredProductionFixture(t, family)
 		currentID, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bb")
 		if err != nil {

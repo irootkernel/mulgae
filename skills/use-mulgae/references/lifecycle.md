@@ -16,7 +16,7 @@ mulgae config --mode effective --output json
 mulgae providers --include-unverified --output json
 ```
 
-Current `mulgae-doctor-result.v7` is an offline contract. Read its independent config,
+Current `mulgae-doctor-result.v8` is an offline contract. Read its independent config,
 local-security, provider-identity, binary-availability, and CLI-compatibility
 dimensions. A configured provider can be offline-ready while static evidence is
 unavailable; `static_evidence_ready_provider_count` is separate from

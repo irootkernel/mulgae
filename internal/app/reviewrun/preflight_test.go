@@ -19,10 +19,10 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	}
 	policy.Assignments = []RoleProviderAssignment{logic, documentation}
 	timeouts := map[Family]time.Duration{
-		FamilyZCode:  30 * time.Minute,
-		FamilyGrok:   25 * time.Minute,
-		FamilyCodex:  20 * time.Minute,
-		FamilyCursor: 15 * time.Minute, FamilyAgy: 10 * time.Minute,
+		FamilyZCode: 30 * time.Minute,
+		FamilyGrok:  25 * time.Minute,
+		FamilyCodex: 20 * time.Minute,
+		FamilyAgy:   10 * time.Minute,
 	}
 	plan, receipt, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic, domain.RoleDocumentation})
 	if err != nil {
@@ -59,7 +59,7 @@ func TestRoleProviderInstanceMatchesConfiguredAssignment(t *testing.T) {
 		{name: "profile codex", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-work-logic", want: true},
 		{name: "profile on non codex", family: FamilyGrok, role: domain.RoleLogic, instance: "grok-work-logic"},
 		{name: "unsupported grok artist", family: FamilyGrok, role: domain.RoleArtist, instance: "grok-artist"},
-		{name: "unsupported cursor artist", family: FamilyCursor, role: domain.RoleArtist, instance: "cursor-artist"},
+		{name: "retired cursor family", family: Family("cursor"), role: domain.RoleLogic, instance: "cursor-logic"},
 		{name: "AGY text", family: FamilyAgy, role: domain.RoleDocumentation, instance: "agy-documentation", want: true},
 		{name: "unsupported AGY artist", family: FamilyAgy, role: domain.RoleArtist, instance: "agy-artist"},
 		{name: "AGY has no credential profile", family: FamilyAgy, role: domain.RoleLogic, instance: "agy-secondary-logic"},

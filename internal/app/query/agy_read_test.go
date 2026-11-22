@@ -197,13 +197,14 @@ func TestLiveAgyCommittedReadInspectionAndReports(t *testing.T) {
 }
 
 func TestLiveAgyCommittedReadRejectsKimiAndDamagedSupport(t *testing.T) {
-	for _, damage := range []string{"kimi", "source bytes"} {
+	for _, damage := range []string{"kimi", "cursor", "source bytes"} {
 		t.Run(damage, func(t *testing.T) {
 			service, store, run, _ := liveAgyCommittedFixture(t)
-			if damage == "kimi" {
+			retiredFamily := damage == "kimi" || damage == "cursor"
+			if retiredFamily {
 				final, _ := decodeFinalDTO(store.snapshot.Final().Bytes())
 				manifest, _ := decodeManifestDTO(store.snapshot.Manifest().Bytes())
-				final.Provenance.LiveProduction.Providers[0].Family = "kimi"
+				final.Provenance.LiveProduction.Providers[0].Family = damage
 				rebindInspection(t, store, run, final, manifest)
 			} else {
 				p := mustQueryPath(t, run.SessionID().String()+"/"+run.RunID().String()+"/source/source.json")
@@ -211,7 +212,7 @@ func TestLiveAgyCommittedReadRejectsKimiAndDamagedSupport(t *testing.T) {
 			}
 			_, err := service.ReadCommitted(context.Background(), run)
 			var failure *domain.Failure
-			if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact || damage == "kimi" && failure.Reason() != retiredProviderArtifactReason {
+			if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact || retiredFamily && failure.Reason() != retiredProviderArtifactReason {
 				t.Fatalf("damage escaped full read boundary: %v", err)
 			}
 		})

@@ -73,7 +73,7 @@ func TestInitializeProjectAgyPolicyAndOptionalAutoDiscovery(t *testing.T) {
 			if err != nil || !result.Committed {
 				t.Fatalf("init: %#v, %v", result, err)
 			}
-			if len(result.Discovery) != 5 || len(inspector.legacyCalls) != 0 {
+			if len(result.Discovery) != 4 || len(inspector.legacyCalls) != 0 {
 				t.Fatalf("discovery: %#v legacy=%v", result.Discovery, inspector.legacyCalls)
 			}
 			config, err := readInstalledConfig(path)

@@ -67,7 +67,7 @@ absent, and rejects guide or directory identity changes before launch. The
 process adapter consumes the pinned neutral directory descriptor. Source and
 guide bindings are revalidated after provider work, including cancellation.
 
-ZCode, Grok, Cursor, and AGY live review and extraction require an app-owned Seatbelt launch
+ZCode, Grok, and AGY live review and extraction require an app-owned Seatbelt launch
 guard in addition to their native planning and tool restrictions, and every provider live boundary (including Codex's `permissions.mulgae` profile) denies shared `herdr-core` control-plane roots and sockets. Source, Git
 and neutral roots remain read only; credential roots deny reads, writes, links
 and protected Unix socket access. The same socket denial applies to the other

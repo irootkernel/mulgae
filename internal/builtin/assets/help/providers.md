@@ -1,6 +1,6 @@
 # Providers
 
-Mulgae supports ZCode, Grok, Codex, Cursor and AGY on native Apple Silicon macOS.
+Mulgae supports ZCode, Grok, Codex and AGY on native Apple Silicon macOS.
 Each role runs on exactly one configured provider. Failed providers are
 reported with typed reasons; Mulgae does not substitute another provider or
 combine opinions as consensus. Independent runs own separate registries and
@@ -46,17 +46,6 @@ Live review and extraction use original source reads from a neutral cwd:
   read-only restrictions and a disposable `CODEX_HOME` containing only admitted
   `auth.json`. User config, rules, skills and plugins are not projected. Named
   profiles retain separate identity and qualification authority.
-- Cursor is an explicit text-only selection. Default role preferences do not
-  name it. A Cursor-only selection assigns the text roles to Cursor. A mixed
-  selection keeps each role on the first configured family from its existing
-  preference list. It uses ACP ask mode from the neutral cwd inside the outer
-  Seatbelt guard. Planned reads stay admitted, and each exact Git command is a
-  separate `allow_once`. The process receives the selected `CURSOR_AUTH_TOKEN`
-  and forces `AGENT_CLI_CREDENTIAL_STORE=memory`. User rules, skills and MCP
-  configuration are not projected. There is no model, reasoning-effort,
-  credential-profile or credential-home flag. Artist assignment fails capability
-  admission. A failed Cursor role stays on Cursor.
-
 - AGY uses bidirectional stream-JSON in native plan mode inside the mandatory
   outer Seatbelt guard. Documentation prefers AGY when configured. Other text
   roles retain ZCode first; artist remains ZCode or Codex. It uses one default

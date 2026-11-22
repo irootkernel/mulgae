@@ -141,7 +141,7 @@ func TestParseCatalogRequiresFullPermutationForCoreRoles(t *testing.T) {
 		"single family":         "[zcode]",
 		"duplicate family":      "[zcode, zcode, agy]",
 		"unknown family":        "[zcode, agy, gpt]",
-		"cursor only selection": "[zcode, grok, codex, cursor]",
+		"retired cursor family": "[zcode, grok, codex, cursor]",
 		"empty":                 "[]",
 	} {
 		t.Run(name, func(t *testing.T) {

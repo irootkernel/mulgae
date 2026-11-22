@@ -219,7 +219,7 @@ the account before configuration, while preflight continues to resolve policy
 without that account check. Target and spawn confirmations use the shared
 sequence at their existing positions.
 
-`doctor.LocalService` owns local v7 diagnosis and readiness reductions through
+`doctor.LocalService` owns local v8 diagnosis and readiness reductions through
 injected source, codec, account, locality, inspector, version and clock
 capabilities. Composition supplies the service constructor and build platform
 metadata without another platform observation. CLI doctor and providers call
@@ -230,9 +230,7 @@ A final native-home mismatch clears configured IDs, provider inventory and
 assignment observations before the existing model validation. It preserves
 earlier permitted discovery/version effects and returns unsafe readiness with
 exit 8. Providers can then perform its independent recorded-evidence reads.
-Cursor's adapter-owned version observation accepts its complete calendar/hash
-tuple while the application retains date-based eligibility and exact verified
-tuple policy. The source and native-home confirmation positions are unchanged.
+The source and native-home confirmation positions are unchanged.
 
 ## Run status and failure selection
 
@@ -273,7 +271,7 @@ public error rendering remain with their existing owners.
 
 ## Review flow
 
-The configured provider inventory is ZCode, Grok, Codex, Cursor, AGY. AGY's
+The configured provider inventory is ZCode, Grok, Codex, AGY. AGY's
 single-account stream-JSON adapter owns native permission codecs, correlated
 tool admission, default-token projection and natural-exit acceptance. It uses
 the shared conversation runner and native read-only boundary. Qualification
@@ -317,12 +315,12 @@ Workspace reads use original paths; index and committed reads use fixed Git
 operands and a deterministic environment.
 
 Within `providercli`, `protocol_mechanics.go` owns diagnostic-ID sanitization
-for all five families and string-response matching for ZCode. Family adapters
+for all four families and string-response matching for ZCode. Family adapters
 retain request prefixes, outstanding state, wire parsing and the consequences
-of an invalid authoritative identifier. Cursor textual IDs, Codex integer
-response IDs and AGY integer step IDs keep their native codecs. Cancellation,
-EOF and process-exit rules remain local, including ZCode's accepted post-turn
-stream end and AGY's required natural exit.
+of an invalid authoritative identifier. Codex integer response IDs and AGY
+integer step IDs keep their native codecs. Cancellation, EOF and process-exit
+rules remain local, including ZCode's accepted post-turn stream end and AGY's
+required natural exit.
 
 `terminal_provider.go` owns the reusable provider-agnostic managed terminal
 execution driver over `ports.TerminalSessionRunner` (supporting both OSC 7501
@@ -340,23 +338,19 @@ watchdog, and JSON-RPC lifecycle; `productionRuntimeGraph` is the sole owner of
 `terminalSession.Close()` (invoked first in `cleanupRoots()` and explicitly on
 the retained-cleanup error branch of `StartReviewRun`), while `Registry` and
 `CurrentProbe` borrow the session runner and `Registry.Close` drains only its
-own labeled panes. ZCode, Codex, Cursor, and AGY never start `herdr-core`.
+own labeled panes. ZCode, Codex, and AGY never start `herdr-core`.
 
-`live_read_plan.go` builds the raw Git-command sets used by Cursor
-and translates admitted workspace paths to the source port's `AdmitPath`.
-Callers retain their existing authority, revalidation, scope and canonical-path
-checks. Cursor compares exact command bytes; AGY retains its guarded-command
-translation. Cursor's end-turn check visits tool operations in ascending raw
-native string-ID order and returns the first rejection. Immediate event
-failures and each operation's check order remain unchanged. AGY's
-unfinished-step check retains its single diagnostic.
+`live_read_plan.go` translates admitted workspace paths to the source port's
+`AdmitPath` and builds raw Git-command sets where needed. Callers retain their
+existing authority, revalidation, scope and canonical-path checks. AGY retains
+its guarded-command translation and its single-diagnostic unfinished-step check.
 
 `providercli` binds the sealed invocation to a descriptor for the neutral cwd,
 retains per-invocation credential and scratch namespaces, and collects complete
 correlated assistant reports for protocol providers or post-`ESRCH` validated
 staged reports (published as `result_transport: "stdout"`) for terminal-runtime
-providers. ZCode, Grok, Cursor, and AGY require the process adapter's
-outer Seatbelt policy for both live review and extraction, and all five
+providers. ZCode, Grok, and AGY require the process adapter's
+outer Seatbelt policy for both live review and extraction, and all four
 providers (including Codex's `permissions.mulgae` profile) deny shared
 `herdr-core` control-plane roots and sockets. Seatbelt denies source,
 Git and guide writes and credential reads, writes and links. It also denies

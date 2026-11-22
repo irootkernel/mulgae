@@ -34,8 +34,8 @@ import (
 )
 
 const (
-	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v7.schema.json"
-	heartbeatResultSchema = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v4.schema.json"
+	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v8.schema.json"
+	heartbeatResultSchema = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v5.schema.json"
 )
 
 type applicationCommandHandler func(*Application, context.Context, Invocation, string) execution
@@ -629,7 +629,6 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	zcodeAppBundle, zcodeModel, zcodeReasoningEffort, zcodeModelSet, zcodeReasoningEffortSet := request.ZCodeOverrides()
 	grokExecutable, grokModel, grokReasoningEffort, grokModelSet, grokReasoningEffortSet := request.GrokOverrides()
 	codexExecutable, codexModel, codexReasoningEffort := request.CodexOverrides()
-	cursorExecutable := request.CursorExecutable()
 	agyExecutable, agyModel, agyReasoningEffort, agyModelSet, agyReasoningEffortSet := request.AgyOverrides()
 
 	// Destination proof precedes native-account inspection so create-once init
@@ -743,8 +742,7 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 			GrokModel: grokModel, GrokReasoningEffort: grokReasoningEffort,
 			GrokModelSet: grokModelSet, GrokReasoningEffortSet: grokReasoningEffortSet,
 			CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort,
-			CursorExecutable: cursorExecutable,
-			AgyExecutable:    agyExecutable, AgyModel: agyModel, AgyReasoningEffort: agyReasoningEffort,
+			AgyExecutable: agyExecutable, AgyModel: agyModel, AgyReasoningEffort: agyReasoningEffort,
 			AgyModelSet: agyModelSet, AgyReasoningEffortSet: agyReasoningEffortSet,
 		},
 		RefreshLocal:         request.RefreshLocal(),

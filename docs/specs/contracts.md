@@ -4,7 +4,7 @@
 
 [Native Haepari review coordination](haepari-review-coordination.md) owns
 EPIC-016's shared review lifecycle and compatibility requirements. The current
-owner and borrower implementation preserves CLI v23/MCP v1 shapes and adds closed
+owner and borrower implementation preserves CLI v24/MCP v1 shapes and adds closed
 owned `haepari_*` terminal causes and coordination summaries. Native identifiers
 and messages stay private. The private intent v2 (owned) and v3 (borrowed) add
 local-drain proof while v1 remains readable with unknown proof. Migration,
@@ -120,11 +120,11 @@ merged value through `config --mode effective` and field ownership through
 `config --mode provenance`. Provider stdout and stderr have no configurable or
 fixed product byte ceiling.
 
-Cursor joins the selectable families without a model, reasoning-effort,
-credential-profile, or credential-home field. `--providers cursor` is explicit.
-Cursor remains outside the default preference lists.
+Cursor is retired from the selectable provider inventory. Config v5 files that
+declare `providers.cursor` or route a role to `cursor` fail closed with
+`config_provider_retired`.
 
-AGY is the fifth inventory family. Config v5 admits machine-local
+AGY is the fourth inventory family. Config v5 admits machine-local
 `providers.agy.executable` and optional project-policy `model`,
 `reasoning_effort`, and the common provider `timeout`. Omitting model or effort
 preserves that native default independently. Model syntax uses 1–128 ASCII
@@ -140,8 +140,8 @@ rejects model/effort options. `assets/roles.yaml` prefers AGY for documentation,
 then ZCode, Grok, Codex. Other text roles prefer ZCode, Grok, Codex, AGY; artist
 retains ZCode and Codex. Existing shared policy is never re-derived.
 
-Current public contracts are command-result v23, doctor v7, provider-heartbeat
-v4 and review-preflight v11. Their earlier schema/example pairs remain frozen.
+Current public contracts are command-result v24, doctor v8, provider-heartbeat
+v5 and review-preflight v12. Their earlier schema/example pairs remain frozen.
 Provider-evidence v4 remains historical and has no AGY producer or production
 reader. An injected v4 claim cannot establish AGY certification; the optional
 evidence projection leaves it unsupported/unverified.
@@ -229,7 +229,7 @@ review provider invocations one Mulgae process may run at once. It is not a
 provider identity and does not coordinate another process or project.
 Provider qualification probes are not counted against it; each qualification
 batch runs at most one concurrent probe per distinct provider family. Current
-command-result v23 and review-preflight v11 documents describe execution as
+command-result v24 and review-preflight v12 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
@@ -637,7 +637,7 @@ is never the primary report URI.
 
 `transport` is adapter-owned, not configurable. All current provider review
 invocations project accepted bytes under `transport: "stdout"`: protocol
-providers (ZCode, Codex, Cursor, and AGY) collect the complete accepted
+providers (ZCode, Codex, and AGY) collect the complete accepted
 assistant message from correlated native protocol frames with no report-file
 write grant, while managed terminal providers (Grok) validate one per-invocation
 staged file inside private namespace scratch strictly after `ESRCH` teardown and
@@ -714,33 +714,11 @@ missing final text, and failed or missing turn completion fail closed. Codex
 provider qualification requires 0.154.0 or newer; the separate Codex MCP
 client minimum remains 0.149.0.
 
-Cursor review, extraction, and qualification speak ACP over stdio. The adapter
-launches the selected executable with `acp`, sends `initialize` at protocol
-version 1, and opens `session/new` with the neutral reviewer directory as `cwd`
-and `mcpServers` set to an empty list. It sends `session/set_mode` with
-`modeId` `ask` and withholds `session/prompt` until that session acknowledges
-ask. A `current_mode_update` may arrive before an empty `set_mode` result. The
-empty result does not acknowledge ask, and the update and the response may
-arrive in either order. Accepted text is the correlated assistant turn whose
-`stopReason` is `end_turn`. Qualification and extraction, including live
-extraction, fail closed on a tool call. The pinned wire and fail-closed
-rules are in
-[Cursor ACP transport](../architecture-decision-records/cursor-acp-transport.md).
-Optional diagnostic session identifiers from Cursor ACP frames are sanitized
-to the port diagnostic grammar, so an unsafe or oversized identifier is
-omitted without invalidating an otherwise valid session observation.
-
-All five families use the same diagnostic identifier grammar: at most 512
+All four families use the same diagnostic identifier grammar: at most 512
 bytes, valid UTF-8, no surrounding whitespace and no Unicode controls. Unsafe
 diagnostic identifiers become empty; native correlation retains its raw IDs.
 Codex thread/turn admission still rejects unsafe authoritative identifiers
 under its existing protocol rules.
-
-When multiple observed tools violate the read plan at final validation, Cursor
-selects the first diagnostic by ascending raw native string ID at end turn.
-Each operation retains its existing check order and typed refusal, and an
-immediate event failure still terminates immediately. This ordering adds no
-diagnostic identifier to public output.
 
 Historical child lineage may contain `source_attempt_id`, replay modes, and
 staged-file transport receipts. Retained readers validate these fields without
@@ -839,7 +817,7 @@ Only validated current live-source artifact/manifest v3 publications admit AGY
 on verified query, report and export paths. Source/target/support binding must
 agree; an old document's version token alone grants no exemption. Captured,
 composite, recovery and transitive historical AGY references retain
-`retired_provider_artifact`. Kimi is retired in every era. There is no new
+`retired_provider_artifact`. Kimi and Cursor are retired in every era. There is no new
 historical replay or recovery execution path.
 
 MCP uses the same configured route, preflight, result and inspection owners.
@@ -852,7 +830,7 @@ projects `~/.grok/auth.json` lazily only when the namespace is acquired.
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Contract-valid
-workflow requests emit command-result v23. Init's rejected-request envelope
+workflow requests emit command-result v24. Init's rejected-request envelope
 remains supported. Retired commands and capture-bound fields fail grammar before
 provider execution with usage exit 2 and human stderr, even when JSON was requested.
 No child selector resolution or compose mutation exists on the current surface.
@@ -920,7 +898,7 @@ this internal failure.
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 
-`mulgae doctor --output json` returns `mulgae-doctor-result.v7`. Capability
+`mulgae doctor --output json` returns `mulgae-doctor-result.v8`. Capability
 detection starts with `schema_version`; consumers of an older result must treat
 an absent v2 dimension as unsupported, never as failed. The result reports
 `config_v3`, `local_configuration`, and `provider_identity` independently, and
@@ -949,14 +927,8 @@ directory. It emits the normalized observed version, current minimum and verifie
 and compatibility. A version above `verified_latest` preserves the existing
 eligible policy while using compatibility `newer_than_verified`.
 
-Cursor's local observation preserves the complete `YYYY.MM.DD-lowercasehex`
-tuple. Its minimum is the date of `2026.10.14-0f9edde`; that exact tuple is
-verified. Another valid hash on the same date or a newer date stays eligible as
-`newer_than_verified`. Invalid dates, unpadded dates, empty or uppercase hashes,
-ambiguous versions and embedded tokens remain unavailable.
-
 A native-home mismatch after permitted provider observations returns a complete
-unsafe v7 diagnosis with `native_home_mismatch` and exit 8. Configured provider
+unsafe v8 diagnosis with `native_home_mismatch` and exit 8. Configured provider
 IDs are empty, inventory rows are `not_observed`/`config_not_ready`, and both
 assignment fields are `not_observed`. Earlier observation effects are not
 reversed. Doctor keeps its inline diagnosis; providers reports zero offline-ready
@@ -975,7 +947,7 @@ offline readiness. `mulgae providers --output json` exposes the independent
 human static profiles remain `unverified` when no static source exists. A
 successful or failed live review never mutates these offline observations.
 The underlying `providers` service profile projection (`Result.JSON()`) reports
-`result_transport: "stdout"` for the current ZCode, Codex, Cursor, and AGY
+`result_transport: "stdout"` for the current ZCode, Codex, and AGY
 protocol profiles and the Grok managed terminal profile, while the
 `mulgae providers --output json` CLI result retains its closed four-field summary.
 
@@ -995,7 +967,7 @@ owned by the filesystem/Git admission boundary.
 `mulgae heartbeat --provider FAMILY --authorize-live-request` is the only
 standalone live diagnostic. For named Codex configurations it also accepts the
 explicit `--credential-profile`. Omitting the authorization returns a versioned
-`mulgae-provider-heartbeat-result.v4` with `attempted: false` before provider
+`mulgae-provider-heartbeat-result.v5` with `attempted: false` before provider
 composition, credential access, or process execution. An authorized heartbeat
 discloses that authentication, network, cost, and remote logging may occur,
 uses a bounded provider timeout, and sends only Mulgae's immutable synthetic
@@ -1105,7 +1077,7 @@ permissions granted to the invoking terminal or daemon process.
 always stops the core daemon and holder first during `cleanupRoots()` (skipping
 namespace-parent removal if exit is unproven) and on retained-cleanup failure
 paths, preventing background daemon leaks across CLI and MCP modes. ZCode,
-Codex, Cursor, and AGY never start `herdr-core`.
+Codex, and AGY never start `herdr-core`.
 
 Review qualification preserves private request packets and nonempty
 version/capability stdout and stderr under the diagnostic run before fixture
@@ -1280,15 +1252,15 @@ a failed rerun. Cleanup validates bounded manifest metadata and confirms its
 identity without reading input or report blobs. Historical status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
-These historical records grant no new provider execution. CLI v5 through v21
+These historical records grant no new provider execution. CLI v5 through v23
 schema examples remain available for explicit backward validation; current CLI
-envelopes use v23. MCP retains its v1 common envelope, whose `data` object
+envelopes use v24. MCP retains its v1 common envelope, whose `data` object
 carries the extended status projection.
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v23 `result` and MCP v1
+accepts an empty argument object. CLI command-result v24 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `live_source`, `source_evidence`, `project_binding`, `inspection`,
@@ -1423,8 +1395,8 @@ no total-content ceiling.
 
 The [frozen EPIC-008 contracts](review-completeness-and-iteration.md#frozen-requirements-assessment-contracts)
 own optional input, assessment accounting, bounded support/read metadata and
-unbounded retained content. Current commands emit command-result v23, preflight
-v11 and live review artifacts/manifests v4 with support index v4. Earlier
+unbounded retained content. Current commands emit command-result v24, preflight
+v12 and live review artifacts/manifests v4 with support index v4. Earlier
 substantive schema/example pairs remain unchanged.
 
 ### Input admission and eligibility
@@ -1450,7 +1422,7 @@ untrusted data; it does not authorize tools, source expansion or policy changes.
 
 ### Provider-free preflight
 
-Preflight v11 includes `requirements: null` when input is absent. Otherwise the
+Preflight v12 includes `requirements: null` when input is absent. Otherwise the
 bounded summary contains `input_sha256`, `selected_count`, ordered `items` with
 `requirement_id` and `owner_role`, `evaluation_status: not_run`,
 `extraction_policy`, `source_limit: selected_target_only`, and conditional
@@ -1458,7 +1430,7 @@ bounded summary contains `input_sha256`, `selected_count`, ordered `items` with
 Git binding availability controls the execution capability; preflight invokes no
 providers and creates no run. It cannot predict future shared allowance use.
 
-Command-result v23 embeds preflight v11 and its failure projection together.
+Command-result v24 embeds preflight v12 and its failure projection together.
 Frozen v10 retains `execution_available: false`, and v22 retains its v10 shape.
 MCP keeps its existing start/await/cancel lifecycle and common v1 tool envelope.
 

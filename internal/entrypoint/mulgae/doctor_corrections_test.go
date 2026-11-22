@@ -3,18 +3,15 @@
 package mulgae
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/adapters/environment"
 	"github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/app/doctor"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -86,7 +83,7 @@ func TestDoctorProvidersNativeHomeReplacementRegression(t *testing.T) {
 						}
 						expected := []string{"attest.1", "locality.1", "locality.2", "native.1", "binary.grok", "version.grok", "native.2"}
 						if command == "providers" {
-							expected = append(expected, "platform", "permission", "evidence.zcode", "evidence.grok", "evidence.codex", "evidence.cursor", "evidence.agy", "evidence.platform", "evidence.tools")
+							expected = append(expected, "platform", "permission", "evidence.zcode", "evidence.grok", "evidence.codex", "evidence.agy", "evidence.platform", "evidence.tools")
 						}
 						if !reflect.DeepEqual(got.Trace, expected) {
 							t.Fatalf("effects=%v want=%v", got.Trace, expected)
@@ -107,7 +104,7 @@ func TestDoctorProvidersNativeHomeReplacementRegression(t *testing.T) {
 									t.Fatal("missing inline diagnosis")
 								}
 								assertRejectedNativeHome(t, *envelope.Result.Doctor)
-							} else if envelope.Result.Offline != 0 || envelope.Result.Static != 4 {
+							} else if envelope.Result.Offline != 0 || envelope.Result.Static != 3 {
 								t.Fatalf("independent counts: %+v", envelope.Result)
 							}
 							if !strings.Contains(got.Stdout, `"code":"security_rejected"`) {
@@ -160,76 +157,11 @@ func TestDoctorProvidersNativeHomeCancellationProjection(t *testing.T) {
 	}
 }
 
-func cursorCorrectionFixture(t *testing.T, version string) (*doctorBeforeFixture, string) {
-	return cursorCorrectionFixtureForFamilies(t, version, "cursor")
-}
-
-func cursorCorrectionFixtureForFamilies(t *testing.T, version, families string) (*doctorBeforeFixture, string) {
-	t.Helper()
-	f := newDoctorBeforeFixture(t, families)
-	runtimeParent, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("TMPDIR", runtimeParent)
-	path := filepath.Join(f.root, "cursor")
-	marker := filepath.Join(f.root, "launches")
-	script := "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = --version ] || exit 91\n[ \"$PWD\" = \"$HOME\" ] && [ \"$HOME\" = \"$TMPDIR\" ] || exit 92\n[ -z \"$(/bin/ls -A \"$HOME\")\" ] || exit 93\n[ -z \"${CURSOR_AUTH_TOKEN+x}${OPENAI_API_KEY+x}\" ] || exit 94\nprintf x >> '" + marker + "'\nprintf '" + version + "\\n'\n"
-	doctorBeforeWrite(t, path, []byte(script))
-	if err := os.Chmod(path, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	doctorBeforeEdit(t, filepath.Join(f.root, ".mulgae", "local.yaml"), func(b []byte) []byte { return bytes.Replace(b, []byte("/synthetic/cursor"), []byte(path), 1) })
-	f.spy.realExecutable = true
-	f.application.versionObserver = environment.NewProviderVersionObserver()
-	return f, marker
-}
-
-func TestDoctorProvidersProductionCursorCompatibility(t *testing.T) {
-	for _, command := range []string{"doctor", "providers"} {
-		for _, format := range []string{"json", "human"} {
-			for _, include := range []bool{false, true} {
-				if command == "doctor" && include {
-					continue
-				}
-				t.Run(fmt.Sprintf("%s/%s/include=%t", command, format, include), func(t *testing.T) {
-					t.Setenv("CURSOR_AUTH_TOKEN", "synthetic-not-for-child")
-					t.Setenv("OPENAI_API_KEY", "synthetic-not-for-child")
-					f, marker := cursorCorrectionFixture(t, "2026.10.14-0f9edde")
-					argv := []string{command}
-					if include {
-						argv = append(argv, "--include-unverified")
-					}
-					argv = append(argv, "--output", format)
-					got := doctorBeforeCapture(t, f, context.Background(), argv...)
-					raw, _ := json.Marshal(got)
-					t.Logf("PUBLIC Q3 %s include=%t %s", command, include, raw)
-					if got.Exit != 0 {
-						t.Fatalf("Cursor supported tuple should be ready: exit=%d %s %s", got.Exit, got.Stdout, got.Stderr)
-					}
-					launches, err := os.ReadFile(marker)
-					if err != nil || string(launches) != "x" {
-						t.Fatalf("version launches=%q err=%v", launches, err)
-					}
-					if format == "json" {
-						if command == "doctor" && (!strings.Contains(got.Stdout, `"observed_version":"2026.10.14-0f9edde"`) || !strings.Contains(got.Stdout, `"reason_code":"provider_cli_version_supported"`)) {
-							t.Fatalf("tuple lost: %s", got.Stdout)
-						}
-						if command == "providers" && !strings.Contains(got.Stdout, `"offline_ready_provider_count":1`) {
-							t.Fatalf("missing offline count: %s", got.Stdout)
-						}
-					}
-				})
-			}
-		}
-	}
-}
-
 // Separate fixed expectations preserve the complete predecessor bytes and permit
-// only the decision record's Q1/Q3 changes. No update mode reads runtime output.
+// only the decision record's Q1 changes. No update mode reads runtime output.
 func assertDoctorCorrected(t *testing.T, key string, actual doctorBefore) {
 	t.Helper()
-	if !strings.HasPrefix(key, "q1/") && !strings.HasPrefix(key, "q3/") {
+	if !strings.HasPrefix(key, "q1/") {
 		t.Fatalf("unapproved correction key %q", key)
 	}
 	raw, err := os.ReadFile("testdata/task063-doctor-corrected.json")
@@ -241,83 +173,8 @@ func assertDoctorCorrected(t *testing.T, key string, actual doctorBefore) {
 		t.Fatal(err)
 	}
 	want, found := expected[key]
-	want = currentDoctorTransportExpectation(want)
+	want = currentDoctorPortfolioExpectation(currentDoctorTransportExpectation(want))
 	if !found || !reflect.DeepEqual(actual, want) {
 		t.Fatalf("corrected %s differs: got=%+v want=%+v", key, actual, want)
 	}
-}
-
-func TestDoctorCursorProductionVersionPolicy(t *testing.T) {
-	for _, test := range []struct {
-		name, version, reason, observed string
-		exit                            app.ExitCode
-	}{
-		{"same day different hash", "2026.10.14-deadbeef", "provider_cli_version_newer_than_verified", "2026.10.14-deadbeef", 0},
-		{"future date", "2026.10.15-abc", "provider_cli_version_newer_than_verified", "2026.10.15-abc", 0},
-		{"below minimum", "2026.10.13-abc", "provider_cli_version_below_minimum", "2026.10.13-abc", 4},
-		{"invalid calendar", "2026.02.30-abc", "provider_cli_version_malformed", "2026.02.30-abc", 4},
-		{"unpadded date", "2026.1.2-abc", "provider_cli_version_malformed", "", 4},
-		{"empty hash", "2026.10.14-", "provider_cli_version_malformed", "", 4},
-		{"uppercase hash", "2026.10.14-0F9edde", "provider_cli_version_malformed", "", 4},
-		{"nonhex hash", "2026.10.14-xyz", "provider_cli_version_malformed", "", 4},
-		{"ambiguous", "2026.10.14-abc 2026.10.15-def", "provider_cli_version_malformed", "", 4},
-		{"embedded", "x2026.10.14-abc", "provider_cli_version_malformed", "", 4},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			f, marker := cursorCorrectionFixture(t, test.version)
-			got := doctorBeforeCapture(t, f, context.Background(), "doctor", "--output", "json")
-			var envelope struct {
-				Result struct {
-					Doctor doctor.LocalDoctorResult `json:"doctor"`
-				} `json:"result"`
-			}
-			if err := json.Unmarshal([]byte(got.Stdout), &envelope); err != nil {
-				t.Fatal(err)
-			}
-			row := envelope.Result.Doctor.ProviderInventory[3]
-			if got.Exit != test.exit || row.CLICompatible.ReasonCode != test.reason || row.CLICompatible.ObservedVersion != test.observed {
-				t.Fatalf("Cursor policy exit=%d row=%+v", got.Exit, row)
-			}
-			launches, err := os.ReadFile(marker)
-			if err != nil || string(launches) != "x" {
-				t.Fatalf("launches=%q err=%v", launches, err)
-			}
-		})
-	}
-	for _, unsafe := range []bool{false, true} {
-		for _, command := range []string{"doctor", "providers"} {
-			t.Run(fmt.Sprintf("mixed/%s/unsafe=%t", command, unsafe), func(t *testing.T) {
-				f, marker := cursorCorrectionFixtureForFamilies(t, "2026.10.14-0f9edde", "grok,cursor")
-				want := app.ExitCodeReadiness
-				if unsafe {
-					f.application.inspector = cursorMixedUnsafeInspector{f.spy}
-					want = app.ExitCodeSecurity
-				}
-				got := doctorBeforeCapture(t, f, context.Background(), command, "--output", "json")
-				if got.Exit != want {
-					t.Fatalf("mixed exit=%d want=%d %s", got.Exit, want, got.Stdout)
-				}
-				if command == "doctor" && (!strings.Contains(got.Stdout, `"observed_version":"2026.10.14-0f9edde"`) || !strings.Contains(got.Stdout, `"reason":"provider_cli_version_supported"`)) {
-					t.Fatalf("safe Cursor lost: %s", got.Stdout)
-				}
-				if command == "providers" && !strings.Contains(got.Stdout, `"offline_ready_provider_count":1`) {
-					t.Fatalf("mixed offline count: %s", got.Stdout)
-				}
-				launches, err := os.ReadFile(marker)
-				if err != nil || string(launches) != "x" {
-					t.Fatalf("launches=%q err=%v", launches, err)
-				}
-			})
-		}
-	}
-}
-
-type cursorMixedUnsafeInspector struct{ *doctorBeforeSpy }
-
-func (inspector cursorMixedUnsafeInspector) ObserveExecutableIdentity(ctx context.Context, path string) (ports.ExecutableObservation, error) {
-	if filepath.Base(path) == "grok" {
-		inspector.record("binary.grok")
-		return ports.ExecutableObservation{}, ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "synthetic unsafe Grok")
-	}
-	return inspector.doctorBeforeSpy.ObserveExecutableIdentity(ctx, path)
 }

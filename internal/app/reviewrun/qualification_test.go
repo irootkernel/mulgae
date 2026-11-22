@@ -13,7 +13,7 @@ import (
 )
 
 func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
-	want := []Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyCursor, FamilyAgy}
+	want := []Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyAgy}
 	if got := Families(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Families() = %v, want %v", got, want)
 	}
@@ -21,7 +21,6 @@ func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
 		{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 		{Family: FamilyGrok, Minimum: "1.0.89", VerifiedLatest: "1.0.89"},
 		{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
-		{Family: FamilyCursor, Minimum: "2026.10.14-0f9edde", VerifiedLatest: "2026.10.14-0f9edde"},
 		{Family: FamilyAgy, Minimum: "1.2.9", VerifiedLatest: "1.4.2"},
 	}
 	for _, want := range guidance {
@@ -76,61 +75,6 @@ func TestClassifyVersion(t *testing.T) {
 				t.Fatalf("ClassifyVersion(%q, %q) = %q, want %q", test.family, test.version, got, test.want)
 			}
 		})
-	}
-}
-
-func TestCursorDateHashGuidanceIgnoresHashOrder(t *testing.T) {
-	const pinned = "2026.10.14-0f9edde"
-	cases := []struct {
-		version string
-		want    VersionClassification
-	}{
-		{version: pinned, want: VersionGreen},
-		{version: "2026.10.14-aaa", want: VersionYellow},
-		{version: "2026.10.14-fff", want: VersionYellow},
-		{version: "2026.10.15-00", want: VersionYellow},
-		{version: "2027.01.05-abc", want: VersionYellow},
-		{version: "2026.10.13-fff", want: VersionRed},
-		{version: "2026.10.01-0f9edde", want: VersionRed},
-		{version: "2026.01.14-0f9edde", want: VersionRed},
-		{version: "2024.02.29-abc", want: VersionRed},
-		{version: "2026.10.14", want: VersionUnknown},
-		{version: "2026.11.1-abc", want: VersionUnknown},
-		{version: "2026.1.05-abc", want: VersionUnknown},
-		{version: "2024.2.29-abc", want: VersionUnknown},
-		{version: "2026.13.14-aa", want: VersionUnknown},
-		{version: "2026.10.32-aa", want: VersionUnknown},
-		{version: "2026.02.29-aa", want: VersionUnknown},
-		{version: "2026.00.14-aa", want: VersionUnknown},
-		{version: "2026.10.00-aa", want: VersionUnknown},
-		{version: "2026.10.14-0F9EDDE", want: VersionUnknown},
-		{version: "2026.10.14-", want: VersionUnknown},
-	}
-	for _, test := range cases {
-		if got := ClassifyVersion(FamilyCursor, test.version); got != test.want {
-			t.Fatalf("ClassifyVersion(cursor, %q) = %q, want %q", test.version, got, test.want)
-		}
-	}
-	profile := DiscoveredProviderProfile{family: FamilyCursor, executable: "/bin/echo", launcher: "/bin/echo", argv: []string{"/bin/echo"}}
-	admitted := profile.WithQualifiedVersion([]string{"/bin/echo", "--version"}, pinned)
-	if !admitted.Available() || admitted.Classification() != VersionGreen || admitted.Reason() != "version_eligible" {
-		t.Fatalf("pinned cursor admission = available %t class %q reason %q", admitted.Available(), admitted.Classification(), admitted.Reason())
-	}
-	later := profile.WithQualifiedVersion([]string{"/bin/echo", "--version"}, "2027.01.05-abc")
-	if !later.Available() || later.Classification() != VersionYellow {
-		t.Fatalf("later cursor date = available %t class %q reason %q", later.Available(), later.Classification(), later.Reason())
-	}
-	october := profile.WithQualifiedVersion([]string{"/bin/echo", "--version"}, "2026.10.14")
-	if october.Available() || october.Classification() != VersionUnknown || october.Reason() != "unparseable_version" {
-		t.Fatalf("cursor october semver = available %t class %q reason %q", october.Available(), october.Classification(), october.Reason())
-	}
-	before := profile.WithQualifiedVersion([]string{"/bin/echo", "--version"}, "2026.10.01-0f9edde")
-	if before.Available() || before.Classification() != VersionRed || before.Reason() != "ineligible_version" {
-		t.Fatalf("cursor date before the pin = available %t class %q reason %q", before.Available(), before.Classification(), before.Reason())
-	}
-	unpadded := profile.WithQualifiedVersion([]string{"/bin/echo", "--version"}, "2026.11.1-abc")
-	if unpadded.Available() || unpadded.Classification() != VersionUnknown || unpadded.Reason() != "unparseable_version" {
-		t.Fatalf("cursor unpadded date = available %t class %q reason %q", unpadded.Available(), unpadded.Classification(), unpadded.Reason())
 	}
 }
 
@@ -603,12 +547,12 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverProviderProfiles() error = %v", err)
 	}
-	sawCursor := false
+	sawAgy := false
 	for _, profile := range profiles {
-		if profile.Family() == FamilyCursor || profile.Family() == FamilyAgy {
-			sawCursor = true
+		if profile.Family() == FamilyAgy {
+			sawAgy = true
 			if profile.Available() || profile.Reason() != "executable_not_found" {
-				t.Fatalf("cursor missing executable = available %t reason %q", profile.Available(), profile.Reason())
+				t.Fatalf("agy missing executable = available %t reason %q", profile.Available(), profile.Reason())
 			}
 			continue
 		}
@@ -616,8 +560,8 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 			t.Fatalf("%s unexpectedly routable: %s", profile.Family(), profile.Reason())
 		}
 	}
-	if !sawCursor {
-		t.Fatal("cursor discovery was not admitted")
+	if !sawAgy {
+		t.Fatal("agy discovery was not admitted")
 	}
 }
 

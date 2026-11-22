@@ -16,11 +16,10 @@ mulgae config --mode provenance --output json
 ```
 
 For a new workspace, `mulgae init` selects only compiled provider families and
-compiled roles. Mulgae supports ZCode, Grok, Codex, Cursor and AGY. Automatic
+compiled roles. Mulgae supports ZCode, Grok, Codex and AGY. Automatic
 selection requires ZCode and Grok and includes AGY when installed; select a
 supported subset explicitly with `--providers FAMILY[,FAMILY...]`. Documentation
-prefers AGY when configured, and other default roles prefer ZCode. Cursor is
-explicit and outside the default preference lists. Existing policy is preserved.
+prefers AGY when configured, and other default roles prefer ZCode. Existing policy is preserved.
 The compiled catalog holds seven roles, and bare `mulgae init` enables only the required
 `logic` role, so list every intended role explicitly. Examples:
 

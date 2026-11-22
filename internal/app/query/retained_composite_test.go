@@ -78,42 +78,46 @@ func TestCopiedCompositeRetainsProviderRetirementWithoutSourceRuns(t *testing.T)
 		if c.ID != "composite-copied-v1" {
 			continue
 		}
-		store, run := historicalQueryStore(t, c)
-		if _, err := mustQueryService(t, store, validator, nil).ReadCommitted(context.Background(), run); err != nil {
-			t.Fatalf("valid copied provenance before retirement: %v", err)
+		for _, retiredIdentity := range []string{"kimi-retired", "cursor-retired"} {
+			t.Run(retiredIdentity, func(t *testing.T) {
+				store, run := historicalQueryStore(t, c)
+				if _, err := mustQueryService(t, store, validator, nil).ReadCommitted(context.Background(), run); err != nil {
+					t.Fatalf("valid copied provenance before retirement: %v", err)
+				}
+				snapshot := store.snapshotsByRun[c.RunID]
+				identity := func(s string) string { return s }
+				entries := queryRuntimeFixtureEntries(t, snapshot, store.auxiliaryArtifacts, identity, bytes.Clone)
+				prefix := c.SessionID + "/" + c.RunID + "/"
+				path := prefix + compositesupport.DocumentPath
+				var doc compositesupport.Document
+				if err := json.Unmarshal(entries[path].bytes, &doc); err != nil {
+					t.Fatal(err)
+				}
+				doc.Sources[0].ProviderIdentities = append(doc.Sources[0].ProviderIdentities, retiredIdentity)
+				sort.Strings(doc.Sources[0].ProviderIdentities)
+				raw, err := json.Marshal(doc)
+				if err != nil {
+					t.Fatal(err)
+				}
+				entries[path].bytes = append(raw, '\n')
+				retainedQueryRebind(t, entries, c.SessionID+"/"+c.RunID+"/")
+				updated, observation, artifacts := retainedQuerySnapshot(t, run, snapshot, store.auxiliaryArtifacts, entries, domain.OperationalExitCode(c.Expected.Exit))
+				store.snapshotsByRun[c.RunID] = updated
+				store.observationsByRun[c.RunID] = observation
+				// Keep only the self-contained composite run and its store receipts.
+				for name := range artifacts {
+					if !strings.HasPrefix(name, prefix) && !strings.HasPrefix(name, "store/") {
+						delete(artifacts, name)
+					}
+				}
+				store.auxiliaryArtifacts = artifacts
+				store.snapshotsByRun = map[string]ports.CommittedPublicationSnapshot{c.RunID: updated}
+				store.observationsByRun = map[string]ports.PublicationObservation{c.RunID: store.observationsByRun[c.RunID]}
+				store.resolutionsByRun = map[string]ports.PublicationRun{c.RunID: run}
+				_, err = mustQueryService(t, store, validator, nil).ReadCommitted(context.Background(), run)
+				historicalReason(t, err, "retired_provider_artifact")
+			})
 		}
-		snapshot := store.snapshotsByRun[c.RunID]
-		identity := func(s string) string { return s }
-		entries := queryRuntimeFixtureEntries(t, snapshot, store.auxiliaryArtifacts, identity, bytes.Clone)
-		prefix := c.SessionID + "/" + c.RunID + "/"
-		path := prefix + compositesupport.DocumentPath
-		var doc compositesupport.Document
-		if err := json.Unmarshal(entries[path].bytes, &doc); err != nil {
-			t.Fatal(err)
-		}
-		doc.Sources[0].ProviderIdentities = append(doc.Sources[0].ProviderIdentities, "kimi-retired")
-		sort.Strings(doc.Sources[0].ProviderIdentities)
-		raw, err := json.Marshal(doc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		entries[path].bytes = append(raw, '\n')
-		retainedQueryRebind(t, entries, c.SessionID+"/"+c.RunID+"/")
-		updated, observation, artifacts := retainedQuerySnapshot(t, run, snapshot, store.auxiliaryArtifacts, entries, domain.OperationalExitCode(c.Expected.Exit))
-		store.snapshotsByRun[c.RunID] = updated
-		store.observationsByRun[c.RunID] = observation
-		// Keep only the self-contained composite run and its store receipts.
-		for name := range artifacts {
-			if !strings.HasPrefix(name, prefix) && !strings.HasPrefix(name, "store/") {
-				delete(artifacts, name)
-			}
-		}
-		store.auxiliaryArtifacts = artifacts
-		store.snapshotsByRun = map[string]ports.CommittedPublicationSnapshot{c.RunID: updated}
-		store.observationsByRun = map[string]ports.PublicationObservation{c.RunID: store.observationsByRun[c.RunID]}
-		store.resolutionsByRun = map[string]ports.PublicationRun{c.RunID: run}
-		_, err = mustQueryService(t, store, validator, nil).ReadCommitted(context.Background(), run)
-		historicalReason(t, err, "retired_provider_artifact")
 		return
 	}
 	t.Fatal("fixed copied composite input absent")

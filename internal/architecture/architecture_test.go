@@ -214,13 +214,13 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, target := range []string{"test-e2e", "test-e2e-opt-in", "test-grok", "test-cursor", "test-agy", "test-mcp-clients"} {
+	for _, target := range []string{"test-e2e", "test-e2e-opt-in", "test-grok", "test-agy", "test-mcp-clients"} {
 		start := strings.Index(text, "\n"+target+":\n")
 		if start < 0 || !strings.HasPrefix(text[start+len(target)+3:], "\t@$(validate_installed_test_inputs)\n") {
 			t.Fatalf("%s must validate sealed installed inputs before any workload", target)
 		}
 	}
-	for _, target := range []string{"test:", "test-offline:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-herdr:", "test-grok:", "test-cursor:", "test-agy:"} {
+	for _, target := range []string{"test:", "test-offline:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-herdr:", "test-grok:", "test-agy:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
 		}
@@ -259,7 +259,7 @@ func TestMakefileContract(t *testing.T) {
 			t.Fatalf("Makefile test-offline order is not sequential: %v", offlinePositions)
 		}
 	}
-	for _, forbidden := range []string{"test-release", "test-e2e", "test-e2e-opt-in", "test-herdr", "test-grok", "test-cursor", "test-agy"} {
+	for _, forbidden := range []string{"test-release", "test-e2e", "test-e2e-opt-in", "test-herdr", "test-grok", "test-agy"} {
 		if strings.Contains(offlineTarget, forbidden) {
 			t.Fatalf("Makefile test-offline references non-offline stage %q", forbidden)
 		}
@@ -313,8 +313,8 @@ func TestMakefileContract(t *testing.T) {
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
-	if strings.Contains(text, "$(MAKE) test-cursor") || strings.Contains(text, "$(MAKE) test-agy") {
-		t.Fatal("the default test gate includes a standalone Cursor or AGY review")
+	if strings.Contains(text, "$(MAKE) test-agy") {
+		t.Fatal("the default test gate includes a standalone AGY review")
 	}
 	optInStart := strings.Index(text, "\ntest-e2e-opt-in:")
 	grokStart := strings.Index(text, "\ntest-grok:")
@@ -356,13 +356,12 @@ func TestMakefileContract(t *testing.T) {
 	if strings.Contains(optInTarget, "MULGAE_E2E_CODEX_SECONDARY_HOME") {
 		t.Fatal("opt-in Codex certification still requires a secondary home")
 	}
-	cursorStart := strings.Index(text, "\ntest-cursor:")
 	agyStart := strings.Index(text, "\ntest-agy:")
 	mcpClientStart := strings.Index(text, "\ntest-mcp-clients:")
-	if cursorStart <= grokStart || agyStart <= cursorStart || mcpClientStart <= agyStart {
-		t.Fatal("Makefile does not define Cursor and AGY gates between Grok and the MCP client gate")
+	if agyStart <= grokStart || mcpClientStart <= agyStart {
+		t.Fatal("Makefile does not define AGY gate between Grok and the MCP client gate")
 	}
-	grokTarget := text[grokStart:cursorStart]
+	grokTarget := text[grokStart:agyStart]
 	for _, required := range []string{
 		"$(MAKE) test-herdr",
 		"MULGAE_LIVE_GROK_BIN", "-tags=liveprovider", "-run '^TestLiveGrokCapability$$'",
@@ -392,19 +391,6 @@ func TestMakefileContract(t *testing.T) {
 	if capabilityEnd < 0 || reviewStart <= capabilityEnd {
 		t.Fatal("test-grok does not stop before the exact-binary review when capability certification fails")
 	}
-	cursorTarget := text[cursorStart:agyStart]
-	for _, required := range []string{
-		"MULGAE_E2E_CURSOR_EXECUTABLE", "CURSOR_AUTH_TOKEN", "main.buildVersion=$(RELEASE_VERSION)",
-		"-tags='live_e2e live_cursor'", "-run '^TestE2ECursorReleaseBinaryReview$$'",
-		"Cursor version and family preflight failed",
-	} {
-		if !strings.Contains(cursorTarget, required) {
-			t.Errorf("test-cursor missing exact-binary review token %q", required)
-		}
-	}
-	if strings.Contains(cursorTarget, "command -v") || strings.Contains(cursorTarget, "LookPath") {
-		t.Fatal("test-cursor resolves Cursor through PATH")
-	}
 	agyTarget := text[agyStart:mcpClientStart]
 	mcpClientTarget := text[mcpClientStart:]
 	for targetName, targetSlice := range map[string]string{
@@ -412,7 +398,6 @@ func TestMakefileContract(t *testing.T) {
 		"test-e2e":         e2eTarget,
 		"test-e2e-opt-in":  optInTarget,
 		"test-grok":        grokTarget,
-		"test-cursor":      cursorTarget,
 		"test-agy":         agyTarget,
 		"test-mcp-clients": mcpClientTarget,
 	} {
@@ -534,7 +519,7 @@ func TestMakefileOfflineAndFullGateOrchestration(t *testing.T) {
 target=""
 for arg in "$@"; do
 	case "$arg" in
-		test|test-offline|test-prepare|test-unit|test-int|test-release|test-e2e|test-e2e-opt-in|test-grok|test-cursor|test-agy)
+		test|test-offline|test-prepare|test-unit|test-int|test-release|test-e2e|test-e2e-opt-in|test-grok|test-agy)
 			target="$arg"
 			;;
 	esac

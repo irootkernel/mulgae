@@ -23,7 +23,7 @@ const (
 	SelectionSelected SelectionMode = "selected"
 )
 
-var familyOrder = []string{"zcode", "grok", "codex", "cursor", "agy"}
+var familyOrder = []string{"zcode", "grok", "codex", "agy"}
 
 const (
 	defaultGrokModel           = "grok-4.7"
@@ -50,7 +50,6 @@ type Overrides struct {
 	CodexExecutable              string
 	CodexModel                   string
 	CodexReasoningEffort         string
-	CursorExecutable             string
 	AgyExecutable                string
 	AgyModel                     string
 	AgyReasoningEffort           string
@@ -512,11 +511,10 @@ func mutationFailure(result InitializeProjectResult, writeState string, destinat
 var errUnsafeDiscovery = errors.New("unsafe provider discovery")
 
 type candidates struct {
-	zcode  *appconfig.ZCodeProviderConfig
-	grok   *appconfig.GrokProviderConfig
-	codex  *appconfig.CodexProviderConfig
-	cursor *appconfig.CursorProviderConfig
-	agy    *appconfig.AgyProviderConfig
+	zcode *appconfig.ZCodeProviderConfig
+	grok  *appconfig.GrokProviderConfig
+	codex *appconfig.CodexProviderConfig
+	agy   *appconfig.AgyProviderConfig
 }
 
 func (service *Service) discover(ctx context.Context, request InitializeProjectRequest) (candidates, []DiscoveryRow, error) {
@@ -634,28 +632,6 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				row.Candidate = true
 				row.Status = "candidate"
 			}
-		case "cursor":
-			executable := ""
-			row.ExecutableSource = "not_discovered"
-			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverride(ctx, service.inspector, reviewrun.FamilyCursor, request.Overrides.CursorExecutable)
-			if request.Overrides.CursorExecutable != "" {
-				row.ExecutableSource = "override"
-			}
-			if profileErr != nil {
-				discoveryErrors = append(discoveryErrors, profileErr)
-			} else if profile.Executable() != "" {
-				executable = profile.Executable()
-				if request.Overrides.CursorExecutable == "" {
-					row.ExecutableSource = "startup_path"
-				}
-			}
-			row.ModelSource = "provider_default"
-			row.ReasoningEffortSource = "provider_default"
-			if executable != "" {
-				found.cursor = &appconfig.CursorProviderConfig{Executable: executable, Timeout: appconfig.ProviderTimeoutText(appconfig.DefaultProviderTimeout)}
-				row.Candidate = true
-				row.Status = "candidate"
-			}
 		case "agy":
 			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverride(ctx, service.inspector, reviewrun.FamilyAgy, request.Overrides.AgyExecutable)
 			row.ExecutableSource = "not_discovered"
@@ -721,7 +697,7 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 		row.ExecutableSource = "not_selected"
 		row.ModelSource = "not_selected"
 		row.ReasoningEffortSource = "not_selected"
-	case "codex", "cursor", "agy":
+	case "codex", "agy":
 		row.ExecutableSource = "not_selected"
 		row.ModelSource = "not_selected"
 		row.ReasoningEffortSource = "not_selected"
@@ -730,7 +706,7 @@ func notSelectedDiscoveryRow(family string) DiscoveryRow {
 }
 
 func candidateConfig(request InitializeProjectRequest, defaults appconfig.RoleDefaults, value candidates) (appconfig.Config, error) {
-	providers := appconfig.ProvidersConfig{ZCode: value.zcode, Grok: value.grok, Codex: value.codex, Cursor: value.cursor, Agy: value.agy}
+	providers := appconfig.ProvidersConfig{ZCode: value.zcode, Grok: value.grok, Codex: value.codex, Agy: value.agy}
 	selectedRoles, _ := validateRoleSelection(request.RoleIDs)
 	roles, err := appconfig.CanonicalRolesConfigForSelection(defaults, providers.Families(), selectedRoles)
 	if err != nil {
@@ -804,9 +780,6 @@ func candidateIDs(value candidates) []string {
 	if value.codex != nil {
 		ids = append(ids, "codex")
 	}
-	if value.cursor != nil {
-		ids = append(ids, "cursor")
-	}
 	if value.agy != nil {
 		ids = append(ids, "agy")
 	}
@@ -817,7 +790,7 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 		return nil, fmt.Errorf("mode")
 	}
 	if selection.Mode == SelectionAuto {
-		if len(selection.ProviderIDs) != 0 || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" || overrides.CursorExecutable != "" {
+		if len(selection.ProviderIDs) != 0 || overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "" {
 			return nil, fmt.Errorf("auto members")
 		}
 		return []string{}, nil
@@ -842,9 +815,6 @@ func validateSelection(selection Selection, overrides Overrides) ([]string, erro
 	}
 	if !contains(selected, "codex") && (overrides.CodexExecutable != "" || overrides.CodexModel != "" || overrides.CodexReasoningEffort != "") {
 		return nil, fmt.Errorf("codex override")
-	}
-	if !contains(selected, "cursor") && overrides.CursorExecutable != "" {
-		return nil, fmt.Errorf("cursor override")
 	}
 	if !contains(selected, "agy") && (overrides.AgyExecutable != "" || overrides.AgyModelSet || overrides.AgyReasoningEffortSet || overrides.AgyModel != "" || overrides.AgyReasoningEffort != "") {
 		return nil, fmt.Errorf("agy override")

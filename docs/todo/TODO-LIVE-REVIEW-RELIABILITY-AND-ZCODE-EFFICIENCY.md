@@ -54,7 +54,7 @@ extraction, diagnostic, and latency failures:
    while `internal/builtin/assets/prompts/live-review/requirements.v1.txt` (line
    15) tells extraction to confirm cited evidence against the admitted source
    side. Both conflict with tool-free extraction sessions (ZCode
-   `toolAllowlist: []`, Cursor, AGY). Meanwhile, a single unverified requirement
+   `toolAllowlist: []`, AGY). Meanwhile, a single unverified requirement
    assessment rejects every sibling requirement owned by the same role.
 4. **Prompt read-plan bloat**: `ComposeLiveRootReview` serializes the complete
    repository read list across both sides (`LiveSourceReadPlan`, thousands of
@@ -251,7 +251,7 @@ specifications, and independent technical review feedback.
       with exact `(side, path, line_start..line_end)` and exact line bytes
       (preserving tabs, trailing whitespace, and terminating LF `\n`) for every
       reported finding and every `met`/`partially_met` requirement.
-    - Instruct `002-extract` uniformly across all five providers as pure
+    - Instruct `002-extract` uniformly across all four providers as pure
       transcription from verbatim target excerpts already in `prior_report`
       (removing *"Re-read that exact target range..."*, *"Never quote the
       accepted report itself"*, line 13's *"Omit any claimed defect whose
@@ -315,16 +315,14 @@ specifications, and independent technical review feedback.
 
 ### 4. Lossless `001-initial` read-plan compaction (`TASK-090`)
 
-- *Rejected (naive template-only replacement)*: Cursor enforces exact string
-  equality via `liveReadPlanGitCommands` (`cursor_live_review.go`,
-  `cursor_acp_protocol.go`) and AGY enforces exact string equality against its
-  guarded command set (`agy_profile.go`, `agy_protocol.go`). Reconstructing
-  single-quote escaping, spaces, non-ASCII characters, or JSON HTML-escaped
-  characters (`&`, `<`, `>`) from a naive template causes
-  `provider_permission_denied`.
+- *Rejected (naive template-only replacement)*: AGY enforces exact string
+  equality against its guarded command set (`agy_profile.go`,
+  `agy_protocol.go`). Reconstructing single-quote escaping, spaces, non-ASCII
+  characters, or JSON HTML-escaped characters (`&`, `<`, `>`) from a naive
+  template causes `provider_permission_denied`.
 - **Adopted (`3A'` lossless compaction)**:
   - Keep full in-memory `execution.Reads()` completely unchanged across all
-    five adapters.
+    four adapters.
   - Bump `review:live-read-plan` trusted layer version from `"1"` to `"2"` in
     `internal/app/review/live_template.go` and disable JSON HTML escaping
     (`SetEscapeHTML(false)`).
@@ -342,12 +340,11 @@ specifications, and independent technical review feedback.
     and `internal/adapters/providercli/agy_profile.go` (prompt guidance for
     guard-prefixed templated commands and fixing the `native_git_command` ->
     `git_command` field drift), and run both asset generators twice.
-  - Live proof boundary: offline round-trip tests cannot prove real Cursor and
-    AGY models expand templated commands without `provider_permission_denied`;
-    `TASK-090` requires `make test-cursor` and `make test-agy` before claiming
-    completion. This intentionally departs from `EPIC-014`'s quota-deferral
-    precedent and therefore requires Master's explicit live-gate authorization
-    prior to execution.
+  - Live proof boundary: offline round-trip tests cannot prove real AGY models
+    expand templated commands without `provider_permission_denied`; `TASK-090`
+    requires `make test-agy` before claiming completion. This intentionally
+    departs from `EPIC-014`'s quota-deferral precedent and therefore requires
+    Master's explicit live-gate authorization prior to execution.
 
 ### 5. Same-profile ZCode qualification sharing and Git-scope tool hygiene (`TASK-091`)
 
@@ -379,7 +376,7 @@ specifications, and independent technical review feedback.
     configuration failure with zero publication authority (covered by a new
     negative test) rather than pre-run qualification; and (b)
     `ProductionProviderProvenance` retains its existing derived-route schema
-    (matching Grok, Codex, and Cursor without a breaking schema change).
+    (matching Grok and Codex without a breaking schema change).
 - **ZCode Git-scope `toolAllowlist`**:
   - Wire `domain.LiveSourceScope` into `zcodeProtocolSession` via
     `protocol_dispatch.go`, drop `Grep` and `Glob` from `toolAllowlist` on Git
@@ -392,7 +389,7 @@ specifications, and independent technical review feedback.
 ### 6. Shared readiness fixture wording (`TASK-092`)
 
 - Separated from `TASK-091` because `internal/adapters/providercli/fixture.go`
-  is shared by all five providers and `mulgae heartbeat`
+  is shared by all four providers and `mulgae heartbeat`
   (`internal/composition/heartbeat.go`).
 - Bump `current-qualification-fixture-v3` to `v4`. Retain the first line
   `"Prove readiness by returning exactly one JSON object and nothing else."`
@@ -401,13 +398,12 @@ specifications, and independent technical review feedback.
   identifiers with no secret meaning, avoiding trigger words (`credential`,
   `token`, `forward`, `verify identity`).
 - Update `fixture_test.go`, `qualifier_test.go`, heartbeat tests, and affected
-  protocol/qualification tests (`cursor_acp_protocol_test.go`,
-  `cursor_acp_negative_test.go`, `qualification_concurrency_test.go`,
+  protocol/qualification tests (`qualification_concurrency_test.go`,
   `qualifier_fallback_characterization_test.go`).
 - Run live ZCode verification (`make test-e2e`); either run live capability
-  probes for Grok, Codex, Cursor, and AGY or record their deferral to the
-  release gate explicitly per `EPIC-014` quota policy without claiming
-  unexercised live proof.
+  probes for Grok, Codex, and AGY or record their deferral to the release gate
+  explicitly per `EPIC-014` quota policy without claiming unexercised live
+  proof.
 
 ### 7. Coordinator batched event loop (`TASK-093`)
 
@@ -462,9 +458,9 @@ Membership and sequential execution order are owned exclusively by
 |---|---|---|
 | `TASK-088` | Fix `AttemptConditionProviderTimeout` -> `AttemptTimedOut` in `transitionFailedInvocation` (and defensively in `terminalizeAttempt`); fix `AttemptValidating` (`attempt.acceptedOutput != nil`, queued or running extraction) + `AttemptConditionTimeout` in `cancelAll` (recording `ValidReview`/empty reason/`AttemptSucceeded`) and unconditional role-derived `RunCompleted` projection in `finishRun` when all roles succeeded on timeout (updating `TestCoordinatorRunDeadlineBeforeWorkerCloseForcesFailedRun` and `docs/architecture/README.md`); implement `2C` exact-match closed Mulgae-owned key set with full-key protected-precedence scan in `provider_requirements.go` (keeping `repair.go` protected) and `M1` admission-based typed citation-fault split in `ports/live_source.go` / `live_source_darwin.go` across both Git and `--workspace` scopes and both requirements and findings verification (preserving real drift fail-closed in both modes, amending `security.md` and `review-completeness-and-iteration.md`, and noting non-requirements drift strengthening for `CHANGELOG.md`); preserve internal security cause to diagnostics (`M2`, updating `contracts.md` for any new causes) and emit complete `invokeRequirements` parse/validation diagnostics and raw capture (`P5`/`M3`). | End-to-end offline `Coordinator.ExecuteRun` -> `PrepareLiveCandidate` -> `WithRequirements` -> `PublishLiveNext` tests for required/non-required provider timeouts and deadline-during-last-role-extraction (including preserved-role trace/diagnostics checks), plus one `reviewrun` live-service expired-deadline test; dual-path property/matrix test (`commitOutcome` over all `AttemptConditions()` AND `cancelAll -> stopCoordinatorAttempt` over `{Running, Validating(queued\|running), Repairing} x {Timeout, Cancelled}`) proving `AttemptTimedOut == (FailureClass == FailureTimeout)`; `2C` mixed-key precedence and `M1` Git + `--workspace` (requirements + non-requirements) bounded-citation vs admitted-path drift tests; requirements diagnostics and raw-capture regressions; `-race`. |
 | `TASK-089` | Remove repository-wide `reads` from `002-extract` prompts (`3B`, bumping layer version where changed); unify `extract-provider-review.v1.txt` (removing lines 12–13), `requirements.v1.txt`, and `reviewer-guide.v1.txt` so `001-initial` emits exact verbatim target excerpts (with exact line bytes and terminating LF) and `002-extract` is pure transcription from `prior_report` across all providers — in non-requirements mode refusing transcription (no JSON -> `reports_only`) if any claimed defect lacks a verbatim excerpt, and in `--requirements` mode emitting the JSON object with the `requirements` section intact while omitting the top-level `findings` key so verified requirements are retained and findings stay `reports_only` (never false `findings: []`), while ungrounded requirements emit `unverified` (`insufficient_evidence`); implement per-item requirement isolation, `assessmentPending` trigger handling, and bidirectional `initial -> extract` per-item merge in `DecodeProviderRequirements`, `invokeRequirements`, and `NormalizeRequirements` (keeping duplicate/foreign/wrong-owner IDs, real source drift, and findings all-or-nothing fail-closed); amend `review-completeness-and-iteration.md` and `security.md`; run both asset generators twice idempotently. | Extraction prompt size/content regressions (`002-extract` carries no repository read list); quote-fidelity tests covering tabs, CRLF, trailing whitespace, and terminating LF; regressions verifying a claimed high finding without verbatim excerpt stays `reports_only` (never false `no_findings` / `CI pass`) in non-requirements mode AND retains verified requirement rows while keeping role `reports_only` in `--requirements` mode (top-level `findings` key omitted); per-item requirements partial-isolation, bidirectional merge, duplicate/foreign, and source-drift tests; unchanged findings all-or-nothing contract tests; double `./dev go generate ./internal/app/init && ./dev go generate ./internal/builtin` with zero second-pass diff. |
-| `TASK-090` | Implement lossless `3A'` `001-initial` read-plan compaction (`review:live-read-plan` v2, HTML escaping disabled, no size/count cap): explicit `candidates` from `execution.Reads()` matching `target.Changes()`, side-scoped supporting path lists + template for positive-allowlist paths (`^[A-Za-z0-9._/-]+$`), explicit commands for all other paths, keeping in-memory `execution.Reads()` unchanged across all adapters; update `common.v1.txt:6` and `agy_profile.go` (templated guard-prefix instructions + `native_git_command` -> `git_command` fix); regenerate assets twice idempotently. | Lossless round-trip parity tests (single quotes, spaces, `&<>`, Unicode, added/deleted single-side candidates) against Cursor `liveReadPlanGitCommands` and AGY guarded command sets; updated `live_execution_darwin_test.go` and `live_prompt_source_test.go`; double generator idempotence; live `make test-cursor` and `make test-agy` (intentional departure from `EPIC-014` quota deferral; requires Master's live-gate authorization) proving models accurately expand templated commands without `provider_permission_denied`. |
+| `TASK-090` | Implement lossless `3A'` `001-initial` read-plan compaction (`review:live-read-plan` v2, HTML escaping disabled, no size/count cap): explicit `candidates` from `execution.Reads()` matching `target.Changes()`, side-scoped supporting path lists + template for positive-allowlist paths (`^[A-Za-z0-9._/-]+$`), explicit commands for all other paths, keeping in-memory `execution.Reads()` unchanged across all adapters; update `common.v1.txt:6` and `agy_profile.go` (templated guard-prefix instructions + `native_git_command` -> `git_command` fix); regenerate assets twice idempotently. | Lossless round-trip parity tests (single quotes, spaces, `&<>`, Unicode, added/deleted single-side candidates) against AGY guarded command sets; updated `live_execution_darwin_test.go` and `live_prompt_source_test.go`; double generator idempotence; live `make test-agy` (intentional departure from `EPIC-014` quota deferral; requires Master's live-gate authorization) proving models accurately expand templated commands without `provider_permission_denied`. |
 | `TASK-091` | Enable same-profile ZCode qualification sharing in `family_qualification.go` (keeping `FamilyAgy` per-instance and routing authority strictly through `DeriveEquivalentRouteDirectExecutionAuthority`), amending `docs/specs/contracts.md` and `docs/architecture/README.md` and accepting the `ProductionProviderProvenance` trade-off with Lore `Rejected:`/`Directive:` trailers; wire `LiveSourceScope` into `zcodeProtocolSession` to drop `Grep`/`Glob` on Git scopes while keeping `Bash` + `Read` (for spilled Bash output logs) and updating `reviewer-guide.v1.txt` and `zcode-app-server-transport.md`. | Rewritten `TestGroupCandidatesByFamilyRuntimeProfileKeepsZCodeNamespacesDistinct`, `TestFamilyQualificationProbesEachZCodeNamespace`, `TestFamilyQualificationRetainsRetryMitigatedRejectionOnSuccess`, and `family_qualification_batches_test.go` with `TestRemapCurrentQualificationResultRejectsAuthorityBleedAcrossInstances` unchanged; ZCode->ZCode derivation positive/negative tests plus sibling execution-time `account.revision`/`setModel`/`setThoughtLevel` typed failure test with zero publication authority; ZCode Git-scope `toolAllowlist` regressions; double generator idempotence. |
-| `TASK-092` | Update `internal/adapters/providercli/fixture.go` to `current-qualification-fixture-v4`, keeping the first line intact and adding one neutral synthetic-test-identifier sentence preserving exact `{"root","link","role"}` JSON and nonce/link verification across all five providers and `mulgae heartbeat`; update `fixture_test.go`, `qualifier_test.go`, heartbeat tests, and affected protocol/qualification tests. | Deterministic fixture, qualifier, heartbeat, and five-provider protocol/E2E fake tests; live ZCode capability probe (`make test-e2e`), with non-ZCode live probes either executed or explicitly deferred to the release gate per `EPIC-014` quota policy. |
+| `TASK-092` | Update `internal/adapters/providercli/fixture.go` to `current-qualification-fixture-v4`, keeping the first line intact and adding one neutral synthetic-test-identifier sentence preserving exact `{"root","link","role"}` JSON and nonce/link verification across all four providers and `mulgae heartbeat`; update `fixture_test.go`, `qualifier_test.go`, heartbeat tests, and affected protocol/qualification tests. | Deterministic fixture, qualifier, heartbeat, and four-provider protocol/E2E fake tests; live ZCode capability probe (`make test-e2e`), with non-ZCode live probes either executed or explicitly deferred to the release gate per `EPIC-014` quota policy. |
 | `TASK-093` | Replace `Coordinator.execute`'s wave barrier with a single-goroutine batched FIFO event loop preserving `PrepareInitial`, role-path/run-deadline derivation, `run_max_invocations` enforcement and scheduler `jobs`/`results` channel capacity, `InvocationDispatched` ordering, global outstanding-ordinal validation, and stop-condition drain barriers; update `docs/architecture/README.md` and `coordinator_test.go` (keeping `TestCoordinatorWaveBarrierPrecedesEveryRuntimeStart` unchanged, rewriting `TestCoordinatorRepairStartsOnlyAfterInitialWaveCompletes`, and updating per-role trace determinism); certify the integrated Epic candidate. | `-race` coordinator concurrency, per-role trace determinism, cancellation/deadline drain, and overlapped-extraction tests; full `make test-offline`, `make test-release`, and live ZCode certification (`make test-e2e` plus multi-role `--stage` + `--requirements` review on a satisfiable fixture confirming 1 shared qualification probe, compact prompts, and at least one verified-evidence `met`/`partially_met`/`unmet` provider verdict). |
 
 ## Effect and release boundaries

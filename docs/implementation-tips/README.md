@@ -128,7 +128,6 @@ make test-e2e
 make test-e2e-opt-in
 make test-herdr
 make test-grok
-make test-cursor
 make test-agy
 make test-mcp-clients
 ```
@@ -172,13 +171,6 @@ when set and otherwise discovers `grok` on `PATH`. The target requires an
 already authenticated installation and `herdr-core`, does not modify native Grok
 configuration, and is the standalone Grok live provider gate outside
 `make test-e2e`.
-
-`make test-cursor` builds the exact current release binary and runs one Cursor
-review. It requires `darwin/arm64`, `CURSOR_AUTH_TOKEN`, and an absolute
-executable in `MULGAE_E2E_CURSOR_EXECUTABLE`. The executable's version line
-must match `YYYY.MM.DD` followed by a hyphen and
-lowercase hexadecimal, with a padded month and day. The target is not part of
-`make test`. A missing or unsafe prerequisite fails the target.
 
 `make test-agy` builds the exact current candidate release binary with the
 release version and HEAD revision linker values. It requires `darwin/arm64`,
@@ -292,7 +284,7 @@ coherent inspection and complete report/evidence reads. It checks no-change
 provenance, source selection identity and absence of source archives. Frozen
 historical projections preserve their original envelopes; the owning query
 tests establish historical artifact integrity. Current envelopes pass through
-an independently updated consumer, including command-result v23, preflight v11
+an independently updated consumer, including command-result v24, preflight v12
 and live-source/source-evidence capabilities.
 
 For actual client checks, use invocation-only MCP configuration and existing
@@ -628,22 +620,12 @@ default environment.
 
 For TASK-064's provider-mechanics extraction, keep the class controls
 `TestProtocolStringResponseMatches`, `TestProtocolDiagnosticIdentifierGrammar`,
-`TestLiveReadPlanMechanics` and `TestProviderToolDiagnosticOrder` alongside the
-existing family tests. Characterize the original methods before extracting
-them. Diagnostic grammar checks include byte and Unicode boundaries; command
-and path checks preserve family normalization, original errors and admission
-counts. Native admission must read no file bodies, while evidence reads retain
-content validation.
-
-The diagnostic-order regression admits completed reads before synchronously
-invalidating their targets, then invokes the final protocol response handler.
-It compares literal raw-ID admission order and the selected diagnostic across
-both insertion directions and a fixed 64-trial corpus. Only a wrong-order
-observation with unchanged typed refusal establishes the pre-repair failure;
-setup, EOF or unrelated failures do not. An all-green pre-repair corpus is
-inconclusive. Preserve Cursor permission and ask-phase controls, AGY
-permission codecs and natural exit, and ZCode's post-turn stream-end
-acceptance. Run focused checks and completion gates
+and `TestLiveReadPlanMechanics` alongside the existing family tests.
+Diagnostic grammar checks include byte and Unicode boundaries; command and path
+checks preserve family normalization, original errors and admission counts.
+Native admission must read no file bodies, while evidence reads retain content
+validation. Preserve AGY permission codecs and natural exit, and ZCode's
+post-turn stream-end acceptance. Run focused checks and completion gates
 serially in the native default environment; scripted and compile-only checks
 do not certify deferred non-ZCode live behavior.
 
@@ -785,10 +767,11 @@ development and Epic certification run the deterministic Make gates
 `make test-release`), `make test-mcp-clients` when MCP consumer paths change,
 and ZCode-only live verification (`make test-e2e`, which runs
 `TestLiveZCodeCapability`, the synthetic cipher fixtures, and the two-role ZCode live review), while live
-provider gates for Grok (`make test-grok`), Cursor
-(`make test-cursor`), AGY (`make test-agy`), and Codex
-(`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) are explicitly deferred to the
-`v0.1.26` five-provider release gate.
+provider gates for Grok (`make test-grok`), Cursor (`make test-cursor`), AGY
+(`make test-agy`), and Codex (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) were
+explicitly deferred to the historical `v0.1.26` five-provider release gate
+(Cursor and `make test-cursor` were subsequently retired in `v0.1.28`, leaving
+the active four-provider portfolio `zcode`, `grok`, `codex`, and `agy`).
 
 ### Tagged compilation and native execution
 
@@ -800,7 +783,6 @@ supported tagged sets from the repository root:
 ./dev go vet -tags=live_herdr ./internal/adapters/herdr
 ./dev go vet -tags=live_e2e ./test/e2e
 ./dev go vet -tags="live_e2e live_grok" ./test/e2e
-./dev go vet -tags="live_e2e live_cursor" ./test/e2e
 ./dev go vet -tags="live_e2e live_agy" ./test/e2e
 ./dev go vet -tags="live_e2e live_e2e_opt_in" ./test/e2e
 ./dev go vet -tags=releasecheck ./internal/releasecheck
@@ -875,24 +857,19 @@ and spawn locality order using the real configuration source.
 Two groups of immutable predecessor snapshots record the defects corrected in
 TASK-063. Final native-home replacement originally requested an internal exit
 10, projected by doctor and providers to exit 7. Doctor JSON lost the inline
-diagnosis. Cursor originally failed before launch, and the generic normalizer
-rejected its complete calendar/hash tuple. `task063-doctor-before.json` retains
-those bytes. Other characterization cases continue to compare with that file.
+diagnosis. `task063-doctor-before.json` retains those immutable predecessor
+bytes. Other characterization cases continue to compare with that file after
+projecting the current four-provider v8 contract onto the fixture.
 
-`task063-doctor-corrected.json` contains separate fixed expectations for the
-12 Q1/Q3 cases, constructed from the predecessor controls and the approved
-corrections. `TestDoctorProvidersConformanceCompatibility` compares the corrected
-public outputs and effects.
-`TestProviderVersionObserverCursorTupleAndGenericNormalization` checks one Cursor
-launch, the full tuple and unchanged generic normalization. These controls now
-require a complete unsafe diagnosis after final native-home mismatch and an
-observed Cursor calendar/hash tuple, replacing the predecessor defect assertions.
-Model and v7 schema validation are unchanged. The Q1 regression checks the complete unsafe
-projection, both providers filtering modes and the earlier version observation
-plus independent later evidence reads. Cursor controls use synthetic executables,
-physical temporary roots, exact argv, empty cwd/home, launch markers, identity
-replacement, failure/timeout precedence and complete tuple policy cases. They
-make no live model request or use an operator provider home.
+`task063-doctor-corrected.json` retains the fixed TASK-063 Q1/Q3 expectations;
+`TestDoctorProvidersConformanceCompatibility` compares the active Q1 public
+outputs and effects against it after projecting the current four-provider v8
+contract (historical Q3 Cursor cases were retired alongside the Cursor provider
+family). These controls require a complete unsafe diagnosis after final
+native-home mismatch, replacing the predecessor defect assertions. The Q1
+regression checks the complete unsafe projection, both providers filtering
+modes and the earlier version observation plus independent later evidence
+reads.
 
 `doctor.LocalService` owns local diagnosis and reduction. Its focused tests
 trace source, locality, codec, account, native-home and version calls, including
@@ -911,30 +888,28 @@ Run each command on one physical line, and confirm that every named test runs:
 
 ```sh
 ./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestAdmissionSequenceCharacterization|TestDoctorProvidersConformanceCompatibility|TestProvidersCharacterization|TestAdmitConfiguredNativeAccount|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
-./dev go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverCursorTupleAndGenericNormalization|TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestObserveNativeHomeIdentityCapturesDescriptorAndDetectsReplacement|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes)$'
+./dev go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestObserveNativeHomeIdentityCapturesDescriptorAndDetectsReplacement|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes)$'
 ./dev go test -count=1 -v ./internal/composition -run '^TestReviewAdmissionSequenceCharacterization$'
 ```
 
 Use the standard checks after focused verification. Tagged compilation does
-not certify live provider behavior. Grok, Cursor, AGY and opt-in Codex live
-certification remain deferred to the v0.1.26 release gate.
+not certify live provider behavior. Under the historical `v0.1.26` gate policy,
+Grok, Cursor, AGY, and opt-in Codex live certification were deferred to the
+five-provider release gate (Cursor was subsequently retired in `v0.1.28`).
 
 ## Local doctor correction and extraction controls
 
-Run every command on one physical line. These controls cover Q1/Q3 and the
+Run every command on one physical line. These controls cover Q1 and the
 shared LocalService used by doctor and providers; keep the earlier M1/M2
 commands alongside them.
 
 ```sh
 ./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorProvidersNativeHomeReplacementRegression|TestDoctorProvidersNativeHomeCancellationProjection)$'
-./dev go test -count=1 -v ./internal/adapters/environment -run '^TestProviderVersionObserverCursorCompatibility$'
-./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^TestDoctorProvidersProductionCursorCompatibility$'
 ./dev go test -count=1 -v ./internal/app/doctor -run '^(TestLocalDoctorAdmissionSequence|TestLocalDoctorReadinessCompatibility|TestLocalDoctorRejectsNativeHomeReplacement|TestLocalDoctorCancellationAndEffects)$'
 ./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestDoctorProvidersConformanceCompatibility|TestApplicationDoctorReportsStableBinaryAvailabilityReasons|TestApplicationDoctorClassifiesProviderCLIVersionOutcomes|TestApplicationDoctorNeverInvokesLiveHeartbeatService|TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
 ./dev go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes|TestProviderVersionObserverAdmitsAgyOfflineVersion|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestSpawnVerifierRejectsZCodeProviderConfigDrift|TestApplicationMetadataObservationBindsShortVersionAndDigest)$'
-./dev go test -count=1 -v ./internal/app/reviewrun -run '^(TestClassifyVersion|TestCursorDateHashGuidanceIgnoresHashOrder)$'
+./dev go test -count=1 -v ./internal/app/reviewrun -run '^TestClassifyVersion$'
 ./dev go test -count=1 -v ./internal/architecture -run '^TestProductionDependencyDirection$'
-./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^TestDoctorCursorProductionVersionPolicy$'
 ```
 
 ## Runtime wire compatibility controls
@@ -1294,8 +1269,8 @@ for changed MCP consumers. Release readiness requires the applicable exact-commi
 make test and provider-specific obligations under the repository's release
 policy. A runtime feature cannot use the patch-only version-increment waiver.
 Live-provider checks retain separate execution authority and cannot be replaced
-with fixture success. `make test-e2e`, `make test-grok`, `make test-cursor`,
-`make test-agy` and enabled `make test-e2e-opt-in` reuse an explicitly selected
+with fixture success. `make test-e2e`, `make test-grok`, `make test-agy` and
+enabled `make test-e2e-opt-in` reuse an explicitly selected
 usable `HAEPARI_HOME`. For standalone runs without a selected Installation or
 inherited Haepari context, the shared live fixture starts the installed `haepari`
 from `PATH` in a private temporary root, registers its capacity-one `mulgae-review`

@@ -7,13 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	gittargetadapter "github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
-	"golang.org/x/sys/unix"
 )
 
 // countingLiveSource counts body reads and path admissions against the
@@ -90,139 +88,4 @@ func countingLiveFixture(t *testing.T, scope domain.LiveSourceScope) (*countingL
 		t.Fatal(err)
 	}
 	return counted, execution, project
-}
-
-// A scripted Cursor live-review read tool performs one path admission per
-// admission event — the permission probe, the completed tool and the
-// end-turn finish — and never reads the file body.
-func TestCursorLiveToolAdmissionReadsNoBody(t *testing.T) {
-	ctx := context.Background()
-	counted, execution, project := countingLiveFixture(t, domain.LiveSourceWorkspace)
-	authority, err := newCursorLiveReadAuthority(ctx, execution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	exact := filepath.Join(project, "target.txt")
-	session := cursorMatrixSession(t, authority)
-	frames := cursorMatrixAppend(cursorMatrixPrefix(true),
-		cursorMatrixUpdate(map[string]any{"sessionUpdate": "tool_call", "toolCallId": "tool-read", "kind": "read", "status": "pending", "rawInput": map[string]any{"path": exact}}),
-		cursorMatrixPermission("permission-read", "tool-read", "read", nil, []map[string]string{
-			{"optionId": "once-read", "kind": "allow_once"},
-			{"optionId": "reject-read", "kind": "reject_once"},
-		}),
-		cursorMatrixUpdate(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "tool-read", "kind": "read", "status": "completed"}),
-		cursorMatrixMessage("reviewed target"),
-		cursorMatrixEndTurn(),
-	)
-	exchange, err := cursorMatrixDrive(session, frames...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if outcome, optionID := cursorMatrixReply(t, exchange.sent, "permission-read"); outcome != "selected" || optionID != "reject-read" {
-		t.Fatalf("planned read permission = %s %s", outcome, optionID)
-	}
-	if counted.reads != 0 || counted.admits != 3 {
-		t.Fatalf("body reads during admission = %d, admissions = %d; want 0 reads and 3 admissions (permission probe, completion, end turn)", counted.reads, counted.admits)
-	}
-}
-
-// Unsafe Cursor read targets keep the unplanned-read rejection: the driver
-// answers the permission non-authoritatively and fails the turn.
-func TestCursorLiveToolAdmissionRejectsUnsafeTargets(t *testing.T) {
-	ctx := context.Background()
-	counted, execution, project := countingLiveFixture(t, domain.LiveSourceWorkspace)
-	authority, err := newCursorLiveReadAuthority(ctx, execution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(project, ".gitignore"), []byte("ignored-link\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("target.txt", filepath.Join(project, "link")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("target.txt", filepath.Join(project, "ignored-link")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(project, "folder"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := unix.Mkfifo(filepath.Join(project, "pipe"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct{ name, target string }{
-		{"symlink", filepath.Join(project, "link")},
-		{"ignored-symlink", filepath.Join(project, "ignored-link")},
-		{"directory", filepath.Join(project, "folder")},
-		{"fifo", filepath.Join(project, "pipe")},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			session := cursorMatrixSession(t, authority)
-			frames := cursorMatrixAppend(cursorMatrixPrefix(true),
-				cursorMatrixUpdate(map[string]any{"sessionUpdate": "tool_call", "toolCallId": "tool-read", "kind": "read", "status": "pending", "rawInput": map[string]any{"path": test.target}}),
-				cursorMatrixPermission("permission-read", "tool-read", "read", nil, []map[string]string{
-					{"optionId": "once-read", "kind": "allow_once"},
-					{"optionId": "reject-read", "kind": "reject_once"},
-				}),
-				cursorMatrixMessage("unplanned report"),
-				cursorMatrixEndTurn(),
-			)
-			exchange, err := cursorMatrixDrive(session, frames...)
-			if err == nil || strings.Contains(err.Error(), "EOF") || !strings.Contains(err.Error(), "unplanned read") {
-				t.Fatalf("unsafe target = %v", err)
-			}
-			if cursorPermissionCause(t, err) != domain.DiagnosticCausePermissionDenied {
-				t.Fatalf("unsafe cause = %v", err)
-			}
-			if outcome, optionID := cursorMatrixReply(t, exchange.sent, "permission-read"); outcome != "selected" || optionID != "reject-read" {
-				t.Fatalf("unsafe target permission = %s %s", outcome, optionID)
-			}
-			cursorMatrixAssertNoReport(t, session)
-		})
-	}
-	if counted.reads != 0 {
-		t.Fatalf("body reads during unsafe-target admission = %d", counted.reads)
-	}
-}
-
-// The Cursor execute tool is admitted through its exact-command map and
-// never consults the source reader.
-func TestCursorLiveGitCommandAdmitsWithoutSourceCalls(t *testing.T) {
-	ctx := context.Background()
-	counted, execution, _ := countingLiveFixture(t, domain.LiveSourceStage)
-	authority, err := newCursorLiveReadAuthority(ctx, execution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	command := ""
-	for _, read := range execution.Reads() {
-		if read.GitCommand() != "" {
-			command = read.GitCommand()
-			break
-		}
-	}
-	if command == "" {
-		t.Fatal("stage plan lacked a Git read command")
-	}
-	session := cursorMatrixSession(t, authority)
-	frames := cursorMatrixAppend(cursorMatrixPrefix(true),
-		cursorMatrixUpdate(map[string]any{"sessionUpdate": "tool_call", "toolCallId": "tool-execute", "kind": "execute", "status": "pending", "rawInput": map[string]any{"command": command}}),
-		cursorMatrixPermission("permission-execute", "tool-execute", "execute", nil, []map[string]string{
-			{"optionId": "always-execute", "kind": "allow_always"},
-			{"optionId": "once-execute", "kind": "allow_once"},
-		}),
-		cursorMatrixUpdate(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "tool-execute", "kind": "execute", "status": "completed"}),
-		cursorMatrixMessage("reviewed command output"),
-		cursorMatrixEndTurn(),
-	)
-	exchange, err := cursorMatrixDrive(session, frames...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if outcome, optionID := cursorMatrixReply(t, exchange.sent, "permission-execute"); outcome != "selected" || optionID != "once-execute" {
-		t.Fatalf("planned command permission = %s %s", outcome, optionID)
-	}
-	if counted.reads != 0 || counted.admits != 0 {
-		t.Fatalf("Git-command admission read = %d, admitted = %d; want 0/0", counted.reads, counted.admits)
-	}
 }

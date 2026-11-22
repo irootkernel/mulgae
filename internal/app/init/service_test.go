@@ -873,7 +873,6 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default"},
 		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "override", ReasoningEffortSource: "override"},
 		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
-		{Family: "cursor", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 		{Family: "agy", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}
 	if !reflect.DeepEqual(result.Discovery, want) {
@@ -1125,7 +1124,7 @@ func admittedGrokDiscoveryRows() []DiscoveryRow {
 		Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate",
 		ExecutableSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default",
 	}
-	return []DiscoveryRow{notSelectedDiscoveryRow("zcode"), grok, notSelectedDiscoveryRow("codex"), notSelectedDiscoveryRow("cursor"), notSelectedDiscoveryRow("agy")}
+	return []DiscoveryRow{notSelectedDiscoveryRow("zcode"), grok, notSelectedDiscoveryRow("codex"), notSelectedDiscoveryRow("agy")}
 }
 
 func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {
@@ -1220,4 +1219,22 @@ func TestMutationOutcomeGoldenMatchesContractTable(t *testing.T) {
 
 func grokInitRequest(root ports.AnchoredRoot) InitializeProjectRequest {
 	return InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"grok"}}, Overrides: Overrides{GrokExecutable: "/bin/grok"}}
+}
+
+func TestInitializeProjectRejectsRetiredCursorSelection(t *testing.T) {
+	rootPath := t.TempDir()
+	_ = os.Chmod(rootPath, 0o700)
+	root, _ := ports.NewAnchoredRoot(rootPath)
+	service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.InitializeProject(context.Background(), InitializeProjectRequest{
+		ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test",
+		Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"cursor"}},
+	})
+	var failure *Failure
+	if err == nil || !errors.As(err, &failure) || failure.Code() != "init_selection_invalid" || result.Committed {
+		t.Fatalf("retired cursor init = %#v, err = %v", result, err)
+	}
 }

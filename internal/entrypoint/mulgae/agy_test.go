@@ -81,7 +81,7 @@ func TestApplicationInitAgyPublishesCurrentContractAndSplitPolicy(t *testing.T) 
 	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v23" || len(envelope.Result.Discovery) != 5 || envelope.Result.Discovery[4].Family != "agy" {
+	if envelope.SchemaVersion != "mulgae-command-result.v24" || len(envelope.Result.Discovery) != 4 || envelope.Result.Discovery[3].Family != "agy" {
 		t.Fatalf("AGY envelope: %#v", envelope)
 	}
 	diagnosed := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
@@ -95,7 +95,7 @@ func TestApplicationInitAgyPublishesCurrentContractAndSplitPolicy(t *testing.T) 
 		t.Fatal(err)
 	}
 	d := diagnosis.Result.Doctor
-	if d.SchemaVersion != "mulgae-doctor-result.v7" || len(d.ProviderInventory) != 5 || !d.ProviderInventory[4].Configured || d.ProviderInventory[4].State != "eligible" || d.ProviderInventory[4].CLICompatible.ObservedVersion != "1.4.2" {
+	if d.SchemaVersion != "mulgae-doctor-result.v8" || len(d.ProviderInventory) != 4 || !d.ProviderInventory[3].Configured || d.ProviderInventory[3].State != "eligible" || d.ProviderInventory[3].CLICompatible.ObservedVersion != "1.4.2" {
 		t.Fatalf("AGY doctor: %#v", d)
 	}
 	providers := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)

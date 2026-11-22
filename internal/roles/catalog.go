@@ -140,9 +140,8 @@ func (definition Definition) Validate() error {
 }
 
 // validateProviderPreferences keeps the derivation of init's default provider
-// assignment total. Every core role must name all default-eligible families,
-// so the intersection with any non-empty configured family set is never empty.
-// Cursor stays deliberately absent: it is an explicit-selection-only family.
+// assignment total. Every core role must name all supported families, so the
+// intersection with any non-empty configured family set is never empty.
 func (definition Definition) validateProviderPreferences(role domain.Role) error {
 	allowed := []string{"zcode", "grok", "codex", "agy"}
 	required := 4

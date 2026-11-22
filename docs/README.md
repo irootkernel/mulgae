@@ -54,18 +54,17 @@ are available. Git-bound requirements execution includes verified CLI/MCP pages,
 content resources and rendered reports. TASK-033 has completed integrated
 full/live/client certification.
 
-[Cursor ACP transport](architecture-decision-records/cursor-acp-transport.md)
-records the implemented explicit-selection route for
-[EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider).
 [AGY stream-JSON transport](architecture-decision-records/agy-stream-json-transport.md)
 records the implemented single-account route for
 [EPIC-011](roadmap/README.md#epic-011-agy-stream-json-review-provider).
-The implemented provider portfolio is ZCode, Grok, Codex, Cursor and AGY. Cursor
-is explicit; new policy prefers AGY for documentation when available. AGY uses
-one default Gemini account. Its durable design is in the
+The implemented provider portfolio is ZCode, Grok, Codex and AGY. New policy
+prefers AGY for documentation when available; AGY uses one default Gemini
+account. Its durable design is in the
 [transport decision](architecture-decision-records/agy-stream-json-transport.md).
-Live Cursor certification remains a separate opt-in gate. The roadmap records
-the final acceptance of EPIC-010 and EPIC-011.
+Cursor ACP support ([EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider),
+[deprecated Cursor ADR](architecture-decision-records/cursor-acp-transport.md))
+has been retired from the active portfolio. The roadmap records the historical
+acceptance of EPIC-010 and EPIC-011.
 
 [EPIC-012 correctness and historical compatibility](roadmap/README.md#epic-012-correctness-and-historical-compatibility)
 has completed its member Tasks (`TASK-046` through `TASK-052`), the

@@ -94,7 +94,7 @@ requirement prose, source observations, prompts or role reports.
 
 ### Current admission summary
 
-Preflight v11 exposes bounded metadata under `requirements`: the exact input
+Preflight v12 exposes bounded metadata under `requirements`: the exact input
 SHA-256, selected count, ordered IDs and owners, `evaluation_status: not_run`,
 known extraction policy, `source_limit: selected_target_only`, and
 conditional `execution_available` matching actual Git binding availability. No text, criteria, assessment rows or verdicts

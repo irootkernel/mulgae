@@ -12,7 +12,7 @@ Mulgae reports findings and recommendations only.
 
 Automatic initialization requires ZCode and Grok and includes AGY when installed.
 Documentation prefers AGY when available; other default roles prefer ZCode.
-Codex and Cursor remain available by explicit selection. Existing configured
+Codex remains available by explicit selection. Existing configured
 role assignments are preserved.
 
 ```bash

@@ -18,8 +18,6 @@ explain why durable choices were made.
   its live spike pinned.
 - [Codex app-server transport](codex-app-server-transport.md) records the
   ephemeral Codex protocol route and its report and isolation boundaries.
-- [Cursor ACP transport](cursor-acp-transport.md) records explicit Cursor
-  selection and the ACP session, permission, and credential boundaries.
 - [AGY stream-JSON transport](agy-stream-json-transport.md) records the
   single-account stream protocol, guarded reads and natural-exit boundary.
 - [herdr-core terminal transport](herdr-core-terminal-transport.md) records
@@ -27,6 +25,12 @@ explain why durable choices were made.
   trampoline (`__mulgae_paneexec_v1`), control-plane and exact-TTY Seatbelt
   hardening, disposable `GROK_HOME` scratch-file delivery, and Phase 1 Grok
   `1.0.89+` migration and live certification.
+
+## Deprecated / Retired
+
+- [Cursor ACP transport](cursor-acp-transport.md) preserves the historical
+  explicit Cursor ACP transport decision; Cursor support has been retired from
+  the active provider portfolio.
 
 ## Accepted design for planned implementation
 

@@ -8,7 +8,12 @@ This file records concise shipped outcomes and the planned next stable release.
 
 - Require pinned Go/Python toolchains for development and VM qualification,
   migrate VM requests to v2, and automatically format Go files before verification.
-- Migrate Grok (`1.0.89`+) review, structured extraction, qualification, and heartbeat from legacy ACP to a reusable isolated `herdr-core` terminal runtime (`PaneTTY`, disposable `HOME`/`GROK_HOME` with minimal `requirements.toml`, purpose-scoped tools with the five-control `B-1` Seatbelt Bash gate on index/commit scopes only, read-only staged prompts with completion nonces, post-`ESRCH` staged output validation published under `result_transport: "stdout"`, graph-owned `herdr-core` lifecycle teardown, shared control-plane boundary denials across all providers, and offline doctor `herdr-core` readiness checks) without starting `herdr-core` for ZCode, Codex, Cursor, AGY, or Grok `--version`.
+- Migrate Grok (`1.0.89`+) review, structured extraction, qualification, and heartbeat from legacy ACP to a reusable isolated `herdr-core` terminal runtime (`PaneTTY`, disposable `HOME`/`GROK_HOME` with minimal `requirements.toml`, purpose-scoped tools with the five-control `B-1` Seatbelt Bash gate on index/commit scopes only, read-only staged prompts with completion nonces, post-`ESRCH` staged output validation published under `result_transport: "stdout"`, graph-owned `herdr-core` lifecycle teardown, shared control-plane boundary denials across all providers, and offline doctor `herdr-core` readiness checks) without starting `herdr-core` for ZCode, Codex, AGY, or Grok `--version`.
+- Converge the active provider inventory to four families (`zcode`, `grok`, `codex`, `agy`), reject Config v5 `providers.cursor` and `cursor` role assignments fail-closed with `config_provider_retired`, fail public reads/exports of historical and live Cursor-referencing artifacts with `retired_provider_artifact` (while keeping `mulgae clean` operational), and publish `mulgae-command-result.v24`, `mulgae-doctor-result.v8`, `mulgae-provider-heartbeat-result.v5`, and `mulgae-review-preflight.v12` while preserving frozen historical schema/example pairs.
+
+### Removed
+
+- Remove Cursor (`cursor`) ACP provider support across runtime adapters, qualification, discovery, `init` (`--cursor-executable` and `--providers cursor`), `heartbeat --provider cursor`, `doctor`, `providers`, VM qualification inputs, documentation, and `make test-cursor`, while retaining defense-in-depth `~/.cursor`/`~/.config/cursor` credential-root denials, `.cursor`/`.cursorrules` content detection, Grok `[compat.cursor]` lockdown, and `cursor_auth_token` secret-key refusal.
 
 ### Fixed
 

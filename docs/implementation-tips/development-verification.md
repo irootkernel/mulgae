@@ -52,9 +52,12 @@ one complete offline backstop for its final integrated candidate in TASK-074.
 ### Release obligations
 
 Keep the mandatory ZCode live checks and the conditional Codex target behavior.
-The separately adopted `v0.1.26` release requirement still requires all five
-providers, including the standalone Grok, Cursor and AGY campaigns and enabled
-Codex profile checks, on the release candidate. The normal `make test` default
+The separately adopted historical `v0.1.26` release requirement covered all
+five providers at the time, including the standalone Grok, Cursor, and AGY
+campaigns and enabled Codex profile checks, on the release candidate (Cursor
+and `make test-cursor` were subsequently retired in `v0.1.28`, converging the
+active release-candidate obligation to the four active providers `zcode`,
+`grok`, `codex`, and `agy`). The normal `make test` default
 alone does not discharge that additional obligation.
 
 EPIC-015 activated this development completion policy in TASK-070. Its
@@ -194,9 +197,9 @@ deleting scenarios is not a completion quota.
   `Makefile` declares a valid `RELEASE_VERSION := v<major>.<minor>.<patch>`
   line, passes `MULGAE_RELEASE_VERSION` to `./internal/releasecheck` in
   `test-release`, and stamps `main.buildVersion=$(RELEASE_VERSION)` in each of
-  the seven exact-binary target slices (`test-release`, `test-e2e`,
-  `test-e2e-opt-in`, `test-grok`, `test-cursor`, `test-agy`, and
-  `test-mcp-clients`). `internal/releasecheck` (`TestInstalledRootModuleContract`)
+  the six exact-binary target slices (`test-release`, `test-e2e`,
+  `test-e2e-opt-in`, `test-grok`, `test-agy`, and `test-mcp-clients`).
+  `internal/releasecheck` (`TestInstalledRootModuleContract`)
   and the manual/waiver temporary-`GOBIN` checks verify `mulgae --version`,
   `mulgae version`, and `mulgae version --json` on the installed binary.
 - **Live E2E and MCP projection ownership (`TestE2ELiveFamilyCapabilityAndNoSkipContract`, `TestMCPContractProjectionOwnership`)**:
@@ -218,10 +221,11 @@ deleting scenarios is not a completion quota.
   `TestCatalogHelpCoversProjectLocalInitContract` retains the configuration
   authority paths (`<canonical-project-root>/.mulgae/config.yaml`,
   `<canonical-project-root>/.mulgae/local.yaml`), `--providers auto|FAMILY[,FAMILY...]`
-  grammar, the `FAMILY := zcode | grok | codex | cursor | agy` set,
+  grammar, the `FAMILY := zcode | grok | codex | agy` set,
   `execution.workspace_access` and `Config v2` rejection tokens, and forbidden
   legacy paths (`~/.config/mulgae`, `$XDG_CONFIG_HOME/mulgae`,
-  `--providers kimi`) without pinning multi-line paragraph prose or `\n` line
+  `--providers kimi`, `--providers cursor`) without pinning multi-line paragraph
+  prose or `\n` line
   wrapping. `TestCatalogDocumentationContract` remains unchanged because it
   exercises `Catalog.List` client-side kind filtering and `Catalog.Read`
   context-cancellation behavior.
@@ -287,8 +291,9 @@ unset:
 Live-provider gates (`make test-e2e`, `make test-grok`, `make test-cursor`,
 `make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) were
 unexecuted under the activated harness-only `EPIC-015` policy; the mandatory
-`make test` release gate and the `v0.1.26` five-provider release-candidate
-obligations remain unchanged.
+`make test` release gate and the active multi-provider release-candidate
+obligations remain in force (with Cursor and `make test-cursor` subsequently
+retired in `v0.1.28`).
 
 ## Known limits
 

@@ -66,8 +66,6 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		return grokTerminalBaseArgv(definition, terminalPurposeQualification, "", false)
 	case FamilyCodex:
 		return appendCodexProtocolServerArgv(baseArgv, definition.CodexModel(), definition.CodexReasoningEffort()), nil
-	case FamilyCursor:
-		return []string{definition.Executable(), "acp"}, nil
 	case FamilyAgy:
 		// Native 1.4.2 schema enforcement repeats the proof across internal
 		// turns. Keep one prompt-bound turn and validate its exact JSON proof
@@ -115,7 +113,7 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	baseArgv := definition.BaseArgv()
 	executable := definition.Executable()
 	switch definition.Family() {
-	case FamilyGrok, FamilyCodex, FamilyCursor, FamilyAgy:
+	case FamilyGrok, FamilyCodex, FamilyAgy:
 		if !reflect.DeepEqual(baseArgv, []string{executable}) {
 			return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
 		}

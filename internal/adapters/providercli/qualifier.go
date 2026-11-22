@@ -105,7 +105,7 @@ func (receipt CurrentProbeDirectExecutionAuthorityReceipt) Matches(candidate por
 	}
 	runtimeDefinitionIdentity, identityErr := currentProbeRuntimeDefinitionIdentity(definition)
 	if !receipt.Valid() || identityErr != nil || receipt.runtimeDefinitionIdentity != runtimeDefinitionIdentity ||
-		!acceptedObservedVersion(definition.Family(), observedVersion) || namespaceGeneration == "" || len(roles) != len(receipt.proofs) {
+		!acceptedObservedVersion(observedVersion) || namespaceGeneration == "" || len(roles) != len(receipt.proofs) {
 		return false
 	}
 	wantRoles := make(map[domain.Role]struct{}, len(roles))
@@ -400,19 +400,7 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 
 	}()
 	namespaceEnvironment := namespace.Environment()
-	cursorDataDir := ""
-	var err error
-	if definition.Family() == FamilyCursor {
-		source, ok := namespace.(interface{ cursorDataDirectory() (string, error) })
-		if !ok {
-			return CurrentProbeResult{}, securityProbeFailure("namespace", "cursor data directory unavailable", nil)
-		}
-		cursorDataDir, err = source.cursorDataDirectory()
-		if err != nil {
-			return CurrentProbeResult{}, securityProbeFailure("namespace", "cursor data directory unavailable", err)
-		}
-	}
-	environment, err := isolatedProcessEnvironmentWithCursorData(definition.Family(), definition.Environment(), namespaceEnvironment, cursorDataDir)
+	environment, err := isolatedProcessEnvironment(definition.Family(), definition.Environment(), namespaceEnvironment)
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("environment", "isolated environment rejected", err)
 	}
@@ -559,8 +547,8 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	workingDirectory := root.Path()
 	var agyProfile *agyInvocationProfile
 	agyAttempted := false
-	var cursorBoundary ports.LiveReadOnlyBoundary
-	var cursorNeutral ports.AnchoredRoot
+	var readOnlyBoundary ports.LiveReadOnlyBoundary
+	var neutralRoot ports.AnchoredRoot
 	var preopenedLaunchDir *os.File
 	closePreopenedLaunchDir := func() {
 		if preopenedLaunchDir != nil {
@@ -586,8 +574,8 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "Grok qualification boundary rejected", bindErr)
 		}
 		preopenedLaunchDir = grokLaunchDir
-		cursorBoundary = grokBoundary
-		cursorNeutral = grokNeutral
+		readOnlyBoundary = grokBoundary
+		neutralRoot = grokNeutral
 		workingDirectory = grokNeutral.String()
 
 		if packet != nil && authority.qualificationChannel == ports.ProviderPacketChannelTerminal && authority.terminalProfile != nil {
@@ -683,11 +671,11 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		if rootErr != nil {
 			return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, rootErr
 		}
-		cursorBoundary, cursorNeutral, requestErr = authority.agyQualificationBinding(source)
+		readOnlyBoundary, neutralRoot, requestErr = authority.agyQualificationBinding(source)
 		if requestErr != nil {
 			return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, requestErr
 		}
-		workingDirectory = cursorNeutral.String()
+		workingDirectory = neutralRoot.String()
 		environment, requestErr = withLiveGitEnvironment(environment)
 		if requestErr != nil {
 			return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, requestErr
@@ -715,22 +703,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			agyProfile = profile
 		}
 	}
-	if definition.Family() == FamilyCursor {
-		cursorBoundary, cursorNeutral, requestErr = cursorQualificationRoots(namespace, root)
-		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "cursor qualification boundary rejected", requestErr)
-		}
-		environment, requestErr = withLiveGitEnvironment(environment)
-		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("environment", "cursor git environment rejected", requestErr)
-		}
-		environment, requestErr = cursorNeutralWorkTree(environment, cursorNeutral)
-		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("environment", "cursor git environment rejected", requestErr)
-		}
-		workingDirectory = cursorNeutral.String()
-	}
-	if (definition.Family() == FamilyCursor || definition.Family() == FamilyAgy || definition.Family() == FamilyGrok) && packet == nil {
+	if (definition.Family() == FamilyAgy || definition.Family() == FamilyGrok) && packet == nil {
 		marker, markerErr := ports.NewProviderPacketFromBytes([]byte("qualification-version"))
 		if markerErr != nil {
 			requestErr = markerErr
@@ -764,8 +737,8 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	if requestErr != nil {
 		return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "bound process request rejected", requestErr)
 	}
-	if definition.Family() == FamilyCursor || definition.Family() == FamilyAgy || definition.Family() == FamilyGrok {
-		request, requestErr = ports.NewLiveReadOnlyProcessRequest(request, cursorBoundary)
+	if definition.Family() == FamilyAgy || definition.Family() == FamilyGrok {
+		request, requestErr = ports.NewLiveReadOnlyProcessRequest(request, readOnlyBoundary)
 		if requestErr != nil {
 			return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "qualification boundary rejected", requestErr)
 		}
@@ -773,12 +746,12 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		preopenedLaunchDir = nil
 		if launchDirectory == nil {
 			var openErr error
-			launchDirectory, openErr = os.Open(cursorNeutral.String())
+			launchDirectory, openErr = os.Open(neutralRoot.String())
 			if openErr != nil {
 				return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "neutral directory unavailable", openErr)
 			}
 		}
-		request, requestErr = ports.NewNeutralBoundProcessRequest(request, cursorNeutral, launchDirectory)
+		request, requestErr = ports.NewNeutralBoundProcessRequest(request, neutralRoot, launchDirectory)
 		if requestErr != nil {
 			_ = launchDirectory.Close()
 			return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "neutral directory rejected", requestErr)
@@ -931,12 +904,8 @@ func providerDiagnosticCause(err error) (domain.RuntimeDiagnosticCause, bool) {
 
 var semverOutput = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
 var grokVersionOutput = regexp.MustCompile(`^grok ([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?) \([0-9a-f]+\)(?: \[[A-Za-z0-9._-]+\])?$`)
-var cursorVersionOutput = regexp.MustCompile(`^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]+$`)
 
-func acceptedObservedVersion(family, version string) bool {
-	if family == FamilyCursor {
-		return cursorVersionOutput.MatchString(version)
-	}
+func acceptedObservedVersion(version string) bool {
 	return semverOutput.MatchString(version)
 }
 
@@ -952,7 +921,7 @@ func currentProbeValidatedReceipts(
 ) ([]CurrentProbeReceipt, error) {
 	runtimeDefinitionIdentity, err := currentProbeRuntimeDefinitionIdentity(definition)
 	if err != nil || len(fixtures) == 0 || len(proofs) != len(fixtures) || len(transportEvidence) != len(fixtures) ||
-		len(effectiveEnvironment) == 0 || namespaceGeneration == "" || !acceptedObservedVersion(definition.Family(), version) {
+		len(effectiveEnvironment) == 0 || namespaceGeneration == "" || !acceptedObservedVersion(version) {
 		return nil, fmt.Errorf("incomplete validated qualification evidence")
 	}
 	snapshots := make([]string, 0, len(fixtures))
@@ -1335,7 +1304,7 @@ func plainSemver(family string, observation ports.ProcessObservation) (string, e
 		}
 		version = match[1]
 	}
-	if !observation.Succeeded() || !acceptedObservedVersion(family, version) {
+	if !observation.Succeeded() || !acceptedObservedVersion(version) {
 		return "", fmt.Errorf("invalid plain semver version output")
 	}
 	if family == FamilyAgy && !VersionAtLeast(version, 1, 2, 9) {
@@ -1716,20 +1685,6 @@ func probeFailure(stage string, class domain.FailureClass, reason string, cause 
 }
 func securityProbeFailure(stage, reason string, cause error) error {
 	return probeFailure(stage, domain.FailureSecurityPolicy, reason, cause)
-}
-
-func cursorQualificationRoots(namespace QualificationNamespace, source ports.ValidatedWorkspaceRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, error) {
-	anchored, err := ports.NewAnchoredRoot(source.Path())
-	if err != nil {
-		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, err
-	}
-	authority, ok := namespace.(interface {
-		cursorLaunchBoundary(ports.AnchoredRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, error)
-	})
-	if !ok {
-		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, fmt.Errorf("cursor qualification: missing namespace authority")
-	}
-	return authority.cursorLaunchBoundary(anchored)
 }
 
 func withLiveGitEnvironment(environment []ports.EnvironmentVariable) ([]ports.EnvironmentVariable, error) {

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -161,7 +160,7 @@ func composeProductionRuntimeGraph(
 	for _, item := range []struct {
 		family     reviewrun.Family
 		credential providercli.CredentialSourceFamily
-	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}, {reviewrun.FamilyCursor, providercli.CredentialSourceCursor}, {reviewrun.FamilyAgy, providercli.CredentialSourceAgy}} {
+	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}, {reviewrun.FamilyAgy, providercli.CredentialSourceAgy}} {
 		value, policyErr := providercli.RuntimeSafetyPolicyForFamily(item.credential)
 		if policyErr != nil {
 			return nil, fmt.Errorf("production graph: %s runtime safety policy: %w", item.family, policyErr)
@@ -204,7 +203,6 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, fmt.Errorf("production graph: namespaces: %w", err)
 	}
-	candidates.cursorAuthToken = os.Getenv("CURSOR_AUTH_TOKEN")
 	instanceFamilies, instancePolicies, sourceRoots, err := productionInstanceFamilies(policy.config, policies)
 	if err != nil {
 		return nil, err
@@ -336,8 +334,6 @@ func productionInstanceFamilies(
 			if credentialProfile != "" {
 				sourceRoots[instance], _ = config.Providers.Codex.CredentialHome(credentialProfile)
 			}
-		case reviewrun.FamilyCursor:
-			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCursor, policies[family]
 		case reviewrun.FamilyAgy:
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[family]
 		default:

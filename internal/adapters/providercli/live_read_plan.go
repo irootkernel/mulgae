@@ -8,16 +8,6 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func liveReadPlanGitCommands(reads []ports.LiveSourceRead) map[string]bool {
-	commands := make(map[string]bool)
-	for _, read := range reads {
-		if command := read.GitCommand(); command != "" {
-			commands[command] = true
-		}
-	}
-	return commands
-}
-
 // admitLiveWorkspaceFile follows the caller's family-specific authority,
 // revalidation, scope and canonical-path checks. The source reader owns path
 // safety and final validation; this translation never reads the file body.

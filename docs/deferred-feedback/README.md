@@ -50,15 +50,11 @@ work.
   reducing retained bookkeeping while preserving correlation and the no-
   content-byte-ceiling policy.
 
-- `DF-007` Diagnostic order: TASK-064 orders Grok and Cursor final tool
-  validation by ascending raw native string ID. Per-operation checks,
-  immediate failures, first rejection and typed refusal remain unchanged.
-  `TestProviderToolDiagnosticOrder` covers simultaneous violations after
-  successful read admission and target invalidation, opposite insertion
-  orders, numeric/Unicode IDs, admission traces and Grok late close-time
-  updates. AGY retains its identical unfinished-operation diagnostic.
-  `EPIC-017` retired Grok ACP, leaving Cursor in
-  `TestProviderToolDiagnosticOrder`.
+- `DF-007` Diagnostic order: historically tracked TASK-064 ascending raw native
+  string ID tool-validation order for Grok ACP and Cursor ACP (`TestProviderToolDiagnosticOrder`).
+  `EPIC-017` retired Grok ACP, and Cursor retirement removed the remaining ACP
+  adapter and `tool_diagnostic_order_darwin_test.go`, closing `DF-007`. AGY
+  retains its unfinished-operation diagnostic. No deferred work remains.
 
 - `DF-008` Compound qualification failures: an operational
   persistence/artifact failure may lose a secondary qualification cause. A

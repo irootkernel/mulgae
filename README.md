@@ -20,15 +20,13 @@ provider families:
 - ZCode
 - Grok CLI
 - Codex CLI
-- Cursor CLI, by explicit text-only selection
 - Antigravity CLI (`agy`), for text roles using one default Gemini account
 
 The default `mulgae init` topology requires a ZCode app bundle with a current
 Z.AI Individual Coding Plan connection and an authenticated Grok installation,
 and optionally discovers AGY. Documentation prefers AGY when present; other
 default roles prefer ZCode. Codex remains available
-through explicit `--providers codex` selection. Cursor is available through
-explicit `--providers cursor` selection. Existing configured assignments remain
+through explicit `--providers codex` selection. Existing configured assignments remain
 unchanged. Mulgae records
 provider identity and capabilities at runtime and fails closed when a required
 capability is unavailable. Other operating systems, architectures, and provider
@@ -158,43 +156,6 @@ assigning it to `artist` fails before provider execution with
 isolated `herdr-core` runtime suite and `make test-grok` for the full live Grok
 release-binary gate.
 
-### Use Cursor from Mulgae
-
-Cursor reviews text roles only. Default role preferences do not name it. A
-Cursor-only selection assigns the text roles to Cursor. A selection that also
-includes ZCode, Grok, or Codex keeps each role on the first configured family
-from its existing preference list. Artist stays on ZCode or Codex. Assigning
-Cursor to `artist` fails before provider execution with
-`provider_capability_unsupported` and exit 4. A failed Cursor role stays on
-Cursor.
-
-```bash
-mulgae init --providers cursor \
-  --cursor-executable /path/to/cursor-agent
-mulgae providers --include-unverified
-```
-
-`--cursor-executable` is the machine-local override. Cursor has no model,
-reasoning-effort, credential-profile, or credential-home flag. Qualification
-accepts `YYYY.MM.DD-<lowercase hex>` with a padded month and day.
-`2026.10.14-0f9edde` is the minimum and the latest verified release. A later
-calendar date, or another hash on that date, remains eligible and is reported
-as newer than verified. Dates are compared as dates. The hash identifies that
-release and is not an ordering key.
-
-Each invocation runs the selected executable as `acp` over stdio from the
-neutral reviewer directory, inside the outer Seatbelt guard. The prompt waits
-until that session acknowledges ask. The process receives the selected
-`CURSOR_AUTH_TOKEN` and forces `AGENT_CLI_CREDENTIAL_STORE=memory`. User rules,
-skills, and MCP configuration are not projected.
-
-`make test-cursor` is the standalone live check. It requires `darwin/arm64`,
-`CURSOR_AUTH_TOKEN`, and an absolute `MULGAE_E2E_CURSOR_EXECUTABLE`. The
-executable's version line must match `YYYY.MM.DD` plus lowercase hexadecimal.
-The target is not part of `make test`. A missing or unsafe prerequisite fails
-it. The check catalog is in
-[Implementation and release guidance](docs/implementation-tips/README.md).
-
 ### Use AGY from Mulgae
 
 Sign in with Antigravity CLI before using it. Mulgae uses the default account's
@@ -261,7 +222,7 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
-`doctor --output json` returns `mulgae-doctor-result.v7`. It checks Config v5,
+`doctor --output json` returns `mulgae-doctor-result.v8`. It checks Config v5,
 project-local security, provider and role identities, exact executable/launcher
 availability, and adapter-owned local CLI version compatibility. The only
 provider process it may run is the fixed `--version` command; it does not

@@ -22,11 +22,10 @@ type projectConfig struct {
 }
 
 type projectProvidersConfig struct {
-	ZCode  *projectZCodeConfig  `yaml:"zcode,omitempty"`
-	Grok   *projectGrokConfig   `yaml:"grok,omitempty"`
-	Codex  *projectCodexConfig  `yaml:"codex,omitempty"`
-	Cursor *projectCursorConfig `yaml:"cursor,omitempty"`
-	Agy    *projectAgyConfig    `yaml:"agy,omitempty"`
+	ZCode *projectZCodeConfig `yaml:"zcode,omitempty"`
+	Grok  *projectGrokConfig  `yaml:"grok,omitempty"`
+	Codex *projectCodexConfig `yaml:"codex,omitempty"`
+	Agy   *projectAgyConfig   `yaml:"agy,omitempty"`
 }
 
 type projectZCodeConfig struct {
@@ -48,10 +47,6 @@ type projectCodexConfig struct {
 	Timeout                  string `yaml:"timeout,omitempty"`
 }
 
-type projectCursorConfig struct {
-	Timeout string `yaml:"timeout,omitempty"`
-}
-
 type projectAgyConfig struct {
 	Model           string `yaml:"model,omitempty"`
 	ReasoningEffort string `yaml:"reasoning_effort,omitempty"`
@@ -65,11 +60,10 @@ type machineConfig struct {
 }
 
 type machineProvidersConfig struct {
-	ZCode  *machineZCodeConfig  `yaml:"zcode,omitempty"`
-	Grok   *machineGrokConfig   `yaml:"grok,omitempty"`
-	Codex  *machineCodexConfig  `yaml:"codex,omitempty"`
-	Cursor *machineCursorConfig `yaml:"cursor,omitempty"`
-	Agy    *machineAgyConfig    `yaml:"agy,omitempty"`
+	ZCode *machineZCodeConfig `yaml:"zcode,omitempty"`
+	Grok  *machineGrokConfig  `yaml:"grok,omitempty"`
+	Codex *machineCodexConfig `yaml:"codex,omitempty"`
+	Agy   *machineAgyConfig   `yaml:"agy,omitempty"`
 }
 
 type machineZCodeConfig struct {
@@ -77,10 +71,6 @@ type machineZCodeConfig struct {
 }
 
 type machineGrokConfig struct {
-	Executable string `yaml:"executable"`
-}
-
-type machineCursorConfig struct {
 	Executable string `yaml:"executable"`
 }
 
@@ -152,9 +142,6 @@ func ProjectProviderIDs(projectData []byte) ([]string, error) {
 	if project.Providers.Codex != nil {
 		families = append(families, "codex")
 	}
-	if project.Providers.Cursor != nil {
-		families = append(families, "cursor")
-	}
 	if project.Providers.Agy != nil {
 		families = append(families, "agy")
 	}
@@ -209,7 +196,6 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 	if (project.Providers.ZCode == nil) != (local.Providers.ZCode == nil) ||
 		(project.Providers.Grok == nil) != (local.Providers.Grok == nil) ||
 		(project.Providers.Codex == nil) != (local.Providers.Codex == nil) ||
-		(project.Providers.Cursor == nil) != (local.Providers.Cursor == nil) ||
 		(project.Providers.Agy == nil) != (local.Providers.Agy == nil) {
 		return Config{}, fmt.Errorf("provider sets differ")
 	}
@@ -237,9 +223,6 @@ func mergeSplit(project projectConfig, local machineConfig) (Config, error) {
 			CredentialHomes: credentialHomes, Model: project.Providers.Codex.Model,
 			ReasoningEffort: project.Providers.Codex.ReasoningEffort, Timeout: project.Providers.Codex.Timeout,
 		}
-	}
-	if project.Providers.Cursor != nil {
-		config.Providers.Cursor = &CursorProviderConfig{Executable: local.Providers.Cursor.Executable, Timeout: project.Providers.Cursor.Timeout}
 	}
 	if project.Providers.Agy != nil {
 		config.Providers.Agy = &AgyProviderConfig{
@@ -327,14 +310,6 @@ func encodeProjectConfig(config Config) []byte {
 			}
 		}
 	}
-	if provider := config.Providers.Cursor; provider != nil {
-		out.WriteString("  cursor:")
-		if provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
-			out.WriteString(" {}\n")
-		} else {
-			out.WriteString("\n    timeout: " + q(provider.Timeout) + "\n")
-		}
-	}
 	if provider := config.Providers.Agy; provider != nil {
 		out.WriteString("  agy:")
 		if provider.Model == "" && provider.ReasoningEffort == "" && provider.Timeout == ProviderTimeoutText(DefaultProviderTimeout) {
@@ -405,9 +380,6 @@ func encodeMachineConfig(config Config) []byte {
 				out.WriteString("      - profile: " + q(entry.Profile) + "\n        home: " + q(entry.Home) + "\n")
 			}
 		}
-	}
-	if provider := config.Providers.Cursor; provider != nil {
-		out.WriteString("  cursor:\n    executable: " + q(provider.Executable) + "\n")
 	}
 	if provider := config.Providers.Agy; provider != nil {
 		out.WriteString("  agy:\n    executable: " + q(provider.Executable) + "\n")

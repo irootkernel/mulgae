@@ -90,7 +90,7 @@ func knownProviderIdentities(root *yaml.Node) bool {
 	if providers == nil || providers.Kind != yaml.MappingNode {
 		return true
 	}
-	known := map[string]struct{}{"zcode": {}, "grok": {}, "codex": {}, "cursor": {}, "agy": {}}
+	known := map[string]struct{}{"zcode": {}, "grok": {}, "codex": {}, "agy": {}}
 	for index := 0; index < len(providers.Content); index += 2 {
 		if _, ok := known[providers.Content[index].Value]; !ok {
 			return false
@@ -99,15 +99,15 @@ func knownProviderIdentities(root *yaml.Node) bool {
 	return true
 }
 
-// containsRetiredProviderSemantics rejects the retired Kimi family in both the
-// provider blocks and role assignments. AGY is an admitted family: its
-// credential surfaces stay closed through strict field decoding and family
-// validation instead of a retirement reason.
+// containsRetiredProviderSemantics rejects retired provider families (Kimi and
+// Cursor) in both provider blocks and role assignments. AGY is an admitted
+// family: its credential surfaces stay closed through strict field decoding and
+// family validation instead of a retirement reason.
 func containsRetiredProviderSemantics(root *yaml.Node) bool {
 	providers := mappingValue(root, "providers")
 	if providers != nil && providers.Kind == yaml.MappingNode {
 		for index := 0; index < len(providers.Content); index += 2 {
-			if provider := providers.Content[index].Value; provider == "kimi" {
+			if provider := providers.Content[index].Value; provider == "kimi" || provider == "cursor" {
 				return true
 			}
 		}
@@ -118,7 +118,7 @@ func containsRetiredProviderSemantics(root *yaml.Node) bool {
 	}
 	for index := 0; index < len(roles.Content); index += 2 {
 		provider := mappingValue(roles.Content[index+1], "primary_provider")
-		if provider != nil && provider.Value == "kimi" {
+		if provider != nil && (provider.Value == "kimi" || provider.Value == "cursor") {
 			return true
 		}
 	}
@@ -529,16 +529,6 @@ func validate(config *Config) error {
 			}
 		}
 	}
-	if config.Providers.Cursor != nil {
-		if !canonicalAbsolute(config.Providers.Cursor.Executable) {
-			return fmt.Errorf("cursor executable")
-		}
-		timeout, err := ParseProviderTimeout(config.Providers.Cursor.Timeout)
-		if err != nil {
-			return fmt.Errorf("cursor timeout: %w: %v", errProviderTimeoutInvalid, err)
-		}
-		config.Providers.Cursor.Timeout = ProviderTimeoutText(timeout)
-	}
 	if config.Providers.Agy != nil {
 		if !canonicalAbsolute(config.Providers.Agy.Executable) {
 			return fmt.Errorf("agy executable")
@@ -793,12 +783,6 @@ func EncodeCanonical(config Config) ([]byte, error) {
 		if provider.ReasoningEffort != "" {
 			out.WriteString("    reasoning_effort: " + q(provider.ReasoningEffort) + "\n")
 		}
-		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
-			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
-		}
-	}
-	if provider := config.Providers.Cursor; provider != nil {
-		out.WriteString("  cursor:\n    executable: " + q(provider.Executable) + "\n")
 		if provider.Timeout != ProviderTimeoutText(DefaultProviderTimeout) {
 			out.WriteString("    timeout: " + q(provider.Timeout) + "\n")
 		}

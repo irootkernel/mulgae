@@ -110,13 +110,12 @@ another outer VM Job or issues power commands.
 ## Live and manual work
 
 `SUITE=live-providers` serially runs the existing owning targets:
-`test-e2e`, `test-grok`, `test-cursor`, `test-agy`, enabled
+`test-e2e`, `test-grok`, `test-agy`, enabled
 `test-e2e-opt-in`, and `test-mcp-requirements-clients`.
-The admitted account block supplies ZCode's app, Grok/Cursor/AGY/Codex executables,
-the primary Codex home, and Codex/Claude MCP client paths. Cursor's token
-name must be `CURSOR_AUTH_TOKEN`; its value remains in the invoking guest
-process and is never included in sealed inputs. Account aliases record operator
-authorization; they do not prove a provider's private backend identity.
+The admitted account block supplies ZCode's app, Grok/AGY/Codex executables,
+the primary Codex home, and Codex/Claude MCP client paths. Account aliases
+record operator authorization; they do not prove a provider's private backend
+identity.
 
 Live workloads use [gui.py](gui.py) to enter the logged-in guest user's Aqua
 session through one temporary launchd helper. The SSH caller keeps the original
@@ -126,9 +125,7 @@ The recipe records command termination, GUI helper teardown and native Job
 cleanup separately. No persistent LaunchAgent is installed.
 
 Check account readiness in that GUI session. An SSH keychain-access failure can
-make an existing Claude login appear unavailable. When the invoking process has
-no Cursor token, the helper reads only the approved guest-native
-`cursor-user` / `cursor-access-token` item into process memory. It does not copy
+make an existing Claude login appear unavailable. The helper does not copy
 host credentials, export refresh tokens or perform login. Missing credentials
 remain a prerequisite failure.
 

@@ -9,45 +9,27 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestProviderVersionObserverCursorTupleAndGenericNormalization(t *testing.T) {
+func TestProviderVersionObserverGenericNormalizationAndRetiredCursorRejection(t *testing.T) {
 	root := canonicalBootstrapTempDir(t)
-	marker := filepath.Join(root, "launches")
-	path := filepath.Join(root, "cursor")
-	contents := []byte("#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = --version ] || exit 91\nprintf x >> '" + marker + "'\nprintf '2026.10.14-0f9edde\\n'\n")
+	path := filepath.Join(root, "retired")
+	contents := []byte("#!/bin/sh\nprintf '2026.10.14-0f9edde\\n'\n")
 	writeExecutable(t, path, contents)
 	identity := ports.ProviderVersionIdentity{ExecutableSHA256: testDigest(contents), LauncherSHA256: testDigest(contents)}
-	// A real descriptor observation establishes that the Cursor fixture is safe.
-	admitted, err := NewInspector().ObserveExecutableIdentity(context.Background(), path)
-	if err != nil || !admitted.Found() || admitted.SHA256() != identity.ExecutableSHA256 {
-		t.Fatalf("safe Cursor fixture: %+v %v", admitted, err)
-	}
-	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "cursor", []string{path, "--version"}, identity)
-	// M_test=1: the approved Q3 correction admits the complete tuple. The
-	// historical public result stays frozen in task063-doctor-before.json.
-	if err != nil || observation.State() != ports.ProviderVersionObserved || observation.Version() != "2026.10.14-0f9edde" {
-		t.Fatalf("Cursor compatibility: %q/%q, %v", observation.State(), observation.Version(), err)
-	}
-	launches, err := os.ReadFile(marker)
-	if err != nil || string(launches) != "x" {
-		t.Fatalf("Cursor launches=%q err=%v", launches, err)
+	if _, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "cursor", []string{path, "--version"}, identity); err == nil {
+		t.Fatal("retired cursor family was accepted by provider version observer")
 	}
 	for _, test := range []struct{ output, want string }{
 		{"2026.10.14-0f9edde\n", ""},
-		{"Cursor 2026.10.14-0f9edde\n", ""},
 		{"2026.10.14\n", "2026.10.14"},
-		{"grok 1.0.40\n", "1.0.40"},
-		{"1.0.40-malformed\n", ""},
+		{"grok 1.0.89\n", "1.0.89"},
+		{"1.0.89-malformed\n", ""},
 	} {
 		if got := safeExecutableVersion([]byte(test.output)); got != test.want {
-			t.Fatalf("predecessor normalization %q = %q, want %q", test.output, got, test.want)
+			t.Fatalf("normalization %q = %q, want %q", test.output, got, test.want)
 		}
-	}
-	if reviewrun.ClassifyVersion(reviewrun.FamilyCursor, "2026.10.14-0f9edde") != reviewrun.VersionGreen {
-		t.Fatal("the established application policy must accept the complete tuple")
 	}
 }
 

@@ -238,52 +238,13 @@ func TestCanonicalRolesConfigClassifiesUnsupportedArtistProvider(t *testing.T) {
 	}
 }
 
-func TestCursorOnlyAssignmentUsesTheSelectedFamily(t *testing.T) {
+func TestCursorSelectionIsRejectedAsRetiredFamily(t *testing.T) {
 	t.Parallel()
 	defaults := syntheticDefaults(t, nil)
-	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"cursor"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, provider := range []string{
-		roles.Logic.PrimaryProvider, roles.Security.PrimaryProvider, roles.Maintainability.PrimaryProvider,
-		roles.Product.PrimaryProvider, roles.Documentation.PrimaryProvider, roles.Testing.PrimaryProvider,
-	} {
-		if provider != "cursor" {
-			t.Fatalf("text provider = %s, want cursor", provider)
+	for _, selection := range [][]string{{"cursor"}, {"zcode", "cursor"}, {"zcode", "grok", "codex", "cursor", "agy"}} {
+		if _, err := appconfig.CanonicalRolesConfig(defaults, selection); err == nil {
+			t.Fatalf("retired family selection %v was accepted", selection)
 		}
-	}
-	families := (appconfig.ProvidersConfig{Cursor: &appconfig.CursorProviderConfig{Executable: "/bin/cursor-agent"}}).Families()
-	if len(families) != 1 || families[0] != "cursor" {
-		t.Fatalf("families = %v", families)
-	}
-}
-
-func TestCursorMixedRoutingKeepsThePreferenceRoute(t *testing.T) {
-	t.Parallel()
-	defaults := syntheticDefaults(t, nil)
-	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok", "codex", "cursor"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if roles.Logic.PrimaryProvider != "zcode" {
-		t.Fatalf("logic = %s, want zcode", roles.Logic.PrimaryProvider)
-	}
-	mixed, err := appconfig.CanonicalRolesConfig(defaults, []string{"grok", "cursor"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mixed.Logic.PrimaryProvider != "grok" {
-		t.Fatalf("logic = %s, want grok", mixed.Logic.PrimaryProvider)
-	}
-}
-
-func TestCursorArtistRejectionSkipsTheSingleFamilyFallback(t *testing.T) {
-	t.Parallel()
-	defaults := syntheticDefaults(t, nil)
-	roles, err := appconfig.CanonicalRolesConfigForSelection(defaults, []string{"cursor"}, []string{"logic", "artist"})
-	if !errors.Is(err, appconfig.ErrRoleProviderUnsupported) {
-		t.Fatalf("artist fallback err = %v roles=%#v", err, roles)
 	}
 }
 
@@ -342,32 +303,30 @@ func TestAgyPreferenceOrderRoutesTheFirstConfiguredFamily(t *testing.T) {
 	}
 }
 
-func TestFamiliesAppendsAgyFifthInCanonicalOrder(t *testing.T) {
+func TestFamiliesAppendsAgyFourthInCanonicalOrder(t *testing.T) {
 	t.Parallel()
 	providers := appconfig.ProvidersConfig{
-		ZCode:  &appconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
-		Grok:   &appconfig.GrokProviderConfig{Executable: "/usr/local/bin/grok"},
-		Codex:  &appconfig.CodexProviderConfig{Executable: "/usr/local/bin/codex"},
-		Cursor: &appconfig.CursorProviderConfig{Executable: "/opt/cursor/bin/cursor-agent"},
-		Agy:    &appconfig.AgyProviderConfig{Executable: "/opt/agy/bin/agy"},
+		ZCode: &appconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
+		Grok:  &appconfig.GrokProviderConfig{Executable: "/usr/local/bin/grok"},
+		Codex: &appconfig.CodexProviderConfig{Executable: "/usr/local/bin/codex"},
+		Agy:   &appconfig.AgyProviderConfig{Executable: "/opt/agy/bin/agy"},
 	}
-	if got := providers.Families(); strings.Join(got, ",") != "zcode,grok,codex,cursor,agy" {
-		t.Fatalf("families = %v, want zcode,grok,codex,cursor,agy", got)
+	if got := providers.Families(); strings.Join(got, ",") != "zcode,grok,codex,agy" {
+		t.Fatalf("families = %v, want zcode,grok,codex,agy", got)
 	}
 	providers.Codex = nil
-	providers.Cursor = nil
 	if got := providers.Families(); strings.Join(got, ",") != "zcode,grok,agy" {
 		t.Fatalf("subset families = %v, want zcode,grok,agy", got)
 	}
 }
 
 // TestCanonicalRolesConfigAcceptsAgyEverywhereInFamilyOrder proves the family
-// admission order treats AGY as the fifth canonical member.
+// admission order treats AGY as the fourth canonical member.
 func TestCanonicalRolesConfigAcceptsAgyEverywhereInFamilyOrder(t *testing.T) {
 	t.Parallel()
 	defaults := syntheticDefaults(t, nil)
-	if _, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok", "codex", "cursor", "agy"}); err != nil {
-		t.Fatalf("five-family order rejected: %v", err)
+	if _, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok", "codex", "agy"}); err != nil {
+		t.Fatalf("four-family order rejected: %v", err)
 	}
 	if _, err := appconfig.CanonicalRolesConfig(defaults, []string{"agy", "zcode"}); err == nil {
 		t.Fatal("out-of-order family set was accepted")

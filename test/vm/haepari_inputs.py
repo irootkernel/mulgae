@@ -132,7 +132,6 @@ DEFAULT_SUITES: dict[str, dict[str, Any]] = {
             "results/live-providers/live-providers-summary.json",
             "results/live-providers/test-e2e.log",
             "results/live-providers/test-grok.log",
-            "results/live-providers/test-cursor.log",
             "results/live-providers/test-agy.log",
             "results/live-providers/test-e2e-opt-in.log",
             "results/live-providers/test-mcp-requirements-clients.log",
@@ -476,6 +475,10 @@ def validate_execution_request(
         if live_accounts is None:
             raise Refusal(f"suite {suite_name} requires request.live_accounts")
         live_map = _require_mapping(live_accounts, "request.live_accounts")
+        if set(live_map) != {"zcode", "grok", "agy", "codex", "mcp_clients"}:
+            raise Refusal(
+                "request.live_accounts must declare only zcode, grok, agy, codex, and mcp_clients"
+            )
         zcode_cfg = _require_mapping(live_map.get("zcode"), "request.live_accounts.zcode")
         _require_non_empty_str(zcode_cfg, "app_bundle", "request.live_accounts.zcode")
         _require_non_empty_str(zcode_cfg, "account_alias", "request.live_accounts.zcode")
@@ -483,13 +486,6 @@ def validate_execution_request(
         grok_cfg = _require_mapping(live_map.get("grok"), "request.live_accounts.grok")
         _require_non_empty_str(grok_cfg, "executable", "request.live_accounts.grok")
         _require_non_empty_str(grok_cfg, "account_alias", "request.live_accounts.grok")
-
-        cursor_cfg = _require_mapping(live_map.get("cursor"), "request.live_accounts.cursor")
-        _require_non_empty_str(cursor_cfg, "executable", "request.live_accounts.cursor")
-        _require_non_empty_str(cursor_cfg, "account_alias", "request.live_accounts.cursor")
-        token_env_var = _require_non_empty_str(cursor_cfg, "token_env_var", "request.live_accounts.cursor")
-        if token_env_var != "CURSOR_AUTH_TOKEN":
-            raise Refusal("request.live_accounts.cursor.token_env_var must be CURSOR_AUTH_TOKEN")
 
         agy_cfg = _require_mapping(live_map.get("agy"), "request.live_accounts.agy")
         _require_non_empty_str(agy_cfg, "executable", "request.live_accounts.agy")

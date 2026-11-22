@@ -365,10 +365,10 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   release gate and runs `test-offline` once followed by `test-release`,
   mandatory `test-e2e` (live ZCode certification through one two-role review
   plus independent capability probes), and conditional `test-e2e-opt-in`. The
-  separately adopted `v0.1.26` release-candidate obligation still requires all
-  five providers (`zcode`, `grok`, `cursor`, `agy`, and `codex`, including
-  `make test-grok`, `make test-cursor`, `make test-agy`, and enabled
-  `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) on the release candidate.
+  separately adopted release-candidate obligation covers all four active
+  providers (`zcode`, `grok`, `agy`, and `codex`, including `make test-grok`,
+  `make test-agy`, and enabled `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) on
+  the release candidate.
 - A patch-only release may use a reduced exact-commit gate when Master explicitly
   states that `make test` has already passed, accepts responsibility for relying
   on that result, and explicitly requests release after only a patch-version

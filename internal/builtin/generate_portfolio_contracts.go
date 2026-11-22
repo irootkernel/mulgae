@@ -184,6 +184,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := publishCursorRetirement(assets); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	commandPair := contractPair{"schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v13.schema.json", "examples/command-result.v12.valid.json", "examples/command-result.v13.valid.json", "mulgae-command-result.v12", "mulgae-command-result.v13"}
 	catalogPairs := append(pairs, commandPair,
 		contractPair{"schemas/mulgae-command-result.v13.schema.json", "schemas/mulgae-command-result.v14.schema.json", "examples/command-result.v13.valid.json", "examples/command-result.v14.valid.json", "mulgae-command-result.v13", "mulgae-command-result.v14"},
@@ -210,10 +214,151 @@ func main() {
 		contractPair{"schemas/mulgae-review-preflight.v10.schema.json", "schemas/mulgae-review-preflight.v11.schema.json", "examples/review-preflight.v10.valid.json", "examples/review-preflight.v11.valid.json", "mulgae-review-preflight.v10", "mulgae-review-preflight.v11"},
 		contractPair{"schemas/mulgae-requirements-read.v1.schema.json", "schemas/mulgae-requirements-cursor.v1.schema.json", "examples/requirements-read.v1.valid.json", "examples/requirements-cursor.v1.valid.json", "mulgae-requirements-read.v1", "mulgae-requirements-cursor.v1"},
 	)
-	if err := updateFileCatalog(assets, append(catalogPairs, agyContractPairs...)); err != nil {
+	if err := updateFileCatalog(assets, append(append(catalogPairs, agyContractPairs...), cursorRetirementContractPairs...)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+var cursorRetirementContractPairs = []contractPair{
+	{"schemas/mulgae-command-result.v23.schema.json", "schemas/mulgae-command-result.v24.schema.json", "examples/command-result.v23.valid.json", "examples/command-result.v24.valid.json", "mulgae-command-result.v23", "mulgae-command-result.v24"},
+	{"schemas/mulgae-doctor-result.v7.schema.json", "schemas/mulgae-doctor-result.v8.schema.json", "examples/doctor-result.v7.valid.json", "examples/doctor-result.v8.valid.json", "mulgae-doctor-result.v7", "mulgae-doctor-result.v8"},
+	{"schemas/mulgae-provider-heartbeat-result.v4.schema.json", "schemas/mulgae-provider-heartbeat-result.v5.schema.json", "examples/provider-heartbeat-result.v4.valid.json", "examples/provider-heartbeat-result.v5.valid.json", "mulgae-provider-heartbeat-result.v4", "mulgae-provider-heartbeat-result.v5"},
+	{"schemas/mulgae-review-preflight.v11.schema.json", "schemas/mulgae-review-preflight.v12.schema.json", "examples/review-preflight.v11.valid.json", "examples/review-preflight.v12.valid.json", "mulgae-review-preflight.v11", "mulgae-review-preflight.v12"},
+}
+
+var cursorRetirementVersionRewrite = strings.NewReplacer(
+	"mulgae-command-result.v23", "mulgae-command-result.v24", "Command Result v23", "Command Result v24",
+	"mulgae-doctor-result.v7", "mulgae-doctor-result.v8", "Doctor Result v7", "Doctor Result v8",
+	"mulgae-provider-heartbeat-result.v4", "mulgae-provider-heartbeat-result.v5", "Heartbeat Result v4", "Heartbeat Result v5",
+	"mulgae-review-preflight.v11", "mulgae-review-preflight.v12", "Review Preflight v11", "Review Preflight v12",
+)
+
+// Publish Cursor retirement after frozen historical stages, preserving all
+// predecessor contract bytes verbatim.
+func publishCursorRetirement(assets string) error {
+	for _, pair := range cursorRetirementContractPairs {
+		for _, item := range []struct{ source, target string }{
+			{pair.schemaSource, pair.schemaTarget}, {pair.exampleSource, pair.exampleTarget},
+		} {
+			contents, err := os.ReadFile(filepath.Join(assets, item.source))
+			if err != nil {
+				return err
+			}
+			var document any
+			if err := json.Unmarshal(contents, &document); err != nil {
+				return err
+			}
+			retireCursorContracts(document)
+			switch item.target {
+			case "examples/review-preflight.v12.valid.json":
+				var original map[string]json.RawMessage
+				if err := json.Unmarshal(contents, &original); err != nil {
+					return err
+				}
+				document.(map[string]any)["target"] = original["target"]
+			case "examples/command-result.v24.valid.json":
+				var original struct {
+					Result struct {
+						Preflight struct {
+							Target json.RawMessage `json:"target"`
+						} `json:"preflight"`
+					} `json:"result"`
+				}
+				if err := json.Unmarshal(contents, &original); err != nil {
+					return err
+				}
+				document.(map[string]any)["result"].(map[string]any)["preflight"].(map[string]any)["target"] = original.Result.Preflight.Target
+			}
+			encoded, err := json.MarshalIndent(document, "", "  ")
+			if err != nil {
+				return err
+			}
+			if err := writeGenerated(filepath.Join(assets, item.target), append(encoded, '\n')); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func retireCursorContracts(document any) {
+	switch typed := document.(type) {
+	case map[string]any:
+		if values, ok := typed["enum"].([]any); ok && stringList(values, "zcode", "grok", "codex", "cursor", "agy") {
+			typed["enum"] = []any{"zcode", "grok", "codex", "agy"}
+		}
+		if items, ok := typed["items"].(map[string]any); ok {
+			if values, ok := items["enum"].([]any); ok && stringList(values, "zcode", "grok", "codex", "cursor", "agy") {
+				if maxItems, ok := typed["maxItems"].(float64); ok && int(maxItems) == 5 {
+					typed["maxItems"] = 4
+				}
+			}
+		}
+		if definitions, ok := typed["$defs"].(map[string]any); ok {
+			delete(definitions, "init_discovery_cursor")
+			delete(definitions, "provider_cursor")
+			if inventory, ok := definitions["not_observed_inventory"].(map[string]any); ok {
+				removeCursorInventoryPrefix(inventory)
+			}
+		}
+		if properties, ok := typed["properties"].(map[string]any); ok {
+			delete(properties, "cursor_executable")
+			if inventory, ok := properties["provider_inventory"].(map[string]any); ok {
+				removeCursorInventoryPrefix(inventory)
+			}
+		}
+		if rows, ok := typed["provider_inventory"].([]any); ok && len(rows) == 5 {
+			filtered := make([]any, 0, 4)
+			for _, row := range rows {
+				if object, ok := row.(map[string]any); ok && object["family"] == "cursor" {
+					continue
+				}
+				filtered = append(filtered, row)
+			}
+			typed["provider_inventory"] = filtered
+		}
+		families := []string{"zcode", "grok", "codex", "agy"}
+		extendProviderIDBranchesForFamilies(typed, families)
+		extendDiscoveryBranchesForFamilies(typed, families)
+		for key, child := range typed {
+			if value, ok := child.(string); ok {
+				typed[key] = cursorRetirementVersionRewrite.Replace(value)
+			} else {
+				retireCursorContracts(child)
+			}
+		}
+	case []any:
+		for index, child := range typed {
+			if value, ok := child.(string); ok {
+				typed[index] = cursorRetirementVersionRewrite.Replace(value)
+			} else {
+				retireCursorContracts(child)
+			}
+		}
+	}
+}
+
+func removeCursorInventoryPrefix(inventory map[string]any) {
+	prefix, ok := inventory["prefixItems"].([]any)
+	if !ok || len(prefix) != 5 {
+		return
+	}
+	filtered := make([]any, 0, 4)
+	for _, item := range prefix {
+		if inventoryFamily(item) == "cursor" {
+			continue
+		}
+		if object, ok := item.(map[string]any); ok && object["$ref"] == "#/$defs/provider_cursor" {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if len(filtered) != 4 {
+		return
+	}
+	inventory["prefixItems"] = filtered
+	inventory["minItems"], inventory["maxItems"] = 4, 4
 }
 
 func updateFileCatalog(assets string, pairs []contractPair) error {

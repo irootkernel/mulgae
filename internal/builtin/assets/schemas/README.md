@@ -91,14 +91,19 @@ Draft 2020-12 and a canonical
 | `mulgae-command-result.v23` | `../examples/command-result.v23.valid.json` |
 | `mulgae-review-preflight.v11` | `../examples/review-preflight.v11.valid.json` |
 | `mulgae-requirements-cursor.v1` | `../examples/requirements-cursor.v1.valid.json` |
+| `mulgae-command-result.v24` | `../examples/command-result.v24.valid.json` |
+| `mulgae-doctor-result.v8` | `../examples/doctor-result.v8.valid.json` |
+| `mulgae-provider-heartbeat-result.v5` | `../examples/provider-heartbeat-result.v5.valid.json` |
+| `mulgae-review-preflight.v12` | `../examples/review-preflight.v12.valid.json` |
 
 Examples are structural fixtures, not evidence that a provider or platform
 contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a new schema version. Current commands emit v23 and
-review preflight emits v11. Earlier command and preflight schemas remain frozen
+Breaking changes require a new schema version. Current commands emit v24,
+doctor emits v8, provider heartbeat emits v5, and review preflight emits v12.
+Earlier command, doctor, heartbeat, and preflight schemas remain frozen
 for historical validation dependencies. Current live publications use review
 artifact v4, run manifest v4 and `mulgae-run-support-index.v4`; receipt and export v2 bind
 verified source observations. Historical ordinary, child and composite contracts

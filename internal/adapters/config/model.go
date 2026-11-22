@@ -14,7 +14,6 @@ type ZCodeProviderConfig = appconfig.ZCodeProviderConfig
 type GrokProviderConfig = appconfig.GrokProviderConfig
 type CodexProviderConfig = appconfig.CodexProviderConfig
 type CodexCredentialHomeConfig = appconfig.CodexCredentialHomeConfig
-type CursorProviderConfig = appconfig.CursorProviderConfig
 type AgyProviderConfig = appconfig.AgyProviderConfig
 type RolesConfig = appconfig.RolesConfig
 type RoleConfig = appconfig.RoleConfig

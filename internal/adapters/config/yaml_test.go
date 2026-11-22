@@ -60,12 +60,12 @@ func TestProviderTimeoutDefaultsPreserveConfigV1CanonicalBytes(t *testing.T) {
 	}
 }
 
-// TestDecodeRejectsRetiredProviderBlocks proves Kimi stays retired in both the
-// provider blocks and the role assignments. AGY is an admitted family since
-// EPIC-011; its credential-shaped fields are rejected by strict decoding and
-// family validation instead of a retirement reason.
+// TestDecodeRejectsRetiredProviderBlocks proves Kimi and Cursor stay retired in
+// both the provider blocks and the role assignments. AGY is an admitted family
+// since EPIC-011; its credential-shaped fields are rejected by strict decoding
+// and family validation instead of a retirement reason.
 func TestDecodeRejectsRetiredProviderBlocks(t *testing.T) {
-	for _, family := range []string{"kimi"} {
+	for _, family := range []string{"kimi", "cursor"} {
 		document := []byte("version: 5\nproject:\n  name: project\nproviders:\n  " + family + ":\n    executable: /bin/provider\n")
 		_, err := Decode(document)
 		admission, ok := AsAdmissionError(err)
@@ -79,14 +79,16 @@ func TestDecodeRejectsRetiredProviderBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	retiredRole := strings.Replace(string(encoded), `logic: {enabled: true, primary_provider: "zcode"}`, `logic: {enabled: true, primary_provider: "kimi"}`, 1)
-	if retiredRole == string(encoded) {
-		t.Fatal("canonical fixture does not carry the logic role assignment")
-	}
-	_, err = Decode([]byte(retiredRole))
-	admission, ok := AsAdmissionError(err)
-	if !ok || admission.Reason() != ReasonProviderRetired {
-		t.Fatalf("retired role provider error = %v, want %s", err, ReasonProviderRetired)
+	for _, family := range []string{"kimi", "cursor"} {
+		retiredRole := strings.Replace(string(encoded), `logic: {enabled: true, primary_provider: "zcode"}`, `logic: {enabled: true, primary_provider: "`+family+`"}`, 1)
+		if retiredRole == string(encoded) {
+			t.Fatal("canonical fixture does not carry the logic role assignment")
+		}
+		_, err = Decode([]byte(retiredRole))
+		admission, ok := AsAdmissionError(err)
+		if !ok || admission.Reason() != ReasonProviderRetired {
+			t.Fatalf("retired role provider (%s) error = %v, want %s", family, err, ReasonProviderRetired)
+		}
 	}
 }
 

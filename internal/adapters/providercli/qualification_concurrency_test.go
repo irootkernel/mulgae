@@ -30,8 +30,9 @@ func resolvedTempRoot(t *testing.T) string {
 // overlaps the production qualification registry construction for two distinct
 // families from one shared composition: the real namespace factory, the real
 // credential-projecting factory, and the real QualificationRegistryFactory
-// entry the application calls. ZCode and Cursor project no credential files,
-// so no user credential material is needed.
+// entry the application calls. ZCode and Codex (with no credential file in the
+// temporary home) project no credential files, so no user credential material
+// is needed.
 func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *testing.T) {
 	base := resolvedTempRoot(t)
 	namespaceRoot := filepath.Join(base, "namespaces")
@@ -46,7 +47,7 @@ func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	cursorPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceCursor)
+	codexPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceCodex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,10 +58,10 @@ func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *tes
 	projected, err := NewCredentialProjectingNamespaceFactoryWithProjectRoot(
 		namespaces, runtimeHome, projectRoot,
 		map[string]CredentialSourceFamily{
-			"zcode_production": CredentialSourceZCode, "cursor_production": CredentialSourceCursor,
+			"zcode_production": CredentialSourceZCode, "codex_production": CredentialSourceCodex,
 		},
 		map[string]RuntimeSafetyPolicy{
-			"zcode_production": zcodePolicy, "cursor_production": cursorPolicy,
+			"zcode_production": zcodePolicy, "codex_production": codexPolicy,
 		},
 		nil, nil,
 	)
@@ -75,7 +76,7 @@ func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	cursorTransport, err := defaultRuntimeTransport(FamilyCursor)
+	codexTransport, err := defaultRuntimeTransport(FamilyCodex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,11 +99,11 @@ func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	cursorDefinition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		FamilyCursor, "cursor_production", "", "/private/bin/cursor", "executable-sha256",
-		"/private/bin/cursor", "executable-sha256", "", "",
-		"cursor_production", "generation-1", cursorPolicy.Identity(),
-		[]string{"/private/bin/cursor"}, cursorTransport, nil, "/private/work", time.Second,
+	codexDefinition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
+		FamilyCodex, "codex_production", "", "/private/bin/codex", "executable-sha256",
+		"/private/bin/codex", "executable-sha256", "", "",
+		"codex_production", "generation-1", codexPolicy.Identity(),
+		[]string{"/private/bin/codex"}, codexTransport, nil, "/private/work", time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +113,7 @@ func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *tes
 	registries := make(chan ports.ProviderQualificationRegistry, 2)
 	failures := make(chan error, 2)
 	var wait sync.WaitGroup
-	for _, definition := range []RuntimeDefinition{zcodeDefinition, cursorDefinition} {
+	for _, definition := range []RuntimeDefinition{zcodeDefinition, codexDefinition} {
 		wait.Add(1)
 		go func(definition RuntimeDefinition) {
 			defer wait.Done()
@@ -142,7 +143,7 @@ func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *tes
 	generations := make(map[string]string, 2)
 	homes := make(map[string]string, 2)
 	for _, registry := range constructed {
-		for _, instance := range []string{"zcode_production", "cursor_production"} {
+		for _, instance := range []string{"zcode_production", "codex_production"} {
 			namespace, ok := registry.QualificationNamespace(instance)
 			if !ok {
 				continue
@@ -155,11 +156,11 @@ func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *tes
 			}
 		}
 	}
-	if len(generations) != 2 || generations["zcode_production"] == "" || generations["cursor_production"] == "" ||
-		generations["zcode_production"] == generations["cursor_production"] {
+	if len(generations) != 2 || generations["zcode_production"] == "" || generations["codex_production"] == "" ||
+		generations["zcode_production"] == generations["codex_production"] {
 		t.Fatalf("namespace generations = %v, want two distinct non-empty generations", generations)
 	}
-	if !filepath.IsAbs(homes["zcode_production"]) || !filepath.IsAbs(homes["cursor_production"]) {
+	if !filepath.IsAbs(homes["zcode_production"]) || !filepath.IsAbs(homes["codex_production"]) {
 		t.Fatalf("namespace homes = %v, want absolute per-instance homes", homes)
 	}
 	for instance, home := range homes {

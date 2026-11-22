@@ -45,7 +45,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v23.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v24.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -1478,7 +1478,7 @@ func TestApplicationDoctorClassifiesProviderIdentityAndRoleMappingConfigurationF
 			providerStatus: "failed",
 		},
 		{
-			name: "retired provider",
+			name: "retired kimi provider",
 			mutate: func(contents []byte) []byte {
 				return bytes.Replace(contents, []byte("providers:\n"), []byte("providers:\n  kimi:\n    executable: /bin/kimi\n"), 1)
 			},
@@ -1486,9 +1486,25 @@ func TestApplicationDoctorClassifiesProviderIdentityAndRoleMappingConfigurationF
 			providerStatus: "unverifiable",
 		},
 		{
-			name: "retired role provider",
+			name: "retired kimi role provider",
 			mutate: func(contents []byte) []byte {
 				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "kimi"`), 1)
+			},
+			reason:         "config_provider_retired",
+			providerStatus: "unverifiable",
+		},
+		{
+			name: "retired cursor provider",
+			mutate: func(contents []byte) []byte {
+				return bytes.Replace(contents, []byte("providers:\n"), []byte("providers:\n  cursor:\n    executable: /bin/cursor\n"), 1)
+			},
+			reason:         "config_provider_retired",
+			providerStatus: "unverifiable",
+		},
+		{
+			name: "retired cursor role provider",
+			mutate: func(contents []byte) []byte {
+				return bytes.Replace(contents, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "cursor"`), 1)
 			},
 			reason:         "config_provider_retired",
 			providerStatus: "unverifiable",
@@ -1657,42 +1673,22 @@ func TestApplicationDoctorUsesConfiguredFamiliesWithoutStaticAuthorityEvidence(t
 	}
 }
 
-func TestApplicationDoctorKeepsConfiguredCursorInInventoryAndProviders(t *testing.T) {
+func TestApplicationDoctorRejectsRetiredCursorConfig(t *testing.T) {
 	fixture := newFoundationFixture(t)
-	fixture.application.versionObserver = doctorVersionObserverFunc(func(_ context.Context, family string, _ []string, _ ports.ProviderVersionIdentity) (ports.ProviderVersionObservation, error) {
-		if family != "cursor" {
-			return ports.ProviderVersionObservation{}, errors.New("unexpected provider version observation")
-		}
-		return ports.NewProviderVersionObservation(ports.ProviderVersionObserved, "2026.10.14-0f9edde")
-	})
 	root := testAnchoredRoot(t)
-	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "cursor", "--cursor-executable", "/bin/sh", "--output", "json"}, root)
+	initialized := fixture.application.Run(context.Background(), []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
-	var initEnvelope struct {
-		Result struct {
-			Discovery []appinit.DiscoveryRow `json:"discovery"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(initialized.Stdout(), &initEnvelope); err != nil {
+	projectPath := filepath.Join(root, ".mulgae", "config.yaml")
+	projectBytes, err := os.ReadFile(projectPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var cursorDiscovery *appinit.DiscoveryRow
-	for index := range initEnvelope.Result.Discovery {
-		row := &initEnvelope.Result.Discovery[index]
-		if row.Family == "cursor" {
-			cursorDiscovery = row
-			continue
-		}
-		if row.Selected || row.Candidate || row.Configured || row.Status != "not_selected" {
-			t.Fatalf("unselected discovery = %#v", row)
-		}
+	retiredProject := bytes.Replace(projectBytes, []byte("grok:"), []byte("cursor:"), 1)
+	if err := os.WriteFile(projectPath, retiredProject, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if cursorDiscovery == nil || !cursorDiscovery.Selected || !cursorDiscovery.Candidate || !cursorDiscovery.Configured || cursorDiscovery.Status != "candidate" || cursorDiscovery.ExecutableSource != "override" {
-		t.Fatalf("cursor discovery = %#v", cursorDiscovery)
-	}
-
 	diagnosed := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
-	assertFoundationEnvelope(t, fixture, diagnosed, app.ExitCodeSuccess)
+	assertFoundationEnvelope(t, fixture, diagnosed, app.ExitCodeReadiness)
 	var doctorEnvelope struct {
 		Result struct {
 			Doctor *doctor.LocalDoctorResult `json:"doctor"`
@@ -1701,44 +1697,8 @@ func TestApplicationDoctorKeepsConfiguredCursorInInventoryAndProviders(t *testin
 	if err := json.Unmarshal(diagnosed.Stdout(), &doctorEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if doctorEnvelope.Result.Doctor == nil || !reflect.DeepEqual(doctorEnvelope.Result.Doctor.ConfiguredProviderIDs, []string{"cursor"}) {
-		t.Fatalf("configured providers = %#v", doctorEnvelope.Result.Doctor)
-	}
-	for _, row := range doctorEnvelope.Result.Doctor.ProviderInventory {
-		if row.Family == "cursor" {
-			if !row.Configured || row.State != "eligible" || row.Reason != "provider_cli_version_supported" || row.BinaryAvailable.Status != "verified" {
-				t.Fatalf("cursor inventory = %#v", row)
-			}
-			continue
-		}
-		if row.Configured || row.State != "not_configured" || row.Reason != "not_configured" {
-			t.Fatalf("unconfigured inventory = %#v", row)
-		}
-	}
-	raw, err := json.Marshal(doctorEnvelope.Result.Doctor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := fixture.validator.Validate(context.Background(), mustFoundationAssetID(t, doctorResultSchema), raw); err != nil {
-		t.Fatalf("doctor result is not schema-valid: %v", err)
-	}
-
-	providersResult := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)
-	assertFoundationEnvelope(t, fixture, providersResult, app.ExitCodeSuccess)
-	var providersEnvelope struct {
-		Result struct {
-			OfflineReadyProviderCount int `json:"offline_ready_provider_count"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(providersResult.Stdout(), &providersEnvelope); err != nil {
-		t.Fatal(err)
-	}
-	if providersEnvelope.Result.OfflineReadyProviderCount != 1 {
-		t.Fatalf("offline ready providers = %d, want 1", providersEnvelope.Result.OfflineReadyProviderCount)
-	}
-	human := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified"}, root)
-	if human.ExitCode() != app.ExitCodeSuccess || !strings.Contains(string(human.Stdout()), "family=cursor ") {
-		t.Fatalf("providers human = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
+	if doctorEnvelope.Result.Doctor == nil || doctorEnvelope.Result.Doctor.Config.Status != "invalid" || !reflect.DeepEqual(doctorEnvelope.Result.Doctor.Config.ReasonCodes, []string{"config_provider_retired"}) {
+		t.Fatalf("retired cursor doctor = %#v", doctorEnvelope.Result.Doctor)
 	}
 }
 
@@ -2038,7 +1998,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 		t.Fatalf("providers human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
-	wantFamilies := []string{"zcode", "grok", "codex", "cursor", "agy"}
+	wantFamilies := []string{"zcode", "grok", "codex", "agy"}
 	if len(lines) != len(wantFamilies) {
 		t.Fatalf("providers human rows = %q, want provider rows without failure details", human.Stdout())
 	}
@@ -2062,7 +2022,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	machine := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSuccess)
 	// The CLI providers result is a closed four-field summary pinned by the
-	// mulgae-command-result.v23 schema with additionalProperties: false;
+	// mulgae-command-result.v24 schema with additionalProperties: false;
 	// profiles and transports exist only in the service-layer projection.
 	var machineEnvelope struct {
 		SchemaVersion string          `json:"schema_version"`
@@ -2071,7 +2031,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	if err := json.Unmarshal(machine.Stdout(), &machineEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if machineEnvelope.SchemaVersion != "mulgae-command-result.v23" {
+	if machineEnvelope.SchemaVersion != "mulgae-command-result.v24" {
 		t.Fatalf("providers envelope schema_version = %q, want the current command schema identity", machineEnvelope.SchemaVersion)
 	}
 	var machineResult struct {
@@ -2095,7 +2055,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 
 func TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile(t *testing.T) {
 	evidence := &foundationEvidenceReader{providerEvidenceStatuses: map[string]doctor.EvidenceStatus{
-		"zcode": doctor.EvidenceStatusFail, "grok": doctor.EvidenceStatusFail, "codex": doctor.EvidenceStatusFail, "cursor": doctor.EvidenceStatusFail,
+		"zcode": doctor.EvidenceStatusFail, "grok": doctor.EvidenceStatusFail, "codex": doctor.EvidenceStatusFail,
 	}}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
@@ -2123,7 +2083,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err != nil {
 		t.Fatal(err)
 	}
-	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v7.schema.json")
+	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v8.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2143,10 +2103,10 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err := json.Unmarshal(providersResult.Stdout(), &providersEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 4 ||
+	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 3 ||
 		providersEnvelope.Result.ProviderEvidenceURI == nil ||
 		*providersEnvelope.Result.ProviderEvidenceURI != foundationProviderEvidenceURI {
-		t.Fatalf("providers result = %#v, want 4 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
+		t.Fatalf("providers result = %#v, want 3 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
 	}
 
 	doctorResult := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
@@ -2167,7 +2127,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 		t.Fatalf("doctor config status = %q, want ready", got)
 	}
 
-	wantCalls := []string{"zcode", "grok", "codex", "cursor", "agy"}
+	wantCalls := []string{"zcode", "grok", "codex", "agy"}
 	if !reflect.DeepEqual(evidence.providerCalls, wantCalls) ||
 		len(evidence.platformCalls) != 1 || evidence.toolsCalls != 1 {
 		t.Fatalf("evidence reader calls = providers %#v platforms %#v tools %d, want only shared reader observations", evidence.providerCalls, evidence.platformCalls, evidence.toolsCalls)
@@ -5319,7 +5279,7 @@ func TestSharedFoundationAssetsConcurrentReuseAndIsolation(t *testing.T) {
 	}
 
 	schemaID := mustFoundationAssetID(t, commandSchemaID)
-	exampleID := mustFoundationAssetID(t, "example:command-result.v23.valid.json")
+	exampleID := mustFoundationAssetID(t, "example:command-result.v24.valid.json")
 	wantMeta, wantBytes, err := wantCatalog.Read(ctx, schemaID)
 	if err != nil {
 		t.Fatal(err)

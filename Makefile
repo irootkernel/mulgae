@@ -21,7 +21,7 @@ REQUEST ?=
 
 .DEFAULT_GOAL := test
 
-.PHONY: help toolchain-install toolchain-check generate fmt fmt-check vuln-check test-toolchain test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-herdr test-grok test-cursor test-agy test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
+.PHONY: help toolchain-install toolchain-check generate fmt fmt-check vuln-check test-toolchain test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-herdr test-grok test-agy test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
 
 # These inputs are only for the separately admitted, sealed guest owning targets.
 define validate_installed_test_inputs
@@ -236,30 +236,6 @@ test-grok:
 		-run '^TestE2EGrokReleaseBinaryReview$$' ./test/e2e
 	@printf '%s\n' '[test-grok] completed'
 
-test-cursor:
-	@$(validate_installed_test_inputs)
-	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-cursor requires darwin/arm64" >&2; exit 1; }
-	@test -n "$${CURSOR_AUTH_TOKEN:-}" || { echo "test-cursor requires CURSOR_AUTH_TOKEN" >&2; exit 1; }; \
-	cursor_tmp="$$(mktemp -d)"; \
-	trap 'rm -rf "$$cursor_tmp"' EXIT; \
-	cursor_binary="$$cursor_tmp/mulgae"; \
-	cursor_commit="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
-	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
-		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$cursor_binary"; \
-	else \
-		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$cursor_commit" -o "$$cursor_binary" .; \
-	fi || exit $$?; \
-	cursor_candidate="$${MULGAE_E2E_CURSOR_EXECUTABLE:-}"; \
-	test -n "$$cursor_candidate" && test -x "$$cursor_candidate" || { echo "test-cursor requires an absolute MULGAE_E2E_CURSOR_EXECUTABLE" >&2; exit 1; }; \
-	cursor_bin="$$(realpath "$$cursor_candidate")"; \
-	case "$$cursor_bin" in /*) ;; *) echo "test-cursor requires an absolute Cursor executable" >&2; exit 1;; esac; \
-	cursor_version="$$("$$cursor_bin" --version 2>/dev/null | head -n 1 | tr -d '\r')"; \
-	printf '%s\n' "$$cursor_version" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]+$$' || { echo "test-cursor Cursor version and family preflight failed" >&2; exit 1; }; \
-	MULGAE_E2E_BINARY="$$cursor_binary" MULGAE_E2E_CURSOR_EXECUTABLE="$$cursor_bin" \
-		$(GO) test -v -tags='live_e2e live_cursor' -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestE2ECursorReleaseBinaryReview$$' ./test/e2e
-	@printf '%s\n' '[test-cursor] completed'
-
 test-agy:
 	@$(validate_installed_test_inputs)
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-agy requires darwin/arm64" >&2; exit 1; }
@@ -390,15 +366,19 @@ generate:
 	$(GO) generate ./internal/builtin
 
 fmt:
-	@files="$$(/usr/bin/mktemp /tmp/mulgae-fmt.XXXXXX)" || exit $$?; \
-		trap '/bin/rm -f "$$files"' EXIT; \
-		git ls-files -z --cached --others --exclude-standard -- '*.go' ':!vendor/**' > "$$files" || exit $$?; \
+	@raw="$$(/usr/bin/mktemp /tmp/mulgae-fmt-raw.XXXXXX)" || exit $$?; \
+		files="$$(/usr/bin/mktemp /tmp/mulgae-fmt.XXXXXX)" || { status=$$?; /bin/rm -f "$$raw"; exit $$status; }; \
+		trap '/bin/rm -f "$$raw" "$$files"' EXIT; \
+		git ls-files -z --cached --others --exclude-standard -- '*.go' ':!vendor/**' > "$$raw" || exit $$?; \
+		if test -s "$$raw"; then xargs -0 /bin/sh -c 'for f do if test -e "$$f" || test -L "$$f"; then printf "%s\0" "$$f"; fi; done' _ < "$$raw" > "$$files" || exit $$?; fi; \
 		test ! -s "$$files" || xargs -0 "$(CURDIR)/dev" gofmt -w < "$$files"
 
 fmt-check:
-	@files="$$(/usr/bin/mktemp /tmp/mulgae-fmt.XXXXXX)" || exit $$?; \
-		trap '/bin/rm -f "$$files"' EXIT; \
-		git ls-files -z --cached --others --exclude-standard -- '*.go' ':!vendor/**' > "$$files" || exit $$?; \
+	@raw="$$(/usr/bin/mktemp /tmp/mulgae-fmt-raw.XXXXXX)" || exit $$?; \
+		files="$$(/usr/bin/mktemp /tmp/mulgae-fmt.XXXXXX)" || { status=$$?; /bin/rm -f "$$raw"; exit $$status; }; \
+		trap '/bin/rm -f "$$raw" "$$files"' EXIT; \
+		git ls-files -z --cached --others --exclude-standard -- '*.go' ':!vendor/**' > "$$raw" || exit $$?; \
+		if test -s "$$raw"; then xargs -0 /bin/sh -c 'for f do if test -e "$$f" || test -L "$$f"; then printf "%s\0" "$$f"; fi; done' _ < "$$raw" > "$$files" || exit $$?; fi; \
 		unformatted=""; \
 		if test -s "$$files"; then unformatted="$$(xargs -0 "$(CURDIR)/dev" gofmt -l < "$$files")" || exit $$?; fi; \
 		test -z "$$unformatted" || { printf '%s\n' "$$unformatted" >&2; exit 1; }

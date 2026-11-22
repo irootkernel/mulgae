@@ -315,7 +315,7 @@ func assertDoctorBefore(t *testing.T, key string, actual doctorBefore) {
 		t.Fatal(err)
 	}
 	want, exists := snapshots[key]
-	want = currentDoctorGrokMinimumExpectation(currentDoctorTransportExpectation(want))
+	want = currentDoctorPortfolioExpectation(currentDoctorGrokMinimumExpectation(currentDoctorTransportExpectation(want)))
 	if !exists || !reflect.DeepEqual(actual, want) {
 		raw, _ := json.MarshalIndent(actual, "", "  ")
 		t.Fatalf("predecessor %s changed (exists=%t):\n%s\nwant: %+v", key, exists, raw, want)
@@ -551,25 +551,6 @@ func testDoctorProvidersConformanceCompatibility(t *testing.T) {
 			}
 		}
 	}
-	for _, command := range []string{"doctor", "providers"} {
-		for _, format := range []string{"json", "human"} {
-			f := newDoctorBeforeFixture(t, "cursor")
-			path, marker := filepath.Join(f.root, "cursor"), filepath.Join(f.root, "launches")
-			doctorBeforeWrite(t, path, []byte("#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = --version ] || exit 91\nprintf x >> '"+marker+"'\nprintf '2026.10.14-0f9edde\\n'\n"))
-			if err := os.Chmod(path, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			doctorBeforeEdit(t, filepath.Join(f.root, ".mulgae", "local.yaml"), func(b []byte) []byte { return bytes.Replace(b, []byte("/synthetic/cursor"), []byte(path), 1) })
-			f.spy.realExecutable = true
-			f.application.versionObserver = environment.NewProviderVersionObserver()
-			got := doctorBeforeCapture(t, f, context.Background(), command, "--output", format)
-			launches, err := os.ReadFile(marker)
-			if err != nil || string(launches) != "x" {
-				t.Fatalf("corrected Cursor launches=%q err=%v", launches, err)
-			}
-			assertDoctorCorrected(t, "q3/"+command+"/"+format, got)
-		}
-	}
 }
 
 func TestAdmissionSequenceCharacterization(t *testing.T) {
@@ -627,7 +608,7 @@ func TestProvidersCharacterization(t *testing.T) {
 func currentDoctorTransportExpectation(want doctorBefore) doctorBefore {
 	historicalPrefix := `{"schema_version":"mulgae-command-result.v21",`
 	if strings.HasPrefix(want.Stdout, historicalPrefix) {
-		want.Stdout = `{"schema_version":"mulgae-command-result.v23",` + strings.TrimPrefix(want.Stdout, historicalPrefix)
+		want.Stdout = `{"schema_version":"mulgae-command-result.v24",` + strings.TrimPrefix(want.Stdout, historicalPrefix)
 	}
 	return want
 }
@@ -646,10 +627,38 @@ func currentDoctorGrokMinimumExpectation(want doctorBefore) doctorBefore {
 	return want
 }
 
+// Project Cursor's retirement from the active provider portfolio (doctor v7 -> v8,
+// four-family inventory, and three static-evidence families) without mutating
+// the immutable predecessor fixture.
+func currentDoctorPortfolioExpectation(want doctorBefore) doctorBefore {
+	replacer := strings.NewReplacer(
+		`"schema_version":"mulgae-doctor-result.v7"`, `"schema_version":"mulgae-doctor-result.v8"`,
+		`,{"application_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"binary_available":{"reason_codes":[],"status":"not_applicable"},"cli_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"configured":false,"family":"cursor","reason":"config_not_ready","referenced_by_roles":[],"state":"not_observed"}`, ``,
+		`,{"application_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"binary_available":{"reason_codes":[],"status":"not_applicable"},"cli_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"configured":false,"family":"cursor","reason":"not_configured","referenced_by_roles":[],"state":"not_configured"}`, ``,
+		"- cursor: not_observed (config_not_ready)\n", "",
+		"- cursor: not_configured (not_configured)\n", "",
+		"family=cursor profile=cursor-default support=unverified evidence=unverified assignment=intended_but_unverified\n", "",
+		"family=cursor profile=cursor-default support=supported evidence=pass assignment=eligible evidence_uri=https://evidence.example.test/providers/authority.json evidence_sha256=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", "",
+		`"static_evidence_ready_provider_count":4`, `"static_evidence_ready_provider_count":3`,
+	)
+	want.Stdout = replacer.Replace(want.Stdout)
+	if len(want.Trace) > 0 {
+		filtered := make([]string, 0, len(want.Trace))
+		for _, entry := range want.Trace {
+			if entry == "evidence.cursor" {
+				continue
+			}
+			filtered = append(filtered, entry)
+		}
+		want.Trace = filtered
+	}
+	return want
+}
+
 func TestDoctorTransportExpectationChangesOnlyOuterVersionPrefix(t *testing.T) {
 	original := doctorBefore{Stdout: `{"schema_version":"mulgae-command-result.v21","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`, Stderr: "exact stderr", Trace: []string{"exact effect"}}
 	want := original
-	want.Stdout = `{"schema_version":"mulgae-command-result.v23","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`
+	want.Stdout = `{"schema_version":"mulgae-command-result.v24","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`
 	if got := currentDoctorTransportExpectation(original); !reflect.DeepEqual(got, want) {
 		t.Fatal("version projection changed non-version evidence")
 	}

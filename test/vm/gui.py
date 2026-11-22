@@ -114,17 +114,6 @@ def child(socket_path: Path) -> int:
             raise Refusal("GUI helper only runs the live-provider recipe")
         env = handoff["environment"]
         env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
-        cursor_source = "inherited"
-        if not env.get("CURSOR_AUTH_TOKEN"):
-            token = subprocess.run(
-                ["/usr/bin/security", "find-generic-password", "-a", "cursor-user",
-                 "-s", "cursor-access-token", "-w"],
-                capture_output=True, text=True, timeout=15, check=False,
-            )
-            if token.returncode or not token.stdout.strip():
-                raise Refusal("approved guest-native Cursor token is unavailable")
-            env["CURSOR_AUTH_TOKEN"] = token.stdout.strip()
-            cursor_source = "guest_native_keychain"
         results = Path(args[6])
         with (results / "gui-guest.log").open("xb") as log:
             os.chmod(log.name, 0o600)
@@ -132,7 +121,6 @@ def child(socket_path: Path) -> int:
                 [sys.executable, "-B", str(Path(__file__).with_name("guest.py")), *args],
                 Path(args[5]), env, log, conn,
             )
-        outcome["cursor_token_source"] = cursor_source
         guest.write_json(results / "gui-worker-result.json", outcome)
         try:
             send(conn, outcome)

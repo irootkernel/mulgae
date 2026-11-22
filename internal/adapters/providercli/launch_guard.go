@@ -9,19 +9,19 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func cursorRejectContainedLaunch(source string, places ...string) error {
+func rejectContainedLaunch(source string, places ...string) error {
 	for _, place := range places {
 		if place == "" {
 			continue
 		}
-		if cursorPathContains(source, place) || cursorPathContains(place, source) {
-			return fmt.Errorf("cursor launch: source and launch root contain one another")
+		if pathContains(source, place) || pathContains(place, source) {
+			return fmt.Errorf("launch boundary: source and launch root contain one another")
 		}
 	}
 	return nil
 }
 
-func cursorPathContains(parent, child string) bool {
+func pathContains(parent, child string) bool {
 	parent = filepath.Clean(parent)
 	child = filepath.Clean(child)
 	if parent == child {
@@ -33,7 +33,7 @@ func cursorPathContains(parent, child string) bool {
 	return strings.HasPrefix(child, parent+"/")
 }
 
-func cursorBoundaryCredentials(existing []ports.AnchoredRoot, namespaceAuth string, extras []string) ([]ports.AnchoredRoot, error) {
+func boundaryCredentials(existing []ports.AnchoredRoot, namespaceAuth string, extras []string) ([]ports.AnchoredRoot, error) {
 	roots := append([]ports.AnchoredRoot(nil), existing...)
 	auth, err := ports.NewAnchoredRoot(namespaceAuth)
 	if err != nil {
@@ -41,7 +41,7 @@ func cursorBoundaryCredentials(existing []ports.AnchoredRoot, namespaceAuth stri
 	}
 	roots = append(roots, auth)
 	for _, candidate := range extras {
-		root, ok, err := cursorExistingDirectory(candidate)
+		root, ok, err := existingDirectory(candidate)
 		if err != nil {
 			return nil, err
 		}
@@ -61,35 +61,7 @@ func cursorBoundaryCredentials(existing []ports.AnchoredRoot, namespaceAuth stri
 	return unique, nil
 }
 
-func cursorQualificationExtras(runtimeHome, projectRoot, fixture string, configured []string) ([]string, error) {
-	if err := cursorRejectRuntimeHomeExposure(runtimeHome, projectRoot); err != nil {
-		return nil, err
-	}
-	extras := make([]string, 0, len(configured)+6)
-	if runtimeHome != "" {
-		for _, relative := range []string{".codex", ".grok", ".zcode", ".cursor", filepath.Join(".config", "cursor")} {
-			extras = append(extras, filepath.Join(runtimeHome, relative))
-		}
-	}
-	for _, configuredRoot := range configured {
-		if configuredRoot == "" {
-			continue
-		}
-		if err := cursorRejectRuntimeHomeExposure(runtimeHome, configuredRoot); err != nil {
-			return nil, err
-		}
-		extras = append(extras, configuredRoot)
-	}
-	if projectRoot == "" {
-		return extras, nil
-	}
-	if cursorPathContains(projectRoot, fixture) || cursorPathContains(fixture, projectRoot) {
-		return nil, fmt.Errorf("cursor qualification: project overlaps the permitted source")
-	}
-	return append(extras, projectRoot), nil
-}
-
-func cursorRejectRuntimeHomeExposure(runtimeHome string, roots ...string) error {
+func rejectRuntimeHomeExposure(runtimeHome string, roots ...string) error {
 	if runtimeHome == "" {
 		return nil
 	}
@@ -97,22 +69,22 @@ func cursorRejectRuntimeHomeExposure(runtimeHome string, roots ...string) error 
 		if root == "" {
 			continue
 		}
-		if cursorPathContains(root, runtimeHome) {
-			return &cursorBoundaryError{msg: "cursor boundary: credential root contains the runtime home"}
+		if pathContains(root, runtimeHome) {
+			return &launchBoundaryError{msg: "launch boundary: credential root contains the runtime home"}
 		}
 	}
 	return nil
 }
 
-type cursorBoundaryError struct {
+type launchBoundaryError struct {
 	msg string
 }
 
-func (err *cursorBoundaryError) Error() string {
+func (err *launchBoundaryError) Error() string {
 	return err.msg
 }
 
-func cursorExistingDirectory(path string) (ports.AnchoredRoot, bool, error) {
+func existingDirectory(path string) (ports.AnchoredRoot, bool, error) {
 	if path == "" {
 		return ports.AnchoredRoot{}, false, nil
 	}

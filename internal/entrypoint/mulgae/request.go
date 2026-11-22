@@ -266,7 +266,6 @@ type InitRequest struct {
 	codexExecutable         string
 	codexModel              string
 	codexReasoningEffort    string
-	cursorExecutable        string
 	agyExecutable           string
 	agyModel                string
 	agyReasoningEffort      string
@@ -315,7 +314,6 @@ func (request InitRequest) GrokOverrides() (string, string, string, bool, bool) 
 func (request InitRequest) CodexOverrides() (string, string, string) {
 	return request.codexExecutable, request.codexModel, request.codexReasoningEffort
 }
-func (request InitRequest) CursorExecutable() string { return request.cursorExecutable }
 func (request InitRequest) AgyOverrides() (string, string, string, bool, bool) {
 	return request.agyExecutable, request.agyModel, request.agyReasoningEffort, request.hasAgyModel, request.hasAgyReasoningEffort
 }

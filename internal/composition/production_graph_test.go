@@ -33,7 +33,6 @@ func testProductionRuntimeSafetyPolicies(t *testing.T) map[reviewrun.Family]prov
 		{reviewrun.FamilyZCode, providercli.CredentialSourceZCode},
 		{reviewrun.FamilyGrok, providercli.CredentialSourceGrok},
 		{reviewrun.FamilyCodex, providercli.CredentialSourceCodex},
-		{reviewrun.FamilyCursor, providercli.CredentialSourceCursor},
 		{reviewrun.FamilyAgy, providercli.CredentialSourceAgy},
 	} {
 		policy, err := providercli.RuntimeSafetyPolicyForFamily(item.credential)
@@ -132,14 +131,13 @@ func TestProductionInstanceFamiliesPreservesProviderRegistrationsAndSourceRoots(
 					{Profile: "empty", Home: ""},
 				},
 			},
-			Cursor: &appconfig.CursorProviderConfig{Executable: "/opt/homebrew/bin/cursor"},
-			Agy:    &appconfig.AgyProviderConfig{Executable: "/opt/homebrew/bin/agy"},
+			Agy: &appconfig.AgyProviderConfig{Executable: "/opt/homebrew/bin/agy"},
 		},
 		Roles: appconfig.RolesConfig{
 			Logic:           appconfig.RoleConfig{Enabled: true, PrimaryProvider: "zcode"},
 			Security:        appconfig.RoleConfig{Enabled: true, PrimaryProvider: "codex"},
 			Maintainability: appconfig.RoleConfig{Enabled: true, PrimaryProvider: "codex", CredentialProfile: "personal"},
-			Product:         appconfig.RoleConfig{Enabled: true, PrimaryProvider: "cursor"},
+			Product:         appconfig.RoleConfig{Enabled: true, PrimaryProvider: "grok"},
 			Documentation:   appconfig.RoleConfig{Enabled: true, PrimaryProvider: "agy"},
 			Testing:         appconfig.RoleConfig{Enabled: false, PrimaryProvider: "zcode"},
 		},
@@ -153,7 +151,7 @@ func TestProductionInstanceFamiliesPreservesProviderRegistrationsAndSourceRoots(
 		"zcode-logic":                    providercli.CredentialSourceZCode,
 		"codex-work-security":            providercli.CredentialSourceCodex,
 		"codex-personal-maintainability": providercli.CredentialSourceCodex,
-		"cursor-product":                 providercli.CredentialSourceCursor,
+		"grok-product":                   providercli.CredentialSourceGrok,
 		"agy-documentation":              providercli.CredentialSourceAgy,
 		"grok-logic":                     providercli.CredentialSourceGrok,
 		"agy-logic":                      providercli.CredentialSourceAgy,

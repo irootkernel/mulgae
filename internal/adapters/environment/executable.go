@@ -35,7 +35,6 @@ const maximumVersionOutputBytes = 64 << 10
 
 var (
 	executableSemanticVersionPattern = regexp.MustCompile(`[vV]?[0-9]+\.[0-9]+\.[0-9]+`)
-	cursorExecutableVersionPattern   = regexp.MustCompile(`[vV]?[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]+`)
 	errUnsafeDirectoryComponent      = errors.New("unsafe directory component")
 )
 
@@ -88,7 +87,7 @@ func (ProviderVersionObserver) ObserveProviderVersion(
 		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid request")
 	}
 	switch family {
-	case providercli.FamilyZcode, providercli.FamilyGrok, providercli.FamilyCodex, providercli.FamilyCursor, providercli.FamilyAgy:
+	case providercli.FamilyZcode, providercli.FamilyGrok, providercli.FamilyCodex, providercli.FamilyAgy:
 	default:
 		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: unsupported family")
 	}
@@ -186,12 +185,7 @@ func (ProviderVersionObserver) ObserveProviderVersion(
 			return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
 		}
 	}
-	var version string
-	if family == providercli.FamilyCursor {
-		version = safeCursorExecutableVersion(stdout.Bytes())
-	} else {
-		version = safeExecutableVersion(stdout.Bytes())
-	}
+	version := safeExecutableVersion(stdout.Bytes())
 	if version == "" {
 		return ports.NewProviderVersionObservation(ports.ProviderVersionMalformed, "")
 	}
@@ -233,15 +227,6 @@ func executableVersionText(output []byte) string {
 
 func safeExecutableVersion(output []byte) string {
 	return executableVersionToken(executableVersionText(output), executableSemanticVersionPattern)
-}
-
-func safeCursorExecutableVersion(output []byte) string {
-	text := executableVersionText(output)
-	// A second version token is ambiguous even when only one has a Cursor hash.
-	if len(executableSemanticVersionPattern.FindAllStringIndex(text, -1)) != 1 {
-		return ""
-	}
-	return executableVersionToken(text, cursorExecutableVersionPattern)
 }
 
 func executableVersionToken(text string, pattern *regexp.Regexp) string {

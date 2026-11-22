@@ -23,11 +23,10 @@ type RuntimeSafetyPolicy struct {
 
 var runtimeSafetyPolicies = func() map[CredentialSourceFamily]RuntimeSafetyPolicy {
 	values := map[CredentialSourceFamily]RuntimeSafetyPolicy{
-		CredentialSourceZCode:  {family: CredentialSourceZCode, bytes: []byte("{\"family\":\"zcode\",\"permissions\":{\"allow\":[],\"ask\":[],\"deny\":[\"*\"]}}\n")},
-		CredentialSourceGrok:   {family: CredentialSourceGrok, bytes: []byte("{\"family\":\"grok\",\"transport\":\"herdr-core-terminal-v1\",\"policy_scope\":\"isolated_namespace\",\"home_mode\":\"disposable_home_and_grok_home\",\"requirements_toml\":\"minimal-disposable-v1\",\"tty_mode\":\"pane-tty-only\",\"output_delivery\":\"post-esrch-staged-file-v1\",\"bash_gate\":\"index-commit-b1-v1\"}\n")},
-		CredentialSourceCodex:  {family: CredentialSourceCodex, bytes: []byte("{\"family\":\"codex\",\"permissions\":{\"workspace\":\"read_only\",\"namespace\":\"deny\"}}\n")},
-		CredentialSourceCursor: {family: CredentialSourceCursor, bytes: []byte("{\"family\":\"cursor\",\"credential\":\"CURSOR_AUTH_TOKEN\",\"store\":\"memory\",\"rules\":false,\"skills\":false,\"mcp\":false}\n")},
-		CredentialSourceAgy:    {family: CredentialSourceAgy, bytes: []byte("{\"family\":\"agy\",\"protocol\":\"stream-json\",\"credential\":\"disposable-file-token\",\"permissions\":\"request-review\",\"agent_inheritance\":false,\"command_admission\":\"indexed-read-guard-with-fallback-deny-v1\",\"settings_normalization\":\"native-defaults-v1\",\"version_admission\":\"minimum-v1\"}\n")},
+		CredentialSourceZCode: {family: CredentialSourceZCode, bytes: []byte("{\"family\":\"zcode\",\"permissions\":{\"allow\":[],\"ask\":[],\"deny\":[\"*\"]}}\n")},
+		CredentialSourceGrok:  {family: CredentialSourceGrok, bytes: []byte("{\"family\":\"grok\",\"transport\":\"herdr-core-terminal-v1\",\"policy_scope\":\"isolated_namespace\",\"home_mode\":\"disposable_home_and_grok_home\",\"requirements_toml\":\"minimal-disposable-v1\",\"tty_mode\":\"pane-tty-only\",\"output_delivery\":\"post-esrch-staged-file-v1\",\"bash_gate\":\"index-commit-b1-v1\"}\n")},
+		CredentialSourceCodex: {family: CredentialSourceCodex, bytes: []byte("{\"family\":\"codex\",\"permissions\":{\"workspace\":\"read_only\",\"namespace\":\"deny\"}}\n")},
+		CredentialSourceAgy:   {family: CredentialSourceAgy, bytes: []byte("{\"family\":\"agy\",\"protocol\":\"stream-json\",\"credential\":\"disposable-file-token\",\"permissions\":\"request-review\",\"agent_inheritance\":false,\"command_admission\":\"indexed-read-guard-with-fallback-deny-v1\",\"settings_normalization\":\"native-defaults-v1\",\"version_admission\":\"minimum-v1\"}\n")},
 	}
 	for family, policy := range values {
 		values[family] = runtimeSafetyPolicyWithIdentity(policy)
@@ -274,7 +273,7 @@ func newCurrentProbeDirectExecutionRoleProof(definition RuntimeDefinition, obser
 
 func newCurrentProbeDirectExecutionRoleProofWithEvidence(definition RuntimeDefinition, observedVersion, namespaceGeneration string, namespace QualificationNamespace, namespaceEnvironment, environment []ports.EnvironmentVariable, fixture ProbeFixtureLease, argv []string, observation ports.ProcessObservation, stagedOutput []byte, terminalIdentity ports.TerminalRuntimeIdentity) (currentProbeDirectExecutionRoleProof, error) {
 	if safeProbeDefinition(definition) != nil || namespace == nil || fixture == nil || validateProbeFixtureLease(fixture) != nil ||
-		namespaceGeneration == "" || !acceptedObservedVersion(definition.Family(), observedVersion) || !fixture.Role().Valid() || !observation.Valid() ||
+		namespaceGeneration == "" || !acceptedObservedVersion(observedVersion) || !fixture.Role().Valid() || !observation.Valid() ||
 		// Protocol conversations and managed terminal sessions succeed through
 		// their drivers; the shared process-level completion predicates replace
 		// the one-shot Succeeded() frame contract for them.
@@ -400,7 +399,7 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 	canonical := append([]currentProbeDirectExecutionRoleProof(nil), proofs...)
 	sort.Slice(canonical, func(i, j int) bool { return canonical[i].Role < canonical[j].Role })
 	for index, proof := range canonical {
-		if !validFamily(proof.Family) || proof.ProviderInstance == "" || !acceptedObservedVersion(proof.Family, proof.ObservedVersion) ||
+		if !validFamily(proof.Family) || proof.ProviderInstance == "" || !acceptedObservedVersion(proof.ObservedVersion) ||
 			!validCanonicalAbsolute(proof.Executable) || proof.ExecutableSHA256 == "" || !validCanonicalAbsolute(proof.Launcher) || proof.LauncherSHA256 == "" ||
 			!domain.Role(proof.Role).Valid() || proof.NamespaceGeneration == "" || proof.SnapshotManifestSHA256 == "" ||
 			proof.SnapshotName == "" || proof.SnapshotPath == "" || proof.SnapshotPolicyIdentity == "" || proof.ArgvSHA256 == "" ||

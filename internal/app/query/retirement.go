@@ -17,7 +17,7 @@ func retiredProviderInstance(value string) bool {
 
 func providerInstanceRetired(value string, live bool) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
-	for _, family := range []string{"kimi", "agy"} {
+	for _, family := range []string{"kimi", "cursor", "agy"} {
 		if live && family == "agy" {
 			continue
 		}

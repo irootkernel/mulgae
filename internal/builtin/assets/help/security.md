@@ -10,7 +10,7 @@ neutral `~/.mulgae/home` process/session directory. Mulgae preserves a safe
 regular guide there and injects it once. It does not load project or ancestor
 instruction files as authority. Project context remains framed untrusted data.
 
-ZCode, Grok, Cursor and AGY require an outer Seatbelt policy for review and
+ZCode, Grok and AGY require an outer Seatbelt policy for review and
 extraction, and every provider live boundary (including Codex's
 `permissions.mulgae` profile) denies shared `herdr-core` control-plane roots
 and sockets. The Seatbelt guard denies source, Git and guide writes;
@@ -30,12 +30,7 @@ prompts live read-only (`0400`) under `<scratch>/input/` (protected in
 `O_NOFOLLOW` single-file `Nlink == 1` validation and completion-nonce
 verification.
 
-Cursor review and extraction require that same outer Seatbelt policy. The
-adapter does not launch Cursor without it. Cursor uses ACP ask mode from the
-neutral cwd. Planned reads stay admitted, and each exact Git command is a
-separate `allow_once`. The process receives the selected `CURSOR_AUTH_TOKEN`
-and forces an in-memory credential store. User rules, skills and MCP
-configuration are not projected. Codex uses its native read-only profile,
+Codex uses its native read-only profile,
 approvals never, and explicit credential-root and control-plane denial. All
 configured credential homes are protected, including unselected profiles and
 aliases. Provider namespaces and scratch are private and are removed after

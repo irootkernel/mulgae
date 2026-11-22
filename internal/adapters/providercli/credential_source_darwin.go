@@ -21,11 +21,10 @@ import (
 type CredentialSourceFamily string
 
 const (
-	CredentialSourceZCode  CredentialSourceFamily = "zcode"
-	CredentialSourceGrok   CredentialSourceFamily = "grok"
-	CredentialSourceCodex  CredentialSourceFamily = "codex"
-	CredentialSourceCursor CredentialSourceFamily = "cursor"
-	CredentialSourceAgy    CredentialSourceFamily = "agy"
+	CredentialSourceZCode CredentialSourceFamily = "zcode"
+	CredentialSourceGrok  CredentialSourceFamily = "grok"
+	CredentialSourceCodex CredentialSourceFamily = "codex"
+	CredentialSourceAgy   CredentialSourceFamily = "agy"
 )
 
 type credentialProjectingNamespaceFactory struct {
@@ -72,7 +71,6 @@ var credentialSources = map[CredentialSourceFamily][]credentialSource{
 	CredentialSourceCodex: {
 		{ports.CredentialProjectionCodexAuth, []string{".codex", "auth.json"}},
 	},
-	CredentialSourceCursor: {},
 	CredentialSourceAgy: {
 		{ports.CredentialProjectionAgyToken, []string{".gemini", "antigravity-cli", "antigravity-oauth-token"}},
 	},
@@ -252,16 +250,6 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 	if err := concrete.installRuntimeSafetyPolicy(policy); err != nil {
 		_, _ = lease.DrainTerminal(context.Background())
 		return nil, err
-	}
-	if family == CredentialSourceCursor {
-		roots := make([]string, 0, len(factory.configuredRoots))
-		for _, configured := range factory.configuredRoots {
-			roots = append(roots, configured.path)
-		}
-		sort.Strings(roots)
-		concrete.cursorRuntimeHome = factory.runtimeHome
-		concrete.cursorProjectRoot = factory.projectRoot
-		concrete.cursorConfiguredRoots = roots
 	}
 	if family == CredentialSourceZCode {
 		concrete.zcodeNativeHome = factory.runtimeHome
