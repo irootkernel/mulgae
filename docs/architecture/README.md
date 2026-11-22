@@ -510,9 +510,20 @@ cannot register one provider instance twice, and
 an impossible concurrent reuse of one instance within the same registry fails
 immediately as an internal invariant instead of waiting. The coordinator
 enforces the process-local `max_active_lanes` capacity plus per-role and per-run
-invocation ceilings, and schedules a single same-provider retry or constrained
-repair only after the initial wave is committed. The mutually exclusive second
-slot preserves the existing two-invocation ceiling. There is no user-global capacity authority: provider-side
+invocation ceilings through a single-goroutine batched FIFO event loop: after
+`PrepareInitial` freezes all initial inputs, initial role invocations pass an
+initial shared start gate before any worker starts; completed results are
+drained in non-blocking ready batches and committed in canonical fixed role
+order; generated same-provider follow-ups (retry, constrained repair, or
+optional structured extraction in the mutually exclusive second invocation slot)
+are admitted immediately in FIFO order with `InvocationDispatched` recorded
+before each follow-up start gate opens, without waiting for slower peer roles to
+finish `001-initial`; any run-stopping condition or context/deadline stop drains
+every remaining in-flight invocation before committing terminal state or
+authorizing worker shutdown; and per-role trace projections remain deterministic
+alongside strictly deterministic `RoleSummaries`, `Findings`, `Outcomes`, and
+`RunState`. The mutually exclusive second slot preserves the existing
+two-invocation ceiling. There is no user-global capacity authority: provider-side
 concurrency or rate limits remain provider outcomes, and operators choose the
 number of Mulgae processes they run.
 
@@ -530,7 +541,7 @@ groups after that failure. A panic inside group admission becomes a
 payload-free typed internal failure, and the group's recorded acquisitions
 stay owned for cleanup. Qualification probes are not counted against the
 process-wide `max_active_lanes` capacity, which bounds review invocations;
-the coordinator wave barrier and that capacity are unchanged.
+the coordinator's initial shared start gate and that capacity are unchanged.
 
 Role-path deadlines are calculated from initial-to-second-invocation dependencies and the
 process capacity. Before an invocation starts, the runtime still requires

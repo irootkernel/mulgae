@@ -281,10 +281,14 @@ func TestCoordinatorScenarios(t *testing.T) {
 			secondOrder[left], secondOrder[right] = secondOrder[right], secondOrder[left]
 		}
 		second := coordinatorRandomCompletionResult(t, assignments, receipt, secondOrder)
-		if !reflect.DeepEqual(first.Findings(), second.Findings()) || !reflect.DeepEqual(first.Trace(), second.Trace()) ||
-			!reflect.DeepEqual(first.RoleSummaries(), second.RoleSummaries()) || first.Outcomes() != second.Outcomes() {
+		if !reflect.DeepEqual(first.Findings(), second.Findings()) ||
+			!reflect.DeepEqual(first.Evidence(), second.Evidence()) ||
+			!reflect.DeepEqual(first.RoleSummaries(), second.RoleSummaries()) ||
+			first.Outcomes() != second.Outcomes() ||
+			first.RunState() != second.RunState() {
 			t.Fatal("aggregation changed with invocation completion order")
 		}
+		assertCoordinatorTraceFramingAndPerRoleEquivalence(t, first, second)
 	})
 }
 
@@ -1878,48 +1882,79 @@ func TestCoordinatorWaveBarrierPrecedesEveryRuntimeStart(t *testing.T) {
 	}
 }
 
-func TestCoordinatorRepairStartsOnlyAfterInitialWaveCompletes(t *testing.T) {
+func TestCoordinatorRepairStartsBeforeSlowPeerInitialCompletes(t *testing.T) {
 	assignments, receipt := coordinatorTestPlan(t)
-	logicInitialDone := make(chan struct{})
 	peerInitialStarted := make(chan struct{})
 	releasePeer := make(chan struct{})
 	repairStarted := make(chan struct{})
+	repairCommitted := make(chan struct{})
+	var closeCommittedOnce sync.Once
 	runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
 		switch {
 		case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
-			close(logicInitialDone)
 			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
 		case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationRepair:
 			close(repairStarted)
-			return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
+			return coordinatorSuccessOutcome(t, job)
 		case job.Role() == domain.RoleSecurity:
 			close(peerInitialStarted)
 			<-releasePeer
 		}
 		return coordinatorSuccessOutcome(t, job)
 	}}
-	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+	root, request := coordinatorDiagnosticRoot(t, assignments)
+	base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := &coordinatorDiagnosticSink{
+		RuntimeDiagnosticSink: base,
+		onEmit: func(input domain.RuntimeDiagnosticEventInput) {
+			if input.Role == domain.RoleLogic && input.Event == domain.DiagnosticRolePathCompleted {
+				closeCommittedOnce.Do(func() { close(repairCommitted) })
+			}
+		},
+	}
+	coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+		coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	done := make(chan coordinatorTestExecution, 1)
 	go func() {
-		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
-		done <- coordinatorTestExecution{result: result, err: err}
+		result, execErr := coordinator.ExecuteRun(context.Background(), &root, assignments, "", nil)
+		done <- coordinatorTestExecution{result: result, err: execErr}
 	}()
-	<-logicInitialDone
 	<-peerInitialStarted
 	select {
 	case <-repairStarted:
+	case <-time.After(2 * time.Second):
 		close(releasePeer)
-		t.Fatal("repair started before every initial invocation completed")
-	case <-time.After(50 * time.Millisecond):
+		t.Fatal("repair did not start while slow peer initial invocation remained blocked")
+	}
+	select {
+	case <-repairCommitted:
+	case <-time.After(2 * time.Second):
+		close(releasePeer)
+		t.Fatal("repair did not complete while slow peer initial invocation remained blocked")
 	}
 	close(releasePeer)
-	select {
-	case <-repairStarted:
-	case <-time.After(time.Second):
-		t.Fatal("repair did not start after the initial wave completed")
-	}
-	if execution := <-done; execution.err != nil {
+	execution := <-done
+	if execution.err != nil {
 		t.Fatal(execution.err)
+	}
+	if execution.result.RunState() != domain.RunCompleted {
+		t.Fatalf("run state = %q, want %q", execution.result.RunState(), domain.RunCompleted)
+	}
+	logic := coordinatorRoleByRole(t, execution.result, domain.RoleLogic)
+	if logic.State() != domain.RoleTaskSucceeded || !logic.Repaired() {
+		t.Fatalf("logic summary = state:%q repaired:%t, want succeeded/true", logic.State(), logic.Repaired())
+	}
+	logicTerminal := coordinatorTraceEventIndex(t, execution.result, CoordinatorEventRoleTerminal, domain.RoleLogic)
+	securityCommitted := coordinatorTraceEventIndex(t, execution.result, CoordinatorEventInvocationCommitted, domain.RoleSecurity)
+	if logicTerminal >= securityCommitted {
+		t.Fatalf("logic repair terminal (%d) did not precede slow peer commit (%d)", logicTerminal, securityCommitted)
 	}
 }
 
@@ -2936,11 +2971,12 @@ type coordinatorTestRuntime struct {
 
 type coordinatorDiagnosticSink struct {
 	ports.RuntimeDiagnosticSink
-	events   []domain.RuntimeDiagnosticEventCode
-	inputs   []domain.RuntimeDiagnosticEventInput
-	statuses []ports.RuntimeDiagnosticAttemptStatus
-	failOn   domain.RuntimeDiagnosticEventCode
-	onEmit   func(domain.RuntimeDiagnosticEventInput)
+	events                 []domain.RuntimeDiagnosticEventCode
+	inputs                 []domain.RuntimeDiagnosticEventInput
+	statuses               []ports.RuntimeDiagnosticAttemptStatus
+	failOn                 domain.RuntimeDiagnosticEventCode
+	onEmit                 func(domain.RuntimeDiagnosticEventInput)
+	onReplaceAttemptStatus func(ports.RuntimeDiagnosticAttemptStatus)
 }
 
 func (sink *coordinatorDiagnosticSink) Emit(ctx context.Context, draft domain.RuntimeDiagnosticEventDraft) (domain.RuntimeDiagnosticEvent, error) {
@@ -2959,6 +2995,9 @@ func (sink *coordinatorDiagnosticSink) Emit(ctx context.Context, draft domain.Ru
 
 func (sink *coordinatorDiagnosticSink) ReplaceAttemptStatus(ctx context.Context, status ports.RuntimeDiagnosticAttemptStatus) error {
 	sink.statuses = append(sink.statuses, status)
+	if sink.onReplaceAttemptStatus != nil {
+		sink.onReplaceAttemptStatus(status)
+	}
 	return sink.RuntimeDiagnosticSink.ReplaceAttemptStatus(ctx, status)
 }
 
@@ -3899,8 +3938,16 @@ func TestCoordinatorDeadlineDuringFinalRoleExtractionCompletesWithConsistentDiag
 		t.Run(tc.name, func(t *testing.T) {
 			assignments, receipt := coordinatorTestPlan(t)
 			deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
+			var peersCompleted atomic.Int32
+			allPeersCompleted := make(chan struct{})
+			var closePeersOnce sync.Once
 			runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
 				if job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationInitial {
+					select {
+					case <-allPeersCompleted:
+					case <-ctx.Done():
+						return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
+					}
 					return coordinatorReportsOnlyOutcome(t, job)
 				}
 				if job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationExtract {
@@ -3927,11 +3974,20 @@ func TestCoordinatorDeadlineDuringFinalRoleExtractionCompletesWithConsistentDiag
 			coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
 				return deadlineSource, func() {}
 			}
+			diagnostics.onEmit = func(input domain.RuntimeDiagnosticEventInput) {
+				if input.Role != domain.RoleSecurity && input.Event == domain.DiagnosticRolePathCompleted {
+					if int(peersCompleted.Add(1)) == len(assignments)-1 {
+						closePeersOnce.Do(func() { close(allPeersCompleted) })
+					}
+				}
+			}
 			if tc.expireBeforeW2 {
-				diagnostics.onEmit = func(input domain.RuntimeDiagnosticEventInput) {
-					if input.Role == domain.RoleTesting && input.Event == domain.DiagnosticRolePathCompleted {
-						// Expire right after wave 1 finishes committing all wave-1 roles
-						// (with security's extraction queued) and before wave 2 dispatches.
+				diagnostics.onReplaceAttemptStatus = func(status ports.RuntimeDiagnosticAttemptStatus) {
+					if status.Role() == domain.RoleSecurity &&
+						status.State() == domain.AttemptValidating &&
+						status.InvocationCount() == 2 {
+						// Expire right after security's extraction trailer is queued
+						// (all 5 peer roles already completed) and before dispatch.
 						deadlineSource.expire()
 					}
 				}
@@ -4080,4 +4136,1135 @@ func TestCoordinatorDiagnosticsPreserveOriginatingSecurityCauses(t *testing.T) {
 			}
 		})
 	}
+}
+
+type coordinatorRoleTraceProjection struct {
+	kind         CoordinatorEventKind
+	attemptIndex int
+	hasAttempt   bool
+	purpose      domain.InvocationPurpose
+	hasPurpose   bool
+	condition    AttemptCondition
+	hasCondition bool
+	reason       string
+}
+
+func assertCoordinatorTraceFramingAndPerRoleEquivalence(t *testing.T, left, right CoordinatorResult) {
+	t.Helper()
+	assertGlobalFraming := func(label string, trace []CoordinatorTraceEvent) {
+		if len(trace) < 3 {
+			t.Fatalf("%s trace too short: %#v", label, trace)
+		}
+		for idx, event := range trace {
+			if event.Ordinal() != uint64(idx+1) {
+				t.Fatalf("%s trace ordinal[%d] = %d, want %d", label, idx, event.Ordinal(), idx+1)
+			}
+		}
+		if trace[0].Kind() != CoordinatorEventRunStarted {
+			t.Fatalf("%s trace[0] = %q, want %q", label, trace[0].Kind(), CoordinatorEventRunStarted)
+		}
+		if trace[len(trace)-2].Kind() != CoordinatorEventWorkersCloseAuthorized {
+			t.Fatalf("%s trace[-2] = %q, want %q", label, trace[len(trace)-2].Kind(), CoordinatorEventWorkersCloseAuthorized)
+		}
+		if trace[len(trace)-1].Kind() != CoordinatorEventRunTerminal {
+			t.Fatalf("%s trace[-1] = %q, want %q", label, trace[len(trace)-1].Kind(), CoordinatorEventRunTerminal)
+		}
+	}
+	assertGlobalFraming("first", left.Trace())
+	assertGlobalFraming("second", right.Trace())
+
+	project := func(result CoordinatorResult) map[domain.Role][]coordinatorRoleTraceProjection {
+		projected := make(map[domain.Role][]coordinatorRoleTraceProjection)
+		attemptIndexByRole := make(map[domain.Role]map[domain.AttemptID]int)
+		for _, event := range result.Trace() {
+			role, hasRole := event.Role()
+			if !hasRole {
+				continue
+			}
+			entry := coordinatorRoleTraceProjection{
+				kind:   event.Kind(),
+				reason: event.Reason(),
+			}
+			if attemptID, ok := event.AttemptID(); ok {
+				entry.hasAttempt = true
+				byID := attemptIndexByRole[role]
+				if byID == nil {
+					byID = make(map[domain.AttemptID]int)
+					attemptIndexByRole[role] = byID
+				}
+				idx, exists := byID[attemptID]
+				if !exists {
+					idx = len(byID)
+					byID[attemptID] = idx
+				}
+				entry.attemptIndex = idx
+			}
+			if purpose, ok := event.Purpose(); ok {
+				entry.purpose = purpose
+				entry.hasPurpose = true
+			}
+			if condition, ok := event.Condition(); ok {
+				entry.condition = condition
+				entry.hasCondition = true
+			}
+			projected[role] = append(projected[role], entry)
+		}
+		return projected
+	}
+
+	leftProj := project(left)
+	rightProj := project(right)
+	if !reflect.DeepEqual(leftProj, rightProj) {
+		t.Fatalf("per-role trace projections differed:\nfirst=%#v\nsecond=%#v", leftProj, rightProj)
+	}
+}
+
+func assertStrictlyAscendingCancellationPrecedence(t *testing.T, trace []CoordinatorTraceEvent) []AttemptCondition {
+	t.Helper()
+	var conditions []AttemptCondition
+	for _, event := range trace {
+		if event.Kind() != CoordinatorEventCancellationRequested {
+			continue
+		}
+		cond, ok := event.Condition()
+		if !ok {
+			t.Fatalf("cancellation_requested missing condition: %#v", event)
+		}
+		conditions = append(conditions, cond)
+	}
+	if len(conditions) == 0 {
+		t.Fatalf("expected at least one cancellation_requested event in trace: %#v", trace)
+	}
+	for idx := 1; idx < len(conditions); idx++ {
+		reduced, err := ReduceAttemptConditions(conditions[idx-1], conditions[idx])
+		if err != nil {
+			t.Fatalf("reduce cancellation conditions %q/%q: %v", conditions[idx-1], conditions[idx], err)
+		}
+		if reduced != conditions[idx] || conditions[idx] == conditions[idx-1] {
+			t.Fatalf("duplicate or lower-precedence cancellation_requested sequence: %q", conditions)
+		}
+	}
+	return conditions
+}
+
+func TestCoordinatorOverlappedFollowupsCompleteWhilePeerInitialBlocked(t *testing.T) {
+	t.Run("extract-upgrade-overlaps-slow-peer", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t)
+		peerStarted := make(chan struct{})
+		releasePeer := make(chan struct{})
+		logicCompleted := make(chan struct{})
+		var closeLogicOnce sync.Once
+		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+			switch {
+			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
+				return coordinatorReportsOnlyOutcome(t, job)
+			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationExtract:
+				return coordinatorExtractedOutcome(t, job)
+			case job.Role() == domain.RoleSecurity:
+				close(peerStarted)
+				<-releasePeer
+			}
+			return coordinatorSuccessOutcome(t, job)
+		}}
+		root, request := coordinatorDiagnosticRoot(t, assignments)
+		base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		diagnostics := &coordinatorDiagnosticSink{
+			RuntimeDiagnosticSink: base,
+			onEmit: func(input domain.RuntimeDiagnosticEventInput) {
+				if input.Role == domain.RoleLogic && input.Event == domain.DiagnosticRolePathCompleted {
+					closeLogicOnce.Do(func() { close(logicCompleted) })
+				}
+			},
+		}
+		coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+			coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := coordinator.AdmitStructuredExtraction(); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan coordinatorTestExecution, 1)
+		go func() {
+			result, execErr := coordinator.ExecuteRun(context.Background(), &root, assignments, "", nil)
+			done <- coordinatorTestExecution{result: result, err: execErr}
+		}()
+
+		<-peerStarted
+		select {
+		case <-logicCompleted:
+		case <-time.After(2 * time.Second):
+			close(releasePeer)
+			t.Fatal("overlapped 002-extract did not complete while slow peer initial remained blocked")
+		}
+		close(releasePeer)
+		execution := <-done
+		if execution.err != nil {
+			t.Fatal(execution.err)
+		}
+		if execution.result.RunState() != domain.RunCompleted {
+			t.Fatalf("run state = %q, want %q", execution.result.RunState(), domain.RunCompleted)
+		}
+		logic := coordinatorRoleByRole(t, execution.result, domain.RoleLogic)
+		if logic.State() != domain.RoleTaskSucceeded || logic.ReportsOnly() || len(logic.Attempts()) != 1 {
+			t.Fatalf("logic summary = %+v", logic)
+		}
+		att := logic.Attempts()[0]
+		if len(att.Invocations()) != 2 || att.Invocations()[1].Purpose() != domain.InvocationExtract ||
+			att.Invocations()[1].State() != domain.InvocationSucceeded ||
+			att.ParseState() != domain.ParseValid || att.ValidationState() != domain.ValidationValid {
+			t.Fatalf("logic attempt = %+v", att)
+		}
+		logicTerminal := coordinatorTraceEventIndex(t, execution.result, CoordinatorEventRoleTerminal, domain.RoleLogic)
+		securityCommitted := coordinatorTraceEventIndex(t, execution.result, CoordinatorEventInvocationCommitted, domain.RoleSecurity)
+		if logicTerminal >= securityCommitted {
+			t.Fatalf("logic extract terminal (%d) did not precede slow peer commit (%d)", logicTerminal, securityCommitted)
+		}
+	})
+
+	t.Run("bounded-extract-failure-overlaps-slow-peer", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t)
+		peerStarted := make(chan struct{})
+		releasePeer := make(chan struct{})
+		logicCompleted := make(chan struct{})
+		var closeLogicOnce sync.Once
+		var peerCancelled atomic.Bool
+		runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+			switch {
+			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
+				return coordinatorReportsOnlyOutcome(t, job)
+			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationExtract:
+				return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
+			case job.Role() == domain.RoleSecurity:
+				close(peerStarted)
+				select {
+				case <-releasePeer:
+				case <-ctx.Done():
+					peerCancelled.Store(true)
+					return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
+				}
+			}
+			return coordinatorSuccessOutcome(t, job)
+		}}
+		root, request := coordinatorDiagnosticRoot(t, assignments)
+		base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		diagnostics := &coordinatorDiagnosticSink{
+			RuntimeDiagnosticSink: base,
+			onEmit: func(input domain.RuntimeDiagnosticEventInput) {
+				if input.Role == domain.RoleLogic && input.Event == domain.DiagnosticRolePathCompleted {
+					closeLogicOnce.Do(func() { close(logicCompleted) })
+				}
+			},
+		}
+		coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+			coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := coordinator.AdmitStructuredExtraction(); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan coordinatorTestExecution, 1)
+		go func() {
+			result, execErr := coordinator.ExecuteRun(context.Background(), &root, assignments, "", nil)
+			done <- coordinatorTestExecution{result: result, err: execErr}
+		}()
+
+		<-peerStarted
+		select {
+		case <-logicCompleted:
+		case <-time.After(2 * time.Second):
+			close(releasePeer)
+			t.Fatal("overlapped bounded extraction failure did not complete while slow peer initial remained blocked")
+		}
+		if peerCancelled.Load() {
+			close(releasePeer)
+			t.Fatal("bounded extraction failure disrupted or cancelled slow peer")
+		}
+		close(releasePeer)
+		execution := <-done
+		if execution.err != nil {
+			t.Fatal(execution.err)
+		}
+		if execution.result.RunState() != domain.RunCompleted {
+			t.Fatalf("run state = %q, want %q", execution.result.RunState(), domain.RunCompleted)
+		}
+		logic := coordinatorRoleByRole(t, execution.result, domain.RoleLogic)
+		if logic.State() != domain.RoleTaskSucceeded || !logic.Valid() || !logic.ReportsOnly() ||
+			string(logic.ReportMarkdown()) != coordinatorExtractionReport {
+			t.Fatalf("logic summary lost accepted reports-only output: %+v", logic)
+		}
+		if len(logic.Attempts()[0].Invocations()) != 2 || logic.Attempts()[0].Invocations()[1].State() != domain.InvocationFailed {
+			t.Fatalf("logic invocations = %+v", logic.Attempts()[0].Invocations())
+		}
+		for _, summary := range execution.result.RoleSummaries() {
+			if summary.State() != domain.RoleTaskSucceeded {
+				t.Fatalf("peer role %q disrupted by bounded extraction failure: %+v", summary.Role(), summary)
+			}
+		}
+		for _, event := range execution.result.Trace() {
+			if event.Kind() == CoordinatorEventCancellationRequested {
+				t.Fatalf("bounded extraction failure emitted cancellation_requested: %#v", event)
+			}
+		}
+		logicTerminal := coordinatorTraceEventIndex(t, execution.result, CoordinatorEventRoleTerminal, domain.RoleLogic)
+		securityCommitted := coordinatorTraceEventIndex(t, execution.result, CoordinatorEventInvocationCommitted, domain.RoleSecurity)
+		if logicTerminal >= securityCommitted {
+			t.Fatalf("logic bounded extraction terminal (%d) did not precede slow peer commit (%d)", logicTerminal, securityCommitted)
+		}
+	})
+
+	t.Run("retry-overlaps-slow-peer", func(t *testing.T) {
+		assignments, receipt := coordinatorTestPlan(t)
+		peerStarted := make(chan struct{})
+		releasePeer := make(chan struct{})
+		retryStarted := make(chan struct{})
+		logicCompleted := make(chan struct{})
+		var closeLogicOnce sync.Once
+		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+			switch {
+			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
+				return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
+			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationRetry:
+				close(retryStarted)
+				return coordinatorSuccessOutcome(t, job)
+			case job.Role() == domain.RoleSecurity:
+				close(peerStarted)
+				<-releasePeer
+			}
+			return coordinatorSuccessOutcome(t, job)
+		}}
+		root, request := coordinatorDiagnosticRoot(t, assignments)
+		base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		diagnostics := &coordinatorDiagnosticSink{
+			RuntimeDiagnosticSink: base,
+			onEmit: func(input domain.RuntimeDiagnosticEventInput) {
+				if input.Role == domain.RoleLogic && input.Event == domain.DiagnosticRolePathCompleted {
+					closeLogicOnce.Do(func() { close(logicCompleted) })
+				}
+			},
+		}
+		coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+			coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan coordinatorTestExecution, 1)
+		go func() {
+			result, execErr := coordinator.ExecuteRun(context.Background(), &root, assignments, "", nil)
+			done <- coordinatorTestExecution{result: result, err: execErr}
+		}()
+
+		<-peerStarted
+		select {
+		case <-retryStarted:
+		case <-time.After(2 * time.Second):
+			close(releasePeer)
+			t.Fatal("overlapped retry did not start while slow peer initial remained blocked")
+		}
+		select {
+		case <-logicCompleted:
+		case <-time.After(2 * time.Second):
+			close(releasePeer)
+			t.Fatal("overlapped retry did not complete while slow peer initial remained blocked")
+		}
+		close(releasePeer)
+		execution := <-done
+		if execution.err != nil {
+			t.Fatal(execution.err)
+		}
+		if execution.result.RunState() != domain.RunCompleted {
+			t.Fatalf("run state = %q, want %q", execution.result.RunState(), domain.RunCompleted)
+		}
+		logic := coordinatorRoleByRole(t, execution.result, domain.RoleLogic)
+		if logic.State() != domain.RoleTaskSucceeded || logic.Repaired() {
+			t.Fatalf("logic retry summary = %+v", logic)
+		}
+		invs := logic.Attempts()[0].Invocations()
+		if len(invs) != 2 || invs[1].Purpose() != domain.InvocationRetry || invs[1].State() != domain.InvocationSucceeded {
+			t.Fatalf("logic retry invocations = %+v", invs)
+		}
+		logicTerminal := coordinatorTraceEventIndex(t, execution.result, CoordinatorEventRoleTerminal, domain.RoleLogic)
+		securityCommitted := coordinatorTraceEventIndex(t, execution.result, CoordinatorEventInvocationCommitted, domain.RoleSecurity)
+		if logicTerminal >= securityCommitted {
+			t.Fatalf("logic retry terminal (%d) did not precede slow peer commit (%d)", logicTerminal, securityCommitted)
+		}
+	})
+}
+
+func TestCoordinatorProtectedFailureDuringOverlappedExtraction(t *testing.T) {
+	for _, tc := range []struct {
+		condition AttemptCondition
+		runState  domain.RunState
+	}{
+		{condition: AttemptConditionSecurityViolation, runState: domain.RunCancelled},
+		{condition: AttemptConditionInternalInvariant, runState: domain.RunFailed},
+	} {
+		t.Run(string(tc.condition)+"/inflight-extract", func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t)
+			extractStarted := make(chan struct{})
+			secStarted := make(chan struct{})
+			archStarted := make(chan struct{})
+			releaseSecurity := make(chan struct{})
+			var extractDrained, archDrained, drainedBeforeClose atomic.Bool
+			runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+				switch {
+				case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
+					return coordinatorReportsOnlyOutcome(t, job)
+				case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationExtract:
+					close(extractStarted)
+					<-ctx.Done()
+					extractDrained.Store(true)
+					return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
+				case job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationInitial:
+					close(secStarted)
+					<-releaseSecurity
+					return coordinatorConditionOutcome(t, job, tc.condition)
+				case job.Role() == domain.RoleMaintainability && job.Purpose() == domain.InvocationInitial:
+					close(archStarted)
+					<-ctx.Done()
+					archDrained.Store(true)
+					return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
+				}
+				return coordinatorSuccessOutcome(t, job)
+			}}
+			root, request := coordinatorDiagnosticRoot(t, assignments)
+			base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := coordinator.AdmitStructuredExtraction(); err != nil {
+				t.Fatal(err)
+			}
+			coordinator.beforeWorkersCloseLinearizationHook = func() {
+				drainedBeforeClose.Store(extractDrained.Load() && archDrained.Load())
+			}
+
+			done := make(chan coordinatorTestExecution, 1)
+			go func() {
+				result, execErr := coordinator.ExecuteRun(context.Background(), &root, assignments, "", nil)
+				done <- coordinatorTestExecution{result: result, err: execErr}
+			}()
+
+			<-extractStarted
+			<-secStarted
+			<-archStarted
+			close(releaseSecurity)
+			execution := <-done
+			if execution.err != nil {
+				t.Fatal(execution.err)
+			}
+			if execution.result.RunState() != tc.runState {
+				t.Fatalf("run state = %q, want %q", execution.result.RunState(), tc.runState)
+			}
+			if !drainedBeforeClose.Load() {
+				t.Fatal("in-flight invocations were not fully drained before workers_close_authorized")
+			}
+
+			stopFailureIndex, firstCancelIndex := -1, -1
+			for idx, input := range diagnostics.inputs {
+				if input.Operation == "stop" && input.Event == domain.DiagnosticAttemptFailed &&
+					input.Role == domain.RoleSecurity && input.Failure == string(tc.condition) && stopFailureIndex < 0 {
+					stopFailureIndex = idx
+				}
+				if input.Event == domain.DiagnosticRolePathCancelled && firstCancelIndex < 0 {
+					firstCancelIndex = idx
+				}
+			}
+			if stopFailureIndex < 0 || firstCancelIndex < 0 || stopFailureIndex >= firstCancelIndex {
+				t.Fatalf("persistInitiatingFailure (%d) did not precede peer cancel (%d): %#v",
+					stopFailureIndex, firstCancelIndex, diagnostics.inputs)
+			}
+
+			runtime.mu.Lock()
+			for _, job := range runtime.jobs {
+				if job.Purpose() == domain.InvocationRepair || job.Purpose() == domain.InvocationRetry {
+					runtime.mu.Unlock()
+					t.Fatalf("unexpected follow-up job admitted: %#v", job)
+				}
+				if job.Purpose() == domain.InvocationExtract && job.Role() != domain.RoleLogic {
+					runtime.mu.Unlock()
+					t.Fatalf("unexpected peer extraction job admitted: %#v", job)
+				}
+			}
+			runtime.mu.Unlock()
+
+			conds := assertStrictlyAscendingCancellationPrecedence(t, execution.result.Trace())
+			if len(conds) != 1 || conds[0] != tc.condition {
+				t.Fatalf("cancellation_requested conditions = %q, want [%q]", conds, tc.condition)
+			}
+		})
+
+		t.Run(string(tc.condition)+"/bounded-extract-preserved", func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t)
+			secStarted := make(chan struct{})
+			archStarted := make(chan struct{})
+			releaseSecurity := make(chan struct{})
+			var releaseSecOnce sync.Once
+			var archDrained, drainedBeforeClose atomic.Bool
+			runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+				switch {
+				case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
+					return coordinatorReportsOnlyOutcome(t, job)
+				case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationExtract:
+					<-secStarted
+					<-archStarted
+					return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
+				case job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationInitial:
+					close(secStarted)
+					<-releaseSecurity
+					return coordinatorConditionOutcome(t, job, tc.condition)
+				case job.Role() == domain.RoleMaintainability && job.Purpose() == domain.InvocationInitial:
+					close(archStarted)
+					<-ctx.Done()
+					archDrained.Store(true)
+					return coordinatorConditionOutcome(t, job, AttemptConditionCancelled)
+				}
+				return coordinatorSuccessOutcome(t, job)
+			}}
+			root, request := coordinatorDiagnosticRoot(t, assignments)
+			base, err := ports.NewInMemoryRuntimeDiagnosticSink(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostics := &coordinatorDiagnosticSink{RuntimeDiagnosticSink: base}
+			coordinator, err := NewCoordinatorWithRuntimeDiagnostics(
+				coordinatorTestClock{now: request.StartedAt()}, &coordinatorTestIDs{}, runtime, len(assignments), receipt, diagnostics,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := coordinator.AdmitStructuredExtraction(); err != nil {
+				t.Fatal(err)
+			}
+			coordinator.resultCollectedHook = func(job InvocationJob) {
+				if job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationExtract {
+					releaseSecOnce.Do(func() { close(releaseSecurity) })
+				}
+			}
+			coordinator.beforeWorkersCloseLinearizationHook = func() {
+				drainedBeforeClose.Store(archDrained.Load())
+			}
+
+			result, err := coordinator.ExecuteRun(context.Background(), &root, assignments, "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.RunState() != tc.runState {
+				t.Fatalf("run state = %q, want %q", result.RunState(), tc.runState)
+			}
+			if !drainedBeforeClose.Load() {
+				t.Fatal("in-flight peer was not drained before workers_close_authorized")
+			}
+			logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
+			if logic.State() != domain.RoleTaskSucceeded || !logic.Valid() || !logic.ReportsOnly() ||
+				string(logic.ReportMarkdown()) != coordinatorExtractionReport {
+				t.Fatalf("bounded extraction role lost accepted report: %+v", logic)
+			}
+			security := coordinatorRoleByRole(t, result, domain.RoleSecurity)
+			if security.ReasonCode() != string(tc.condition) {
+				t.Fatalf("security reason = %q, want %q", security.ReasonCode(), tc.condition)
+			}
+			stopFailureIndex, firstCancelIndex := -1, -1
+			for idx, input := range diagnostics.inputs {
+				if input.Operation == "stop" && input.Event == domain.DiagnosticAttemptFailed &&
+					input.Role == domain.RoleSecurity && input.Failure == string(tc.condition) && stopFailureIndex < 0 {
+					stopFailureIndex = idx
+				}
+				if input.Event == domain.DiagnosticRolePathCancelled && firstCancelIndex < 0 {
+					firstCancelIndex = idx
+				}
+			}
+			if stopFailureIndex < 0 || firstCancelIndex < 0 || stopFailureIndex >= firstCancelIndex {
+				t.Fatalf("persistInitiatingFailure (%d) did not precede peer cancel (%d)", stopFailureIndex, firstCancelIndex)
+			}
+			conds := assertStrictlyAscendingCancellationPrecedence(t, result.Trace())
+			if len(conds) != 1 || conds[0] != tc.condition {
+				t.Fatalf("cancellation_requested conditions = %q, want [%q]", conds, tc.condition)
+			}
+		})
+	}
+}
+
+func TestCoordinatorRunDeadlineDuringOverlappedExtractionAndPeerInitial(t *testing.T) {
+	assignments, receipt := coordinatorTestPlan(t)
+	deadlineSource := newCoordinatorManualDeadlineContext(context.Background())
+	extractStarted := make(chan struct{})
+	secStarted := make(chan struct{})
+	var extractDrained, secDrained, drainedBeforeClose atomic.Bool
+	runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+		switch {
+		case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
+			return coordinatorReportsOnlyOutcome(t, job)
+		case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationExtract:
+			close(extractStarted)
+			<-ctx.Done()
+			extractDrained.Store(true)
+			return coordinatorConditionOutcome(t, job, AttemptConditionTimeout)
+		case job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationInitial:
+			close(secStarted)
+			<-ctx.Done()
+			secDrained.Store(true)
+			return coordinatorConditionOutcome(t, job, AttemptConditionTimeout)
+		}
+		return coordinatorSuccessOutcome(t, job)
+	}}
+	coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+	if err := coordinator.AdmitStructuredExtraction(); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
+		return deadlineSource, func() {}
+	}
+	coordinator.beforeWorkersCloseLinearizationHook = func() {
+		drainedBeforeClose.Store(extractDrained.Load() && secDrained.Load())
+	}
+
+	done := make(chan coordinatorTestExecution, 1)
+	go func() {
+		result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
+		done <- coordinatorTestExecution{result: result, err: err}
+	}()
+
+	<-extractStarted
+	<-secStarted
+	deadlineSource.expire()
+	execution := <-done
+	if execution.err != nil {
+		t.Fatal(execution.err)
+	}
+	if !drainedBeforeClose.Load() {
+		t.Fatal("in-flight extraction and peer initial were not drained before workers_close_authorized")
+	}
+	result := execution.result
+	if result.RunState() != domain.RunFailed {
+		t.Fatalf("run state = %q, want %q", result.RunState(), domain.RunFailed)
+	}
+
+	logic := coordinatorRoleByRole(t, result, domain.RoleLogic)
+	if logic.State() != domain.RoleTaskSucceeded || !logic.Valid() || !logic.ReportsOnly() ||
+		string(logic.ReportMarkdown()) != coordinatorExtractionReport ||
+		logic.FailureClass() != "" || logic.ReasonCode() != "" {
+		t.Fatalf("logic summary = %+v, want succeeded with preserved accepted report", logic)
+	}
+	logicAttempt := logic.Attempts()[0]
+	if logicAttempt.State() != domain.AttemptSucceeded || logicAttempt.FailureClass() != "" || logicAttempt.ReasonCode() != "" {
+		t.Fatalf("logic attempt = %+v, want AttemptSucceeded without failure facts", logicAttempt)
+	}
+	if len(logicAttempt.Invocations()) != 2 ||
+		logicAttempt.Invocations()[1].Purpose() != domain.InvocationExtract ||
+		logicAttempt.Invocations()[1].State() != domain.InvocationTimedOut {
+		t.Fatalf("logic invocations = %+v, want extraction InvocationTimedOut", logicAttempt.Invocations())
+	}
+	foundLogicValidTerminal := false
+	for _, event := range result.Trace() {
+		role, ok := event.Role()
+		if event.Kind() == CoordinatorEventRoleTerminal && ok && role == domain.RoleLogic {
+			cond, hasCond := event.Condition()
+			if !hasCond || cond != AttemptConditionValidReview {
+				t.Fatalf("logic role_terminal condition = %q/%t, want %q", cond, hasCond, AttemptConditionValidReview)
+			}
+			foundLogicValidTerminal = true
+		}
+	}
+	if !foundLogicValidTerminal {
+		t.Fatal("missing logic role_terminal trace event")
+	}
+
+	sec := coordinatorRoleByRole(t, result, domain.RoleSecurity)
+	if sec.State() != domain.RoleTaskFailed || sec.FailureClass() != domain.FailureTimeout ||
+		sec.ReasonCode() != string(AttemptConditionTimeout) {
+		t.Fatalf("security summary = %+v, want failed/timeout", sec)
+	}
+	secAttempt := sec.Attempts()[0]
+	if secAttempt.State() != domain.AttemptTimedOut || secAttempt.FailureClass() != domain.FailureTimeout ||
+		secAttempt.Invocations()[0].State() != domain.InvocationTimedOut {
+		t.Fatalf("security attempt = %+v, want AttemptTimedOut/FailureTimeout", secAttempt)
+	}
+
+	for _, summary := range result.RoleSummaries() {
+		for _, att := range summary.Attempts() {
+			if (att.State() == domain.AttemptTimedOut) != (att.FailureClass() == domain.FailureTimeout) {
+				t.Fatalf("role %q broke AttemptTimedOut==(FailureClass==FailureTimeout): state=%q class=%q",
+					summary.Role(), att.State(), att.FailureClass())
+			}
+		}
+	}
+	conds := assertStrictlyAscendingCancellationPrecedence(t, result.Trace())
+	if len(conds) != 1 || conds[0] != AttemptConditionTimeout {
+		t.Fatalf("cancellation_requested conditions = %q, want [%q]", conds, AttemptConditionTimeout)
+	}
+}
+
+func TestCoordinatorBeforeOutcomeCommitHookStopDrainsPeersWithoutDuplicateCancellation(t *testing.T) {
+	for _, deadlineMode := range []bool{false, true} {
+		modeName := "parent-cancel"
+		wantCond := AttemptConditionCancelled
+		wantRunState := domain.RunCancelled
+		if deadlineMode {
+			modeName = "run-deadline"
+			wantCond = AttemptConditionTimeout
+			wantRunState = domain.RunFailed
+		}
+
+		t.Run(modeName+"/clean-peers", func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t)
+			peerCount := len(assignments) - 1
+			peersStarted := make(chan struct{}, peerCount)
+			allPeersStarted := make(chan struct{})
+			var peersDrained atomic.Int32
+			var drainedBeforeClose atomic.Bool
+			runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+				if job.Role() == domain.RoleLogic {
+					<-allPeersStarted
+					return coordinatorSuccessOutcome(t, job)
+				}
+				peersStarted <- struct{}{}
+				<-ctx.Done()
+				peersDrained.Add(1)
+				return coordinatorConditionOutcome(t, job, wantCond)
+			}}
+			coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var deadlineSource *coordinatorManualDeadlineContext
+			if deadlineMode {
+				deadlineSource = newCoordinatorManualDeadlineContext(context.Background())
+				coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
+					return deadlineSource, func() {}
+				}
+			}
+			coordinator.beforeOutcomeCommitHook = func(job InvocationJob) {
+				if job.Role() == domain.RoleLogic {
+					if deadlineMode {
+						deadlineSource.expire()
+					} else {
+						cancel()
+					}
+				}
+			}
+			coordinator.beforeWorkersCloseLinearizationHook = func() {
+				drainedBeforeClose.Store(int(peersDrained.Load()) == peerCount)
+			}
+
+			done := make(chan coordinatorTestExecution, 1)
+			go func() {
+				result, err := coordinator.Execute(ctx, coordinatorTestTarget(t), assignments, "", nil)
+				done <- coordinatorTestExecution{result: result, err: err}
+			}()
+			for range peerCount {
+				<-peersStarted
+			}
+			close(allPeersStarted)
+
+			execution := <-done
+			if execution.err != nil {
+				t.Fatal(execution.err)
+			}
+			if !drainedBeforeClose.Load() {
+				t.Fatal("peers were not fully drained before workers_close_authorized")
+			}
+			if execution.result.RunState() != wantRunState {
+				t.Fatalf("run state = %q, want %q", execution.result.RunState(), wantRunState)
+			}
+			conds := assertStrictlyAscendingCancellationPrecedence(t, execution.result.Trace())
+			if len(conds) != 1 || conds[0] != wantCond {
+				t.Fatalf("cancellation_requested conditions = %q, want [%q]", conds, wantCond)
+			}
+		})
+
+		t.Run(modeName+"/inflight-security-violation-wins", func(t *testing.T) {
+			assignments, receipt := coordinatorTestPlan(t)
+			peerCount := len(assignments) - 1
+			peersStarted := make(chan struct{}, peerCount)
+			allPeersStarted := make(chan struct{})
+			var secDrained atomic.Bool
+			var otherDrained atomic.Int32
+			var drainedBeforeClose atomic.Bool
+			runtime := &coordinatorTestRuntime{invoke: func(ctx context.Context, job InvocationJob) AttemptOutcome {
+				switch job.Role() {
+				case domain.RoleLogic:
+					<-allPeersStarted
+					return coordinatorSuccessOutcome(t, job)
+				case domain.RoleSecurity:
+					peersStarted <- struct{}{}
+					<-ctx.Done()
+					secDrained.Store(true)
+					return coordinatorConditionOutcome(t, job, AttemptConditionSecurityViolation)
+				default:
+					peersStarted <- struct{}{}
+					<-ctx.Done()
+					otherDrained.Add(1)
+					return coordinatorConditionOutcome(t, job, wantCond)
+				}
+			}}
+			coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var deadlineSource *coordinatorManualDeadlineContext
+			if deadlineMode {
+				deadlineSource = newCoordinatorManualDeadlineContext(context.Background())
+				coordinator.runContextFactory = func(context.Context, time.Duration) (context.Context, context.CancelFunc) {
+					return deadlineSource, func() {}
+				}
+			}
+			coordinator.beforeOutcomeCommitHook = func(job InvocationJob) {
+				if job.Role() == domain.RoleLogic {
+					if deadlineMode {
+						deadlineSource.expire()
+					} else {
+						cancel()
+					}
+				}
+			}
+			coordinator.beforeWorkersCloseLinearizationHook = func() {
+				drainedBeforeClose.Store(secDrained.Load() && int(otherDrained.Load()) == peerCount-1)
+			}
+
+			done := make(chan coordinatorTestExecution, 1)
+			go func() {
+				result, err := coordinator.Execute(ctx, coordinatorTestTarget(t), assignments, "", nil)
+				done <- coordinatorTestExecution{result: result, err: err}
+			}()
+			for range peerCount {
+				<-peersStarted
+			}
+			close(allPeersStarted)
+
+			execution := <-done
+			if execution.err != nil {
+				t.Fatal(execution.err)
+			}
+			if !drainedBeforeClose.Load() {
+				t.Fatal("in-flight peers were not fully drained before workers_close_authorized")
+			}
+			if execution.result.RunState() != domain.RunCancelled {
+				t.Fatalf("run state = %q, want %q", execution.result.RunState(), domain.RunCancelled)
+			}
+			security := coordinatorRoleByRole(t, execution.result, domain.RoleSecurity)
+			if security.ReasonCode() != string(AttemptConditionSecurityViolation) {
+				t.Fatalf("security role lost protected violation: %+v", security)
+			}
+			conds := assertStrictlyAscendingCancellationPrecedence(t, execution.result.Trace())
+			if conds[len(conds)-1] != AttemptConditionSecurityViolation {
+				t.Fatalf("final cancellation_requested = %q, want %q (sequence %q)",
+					conds[len(conds)-1], AttemptConditionSecurityViolation, conds)
+			}
+			for _, event := range execution.result.Trace() {
+				if event.Kind() == CoordinatorEventRepairQueued ||
+					event.Kind() == CoordinatorEventRetryQueued ||
+					event.Kind() == CoordinatorEventExtractionQueued {
+					t.Fatalf("unexpected follow-up queued during mid-batch stop: %#v", event)
+				}
+			}
+		})
+	}
+}
+
+func TestCoordinatorMultiRoleFollowupPermutationsAreDeterministic(t *testing.T) {
+	type rolePurposeKey struct {
+		role    domain.Role
+		purpose domain.InvocationPurpose
+	}
+
+	runSchedule := func(schedule []rolePurposeKey) CoordinatorResult {
+		assignments, receipt := coordinatorTestPlan(t)
+		releases := make(map[rolePurposeKey]chan struct{}, len(schedule))
+		for _, key := range schedule {
+			releases[key] = make(chan struct{})
+		}
+		delivered := make(chan rolePurposeKey, len(schedule))
+		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+			key := rolePurposeKey{role: job.Role(), purpose: job.Purpose()}
+			release, ok := releases[key]
+			if !ok {
+				t.Errorf("unexpected invocation key %+v", key)
+				return coordinatorInternalInvariantOutcome(job)
+			}
+			<-release
+			switch {
+			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationInitial:
+				return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
+			case job.Role() == domain.RoleLogic && job.Purpose() == domain.InvocationRepair:
+				outcome := coordinatorEvidenceOutcome(job, coordinatorEvidenceFixtureInput{
+					severity:     domain.SeverityHigh,
+					title:        "logic-repaired",
+					path:         "src/perm-logic.go",
+					quote:        "logic\n",
+					targetBytes:  "logic\n",
+					availability: evidence.ImmutableTargetAvailable,
+				})
+				if out, ok := outcome.Output(); ok {
+					if err := out.bindExtractionStates(domain.ParseValid, domain.ValidationRepairedValid); err == nil {
+						return coordinatorOutputOutcome(job, out)
+					}
+				}
+				return outcome
+			case job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationInitial:
+				return coordinatorConditionOutcome(t, job, AttemptConditionProviderUnavailable)
+			case job.Role() == domain.RoleSecurity && job.Purpose() == domain.InvocationRetry:
+				return coordinatorEvidenceOutcome(job, coordinatorEvidenceFixtureInput{
+					severity:     domain.SeverityCritical,
+					title:        "security-retried",
+					path:         "src/perm-security.go",
+					quote:        "security\n",
+					targetBytes:  "security\n",
+					availability: evidence.ImmutableTargetAvailable,
+				})
+			case job.Role() == domain.RoleMaintainability && job.Purpose() == domain.InvocationInitial:
+				return coordinatorReportsOnlyOutcome(t, job)
+			case job.Role() == domain.RoleMaintainability && job.Purpose() == domain.InvocationExtract:
+				return coordinatorExtractedOutcome(t, job)
+			case job.Role() == domain.RoleDocumentation && job.Purpose() == domain.InvocationInitial:
+				return coordinatorReportsOnlyOutcome(t, job)
+			case job.Role() == domain.RoleDocumentation && job.Purpose() == domain.InvocationExtract:
+				return coordinatorConditionOutcome(t, job, AttemptConditionInvalidProviderOutput)
+			default:
+				return coordinatorEvidenceOutcome(job, coordinatorEvidenceFixtureInput{
+					severity:     domain.SeverityMedium,
+					title:        string(job.Role()),
+					path:         "src/perm-" + string(job.Role()) + ".go",
+					quote:        string(job.Role()) + "\n",
+					targetBytes:  string(job.Role()) + "\n",
+					availability: evidence.ImmutableTargetAvailable,
+				})
+			}
+		}}
+		coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+		if err := coordinator.AdmitStructuredExtraction(); err != nil {
+			t.Fatal(err)
+		}
+		coordinator.resultCollectedHook = func(job InvocationJob) {
+			delivered <- rolePurposeKey{role: job.Role(), purpose: job.Purpose()}
+		}
+		done := make(chan coordinatorTestExecution, 1)
+		go func() {
+			result, err := coordinator.Execute(context.Background(), coordinatorTestTarget(t), assignments, "", nil)
+			done <- coordinatorTestExecution{result: result, err: err}
+		}()
+		for _, step := range schedule {
+			close(releases[step])
+			got := <-delivered
+			if got != step {
+				t.Fatalf("delivered = %+v, want %+v", got, step)
+			}
+		}
+		execution := <-done
+		if execution.err != nil {
+			t.Fatal(execution.err)
+		}
+		return execution.result
+	}
+
+	waveForward := []rolePurposeKey{
+		{domain.RoleLogic, domain.InvocationInitial},
+		{domain.RoleSecurity, domain.InvocationInitial},
+		{domain.RoleMaintainability, domain.InvocationInitial},
+		{domain.RoleProduct, domain.InvocationInitial},
+		{domain.RoleDocumentation, domain.InvocationInitial},
+		{domain.RoleTesting, domain.InvocationInitial},
+		{domain.RoleLogic, domain.InvocationRepair},
+		{domain.RoleSecurity, domain.InvocationRetry},
+		{domain.RoleMaintainability, domain.InvocationExtract},
+		{domain.RoleDocumentation, domain.InvocationExtract},
+	}
+	waveReverse := []rolePurposeKey{
+		{domain.RoleTesting, domain.InvocationInitial},
+		{domain.RoleDocumentation, domain.InvocationInitial},
+		{domain.RoleProduct, domain.InvocationInitial},
+		{domain.RoleMaintainability, domain.InvocationInitial},
+		{domain.RoleSecurity, domain.InvocationInitial},
+		{domain.RoleLogic, domain.InvocationInitial},
+		{domain.RoleDocumentation, domain.InvocationExtract},
+		{domain.RoleMaintainability, domain.InvocationExtract},
+		{domain.RoleSecurity, domain.InvocationRetry},
+		{domain.RoleLogic, domain.InvocationRepair},
+	}
+	interleavedFollowupFirst := []rolePurposeKey{
+		{domain.RoleLogic, domain.InvocationInitial},
+		{domain.RoleLogic, domain.InvocationRepair},
+		{domain.RoleMaintainability, domain.InvocationInitial},
+		{domain.RoleMaintainability, domain.InvocationExtract},
+		{domain.RoleSecurity, domain.InvocationInitial},
+		{domain.RoleDocumentation, domain.InvocationInitial},
+		{domain.RoleSecurity, domain.InvocationRetry},
+		{domain.RoleDocumentation, domain.InvocationExtract},
+		{domain.RoleProduct, domain.InvocationInitial},
+		{domain.RoleTesting, domain.InvocationInitial},
+	}
+
+	baseline := runSchedule(waveForward)
+	if baseline.RunState() != domain.RunCompleted {
+		t.Fatalf("baseline run state = %q, want %q", baseline.RunState(), domain.RunCompleted)
+	}
+	for name, schedule := range map[string][]rolePurposeKey{
+		"wave-reverse":               waveReverse,
+		"interleaved-followup-first": interleavedFollowupFirst,
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := runSchedule(schedule)
+			if !reflect.DeepEqual(baseline.Findings(), candidate.Findings()) ||
+				!reflect.DeepEqual(baseline.Evidence(), candidate.Evidence()) ||
+				!reflect.DeepEqual(baseline.RoleSummaries(), candidate.RoleSummaries()) ||
+				baseline.Outcomes() != candidate.Outcomes() ||
+				baseline.RunState() != candidate.RunState() {
+				t.Fatalf("schedule %q diverged from baseline:\nbaseline=%+v\ncandidate=%+v", name, baseline, candidate)
+			}
+			assertCoordinatorTraceFramingAndPerRoleEquivalence(t, baseline, candidate)
+		})
+	}
+}
+
+func TestCoordinatorEventLoopOrdinalValidationAndInvocationCeiling(t *testing.T) {
+	setupExecution := func(t *testing.T) (*coordinatorExecution, InvocationJob, InvocationJob) {
+		t.Helper()
+		assignments, receipt := coordinatorTestPlan(t)
+		runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+			return coordinatorSuccessOutcome(t, job)
+		}}
+		coordinator := coordinatorTestCoordinator(t, runtime, len(assignments), receipt)
+		execution := coordinatorRecordExecution(t)
+		execution.coordinator = coordinator
+		execution.issuer = newCoordinatorIssuer(coordinator.clock, coordinator.ids)
+		execution.callerCtx = context.Background()
+		execution.runContext = context.Background()
+		execution.roles = make(map[domain.Role]*coordinatorRole, len(assignments))
+		for _, assignment := range assignments {
+			execution.roles[assignment.Role()] = &coordinatorRole{assignment: assignment, currentAttempt: -1}
+		}
+		if err := execution.record(CoordinatorEventRunStarted, domain.Role(""), nil, nil, nil, "", domain.RunState("")); err != nil {
+			t.Fatal(err)
+		}
+		logicJob, err := execution.startPrimary(domain.RoleLogic)
+		if err != nil {
+			t.Fatal(err)
+		}
+		securityJob, err := execution.startPrimary(domain.RoleSecurity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, job := range []InvocationJob{logicJob, securityJob} {
+			attempt, err := execution.attemptFor(job)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := attempt.attempt.TransitionInvocation(invocationSequence(job.Purpose()), domain.InvocationRunning); err != nil {
+				t.Fatal(err)
+			}
+			if err := execution.record(CoordinatorEventInvocationDispatched, job.Role(), attempt, &job.purpose, nil, "", domain.RunState("")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return execution, logicJob, securityJob
+	}
+
+	t.Run("cross-batch-duplicate-ordinal-rejected", func(t *testing.T) {
+		execution, logicJob, securityJob := setupExecution(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		scheduler := &invocationScheduler{
+			ctx:     ctx,
+			cancel:  cancel,
+			results: make(chan workerResult, 4),
+		}
+		// Inject a duplicate of logicJob's ordinal during Batch 1 commit so it
+		// arrives in Batch 2 after logicJob left outstanding and entered seen.
+		execution.coordinator.beforeOutcomeCommitHook = func(job InvocationJob) {
+			if job.Ordinal() == logicJob.Ordinal() {
+				scheduler.results <- workerResult{
+					job:     logicJob,
+					outcome: coordinatorSuccessOutcome(t, logicJob),
+				}
+			}
+		}
+		scheduler.results <- workerResult{
+			job:     logicJob,
+			outcome: coordinatorSuccessOutcome(t, logicJob),
+		}
+		err := execution.runEventLoop(scheduler, []InvocationJob{logicJob, securityJob})
+		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("duplicate invocation result ordinal %d", logicJob.Ordinal())) {
+			t.Fatalf("cross-batch duplicate ordinal error = %v, want duplicate ordinal %d", err, logicJob.Ordinal())
+		}
+	})
+
+	t.Run("unknown-ordinal-rejected", func(t *testing.T) {
+		execution, logicJob, _ := setupExecution(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		scheduler := &invocationScheduler{
+			ctx:     ctx,
+			cancel:  cancel,
+			results: make(chan workerResult, 2),
+		}
+		rogue := logicJob
+		rogue.ordinal = 99
+		scheduler.results <- workerResult{
+			job:     rogue,
+			outcome: coordinatorSuccessOutcome(t, rogue),
+		}
+		err := execution.runEventLoop(scheduler, []InvocationJob{logicJob})
+		if err == nil || !strings.Contains(err.Error(), "unknown ordinal 99") {
+			t.Fatalf("unknown ordinal error = %v, want unknown ordinal 99", err)
+		}
+	})
+
+	t.Run("run-max-invocations-ceiling-fails-closed-without-mutating-nextJob", func(t *testing.T) {
+		execution, logicJob, _ := setupExecution(t)
+		attempt, err := execution.attemptFor(logicJob)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Case 1: receipt.TotalInvocations() boundary.
+		totalCap := uint64(execution.coordinator.receipt.TotalInvocations())
+		execution.nextJob = totalCap
+		if _, err := execution.newJob(domain.RoleLogic, attempt, domain.InvocationRepair); err == nil ||
+			!strings.Contains(err.Error(), "run invocation ceiling exceeded") {
+			t.Fatalf("total ceiling error = %v, want run invocation ceiling exceeded", err)
+		}
+		if execution.nextJob != totalCap {
+			t.Fatalf("nextJob mutated on total ceiling rejection: got %d, want %d", execution.nextJob, totalCap)
+		}
+
+		// Case 2: tighter Ceilings().MaxInvocationsPerRun() boundary.
+		execution.coordinator.receipt.ceilings.maxInvocationsPerRun = 3
+		execution.nextJob = 3
+		if _, err := execution.newJob(domain.RoleLogic, attempt, domain.InvocationRepair); err == nil ||
+			!strings.Contains(err.Error(), "run invocation ceiling exceeded") {
+			t.Fatalf("harness ceiling error = %v, want run invocation ceiling exceeded", err)
+		}
+		if execution.nextJob != 3 {
+			t.Fatalf("nextJob mutated on harness ceiling rejection: got %d, want 3", execution.nextJob)
+		}
+
+		// Case 3: non-positive ceiling boundary.
+		execution.coordinator.receipt.ceilings.maxInvocationsPerRun = 0
+		execution.nextJob = 0
+		if _, err := execution.newJob(domain.RoleLogic, attempt, domain.InvocationRepair); err == nil ||
+			!strings.Contains(err.Error(), "run invocation ceiling exceeded") {
+			t.Fatalf("zero ceiling error = %v, want run invocation ceiling exceeded", err)
+		}
+		if execution.nextJob != 0 {
+			t.Fatalf("nextJob mutated on zero ceiling rejection: got %d, want 0", execution.nextJob)
+		}
+	})
 }

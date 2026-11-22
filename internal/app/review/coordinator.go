@@ -450,7 +450,9 @@ func (result CoordinatorResult) RoleSummaries() []CoordinatorRoleSummary {
 // Roles is an explicit alias for RoleSummaries.
 func (result CoordinatorResult) Roles() []CoordinatorRoleSummary { return result.RoleSummaries() }
 
-// Trace returns caller-owned logical trace events in canonical ordinal order.
+// Trace returns caller-owned logical trace events in monotonic ordinal order.
+// Global framing events bracket the run, and each role's projected event
+// subsequence is deterministic regardless of peer completion timing.
 func (result CoordinatorResult) Trace() []CoordinatorTraceEvent {
 	return append([]CoordinatorTraceEvent(nil), result.trace...)
 }
@@ -845,7 +847,7 @@ func (coordinator *Coordinator) execute(
 	}
 	runStartRecorded = true
 
-	wave := make([]InvocationJob, 0, len(canonicalAssignments))
+	initial := make([]InvocationJob, 0, len(canonicalAssignments))
 	for _, role := range domain.FixedRoleOrder() {
 		state := execution.roles[role]
 		if state == nil {
@@ -855,7 +857,7 @@ func (coordinator *Coordinator) execute(
 		if err != nil {
 			return CoordinatorResult{}, err
 		}
-		wave = append(wave, job)
+		initial = append(initial, job)
 	}
 
 	// Freeze all initial inputs before any provider can run. A queued role may
@@ -863,7 +865,7 @@ func (coordinator *Coordinator) execute(
 	if preparer, ok := coordinator.runtime.(interface {
 		PrepareInitial(context.Context, []InvocationJob) error
 	}); ok {
-		if prepareErr := preparer.PrepareInitial(workCtx, wave); prepareErr != nil {
+		if prepareErr := preparer.PrepareInitial(workCtx, initial); prepareErr != nil {
 			if contextErr := workCtx.Err(); contextErr != nil && errors.Is(prepareErr, contextErr) {
 				if cancelErr := execution.cancelAll(scheduler, execution.contextCondition(), ""); cancelErr != nil {
 					return CoordinatorResult{}, errors.Join(
@@ -876,15 +878,12 @@ func (coordinator *Coordinator) execute(
 		}
 	}
 
-	for len(wave) > 0 {
-		if workCtx.Err() != nil {
-			if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
-				return CoordinatorResult{}, err
-			}
-			break
+	if execution.contextDone() {
+		if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
+			return CoordinatorResult{}, err
 		}
-
-		dispatched, _, err := execution.dispatchWave(workCtx, scheduler, wave)
+	} else {
+		dispatched, err := execution.dispatchInitialWave(scheduler, initial)
 		if err != nil {
 			return CoordinatorResult{}, err
 		}
@@ -892,27 +891,11 @@ func (coordinator *Coordinator) execute(
 			if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
 				return CoordinatorResult{}, err
 			}
-			break
-		}
-		collected, err := execution.collectWave(scheduler, dispatched)
-		if err != nil {
+		} else if err := execution.runEventLoop(scheduler, dispatched); err != nil {
 			return CoordinatorResult{}, err
 		}
-		next, err := execution.commitWave(scheduler, dispatched, collected)
-		if err != nil {
-			return CoordinatorResult{}, err
-		}
-		if workCtx.Err() != nil {
-			if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
-				return CoordinatorResult{}, err
-			}
-		}
-		if execution.stopping {
-			break
-		}
-		wave = next
 	}
-	if workCtx.Err() != nil {
+	if execution.contextDone() {
 		if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
 			return CoordinatorResult{}, err
 		}
@@ -928,7 +911,7 @@ func (coordinator *Coordinator) execute(
 	}
 	// This context sample is the worker-close linearization point. A cancellation
 	// observed after authorization belongs after this coordinator execution.
-	if workCtx.Err() != nil {
+	if execution.contextDone() {
 		if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
 			return CoordinatorResult{}, err
 		}
@@ -1149,11 +1132,18 @@ func (execution *coordinatorExecution) startAttempt(
 }
 
 func (execution *coordinatorExecution) newJob(role domain.Role, attempt *coordinatorAttempt, purpose domain.InvocationPurpose) (InvocationJob, error) {
+	maxInvocations := execution.coordinator.receipt.TotalInvocations()
+	if ceiling := execution.coordinator.receipt.Ceilings().MaxInvocationsPerRun(); ceiling < maxInvocations {
+		maxInvocations = ceiling
+	}
+	if maxInvocations <= 0 || execution.nextJob >= uint64(maxInvocations) {
+		return InvocationJob{}, fmt.Errorf("review coordinator: run invocation ceiling exceeded")
+	}
 	limits, err := execution.invocationLimits(role, attempt.route)
 	if err != nil {
 		return InvocationJob{}, err
 	}
-	execution.nextJob++
+	nextOrdinal := execution.nextJob + 1
 	job, err := newCoordinatorInvocationJob(
 		execution.run.SessionID(),
 		execution.run.ID(),
@@ -1163,11 +1153,12 @@ func (execution *coordinatorExecution) newJob(role domain.Role, attempt *coordin
 		limits,
 		attempt.attempt.ID(),
 		purpose,
-		execution.nextJob,
+		nextOrdinal,
 	)
 	if err != nil {
 		return InvocationJob{}, fmt.Errorf("review coordinator: create invocation job: %w", err)
 	}
+	execution.nextJob = nextOrdinal
 	return job, nil
 }
 
@@ -1186,28 +1177,35 @@ func (execution *coordinatorExecution) invocationLimits(
 	return InvocationLimits{}, fmt.Errorf("review coordinator: invocation route has no validated budget for role %q", role)
 }
 
-func (execution *coordinatorExecution) dispatchWave(ctx context.Context, scheduler *invocationScheduler, wave []InvocationJob) ([]InvocationJob, bool, error) {
-	dispatched := make([]InvocationJob, 0, len(wave))
+func (execution *coordinatorExecution) dispatchInitialWave(
+	scheduler *invocationScheduler,
+	initial []InvocationJob,
+) ([]InvocationJob, error) {
+	dispatched := make([]InvocationJob, 0, len(initial))
 	startGate := make(chan struct{})
-	for _, job := range wave {
-		if ctx.Err() != nil {
-			scheduler.cancelDispatch()
-			return dispatched, true, nil
+	gateClosed := false
+	defer func() {
+		if !gateClosed {
+			execution.cancelSchedulerDispatch(scheduler)
+		}
+	}()
+	for _, job := range initial {
+		if execution.contextDone() {
+			return dispatched, nil
 		}
 		attempt, err := execution.attemptFor(job)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		if !scheduler.admitWithGate(job, startGate) {
-			scheduler.cancelDispatch()
-			return dispatched, true, nil
+			return dispatched, nil
 		}
 		sequence := invocationSequence(job.Purpose())
 		if err := attempt.attempt.TransitionInvocation(sequence, domain.InvocationRunning); err != nil {
-			return nil, false, fmt.Errorf("review coordinator: start invocation: %w", err)
+			return nil, fmt.Errorf("review coordinator: start invocation: %w", err)
 		}
 		if err := execution.record(CoordinatorEventInvocationDispatched, job.Role(), attempt, &job.purpose, nil, "", domain.RunState("")); err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		dispatched = append(dispatched, job)
 	}
@@ -1215,39 +1213,46 @@ func (execution *coordinatorExecution) dispatchWave(ctx context.Context, schedul
 		execution.coordinator.waveReadyHook(append([]InvocationJob(nil), dispatched...))
 	}
 	close(startGate)
-	return dispatched, false, nil
+	gateClosed = true
+	return dispatched, nil
 }
 
-type coordinatorCollectedWave struct {
-	outcomes map[uint64]AttemptOutcome
-}
-
-func (execution *coordinatorExecution) collectWave(
+func (execution *coordinatorExecution) runEventLoop(
 	scheduler *invocationScheduler,
-	wave []InvocationJob,
-) (coordinatorCollectedWave, error) {
-	collected := coordinatorCollectedWave{
-		outcomes: make(map[uint64]AttemptOutcome, len(wave)),
+	initial []InvocationJob,
+) error {
+	totalInvocations := execution.coordinator.receipt.TotalInvocations()
+	if totalInvocations < len(initial) {
+		totalInvocations = len(initial)
 	}
-	expected := make(map[uint64]InvocationJob, len(wave))
-	for _, job := range wave {
-		expected[job.Ordinal()] = job
+	outstanding := make(map[uint64]InvocationJob, totalInvocations)
+	seen := make(map[uint64]struct{}, totalInvocations)
+	for _, job := range initial {
+		outstanding[job.Ordinal()] = job
 	}
-	stopping := false
-	for range wave {
-		result := <-scheduler.results
-		job, exists := expected[result.job.Ordinal()]
+
+	acceptResult := func(
+		res workerResult,
+		batch *[]InvocationJob,
+		outcomes map[uint64]AttemptOutcome,
+		stopTriggered *bool,
+	) error {
+		ord := res.job.Ordinal()
+		if _, dup := seen[ord]; dup {
+			return fmt.Errorf("review coordinator: duplicate invocation result ordinal %d", ord)
+		}
+		job, exists := outstanding[ord]
 		if !exists {
-			return coordinatorCollectedWave{}, fmt.Errorf("review coordinator: invocation result has unknown ordinal %d", result.job.Ordinal())
+			return fmt.Errorf("review coordinator: invocation result has unknown ordinal %d", ord)
 		}
-		if _, duplicate := collected.outcomes[result.job.Ordinal()]; duplicate {
-			return coordinatorCollectedWave{}, fmt.Errorf("review coordinator: duplicate invocation result ordinal %d", result.job.Ordinal())
-		}
-		normalized, err := execution.normalizedOutcome(job, result.outcome)
+		delete(outstanding, ord)
+		seen[ord] = struct{}{}
+		normalized, err := execution.normalizedOutcome(job, res.outcome)
 		if err != nil {
-			return coordinatorCollectedWave{}, err
+			return err
 		}
-		collected.outcomes[result.job.Ordinal()] = normalized
+		*batch = append(*batch, job)
+		outcomes[ord] = normalized
 		// A bounded extraction failure cannot stop the run: its role report is
 		// already accepted, so the failure has no authority over any peer role.
 		// A protected failure keeps its authority and falls through.
@@ -1255,20 +1260,161 @@ func (execution *coordinatorExecution) collectWave(
 			if execution.coordinator.resultCollectedHook != nil {
 				execution.coordinator.resultCollectedHook(job)
 			}
-			continue
+			return nil
 		}
-		if !stopping && conditionStopsCoordinatorRun(coordinatorOutcomeCondition(normalized)) {
+		if !*stopTriggered && conditionStopsCoordinatorRun(coordinatorOutcomeCondition(normalized)) {
 			if err := execution.persistInitiatingFailure(job, normalized); err != nil {
-				return coordinatorCollectedWave{}, err
+				return err
 			}
-			stopping = true
-			scheduler.cancelDispatch()
+			*stopTriggered = true
+			execution.cancelSchedulerDispatch(scheduler)
 		}
 		if execution.coordinator.resultCollectedHook != nil {
 			execution.coordinator.resultCollectedHook(job)
 		}
+		return nil
 	}
-	return collected, nil
+
+	drainAllOutstanding := func(
+		batch *[]InvocationJob,
+		outcomes map[uint64]AttemptOutcome,
+		stopTriggered *bool,
+	) error {
+		execution.cancelSchedulerDispatch(scheduler)
+		for len(outstanding) > 0 {
+			res := <-scheduler.results
+			if err := acceptResult(res, batch, outcomes, stopTriggered); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	var workDone <-chan struct{}
+	if execution.runContext != nil {
+		workDone = execution.runContext.Done()
+	}
+	var callerDone <-chan struct{}
+	if execution.callerCtx != nil && execution.callerCtx != execution.runContext {
+		callerDone = execution.callerCtx.Done()
+	}
+
+	for len(outstanding) > 0 {
+		batch := make([]InvocationJob, 0, len(outstanding))
+		outcomes := make(map[uint64]AttemptOutcome, len(outstanding))
+		stopDrain := false
+		stopTriggered := false
+
+		// Step A: Block for the first event, watching both runContext and callerCtx.
+		if execution.contextDone() {
+			stopDrain = true
+		} else {
+			select {
+			case first := <-scheduler.results:
+				if err := acceptResult(first, &batch, outcomes, &stopTriggered); err != nil {
+					return err
+				}
+			case <-workDone:
+				stopDrain = true
+			case <-callerDone:
+				stopDrain = true
+			}
+		}
+
+		// Step B: Drain all immediately ready completions without waiting for peers.
+	readyDrain:
+		for len(outstanding) > 0 && !stopDrain && !stopTriggered && !execution.contextDone() {
+			select {
+			case res := <-scheduler.results:
+				if err := acceptResult(res, &batch, outcomes, &stopTriggered); err != nil {
+					return err
+				}
+			default:
+				break readyDrain
+			}
+		}
+
+		// Step C: Drain all remaining in-flight invocations before committing any
+		// stop or context termination so cancelAll never races live workers.
+		if stopDrain || stopTriggered || execution.contextDone() {
+			stopDrain = true
+			if err := drainAllOutstanding(&batch, outcomes, &stopTriggered); err != nil {
+				return err
+			}
+		}
+
+		// Step D: Commit the batch in canonical role order.
+		next, needsDrain, err := execution.commitBatch(
+			scheduler,
+			batch,
+			outcomes,
+			len(outstanding) > 0,
+			stopDrain || stopTriggered,
+		)
+		if err != nil {
+			return err
+		}
+		if needsDrain {
+			stopDrain = true
+			if err := drainAllOutstanding(&batch, outcomes, &stopTriggered); err != nil {
+				return err
+			}
+			if _, _, err := execution.commitBatch(scheduler, batch, outcomes, false, true); err != nil {
+				return err
+			}
+		}
+
+		// Step E: Post-commit stop/deadline drain before admitting any follow-up.
+		if stopDrain || stopTriggered || execution.stopping || execution.dispatchStopRecorded || execution.contextDone() {
+			if len(outstanding) > 0 {
+				drainBatch := make([]InvocationJob, 0, len(outstanding))
+				drainOutcomes := make(map[uint64]AttemptOutcome, len(outstanding))
+				if err := drainAllOutstanding(&drainBatch, drainOutcomes, &stopTriggered); err != nil {
+					return err
+				}
+				if len(drainBatch) > 0 {
+					if _, _, err := execution.commitBatch(scheduler, drainBatch, drainOutcomes, false, true); err != nil {
+						return err
+					}
+				}
+			}
+			if execution.contextDone() && !execution.stopping {
+				if err := execution.cancelAll(scheduler, execution.contextCondition(), ""); err != nil {
+					return err
+				}
+			}
+			break
+		}
+
+		// Step F: Admit generated follow-up jobs immediately in FIFO order.
+		for _, job := range next {
+			if execution.contextDone() || execution.stopping || execution.dispatchStopRecorded {
+				execution.cancelSchedulerDispatch(scheduler)
+				break
+			}
+			attempt, err := execution.attemptFor(job)
+			if err != nil {
+				return err
+			}
+			release, accepted := scheduler.admit(job)
+			if !accepted {
+				execution.cancelSchedulerDispatch(scheduler)
+				break
+			}
+			sequence := invocationSequence(job.Purpose())
+			if err := attempt.attempt.TransitionInvocation(sequence, domain.InvocationRunning); err != nil {
+				execution.cancelSchedulerDispatch(scheduler)
+				return fmt.Errorf("review coordinator: start invocation: %w", err)
+			}
+			if err := execution.record(CoordinatorEventInvocationDispatched, job.Role(), attempt, &job.purpose, nil, "", domain.RunState("")); err != nil {
+				execution.cancelSchedulerDispatch(scheduler)
+				return err
+			}
+			outstanding[job.Ordinal()] = job
+			release()
+		}
+	}
+	return nil
 }
 
 func orderedCoordinatorWave(wave []InvocationJob) []InvocationJob {
@@ -1341,25 +1487,27 @@ func conditionRetainsAuthorityAfterContext(
 	}
 }
 
-func (execution *coordinatorExecution) commitWave(
+func (execution *coordinatorExecution) commitBatch(
 	scheduler *invocationScheduler,
-	wave []InvocationJob,
-	collected coordinatorCollectedWave,
-) ([]InvocationJob, error) {
-	ordered := orderedCoordinatorWave(wave)
+	batch []InvocationJob,
+	collected map[uint64]AttemptOutcome,
+	hasOutstanding bool,
+	suppressFollowup bool,
+) ([]InvocationJob, bool, error) {
+	ordered := orderedCoordinatorWave(batch)
 	outcomes := make(map[uint64]AttemptOutcome, len(ordered))
 	conditions := make([]AttemptCondition, 0, len(ordered))
 	for _, job := range ordered {
-		outcome, exists := collected.outcomes[job.Ordinal()]
+		outcome, exists := collected[job.Ordinal()]
 		if !exists {
-			return nil, fmt.Errorf("review coordinator: missing invocation result ordinal %d", job.Ordinal())
+			return nil, false, fmt.Errorf("review coordinator: missing invocation result ordinal %d", job.Ordinal())
 		}
 		normalized, err := execution.normalizedOutcome(job, outcome)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		outcomes[job.Ordinal()] = normalized
-		// A bounded extraction trailer contributes no condition to the wave. Its
+		// A bounded extraction trailer contributes no condition to the batch. Its
 		// role report is already accepted, so an ordinary transcription failure
 		// must never reduce into a verdict that stops or degrades the run. A
 		// protected failure still reduces normally.
@@ -1369,28 +1517,31 @@ func (execution *coordinatorExecution) commitWave(
 		conditions = append(conditions, coordinatorOutcomeCondition(normalized))
 	}
 	if len(conditions) == 0 {
-		// A wave of extraction trailers only. ReduceAttemptConditions rejects an
+		// A batch of extraction trailers only. ReduceAttemptConditions rejects an
 		// empty input, so seed the neutral valid verdict explicitly.
 		conditions = append(conditions, AttemptConditionValidReview)
 	}
 	condition, err := ReduceAttemptConditions(conditions...)
 	if err != nil {
-		return nil, fmt.Errorf("review coordinator: reduce wave conditions: %w", err)
+		return nil, false, fmt.Errorf("review coordinator: reduce batch conditions: %w", err)
 	}
-	waveCause := waveDiagnosticCauseForCondition(ordered, outcomes, condition)
+	batchCause := waveDiagnosticCauseForCondition(ordered, outcomes, condition)
 	contextFacts := execution.contextConditions()
+	if hasOutstanding && (len(contextFacts) > 0 || conditionStopsCoordinatorRun(condition)) {
+		return nil, true, nil
+	}
 	if len(contextFacts) > 0 {
 		contextCondition, err := ReduceAttemptConditions(contextFacts...)
 		if err != nil {
-			return nil, fmt.Errorf("review coordinator: reduce context conditions: %w", err)
+			return nil, false, fmt.Errorf("review coordinator: reduce context conditions: %w", err)
 		}
 		if !conditionRetainsAuthorityAfterContext(condition, contextCondition) {
-			return nil, execution.cancelAll(scheduler, contextCondition, "")
+			return nil, false, execution.cancelAll(scheduler, contextCondition, "")
 		}
 	}
 	if conditionStopsCoordinatorRun(condition) {
-		if err := execution.requestDispatchStop(scheduler, condition, waveCause); err != nil {
-			return nil, err
+		if err := execution.requestDispatchStop(scheduler, condition, batchCause); err != nil {
+			return nil, false, err
 		}
 		for _, job := range ordered {
 			if execution.coordinator.beforeOutcomeCommitHook != nil {
@@ -1407,7 +1558,7 @@ func (execution *coordinatorExecution) commitWave(
 					false,
 					true,
 				); err != nil {
-					return nil, err
+					return nil, false, err
 				}
 				continue
 			}
@@ -1416,7 +1567,7 @@ func (execution *coordinatorExecution) commitWave(
 				coordinatorOutcomeCondition(outcomes[job.Ordinal()]),
 			)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			if _, err := execution.commitOutcome(
 				job,
@@ -1425,19 +1576,19 @@ func (execution *coordinatorExecution) commitWave(
 				cancellationObserved,
 				true,
 			); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
-		if err := execution.cancelAll(scheduler, condition, waveCause); err != nil {
-			return nil, err
+		if err := execution.cancelAll(scheduler, condition, batchCause); err != nil {
+			return nil, false, err
 		}
-		return nil, nil
+		return nil, false, nil
 	}
 
 	next := make([]InvocationJob, 0, len(ordered))
 	// Commit extraction trailers first and on their own observed condition. Their
 	// role reports are already accepted, so a peer role that stops the run later
-	// in this wave must not leave them uncommitted, and prepareOutcomeCommit must
+	// in this batch must not leave them uncommitted, and prepareOutcomeCommit must
 	// not upgrade them with run-level cancellation or timeout facts.
 	for _, job := range ordered {
 		if !extractionOutcomeIsBounded(job, coordinatorOutcomeCondition(outcomes[job.Ordinal()])) {
@@ -1453,7 +1604,7 @@ func (execution *coordinatorExecution) commitWave(
 			false,
 			true,
 		); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	for _, job := range ordered {
@@ -1468,24 +1619,26 @@ func (execution *coordinatorExecution) commitWave(
 			coordinatorOutcomeCondition(outcomes[job.Ordinal()]),
 		)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		generated, err := execution.commitOutcome(
 			job,
 			outcomes[job.Ordinal()],
 			commitCondition,
 			cancellationObserved,
-			contextStopsFollowup,
+			suppressFollowup || contextStopsFollowup,
 		)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		next = append(next, generated...)
+		if !suppressFollowup {
+			next = append(next, generated...)
+		}
 		if execution.stopping {
-			return nil, nil
+			return nil, false, nil
 		}
 	}
-	return next, nil
+	return next, false, nil
 }
 
 func (execution *coordinatorExecution) normalizedOutcome(job InvocationJob, outcome AttemptOutcome) (AttemptOutcome, error) {
@@ -1938,7 +2091,7 @@ func transitionFailedExtractionInvocation(attempt *domain.Attempt, sequence uint
 // failed extraction trailer may absorb into the already accepted reports-only
 // outcome. It stops below domain.FailureConfiguration, so configuration,
 // cancellation, artifact, security, and internal failures keep their precedence
-// and reach the run through ordinary wave reduction. Those classes never
+// and reach the run through ordinary batch reduction. Those classes never
 // authorize publication, and a trailer must not launder one into role success.
 const extractionBoundedFailureCeiling = 2
 
@@ -2036,6 +2189,21 @@ func (execution *coordinatorExecution) attemptFor(job InvocationJob) (*coordinat
 	return nil, fmt.Errorf("review coordinator: result for unknown attempt %q", job.AttemptID().String())
 }
 
+func (execution *coordinatorExecution) contextDone() bool {
+	return (execution.callerCtx != nil && execution.callerCtx.Err() != nil) ||
+		(execution.runContext != nil && execution.runContext.Err() != nil)
+}
+
+func (execution *coordinatorExecution) cancelSchedulerDispatch(scheduler *invocationScheduler) {
+	if (execution.callerCtx == nil || execution.callerCtx.Err() == nil) &&
+		execution.runContext != nil &&
+		execution.runContext.Done() != nil &&
+		execution.runContext.Err() == context.DeadlineExceeded {
+		<-scheduler.ctx.Done()
+	}
+	scheduler.cancelDispatch()
+}
+
 func (execution *coordinatorExecution) contextConditions() []AttemptCondition {
 	conditions := make([]AttemptCondition, 0, 2)
 	if execution.callerCtx != nil && execution.callerCtx.Err() != nil {
@@ -2093,7 +2261,7 @@ func (execution *coordinatorExecution) requestDispatchStop(
 	condition AttemptCondition,
 	cause domain.RuntimeDiagnosticCause,
 ) error {
-	scheduler.cancelDispatch()
+	execution.cancelSchedulerDispatch(scheduler)
 	if execution.dispatchStopRecorded {
 		reduced, err := ReduceAttemptConditions(execution.dispatchStopCondition, condition)
 		if err != nil {
