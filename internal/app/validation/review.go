@@ -95,6 +95,23 @@ func (violation *ownershipViolation) Error() string {
 }
 func (violation *ownershipViolation) Unwrap() error { return violation.err }
 
+// validatorInvariantError marks trusted validator-configuration, scope, and
+// decode-authority precondition failures as non-document infrastructure errors
+// so callers always fail closed instead of treating them as ordinary output
+// violations.
+type validatorInvariantError struct{ err error }
+
+func (failure *validatorInvariantError) Error() string           { return failure.err.Error() }
+func (failure *validatorInvariantError) Unwrap() error           { return failure.err }
+func (failure *validatorInvariantError) DocumentViolation() bool { return false }
+
+func wrapValidatorInvariant(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &validatorInvariantError{err: err}
+}
+
 func wrapRuntimeError(err error, fallback domain.RuntimeDiagnosticCause) error {
 	if err == nil {
 		return nil
@@ -262,23 +279,23 @@ func (validator *ReviewValidator) Validate(ctx context.Context, raw []byte, scop
 
 func (validator *ReviewValidator) validate(ctx context.Context, raw []byte, scope ReviewValidationScope, originalRaw, repairedRaw []byte, classifyRepair bool) (ValidatedReview, *RepairPlan, error) {
 	if validator == nil {
-		return ValidatedReview{}, nil, fmt.Errorf("review validation: nil validator")
+		return ValidatedReview{}, nil, wrapValidatorInvariant(fmt.Errorf("review validation: nil validator"))
 	}
 	if ctx == nil {
-		return ValidatedReview{}, nil, fmt.Errorf("review validation: nil context")
+		return ValidatedReview{}, nil, wrapValidatorInvariant(fmt.Errorf("review validation: nil context"))
 	}
 	if err := ctx.Err(); err != nil {
 		return ValidatedReview{}, nil, fmt.Errorf("review validation: context: %w", err)
 	}
 	if nilSchemaValidator(validator.schemaValidator) || !validator.schemaID.Valid() || validator.schemaID.String() != ProviderReviewSchemaID || !validator.wireSchemaID.Valid() || validator.wireSchemaID.String() != ProviderReviewWireSchemaID {
-		return ValidatedReview{}, nil, fmt.Errorf("review validation: invalid validator configuration")
+		return ValidatedReview{}, nil, wrapValidatorInvariant(fmt.Errorf("review validation: invalid validator configuration"))
 	}
 	trustedTarget, err := validateScope(scope)
 	if err != nil {
-		return ValidatedReview{}, nil, err
+		return ValidatedReview{}, nil, wrapValidatorInvariant(err)
 	}
 	if scope.SourceBearing {
-		return ValidatedReview{}, nil, fmt.Errorf("review validation: source-bearing reviews require a trusted source-identity reducer")
+		return ValidatedReview{}, nil, wrapValidatorInvariant(fmt.Errorf("review validation: source-bearing reviews require a trusted source-identity reducer"))
 	}
 
 	provider, err := decodeJSONObject(raw, "provider output")

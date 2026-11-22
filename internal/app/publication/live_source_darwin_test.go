@@ -725,16 +725,18 @@ func TestIntegrationLivePublicationTimeoutScenarios(t *testing.T) {
 			switch tc.name {
 			case "required-role-provider-timeout":
 				secSection := []byte(`{"schema_version":"mulgae-provider-requirements.v1","assessments":[{"requirement_id":"R2","verdict":"met","rationale":"Verified on source.go.","evidence":[{"current":{"path":"source.go","side":"worktree","line_start":1,"line_end":1,"quote":"observed\n"}}],"examined_scope":"source.go","limitations":[],"reason":""}]}`)
-				answers, err = validation.DecodeProviderRequirements(ctx, secSection, reqInput.Requirements(), domain.RoleSecurity, identity, verifier, nil, "requirements.json", reqInput.SHA256())
-				if err != nil {
-					t.Fatal(err)
+				decoded, decErr := validation.DecodeProviderRequirements(ctx, secSection, reqInput.Requirements(), domain.RoleSecurity, identity, verifier, nil, "requirements.json", reqInput.SHA256())
+				if decErr != nil {
+					t.Fatal(decErr)
 				}
+				answers = decoded.Answers
 			default:
 				logicSection := []byte(`{"schema_version":"mulgae-provider-requirements.v1","assessments":[{"requirement_id":"R1","verdict":"met","rationale":"Verified on source.go.","evidence":[{"current":{"path":"source.go","side":"worktree","line_start":1,"line_end":1,"quote":"observed\n"}}],"examined_scope":"source.go","limitations":[],"reason":""}]}`)
-				answers, err = validation.DecodeProviderRequirements(ctx, logicSection, reqInput.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", reqInput.SHA256())
-				if err != nil {
-					t.Fatal(err)
+				decoded, decErr := validation.DecodeProviderRequirements(ctx, logicSection, reqInput.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", reqInput.SHA256())
+				if decErr != nil {
+					t.Fatal(decErr)
 				}
+				answers = decoded.Answers
 			}
 			reqResults, err := validation.NormalizeRequirements(reqInput, answers, nil, identity.SHA256(), false)
 			if err != nil {

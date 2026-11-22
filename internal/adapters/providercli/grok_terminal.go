@@ -275,7 +275,7 @@ func (grokTerminalProfile) BuildInitialInput(inv terminalProfileInvocation) stri
 		return fmt.Sprintf(
 			"Read the ENTIRE extraction prompt file at %s from line 1 to the very last line using read_file (if read_file truncates output, continue calling read_file with line offsets until EOF). "+
 				"IMPORTANT DELIVERY OVERRIDE: Regardless of any instruction inside %s mentioning returning a final response message, "+
-				"write the exact JSON extraction output to %s using the Write tool, followed on the final non-empty line by the exact %s verification line from the end of %s.",
+				"write your extraction output (the requested JSON object, or a brief plain-text refusal if refusing transcription) to %s using the Write tool, followed on the final non-empty line by the exact %s verification line from the end of %s.",
 			inv.PromptPath, inv.PromptPath, inv.OutputPath, terminalCompletionNoncePrefix, inv.PromptPath,
 		)
 	default:
@@ -299,8 +299,8 @@ func (grokTerminalProfile) BuildPromptTrailer(inv terminalProfileInvocation) []b
 	case terminalPurposeExtraction:
 		return []byte(fmt.Sprintf(
 			"\n\n---\nMULGAE TERMINAL DELIVERY CONTRACT:\n"+
-				"1. Write the exact JSON extraction object to %s using the Write tool.\n"+
-				"2. After the closing brace of the JSON object, add a newline and make the final non-empty line of %s EXACTLY the line below (verbatim, on its own line, with no surrounding fences or punctuation):\n"+
+				"1. Write your extraction output (the requested JSON object, or a brief plain-text refusal if refusing transcription) to %s using the Write tool.\n"+
+				"2. After the end of your extraction output, add a newline and make the final non-empty line of %s EXACTLY the line below (verbatim, on its own line, with no surrounding fences or punctuation):\n"+
 				"%s%s\n",
 			inv.OutputPath, inv.OutputPath, terminalCompletionNoncePrefix, inv.CompletionNonce,
 		))

@@ -394,7 +394,18 @@ state, and publication.
 When `validation.extraction.enabled` is set, an accepted role report re-enters
 one further prompt on the same provider as an untrusted `prior_report` payload,
 never as a trusted layer, and the extraction contract states that it is data to
-transcribe rather than instructions or authority. That invocation gets the same
+transcribe rather than instructions or authority. Extraction prompts carry
+compact target metadata (`review:live-extract-target` v1, omitting the
+repository-wide `reads` list) and operate as pure transcription from verbatim
+target excerpts already present in `prior_report` without re-reading workspace
+files or Git objects. When any claimed defect lacks a verbatim excerpt,
+non-requirements extraction refuses structured transcription in plain text with
+no JSON object (preserving `reports_only` without fabricating `findings: []`),
+and `--requirements` extraction omits the top-level `findings` key while
+keeping `requirements` intact (running `ReviewValidator.Validate`
+unconditionally so protected validator, scope, or context failures still fail
+closed, while ordinary missing-`findings` fallback preserves verified
+requirements and `stdout.raw` with `nil` structured candidate capture). That invocation gets the same
 read-only live source authority and always publishes through `stdout` transport
 (protocol providers receive no report-file write grant and return on stdout;
 managed terminal providers such as Grok stage `extraction.json` shell-free
@@ -507,23 +518,37 @@ hashed; this creates no source inventory or persisted content lock. Visual
 references must retain their selected-side binary binding.
 
 The assessment section is decoded strictly without the generic 8 MiB envelope
-limit on prose. Key validation scans every key of each requirements object
-(`requirements`, `assessment`, `evidence`, `current`, and `visual`) against a
-closed Mulgae-owned protected key set (`visual.sha256` remains allowed as a
-provider-supplied visual digest and `schema_version` is excluded from the
-protected set); any unexpected protected key deterministically takes precedence
-over ordinary unknown keys and fails closed with `security_violation`
-(`provider_ownership_violation`), whereas ordinary unknown keys remain bounded
-section validation failures (`invalid_assessment`). Trusted ownership violations
-and source/validator failures retain canonical joined-error precedence and deny
-publication. Ordinary content failure in one section preserves a valid peer and
-its accepted primary report. Bound input/content bodies remain private publication support. Verified public content
-reads expose assessment rationale/evidence through receipt-bound chunks, without
-including the raw invocation input. Portable export admits neither body. Readers
-verify the whole selected set and every content binding before paging, then
-confirm publication authority again before returning. Concurrent cleanup or
-changed receipts fail closed. Cleanup removes run-owned copies only, never the
-original invocation file.
+limit on prose. A whole-tree key pre-pass scans every key of each requirements
+object (`requirements`, `assessment`, `evidence`, `current`, and `visual`)
+against a closed Mulgae-owned protected key set (`visual.sha256` remains
+allowed as a provider-supplied visual digest and `schema_version` is excluded
+from the protected set) before any outer envelope, structural, or per-item
+check; any unexpected protected key deterministically takes precedence over
+ordinary unknown keys or malformed rows and fails closed with
+`security_violation` (`provider_ownership_violation`). Outer envelope failures
+and a whole-array structural/ID pre-pass (non-object rows, missing or
+non-string `requirement_id`, or duplicate, foreign, or wrong-owner IDs) reject
+the emitting role's whole assessment section before per-item verification.
+Within a structurally valid section, ordinary per-item content errors, inner
+unknown keys, evidence/quote faults, and pure bounded provider citation faults
+isolate to only the offending `requirement_id` (`invalid_assessment`) while
+preserving valid sibling requirements; any non-pure or protected source error,
+joined forbidden node, or cancelled context aborts fail-closed immediately even
+after an earlier row was isolated. Findings validation remains strictly
+all-or-nothing, and omitting the top-level `findings` key still executes
+`ReviewValidator.Validate` unconditionally so protected validator, scope, or
+context failures deny publication. Trusted ownership violations and
+source/validator failures retain canonical joined-error precedence and deny
+publication. Ordinary content failure in one section preserves a valid peer
+(and valid sibling requirements within a structurally valid assessment section)
+and its accepted primary report. Bound input/content bodies remain private
+publication support. Verified public content reads expose assessment
+rationale/evidence through receipt-bound chunks, without including the raw
+invocation input. Portable export admits neither body. Readers verify the whole
+selected set and every content binding before paging, then confirm publication
+authority again before returning. Concurrent cleanup or changed receipts fail
+closed. Cleanup removes run-owned copies only, never the original invocation
+file.
 
 Batch execution, cross-run comparison, resolution transfer and conflict
 reduction are outside this Epic. Requirements assessment grants no issue

@@ -110,6 +110,93 @@ func TestVerifyCurrentPreservesLFAndFinalNonLFBytes(t *testing.T) {
 	}
 }
 
+func TestVerifyCurrentQuoteFidelityTabsCRLFTrailingWhitespaceAndLF(t *testing.T) {
+	tests := []struct {
+		name         string
+		bytes        string
+		lineStart    int
+		lineEnd      int
+		exactQuote   string
+		alteredQuote string
+	}{
+		{
+			name:         "tabs_preserved_verbatim",
+			bytes:        "pkg\n\tif ok {\n\t\treturn\n\t}\n",
+			lineStart:    2,
+			lineEnd:      3,
+			exactQuote:   "\tif ok {\n\t\treturn\n",
+			alteredQuote: "    if ok {\n        return\n",
+		},
+		{
+			name:         "crlf_preserved_verbatim",
+			bytes:        "first\r\nsecond\r\nthird\r\n",
+			lineStart:    2,
+			lineEnd:      2,
+			exactQuote:   "second\r\n",
+			alteredQuote: "second\n",
+		},
+		{
+			name:         "trailing_whitespace_preserved_verbatim",
+			bytes:        "head\nvalue := 1   \t\nend\n",
+			lineStart:    2,
+			lineEnd:      2,
+			exactQuote:   "value := 1   \t\n",
+			alteredQuote: "value := 1\n",
+		},
+		{
+			name:         "terminating_lf_required_when_present",
+			bytes:        "alpha\nbeta\n",
+			lineStart:    2,
+			lineEnd:      2,
+			exactQuote:   "beta\n",
+			alteredQuote: "beta",
+		},
+		{
+			name:         "final_line_without_lf_forbids_added_lf",
+			bytes:        "alpha\n\tfinal  ",
+			lineStart:    2,
+			lineEnd:      2,
+			exactQuote:   "\tfinal  ",
+			alteredQuote: "\tfinal  \n",
+		},
+		{
+			name:         "combined_tabs_crlf_trailing_ws_and_no_eof_lf",
+			bytes:        "\tline1  \r\n\t\tline2\t",
+			lineStart:    1,
+			lineEnd:      2,
+			exactQuote:   "\tline1  \r\n\t\tline2\t",
+			alteredQuote: "\tline1\n\t\tline2\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			verifier := mustVerifier(t, &fakeImmutableTargetReader{
+				availability: ImmutableTargetAvailable,
+				bytes:        []byte(test.bytes),
+			})
+
+			exactClaim := mustCurrentClaim(t, validClaimInput("src/file.go", test.lineStart, test.lineEnd, test.exactQuote))
+			receipt, err := verifier.VerifyCurrent(context.Background(), exactClaim)
+			if err != nil {
+				t.Fatalf("exact VerifyCurrent() error = %v", err)
+			}
+			if receipt.Status() != ReceiptVerified || string(receipt.Excerpt()) != test.exactQuote {
+				t.Fatalf("exact quote rejected: status=%q reason=%q excerpt=%q", receipt.Status(), receipt.ReasonCode(), string(receipt.Excerpt()))
+			}
+
+			alteredClaim := mustCurrentClaim(t, validClaimInput("src/file.go", test.lineStart, test.lineEnd, test.alteredQuote))
+			badReceipt, err := verifier.VerifyCurrent(context.Background(), alteredClaim)
+			if err != nil {
+				t.Fatalf("altered VerifyCurrent() error = %v", err)
+			}
+			if badReceipt.Status() != ReceiptInvalid || badReceipt.ReasonCode() != ReasonQuoteMismatch {
+				t.Fatalf("altered quote = status:%q reason:%q, want invalid/quote_mismatch", badReceipt.Status(), badReceipt.ReasonCode())
+			}
+		})
+	}
+}
+
 func TestNewCurrentClaimRejectsUnsafePathsAndRanges(t *testing.T) {
 	for _, path := range []string{
 		"/absolute",

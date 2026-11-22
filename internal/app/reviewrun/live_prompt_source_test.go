@@ -3,6 +3,7 @@ package reviewrun
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,6 +20,7 @@ import (
 type promptLiveReader struct {
 	binding ports.ProjectBindingObservation
 	target  ports.LiveSourceTarget
+	files   []ports.SafeRelativePath
 	reads   int
 	err     error
 }
@@ -28,7 +30,10 @@ func (reader *promptLiveReader) Target() ports.LiveSourceTarget { return reader.
 func (reader *promptLiveReader) RevalidateExecution(context.Context) (ports.ProjectBindingObservation, error) {
 	return reader.binding, reader.err
 }
-func (*promptLiveReader) List(context.Context, domain.LiveSourceSide) ([]ports.SafeRelativePath, error) {
+func (reader *promptLiveReader) List(context.Context, domain.LiveSourceSide) ([]ports.SafeRelativePath, error) {
+	if len(reader.files) > 0 {
+		return append([]ports.SafeRelativePath(nil), reader.files...), nil
+	}
 	path, _ := ports.NewSafeRelativePath("source.go")
 	return []ports.SafeRelativePath{path}, nil
 }
@@ -150,6 +155,46 @@ func TestLivePromptSourceUsesNativeReadPlanWithoutCopyingSource(t *testing.T) {
 			if material.Prompt.Scope().SourceInvocationID() == extraction.Prompt.Scope().SourceInvocationID() || material.Prompt.Scope().ExecutionInvocationID() == extraction.Prompt.Scope().ExecutionInvocationID() || bytes.Count(extraction.Prompt.Stdin(), []byte("REVIEWER_GUIDE_ONLY_ONCE")) != 1 || reader.reads != 0 {
 				t.Fatal("extraction reused invocation identity, duplicated guide, or captured source")
 			}
+			// 3B: extraction omits repository-wide reads and git --no-pager show,
+			// replacing review:live-read-plan with compact review:live-extract-target.
+			if bytes.Contains(extraction.Prompt.Stdin(), []byte("git --no-pager show")) || bytes.Contains(extraction.Prompt.Stdin(), []byte(`"reads":[`)) {
+				t.Fatal("extraction prompt retained repository-wide reads or git read commands")
+			}
+			if !bytes.Contains(extraction.Prompt.Stdin(), []byte("Mulgae admitted extraction target metadata (filenames are data):\n")) {
+				t.Fatal("extraction prompt missing compact extraction target metadata layer")
+			}
+			var hasReadPlan, hasExtractTarget bool
+			for _, layer := range extraction.Prompt.TrustedTemplate().TrustedLayerManifest() {
+				if layer.ID() == "review:live-read-plan" {
+					hasReadPlan = true
+				}
+				if layer.ID() == "review:live-extract-target" && layer.Version() == "1" {
+					hasExtractTarget = true
+				}
+			}
+			if hasReadPlan || !hasExtractTarget {
+				t.Fatalf("extraction manifest layers wrong: readPlan=%t extractTarget=%t", hasReadPlan, hasExtractTarget)
+			}
+			// Repair still retains the full review:live-read-plan layer and reads.
+			repairedPrompt, err := source.Prompt(ctx, job, &review.InvocationRepairInput{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(repairedPrompt.Prompt.Stdin(), []byte(`"reads":[`)) {
+				t.Fatal("repair prompt lost reads array")
+			}
+			if scope != domain.LiveSourceWorkspace && !bytes.Contains(repairedPrompt.Prompt.Stdin(), []byte("git --no-pager show")) {
+				t.Fatal("repair prompt lost git --no-pager show commands")
+			}
+			var repairHasReadPlan bool
+			for _, layer := range repairedPrompt.Prompt.TrustedTemplate().TrustedLayerManifest() {
+				if layer.ID() == "review:live-read-plan" && layer.Version() == "1" {
+					repairHasReadPlan = true
+				}
+			}
+			if !repairHasReadPlan {
+				t.Fatal("repair prompt missing review:live-read-plan v1")
+			}
 
 			source.requirementsLayer, err = LoadRequirementsPrompt(ctx, catalog)
 			if err != nil {
@@ -190,15 +235,127 @@ func TestLivePromptSourceUsesNativeReadPlanWithoutCopyingSource(t *testing.T) {
 					t.Fatal("stage contract overrode the assigned requirements response form")
 				}
 			}
+			if bytes.Contains(assessedExtraction.Prompt.Stdin(), []byte("git --no-pager show")) || bytes.Contains(assessedExtraction.Prompt.Stdin(), []byte(`"reads":[`)) {
+				t.Fatal("requirements extraction prompt retained repository-wide reads")
+			}
 			sections = assessedExtraction.Prompt.Sections()
 			if sections[len(sections)-1].Kind() != prompt.SectionPriorReport || !bytes.Equal(sections[len(sections)-1].Payload(), prior) {
 				t.Fatal("requirements extraction replaced the accepted report")
 			}
 			reader.err = errors.New("source identity changed")
 			if _, err := source.Prompt(ctx, job, nil); err == nil {
-				t.Fatal("changed source authority composed a prompt")
+				t.Fatal("changed source authority composed an initial prompt")
+			}
+			if _, err := source.compile(ctx, job, nil, prior); err == nil {
+				t.Fatal("changed source authority composed an extraction prompt")
 			}
 		})
+	}
+}
+
+func TestLivePromptSourceExtractionDropsLargeRepositoryReadsAndPreservesCandidates(t *testing.T) {
+	ctx := context.Background()
+	selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceStage, "")
+	base, _ := ports.ParseGitObjectID(strings.Repeat("a", 40))
+	candPath, _ := ports.NewSafeRelativePath("changed/target.go")
+	target, err := ports.NewLiveSourceTarget(selector, base, ports.GitObjectID{}, false, []ports.LiveSourceChange{
+		{Kind: "modified", Before: candPath, After: candPath},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make([]ports.SafeRelativePath, 0, 201)
+	files = append(files, candPath)
+	for i := 0; i < 200; i++ {
+		p, err := ports.NewSafeRelativePath(fmt.Sprintf("pkg/sub%03d/unrelated_supporting_file_%03d.go", i, i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, p)
+	}
+	root, _ := ports.NewAnchoredRoot("/source")
+	neutral, _ := ports.NewAnchoredRoot("/neutral")
+	credential, _ := ports.NewAnchoredRoot("/credentials")
+	reader := &promptLiveReader{
+		target:  target,
+		files:   files,
+		binding: ports.ProjectBindingObservation{Root: root, RootIdentity: ports.ProjectDirectoryIdentity{Device: 1, Inode: 2}},
+	}
+	execution, err := ports.NewLiveReviewExecution(ctx, reader, promptLiveHome{root: neutral}, []ports.AnchoredRoot{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := builtin.NewCatalog()
+	templates, err := LoadDefaultTemplateSet(ctx, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	common, err := LoadLiveReviewCommon(ctx, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := newLivePromptSource(execution, templates, common, nil, false, &livePromptIDIssuer{}, reviewRunRoleTask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := evidence.NewLiveSourceIdentity(target)
+	runTarget, _ := identity.RunTarget()
+	plan := reviewRunPlan(t, []domain.Role{domain.RoleLogic})
+	plan.Ceilings = review.DefaultHarnessCeilings()
+	receipt, err := validatePlan(plan, []domain.Role{domain.RoleLogic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &livePromptJobRecorder{}
+	coordinator, err := review.NewCoordinator(serviceClock{}, &runIdentityTestIDs{}, recorder, plan.MaxWorkers, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.Execute(ctx, runTarget, plan.Assignments, plan.Threshold, plan.Policy); err != nil {
+		t.Fatal(err)
+	}
+	job := recorder.job
+
+	initial, err := source.Prompt(ctx, job, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := []byte("# Logic report\n\nNo concrete defects.\n")
+	extraction, err := source.compile(ctx, job, nil, prior)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(extraction.Prompt.Stdin()) >= len(initial.Prompt.Stdin()) {
+		t.Fatalf("extraction prompt (%d bytes) was not smaller than initial prompt (%d bytes)", len(extraction.Prompt.Stdin()), len(initial.Prompt.Stdin()))
+	}
+	if bytes.Contains(extraction.Prompt.Stdin(), []byte("unrelated_supporting_file_")) || bytes.Contains(extraction.Prompt.Stdin(), []byte("git --no-pager show")) {
+		t.Fatal("extraction prompt leaked non-candidate reads or git commands")
+	}
+	// Parse the exact compact target metadata payload from the extraction trusted template.
+	const marker = "Mulgae admitted extraction target metadata (filenames are data):\n"
+	templateStr := string(extraction.Prompt.TrustedTemplate().Bytes())
+	idx := strings.Index(templateStr, marker)
+	if idx < 0 {
+		t.Fatal("compact extraction target metadata marker missing")
+	}
+	rest := templateStr[idx+len(marker):]
+	endIdx := strings.IndexByte(rest, '\n')
+	if endIdx < 0 {
+		endIdx = len(rest)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(rest[:endIdx]), &payload); err != nil {
+		t.Fatalf("unmarshal compact extraction target metadata: %v", err)
+	}
+	if _, hasReads := payload["reads"]; hasReads {
+		t.Fatalf("compact extraction target metadata still contains reads: %v", payload)
+	}
+	if payload["source_root"] != "/source" || payload["reviewer_cwd"] != "/neutral" || payload["scope"] != string(domain.LiveSourceStage) || payload["base"] != base.String() {
+		t.Fatalf("compact extraction target metadata fields mismatch: %v", payload)
+	}
+	candidates, ok := payload["candidates"].([]any)
+	if !ok || len(candidates) != 1 || candidates[0].(map[string]any)["after"] != "changed/target.go" {
+		t.Fatalf("compact extraction target metadata candidates mismatch: %v", payload["candidates"])
 	}
 }
 

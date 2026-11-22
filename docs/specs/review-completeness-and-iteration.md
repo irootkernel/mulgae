@@ -171,11 +171,29 @@ For roles with assigned requirements, append the trusted requirements output
 contract after the initial, extraction or repair contracts. It selects full
 provider-output v3 JSON, including the requirements section, instead of the
 finding-only v1 form. A repair plan selecting a patch keeps its existing form
-and allowed paths. Primary Markdown reports assess the assigned original IDs;
-extraction transcribes only supported report claims and preserves their evidence
-and limitations. Unsupported answers remain omitted. Extraction's top-level
-coverage fields do not erase assessment-specific limitations. Roles without
-assigned requirements retain the ordinary v1 contract.
+and allowed paths. Primary Markdown reports assess the assigned original IDs
+and include exact verbatim target excerpts (source side, project-relative path,
+inclusive line range, and exact line bytes preserving tabs, CRLF, trailing
+whitespace, and each selected line's terminating LF when present) for every
+reported defect and every `met` or `partially_met` requirement. Structured
+extraction prompts carry compact target metadata (`review:live-extract-target`
+v1, omitting repository-wide `reads`) and instruct pure transcription from
+verbatim excerpts already in `prior_report` without re-reading workspace files
+or Git objects. When an assigned requirement whose claimed verdict requires
+source evidence (such as `met`, `partially_met`, or an evidence-backed `unmet`
+claim) lacks a verbatim excerpt, extraction emits `verdict: "unverified"`
+(`reason: "insufficient_evidence"`) or omits it so Mulgae derives `unverified`,
+while keeping valid sibling answers; an `unmet` absence claim supported by
+explicit `examined_scope` and `limitations` may still be transcribed with
+`evidence: []`.
+When any claimed defect lacks a verbatim excerpt in `--requirements` mode,
+extraction omits the top-level `findings` key while keeping `requirements`
+intact rather than emitting `findings: []` or prose-only refusal, so verified
+assessments survive while findings remain `reports_only`. Extraction's
+top-level coverage fields do not erase assessment-specific limitations. Roles
+without assigned requirements retain the ordinary v1 contract (and refuse
+findings transcription in plain text with no JSON object when any claimed
+defect lacks a verbatim excerpt).
 
 ### Extraction availability
 
@@ -200,21 +218,29 @@ unavailable allowance, omitted answers and invalid assessment content.
 ### Independent section outcomes
 
 Normalize exactly one result per selected requirement. An omitted answer becomes
-Mulgae-derived `unverified`, without an invented provider verdict. Duplicate,
-unknown or wrong-owner IDs invalidate that role's assessment section.
-Keep validation of assessments and ordinary findings independent: an ordinary
-failure in one section must not discard valid content in the other or the
-accepted primary report. Protected failures retain fail-closed precedence.
+Mulgae-derived `unverified`, without an invented provider verdict. A whole-array
+structural and ID pre-pass rejects that role's whole assessment section when any
+row is not a JSON object, lacks a string `requirement_id`, or contains a
+duplicate, unknown, foreign, or wrong-owner ID. Within a structurally valid
+section, ordinary per-item content, inner unknown-key, evidence-claim,
+quote-mismatch, self-prose, visual, or pure bounded citation faults isolate to
+the offending `requirement_id` (`invalid_assessment`) while preserving valid
+sibling answers and cleanly omitted IDs (`answer_omitted`). Findings validation
+remains strictly all-or-nothing. Keep validation of assessments and ordinary
+findings independent: an ordinary failure in one section must not discard valid
+content in the other or the accepted primary report. Protected failures retain
+fail-closed precedence.
 
 | Validated outcome | Required result |
 |---|---|
 | Findings and assessment sections are valid | Retain both. |
-| Findings are valid; assessment has an ordinary validation failure | Retain findings and the accepted primary report; normalize affected requirements to unverified with an explicit reason. |
-| Assessment is valid; findings have an ordinary validation failure | Retain the assessment and accepted primary report; preserve existing finding-availability semantics. |
-| A selected assessment is omitted | Supply a Mulgae-derived unverified row without inventing a provider verdict. |
-| Duplicate, unknown or wrong-owner requirement IDs occur | Reject the emitting role's assessment section without replacing another role's assessment. |
+| Findings are valid; one or more assessment rows fail ordinary per-item validation | Retain findings, valid sibling assessments, and the accepted primary report; normalize only the failed requirement IDs to `invalid_assessment` and omitted IDs to `answer_omitted`. |
+| Findings are valid; assessment section fails ordinary section-wide validation | Retain findings and the accepted primary report; normalize affected requirements to `invalid_assessment` (preserving any earlier valid or partial initial section across extraction). |
+| Assessment is valid; findings have an ordinary validation failure (including omitted top-level `findings` key) | Retain verified assessments and accepted primary report (or prior verified findings); preserve existing finding-availability semantics (`reports_only`) without persisting an incomplete structured findings candidate when `findings` was omitted. |
+| A selected assessment is omitted | Supply a Mulgae-derived unverified row (`answer_omitted`) without inventing a provider verdict. |
+| Non-object row or missing, duplicate, unknown, foreign, or wrong-owner requirement IDs occur | Reject the emitting role's whole assessment section before per-item verification without replacing another role's assessment. |
 | The entire structured response is syntactically invalid | Apply existing bounded handling and preserve an accepted primary report where permitted; claim no independently validated section from unparseable content. |
-| Security, integrity or another protected failure occurs | Preserve publication-denial precedence over otherwise valid sections. |
+| Security, integrity, real live-source drift, non-pure/joined source or validator failure, cancellation, or another protected failure occurs | Immediately abort fail-closed and preserve publication-denial precedence over otherwise valid sections or sibling rows. |
 
 Role execution coverage, finding extraction status and assessment availability
 remain separate. An assessment-only success does not turn unavailable findings
@@ -347,7 +373,7 @@ and one of these reasons:
 | `extraction_disabled` | No assessment section is available and optional extraction is disabled. |
 | `extraction_allowance_consumed` | No assessment section is available and retry/repair already consumed the shared additional invocation. |
 | `answer_omitted` | A valid section omits an assigned ID, or an eligible extraction finishes without its answer. |
-| `invalid_assessment` | The available assessment section fails ordinary validation. |
+| `invalid_assessment` | The available assessment section fails ordinary section-wide validation, or that requirement item fails ordinary per-item validation or pure bounded citation verification. |
 | `no_change_target` | Admission classified the selected original-source target as no-change. |
 
 A valid available section determines its own answers and omissions even when
@@ -396,23 +422,34 @@ historical publication.
 ### Section validation and invocation policy
 
 The provider assessment section belongs to its one scheduled role and provider.
-Duplicate, foreign and wrong-owner requirement IDs reject that role's whole
-assessment section; omitted IDs receive derived rows. Providers cannot set
-Mulgae-owned fields in the closed protected key sets for `requirements`,
-`assessment`, `evidence`, `current`, and `visual` (owner, origin, counts,
-input/source/excerpt digests, verification, publication, or execution identity;
-`visual.sha256` remains an allowed provider digest and `schema_version` is
-outside the protected set). Object key validation scans all keys before
-classifying so any protected key deterministically fails closed with
-`security_violation` (`provider_ownership_violation`) ahead of ordinary unknown
-keys, while ordinary unknown keys (and provider-cited absent, excluded,
-invalid, or unsupported paths) remain bounded section-scoped failures
-(`invalid_assessment`). A structural, unknown-key, or citation failure confined
-to one ordinary section does not discard a valid other section or its accepted
-primary role report. A syntactically invalid complete response supplies no
-independently validated section. A protected failure in either section (such as
-a Mulgae-owned key violation or real live-source drift on an admitted path)
-still denies publication.
+Providers cannot set Mulgae-owned fields in the closed protected key sets for
+`requirements`, `assessment`, `evidence`, `current`, and `visual` (owner,
+origin, counts, input/source/excerpt digests, verification, publication, or
+execution identity; `visual.sha256` remains an allowed provider digest and
+`schema_version` is outside the protected set). A complete tree pre-pass scans
+all keys before any outer envelope, structural, or per-item check so any
+protected key deterministically fails closed with `security_violation`
+(`provider_ownership_violation`) ahead of ordinary unknown keys or invalid
+rows. Outer envelope failures (invalid JSON, outer unknown key, wrong
+`schema_version`, missing or non-array `assessments`, or >100 rows) and a
+whole-array structural/ID pre-pass (non-object rows, missing or non-string
+`requirement_id`, or duplicate, foreign, or wrong-owner IDs) reject that role's
+whole assessment section before per-item verification. Within a structurally
+valid section, ordinary per-item content errors, inner unknown keys, evidence
+claim or quote mismatches, self-prose citations, unverified visuals, and pure
+bounded provider citation faults (`LiveSourceError` citation/invalid/unsupported
+errors whose wrapped chain contains no forbidden context, ownership, drift, or
+infrastructure node) isolate to only that `requirement_id`
+(`invalid_assessment`), preserving valid sibling requirements and cleanly
+omitted IDs (`answer_omitted`). Any non-pure or protected source failure or
+cancelled context aborts the entire section fail-closed immediately even after
+an earlier row was isolated. Findings validation remains strictly
+all-or-nothing. A structural, unknown-key, or citation failure confined to one
+ordinary section does not discard a valid other section or its accepted primary
+role report. A syntactically invalid complete response supplies no independently
+validated section. A protected failure in either section (such as a Mulgae-owned
+key violation or real live-source drift on an admitted path) still denies
+publication.
 
 The provider section is prose-bearing input. Its strict production decoder must
 preserve unbounded rationale and limitations without passing the complete body
@@ -436,41 +473,64 @@ The trusted requirements prompt leaves the source plan and provider policy intac
 
 Provider wire v2 carries `schema_version: mulgae-provider-review-output.v3`
 and an optional `requirements` section using `mulgae-provider-requirements.v1`.
-The strict whole-document parser separates that prose-bearing section before
-the existing bounded findings validator runs. Assessment decoding verifies
-selected-side evidence while the original source lease remains open. At the
-input path, a verifier-owned digest of the already-read cited file rejects the
-exact invocation prose as proof. Different index or committed implementation
-bytes at the same path remain eligible. This digest is an ephemeral file
-observation; it adds no source inventory, persisted fingerprint or extra read.
+The strict whole-document parser separates that prose-bearing section and
+records whether the top-level `findings` key was present before the existing
+bounded findings validator runs unconditionally on the findings projection.
+Assessment decoding verifies selected-side evidence while the original source
+lease remains open. At the input path, a verifier-owned digest of the
+already-read cited file rejects the exact invocation prose as proof. Different
+index or committed implementation bytes at the same path remain eligible. This
+digest is an ephemeral file observation; it adds no source inventory, persisted
+fingerprint or extra read.
 
-When both complete sections are accepted, the runtime retains a trusted
-`NormalizedRequirementsOutput` value for provider output v3. Its optional
-serialization composes the validated live findings component with verified
-assessment content without applying the generic envelope limit to the full
-body. Partial section results stay separate and never fabricate a complete
-findings envelope. Publication retains normalized item content instead of
-adding another provider-output artifact.
+When findings are accepted and the role's assessment section is present with no
+section-wide error and no unresolved per-item invalid IDs, the runtime retains a
+trusted `NormalizedRequirementsOutput` value for provider output v3 with answers
+projected in deterministic admitted input order (shared with
+`RequirementsResult`). Its optional serialization composes the validated live
+findings component with verified assessment content without applying the generic
+envelope limit to the full body. Partial section results stay separate and never
+fabricate a complete findings envelope. Publication retains normalized item
+content instead of adding another provider-output artifact.
 
-The coordinator may use its existing second invocation for an absent assessment
-section or an accepted reports-only result when extraction is enabled. A valid
-available section owns its omissions. Retry or malformed-document repair still
-consumes that same slot. The extraction prompt remains transcription-only, and
-ordinary peer failure retains accepted findings, assessments and the primary
-report independently while still emitting single-pass parse/validation
-diagnostics, updating invocation status states, cleaning up extraction/repair
-state, and capturing raw stdout/stderr streams (retaining the findings
-projection in `candidate.*.json` only when it fits within the 8 MiB structured
-member bound, omitting `candidate.*.json` when oversized, and always preserving
-the full unbounded response in `stdout.raw` and normalized
+The coordinator may use its existing second invocation when extraction is
+enabled for an accepted reports-only result or for an initial invocation whose
+assessment section is absent, section-invalid, or has per-item invalid IDs. A
+structurally valid initial section with zero invalid IDs owns its clean
+omissions and does not schedule extraction solely for omissions. Across
+`initial -> extract`, requirement state merges monotonically: a later
+structurally valid section inserts missing accepted answers, clears resolved IDs
+from invalid state, and may upgrade an earlier provider `unverified` answer to a
+decisive verdict (`met`, `partially_met`, or `unmet`), while never overwriting
+or downgrading an already-accepted decisive answer and never letting a later
+ordinary section-wide or per-item failure erase earlier accepted answers or flip
+clean omissions to `invalid_assessment`. Retry or malformed-document repair
+still consumes that same slot. The extraction prompt carries compact target
+metadata (`review:live-extract-target` v1 without repository-wide `reads`) and
+remains pure transcription from verbatim excerpts in `prior_report`. When a
+provider signals findings-only extraction refusal by omitting the top-level
+`findings` key, `ReviewValidator.Validate` still runs unconditionally so context
+cancellation, scope errors, and non-document-violation schema or infrastructure
+errors fail closed; an ordinary missing-`findings` document violation falls back
+with `nil` structured candidate capture (preserving complete `stdout.raw` and
+verified requirements while keeping the role `reports_only` or retaining prior
+verified findings). Ordinary peer failure retains accepted findings, assessments
+and the primary report independently while still emitting single-pass
+parse/validation diagnostics (emitting `validation_failed` and recording
+`invalid`/`repair_exhausted` on either section-wide or per-item failures),
+updating invocation status states, cleaning up extraction/repair state, and
+capturing raw stdout/stderr streams (retaining the findings projection in
+`candidate.*.json` only when `findings` was present and fits within the 8 MiB
+structured member bound, omitting `candidate.*.json` when absent or oversized,
+and always preserving the full unbounded response in `stdout.raw` and normalized
 `requirements/items/*.json`). Original free-form, parsed-invalid and
 exhausted-repair states remain distinct in attempt metadata. Trusted source and
 validator failures use the existing canonical failure selector, including every
 joined cause; internal, artifact, security and cancellation observations cannot
-become ordinary section success, while typed admission-based provider citation
-faults stay bounded instead of aborting the run. Bare cancellation/deadline
-leaves retain the selector's cancelled classification; an explicit typed timeout
-retains its own class.
+become ordinary section success, while typed admission-based pure provider
+citation faults stay bounded to the offending requirement instead of aborting
+the run. Bare cancellation/deadline leaves retain the selector's cancelled
+classification; an explicit typed timeout retains its own class.
 
 ### Publication and historical compatibility
 

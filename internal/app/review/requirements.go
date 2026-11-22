@@ -13,10 +13,103 @@ import (
 )
 
 type requirementSectionState struct {
-	present bool
-	invalid bool
-	answers []validation.ValidatedRequirementAnswer
-	spent   bool
+	present        bool
+	sectionInvalid bool
+	answers        map[string]validation.ValidatedRequirementAnswer
+	invalidIDs     map[string]bool
+	spent          bool
+}
+
+func cloneRequirementSectionState(state requirementSectionState) requirementSectionState {
+	cloned := requirementSectionState{
+		present:        state.present,
+		sectionInvalid: state.sectionInvalid,
+		spent:          state.spent,
+	}
+	if len(state.answers) > 0 {
+		cloned.answers = make(map[string]validation.ValidatedRequirementAnswer, len(state.answers))
+		for id, answer := range state.answers {
+			cloned.answers[id] = answer
+		}
+	}
+	if len(state.invalidIDs) > 0 {
+		cloned.invalidIDs = make(map[string]bool, len(state.invalidIDs))
+		for id, invalid := range state.invalidIDs {
+			if invalid {
+				cloned.invalidIDs[id] = true
+			}
+		}
+	}
+	return cloned
+}
+
+// orderedRequirementAnswers projects accepted requirement answers in admitted
+// input order so both normalized support and v3 composition stay deterministic.
+func orderedRequirementAnswers(
+	selected []domain.Requirement,
+	stateForRole func(domain.Role) requirementSectionState,
+	filterRole domain.Role,
+) []validation.ValidatedRequirementAnswer {
+	ordered := make([]validation.ValidatedRequirementAnswer, 0, len(selected))
+	for _, r := range selected {
+		if filterRole != "" && r.OwnerRole() != filterRole {
+			continue
+		}
+		if answer, ok := stateForRole(r.OwnerRole()).answers[r.ID()]; ok {
+			ordered = append(ordered, answer)
+		}
+	}
+	return ordered
+}
+
+// mergeRequirementSectionState applies the monotone initial -> extract merge
+// rule for one role's requirement section:
+//   - Section-wide ordinary failures mark sectionInvalid only when no section
+//     was previously present, preserving any earlier valid or partial section.
+//   - Structurally valid sections insert missing answers, may upgrade an
+//     earlier provider unverified answer to a decisive verdict without ever
+//     overwriting or downgrading a decisive answer, clear resolved IDs from
+//     invalidIDs, and mark newly invalid IDs only when not already accepted.
+func mergeRequirementSectionState(
+	state *requirementSectionState,
+	decoded validation.ProviderRequirementsDecodeResult,
+	sectionErr error,
+) {
+	if sectionErr != nil {
+		if !state.present {
+			state.present = true
+			state.sectionInvalid = true
+		}
+		return
+	}
+	state.present = true
+	state.sectionInvalid = false
+	if len(decoded.Answers) > 0 && state.answers == nil {
+		state.answers = make(map[string]validation.ValidatedRequirementAnswer, len(decoded.Answers))
+	}
+	for _, ans := range decoded.Answers {
+		id := ans.Assessment().RequirementID()
+		existing, exists := state.answers[id]
+		if !exists {
+			state.answers[id] = ans
+		} else if existing.Assessment().Verdict() == domain.RequirementUnverified && ans.Assessment().Verdict() != domain.RequirementUnverified {
+			state.answers[id] = ans
+		}
+		delete(state.invalidIDs, id)
+	}
+	if len(decoded.InvalidIDs) > 0 {
+		if state.invalidIDs == nil {
+			state.invalidIDs = make(map[string]bool, len(decoded.InvalidIDs))
+		}
+		for id, invalid := range decoded.InvalidIDs {
+			if !invalid {
+				continue
+			}
+			if _, exists := state.answers[id]; !exists {
+				state.invalidIDs[id] = true
+			}
+		}
+	}
 }
 
 // BindRequirements is internal run admission, before any invocation. It neither
@@ -59,26 +152,49 @@ func (runtime *ProviderInvocationRuntime) RequirementsResult(extraction bool) (v
 	if runtime.requirements == nil {
 		return validation.RequirementResults{}, fmt.Errorf("requirements runtime: not admitted")
 	}
-	var answers []validation.ValidatedRequirementAnswer
-	reasons := make(map[domain.Role]domain.AssessmentReason)
-	for _, r := range runtime.requirements.Requirements() {
+	selected := runtime.requirements.Requirements()
+	answers := orderedRequirementAnswers(selected, func(role domain.Role) requirementSectionState {
+		return runtime.requirementSections[role]
+	}, "")
+	reasons := make(map[string]domain.AssessmentReason, len(selected))
+	for _, r := range selected {
 		state := runtime.requirementSections[r.OwnerRole()]
-		reason := domain.AssessmentAnswerOmitted
-		if state.present {
-			if state.invalid {
-				reason = domain.AssessmentInvalidContent
-			}
-		} else if !extraction {
-			reason = domain.AssessmentExtractionDisabled
-		} else if state.spent {
-			reason = domain.AssessmentExtractionAllowanceSpent
+		if _, ok := state.answers[r.ID()]; ok {
+			continue
 		}
-		reasons[r.OwnerRole()] = reason
-	}
-	for _, state := range runtime.requirementSections {
-		answers = append(answers, state.answers...)
+		var reason domain.AssessmentReason
+		switch {
+		case state.invalidIDs[r.ID()] || state.sectionInvalid:
+			reason = domain.AssessmentInvalidContent
+		case state.present:
+			reason = domain.AssessmentAnswerOmitted
+		case !extraction:
+			reason = domain.AssessmentExtractionDisabled
+		case state.spent:
+			reason = domain.AssessmentExtractionAllowanceSpent
+		default:
+			reason = domain.AssessmentAnswerOmitted
+		}
+		reasons[r.ID()] = reason
 	}
 	return validation.NormalizeRequirements(*runtime.requirements, answers, reasons, runtime.liveIdentity.SHA256(), false)
+}
+
+type requirementsCommit struct {
+	onSuccess       func()
+	onPendingRepair func()
+}
+
+func (commit requirementsCommit) apply(outcome AttemptOutcome) {
+	if commit.onSuccess != nil && outcome.Succeeded() {
+		commit.onSuccess()
+		return
+	}
+	if commit.onPendingRepair != nil {
+		if cond, failed := outcome.Condition(); failed && cond == AttemptConditionInvalidProviderOutput {
+			commit.onPendingRepair()
+		}
+	}
 }
 
 func (runtime *ProviderInvocationRuntime) invokeRequirements(
@@ -88,6 +204,18 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 	transport ports.ProviderOutputTransport,
 	scope validation.ReviewValidationScope,
 ) (AttemptOutcome, domain.ParseState, domain.ValidationState) {
+	outcome, parseState, validationState, commit := runtime.invokeRequirementsDeferred(ctx, job, candidate, primary, stdout, stderr, transport, scope)
+	commit.apply(outcome)
+	return outcome, parseState, validationState
+}
+
+func (runtime *ProviderInvocationRuntime) invokeRequirementsDeferred(
+	ctx context.Context,
+	job InvocationJob,
+	candidate, primary, stdout, stderr []byte,
+	transport ports.ProviderOutputTransport,
+	scope validation.ReviewValidationScope,
+) (AttemptOutcome, domain.ParseState, domain.ValidationState, requirementsCommit) {
 	if job.Purpose() == domain.InvocationExtract {
 		defer func() {
 			runtime.mu.Lock()
@@ -109,7 +237,7 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 	}
 	invParseState, invValidationState := domain.ParseNotStarted, domain.ValidationNotStarted
 	runtime.mu.Lock()
-	state := runtime.requirementSections[job.Role()]
+	state := cloneRequirementSectionState(runtime.requirementSections[job.Role()])
 	prior, hasPrior := runtime.requirementOutputs[job.Role()]
 	runtime.mu.Unlock()
 
@@ -121,45 +249,79 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 		report = prior.ReportMarkdown()
 		transport = prior.OutputTransport()
 	}
-	finalizeAccepted := func(outcome AttemptOutcome, acceptedFindings *validation.ValidatedReview) (AttemptOutcome, domain.ParseState, domain.ValidationState) {
+	finalizeAccepted := func(outcome AttemptOutcome, acceptedFindings *validation.ValidatedReview) (AttemptOutcome, domain.ParseState, domain.ValidationState, requirementsCommit) {
 		output, ok := outcome.Output()
 		if !ok {
-			return outcome, invParseState, invValidationState
+			return outcome, invParseState, invValidationState, requirementsCommit{}
 		}
-		// A valid available section owns omissions. Only absence leaves extraction
-		// pending, and coordinator admission still controls whether it can run.
-		output.assessmentPending = runtime.ownsRequirements(job.Role()) && !state.present && job.Purpose() == domain.InvocationInitial
-		if job.Purpose() == domain.InvocationInitial {
-			runtime.mu.Lock()
-			runtime.pendingExtraction[job.AttemptID()] = InvocationExtractionInput{acceptedReport: output.ReportMarkdown(), reportTransport: transport}
-			runtime.mu.Unlock()
-		}
-		runtime.mu.Lock()
-		runtime.requirementOutputs[job.Role()] = output.clone()
+		// A structurally valid section with no invalid items owns its omissions.
+		// Absent, section-invalid, or partial-invalid initial sections remain
+		// eligible for the shared extraction slot under coordinator policy.
+		output.assessmentPending = runtime.ownsRequirements(job.Role()) && job.Purpose() == domain.InvocationInitial && (!state.present || state.sectionInvalid || len(state.invalidIDs) > 0)
+
+		var (
+			nextFindings  validation.ValidatedReview
+			storeFindings bool
+			hasFindings   bool
+			composed      validation.NormalizedRequirementsOutput
+			hasComposed   bool
+		)
 		if !output.ReportsOnly() {
 			if acceptedFindings != nil && !(job.Purpose() == domain.InvocationExtract && hasPrior && !prior.ReportsOnly()) {
-				runtime.requirementFindings[job.Role()] = *acceptedFindings
+				nextFindings = *acceptedFindings
+				storeFindings = true
+				hasFindings = true
+			} else {
+				runtime.mu.Lock()
+				nextFindings, hasFindings = runtime.requirementFindings[job.Role()]
+				runtime.mu.Unlock()
 			}
-			if state.present && !state.invalid {
-				composed, err := validation.ComposeRequirementsOutput(runtime.requirementFindings[job.Role()], state.answers, scope)
-				if err != nil {
-					runtime.mu.Unlock()
-					return runtimeCondition(job, AttemptConditionInternalInvariant), invParseState, invValidationState
+			if state.present && !state.sectionInvalid && len(state.invalidIDs) == 0 {
+				if !hasFindings {
+					return runtimeCondition(job, AttemptConditionInternalInvariant), invParseState, invValidationState, requirementsCommit{}
 				}
-				runtime.normalizedRequirements[job.Role()] = composed
+				roleAnswers := orderedRequirementAnswers(runtime.requirements.Requirements(), func(domain.Role) requirementSectionState {
+					return state
+				}, job.Role())
+				var err error
+				composed, err = validation.ComposeRequirementsOutput(nextFindings, roleAnswers, scope)
+				if err != nil {
+					return runtimeCondition(job, AttemptConditionInternalInvariant), invParseState, invValidationState, requirementsCommit{}
+				}
+				hasComposed = true
 			}
 		}
-		runtime.mu.Unlock()
+
 		result, err := NewAttemptOutcome(job, &output, nil)
 		if err != nil {
-			return runtimeCondition(job, AttemptConditionInternalInvariant), invParseState, invValidationState
+			return runtimeCondition(job, AttemptConditionInternalInvariant), invParseState, invValidationState, requirementsCommit{}
 		}
-		return result, invParseState, invValidationState
+
+		outputSnapshot := output.clone()
+		stateSnapshot := cloneRequirementSectionState(state)
+		commit := requirementsCommit{
+			onSuccess: func() {
+				runtime.mu.Lock()
+				if job.Purpose() == domain.InvocationInitial {
+					runtime.pendingExtraction[job.AttemptID()] = InvocationExtractionInput{acceptedReport: outputSnapshot.ReportMarkdown(), reportTransport: transport}
+				}
+				runtime.requirementSections[job.Role()] = stateSnapshot
+				runtime.requirementOutputs[job.Role()] = outputSnapshot
+				if storeFindings {
+					runtime.requirementFindings[job.Role()] = nextFindings
+				}
+				if hasComposed {
+					runtime.normalizedRequirements[job.Role()] = composed
+				}
+				runtime.mu.Unlock()
+			},
+		}
+		return result, invParseState, invValidationState, commit
 	}
-	fallbackReport := func(captureCandidate []byte, reportParse domain.ParseState, reportValidation domain.ValidationState) (AttemptOutcome, domain.ParseState, domain.ValidationState) {
+	fallbackReport := func(captureCandidate []byte, reportParse domain.ParseState, reportValidation domain.ValidationState) (AttemptOutcome, domain.ParseState, domain.ValidationState, requirementsCommit) {
 		if job.Purpose() == domain.InvocationExtract && hasPrior {
 			if err := runtime.capture(ctx, job, captureCandidate, stdout, stderr, false); err != nil {
-				return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+				return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 			}
 			// Ordinary peer failure retains both the accepted report and any already
 			// verified findings. Assessment state remains independent of that output.
@@ -171,13 +333,13 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 		outcome, accepted := runtime.acceptFreeFormReport(ctx, job, report, captureCandidate, stdout, stderr, reportParse, reportValidation, transport)
 		if !accepted {
 			if err := runtime.capture(ctx, job, captureCandidate, stdout, stderr, false); err != nil {
-				return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+				return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 			}
-			return runtimeCondition(job, AttemptConditionArtifactFailure), invParseState, invValidationState
+			return runtimeCondition(job, AttemptConditionArtifactFailure), invParseState, invValidationState, requirementsCommit{}
 		}
 		if !outcome.Succeeded() {
 			// acceptFreeFormReport already executed runtime.capture.
-			return outcome, invParseState, invValidationState
+			return outcome, invParseState, invValidationState, requirementsCommit{}
 		}
 		return finalizeAccepted(outcome, nil)
 	}
@@ -187,9 +349,6 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 	// Pure prose skips structured parsing and validation diagnostics entirely,
 	// retaining ParseNotStarted / ValidationNotStarted on this invocation.
 	if len(candidate) == 0 {
-		runtime.mu.Lock()
-		runtime.requirementSections[job.Role()] = state
-		runtime.mu.Unlock()
 		reportParse, reportValidation := domain.ParseNotStarted, domain.ValidationNotStarted
 		if repaired {
 			reportParse = repair.parseState
@@ -199,13 +358,13 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 	}
 
 	if err := runtime.emitInvocationDiagnostic(ctx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticOutputParseStarted, "", "", "", "", 0, false, "", 0); err != nil {
-		return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+		return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 	}
 	if err := runtime.emitInvocationDiagnostic(ctx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticValidationStarted, "", "", "", "", 0, false, "", 0); err != nil {
-		return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+		return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 	}
 
-	findings, section, present, parseErr := validation.SplitRequirementsResponse(candidate)
+	findings, section, present, findingsHasKey, parseErr := validation.SplitRequirementsResponse(candidate)
 	if parseErr != nil {
 		invParseState = diagnosticParseState(parseErr, candidate)
 		invValidationState = domain.ValidationInvalid
@@ -213,43 +372,44 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 			invValidationState = domain.ValidationRepairExhausted
 		}
 		if err := runtime.emitValidationDiagnostics(ctx, job, parseErr, repaired); err != nil {
-			return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+			return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 		}
 		// Retry/repair already owns the shared additional slot. An extraction launch
 		// itself is eligible transcription, not an unavailable-allowance condition.
 		if job.Purpose() == domain.InvocationInitial {
 			if plan := validation.RequirementsReformatPlan(candidate); plan != nil {
-				runtime.mu.Lock()
-				runtime.pending[job.AttemptID()] = InvocationRepairInput{
+				// Structured candidate artifacts are bounded at 8 MiB while
+				// requirements-bearing raw responses are unbounded in stdout.raw;
+				// malformed responses have no bounded findings projection.
+				if err := runtime.capture(ctx, job, nil, stdout, stderr, false); err != nil {
+					return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
+				}
+				pendingInput := InvocationRepairInput{
 					initial:         append([]byte(nil), candidate...),
 					primaryReport:   append([]byte(nil), primary...),
 					plan:            *plan,
 					parseState:      invParseState,
 					validationState: domain.ValidationInvalid,
 				}
-				runtime.mu.Unlock()
-				// Structured candidate artifacts are bounded at 8 MiB while
-				// requirements-bearing raw responses are unbounded in stdout.raw;
-				// malformed responses have no bounded findings projection.
-				if err := runtime.capture(ctx, job, nil, stdout, stderr, false); err != nil {
-					return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+				return runtimeCondition(job, AttemptConditionInvalidProviderOutput), invParseState, invValidationState, requirementsCommit{
+					onPendingRepair: func() {
+						runtime.mu.Lock()
+						runtime.pending[job.AttemptID()] = pendingInput
+						runtime.mu.Unlock()
+					},
 				}
-				return runtimeCondition(job, AttemptConditionInvalidProviderOutput), invParseState, invValidationState
 			}
 		}
 		if present && !state.present {
 			state.present = true
-			state.invalid = true
+			state.sectionInvalid = true
 		}
-		runtime.mu.Lock()
-		runtime.requirementSections[job.Role()] = state
-		runtime.mu.Unlock()
 		return fallbackReport(nil, invParseState, invValidationState)
 	}
 
 	invParseState = domain.ParseValid
 	if err := runtime.emitInvocationDiagnostic(ctx, job, domain.RuntimeDiagnosticInfo, domain.DiagnosticOutputParsed, "", string(domain.ParseValid), "", "", 0, false, "", 0); err != nil {
-		return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+		return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 	}
 
 	// Candidate artifacts (candidate.*.json) remain bounded structured
@@ -257,7 +417,7 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 	// the structured candidate member when findings exceeds that bound while
 	// preserving full unbounded output in stdout.raw and normalized
 	// requirements/items/*.json.
-	protectedReturn := func(condition AttemptCondition, cause domain.RuntimeDiagnosticCause, err error) (AttemptOutcome, domain.ParseState, domain.ValidationState) {
+	protectedReturn := func(condition AttemptCondition, cause domain.RuntimeDiagnosticCause, err error) (AttemptOutcome, domain.ParseState, domain.ValidationState, requirementsCommit) {
 		invValidationState = domain.ValidationInvalid
 		if repaired {
 			invValidationState = domain.ValidationRepairExhausted
@@ -271,45 +431,39 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 		reject := isSecurityRejectionCondition(condition)
 		if emitErr := runtime.emitRequirementsValidationTerminal(ctx, job, false, repaired, diagCause); emitErr != nil {
 			if persisted := runtimePersistenceOutcome(job, emitErr); persistenceOverridesCondition(condition, persisted) {
-				return persisted, invParseState, invValidationState
+				return persisted, invParseState, invValidationState, requirementsCommit{}
 			}
 		}
 		captureCandidate := boundedCandidate(findings)
-		if repaired {
+		if repaired || (!findingsHasKey && !reject) {
 			captureCandidate = nil
 		}
 		if captureErr := runtime.capture(ctx, job, captureCandidate, stdout, stderr, reject); captureErr != nil {
 			if persisted := runtimePersistenceOutcome(job, captureErr); persistenceOverridesCondition(condition, persisted) {
-				return persisted, invParseState, invValidationState
+				return persisted, invParseState, invValidationState, requirementsCommit{}
 			}
 		}
-		return runtimeConditionWithCause(job, condition, cause), invParseState, invValidationState
+		return runtimeConditionWithCause(job, condition, cause), invParseState, invValidationState, requirementsCommit{}
 	}
 
-	var reqErr error
+	var sectionErr error
+	var decoded validation.ProviderRequirementsDecodeResult
 	if present {
-		answers, err := validation.DecodeProviderRequirements(ctx, section, runtime.requirements.Requirements(), job.Role(), runtime.liveIdentity, runtime.verifier, runtime.liveVisuals, runtime.requirementsPath, runtime.requirements.SHA256())
-		reqErr = err
-		if condition, cause, protected := requirementsFailureCondition(ctx, err); protected {
-			return protectedReturn(condition, cause, err)
+		decoded, sectionErr = validation.DecodeProviderRequirements(ctx, section, runtime.requirements.Requirements(), job.Role(), runtime.liveIdentity, runtime.verifier, runtime.liveVisuals, runtime.requirementsPath, runtime.requirements.SHA256())
+		if condition, cause, protected := requirementsFailureCondition(ctx, sectionErr); protected {
+			return protectedReturn(condition, cause, sectionErr)
 		}
-		// A later failed section never erases a previously accepted valid section.
-		if !state.present || state.invalid {
-			state.present = true
-			state.invalid = err != nil
-			if err == nil {
-				state.answers = answers
-			}
-		}
+		mergeRequirementSectionState(&state, decoded, sectionErr)
 	}
-	runtime.mu.Lock()
-	runtime.requirementSections[job.Role()] = state
-	runtime.mu.Unlock()
+	reqDiagErr := sectionErr
+	if reqDiagErr == nil {
+		reqDiagErr = decoded.ItemErr
+	}
 
 	validated, _, findingsErr := runtime.validator.Validate(ctx, findings, scope)
 	if findingsErr == nil {
 		if err := runtime.emitDiscardedFieldDiagnostics(ctx, job, validated.DiscardedPaths()); err != nil {
-			return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+			return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 		}
 	}
 	if condition, cause, protected := requirementsFailureCondition(ctx, findingsErr); protected {
@@ -348,7 +502,7 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 			diagCause := outcome.diagnosticCause
 			if emitErr := runtime.emitRequirementsValidationTerminal(ctx, job, false, repaired, diagCause); emitErr != nil {
 				if persisted := runtimePersistenceOutcome(job, emitErr); persistenceOverridesCondition(condition, persisted) {
-					return persisted, invParseState, invValidationState
+					return persisted, invParseState, invValidationState, requirementsCommit{}
 				}
 			}
 			captureCandidate := boundedCandidate(findings)
@@ -357,46 +511,46 @@ func (runtime *ProviderInvocationRuntime) invokeRequirements(
 			}
 			if captureErr := runtime.capture(ctx, job, captureCandidate, stdout, stderr, reject); captureErr != nil {
 				if persisted := runtimePersistenceOutcome(job, captureErr); persistenceOverridesCondition(condition, persisted) {
-					return persisted, invParseState, invValidationState
+					return persisted, invParseState, invValidationState, requirementsCommit{}
 				}
 			}
-			return outcome, invParseState, invValidationState
+			return outcome, invParseState, invValidationState, requirementsCommit{}
 		}
 		var diagCause domain.RuntimeDiagnosticCause
 		if findingsErr != nil {
 			diagCause, _ = validation.RuntimeCause(findingsErr)
-		} else if reqErr != nil {
-			diagCause, _ = validation.RuntimeCause(reqErr)
+		} else if reqDiagErr != nil {
+			diagCause, _ = validation.RuntimeCause(reqDiagErr)
 		}
 		if err := runtime.emitRequirementsValidationTerminal(ctx, job, false, repaired, diagCause); err != nil {
-			return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+			return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 		}
 		captureCandidate := boundedCandidate(findings)
-		if repaired {
+		if repaired || !findingsHasKey {
 			captureCandidate = nil
 		}
 		return fallbackReport(captureCandidate, invParseState, reportValidation)
 	}
-	if reqErr == nil {
+	if reqDiagErr == nil {
 		invValidationState = domain.ValidationValid
 		if repaired {
 			invValidationState = domain.ValidationRepairedValid
 		}
 		if err := runtime.emitRequirementsValidationTerminal(ctx, job, true, repaired, ""); err != nil {
-			return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+			return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 		}
 	} else {
 		invValidationState = domain.ValidationInvalid
 		if repaired {
 			invValidationState = domain.ValidationRepairExhausted
 		}
-		diagCause, _ := validation.RuntimeCause(reqErr)
+		diagCause, _ := validation.RuntimeCause(reqDiagErr)
 		if err := runtime.emitRequirementsValidationTerminal(ctx, job, false, repaired, diagCause); err != nil {
-			return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+			return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 		}
 	}
 	if err := runtime.capture(ctx, job, boundedCandidate(findings), stdout, stderr, false); err != nil {
-		return runtimePersistenceOutcome(job, err), invParseState, invValidationState
+		return runtimePersistenceOutcome(job, err), invParseState, invValidationState, requirementsCommit{}
 	}
 	return finalizeAccepted(outcome, acceptedFindings)
 }
@@ -471,7 +625,8 @@ func selectRequirementsFailure(ctx context.Context, err error, sourceBoundary bo
 	if ctx != nil && ctx.Err() != nil {
 		observations = append(observations, ctx.Err())
 	}
-	if _, ok := validation.RequirementsSourceFailure(err); ok {
+	_, isReqSource := validation.RequirementsSourceFailure(err)
+	if isReqSource {
 		sourceBoundary = true
 	}
 	observe := func(class domain.FailureClass) {
@@ -528,6 +683,11 @@ func selectRequirementsFailure(ctx context.Context, err error, sourceBoundary bo
 			return AttemptConditionInternalInvariant, "", true
 		}
 		return "", "", false
+	}
+	if sourceBoundary && selected.Class == domain.FailureInvalidOutput {
+		if isReqSource || !validation.IsPureRequirementsCitationError(ctx, err) {
+			return AttemptConditionInternalInvariant, "", true
+		}
 	}
 	var condition AttemptCondition
 	var cause domain.RuntimeDiagnosticCause

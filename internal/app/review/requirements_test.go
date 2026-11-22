@@ -1086,3 +1086,1124 @@ func TestRequirementsRuntimeP5M3DiagnosticsAndCaptureAcrossPurposes(t *testing.T
 		}
 	})
 }
+
+func requirementsRuntimeOmittedFindingsResponse(rows ...map[string]any) []byte {
+	object := map[string]any{
+		"schema_version": validation.RequirementsProviderOutputVersion,
+		"summary":        "Transcribed verified requirements; findings omitted due to missing verbatim excerpt.",
+		"completeness":   "complete",
+		"limitations":    []string{},
+	}
+	if rows != nil {
+		object["requirements"] = map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": rows}
+	}
+	raw, _ := json.Marshal(object)
+	return raw
+}
+
+func TestRequirementsRuntimeOmittedFindingsExtractionSeam(t *testing.T) {
+	hasCandidateArtifact := func(capRec AttemptCapture) bool {
+		for _, a := range capRec.Artifacts() {
+			switch a.Kind() {
+			case ports.AttemptArtifactInitialCandidate, ports.AttemptArtifactExtractedCandidate, ports.AttemptArtifactRepairedCandidate, ports.AttemptArtifactRetryCandidate:
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("extract omitting findings retains verified requirements and keeps reports_only without false no_findings", func(t *testing.T) {
+		report := []byte("# Logic review\n\nHigh defect claimed in source.go without verbatim excerpt.\n")
+		extractResp := requirementsRuntimeOmittedFindingsResponse(requirementsRuntimeRow("A"))
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, report, extractResp)
+		first := runtime.Invoke(context.Background(), job)
+		if !first.Succeeded() {
+			t.Fatalf("initial prose failed: %+v", first)
+		}
+		extractJob, err := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second := runtime.Invoke(context.Background(), extractJob)
+		out, ok := second.Output()
+		if !second.Succeeded() || !ok || !out.ReportsOnly() || string(out.ReportMarkdown()) != string(report) {
+			t.Fatalf("omitted-findings extract did not stay reports_only with original report: %+v", second)
+		}
+		if len(runtime.pendingExtraction) != 0 || len(runtime.pending) != 0 {
+			t.Fatalf("omitted-findings extract leaked pending state: extract=%d repair=%d", len(runtime.pendingExtraction), len(runtime.pending))
+		}
+		capRec, captured := runtime.Capture(job.AttemptID(), 2)
+		if !captured || hasCandidateArtifact(capRec) {
+			t.Fatalf("omitted-findings extract unexpectedly created candidate artifact: captured=%t artifacts=%+v", captured, capRec.Artifacts())
+		}
+		if sink.rawPersistCalls != 2 || string(sink.streams[domain.DiagnosticStdout]) != string(extractResp) {
+			t.Fatalf("omitted-findings extract did not preserve complete stdout.raw (calls=%d)", sink.rawPersistCalls)
+		}
+		result, err := runtime.RequirementsResult(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected, evaluated, _ := result.Evaluation().Counts()
+		rows := result.Evaluation().Assessments()
+		if selected != 3 || evaluated != 1 || rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet || rows[1].Reason() != domain.AssessmentAnswerOmitted || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+			t.Fatalf("verified requirements lost on omitted-findings extract: %+v", result.Evaluation())
+		}
+		if _, hasNorm := runtime.NormalizedRequirementsOutput(job.Role()); hasNorm {
+			t.Fatal("reports_only role fabricated NormalizedRequirementsOutput")
+		}
+	})
+
+	t.Run("extract omitting findings after assessmentPending preserves prior verified findings and merges requirements", func(t *testing.T) {
+		finding := map[string]any{
+			"severity": "high", "title": "Initial defect", "description": "Verified in initial.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "observed\n"}}},
+			"recommendation": "Fix it.", "confidence": "high",
+		}
+		initial := requirementsRuntimeResponse([]any{finding})
+		extractResp := requirementsRuntimeOmittedFindingsResponse(requirementsRuntimeRow("B"), requirementsRuntimeRow("A"))
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+		first := runtime.Invoke(context.Background(), job)
+		prior, ok := first.Output()
+		if !first.Succeeded() || !ok || prior.ReportsOnly() || !prior.assessmentPending || len(prior.Findings()) != 1 {
+			t.Fatalf("initial findings with absent requirements unexpected: %+v", first)
+		}
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		second := runtime.Invoke(context.Background(), extractJob)
+		out, ok := second.Output()
+		if !second.Succeeded() || !ok || out.ReportsOnly() || out.assessmentPending || len(out.Findings()) != 1 {
+			t.Fatalf("omitted-findings extract lost prior verified findings: %+v", second)
+		}
+		capRec, captured := runtime.Capture(job.AttemptID(), 2)
+		if !captured || hasCandidateArtifact(capRec) {
+			t.Fatalf("omitted-findings extract created candidate artifact: captured=%t artifacts=%+v", captured, capRec.Artifacts())
+		}
+		normOut, hasNorm := runtime.NormalizedRequirementsOutput(job.Role())
+		if !hasNorm {
+			t.Fatal("expected NormalizedRequirementsOutput after resolving pending requirements with prior findings")
+		}
+		normBytes, err := normOut.Bytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Requirements struct {
+				Assessments []struct {
+					ID string `json:"requirement_id"`
+				} `json:"assessments"`
+			} `json:"requirements"`
+		}
+		if err := json.Unmarshal(normBytes, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if len(doc.Requirements.Assessments) != 2 || doc.Requirements.Assessments[0].ID != "A" || doc.Requirements.Assessments[1].ID != "B" {
+			t.Fatalf("NormalizedRequirementsOutput ordering not input-ordered: %+v", doc.Requirements.Assessments)
+		}
+	})
+
+	t.Run("initial omitting findings stays reports_only with nil candidate and preserves verified requirements", func(t *testing.T) {
+		initial := requirementsRuntimeOmittedFindingsResponse(requirementsRuntimeRow("A"))
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial)
+		first := runtime.Invoke(context.Background(), job)
+		out, ok := first.Output()
+		if !first.Succeeded() || !ok || !out.ReportsOnly() {
+			t.Fatalf("initial omitted-findings did not fall back to reports_only: %+v", first)
+		}
+		if len(runtime.pending) != 0 {
+			t.Fatalf("initial omitted-findings leaked repair plan: %d", len(runtime.pending))
+		}
+		capRec, captured := runtime.Capture(job.AttemptID(), 1)
+		if !captured || hasCandidateArtifact(capRec) {
+			t.Fatalf("initial omitted-findings created candidate artifact: captured=%t artifacts=%+v", captured, capRec.Artifacts())
+		}
+		if sink.rawPersistCalls != 1 {
+			t.Fatalf("initial omitted-findings rawPersistCalls = %d, want 1", sink.rawPersistCalls)
+		}
+		result, err := runtime.RequirementsResult(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, evaluated, _ := result.Evaluation().Counts(); evaluated != 1 {
+			t.Fatalf("initial omitted-findings lost verified requirement: %+v", result.Evaluation())
+		}
+	})
+
+	t.Run("omitted findings still runs validator unconditionally and fails closed on protected validator errors", func(t *testing.T) {
+		raw := requirementsRuntimeOmittedFindingsResponse(requirementsRuntimeRow("A"))
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		id, _ := ports.ParseAssetID(validation.ProviderReviewSchemaID)
+		runtime.validator, _ = validation.NewReviewValidator(requirementsFaultSchema{requirementsInfrastructureDiagnostic{}}, id)
+		outcome := runtime.Invoke(context.Background(), job)
+		cond, ok := outcome.Condition()
+		if outcome.Succeeded() || !ok || cond != AttemptConditionInternalInvariant {
+			t.Fatalf("protected validator error under omitted findings = cond:%q ok:%t, want internal_invariant", cond, ok)
+		}
+	})
+
+	t.Run("omitted findings fails closed when validator is misconfigured or scope is invalid", func(t *testing.T) {
+		raw := requirementsRuntimeOmittedFindingsResponse(requirementsRuntimeRow("A"))
+
+		// 1. Misconfigured ReviewValidator (&validation.ReviewValidator{}) via runtime.Invoke.
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		runtime.validator = &validation.ReviewValidator{}
+		outcome := runtime.Invoke(context.Background(), job)
+		cond, ok := outcome.Condition()
+		if outcome.Succeeded() || !ok || cond != AttemptConditionInternalInvariant {
+			t.Fatalf("misconfigured validator under omitted findings = cond:%q ok:%t, want internal_invariant", cond, ok)
+		}
+
+		// 2. Invalid scope.Role via invokeRequirements.
+		rtInvalidRole, jobRole, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		badRoleScope := validation.ReviewValidationScope{
+			LiveSource:       rtInvalidRole.liveIdentity,
+			Role:             domain.Role("invalid_role"),
+			ProviderInstance: jobRole.Route().ProviderInstance(),
+		}
+		outRole, _, _ := rtInvalidRole.invokeRequirements(context.Background(), jobRole, raw, raw, raw, nil, ports.ProviderOutputTransportStdout, badRoleScope)
+		cond, ok = outRole.Condition()
+		if outRole.Succeeded() || !ok || cond != AttemptConditionInternalInvariant {
+			t.Fatalf("invalid scope.Role under omitted findings = cond:%q ok:%t, want internal_invariant", cond, ok)
+		}
+
+		// 3. Unsupported scope.SourceBearing == true via invokeRequirements.
+		rtSourceBearing, jobSB, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		sourceBearingScope := validation.ReviewValidationScope{
+			LiveSource:       rtSourceBearing.liveIdentity,
+			Role:             jobSB.Role(),
+			ProviderInstance: jobSB.Route().ProviderInstance(),
+			SourceBearing:    true,
+		}
+		outSB, _, _ := rtSourceBearing.invokeRequirements(context.Background(), jobSB, raw, raw, raw, nil, ports.ProviderOutputTransportStdout, sourceBearingScope)
+		cond, ok = outSB.Condition()
+		if outSB.Succeeded() || !ok || cond != AttemptConditionInternalInvariant {
+			t.Fatalf("scope.SourceBearing under omitted findings = cond:%q ok:%t, want internal_invariant", cond, ok)
+		}
+
+		// 4. Nil verifier decode authority in DecodeProviderRequirements fails closed as protected InternalInvariant.
+		rtNilVerifier, jobNV, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		rtNilVerifier.verifier = nil
+		outNV := rtNilVerifier.Invoke(context.Background(), jobNV)
+		cond, ok = outNV.Condition()
+		if outNV.Succeeded() || !ok || cond != AttemptConditionInternalInvariant {
+			t.Fatalf("nil verifier decode authority = cond:%q ok:%t, want internal_invariant", cond, ok)
+		}
+	})
+}
+
+func TestRequirementsRuntimePerItemIsolationOptionAAndMonotoneMerge(t *testing.T) {
+	badRow := func(id string) map[string]any {
+		r := requirementsRuntimeRow(id)
+		r["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "mismatched\n"
+		return r
+	}
+	unverifiedRow := func(id string) map[string]any {
+		r := requirementsRuntimeRow(id)
+		r["verdict"] = "unverified"
+		r["reason"] = "insufficient_evidence"
+		r["evidence"] = []any{}
+		return r
+	}
+	verdictRow := func(id, verdict string) map[string]any {
+		r := requirementsRuntimeRow(id)
+		r["verdict"] = verdict
+		return r
+	}
+
+	t.Run("per-item isolation yields A=provider B=invalid_assessment C=answer_omitted, triggers Option A assessmentPending, and emits ValidationFailed", func(t *testing.T) {
+		initial := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"), badRow("B"))
+		runtime, job, _, sink := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial)
+		first := runtime.Invoke(context.Background(), job)
+		out, ok := first.Output()
+		if !first.Succeeded() || !ok || out.ReportsOnly() || !out.assessmentPending {
+			t.Fatalf("partial-invalid initial = succeeded:%t reportsOnly:%t assessmentPending:%t, want true/false/true", first.Succeeded(), out.ReportsOnly(), out.assessmentPending)
+		}
+		if _, hasNorm := runtime.NormalizedRequirementsOutput(job.Role()); hasNorm {
+			t.Fatal("partial-invalid initial falsely populated NormalizedRequirementsOutput")
+		}
+		var sawFailed, sawSucceeded bool
+		for _, ev := range sink.events {
+			if ev == domain.DiagnosticValidationFailed {
+				sawFailed = true
+			}
+			if ev == domain.DiagnosticValidationSucceeded {
+				sawSucceeded = true
+			}
+		}
+		if !sawFailed || sawSucceeded {
+			t.Fatalf("partial-invalid diagnostics = failed:%t succeeded:%t, want true/false (events=%v)", sawFailed, sawSucceeded, sink.events)
+		}
+		if _, p, v := sink.statuses[0].States(); p != domain.ParseValid || v != domain.ValidationInvalid {
+			t.Fatalf("partial-invalid status = %s/%s, want valid/invalid", p, v)
+		}
+		result, err := runtime.RequirementsResult(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := result.Evaluation().Assessments()
+		if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet {
+			t.Fatalf("row A = %+v, want provider/met", rows[0])
+		}
+		if rows[1].Origin() != domain.AssessmentDerived || rows[1].Reason() != domain.AssessmentInvalidContent {
+			t.Fatalf("row B = %+v, want derived/invalid_assessment", rows[1])
+		}
+		if rows[2].Origin() != domain.AssessmentDerived || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+			t.Fatalf("row C = %+v, want derived/answer_omitted", rows[2])
+		}
+	})
+
+	t.Run("valid initial with clean omissions keeps assessmentPending=false (1-call preservation)", func(t *testing.T) {
+		initial := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"))
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial)
+		first := runtime.Invoke(context.Background(), job)
+		out, ok := first.Output()
+		if !first.Succeeded() || !ok || out.assessmentPending {
+			t.Fatalf("clean omissions set assessmentPending=%t, want false", out.assessmentPending)
+		}
+		if _, hasNorm := runtime.NormalizedRequirementsOutput(job.Role()); !hasNorm {
+			t.Fatal("clean omissions did not populate NormalizedRequirementsOutput")
+		}
+	})
+
+	t.Run("section-invalid initial sets assessmentPending=true and extract can recover", func(t *testing.T) {
+		initial := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"), requirementsRuntimeRow("A"))
+		extractResp := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"), badRow("B"))
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+		first := runtime.Invoke(context.Background(), job)
+		out, ok := first.Output()
+		if !first.Succeeded() || !ok || !out.assessmentPending {
+			t.Fatalf("section-invalid initial assessmentPending=%t, want true", out.assessmentPending)
+		}
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		second := runtime.Invoke(context.Background(), extractJob)
+		if !second.Succeeded() {
+			t.Fatalf("extract recovery failed: %+v", second)
+		}
+		result, err := runtime.RequirementsResult(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := result.Evaluation().Assessments()
+		if rows[0].Origin() != domain.AssessmentProvider || rows[1].Reason() != domain.AssessmentInvalidContent || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+			t.Fatalf("recovered rows = %+v", rows)
+		}
+	})
+
+	t.Run("monotone merge preserves decisive rows, upgrades provider unverified, clears resolved invalidIDs, and keeps deterministic input order", func(t *testing.T) {
+		// Initial: C=met (decisive), A=unverified (provider), B=invalid.
+		initial := requirementsRuntimeResponse([]any{}, verdictRow("C", "met"), unverifiedRow("A"), badRow("B"))
+		// Extract: tries to downgrade C to unverified, upgrades A to partially_met, fixes B to unmet.
+		extractResp := requirementsRuntimeResponse([]any{}, unverifiedRow("C"), verdictRow("B", "unmet"), verdictRow("A", "partially_met"))
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+		first := runtime.Invoke(context.Background(), job)
+		out, _ := first.Output()
+		if !first.Succeeded() || !out.assessmentPending {
+			t.Fatalf("initial partial failed or missed assessmentPending: %+v", first)
+		}
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		second := runtime.Invoke(context.Background(), extractJob)
+		if !second.Succeeded() {
+			t.Fatalf("extract merge failed: %+v", second)
+		}
+		result, err := runtime.RequirementsResult(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := result.Evaluation().Assessments()
+		if rows[0].Verdict() != domain.RequirementPartiallyMet || rows[1].Verdict() != domain.RequirementUnmet || rows[2].Verdict() != domain.RequirementMet {
+			t.Fatalf("monotone verdicts wrong: A=%s B=%s C=%s", rows[0].Verdict(), rows[1].Verdict(), rows[2].Verdict())
+		}
+		normOut, ok := runtime.NormalizedRequirementsOutput(job.Role())
+		if !ok {
+			t.Fatal("expected NormalizedRequirementsOutput after all invalidIDs resolved")
+		}
+		normBytes, err := normOut.Bytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Requirements struct {
+				Assessments []struct {
+					ID      string `json:"requirement_id"`
+					Verdict string `json:"verdict"`
+				} `json:"assessments"`
+			} `json:"requirements"`
+		}
+		if err := json.Unmarshal(normBytes, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if len(doc.Requirements.Assessments) != 3 ||
+			doc.Requirements.Assessments[0].ID != "A" || doc.Requirements.Assessments[0].Verdict != "partially_met" ||
+			doc.Requirements.Assessments[1].ID != "B" || doc.Requirements.Assessments[1].Verdict != "unmet" ||
+			doc.Requirements.Assessments[2].ID != "C" || doc.Requirements.Assessments[2].Verdict != "met" {
+			t.Fatalf("NormalizedRequirementsOutput order/verdicts wrong: %+v", doc.Requirements.Assessments)
+		}
+	})
+
+	t.Run("monotone merge never overwrites decisive row with different decisive verdict or invalid row", func(t *testing.T) {
+		initial := requirementsRuntimeResponse([]any{}, verdictRow("A", "met"), verdictRow("C", "partially_met"), badRow("B"))
+		extractResp := requirementsRuntimeResponse([]any{}, badRow("A"), verdictRow("C", "unmet"), verdictRow("B", "partially_met"))
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+		if !runtime.Invoke(context.Background(), job).Succeeded() {
+			t.Fatal("initial failed")
+		}
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		if !runtime.Invoke(context.Background(), extractJob).Succeeded() {
+			t.Fatal("extract failed")
+		}
+		result, err := runtime.RequirementsResult(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := result.Evaluation().Assessments()
+		if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet ||
+			rows[1].Origin() != domain.AssessmentProvider || rows[1].Verdict() != domain.RequirementPartiallyMet ||
+			rows[2].Origin() != domain.AssessmentProvider || rows[2].Verdict() != domain.RequirementPartiallyMet {
+			t.Fatalf("extract overwrote prior decisive rows (want A=met, B=partially_met, C=partially_met): %+v", rows)
+		}
+	})
+
+	t.Run("initial partial valid survives extract section-wide failure, wrong version, malformed JSON, and absent section untouched", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			extract []byte
+		}{
+			{"section-wide duplicate IDs", requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"), requirementsRuntimeRow("A"))},
+			{"wrong schema_version with requirements", []byte(`{"schema_version":"mulgae-provider-review-output.v1","requirements":{"schema_version":"mulgae-provider-requirements.v1","assessments":[]}}`)},
+			{"malformed JSON", []byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`)},
+			{"absent requirements section", requirementsRuntimeResponse([]any{})},
+			{"pure prose refusal", []byte("Cannot transcribe findings without verbatim excerpts.")},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				initial := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"), badRow("B"))
+				runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, tc.extract)
+				if !runtime.Invoke(context.Background(), job).Succeeded() {
+					t.Fatal("initial failed")
+				}
+				extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+				if !runtime.Invoke(context.Background(), extractJob).Succeeded() {
+					t.Fatalf("extract fallback failed: %s", tc.name)
+				}
+				result, err := runtime.RequirementsResult(true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rows := result.Evaluation().Assessments()
+				if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet {
+					t.Fatalf("%s erased accepted row A: %+v", tc.name, rows[0])
+				}
+				if rows[1].Origin() != domain.AssessmentDerived || rows[1].Reason() != domain.AssessmentInvalidContent {
+					t.Fatalf("%s changed invalid row B: %+v", tc.name, rows[1])
+				}
+				if rows[2].Origin() != domain.AssessmentDerived || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+					t.Fatalf("%s flipped clean omission C to %q", tc.name, rows[2].Reason())
+				}
+			})
+		}
+	})
+
+	t.Run("initial section-invalid stays section-invalid when extract omits requirements", func(t *testing.T) {
+		initial := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"), requirementsRuntimeRow("A"))
+		extractResp := requirementsRuntimeResponse([]any{})
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+		if !runtime.Invoke(context.Background(), job).Succeeded() {
+			t.Fatal("initial failed")
+		}
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		if !runtime.Invoke(context.Background(), extractJob).Succeeded() {
+			t.Fatal("extract failed")
+		}
+		result, err := runtime.RequirementsResult(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, row := range result.Evaluation().Assessments() {
+			if row.Reason() != domain.AssessmentInvalidContent {
+				t.Fatalf("row %d reason = %q, want invalid_assessment", i, row.Reason())
+			}
+		}
+	})
+}
+
+func nonRequirementsLiveFixture(t *testing.T, responses ...[]byte) (*ProviderInvocationRuntime, InvocationJob, *recordingObservedProvider) {
+	t.Helper()
+	selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceWorkspace, "")
+	path, _ := ports.NewSafeRelativePath("source.go")
+	target, _ := ports.NewLiveSourceTarget(selector, ports.GitObjectID{}, ports.GitObjectID{}, false, []ports.LiveSourceChange{{Kind: "included", After: path}})
+	root, _ := ports.NewAnchoredRoot("/source")
+	neutral, _ := ports.NewAnchoredRoot("/neutral")
+	credential, _ := ports.NewAnchoredRoot("/credentials")
+	reader := &runtimeLiveReader{coordinatorLiveReader: coordinatorLiveReader{target}, binding: ports.ProjectBindingObservation{Root: root, RootIdentity: ports.ProjectDirectoryIdentity{Device: 1, Inode: 2}}}
+	execution, err := ports.NewLiveReviewExecution(context.Background(), reader, runtimeLiveHome{root: neutral}, []ports.AnchoredRoot{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := evidence.NewLiveSourceIdentity(target)
+	_, job, material := providerRuntimeExplicitFixture(t, nil)
+	job.target, _ = identity.RunTarget()
+	compiler, _ := prompt.NewCompiler(material.Prompt.TrustedTemplate(), explicitRuntimeTestIssuer{source: material.Prompt.Scope().SourceInvocationID(), execution: material.Prompt.Scope().ExecutionInvocationID()})
+	material.Target = identity.Bytes()
+	material.Prompt, err = compiler.Compile(prompt.CompileInput{Scope: material.Prompt.Scope().FrameScope().Coordinates(), ReviewTarget: prompt.NewPayload(material.Target)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &recordingObservedProvider{t: t}
+	for _, raw := range responses {
+		provider.responses = append(provider.responses, providerRuntimeObservation{stdout: raw})
+	}
+	runtime, err := NewObservedProviderInvocationRuntimeInLiveSource(provider, requirementsTestPrompts{explicitRuntimePromptSource{material}}, execution, newReviewValidator(t), providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: &providerRuntimeRawSink{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtime, job, provider
+}
+
+func TestNonRequirementsExtractionPlainTextRefusalPreservesReportsOnlyAndAllOrNothingFindings(t *testing.T) {
+	t.Run("plain-text refusal keeps reports_only without fabricating no_findings", func(t *testing.T) {
+		report := []byte("# Logic review\n\nHigh-severity defect in source.go without verbatim target excerpt.\n")
+		refusal := []byte("Refusing structured transcription: claimed defect lacks an exact verbatim target excerpt in the accepted report.")
+		runtime, job, provider := nonRequirementsLiveFixture(t, report, refusal)
+		first := runtime.Invoke(context.Background(), job)
+		prior, ok := first.Output()
+		if !first.Succeeded() || !ok || !prior.ReportsOnly() {
+			t.Fatalf("initial report failed: %+v", first)
+		}
+		extractJob, err := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Runtime rejects plain-text refusal with AttemptConditionInvalidProviderOutput,
+		// leaving the coordinator's accepted reports_only output intact rather than
+		// fabricating findings:[].
+		second := runtime.Invoke(context.Background(), extractJob)
+		cond, hasCond := second.Condition()
+		if second.Succeeded() || !hasCond || cond != AttemptConditionInvalidProviderOutput {
+			t.Fatalf("plain-text refusal outcome = succeeded:%t cond:%q, want false/invalid_provider_output", second.Succeeded(), cond)
+		}
+		if len(provider.invocations) != 2 || len(runtime.pending) != 0 || len(runtime.pendingExtraction) != 0 {
+			t.Fatalf("plain-text refusal left unexpected state: invocations=%d pending=%d pendingExtraction=%d", len(provider.invocations), len(runtime.pending), len(runtime.pendingExtraction))
+		}
+	})
+
+	t.Run("coordinator absorbs non-requirements plain-text refusal as reports_only rather than no_findings", func(t *testing.T) {
+		report := []byte("# Logic review\n\nHigh-severity defect in source.go without verbatim target excerpt.\n")
+		refusal := []byte("Refusing structured transcription: claimed defect lacks an exact verbatim target excerpt.")
+		runtime, job, provider := nonRequirementsLiveFixture(t, report, refusal)
+		assignments, receipt := coordinatorTestPlan(t)
+		runtime.source = requirementsTestDynamicPrompts{material: runtime.source.(requirementsTestPrompts).material}
+		runtime.diagnostics = anyRunDiagnosticResolver{sink: &providerRuntimeRawSink{}}
+		coordinator := coordinatorTestCoordinator(t, &coordinatorTestRuntime{invoke: func(ctx context.Context, cJob InvocationJob) AttemptOutcome {
+			if cJob.Role() != domain.RoleLogic {
+				return coordinatorSuccessOutcome(t, cJob)
+			}
+			return runtime.Invoke(ctx, cJob)
+		}}, len(assignments), receipt)
+		if err := coordinator.AdmitStructuredExtraction(); err != nil {
+			t.Fatal(err)
+		}
+		res, err := coordinator.Execute(context.Background(), job.Target(), assignments, domain.SeverityHigh, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		summary := coordinatorRoleSummary(t, res, domain.RoleLogic)
+		if summary.State() != domain.RoleTaskSucceeded || !summary.ReportsOnly() {
+			t.Fatalf("coordinator plain-text refusal summary = state:%s reportsOnly:%t, want succeeded/true", summary.State(), summary.ReportsOnly())
+		}
+		if res.OutcomeAxes().ContentVerdict() != domain.ContentReportsOnly {
+			t.Fatalf("coordinator plain-text refusal content verdict = %q, want %q (not no_findings)", res.OutcomeAxes().ContentVerdict(), domain.ContentReportsOnly)
+		}
+		if len(provider.invocations) != 2 {
+			t.Fatalf("expected 2 invocations (initial + extract), got %d", len(provider.invocations))
+		}
+	})
+
+	t.Run("findings extraction remains strictly all-or-nothing when one finding has mismatched quote", func(t *testing.T) {
+		report := []byte("# Logic review\n\nTwo defects in source.go.\n")
+		goodFinding := map[string]any{
+			"severity": "high", "title": "Good finding", "description": "Valid quote.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "observed\n"}}},
+			"recommendation": "Fix good.", "confidence": "high",
+		}
+		badFinding := map[string]any{
+			"severity": "high", "title": "Bad finding", "description": "Mismatched quote.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "wrong\n"}}},
+			"recommendation": "Fix bad.", "confidence": "high",
+		}
+		extractJSON, _ := json.Marshal(map[string]any{
+			"schema_version": "mulgae-provider-review-output.v1",
+			"summary":        "Two findings.",
+			"completeness":   "complete",
+			"limitations":    []string{},
+			"findings":       []any{goodFinding, badFinding},
+		})
+		runtime, job, _ := nonRequirementsLiveFixture(t, report, extractJSON)
+		if !runtime.Invoke(context.Background(), job).Succeeded() {
+			t.Fatal("initial report failed")
+		}
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		second := runtime.Invoke(context.Background(), extractJob)
+		cond, hasCond := second.Condition()
+		if second.Succeeded() || !hasCond || cond != AttemptConditionUnrepairableEvidence {
+			t.Fatalf("partial-bad findings extraction = succeeded:%t cond:%q, want false/unrepairable_evidence (all-or-nothing)", second.Succeeded(), cond)
+		}
+	})
+}
+
+type anyRunDiagnosticResolver struct {
+	sink ports.RuntimeDiagnosticSink
+}
+
+func (resolver anyRunDiagnosticResolver) RuntimeDiagnosticSink(domain.RunID) (ports.RuntimeDiagnosticSink, bool) {
+	return resolver.sink, resolver.sink != nil
+}
+
+type requirementsTestDynamicPrompts struct {
+	material RuntimePrompt
+}
+
+func (s requirementsTestDynamicPrompts) Prompt(_ context.Context, job InvocationJob, _ *InvocationRepairInput) (RuntimePrompt, error) {
+	return s.compileForJob(job)
+}
+
+func (s requirementsTestDynamicPrompts) ExtractionPrompt(_ context.Context, job InvocationJob, _ InvocationExtractionInput) (RuntimePrompt, error) {
+	return s.compileForJob(job)
+}
+
+func (s requirementsTestDynamicPrompts) compileForJob(job InvocationJob) (RuntimePrompt, error) {
+	roleTask, err := prompt.ParseRoleTaskID("rt_019f5a09-5eec-7001-8001-000000000001")
+	if err != nil {
+		return RuntimePrompt{}, err
+	}
+	coords, err := prompt.NewScopeCoordinates(job.SessionID(), job.RunID(), roleTask, job.AttemptID())
+	if err != nil {
+		return RuntimePrompt{}, err
+	}
+	compiler, err := prompt.NewCompiler(s.material.Prompt.TrustedTemplate(), explicitRuntimeTestIssuer{
+		source:    s.material.Prompt.Scope().SourceInvocationID(),
+		execution: s.material.Prompt.Scope().ExecutionInvocationID(),
+	})
+	if err != nil {
+		return RuntimePrompt{}, err
+	}
+	compiled, err := compiler.Compile(prompt.CompileInput{
+		Scope:        coords,
+		ReviewTarget: prompt.NewPayload(s.material.Target),
+	})
+	if err != nil {
+		return RuntimePrompt{}, err
+	}
+	out := s.material
+	out.Prompt = compiled
+	return out, nil
+}
+
+type requirementsPathFuncReader struct {
+	ports.LiveSourceReader
+	onRead func(ctx context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error)
+}
+
+func (r requirementsPathFuncReader) Read(ctx context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+	return r.onRead(ctx, side, path)
+}
+
+func TestRequirementsRuntimeJoinedCitationAndOpaqueFailsClosed(t *testing.T) {
+	citationErr := ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, errors.New("absent cited path"))
+	joinedOpaque := errors.Join(citationErr, errors.New("opaque reader failure"))
+
+	t.Run("initial requirements verification aborts with InternalInvariant on joined citation+opaque after earlier row isolation", func(t *testing.T) {
+		rowA := requirementsRuntimeRow("A")
+		rowA["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["path"] = "missing.go"
+		rowB := requirementsRuntimeRow("B")
+		rowB["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["path"] = "broken.go"
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, requirementsRuntimeResponse([]any{}, rowA, rowB))
+		runtime.verifier, _ = evidence.NewLiveVerifier(requirementsPathFuncReader{
+			LiveSourceReader: runtime.liveExecution.SourceReader(),
+			onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+				if path.String() == "missing.go" {
+					return ports.LiveSourceFile{}, citationErr
+				}
+				return ports.LiveSourceFile{}, joinedOpaque
+			},
+		})
+		outcome := runtime.Invoke(context.Background(), job)
+		cond, ok := outcome.Condition()
+		if outcome.Succeeded() || !ok || cond != AttemptConditionInternalInvariant {
+			t.Fatalf("initial joined citation+opaque = succeeded:%t cond:%q, want false/internal_invariant", outcome.Succeeded(), cond)
+		}
+		res, err := runtime.RequirementsResult(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, evaluated, _ := res.Evaluation().Counts(); evaluated != 0 {
+			t.Fatalf("failed initial leaked evaluated requirements: %+v", res.Evaluation())
+		}
+	})
+
+	t.Run("extract requirements verification aborts with InternalInvariant on joined citation+opaque while preserving initial section", func(t *testing.T) {
+		badB := requirementsRuntimeRow("B")
+		badB["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "wrong\n"
+		initial := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"), badB)
+		extractRowB := requirementsRuntimeRow("B")
+		extractRowB["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["path"] = "broken.go"
+		extractResp := requirementsRuntimeResponse([]any{}, extractRowB)
+
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+		if !runtime.Invoke(context.Background(), job).Succeeded() {
+			t.Fatal("initial partial failed")
+		}
+		runtime.verifier, _ = evidence.NewLiveVerifier(requirementsPathFuncReader{
+			LiveSourceReader: runtime.liveExecution.SourceReader(),
+			onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+				if path.String() == "broken.go" {
+					return ports.LiveSourceFile{}, joinedOpaque
+				}
+				return ports.NewLiveSourceFile(path, []byte("observed\n"), "text/plain")
+			},
+		})
+		extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+		second := runtime.Invoke(context.Background(), extractJob)
+		cond, ok := second.Condition()
+		if second.Succeeded() || !ok || cond != AttemptConditionInternalInvariant {
+			t.Fatalf("extract joined citation+opaque = succeeded:%t cond:%q, want false/internal_invariant", second.Succeeded(), cond)
+		}
+		res, err := runtime.RequirementsResult(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := res.Evaluation().Assessments()
+		if rows[0].Origin() != domain.AssessmentProvider || rows[1].Reason() != domain.AssessmentInvalidContent || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+			t.Fatalf("failed extract corrupted prior requirement section: %+v", rows)
+		}
+	})
+
+	t.Run("requirements-mode findings verification aborts with InternalInvariant on joined citation+opaque", func(t *testing.T) {
+		finding := map[string]any{
+			"severity": "high", "title": "Finding", "description": "References broken.go.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "broken.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "observed\n"}}},
+			"recommendation": "Fix it.", "confidence": "high",
+		}
+		raw := requirementsRuntimeResponse([]any{finding}, requirementsRuntimeRow("A"))
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		runtime.verifier, _ = evidence.NewLiveVerifier(requirementsPathFuncReader{
+			LiveSourceReader: runtime.liveExecution.SourceReader(),
+			onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+				if path.String() == "broken.go" {
+					return ports.LiveSourceFile{}, joinedOpaque
+				}
+				return ports.NewLiveSourceFile(path, []byte("observed\n"), "text/plain")
+			},
+		})
+		outcome := runtime.Invoke(context.Background(), job)
+		cond, ok := outcome.Condition()
+		if outcome.Succeeded() || !ok || cond != AttemptConditionInternalInvariant {
+			t.Fatalf("findings joined citation+opaque = succeeded:%t cond:%q, want false/internal_invariant", outcome.Succeeded(), cond)
+		}
+		// Transactional commit: requirement A from the failed invocation must NOT leak.
+		res, err := runtime.RequirementsResult(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, evaluated, _ := res.Evaluation().Counts(); evaluated != 0 {
+			t.Fatalf("failed findings verification leaked requirement A: %+v", res.Evaluation())
+		}
+	})
+}
+
+func TestRequirementsRuntimeTransactionalCommitPreservesPreInvocationStateOnFailure(t *testing.T) {
+	timeoutFailure, err := domain.NewFailure("source.fixture", domain.FailureTimeout, "source verification timed out", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findingOnFaultPath := map[string]any{
+		"severity": "high", "title": "Faulting finding", "description": "Triggers fault on finding verify.",
+		"evidence":       []any{map[string]any{"current": map[string]any{"path": "fault.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "observed\n"}}},
+		"recommendation": "Fix it.", "confidence": "high",
+	}
+	badRowB := requirementsRuntimeRow("B")
+	badRowB["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "wrong\n"
+
+	failureModes := []struct {
+		name     string
+		setup    func(t *testing.T, rt *ProviderInvocationRuntime)
+		wantCond AttemptCondition
+		withFind bool
+	}{
+		{
+			name: "LiveSourceUnsafe during findings verification",
+			setup: func(_ *testing.T, rt *ProviderInvocationRuntime) {
+				rt.verifier, _ = evidence.NewLiveVerifier(requirementsPathFuncReader{
+					LiveSourceReader: rt.liveExecution.SourceReader(),
+					onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+						if path.String() == "fault.go" {
+							return ports.LiveSourceFile{}, ports.NewLiveSourceError(ports.LiveSourceUnsafe, errors.New("drift"))
+						}
+						return ports.NewLiveSourceFile(path, []byte("observed\n"), "text/plain")
+					},
+				})
+			},
+			wantCond: AttemptConditionSecurityViolation,
+			withFind: true,
+		},
+		{
+			name: "requirementsInfrastructureDiagnostic during findings validation",
+			setup: func(_ *testing.T, rt *ProviderInvocationRuntime) {
+				id, _ := ports.ParseAssetID(validation.ProviderReviewSchemaID)
+				rt.validator, _ = validation.NewReviewValidator(requirementsFaultSchema{requirementsInfrastructureDiagnostic{}}, id)
+			},
+			wantCond: AttemptConditionInternalInvariant,
+			withFind: false,
+		},
+		{
+			name: "context.Canceled during findings verification",
+			setup: func(_ *testing.T, rt *ProviderInvocationRuntime) {
+				rt.verifier, _ = evidence.NewLiveVerifier(requirementsPathFuncReader{
+					LiveSourceReader: rt.liveExecution.SourceReader(),
+					onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+						if path.String() == "fault.go" {
+							return ports.LiveSourceFile{}, context.Canceled
+						}
+						return ports.NewLiveSourceFile(path, []byte("observed\n"), "text/plain")
+					},
+				})
+			},
+			wantCond: AttemptConditionCancelled,
+			withFind: true,
+		},
+		{
+			name: "typed domain.FailureTimeout during findings verification",
+			setup: func(_ *testing.T, rt *ProviderInvocationRuntime) {
+				rt.verifier, _ = evidence.NewLiveVerifier(requirementsPathFuncReader{
+					LiveSourceReader: rt.liveExecution.SourceReader(),
+					onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+						if path.String() == "fault.go" {
+							return ports.LiveSourceFile{}, timeoutFailure
+						}
+						return ports.NewLiveSourceFile(path, []byte("observed\n"), "text/plain")
+					},
+				})
+			},
+			wantCond: AttemptConditionTimeout,
+			withFind: true,
+		},
+	}
+
+	for _, mode := range failureModes {
+		t.Run("initial/"+mode.name, func(t *testing.T) {
+			findings := []any{}
+			if mode.withFind {
+				findings = []any{findingOnFaultPath}
+			}
+			raw := requirementsRuntimeResponse(findings, requirementsRuntimeRow("A"))
+			runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+			mode.setup(t, runtime)
+			outcome := runtime.Invoke(context.Background(), job)
+			cond, ok := outcome.Condition()
+			if outcome.Succeeded() || !ok || cond != mode.wantCond {
+				t.Fatalf("initial %s = succeeded:%t cond:%q, want false/%s", mode.name, outcome.Succeeded(), cond, mode.wantCond)
+			}
+			res, resErr := runtime.RequirementsResult(false)
+			if resErr != nil {
+				t.Fatal(resErr)
+			}
+			if _, evaluated, _ := res.Evaluation().Counts(); evaluated != 0 {
+				t.Fatalf("failed initial %s leaked provider rows: %+v", mode.name, res.Evaluation())
+			}
+			for _, row := range res.Evaluation().Assessments() {
+				if row.Origin() != domain.AssessmentDerived || row.Reason() != domain.AssessmentExtractionDisabled {
+					t.Fatalf("failed initial %s mutated pre-invocation state: %+v", mode.name, row)
+				}
+			}
+		})
+
+		t.Run("extract/"+mode.name, func(t *testing.T) {
+			// Initial prose with partial requirements (A valid, B invalid, C omitted) -> reports_only so extract runs findings verification!
+			initial := requirementsRuntimeResponse("invalid findings", requirementsRuntimeRow("A"), badRowB)
+			extractFindings := []any{}
+			if mode.withFind {
+				extractFindings = []any{findingOnFaultPath}
+			}
+			extractResp := requirementsRuntimeResponse(extractFindings, requirementsRuntimeRow("B"), requirementsRuntimeRow("C"))
+			runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+			if !runtime.Invoke(context.Background(), job).Succeeded() {
+				t.Fatal("initial failed")
+			}
+			mode.setup(t, runtime)
+			extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+			second := runtime.Invoke(context.Background(), extractJob)
+			cond, ok := second.Condition()
+			if second.Succeeded() || !ok || cond != mode.wantCond {
+				t.Fatalf("extract %s = succeeded:%t cond:%q, want false/%s", mode.name, second.Succeeded(), cond, mode.wantCond)
+			}
+			res, resErr := runtime.RequirementsResult(true)
+			if resErr != nil {
+				t.Fatal(resErr)
+			}
+			rows := res.Evaluation().Assessments()
+			if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet ||
+				rows[1].Origin() != domain.AssessmentDerived || rows[1].Reason() != domain.AssessmentInvalidContent ||
+				rows[2].Origin() != domain.AssessmentDerived || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+				t.Fatalf("failed extract %s leaked B/C or altered pre-extract state: %+v", mode.name, rows)
+			}
+		})
+	}
+
+	persistenceModes := []struct {
+		name     string
+		makeSink func() *failingRecordingSink
+		wantCond AttemptCondition
+	}{
+		{
+			name: "PersistRaw storage failure",
+			makeSink: func() *failingRecordingSink {
+				return &failingRecordingSink{
+					requirementsRecordingSink: &requirementsRecordingSink{},
+					persistRawErr:             errors.New("raw storage down"),
+				}
+			},
+			wantCond: AttemptConditionArtifactFailure,
+		},
+		{
+			name: "ReplaceInvocationStatus storage failure",
+			makeSink: func() *failingRecordingSink {
+				return &failingRecordingSink{
+					requirementsRecordingSink: &requirementsRecordingSink{},
+					replaceErr:                errors.New("status storage down"),
+				}
+			},
+			wantCond: AttemptConditionArtifactFailure,
+		},
+	}
+
+	for _, pMode := range persistenceModes {
+		t.Run("initial-structured/"+pMode.name, func(t *testing.T) {
+			raw := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"))
+			runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+			runtime.diagnostics = providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: pMode.makeSink()}
+			outcome := runtime.Invoke(context.Background(), job)
+			cond, ok := outcome.Condition()
+			if outcome.Succeeded() || !ok || cond != pMode.wantCond {
+				t.Fatalf("initial-structured %s = succeeded:%t cond:%q, want false/%s", pMode.name, outcome.Succeeded(), cond, pMode.wantCond)
+			}
+			if len(runtime.pendingExtraction) != 0 {
+				t.Fatalf("initial-structured %s leaked pendingExtraction: %d", pMode.name, len(runtime.pendingExtraction))
+			}
+			if _, hasNorm := runtime.NormalizedRequirementsOutput(job.Role()); hasNorm {
+				t.Fatalf("initial-structured %s leaked NormalizedRequirementsOutput", pMode.name)
+			}
+			if _, hasOut := runtime.requirementOutputs[job.Role()]; hasOut {
+				t.Fatalf("initial-structured %s leaked requirementOutputs", pMode.name)
+			}
+			res, resErr := runtime.RequirementsResult(false)
+			if resErr != nil {
+				t.Fatal(resErr)
+			}
+			if _, evaluated, _ := res.Evaluation().Counts(); evaluated != 0 {
+				t.Fatalf("initial-structured %s leaked requirementSections: %+v", pMode.name, res.Evaluation())
+			}
+		})
+
+		t.Run("initial-prose-fallback/"+pMode.name, func(t *testing.T) {
+			prose := []byte("# Prose report\n\nNo structured JSON.\n")
+			runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, prose)
+			runtime.diagnostics = providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: pMode.makeSink()}
+			outcome := runtime.Invoke(context.Background(), job)
+			cond, ok := outcome.Condition()
+			if outcome.Succeeded() || !ok || cond != pMode.wantCond {
+				t.Fatalf("initial-prose-fallback %s = succeeded:%t cond:%q, want false/%s", pMode.name, outcome.Succeeded(), cond, pMode.wantCond)
+			}
+			if len(runtime.pendingExtraction) != 0 {
+				t.Fatalf("initial-prose-fallback %s leaked pendingExtraction: %d", pMode.name, len(runtime.pendingExtraction))
+			}
+			if _, hasOut := runtime.requirementOutputs[job.Role()]; hasOut {
+				t.Fatalf("initial-prose-fallback %s leaked requirementOutputs", pMode.name)
+			}
+		})
+
+		t.Run("extract/"+pMode.name, func(t *testing.T) {
+			initial := requirementsRuntimeResponse("invalid findings", requirementsRuntimeRow("A"), badRowB)
+			extractResp := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("B"), requirementsRuntimeRow("C"))
+			runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+			if !runtime.Invoke(context.Background(), job).Succeeded() {
+				t.Fatal("initial failed")
+			}
+			runtime.diagnostics = providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: pMode.makeSink()}
+			extractJob, _ := newCoordinatorInvocationJob(job.SessionID(), job.RunID(), job.Role(), job.Route(), job.Target(), job.Limits(), job.AttemptID(), domain.InvocationExtract, 2)
+			second := runtime.Invoke(context.Background(), extractJob)
+			cond, ok := second.Condition()
+			if second.Succeeded() || !ok || cond != pMode.wantCond {
+				t.Fatalf("extract %s = succeeded:%t cond:%q, want false/%s", pMode.name, second.Succeeded(), cond, pMode.wantCond)
+			}
+			if _, hasNorm := runtime.NormalizedRequirementsOutput(job.Role()); hasNorm {
+				t.Fatalf("extract %s leaked NormalizedRequirementsOutput", pMode.name)
+			}
+			res, resErr := runtime.RequirementsResult(true)
+			if resErr != nil {
+				t.Fatal(resErr)
+			}
+			rows := res.Evaluation().Assessments()
+			if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet ||
+				rows[1].Origin() != domain.AssessmentDerived || rows[1].Reason() != domain.AssessmentInvalidContent ||
+				rows[2].Origin() != domain.AssessmentDerived || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+				t.Fatalf("extract %s leaked B/C or altered pre-extract state: %+v", pMode.name, rows)
+			}
+		})
+
+		t.Run("repairable-malformed-initial/"+pMode.name, func(t *testing.T) {
+			malformed := []byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`)
+			runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, malformed)
+			runtime.diagnostics = providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: pMode.makeSink()}
+			outcome := runtime.Invoke(context.Background(), job)
+			cond, ok := outcome.Condition()
+			if outcome.Succeeded() || !ok || cond != pMode.wantCond {
+				t.Fatalf("repairable-malformed-initial %s = succeeded:%t cond:%q, want false/%s", pMode.name, outcome.Succeeded(), cond, pMode.wantCond)
+			}
+			if len(runtime.pending) != 0 {
+				t.Fatalf("repairable-malformed-initial %s leaked runtime.pending (%d entries)", pMode.name, len(runtime.pending))
+			}
+		})
+	}
+}
+
+func TestRequirementsCoordinatorEndToEndOmittedFindingsAndOptionAMerge(t *testing.T) {
+	t.Run("prose initial plus omitted-findings extract keeps reports_only and preserves verified requirements", func(t *testing.T) {
+		report := []byte("# Logic review\n\nHigh defect claimed in source.go without verbatim target excerpt.\n")
+		extractResp := requirementsRuntimeOmittedFindingsResponse(requirementsRuntimeRow("A"))
+		runtime, job, provider, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, report, extractResp)
+		assignments, receipt := coordinatorTestPlan(t)
+		runtime.source = requirementsTestDynamicPrompts{material: runtime.source.(requirementsTestPrompts).material}
+		runtime.diagnostics = anyRunDiagnosticResolver{sink: &providerRuntimeRawSink{}}
+		coordinator := coordinatorTestCoordinator(t, &coordinatorTestRuntime{invoke: func(ctx context.Context, cJob InvocationJob) AttemptOutcome {
+			if cJob.Role() != domain.RoleLogic {
+				return coordinatorSuccessOutcome(t, cJob)
+			}
+			return runtime.Invoke(ctx, cJob)
+		}}, len(assignments), receipt)
+		if err := coordinator.AdmitStructuredExtraction(); err != nil {
+			t.Fatal(err)
+		}
+		res, err := coordinator.Execute(context.Background(), job.Target(), assignments, domain.SeverityHigh, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		summary := coordinatorRoleSummary(t, res, domain.RoleLogic)
+		if summary.State() != domain.RoleTaskSucceeded || !summary.ReportsOnly() {
+			t.Fatalf("coordinator omitted-findings summary = state:%s reportsOnly:%t, want succeeded/true", summary.State(), summary.ReportsOnly())
+		}
+		if res.OutcomeAxes().ContentVerdict() != domain.ContentReportsOnly {
+			t.Fatalf("coordinator omitted-findings content verdict = %q, want reports_only (not no_findings)", res.OutcomeAxes().ContentVerdict())
+		}
+		if len(provider.invocations) != 2 {
+			t.Fatalf("expected 2 invocations (initial + extract), got %d", len(provider.invocations))
+		}
+		reqRes, err := runtime.RequirementsResult(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := reqRes.Evaluation().Assessments()
+		if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet ||
+			rows[1].Reason() != domain.AssessmentAnswerOmitted || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+			t.Fatalf("coordinator omitted-findings lost verified requirements: %+v", rows)
+		}
+	})
+
+	t.Run("Option A partial-invalid initial schedules extract through Coordinator and merges monotonically", func(t *testing.T) {
+		badB := requirementsRuntimeRow("B")
+		badB["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "mismatched\n"
+		unverifiedA := requirementsRuntimeRow("A")
+		unverifiedA["verdict"] = "unverified"
+		unverifiedA["reason"] = "insufficient_evidence"
+		unverifiedA["evidence"] = []any{}
+		fixedB := requirementsRuntimeRow("B")
+		fixedB["verdict"] = "partially_met"
+
+		initial := requirementsRuntimeResponse([]any{}, requirementsRuntimeRow("A"), badB)
+		extractResp := requirementsRuntimeResponse([]any{}, unverifiedA, fixedB)
+		runtime, job, provider, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, initial, extractResp)
+		assignments, receipt := coordinatorTestPlan(t)
+		runtime.source = requirementsTestDynamicPrompts{material: runtime.source.(requirementsTestPrompts).material}
+		runtime.diagnostics = anyRunDiagnosticResolver{sink: &providerRuntimeRawSink{}}
+		coordinator := coordinatorTestCoordinator(t, &coordinatorTestRuntime{invoke: func(ctx context.Context, cJob InvocationJob) AttemptOutcome {
+			if cJob.Role() != domain.RoleLogic {
+				return coordinatorSuccessOutcome(t, cJob)
+			}
+			return runtime.Invoke(ctx, cJob)
+		}}, len(assignments), receipt)
+		if err := coordinator.AdmitStructuredExtraction(); err != nil {
+			t.Fatal(err)
+		}
+		res, err := coordinator.Execute(context.Background(), job.Target(), assignments, domain.SeverityHigh, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		summary := coordinatorRoleSummary(t, res, domain.RoleLogic)
+		if summary.State() != domain.RoleTaskSucceeded || summary.ReportsOnly() {
+			t.Fatalf("coordinator Option A summary = state:%s reportsOnly:%t, want succeeded/false", summary.State(), summary.ReportsOnly())
+		}
+		if len(provider.invocations) != 2 {
+			t.Fatalf("Option A did not schedule extract through coordinator: invocations=%d", len(provider.invocations))
+		}
+		reqRes, err := runtime.RequirementsResult(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := reqRes.Evaluation().Assessments()
+		if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet ||
+			rows[1].Origin() != domain.AssessmentProvider || rows[1].Verdict() != domain.RequirementPartiallyMet ||
+			rows[2].Origin() != domain.AssessmentDerived || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+			t.Fatalf("coordinator Option A monotone merge wrong: %+v", rows)
+		}
+		normOut, hasNorm := runtime.NormalizedRequirementsOutput(domain.RoleLogic)
+		if !hasNorm {
+			t.Fatal("coordinator Option A merge did not populate NormalizedRequirementsOutput")
+		}
+		normBytes, err := normOut.Bytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Requirements struct {
+				Assessments []struct {
+					ID      string `json:"requirement_id"`
+					Verdict string `json:"verdict"`
+				} `json:"assessments"`
+			} `json:"requirements"`
+		}
+		if err := json.Unmarshal(normBytes, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if len(doc.Requirements.Assessments) != 2 ||
+			doc.Requirements.Assessments[0].ID != "A" || doc.Requirements.Assessments[0].Verdict != "met" ||
+			doc.Requirements.Assessments[1].ID != "B" || doc.Requirements.Assessments[1].Verdict != "partially_met" {
+			t.Fatalf("NormalizedRequirementsOutput order/verdicts = %+v, want [A=met, B=partially_met]", doc.Requirements.Assessments)
+		}
+	})
+
+	t.Run("requirements mode keeps findings strictly all-or-nothing when one finding fails while retaining valid requirements", func(t *testing.T) {
+		goodFinding := map[string]any{
+			"severity": "high", "title": "Valid finding", "description": "Matches source.go.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "observed\n"}}},
+			"recommendation": "Fix valid.", "confidence": "high",
+		}
+		badFinding := map[string]any{
+			"severity": "high", "title": "Bad finding", "description": "Mismatched quote.",
+			"evidence":       []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "wrong\n"}}},
+			"recommendation": "Fix bad.", "confidence": "high",
+		}
+		raw := requirementsRuntimeResponse([]any{goodFinding, badFinding}, requirementsRuntimeRow("A"))
+		runtime, job, _, _ := requirementsRuntimeFixtureWithScopeAndSink(t, domain.LiveSourceWorkspace, raw)
+		outcome := runtime.Invoke(context.Background(), job)
+		out, ok := outcome.Output()
+		if !outcome.Succeeded() || !ok || !out.ReportsOnly() || len(out.Findings()) != 0 {
+			t.Fatalf("requirements-mode mixed findings = succeeded:%t reportsOnly:%t findings:%d, want true/true/0", outcome.Succeeded(), out.ReportsOnly(), len(out.Findings()))
+		}
+		if _, hasNorm := runtime.NormalizedRequirementsOutput(job.Role()); hasNorm {
+			t.Fatal("reports_only mixed findings falsely populated NormalizedRequirementsOutput")
+		}
+		reqRes, err := runtime.RequirementsResult(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := reqRes.Evaluation().Assessments()
+		if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet {
+			t.Fatalf("requirements-mode mixed findings dropped valid requirement A: %+v", rows)
+		}
+	})
+}

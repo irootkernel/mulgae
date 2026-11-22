@@ -68,7 +68,12 @@ func (source *livePromptSource) compile(ctx context.Context, job review.Invocati
 	if err != nil || job.Target() != target {
 		return review.RuntimePrompt{}, fmt.Errorf("live review: prompt target mismatch")
 	}
-	template, err := source.templates.ComposeLiveRootReview(ctx, source.common, source.execution, job.Role(), source.objective)
+	var template prompt.TrustedTemplate
+	if repair == nil && report != nil {
+		template, err = source.templates.ComposeLiveRootReviewExtraction(ctx, source.common, source.execution, job.Role(), source.objective)
+	} else {
+		template, err = source.templates.ComposeLiveRootReview(ctx, source.common, source.execution, job.Role(), source.objective)
+	}
 	if err != nil {
 		return review.RuntimePrompt{}, err
 	}

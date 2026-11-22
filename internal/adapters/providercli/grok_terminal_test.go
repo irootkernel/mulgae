@@ -184,6 +184,19 @@ func TestGrokTerminalFlagsMinimalRequirementsAndDisposableHomes(t *testing.T) {
 	if !strings.Contains(initialInput, "line offsets until EOF") || !strings.Contains(initialInput, inv.PromptPath) || !strings.Contains(initialInput, inv.OutputPath) {
 		t.Fatalf("Grok initial input missing pagination hint or paths: %q", initialInput)
 	}
+	extractInv := inv
+	extractInv.Purpose = terminalPurposeExtraction
+	extractInv.CompletionNonce = "nonce123"
+	extractInput := profile.BuildInitialInput(extractInv)
+	extractTrailer := string(profile.BuildPromptTrailer(extractInv))
+	if !strings.Contains(extractInput, "brief plain-text refusal if refusing transcription") {
+		t.Fatalf("Grok extraction initial input does not permit plain-text refusal: %q", extractInput)
+	}
+	if !strings.Contains(extractTrailer, "brief plain-text refusal if refusing transcription") ||
+		!strings.Contains(extractTrailer, "After the end of your extraction output, add a newline") ||
+		!strings.Contains(extractTrailer, terminalCompletionNoncePrefix+"nonce123\n") {
+		t.Fatalf("Grok extraction trailer mismatch: %q", extractTrailer)
+	}
 }
 
 func parseFlatTOMLSections(t *testing.T, body string) map[string]map[string]string {

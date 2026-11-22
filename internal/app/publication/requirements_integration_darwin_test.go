@@ -127,11 +127,11 @@ func TestIntegrationRequirementsOrdinaryPublicationRecoversWithoutSource(t *test
 	identity, _ := evidence.NewLiveSourceIdentity(source.Target())
 	verifier, _ := evidence.NewLiveVerifier(source)
 	section, _ := json.Marshal(map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{map[string]any{"requirement_id": "A", "verdict": "met", "rationale": strings.Repeat("r", 9<<20), "evidence": []any{map[string]any{"current": map[string]any{"path": "source.go", "side": "worktree", "line_start": 1, "line_end": 1, "quote": "observed\n"}}}, "examined_scope": "source.go", "limitations": []string{"Runtime behavior was not executed."}, "reason": ""}}})
-	answers, err := validation.DecodeProviderRequirements(ctx, section, admitted.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", admitted.SHA256())
+	decoded, err := validation.DecodeProviderRequirements(ctx, section, admitted.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", admitted.SHA256())
 	if err != nil {
 		t.Fatal(err)
 	}
-	normalized, err := validation.NormalizeRequirements(admitted, answers, nil, identity.SHA256(), false)
+	normalized, err := validation.NormalizeRequirements(admitted, decoded.Answers, nil, identity.SHA256(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

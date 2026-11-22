@@ -81,17 +81,17 @@ func TestRequirementsProviderAdmitsGitImplementationAtLocalInputPath(t *testing.
 				row["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = string(raw)
 			}
 			row["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["side"] = side
-			answers, err := DecodeProviderRequirements(ctx, assessmentSection(row), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "reader.go", input.SHA256())
+			decoded, err := DecodeProviderRequirements(ctx, assessmentSection(row), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "reader.go", input.SHA256())
 			if scope == domain.LiveSourceWorkspace {
-				if err == nil {
-					t.Fatal("local input prose established met")
+				if err != nil || len(decoded.Answers) != 0 || !decoded.InvalidIDs["A"] || decoded.ItemErr == nil {
+					t.Fatalf("local input prose established met: answers=%d invalid=%v err=%v itemErr=%v", len(decoded.Answers), decoded.InvalidIDs, err, decoded.ItemErr)
 				}
 				return
 			}
-			if err != nil || len(answers) != 1 {
-				t.Fatalf("selected %s implementation at invocation-local input path rejected: %v", side, err)
+			if err != nil || len(decoded.Answers) != 1 || len(decoded.InvalidIDs) != 0 {
+				t.Fatalf("selected %s implementation at invocation-local input path rejected: %v (invalid=%v)", side, err, decoded.InvalidIDs)
 			}
-			if !strings.Contains(string(answers[0].Content()), "readIndex(path)") {
+			if !strings.Contains(string(decoded.Answers[0].Content()), "readIndex(path)") {
 				t.Fatal("selected source evidence was replaced by local prose")
 			}
 		})

@@ -934,3 +934,29 @@ func TestProviderRuntimeM2OriginatingSecurityDiagnosticCauses(t *testing.T) {
 		}
 	})
 }
+
+func TestRuntimeEvidenceErrorOutcomeEscalatesJoinedCitationAndOpaqueInLiveMode(t *testing.T) {
+	_, job, _ := providerRuntimeExplicitFixture(t, nil)
+	citationErr := ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, errors.New("absent cited path"))
+
+	// Joined citation + opaque reader error in live mode must fail closed as InternalInvariant.
+	joined := errors.Join(citationErr, errors.New("opaque reader failure"))
+	out := runtimeEvidenceErrorOutcome(context.Background(), job, true, joined)
+	if cond, ok := out.Condition(); !ok || cond != AttemptConditionInternalInvariant {
+		t.Fatalf("joined citation+opaque in liveMode = (%q, %t), want internal_invariant", cond, ok)
+	}
+
+	// Pure citation error under active context remains bounded UnrepairableEvidence.
+	pureOut := runtimeEvidenceErrorOutcome(context.Background(), job, true, citationErr)
+	if cond, ok := pureOut.Condition(); !ok || cond != AttemptConditionUnrepairableEvidence {
+		t.Fatalf("pure citation error in liveMode = (%q, %t), want unrepairable_evidence", cond, ok)
+	}
+
+	// Pure citation error under cancelled context projects as Cancelled rather than InternalInvariant.
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	canceledOut := runtimeEvidenceErrorOutcome(canceledCtx, job, true, citationErr)
+	if cond, ok := canceledOut.Condition(); !ok || cond != AttemptConditionCancelled {
+		t.Fatalf("pure citation error under canceled ctx = (%q, %t), want cancelled", cond, ok)
+	}
+}

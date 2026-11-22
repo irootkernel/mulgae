@@ -539,22 +539,23 @@ func cloneRuntimeArtifactInventory(inventory RuntimeArtifactInventory) RuntimeAr
 // accepted only after this runtime retained a repair plan for its initial job.
 func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job InvocationJob) (outcome AttemptOutcome) {
 	var diagnosticObservation *ports.ProviderExecutionObservation
+	var pendingRequirementsCommit requirementsCommit
 	parseState, validationState := domain.ParseNotStarted, domain.ValidationNotStarted
 	runtimeArtifactsExpected := false
 	defer func() {
 		outcome.runtimeArtifactsExpected = runtimeArtifactsExpected
 	}()
 	defer func() {
-		if diagnosticObservation == nil {
-			return
-		}
-		if err := runtime.replaceInvocationDiagnosticStatus(ctx, job, *diagnosticObservation, parseState, validationState); err != nil {
-			persisted := runtimePersistenceOutcome(job, err)
-			curCond, curFailed := outcome.Condition()
-			if outcome.Succeeded() || !curFailed || persistenceOverridesCondition(curCond, persisted) {
-				outcome = persisted
+		if diagnosticObservation != nil {
+			if err := runtime.replaceInvocationDiagnosticStatus(ctx, job, *diagnosticObservation, parseState, validationState); err != nil {
+				persisted := runtimePersistenceOutcome(job, err)
+				curCond, curFailed := outcome.Condition()
+				if outcome.Succeeded() || !curFailed || persistenceOverridesCondition(curCond, persisted) {
+					outcome = persisted
+				}
 			}
 		}
+		pendingRequirementsCommit.apply(outcome)
 	}()
 	if runtime == nil || !job.Limits().Valid() {
 		return runtimeCondition(job, AttemptConditionInternalInvariant)
@@ -797,7 +798,7 @@ func (runtime *ProviderInvocationRuntime) Invoke(ctx context.Context, job Invoca
 	assistantContent := append([]byte(nil), stdout...)
 	contentClass, validateBytes := classifyAssistantContent(assistantContent)
 	if runtime.requirements != nil {
-		outcome, parseState, validationState = runtime.invokeRequirements(invocationCtx, job, validateBytes, assistantContent, rawStdout, stderr, transport, scope)
+		outcome, parseState, validationState, pendingRequirementsCommit = runtime.invokeRequirementsDeferred(invocationCtx, job, validateBytes, assistantContent, rawStdout, stderr, transport, scope)
 		return outcome
 	}
 	if job.Purpose() == domain.InvocationExtract {
@@ -1204,8 +1205,9 @@ func (runtime *ProviderInvocationRuntime) acceptFreeFormReport(
 	}
 	// Retain the accepted report so the coordinator may schedule the structured
 	// extraction trailer. Only an initial invocation leaves the second slot free,
-	// so no other purpose can start one.
-	if job.Purpose() == domain.InvocationInitial {
+	// so no other purpose can start one. In requirements mode, finalizeAccepted's
+	// deferred commit closure is the sole transactional writer of pendingExtraction.
+	if job.Purpose() == domain.InvocationInitial && runtime.requirements == nil {
 		runtime.mu.Lock()
 		runtime.pendingExtraction[job.AttemptID()] = InvocationExtractionInput{
 			acceptedReport:  output.ReportMarkdown(),
@@ -1765,6 +1767,10 @@ func runtimeEvidenceErrorOutcome(ctx context.Context, job InvocationJob, liveMod
 	}
 	visit(err)
 	if found {
+		if liveMode && bestCondition == AttemptConditionUnrepairableEvidence && (ctx == nil || ctx.Err() == nil) && !validation.IsPureRequirementsCitationError(ctx, err) {
+			bestCondition = AttemptConditionInternalInvariant
+			bestCause = ""
+		}
 		effective := runtimeConditionAfterContext(ctx, bestCondition)
 		if effective != bestCondition {
 			bestCause = ""

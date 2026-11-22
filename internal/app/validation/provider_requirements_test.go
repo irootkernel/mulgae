@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/irootkernel/mulgae/internal/app/evidence"
@@ -70,11 +71,11 @@ func TestRequirementsProviderDecodingVerifiesEveryVerdictAndCounts(t *testing.T)
 			if verdict == "unmet" {
 				row["evidence"] = []any{}
 			}
-			answers, err := DecodeProviderRequirements(context.Background(), assessmentSection(row, assessmentRow("B", "unverified")), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
-			if err != nil {
-				t.Fatal(err)
+			decoded, err := DecodeProviderRequirements(context.Background(), assessmentSection(row, assessmentRow("B", "unverified")), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
+			if err != nil || len(decoded.InvalidIDs) != 0 || decoded.ItemErr != nil {
+				t.Fatalf("unexpected decode error=%v invalid=%v itemErr=%v", err, decoded.InvalidIDs, decoded.ItemErr)
 			}
-			result, err := NormalizeRequirements(input, answers, nil, identity.SHA256(), false)
+			result, err := NormalizeRequirements(input, decoded.Answers, nil, identity.SHA256(), false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,42 +95,55 @@ func TestRequirementsProviderDecodingVerifiesEveryVerdictAndCounts(t *testing.T)
 func TestRequirementsProviderRejectsInvalidOwningSectionsAndProtectedFields(t *testing.T) {
 	input, reader, identity, verifier := assessmentFixture(t)
 	cases := []struct {
-		name      string
-		mutate    func(map[string]any)
-		protected bool
+		name        string
+		mutate      func(map[string]any)
+		sectionWide bool
+		protected   bool
 	}{
-		{"foreign", func(r map[string]any) { r["requirement_id"] = "foreign" }, false},
+		{"foreign", func(r map[string]any) { r["requirement_id"] = "foreign" }, true, false},
 		{"wrong side", func(r map[string]any) {
 			r["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["side"] = "worktree"
-		}, false},
+		}, false, false},
 		{"false quote", func(r map[string]any) {
 			r["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "worktree bytes\n"
-		}, false},
+		}, false, false},
 		{"input is not proof", func(r map[string]any) {
 			r["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["path"] = "requirements.json"
-		}, false},
-		{"no support", func(r map[string]any) { r["evidence"] = []any{} }, false},
-		{"absence without limitations", func(r map[string]any) { r["verdict"] = "unmet"; r["evidence"] = []any{}; r["limitations"] = []any{} }, false},
-		{"unknown verdict", func(r map[string]any) { r["verdict"] = "passed" }, false},
-		{"NUL", func(r map[string]any) { r["rationale"] = "bad\x00" }, false},
-		{"reason type", func(r map[string]any) { r["reason"] = false }, false},
-		{"scope array", func(r map[string]any) { r["examined_scope"] = []any{"reader.go"} }, false},
-		{"owner injection", func(r map[string]any) { r["owner_role"] = "logic" }, true},
+		}, false, false},
+		{"no support", func(r map[string]any) { r["evidence"] = []any{} }, false, false},
+		{"absence without limitations", func(r map[string]any) { r["verdict"] = "unmet"; r["evidence"] = []any{}; r["limitations"] = []any{} }, false, false},
+		{"unknown verdict", func(r map[string]any) { r["verdict"] = "passed" }, false, false},
+		{"NUL", func(r map[string]any) { r["rationale"] = "bad\x00" }, false, false},
+		{"reason type", func(r map[string]any) { r["reason"] = false }, false, false},
+		{"scope array", func(r map[string]any) { r["examined_scope"] = []any{"reader.go"} }, false, false},
+		{"owner injection", func(r map[string]any) { r["owner_role"] = "logic" }, true, true},
 		{"verification injection", func(r map[string]any) {
 			r["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["verification"] = "verified"
-		}, true},
+		}, true, true},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			row := assessmentRow("A", "met")
 			test.mutate(row)
-			_, err := DecodeProviderRequirements(context.Background(), assessmentSection(row), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
-			if err == nil {
-				t.Fatal("invalid section accepted")
+			decoded, err := DecodeProviderRequirements(context.Background(), assessmentSection(row), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
+			if test.sectionWide {
+				if err == nil {
+					t.Fatal("invalid section accepted")
+				}
+				cause, ok := RuntimeCause(err)
+				if test.protected && (!ok || cause != domain.DiagnosticCauseProviderOwnershipViolation) {
+					t.Fatalf("ownership attack lost protected identity: %v", err)
+				}
+				return
 			}
-			cause, ok := RuntimeCause(err)
-			if test.protected && (!ok || cause != domain.DiagnosticCauseProviderOwnershipViolation) {
-				t.Fatalf("ownership attack lost protected identity: %v", err)
+			if err != nil {
+				t.Fatalf("ordinary item fault rejected entire section: %v", err)
+			}
+			if len(decoded.Answers) != 0 || !decoded.InvalidIDs["A"] || decoded.ItemErr == nil {
+				t.Fatalf("ordinary item fault was not isolated: answers=%d invalid=%v itemErr=%v", len(decoded.Answers), decoded.InvalidIDs, decoded.ItemErr)
+			}
+			if cause, ok := RuntimeCause(decoded.ItemErr); !ok || cause != domain.DiagnosticCauseCandidateValidationFailed {
+				t.Fatalf("isolated item cause = (%q, %t), want candidate_validation_failed", cause, ok)
 			}
 		})
 	}
@@ -156,12 +170,12 @@ func TestRequirementsProviderContentIsUnboundedAndWholeJSONIsStrict(t *testing.T
 	row["rationale"] = strings.Repeat("r", 9<<20)
 	row["limitations"] = []any{strings.Repeat("l", 9<<20)}
 	raw := assessmentSection(row)
-	answers, err := DecodeProviderRequirements(context.Background(), raw, input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
-	if err != nil || len(answers) != 1 || len(answers[0].Content()) <= 18<<20 {
+	decoded, err := DecodeProviderRequirements(context.Background(), raw, input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
+	if err != nil || len(decoded.Answers) != 1 || len(decoded.Answers[0].Content()) <= 18<<20 {
 		t.Fatalf("content ceiling: %v", err)
 	}
 	for _, raw := range [][]byte{[]byte(`{"requirements":{},`), []byte(`{"requirements":{},"requirements":{}}`), []byte("{\"summary\":\"\xff\"}"), []byte(`{"summary":"\ud800"}`)} {
-		if _, _, _, err := SplitRequirementsResponse(raw); err == nil {
+		if _, _, _, _, err := SplitRequirementsResponse(raw); err == nil {
 			t.Fatal("invalid whole response yielded a section")
 		}
 	}
@@ -181,12 +195,16 @@ func TestRequirementsProviderVisualEvidenceKeepsRoleAndSourceSide(t *testing.T) 
 		{"selected index", map[string]string{"index\x00design.png": digest}, true}, {"wrong source side", map[string]string{"head\x00design.png": digest}, false}, {"missing image", nil, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			answers, err := DecodeProviderRequirements(context.Background(), assessmentSection(row), []domain.Requirement{selected}, domain.RoleArtist, identity, verifier, test.images, "requirements.json", "sha256:"+strings.Repeat("b", 64))
-			if (err == nil) != test.valid {
-				t.Fatalf("visual source admission: %v", err)
+			decoded, err := DecodeProviderRequirements(context.Background(), assessmentSection(row), []domain.Requirement{selected}, domain.RoleArtist, identity, verifier, test.images, "requirements.json", "sha256:"+strings.Repeat("b", 64))
+			if err != nil {
+				t.Fatalf("visual source admission section error: %v", err)
 			}
-			if test.valid && len(answers) != 1 {
-				t.Fatal("verified visual answer lost")
+			if test.valid {
+				if len(decoded.Answers) != 1 || len(decoded.InvalidIDs) != 0 {
+					t.Fatalf("verified visual answer lost: answers=%d invalid=%v", len(decoded.Answers), decoded.InvalidIDs)
+				}
+			} else if len(decoded.Answers) != 0 || !decoded.InvalidIDs["A"] || decoded.ItemErr == nil {
+				t.Fatalf("unverified visual answer not isolated: answers=%d invalid=%v itemErr=%v", len(decoded.Answers), decoded.InvalidIDs, decoded.ItemErr)
 			}
 		})
 	}
@@ -210,7 +228,7 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 		}
 		return row
 	}
-	decodeSection := func(section map[string]any, role domain.Role) error {
+	decodeSection := func(section map[string]any, role domain.Role) (ProviderRequirementsDecodeResult, error) {
 		raw, marshalErr := json.Marshal(section)
 		if marshalErr != nil {
 			t.Fatal(marshalErr)
@@ -221,27 +239,27 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 			reqs = []domain.Requirement{artistReq}
 			images = visualImages
 		}
-		_, decodeErr := DecodeProviderRequirements(context.Background(), raw, reqs, role, identity, verifier, images, "requirements.json", input.SHA256())
-		return decodeErr
+		return DecodeProviderRequirements(context.Background(), raw, reqs, role, identity, verifier, images, "requirements.json", input.SHA256())
 	}
 
 	t.Run("ordinary unknown keys are bounded non-security failures across all five objects", func(t *testing.T) {
 		locations := []struct {
-			name   string
-			role   domain.Role
-			mutate func(section map[string]any, key string)
+			name        string
+			role        domain.Role
+			sectionWide bool
+			mutate      func(section map[string]any, key string)
 		}{
-			{"requirements", domain.RoleLogic, func(s map[string]any, k string) { s[k] = "extra" }},
-			{"assessment", domain.RoleLogic, func(s map[string]any, k string) {
+			{"requirements", domain.RoleLogic, true, func(s map[string]any, k string) { s[k] = "extra" }},
+			{"assessment", domain.RoleLogic, false, func(s map[string]any, k string) {
 				s["assessments"].([]any)[0].(map[string]any)[k] = "extra"
 			}},
-			{"evidence", domain.RoleLogic, func(s map[string]any, k string) {
+			{"evidence", domain.RoleLogic, false, func(s map[string]any, k string) {
 				s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)[k] = "extra"
 			}},
-			{"current", domain.RoleLogic, func(s map[string]any, k string) {
+			{"current", domain.RoleLogic, false, func(s map[string]any, k string) {
 				s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)[k] = "extra"
 			}},
-			{"visual", domain.RoleArtist, func(s map[string]any, k string) {
+			{"visual", domain.RoleArtist, false, func(s map[string]any, k string) {
 				s["assessments"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)["visual"].(map[string]any)[k] = "extra"
 			}},
 		}
@@ -256,13 +274,26 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 				}
 				section := map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{row}}
 				loc.mutate(section, key)
-				decodeErr := decodeSection(section, loc.role)
-				if decodeErr == nil {
-					t.Fatalf("%s unknown key %q was accepted", loc.name, key)
+				decoded, decodeErr := decodeSection(section, loc.role)
+				if loc.sectionWide {
+					if decodeErr == nil {
+						t.Fatalf("%s unknown key %q was accepted", loc.name, key)
+					}
+					cause, ok := RuntimeCause(decodeErr)
+					if !ok || cause != domain.DiagnosticCauseCandidateValidationFailed {
+						t.Fatalf("%s unknown key %q cause = (%q, %t), want candidate_validation_failed (err=%v)", loc.name, key, cause, ok, decodeErr)
+					}
+					continue
 				}
-				cause, ok := RuntimeCause(decodeErr)
+				if decodeErr != nil {
+					t.Fatalf("%s unknown key %q failed whole section instead of isolating row: %v", loc.name, key, decodeErr)
+				}
+				if len(decoded.Answers) != 0 || !decoded.InvalidIDs["A"] || decoded.ItemErr == nil {
+					t.Fatalf("%s unknown key %q was not isolated: answers=%d invalid=%v itemErr=%v", loc.name, key, len(decoded.Answers), decoded.InvalidIDs, decoded.ItemErr)
+				}
+				cause, ok := RuntimeCause(decoded.ItemErr)
 				if !ok || cause != domain.DiagnosticCauseCandidateValidationFailed {
-					t.Fatalf("%s unknown key %q cause = (%q, %t), want candidate_validation_failed (err=%v)", loc.name, key, cause, ok, decodeErr)
+					t.Fatalf("%s unknown key %q cause = (%q, %t), want candidate_validation_failed (err=%v)", loc.name, key, cause, ok, decoded.ItemErr)
 				}
 			}
 		}
@@ -324,7 +355,7 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 				}
 				section := map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{row}}
 				set.mutate(section, key)
-				decodeErr := decodeSection(section, set.role)
+				_, decodeErr := decodeSection(section, set.role)
 				if decodeErr == nil {
 					t.Fatalf("%s protected key %q was accepted", set.name, key)
 				}
@@ -345,7 +376,7 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 			row["verification"] = "verified"
 			row["attempt_id"] = "a_forged"
 			section := map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{row}}
-			decodeErr := decodeSection(section, domain.RoleLogic)
+			_, decodeErr := decodeSection(section, domain.RoleLogic)
 			cause, ok := RuntimeCause(decodeErr)
 			if !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
 				t.Fatalf("iteration %d: mixed keys cause = (%q, %t), want provider_ownership_violation", i, cause, ok)
@@ -366,7 +397,7 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 			"notes":          "ordinary unknown outer key",
 			"assessments":    []any{rowWithProtected},
 		}
-		errOuter := decodeSection(outerUnknown, domain.RoleLogic)
+		_, errOuter := decodeSection(outerUnknown, domain.RoleLogic)
 		if cause, ok := RuntimeCause(errOuter); !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
 			t.Fatalf("outer unknown + nested protected cause = (%q, %t), want provider_ownership_violation (err=%v)", cause, ok, errOuter)
 		}
@@ -380,7 +411,7 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 			"schema_version": "mulgae-provider-requirements.v1",
 			"assessments":    []any{badFirst, secondProtected},
 		}
-		errLater := decodeSection(laterProtected, domain.RoleLogic)
+		_, errLater := decodeSection(laterProtected, domain.RoleLogic)
 		if cause, ok := RuntimeCause(errLater); !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
 			t.Fatalf("earlier invalid + later protected cause = (%q, %t), want provider_ownership_violation (err=%v)", cause, ok, errLater)
 		}
@@ -388,22 +419,31 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 
 	t.Run("visual sha256 remains allowed and verified", func(t *testing.T) {
 		section := map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": []any{makeVisualRow()}}
-		if decodeErr := decodeSection(section, domain.RoleArtist); decodeErr != nil {
-			t.Fatalf("valid visual.sha256 rejected: %v", decodeErr)
+		decoded, decodeErr := decodeSection(section, domain.RoleArtist)
+		if decodeErr != nil || len(decoded.Answers) != 1 || len(decoded.InvalidIDs) != 0 {
+			t.Fatalf("valid visual.sha256 rejected: err=%v answers=%d invalid=%v", decodeErr, len(decoded.Answers), decoded.InvalidIDs)
 		}
 	})
 
-	t.Run("SplitRequirementsResponse wraps decode and version errors with typed causes", func(t *testing.T) {
-		_, _, _, decodeErr := SplitRequirementsResponse([]byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`))
+	t.Run("SplitRequirementsResponse wraps decode and version errors with typed causes and reports findingsHasKey", func(t *testing.T) {
+		_, _, _, _, decodeErr := SplitRequirementsResponse([]byte(`{"schema_version":"mulgae-provider-review-output.v3","requirements":{`))
 		if cause, ok := RuntimeCause(decodeErr); !ok || cause != domain.DiagnosticCauseOutputDecodeFailed {
 			t.Fatalf("malformed split cause = (%q, %t), want provider_output_decode_failed", cause, ok)
 		}
-		_, _, present, versionErr := SplitRequirementsResponse([]byte(`{"schema_version":"mulgae-provider-review-output.v1","requirements":{}}`))
+		_, _, present, _, versionErr := SplitRequirementsResponse([]byte(`{"schema_version":"mulgae-provider-review-output.v1","requirements":{}}`))
 		if !present {
 			t.Fatal("wrong version lost present flag")
 		}
 		if cause, ok := RuntimeCause(versionErr); !ok || cause != domain.DiagnosticCauseCandidateValidationFailed {
 			t.Fatalf("wrong version split cause = (%q, %t), want candidate_validation_failed", cause, ok)
+		}
+		_, _, present, hasFindings, err := SplitRequirementsResponse([]byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"s","completeness":"complete","limitations":[],"findings":[],"requirements":{"schema_version":"mulgae-provider-requirements.v1","assessments":[]}}`))
+		if err != nil || !present || !hasFindings {
+			t.Fatalf("present findings split = present:%t hasFindings:%t err:%v", present, hasFindings, err)
+		}
+		_, _, present, hasFindings, err = SplitRequirementsResponse([]byte(`{"schema_version":"mulgae-provider-review-output.v3","summary":"s","completeness":"complete","limitations":[],"requirements":{"schema_version":"mulgae-provider-requirements.v1","assessments":[]}}`))
+		if err != nil || !present || hasFindings {
+			t.Fatalf("omitted findings split = present:%t hasFindings:%t err:%v", present, hasFindings, err)
 		}
 	})
 
@@ -412,6 +452,232 @@ func TestRequirementsProviderClosedKeyOwnershipAndPrecedence(t *testing.T) {
 		wrapped := wrapRuntimeError(patchErr, domain.DiagnosticCauseCandidateRepairPlanInvalid)
 		if cause, ok := RuntimeCause(wrapped); !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
 			t.Fatalf("repair.go requireOnlyKeys cause = (%q, %t), want provider_ownership_violation", cause, ok)
+		}
+	})
+}
+
+type pathSwitchAssessmentReader struct {
+	ports.LiveSourceReader
+	target ports.LiveSourceTarget
+	reads  int
+	onRead func(ctx context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error)
+}
+
+func (r *pathSwitchAssessmentReader) Target() ports.LiveSourceTarget { return r.target }
+func (r *pathSwitchAssessmentReader) Read(ctx context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+	r.reads++
+	return r.onRead(ctx, side, path)
+}
+
+type testInfraViolation struct{}
+
+func (testInfraViolation) Error() string           { return "infra violation" }
+func (testInfraViolation) DocumentViolation() bool { return false }
+
+func TestDecodeProviderRequirementsPerItemIsolationAndSectionGuards(t *testing.T) {
+	rawInput := []byte(`{"schema_version":"mulgae-requirements-input.v1","requirements":[{"id":"A","text":"req A","acceptance_criteria":["cA"],"owner_role":"logic"},{"id":"B","text":"req B","acceptance_criteria":["cB"],"owner_role":"logic"},{"id":"C","text":"req C","acceptance_criteria":["cC"],"owner_role":"logic"},{"id":"S","text":"req S","acceptance_criteria":["cS"],"owner_role":"security"}]}`)
+	input, err := DecodeRequirementsInput(rawInput, []domain.Role{domain.RoleLogic, domain.RoleSecurity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector, _ := ports.NewLiveSourceSelector(domain.LiveSourceStage, "")
+	oid, _ := ports.ParseGitObjectID(strings.Repeat("a", 40))
+	p, _ := ports.NewSafeRelativePath("reader.go")
+	target, err := ports.NewLiveSourceTarget(selector, oid, ports.GitObjectID{}, false, []ports.LiveSourceChange{{Kind: "modified", Before: p, After: p}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := evidence.NewLiveSourceIdentity(target)
+
+	t.Run("multi-row sibling preservation isolates bad row while keeping valid siblings and omitted IDs", func(t *testing.T) {
+		reader := &pathSwitchAssessmentReader{
+			target: target,
+			onRead: func(_ context.Context, side domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+				if side == domain.LiveSourceIndex && path.String() == "missing.go" {
+					return ports.LiveSourceFile{}, ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, syscall.ENOENT)
+				}
+				return ports.NewLiveSourceFile(path, []byte("readIndex(path)\n"), "text/plain")
+			},
+		}
+		verifier, _ := evidence.NewLiveVerifier(reader)
+		for _, tc := range []struct {
+			name   string
+			badRow func() map[string]any
+		}{
+			{"quote mismatch", func() map[string]any {
+				r := assessmentRow("B", "met")
+				r["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["quote"] = "wrong\n"
+				return r
+			}},
+			{"inner unknown key", func() map[string]any {
+				r := assessmentRow("B", "met")
+				r["extra_note"] = "ordinary"
+				return r
+			}},
+			{"citation error wrapping untyped ENOENT", func() map[string]any {
+				r := assessmentRow("B", "met")
+				r["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["path"] = "missing.go"
+				return r
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				decoded, decErr := DecodeProviderRequirements(context.Background(), assessmentSection(assessmentRow("A", "met"), tc.badRow()), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
+				if decErr != nil {
+					t.Fatalf("unexpected section error: %v", decErr)
+				}
+				if len(decoded.Answers) != 1 || decoded.Answers[0].Assessment().RequirementID() != "A" {
+					t.Fatalf("valid sibling A lost: %+v", decoded.Answers)
+				}
+				if len(decoded.InvalidIDs) != 1 || !decoded.InvalidIDs["B"] || decoded.ItemErr == nil {
+					t.Fatalf("expected only B isolated, got invalid=%v itemErr=%v", decoded.InvalidIDs, decoded.ItemErr)
+				}
+				if cause, ok := RuntimeCause(decoded.ItemErr); !ok || cause != domain.DiagnosticCauseCandidateValidationFailed {
+					t.Fatalf("itemErr cause = (%q, %t), want candidate_validation_failed", cause, ok)
+				}
+				norm, normErr := NormalizeRequirements(input, decoded.Answers, map[string]domain.AssessmentReason{
+					"B": domain.AssessmentInvalidContent,
+					"C": domain.AssessmentAnswerOmitted,
+					"S": domain.AssessmentAnswerOmitted,
+				}, identity.SHA256(), false)
+				if normErr != nil {
+					t.Fatal(normErr)
+				}
+				rows := norm.Evaluation().Assessments()
+				if rows[0].Origin() != domain.AssessmentProvider || rows[0].Verdict() != domain.RequirementMet {
+					t.Fatalf("row A changed: %+v", rows[0])
+				}
+				if rows[1].Origin() != domain.AssessmentDerived || rows[1].Reason() != domain.AssessmentInvalidContent {
+					t.Fatalf("row B reason = %+v, want derived/invalid_assessment", rows[1])
+				}
+				if rows[2].Origin() != domain.AssessmentDerived || rows[2].Reason() != domain.AssessmentAnswerOmitted {
+					t.Fatalf("row C reason = %+v, want derived/answer_omitted", rows[2])
+				}
+			})
+		}
+	})
+
+	t.Run("whole-array pre-pass rejects duplicate, foreign, wrong-owner, non-object, and non-string ID before any verification", func(t *testing.T) {
+		cases := []struct {
+			name string
+			rows []any
+		}{
+			{"late duplicate", []any{assessmentRow("A", "met"), assessmentRow("A", "unverified")}},
+			{"late foreign", []any{assessmentRow("A", "met"), assessmentRow("FOREIGN", "met")}},
+			{"late wrong-owner", []any{assessmentRow("A", "met"), assessmentRow("S", "met")}},
+			{"late non-object", []any{assessmentRow("A", "met"), "not-an-object"}},
+			{"late non-string requirement_id", []any{assessmentRow("A", "met"), map[string]any{"requirement_id": 42}}},
+			{"late missing requirement_id", []any{assessmentRow("A", "met"), map[string]any{"verdict": "met"}}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				reader := &pathSwitchAssessmentReader{
+					target: target,
+					onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+						return ports.NewLiveSourceFile(path, []byte("readIndex(path)\n"), "text/plain")
+					},
+				}
+				verifier, _ := evidence.NewLiveVerifier(reader)
+				raw, _ := json.Marshal(map[string]any{"schema_version": "mulgae-provider-requirements.v1", "assessments": tc.rows})
+				decoded, decErr := DecodeProviderRequirements(context.Background(), raw, input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
+				if decErr == nil {
+					t.Fatalf("expected section rejection, got answers=%d invalid=%v", len(decoded.Answers), decoded.InvalidIDs)
+				}
+				if reader.reads != 0 {
+					t.Fatalf("pre-pass did not run before per-item verification: reads=%d", reader.reads)
+				}
+			})
+		}
+	})
+
+	t.Run("nested protected key beats earlier non-object or duplicate row", func(t *testing.T) {
+		protectedRow := assessmentRow("A", "met")
+		protectedRow["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["verification"] = "verified"
+		raw, _ := json.Marshal(map[string]any{
+			"schema_version": "mulgae-provider-requirements.v1",
+			"assessments":    []any{"not-an-object", protectedRow},
+		})
+		_, _, _, verifier := assessmentFixture(t)
+		_, decErr := DecodeProviderRequirements(context.Background(), raw, input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
+		if cause, ok := RuntimeCause(decErr); !ok || cause != domain.DiagnosticCauseProviderOwnershipViolation {
+			t.Fatalf("nested protected key behind non-object row cause = (%q, %t), want provider_ownership_violation (err=%v)", cause, ok, decErr)
+		}
+	})
+
+	t.Run("isPureRequirementsCitationError fails closed on joined opaque, ownership, infra, non-citation, and cancelled errors", func(t *testing.T) {
+		citationErr := ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, syscall.ENOENT)
+		ownershipErr := &RuntimeError{cause: domain.DiagnosticCauseProviderOwnershipViolation, err: errors.New("ownership")}
+		internalFailure, _ := domain.NewFailure("test.source", domain.FailureInternal, "internal", nil)
+
+		for _, tc := range []struct {
+			name string
+			err  error
+		}{
+			{"joined citation and opaque error", errors.Join(citationErr, errors.New("opaque reader failure"))},
+			{"joined citation and ownership error", errors.Join(citationErr, ownershipErr)},
+			{"joined citation and infra violation", errors.Join(citationErr, testInfraViolation{})},
+			{"joined citation and internal failure", errors.Join(citationErr, internalFailure)},
+			{"citation wrapping canceled", ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, context.Canceled)},
+			{"citation wrapping unsafe drift", ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, ports.NewLiveSourceError(ports.LiveSourceUnsafe, nil))},
+			{"bare opaque error", errors.New("bare error")},
+			{"non-citation LiveSourceUnsafe", ports.NewLiveSourceError(ports.LiveSourceUnsafe, nil)},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				reader := &pathSwitchAssessmentReader{
+					target: target,
+					onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+						if path.String() == "missing.go" {
+							return ports.LiveSourceFile{}, ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, syscall.ENOENT)
+						}
+						return ports.LiveSourceFile{}, tc.err
+					},
+				}
+				verifier, _ := evidence.NewLiveVerifier(reader)
+				// Put an isolated bad row A BEFORE row B that hits the protected/non-pure error.
+				rowA := assessmentRow("A", "met")
+				rowA["evidence"].([]any)[0].(map[string]any)["current"].(map[string]any)["path"] = "missing.go"
+				rowB := assessmentRow("B", "met")
+				decoded, decErr := DecodeProviderRequirements(context.Background(), assessmentSection(rowA, rowB), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
+				if decErr == nil {
+					t.Fatalf("expected fail-closed abort on row B after row A isolation, got answers=%d invalid=%v", len(decoded.Answers), decoded.InvalidIDs)
+				}
+				if _, ok := RequirementsSourceFailure(decErr); !ok {
+					t.Fatalf("expected RequirementsSourceFailure wrapper, got %v", decErr)
+				}
+				if len(decoded.Answers) != 0 || len(decoded.InvalidIDs) != 0 {
+					t.Fatalf("aborted decode returned partial state: %+v", decoded)
+				}
+			})
+		}
+	})
+
+	t.Run("cancelled context aborts at entry and between rows", func(t *testing.T) {
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		reader := &pathSwitchAssessmentReader{
+			target: target,
+			onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+				return ports.NewLiveSourceFile(path, []byte("readIndex(path)\n"), "text/plain")
+			},
+		}
+		verifier, _ := evidence.NewLiveVerifier(reader)
+		_, decErr := DecodeProviderRequirements(canceledCtx, assessmentSection(assessmentRow("A", "met")), input.Requirements(), domain.RoleLogic, identity, verifier, nil, "requirements.json", input.SHA256())
+		if sourceErr, ok := RequirementsSourceFailure(decErr); !ok || !errors.Is(sourceErr, context.Canceled) || reader.reads != 0 {
+			t.Fatalf("entry canceled ctx = err:%v reads:%d, want canceled source failure with 0 reads", decErr, reader.reads)
+		}
+
+		// Cancel context during row A verification so row B sees ctx.Err() on iteration.
+		midCtx, cancelMid := context.WithCancel(context.Background())
+		readerMid := &pathSwitchAssessmentReader{
+			target: target,
+			onRead: func(_ context.Context, _ domain.LiveSourceSide, path ports.SafeRelativePath) (ports.LiveSourceFile, error) {
+				cancelMid()
+				return ports.LiveSourceFile{}, ports.NewLiveSourceCitationError(ports.LiveSourceUnavailable, syscall.ENOENT)
+			},
+		}
+		verifierMid, _ := evidence.NewLiveVerifier(readerMid)
+		_, decErr = DecodeProviderRequirements(midCtx, assessmentSection(assessmentRow("A", "met"), assessmentRow("B", "met")), input.Requirements(), domain.RoleLogic, identity, verifierMid, nil, "requirements.json", input.SHA256())
+		if sourceErr, ok := RequirementsSourceFailure(decErr); !ok || !errors.Is(sourceErr, context.Canceled) {
+			t.Fatalf("mid-loop canceled ctx = %v, want canceled source failure", decErr)
 		}
 	})
 }
