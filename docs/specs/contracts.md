@@ -245,7 +245,14 @@ provider execution, Mulgae requires enough remaining enclosing budget to grant
 the complete provider timeout window. If that window cannot be guaranteed, the
 provider is not started and the enclosing execution timeout is reported. A
 provider process that starts and reaches its own timeout remains a distinct
-provider-observed timeout.
+provider-observed timeout. When a run suffers a partial timeout, Mulgae retains
+all completed peer role reports and requirements (projecting `unverified` /
+`answer_omitted` placeholders for timed-out role requirements), reporting
+`incomplete` coverage when a required role timed out and `degraded` coverage
+when only optional roles timed out; an enclosing deadline that fires during an
+optional extraction trailer preserves the already-accepted report as
+`AttemptSucceeded` and projects `RunCompleted` when every selected role
+succeeded.
 
 Independent failures are reduced through one operational precedence before
 runtime status or CLI exit projection: internal, security, artifact,
@@ -1170,8 +1177,13 @@ Packet-transport, lifecycle, signal-receipt, and
 frame-integrity violations remain security-policy violations, while missing
 fixture binding or prompt echo is instead an operational invalid-provider-output
 capability rejection, not a security-policy violation. Capability packets embed
-those root/link/role bindings and must not induce workspace or tool reads.
-Malformed JSON, duplicate keys, missing bindings, wrong
+those root/link/role bindings under `current-qualification-fixture-v4` and must
+not induce workspace or tool reads. The shared readiness prompt preserves line
+1 verbatim (`Prove readiness by returning exactly one JSON object and nothing
+else.`) and adds one neutral synthetic-test-identifier framing sentence before
+the `root=`/`link=`/`role=` bindings so random hex nonces do not trigger
+false-positive safety or credential-exfiltration refusals across active
+providers and `mulgae heartbeat`. Malformed JSON, duplicate keys, missing bindings, wrong
 binding types, and binding mismatches remain rejected. Review prompts own
 workspace-selective guidance. Invalid capability formatting,
 unbound fixture evidence, security-policy violations, and login-required

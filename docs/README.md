@@ -141,20 +141,31 @@ replace temporary links and retire the dossier and its TODO entry.
 ## Live review reliability and ZCode efficiency
 
 [EPIC-018](roadmap/README.md#epic-018-live-review-reliability-extraction-fidelity-and-zcode-efficiency)
-targets verified live-review reliability, structured-extraction, requirements
-assessment, and ZCode execution bottlenecks across six sequential Tasks
+delivers live-review reliability, structured-extraction, requirements
+assessment, and ZCode efficiency improvements across six completed Tasks
 (`TASK-088` through `TASK-093`): fail-safe timeout publication and requirements
 error/diagnostic isolation, extraction prompt alignment and per-item
-requirements verification, lossless `001-initial` read-plan compaction,
-same-profile ZCode qualification sharing and Git-scope tool hygiene, readiness
-fixture wording hardening (`v4`), and a single-goroutine batched coordinator
-event loop. Its
-[temporary execution dossier](todo/TODO-LIVE-REVIEW-RELIABILITY-AND-ZCODE-EFFICIENCY.md)
-serves as the `Detailed SOT` during implementation while keeping `DF-030` ZCode
-Seatbelt hardening, Config v5, and `dd91e69` complete-report retention
-unchanged. At final closeout, promote durable outcomes to the canonical
-specifications, architecture, and ZCode ADR, replace temporary links, and retire
-the dossier and its TODO entry.
+requirements verification, lossless `001-initial` read-plan compaction
+(`review:live-read-plan` v2), same-profile ZCode qualification sharing and
+Git-scope tool hygiene, readiness fixture wording hardening (`v4`), and a
+single-goroutine batched FIFO coordinator event loop, while keeping `DF-030`
+ZCode outer Seatbelt hardening, Config v5, public JSON schemas, all-or-nothing
+findings, and `dd91e69` complete-report retention unchanged. Its member Tasks,
+cold whole-Epic validation, and integrated gates (`make test-offline`,
+`make test-release`, live `make test-agy` for `TASK-090`, mandatory live ZCode
+`make test-e2e` and multi-role `--stage` + `--requirements` verification, and
+Master's `make test` check, with non-ZCode `TASK-092` live probes explicitly
+deferred to the release gate per `EPIC-014` quota policy) are complete, its
+temporary execution dossier is retired, and its durable outcomes are promoted
+to [architecture](architecture/README.md), [contracts](specs/contracts.md),
+[security](specs/security.md),
+[live workspace and Git review](specs/live-workspace-and-git-review.md),
+[review completeness and iteration](specs/review-completeness-and-iteration.md),
+[implementation guidance](implementation-tips/README.md),
+[ZCode transport ADR](architecture-decision-records/zcode-app-server-transport.md),
+[AGY stream-json transport ADR](architecture-decision-records/agy-stream-json-transport.md),
+and embedded prompt assets; Master accepted the completed Epic result on
+2026-11-23.
 
 ## Source-of-truth precedence
 
