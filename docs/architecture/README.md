@@ -64,7 +64,7 @@ Its production import allowlist is `bytes`, `encoding/json`, `fmt`, `io` and
 `unicode/utf8`; the leaf-import guard requires both leaf packages to exist and
 checks tagged files too. Query/report keep their local wrapper functions and
 errors. Provider review/followup, schema-adapter, filesystem, MCP, capability,
-AGY, corruption, archive, diagnostic/cleanup and protocol-line parsers retain
+corruption, archive, diagnostic/cleanup and protocol-line parsers retain
 their separate implementations and acceptance rules.
 
 ### Ownership guards

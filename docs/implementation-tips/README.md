@@ -557,15 +557,14 @@ complete gate. A pass using only a short canonical `TMPDIR` does not verify the
 default environment.
 
 For TASK-064's provider-mechanics extraction, keep the class controls
-`TestProtocolStringResponseMatches`, `TestProtocolDiagnosticIdentifierGrammar`,
-and `TestLiveReadPlanMechanics` alongside the existing family tests.
+`TestProtocolStringResponseMatches` and
+`TestProtocolDiagnosticIdentifierGrammar` alongside the existing family tests.
 Diagnostic grammar checks include byte and Unicode boundaries; command and path
 checks preserve family normalization, original errors and admission counts.
 Native admission must read no file bodies, while evidence reads retain content
-validation. Preserve AGY permission codecs and natural exit, and ZCode's
-post-turn stream-end acceptance. Run focused checks and completion gates
-serially in the native default environment; scripted and compile-only checks
-do not certify deferred non-ZCode live behavior.
+validation. Preserve ZCode's post-turn stream-end acceptance. Run focused checks
+and completion gates serially in the native default environment; scripted and
+compile-only checks do not certify deferred non-ZCode live behavior.
 
 EPIC-013 proves its reuse rules with deterministic counts and call traces,
 never timing. Count digest, defensive-copy, construction and whole-support
@@ -671,11 +670,11 @@ Do not restore retired
 dirty/patch/stdin selectors, full capture identity, batch execution or comparison.
 
 Run the current complete `make test` gate before EPIC-008 integrated acceptance.
-Its mandatory live checks use ZCode; `make test-e2e-opt-in` retains its existing
-Codex opt-in/skip policy. Other provider campaigns need their applicable
-authority. Registration inspection alone is not supported-client execution
-proof. Distinguish deterministic, exact-binary, actual-client and live-provider
-evidence.
+Its mandatory live checks use ZCode (the historical Codex opt-in target
+`make test-e2e-opt-in` was retired in `v0.1.28` with the Codex review provider).
+Other provider campaigns need their applicable authority. Registration
+inspection alone is not supported-client execution proof. Distinguish
+deterministic, exact-binary, actual-client and live-provider evidence.
 
 EPIC-008 additionally needs one explicitly authorized bounded live
 requirements-bearing review through existing routes. Reuse that result for
