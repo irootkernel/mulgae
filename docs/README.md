@@ -54,17 +54,18 @@ are available. Git-bound requirements execution includes verified CLI/MCP pages,
 content resources and rendered reports. TASK-033 has completed integrated
 full/live/client certification.
 
-[AGY stream-JSON transport](architecture-decision-records/agy-stream-json-transport.md)
-records the implemented single-account route for
-[EPIC-011](roadmap/README.md#epic-011-agy-stream-json-review-provider).
-The implemented provider portfolio is ZCode, Grok, Codex and AGY. New policy
-prefers AGY for documentation when available; AGY uses one default Gemini
-account. Its durable design is in the
-[transport decision](architecture-decision-records/agy-stream-json-transport.md).
-Cursor ACP support ([EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider),
-[deprecated Cursor ADR](architecture-decision-records/cursor-acp-transport.md))
-has been retired from the active portfolio. The roadmap records the historical
-acceptance of EPIC-010 and EPIC-011.
+The active provider portfolio is ZCode and Grok. Cursor ACP
+([EPIC-010](roadmap/README.md#epic-010-cursor-acp-review-provider),
+[retired Cursor ADR](architecture-decision-records/cursor-acp-transport.md)),
+Codex app-server review provider
+([EPIC-005](roadmap/README.md#epic-005-codex-app-server-provider-transport),
+[retired Codex ADR](architecture-decision-records/codex-app-server-transport.md)),
+and AGY stream-JSON review provider
+([EPIC-011](roadmap/README.md#epic-011-agy-stream-json-review-provider),
+[retired AGY ADR](architecture-decision-records/agy-stream-json-transport.md))
+have been retired from the active review provider portfolio (Codex remains
+verified as an external MCP client). The roadmap records their historical
+acceptance.
 
 [EPIC-012 correctness and historical compatibility](roadmap/README.md#epic-012-correctness-and-historical-compatibility)
 has completed its member Tasks (`TASK-046` through `TASK-052`), the

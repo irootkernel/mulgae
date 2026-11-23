@@ -160,7 +160,7 @@ func composeProductionRuntimeGraph(
 	for _, item := range []struct {
 		family     reviewrun.Family
 		credential providercli.CredentialSourceFamily
-	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}, {reviewrun.FamilyCodex, providercli.CredentialSourceCodex}, {reviewrun.FamilyAgy, providercli.CredentialSourceAgy}} {
+	}{{reviewrun.FamilyZCode, providercli.CredentialSourceZCode}, {reviewrun.FamilyGrok, providercli.CredentialSourceGrok}} {
 		value, policyErr := providercli.RuntimeSafetyPolicyForFamily(item.credential)
 		if policyErr != nil {
 			return nil, fmt.Errorf("production graph: %s runtime safety policy: %w", item.family, policyErr)
@@ -316,26 +316,11 @@ func productionInstanceFamilies(
 		familyName := configured.PrimaryProvider
 		family := reviewrun.Family(familyName)
 		instance := familyName + "-" + string(role)
-		credentialProfile := ""
-		if family == reviewrun.FamilyCodex && config.Providers.Codex != nil && config.Providers.Codex.DefaultCredentialProfile != "" {
-			credentialProfile = configured.CredentialProfile
-			if credentialProfile == "" {
-				credentialProfile = config.Providers.Codex.DefaultCredentialProfile
-			}
-			instance = familyName + "-" + credentialProfile + "-" + string(role)
-		}
 		switch family {
 		case reviewrun.FamilyZCode:
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[family]
 		case reviewrun.FamilyGrok:
 			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceGrok, policies[family]
-		case reviewrun.FamilyCodex:
-			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceCodex, policies[family]
-			if credentialProfile != "" {
-				sourceRoots[instance], _ = config.Providers.Codex.CredentialHome(credentialProfile)
-			}
-		case reviewrun.FamilyAgy:
-			instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[family]
 		default:
 			return nil, nil, nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
 		}
@@ -346,28 +331,6 @@ func productionInstanceFamilies(
 		// Credential projection remains lazy until the namespace is acquired.
 		instance := string(reviewrun.FamilyGrok) + "-" + string(domain.RoleLogic)
 		instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceGrok, policies[reviewrun.FamilyGrok]
-	}
-	if config.Providers.Agy != nil {
-		// Heartbeat qualifies the fixed synthetic logic candidate even when
-		// generated project policy assigns AGY only to documentation.
-		instance := string(reviewrun.FamilyAgy) + "-" + string(domain.RoleLogic)
-		instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceAgy, policies[reviewrun.FamilyAgy]
-	}
-	if codex := config.Providers.Codex; codex != nil {
-		seen := make(map[string]struct{}, len(sourceRoots))
-		for _, home := range sourceRoots {
-			seen[home] = struct{}{}
-		}
-		for _, entry := range codex.CredentialHomes {
-			if entry.Home == "" {
-				continue
-			}
-			if _, exists := seen[entry.Home]; exists {
-				continue
-			}
-			sourceRoots["profile-home-"+entry.Profile] = entry.Home
-			seen[entry.Home] = struct{}{}
-		}
 	}
 	return instanceFamilies, instancePolicies, sourceRoots, nil
 }

@@ -13,15 +13,13 @@ import (
 )
 
 func TestFamiliesAndGuidanceUseCanonicalOrder(t *testing.T) {
-	want := []Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyAgy}
+	want := []Family{FamilyZCode, FamilyGrok}
 	if got := Families(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Families() = %v, want %v", got, want)
 	}
 	guidance := []VersionGuidance{
 		{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 		{Family: FamilyGrok, Minimum: "1.0.89", VerifiedLatest: "1.0.89"},
-		{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
-		{Family: FamilyAgy, Minimum: "1.2.9", VerifiedLatest: "1.4.2"},
 	}
 	for _, want := range guidance {
 		got, ok := Guidance(want.Family)
@@ -380,7 +378,6 @@ func TestDiscoverProviderProfilesUsesIdentityOnlyZCodeNodeLauncher(t *testing.T)
 		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
 		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
 		"grok":          discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.89"),
-		"codex":         discoveredExecutable(t, "codex", "/opt/providers/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
 	if err != nil {
@@ -486,7 +483,7 @@ func TestDiscoverConfiguredProviderProfilesRejectsInvalidConfiguredTuplesBeforeO
 	for name, configured := range map[string]map[Family][]string{
 		"unknown family":   {Family("other"): {"/opt/providers/other"}},
 		"empty tuple":      {FamilyZCode: {}},
-		"extra path":       {FamilyGrok: {"/opt/providers/agy", "/opt/providers/other"}},
+		"extra path":       {FamilyGrok: {"/opt/providers/grok", "/opt/providers/other"}},
 		"extra app bundle": {FamilyZCode: {"/opt/providers/ZCode.app", "/opt/providers/other.app"}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -541,27 +538,18 @@ func TestDiscoverProviderProfilesDoesNotPinHistoricalProvenance(t *testing.T) {
 		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
 		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
 		"grok":          discoveredExecutable(t, "grok", "/new/location/grok", "1.0.89"),
-		"codex":         discoveredExecutable(t, "codex", "/new/location/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
 	if err != nil {
 		t.Fatalf("DiscoverProviderProfiles() error = %v", err)
 	}
-	sawAgy := false
+	if len(profiles) != 2 {
+		t.Fatalf("profiles = %d, want 2", len(profiles))
+	}
 	for _, profile := range profiles {
-		if profile.Family() == FamilyAgy {
-			sawAgy = true
-			if profile.Available() || profile.Reason() != "executable_not_found" {
-				t.Fatalf("agy missing executable = available %t reason %q", profile.Available(), profile.Reason())
-			}
-			continue
-		}
 		if profile.Available() || profile.Reason() != "unqualified_discovery" {
 			t.Fatalf("%s unexpectedly routable: %s", profile.Family(), profile.Reason())
 		}
-	}
-	if !sawAgy {
-		t.Fatal("agy discovery was not admitted")
 	}
 }
 
@@ -572,7 +560,6 @@ func TestDiscoverProviderProfilesTreatsUnparseableAsYellowUnavailable(t *testing
 		zcodeExecutable: discoveredExecutable(t, zcodeExecutable, zcodeExecutable, "0.16.5"),
 		zcodeLauncher:   discoveredExecutable(t, zcodeLauncher, zcodeLauncher, "0.16.5"),
 		"grok":          discoveredExecutable(t, "grok", "/opt/providers/grok", "1.0.89"),
-		"codex":         discoveredExecutable(t, "codex", "/opt/providers/codex", "0.149.0"),
 	}}
 	profiles, err := DiscoverProviderProfiles(context.Background(), inspector)
 	if err != nil {

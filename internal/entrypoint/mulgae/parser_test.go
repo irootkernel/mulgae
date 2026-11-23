@@ -93,18 +93,19 @@ func TestParseInitForms(t *testing.T) {
 	}
 	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/other","project_name":"other-project","context":"src/review","selection":{"mode":"selected","provider_ids":["zcode","grok"]},"roles":["logic"],"overrides":{},"overwrite":false,"output_format":"human"}`)
 
-	codex := mustParse(t, []string{"init", "--providers", "codex", "--codex-executable", "/opt/homebrew/bin/codex", "--codex-model", "gpt-5.3-codex", "--codex-reasoning-effort", "xhigh"})
-	codexRequest, ok := codex.Init()
-	if !ok {
-		t.Fatal("Codex init invocation has no init request")
-	}
-	executable, model, effort := codexRequest.CodexOverrides()
-	if executable != "/opt/homebrew/bin/codex" || model != "gpt-5.3-codex" || effort != "xhigh" {
-		t.Fatalf("Codex overrides = %q/%q/%q", executable, model, effort)
-	}
-	assertRequestJSON(t, codex, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"init","project_root":"/work/project","project_name":"project","context":null,"selection":{"mode":"selected","provider_ids":["codex"]},"roles":["logic"],"overrides":{"codex_executable":"/opt/homebrew/bin/codex","codex_model":"gpt-5.3-codex","codex_reasoning_effort":"xhigh"},"overwrite":false,"output_format":"human"}`)
-	if _, err := Parse([]string{"init", "--providers", "codex", "--codex-reasoning-effort", "maximum"}, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
-		t.Fatalf("invalid Codex reasoning effort error = %v, want usage", err)
+	for _, retiredInit := range [][]string{
+		{"init", "--providers", "codex"},
+		{"init", "--providers", "agy"},
+		{"init", "--codex-executable", "/opt/homebrew/bin/codex"},
+		{"init", "--codex-model", "gpt-5.3-codex"},
+		{"init", "--codex-reasoning-effort", "xhigh"},
+		{"init", "--agy-executable", "/opt/homebrew/bin/agy"},
+		{"init", "--agy-model", "gemini-3"},
+		{"init", "--agy-reasoning-effort", "max"},
+	} {
+		if _, err := Parse(retiredInit, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
+			t.Errorf("retired init %v error = %v, want usage", retiredInit, err)
+		}
 	}
 
 	grok := mustParse(t, []string{"init", "--providers", "grok", "--grok-executable", "/opt/homebrew/bin/grok", "--grok-model", "grok-4.5", "--grok-reasoning-effort", "high-precision"})
@@ -218,12 +219,12 @@ func TestParseDoctorAndConfigForms(t *testing.T) {
 }
 
 func TestParseHeartbeatRequiresExplicitProviderAndPreservesAuthorization(t *testing.T) {
-	invocation := mustParse(t, []string{"heartbeat", "--provider", "codex", "--credential-profile", "primary", "--authorize-live-request", "--output", "json"})
+	invocation := mustParse(t, []string{"heartbeat", "--provider", "zcode", "--authorize-live-request", "--output", "json"})
 	request, ok := invocation.Heartbeat()
-	if !ok || request.ProjectRoot() != testProjectRoot || request.ProviderID() != "codex" || request.CredentialProfile() != "primary" || !request.Authorized() {
+	if !ok || request.ProjectRoot() != testProjectRoot || request.ProviderID() != "zcode" || !request.Authorized() {
 		t.Fatalf("heartbeat request = %#v, %t", request, ok)
 	}
-	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"heartbeat","project_root":"/work/project","provider_id":"codex","credential_profile":"primary","authorize_live_request":true,"output_format":"json"}`)
+	assertRequestJSON(t, invocation, `{"request_id":"i_01234567-89ab-7cde-8f01-23456789abcd","command":"heartbeat","project_root":"/work/project","provider_id":"zcode","authorize_live_request":true,"output_format":"json"}`)
 
 	unauthorized := mustParse(t, []string{"heartbeat", "--provider", "grok"})
 	request, ok = unauthorized.Heartbeat()
@@ -233,8 +234,8 @@ func TestParseHeartbeatRequiresExplicitProviderAndPreservesAuthorization(t *test
 	for _, arguments := range [][]string{
 		{"heartbeat"},
 		{"heartbeat", "--provider", "unknown"},
-		{"heartbeat", "--provider", "agy", "--credential-profile", "primary"},
-		{"heartbeat", "--provider", "agy", "--authorize-live-request", "--authorize-live-request"},
+		{"heartbeat", "--provider", "zcode", "--credential-profile", "primary"},
+		{"heartbeat", "--provider", "zcode", "--authorize-live-request", "--authorize-live-request"},
 	} {
 		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)
@@ -242,10 +243,14 @@ func TestParseHeartbeatRequiresExplicitProviderAndPreservesAuthorization(t *test
 	}
 }
 
-func TestParseHeartbeatRejectsRetiredCursorProvider(t *testing.T) {
+func TestParseHeartbeatRejectsRetiredProviders(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"heartbeat", "--provider", "cursor"},
 		{"heartbeat", "--provider", "cursor", "--authorize-live-request", "--output", "json"},
+		{"heartbeat", "--provider", "codex"},
+		{"heartbeat", "--provider", "codex", "--authorize-live-request", "--output", "json"},
+		{"heartbeat", "--provider", "agy"},
+		{"heartbeat", "--provider", "agy", "--authorize-live-request", "--output", "json"},
 	} {
 		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)

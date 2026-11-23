@@ -34,8 +34,8 @@ import (
 )
 
 const (
-	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v8.schema.json"
-	heartbeatResultSchema = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v5.schema.json"
+	doctorResultSchema    = "https://mulgae.local/schemas/mulgae-doctor-result.v9.schema.json"
+	heartbeatResultSchema = "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v6.schema.json"
 )
 
 type applicationCommandHandler func(*Application, context.Context, Invocation, string) execution
@@ -628,8 +628,6 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 	selection := appinit.Selection{Mode: appinit.SelectionMode(mode), ProviderIDs: providerIDs}
 	zcodeAppBundle, zcodeModel, zcodeReasoningEffort, zcodeModelSet, zcodeReasoningEffortSet := request.ZCodeOverrides()
 	grokExecutable, grokModel, grokReasoningEffort, grokModelSet, grokReasoningEffortSet := request.GrokOverrides()
-	codexExecutable, codexModel, codexReasoningEffort := request.CodexOverrides()
-	agyExecutable, agyModel, agyReasoningEffort, agyModelSet, agyReasoningEffortSet := request.AgyOverrides()
 
 	// Destination proof precedes native-account inspection so create-once init
 	// detects an existing pair deterministically and native failures can
@@ -741,9 +739,6 @@ func (application *Application) handleInit(ctx context.Context, invocation Invoc
 			ZCodeModelSet: zcodeModelSet, ZCodeReasoningEffortSet: zcodeReasoningEffortSet, GrokExecutable: grokExecutable,
 			GrokModel: grokModel, GrokReasoningEffort: grokReasoningEffort,
 			GrokModelSet: grokModelSet, GrokReasoningEffortSet: grokReasoningEffortSet,
-			CodexExecutable: codexExecutable, CodexModel: codexModel, CodexReasoningEffort: codexReasoningEffort,
-			AgyExecutable: agyExecutable, AgyModel: agyModel, AgyReasoningEffort: agyReasoningEffort,
-			AgyModelSet: agyModelSet, AgyReasoningEffortSet: agyReasoningEffortSet,
 		},
 		RefreshLocal:         request.RefreshLocal(),
 		ProjectPolicyOptions: request.ProjectPolicyOptions(),
@@ -909,9 +904,6 @@ func configLocalityFailureCode(err error, fallback string) string {
 }
 
 func localProviderAdmission(evidence doctor.ProviderEvidenceRecord, family string) (admitted, unsafe bool) {
-	if family == "agy" {
-		return false, false
-	}
 	if evidence.SchemaID != "https://mulgae.local/schemas/mulgae-provider-contract-evidence.v4.schema.json" || evidence.ProviderID != family || evidence.URI == "" || len(evidence.SHA256) != 64 {
 		return false, false
 	}
@@ -1031,7 +1023,7 @@ func (application *Application) handleHeartbeat(ctx context.Context, invocation 
 		return execution{failure: executionFailureFor(invocation.Command(), errors.New("missing request"), domain.FailureInternal)}
 	}
 	result := appheartbeat.Result{
-		SchemaVersion: appheartbeat.SchemaVersion, CheckedAt: application.clock.Now().UTC(), ProviderID: request.ProviderID(), CredentialProfile: request.CredentialProfile(),
+		SchemaVersion: appheartbeat.SchemaVersion, CheckedAt: application.clock.Now().UTC(), ProviderID: request.ProviderID(),
 		Attempted: false, Status: "not_authorized", ReasonCode: "live_authorization_required",
 		AuthenticationMayOccur: true, NetworkMayOccur: true, CostMayOccur: true, RemoteLoggingMayOccur: true,
 	}
@@ -1043,7 +1035,7 @@ func (application *Application) handleHeartbeat(ctx context.Context, invocation 
 		if nilApplicationDependency(application.heartbeats) {
 			return execution{failure: executionFailureFor(invocation.Command(), errors.New("heartbeat service unavailable"), domain.FailureInternal)}
 		}
-		result, err = application.heartbeats.ProbeProvider(ctx, root, appheartbeat.Request{ProviderID: request.ProviderID(), CredentialProfile: request.CredentialProfile()})
+		result, err = application.heartbeats.ProbeProvider(ctx, root, appheartbeat.Request{ProviderID: request.ProviderID()})
 		if err != nil {
 			return execution{failure: executionFailureFor(invocation.Command(), err, reducedFailureClass(err, domain.FailureInternal))}
 		}

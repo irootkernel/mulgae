@@ -169,3 +169,94 @@ func TestCursorRetirementContractsRejectCursorWhilePredecessorsAcceptIt(t *testi
 		t.Fatal("command-result v24 still defines cursor_executable override")
 	}
 }
+
+func TestCodexAgyRetirementContractsRejectRetiredFamiliesWhilePredecessorsAcceptThem(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	validator := newBuiltinValidator(t)
+
+	// Heartbeat v6 rejects codex, agy, and credential_profile while frozen v5 still accepts them.
+	for _, retired := range []string{"codex", "agy"} {
+		hb := readAssetJSON(t, "examples/provider-heartbeat-result.v6.valid.json").(map[string]any)
+		hb["provider_id"] = retired
+		raw, err := json.Marshal(hb)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validator.Validate(ctx, mustAssetID(t, "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v6.schema.json"), raw); err == nil {
+			t.Fatalf("heartbeat v6 accepted retired provider %s", retired)
+		}
+		hb["schema_version"] = "mulgae-provider-heartbeat-result.v5"
+		hb["credential_profile"] = ""
+		raw, err = json.Marshal(hb)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validator.Validate(ctx, mustAssetID(t, "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v5.schema.json"), raw); err != nil {
+			t.Fatalf("frozen heartbeat v5 rejected historical %s: %v", retired, err)
+		}
+	}
+	hbWithProfile := readAssetJSON(t, "examples/provider-heartbeat-result.v6.valid.json").(map[string]any)
+	hbWithProfile["credential_profile"] = ""
+	raw, err := json.Marshal(hbWithProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validator.Validate(ctx, mustAssetID(t, "https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v6.schema.json"), raw); err == nil {
+		t.Fatal("heartbeat v6 accepted retired credential_profile field")
+	}
+
+	// Review preflight v13 rejects codex and agy while frozen v12 still accepts them.
+	for _, retired := range []string{"codex", "agy"} {
+		pf := readAssetJSON(t, "examples/review-preflight.v13.valid.json").(map[string]any)
+		pf["transmissions"].([]any)[0].(map[string]any)["provider_family"] = retired
+		raw, err := json.Marshal(pf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validator.Validate(ctx, mustAssetID(t, "https://mulgae.local/schemas/mulgae-review-preflight.v13.schema.json"), raw); err == nil {
+			t.Fatalf("review-preflight v13 accepted retired provider_family %s", retired)
+		}
+		pf["schema_version"] = "mulgae-review-preflight.v12"
+		raw, err = json.Marshal(pf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validator.Validate(ctx, mustAssetID(t, "https://mulgae.local/schemas/mulgae-review-preflight.v12.schema.json"), raw); err != nil {
+			t.Fatalf("frozen review-preflight v12 rejected historical %s: %v", retired, err)
+		}
+	}
+
+	// Doctor v9 enforces two-family inventory and rejects codex/agy in configured_provider_ids.
+	for _, retired := range []string{"codex", "agy"} {
+		doc := readAssetJSON(t, "examples/doctor-result.v9.valid.json").(map[string]any)
+		doc["configured_provider_ids"] = []any{retired}
+		raw, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validator.Validate(ctx, mustAssetID(t, "https://mulgae.local/schemas/mulgae-doctor-result.v9.schema.json"), raw); err == nil {
+			t.Fatalf("doctor v9 accepted retired configured_provider_ids %s", retired)
+		}
+	}
+
+	// Command result v25 removes retired discovery defs, init overrides, and heartbeat credential_profile.
+	cmd := readAssetJSON(t, "schemas/mulgae-command-result.v25.schema.json").(map[string]any)
+	defs := cmd["$defs"].(map[string]any)
+	for _, retiredDef := range []string{"init_discovery_codex", "init_discovery_agy"} {
+		if _, exists := defs[retiredDef]; exists {
+			t.Fatalf("command-result v25 still defines %s", retiredDef)
+		}
+	}
+	requests := defs["requests"].(map[string]any)
+	overrides := requests["init_accepted"].(map[string]any)["properties"].(map[string]any)["overrides"].(map[string]any)["properties"].(map[string]any)
+	for _, retiredOverride := range []string{"codex_executable", "codex_model", "codex_reasoning_effort", "agy_executable", "agy_model", "agy_reasoning_effort"} {
+		if _, exists := overrides[retiredOverride]; exists {
+			t.Fatalf("command-result v25 still defines %s override", retiredOverride)
+		}
+	}
+	hbReqProps := requests["heartbeat"].(map[string]any)["properties"].(map[string]any)
+	if _, exists := hbReqProps["credential_profile"]; exists {
+		t.Fatal("command-result v25 heartbeat request still defines credential_profile")
+	}
+}

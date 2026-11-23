@@ -10,10 +10,9 @@ neutral `~/.mulgae/home` process/session directory. Mulgae preserves a safe
 regular guide there and injects it once. It does not load project or ancestor
 instruction files as authority. Project context remains framed untrusted data.
 
-ZCode, Grok and AGY require an outer Seatbelt policy for review and
-extraction, and every provider live boundary (including Codex's
-`permissions.mulgae` profile) denies shared `herdr-core` control-plane roots
-and sockets. The Seatbelt guard denies source, Git and guide writes;
+ZCode and Grok require an outer Seatbelt policy for review and extraction, and
+every provider live boundary denies shared `herdr-core` control-plane roots and
+sockets. The Seatbelt guard denies source, Git and guide writes;
 credential-root reads, writes and links; control-plane root and socket access;
 and Unix sockets at protected roots.
 
@@ -28,22 +27,8 @@ same-UID sentinel survivor and `mtime`/`ctime` stability checks). Staged
 prompts live read-only (`0400`) under `<scratch>/input/` (protected in
 `ReadOnlyRoots`), and staged outputs are read strictly after `ESRCH` via
 `O_NOFOLLOW` single-file `Nlink == 1` validation and completion-nonce
-verification.
-
-Codex uses its native read-only profile,
-approvals never, and explicit credential-root and control-plane denial. All
-configured credential homes are protected, including unselected profiles and
-aliases. Provider namespaces and scratch are private and are removed after
+verification. Provider namespaces and scratch are private and are removed after
 verified process drain and terminal-session close.
-
-AGY requires native plan mode and the outer guard. It imports only the default
-Gemini token into a private writable Gemini directory. The original token is
-never written back. Adapter-owned settings, agent policy and an empty MCP
-configuration are audited after execution. Indexed command guards and an
-explicit `command(1)` denial prevent native prefix grants from authorizing
-appended commands. Mulgae checks exact tool identity, inputs and completion.
-Unknown tools or failed lifecycle checks cannot publish a report. An uncertain
-drain retains the namespace, policy and token copy; cleanup does not erase them.
 
 The outer guard denies writes outside the invocation's admitted private runtime
 directories as well as reads, links and Unix sockets at protected credential

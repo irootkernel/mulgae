@@ -700,7 +700,7 @@ func (observation ProviderExecutionObservation) Validate() error {
 			return fmt.Errorf("provider execution observation: result input identity does not match invocation")
 		}
 		if hasTransport {
-			if transport.Channel() == ProviderPacketChannelStdin && !canonicalProcess.StdinWriteReceipt().Complete() {
+			if (transport.Channel() == ProviderPacketChannelStdin || transport.Channel() == ProviderPacketChannelProtocol) && !canonicalProcess.StdinWriteReceipt().Complete() {
 				return fmt.Errorf("provider execution observation: successful status requires complete packet transport")
 			}
 		} else if !canonicalProcess.StdinWriteReceipt().Complete() {
@@ -1046,10 +1046,10 @@ func validateProviderExecutionStdinReceipt(invocation ProviderInvocation, proces
 	case ProviderPacketChannelProtocol:
 		// Protocol frames also flow over the child stdin pipe, so their
 		// transport evidence admits the conversation's incremental stdin
-		// write receipt instead of a single upfront packet write.
-		if !receipt.Complete() {
-			return fmt.Errorf("protocol stdin receipt is incomplete")
-		}
+		// write receipt instead of a single upfront packet write. A failed
+		// conversation may terminate with an incomplete frame write when the
+		// child exits before reading stdin; successful observations require
+		// receipt.Complete() in Validate above.
 	case ProviderPacketChannelTerminal:
 		if !transport.PreStartIdentity().Valid() ||
 			!transport.PostTerminationIdentity().Valid() ||
@@ -1101,10 +1101,21 @@ func providerExecutionStatusMatchesProcessObservation(
 		// reported by a process that ran and exited after a complete stdin
 		// write, or by a live terminal pane intentionally torn down after a
 		// structured provider error, the same shape as authentication, quota
-		// and rate limit.
+		// and rate limit. A protocol app-server that exits nonzero while a
+		// frame is being written to stdin also produces an incomplete
+		// incremental stdin receipt on an otherwise valid exited process.
+		protocolEarlyExit := false
+		if transport, hasTransport := processObservation.ProviderPacketTransportReceipt(); hasTransport &&
+			transport.Channel() == ProviderPacketChannelProtocol &&
+			(processObservation.Termination() == ProcessTerminationExited ||
+				processObservation.Termination() == ProcessTerminationStdinIncomplete) &&
+			!processObservation.Succeeded() {
+			protocolEarlyExit = true
+		}
 		return processObservation.Termination() == ProcessTerminationStartUnavailable ||
 			(processObservation.Termination() == ProcessTerminationExited &&
 				processObservation.StdinWriteReceipt().Complete()) ||
+			protocolEarlyExit ||
 			terminalCompleted
 	case ProviderExecutionStatusSecurityViolation:
 		switch processObservation.Termination() {

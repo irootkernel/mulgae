@@ -225,7 +225,7 @@ func TestIntegrationRequirementsPreflightCLIAndMCPRemainProviderFree(t *testing.
 	if err := json.Unmarshal(cli.Stdout(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.SchemaVersion != "mulgae-command-result.v24" || bytes.Contains(cli.Stdout(), []byte("Private requirement")) || bytes.Contains(cli.Stdout(), []byte("Private criterion")) {
+	if envelope.SchemaVersion != "mulgae-command-result.v25" || bytes.Contains(cli.Stdout(), []byte("Private requirement")) || bytes.Contains(cli.Stdout(), []byte("Private criterion")) {
 		t.Fatal("preflight leaked prose or used obsolete envelope")
 	}
 	artifact, _ := ports.NewAnchoredRoot(filepath.Join(root.String(), ".mulgae"))
@@ -259,7 +259,7 @@ func TestIntegrationRequirementsPreflightCLIAndMCPRemainProviderFree(t *testing.
 	if err := json.Unmarshal(failed.Stdout(), &failureEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if failed.ExitCode() == 0 || failureEnvelope.SchemaVersion != "mulgae-command-result.v24" || failureEnvelope.Result.Kind != "review_preflight_failed" || failureEnvelope.Result.SchemaVersion != "mulgae-review-preflight.v12" || failureEnvelope.Result.Eligible {
+	if failed.ExitCode() == 0 || failureEnvelope.SchemaVersion != "mulgae-command-result.v25" || failureEnvelope.Result.Kind != "review_preflight_failed" || failureEnvelope.Result.SchemaVersion != "mulgae-review-preflight.v13" || failureEnvelope.Result.Eligible {
 		t.Fatalf("preflight failure version projection: %s", failed.Stdout())
 	}
 	if _, err := backend.PreflightReview(context.Background(), rejectionRequestID, input); err == nil {

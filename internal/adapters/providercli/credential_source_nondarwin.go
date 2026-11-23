@@ -15,8 +15,6 @@ type CredentialSourceFamily string
 const (
 	CredentialSourceZCode CredentialSourceFamily = "zcode"
 	CredentialSourceGrok  CredentialSourceFamily = "grok"
-	CredentialSourceCodex CredentialSourceFamily = "codex"
-	CredentialSourceAgy   CredentialSourceFamily = "agy"
 )
 
 // NewCredentialProjectingNamespaceFactory fails closed where descriptor-based

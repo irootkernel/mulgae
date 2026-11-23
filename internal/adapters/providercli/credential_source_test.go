@@ -24,7 +24,6 @@ func TestCredentialSourceProjectsOnlyDeclaredFamilyFiles(t *testing.T) {
 		wantSeeds   int
 	}{
 		{"grok_auth", CredentialSourceGrok, ".grok/auth.json", ports.CredentialProjectionGrokAuth, "declared", 1},
-		{"codex_auth", CredentialSourceCodex, ".codex/auth.json", ports.CredentialProjectionCodexAuth, "declared", 1},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -175,42 +174,6 @@ func TestGrokCredentialProjectionRejectsHardlinkedAndEmptyAuth(t *testing.T) {
 	})
 }
 
-func TestCodexCredentialProjectionUsesConfiguredCodexHome(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("Darwin descriptor traversal is required")
-	}
-	runtimeHome := credentialSourceTempDir(t)
-	configuredHome := credentialSourceTempDir(t)
-	writeCredentialSource(t, runtimeHome, ".codex/auth.json", "ambient")
-	writeCredentialSource(t, configuredHome, "auth.json", "configured")
-	writeCredentialSource(t, configuredHome, "config.toml", "must-not-project")
-	base, err := NewNamespaceFactory(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(
-		base, runtimeHome,
-		map[string]CredentialSourceFamily{"codex-work-logic": CredentialSourceCodex},
-		map[string]RuntimeSafetyPolicy{"codex-work-logic": mustCredentialSourcePolicy(t, CredentialSourceCodex)},
-		nil, map[string]string{"codex-work-logic": configuredHome},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease, err := factory.AcquireProviderNamespace(context.Background(), "codex-work-logic", FamilyCodex)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lease.DrainTerminal(context.Background())
-	concrete := lease.(*namespaceLease)
-	data, err := os.ReadFile(filepath.Join(concrete.root, "home", ".codex", "auth.json"))
-	if err != nil || string(data) != "configured" {
-		t.Fatalf("configured Codex home was not authoritative: %q, %v", data, err)
-	}
-	if _, err := os.Lstat(filepath.Join(concrete.root, "home", ".codex", "config.toml")); !os.IsNotExist(err) {
-		t.Fatalf("Codex config was projected: %v", err)
-	}
-}
 func mustCredentialSourcePolicy(t *testing.T, family CredentialSourceFamily) RuntimeSafetyPolicy {
 	t.Helper()
 	policy, err := RuntimeSafetyPolicyForFamily(family)
@@ -273,7 +236,7 @@ func TestCredentialProjectingNamespaceFactoryWithPoliciesRejectsPolicyDrift(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	codexPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceCodex)
+	grokPolicy, err := RuntimeSafetyPolicyForFamily(CredentialSourceGrok)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +253,7 @@ func TestCredentialProjectingNamespaceFactoryWithPoliciesRejectsPolicyDrift(t *t
 		{
 			name:     "family_mismatch",
 			families: map[string]CredentialSourceFamily{"provider": CredentialSourceZCode},
-			policies: map[string]RuntimeSafetyPolicy{"provider": codexPolicy},
+			policies: map[string]RuntimeSafetyPolicy{"provider": grokPolicy},
 		},
 		{
 			name:     "empty_identity",

@@ -22,14 +22,12 @@ func TestGroupCandidatesByFamilyRuntimeProfileSharesEquivalentZCodeProfiles(t *t
 	zcodeLogic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	zcodeSecurity := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
 	grokLogic := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
-	agyLogic := authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleLogic)
-	agySecurity := authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleSecurity)
-	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeSecurity, grokLogic, agyLogic, agySecurity})
+	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{zcodeLogic, zcodeSecurity, grokLogic})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 4 {
-		t.Fatalf("groups = %d, want 4 (1 shared ZCode, 1 Grok, 2 distinct AGY)", len(groups))
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want 2 (1 shared ZCode, 1 Grok)", len(groups))
 	}
 	batches := scheduleFamilyQualificationGroups(groups)
 	scheduled := 0
@@ -39,7 +37,7 @@ func TestGroupCandidatesByFamilyRuntimeProfileSharesEquivalentZCodeProfiles(t *t
 	if scheduled != len(groups) {
 		t.Fatalf("scheduled groups = %d, want %d: %#v", scheduled, len(groups), batches)
 	}
-	var zcodeGroups, agyGroups int
+	var zcodeGroups int
 	var zcodeRoles, grokRoles []domain.Role
 	for _, group := range groups {
 		switch group.family {
@@ -48,11 +46,6 @@ func TestGroupCandidatesByFamilyRuntimeProfileSharesEquivalentZCodeProfiles(t *t
 			zcodeRoles = group.roles
 		case FamilyGrok:
 			grokRoles = group.roles
-		case FamilyAgy:
-			agyGroups++
-			if len(group.roles) != 1 {
-				t.Fatalf("agy group roles = %v, want one per-instance role", group.roles)
-			}
 		}
 	}
 	if zcodeGroups != 1 {
@@ -60,9 +53,6 @@ func TestGroupCandidatesByFamilyRuntimeProfileSharesEquivalentZCodeProfiles(t *t
 	}
 	if !reflect.DeepEqual(zcodeRoles, []domain.Role{domain.RoleLogic, domain.RoleSecurity}) {
 		t.Fatalf("zcode roles = %v, want [logic security]", zcodeRoles)
-	}
-	if agyGroups != 2 {
-		t.Fatalf("agy groups = %d, want 2 per-instance groups", agyGroups)
 	}
 	if !reflect.DeepEqual(grokRoles, []domain.Role{domain.RoleLogic}) {
 		t.Fatalf("grok roles = %v", grokRoles)
@@ -86,11 +76,6 @@ func TestFamilyRuntimeProfileKeyRejectsCapabilityRelevantMutations(t *testing.T)
 	sibling := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
 	if familyRuntimeProfileKeyFor(sibling.Definition) != baseKey {
 		t.Fatal("equivalent ZCode siblings did not share the family profile key")
-	}
-	agyLogic := authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleLogic)
-	agySecurity := authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleSecurity)
-	if familyRuntimeProfileKeyFor(agyLogic.Definition) == familyRuntimeProfileKeyFor(agySecurity.Definition) {
-		t.Fatal("distinct AGY instances shared the family profile key")
 	}
 
 	for name, mutate := range map[string]func(*testRuntimeMutation){
@@ -203,17 +188,6 @@ func TestFamilyQualificationSharesEquivalentZCodeProfile(t *testing.T) {
 		run, calls, derives := runQualification(t, []QualifiedRunCandidate{logic, security})
 		if calls != 2 || derives != 0 || len(run.Routes()) != 2 {
 			t.Fatalf("distinct ZCode calls=%d derives=%d routes=%d, want 2/0/2", calls, derives, len(run.Routes()))
-		}
-	})
-
-	t.Run("AGY siblings remain per-instance", func(t *testing.T) {
-		candidates := []QualifiedRunCandidate{
-			authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleLogic),
-			authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleSecurity),
-		}
-		run, calls, derives := runQualification(t, candidates)
-		if calls != 2 || derives != 0 || len(run.Routes()) != 2 {
-			t.Fatalf("AGY siblings calls=%d derives=%d routes=%d, want 2/0/2", calls, derives, len(run.Routes()))
 		}
 	})
 }
@@ -376,24 +350,6 @@ func TestGrokSettingsPartitionFamilyQualification(t *testing.T) {
 	}
 }
 
-func TestCodexCredentialProfilesPartitionFamilyQualification(t *testing.T) {
-	logic := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic), func(d *testRuntimeMutation) {
-		d.family, d.instance, d.profileID = string(FamilyCodex), "codex-personal-logic", "codex-personal"
-	})
-	securitySame := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
-		d.family, d.instance, d.profileID = string(FamilyCodex), "codex-personal-security", "codex-personal"
-	})
-	securityOther := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
-		d.family, d.instance, d.profileID = string(FamilyCodex), "codex-work-security", "codex-work"
-	})
-	if familyRuntimeProfileKeyFor(logic.Definition) != familyRuntimeProfileKeyFor(securitySame.Definition) {
-		t.Fatal("same Codex credential profile did not share qualification key")
-	}
-	if familyRuntimeProfileKeyFor(logic.Definition) == familyRuntimeProfileKeyFor(securityOther.Definition) {
-		t.Fatal("different Codex credential profiles shared qualification key")
-	}
-}
-
 func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Role) QualifiedRunCandidate {
 	t.Helper()
 	instance := string(family) + "-" + string(role)
@@ -402,27 +358,6 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 	version := "1.0.34"
 	if familyGuidance, ok := Guidance(family); ok {
 		version = familyGuidance.VerifiedLatest
-	}
-	if family == FamilyAgy {
-		base := authorityCandidateForFamilyRole(t, FamilyCodex, role)
-		executable := "/private/bin/agy"
-		mutated := mutateFamilyCandidateDefinition(t, base, func(d *testRuntimeMutation) {
-			d.family = string(FamilyAgy)
-			d.instance = instance
-			d.version = version
-			d.executable = executable
-			d.launcher = executable
-			d.baseArgv = []string{executable}
-			d.profileID = "agy-profile"
-			d.runtimeSafetyPolicyIdentity = "agy-policy"
-			d.workingDirectory = "/private/work/agy"
-		})
-		mutated.Profile = DiscoveredProviderProfile{
-			family: FamilyAgy, executable: executable, launcher: executable,
-			argv: []string{executable}, sha256: mutated.Definition.ExecutableSHA256(), launcherSHA256: mutated.Definition.LauncherSHA256(),
-			reason: "unqualified_discovery",
-		}
-		return mutated
 	}
 	definition, _ := authorityProbeDefinition(t, family, instance, version, "/private/work/"+string(family))
 	limits, err := review.NewInvocationLimits(time.Second)
@@ -472,7 +407,6 @@ type testRuntimeMutation struct {
 	workingDirectory            string
 	hasLifecycle                bool
 	lifecycle                   ports.BoundedPostOutputLifecycle
-	agySettingsIdentity         string
 }
 
 func (d testRuntimeMutation) Family() string                    { return d.family }
@@ -494,7 +428,6 @@ func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 func (d testRuntimeMutation) ZCodeModel() string           { return d.zcodeModel }
 func (d testRuntimeMutation) ZCodeReasoningEffort() string { return d.zcodeReasoningEffort }
 func (d testRuntimeMutation) GrokSettingsIdentity() string { return d.grokSettingsIdentity }
-func (d testRuntimeMutation) AgySettingsIdentity() string  { return d.agySettingsIdentity }
 func (d testRuntimeMutation) ProfileID() string {
 	if d.profileID != "" {
 		return d.profileID
@@ -530,7 +463,6 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 		zcodeModel:           definition.ZCodeModel(),
 		zcodeReasoningEffort: definition.ZCodeReasoningEffort(),
 		grokSettingsIdentity: definition.GrokSettingsIdentity(),
-		agySettingsIdentity:  definition.AgySettingsIdentity(),
 		baseArgv:             append([]string(nil), definition.BaseArgv()...),
 		transportChannel:     definition.TransportChannel(), transportArgvIndex: definition.TransportArgvIndex(),
 		transportReference: definition.TransportReference(), environment: append([]ports.EnvironmentVariable(nil), definition.Environment()...),

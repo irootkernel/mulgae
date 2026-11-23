@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/irootkernel/mulgae/internal/adapters/filesystem"
-	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
 	"github.com/irootkernel/mulgae/internal/app/publication"
 	"github.com/irootkernel/mulgae/internal/app/query"
@@ -262,7 +261,7 @@ func TestIntegrationLivePublicationLockBelongsToArtifactRoot(t *testing.T) {
 	}
 }
 
-func TestIntegrationFrozenMixedEvidenceReadContentKeepsUnavailableDistinct(t *testing.T) {
+func TestIntegrationFrozenMixedEvidenceWithRetiredCodexFailsClosed(t *testing.T) {
 	corpus, err := historical.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -272,50 +271,19 @@ func TestIntegrationFrozenMixedEvidenceReadContentKeepsUnavailableDistinct(t *te
 		if c.ID != "composite-mixed-v1" {
 			continue
 		}
-		for _, mutation := range []string{"unchanged", "missing", "corrupt"} {
-			t.Run(mutation, func(t *testing.T) {
-				f := newHistoricalConsumer(t, c, validator)
-				ctx := context.Background()
-				committed, err := f.queries.ReadCommitted(ctx, f.run)
-				if err != nil {
-					t.Fatal(err)
-				}
-				claims := committed.Findings()[0].Evidence()
-				if len(claims) != 2 || claims[0].CopiedAvailability() != "verified" || claims[0].Verification() != evidence.ReceiptVerified || claims[1].CopiedAvailability() != "evidence_unavailable" || claims[1].Verification() != evidence.ReceiptUnverifiable {
-					t.Fatal("copied availability or verification changed")
-				}
-				binding, err := domain.ParseProjectBinding("sha256:" + historicalRawHash([]byte("report fixture binding")))
-				if err != nil {
-					t.Fatal(err)
-				}
-				if mutation != "unchanged" {
-					path := filepath.Join(f.root.String(), c.SessionID, c.RunID, compositesupport.ExcerptPath("F001", 0))
-					if mutation == "missing" {
-						err = os.Remove(path)
-					} else {
-						err = os.WriteFile(path, []byte("corrupt copied quote\n"), 0600)
-					}
-					if err != nil {
-						t.Fatal(err)
-					}
-					if _, err := f.reports.Render(ctx, f.run); err == nil {
-						t.Fatal("broken bound quote became historical absence")
-					}
-					if _, err := appreport.ReadContent(ctx, f.queries, f.run, binding, "", query.ContentContinuation{}); err == nil {
-						t.Fatal("read-report accepted broken bound quote")
-					}
-					return
-				}
-				chunk, err := appreport.ReadContent(ctx, f.queries, f.run, binding, "", query.ContentContinuation{})
-				if err != nil {
-					t.Fatal(err)
-				}
-				if chunk.Encoding != "utf8" || chunk.NextOffset != nil || !bytes.Contains([]byte(chunk.Content), []byte("available copied quote")) || !bytes.Contains([]byte(chunk.Content), []byte("evidence_unavailable")) || bytes.Contains([]byte(chunk.Content), []byte("historical absent quote")) {
-					t.Fatal("read-report changed mixed evidence representation or continuation")
-				}
-				_, err = f.queries.ReadEvidence(ctx, f.run, binding, "F001", committed.TargetSHA256(), 1, query.ContentContinuation{})
-				historicalArtifactFailure(t, err, "evidence_unavailable")
-			})
+		f := newHistoricalConsumer(t, c, validator)
+		ctx := context.Background()
+		_, err := f.queries.ReadCommitted(ctx, f.run)
+		historicalArtifactFailure(t, err, "retired_provider_artifact")
+		if _, err := f.reports.Render(ctx, f.run); err == nil {
+			t.Fatal("retired codex composite artifact rendered a report")
+		}
+		binding, err := domain.ParseProjectBinding("sha256:" + historicalRawHash([]byte("report fixture binding")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := appreport.ReadContent(ctx, f.queries, f.run, binding, "", query.ContentContinuation{}); err == nil {
+			t.Fatal("retired codex composite artifact served read-report content")
 		}
 		return
 	}

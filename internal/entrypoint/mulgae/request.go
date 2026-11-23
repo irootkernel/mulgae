@@ -263,14 +263,6 @@ type InitRequest struct {
 	grokReasoningEffort     string
 	hasGrokModel            bool
 	hasGrokReasoningEffort  bool
-	codexExecutable         string
-	codexModel              string
-	codexReasoningEffort    string
-	agyExecutable           string
-	agyModel                string
-	agyReasoningEffort      string
-	hasAgyModel             bool
-	hasAgyReasoningEffort   bool
 	refreshLocal            bool
 	projectPolicyOptions    bool
 }
@@ -311,12 +303,6 @@ func (request InitRequest) GrokExecutable() string { return request.grokExecutab
 func (request InitRequest) GrokOverrides() (string, string, string, bool, bool) {
 	return request.grokExecutable, request.grokModel, request.grokReasoningEffort, request.hasGrokModel, request.hasGrokReasoningEffort
 }
-func (request InitRequest) CodexOverrides() (string, string, string) {
-	return request.codexExecutable, request.codexModel, request.codexReasoningEffort
-}
-func (request InitRequest) AgyOverrides() (string, string, string, bool, bool) {
-	return request.agyExecutable, request.agyModel, request.agyReasoningEffort, request.hasAgyModel, request.hasAgyReasoningEffort
-}
 func (request InitRequest) Overwrite() bool            { return false }
 func (request InitRequest) RefreshLocal() bool         { return request.refreshLocal }
 func (request InitRequest) ProjectPolicyOptions() bool { return request.projectPolicyOptions }
@@ -329,16 +315,14 @@ type DoctorRequest struct {
 }
 
 type HeartbeatRequest struct {
-	projectRoot       string
-	providerID        string
-	credentialProfile string
-	authorized        bool
+	projectRoot string
+	providerID  string
+	authorized  bool
 }
 
-func (request HeartbeatRequest) ProjectRoot() string       { return request.projectRoot }
-func (request HeartbeatRequest) ProviderID() string        { return request.providerID }
-func (request HeartbeatRequest) CredentialProfile() string { return request.credentialProfile }
-func (request HeartbeatRequest) Authorized() bool          { return request.authorized }
+func (request HeartbeatRequest) ProjectRoot() string { return request.projectRoot }
+func (request HeartbeatRequest) ProviderID() string  { return request.providerID }
+func (request HeartbeatRequest) Authorized() bool    { return request.authorized }
 
 // ProjectRoot returns the canonical project root selected for diagnosis.
 func (request DoctorRequest) ProjectRoot() string { return request.projectRoot }

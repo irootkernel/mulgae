@@ -40,7 +40,7 @@ func TestCurrentQualifierCanonicalRolesRejectDuplicateAndMissingBase(t *testing.
 }
 
 func TestCurrentProbeAppReceiptsRejectsUnboundGenericAuthority(t *testing.T) {
-	for _, family := range []Family{FamilyZCode, FamilyZCode, FamilyCodex} {
+	for _, family := range []Family{FamilyZCode, FamilyGrok} {
 		t.Run(string(family), func(t *testing.T) {
 			identity := Identity{Family: family, Version: "2.0.0"}
 			expires := time.Now().Add(time.Minute)
@@ -656,20 +656,28 @@ func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base dom
 	if err != nil {
 		t.Fatal(err)
 	}
+	configVar, err := ports.NewEnvironmentVariable("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", "/private/config/zcode-builtin.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	electronVar, err := ports.NewEnvironmentVariable("ELECTRON_RUN_AS_NODE", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		"codex", "current-qualifier", "", "/private/bin/codex",
+		"zcode", "current-qualifier", "", "/private/bin/zcode",
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"/private/bin/codex", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"", "",
-		"codex-default", "profile-generation", "policy-identity", []string{"/private/bin/codex"},
-		transport, nil, "/private/work", time.Second,
+		"/private/bin/zcode.cjs", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"/private/config/zcode-builtin.json", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"zcode-default", "profile-generation", "policy-identity", []string{"/private/bin/zcode", "/private/bin/zcode.cjs"},
+		transport, []ports.EnvironmentVariable{configVar, electronVar}, "/private/work", time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	namespace := qualifierNamespace{instance: definition.Instance(), generation: "generation-1", policy: definition.RuntimeSafetyPolicyIdentity()}
 	profile := DiscoveredProviderProfile{
-		family: FamilyCodex, executable: definition.Executable(), launcher: definition.Launcher(),
+		family: FamilyZCode, executable: definition.Executable(), launcher: definition.Launcher(),
 		sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
 	}
 	return CurrentQualificationRequest{
@@ -831,25 +839,6 @@ func (r *authorityProbeRunner) Converse(ctx context.Context, request ports.Proce
 	observation, err := r.Run(ctx, request)
 	if err != nil {
 		return observation, err
-	}
-	if r.family == FamilyCodex {
-		proof := `{"root":"nonce","link":"linked","role":"logic"}`
-		script := []string{
-			`{"id":1,"result":{}}`,
-			`{"id":2,"result":{"thread":{"id":"thread-script","ephemeral":true},"instructionSources":[]}}`,
-			`{"id":3,"result":{"turn":{"id":"turn-script","status":"inProgress"}}}`,
-			`{"method":"item/completed","params":{"threadId":"thread-script","turnId":"turn-script","item":{"type":"agentMessage","phase":"final_answer","text":` + strconv.Quote(proof) + `}}}`,
-			`{"method":"turn/completed","params":{"threadId":"thread-script","turn":{"id":"turn-script","status":"completed"}}}`,
-		}
-		exchange := &authorityProbeProtocolExchange{lines: make(chan string, len(script))}
-		for _, line := range script {
-			exchange.lines <- line
-		}
-		close(exchange.lines)
-		if driveErr := driver.Drive(ctx, exchange); driveErr != nil {
-			r.t.Fatalf("codex protocol conversation failed: %v", driveErr)
-		}
-		return observation, nil
 	}
 	if r.family != FamilyZCode {
 		return observation, nil
@@ -1053,9 +1042,7 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 	probeVersion := version
 	if version == "current" || (family == FamilyGrok && !providercli.VersionAtLeast(version, 1, 0, 89)) {
 		probeVersion = "0.16.5"
-		if family == FamilyCodex {
-			probeVersion = "0.154.0"
-		} else if family == FamilyGrok {
+		if family == FamilyGrok {
 			probeVersion = "1.0.89"
 		}
 	}
@@ -1209,7 +1196,7 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	t.Helper()
 	argvIndex := 4
 	channel, reference := ports.ProviderPacketChannelPromptFile, "@roadmap.md"
-	if family == FamilyCodex || family == FamilyZCode {
+	if family == FamilyZCode {
 		channel, argvIndex, reference = ports.ProviderPacketChannelProtocol, -1, ""
 	}
 	policy := string(family) + "-policy"

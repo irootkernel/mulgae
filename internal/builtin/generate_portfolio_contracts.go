@@ -188,6 +188,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := publishCodexAgyRetirement(assets); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	commandPair := contractPair{"schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v13.schema.json", "examples/command-result.v12.valid.json", "examples/command-result.v13.valid.json", "mulgae-command-result.v12", "mulgae-command-result.v13"}
 	catalogPairs := append(pairs, commandPair,
 		contractPair{"schemas/mulgae-command-result.v13.schema.json", "schemas/mulgae-command-result.v14.schema.json", "examples/command-result.v13.valid.json", "examples/command-result.v14.valid.json", "mulgae-command-result.v13", "mulgae-command-result.v14"},
@@ -214,7 +218,7 @@ func main() {
 		contractPair{"schemas/mulgae-review-preflight.v10.schema.json", "schemas/mulgae-review-preflight.v11.schema.json", "examples/review-preflight.v10.valid.json", "examples/review-preflight.v11.valid.json", "mulgae-review-preflight.v10", "mulgae-review-preflight.v11"},
 		contractPair{"schemas/mulgae-requirements-read.v1.schema.json", "schemas/mulgae-requirements-cursor.v1.schema.json", "examples/requirements-read.v1.valid.json", "examples/requirements-cursor.v1.valid.json", "mulgae-requirements-read.v1", "mulgae-requirements-cursor.v1"},
 	)
-	if err := updateFileCatalog(assets, append(append(catalogPairs, agyContractPairs...), cursorRetirementContractPairs...)); err != nil {
+	if err := updateFileCatalog(assets, append(append(append(catalogPairs, agyContractPairs...), cursorRetirementContractPairs...), codexAgyRetirementContractPairs...)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -359,6 +363,175 @@ func removeCursorInventoryPrefix(inventory map[string]any) {
 	}
 	inventory["prefixItems"] = filtered
 	inventory["minItems"], inventory["maxItems"] = 4, 4
+}
+
+var codexAgyRetirementContractPairs = []contractPair{
+	{"schemas/mulgae-command-result.v24.schema.json", "schemas/mulgae-command-result.v25.schema.json", "examples/command-result.v24.valid.json", "examples/command-result.v25.valid.json", "mulgae-command-result.v24", "mulgae-command-result.v25"},
+	{"schemas/mulgae-doctor-result.v8.schema.json", "schemas/mulgae-doctor-result.v9.schema.json", "examples/doctor-result.v8.valid.json", "examples/doctor-result.v9.valid.json", "mulgae-doctor-result.v8", "mulgae-doctor-result.v9"},
+	{"schemas/mulgae-provider-heartbeat-result.v5.schema.json", "schemas/mulgae-provider-heartbeat-result.v6.schema.json", "examples/provider-heartbeat-result.v5.valid.json", "examples/provider-heartbeat-result.v6.valid.json", "mulgae-provider-heartbeat-result.v5", "mulgae-provider-heartbeat-result.v6"},
+	{"schemas/mulgae-review-preflight.v12.schema.json", "schemas/mulgae-review-preflight.v13.schema.json", "examples/review-preflight.v12.valid.json", "examples/review-preflight.v13.valid.json", "mulgae-review-preflight.v12", "mulgae-review-preflight.v13"},
+}
+
+var codexAgyRetirementVersionRewrite = strings.NewReplacer(
+	"mulgae-command-result.v24", "mulgae-command-result.v25", "Command Result v24", "Command Result v25",
+	"mulgae-doctor-result.v8", "mulgae-doctor-result.v9", "Doctor Result v8", "Doctor Result v9",
+	"mulgae-provider-heartbeat-result.v5", "mulgae-provider-heartbeat-result.v6", "Heartbeat Result v5", "Heartbeat Result v6",
+	"mulgae-review-preflight.v12", "mulgae-review-preflight.v13", "Review Preflight v12", "Review Preflight v13",
+)
+
+// Publish Codex and AGY retirement after frozen historical stages, preserving
+// all predecessor contract bytes verbatim.
+func publishCodexAgyRetirement(assets string) error {
+	for _, pair := range codexAgyRetirementContractPairs {
+		for _, item := range []struct{ source, target string }{
+			{pair.schemaSource, pair.schemaTarget}, {pair.exampleSource, pair.exampleTarget},
+		} {
+			contents, err := os.ReadFile(filepath.Join(assets, item.source))
+			if err != nil {
+				return err
+			}
+			var document any
+			if err := json.Unmarshal(contents, &document); err != nil {
+				return err
+			}
+			retireCodexAgyContracts(document)
+			switch item.target {
+			case "examples/provider-heartbeat-result.v6.valid.json":
+				obj := document.(map[string]any)
+				delete(obj, "credential_profile")
+				obj["provider_id"] = "zcode"
+			case "examples/review-preflight.v13.valid.json":
+				var original map[string]json.RawMessage
+				if err := json.Unmarshal(contents, &original); err != nil {
+					return err
+				}
+				document.(map[string]any)["target"] = original["target"]
+			case "examples/command-result.v25.valid.json":
+				var original struct {
+					Result struct {
+						Preflight struct {
+							Target json.RawMessage `json:"target"`
+						} `json:"preflight"`
+					} `json:"result"`
+				}
+				if err := json.Unmarshal(contents, &original); err != nil {
+					return err
+				}
+				document.(map[string]any)["result"].(map[string]any)["preflight"].(map[string]any)["target"] = original.Result.Preflight.Target
+			}
+			encoded, err := json.MarshalIndent(document, "", "  ")
+			if err != nil {
+				return err
+			}
+			if err := writeGenerated(filepath.Join(assets, item.target), append(encoded, '\n')); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func retireCodexAgyContracts(document any) {
+	switch typed := document.(type) {
+	case map[string]any:
+		if values, ok := typed["enum"].([]any); ok && stringList(values, "zcode", "grok", "codex", "agy") {
+			typed["enum"] = []any{"zcode", "grok"}
+		}
+		if items, ok := typed["items"].(map[string]any); ok {
+			if values, ok := items["enum"].([]any); ok && stringList(values, "zcode", "grok", "codex", "agy") {
+				if maxItems, ok := typed["maxItems"].(float64); ok && int(maxItems) == 4 {
+					typed["maxItems"] = 2
+				}
+			}
+		}
+		if definitions, ok := typed["$defs"].(map[string]any); ok {
+			delete(definitions, "init_discovery_codex")
+			delete(definitions, "init_discovery_agy")
+			delete(definitions, "provider_codex")
+			delete(definitions, "provider_agy")
+			if inventory, ok := definitions["not_observed_inventory"].(map[string]any); ok {
+				removeCodexAgyInventoryPrefix(inventory)
+			}
+		}
+		if properties, ok := typed["properties"].(map[string]any); ok {
+			delete(properties, "codex_executable")
+			delete(properties, "codex_model")
+			delete(properties, "codex_reasoning_effort")
+			delete(properties, "agy_executable")
+			delete(properties, "agy_model")
+			delete(properties, "agy_reasoning_effort")
+			delete(properties, "credential_profile")
+			if discovery, ok := properties["discovery"].(map[string]any); ok {
+				if minItems, ok := discovery["minItems"].(float64); ok && int(minItems) == 3 {
+					discovery["minItems"] = 2
+				}
+			}
+			if inventory, ok := properties["provider_inventory"].(map[string]any); ok {
+				removeCodexAgyInventoryPrefix(inventory)
+			}
+		}
+		if required, ok := typed["required"].([]any); ok {
+			filtered := make([]any, 0, len(required))
+			for _, item := range required {
+				if text, ok := item.(string); ok && text == "credential_profile" {
+					continue
+				}
+				filtered = append(filtered, item)
+			}
+			typed["required"] = filtered
+		}
+		if rows, ok := typed["provider_inventory"].([]any); ok && len(rows) == 4 {
+			filtered := make([]any, 0, 2)
+			for _, row := range rows {
+				if object, ok := row.(map[string]any); ok && (object["family"] == "codex" || object["family"] == "agy") {
+					continue
+				}
+				filtered = append(filtered, row)
+			}
+			typed["provider_inventory"] = filtered
+		}
+		families := []string{"zcode", "grok"}
+		extendProviderIDBranchesForFamilies(typed, families)
+		extendDiscoveryBranchesForFamilies(typed, families)
+		for key, child := range typed {
+			if value, ok := child.(string); ok {
+				typed[key] = codexAgyRetirementVersionRewrite.Replace(value)
+			} else {
+				retireCodexAgyContracts(child)
+			}
+		}
+	case []any:
+		for index, child := range typed {
+			if value, ok := child.(string); ok {
+				typed[index] = codexAgyRetirementVersionRewrite.Replace(value)
+			} else {
+				retireCodexAgyContracts(child)
+			}
+		}
+	}
+}
+
+func removeCodexAgyInventoryPrefix(inventory map[string]any) {
+	prefix, ok := inventory["prefixItems"].([]any)
+	if !ok || len(prefix) != 4 {
+		return
+	}
+	filtered := make([]any, 0, 2)
+	for _, item := range prefix {
+		family := inventoryFamily(item)
+		if family == "codex" || family == "agy" {
+			continue
+		}
+		if object, ok := item.(map[string]any); ok && (object["$ref"] == "#/$defs/provider_codex" || object["$ref"] == "#/$defs/provider_agy") {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if len(filtered) != 2 {
+		return
+	}
+	inventory["prefixItems"] = filtered
+	inventory["minItems"], inventory["maxItems"] = 2, 2
 }
 
 func updateFileCatalog(assets string, pairs []contractPair) error {

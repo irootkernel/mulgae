@@ -86,12 +86,12 @@ func liveCommittedFixture(t *testing.T, findingCount, evidenceCount int) (*Servi
 	production := productionFinal.Provenance.Production
 	providers := production.Providers
 	for i, role := range []string{"logic", "security"} {
-		providers[i].Family, providers[i].Instance, providers[i].Version = "agy", "agy-"+role, "1.4.2"
+		providers[i].Family, providers[i].Instance, providers[i].Version = "zcode", "zcode-"+role, "0.16.5"
 	}
 	final.Provenance.Production = nil
 	final.Provenance.LiveProduction = &liveProductionProvenanceDTO{BuildProduct: production.BuildProduct, BuildVersion: production.BuildVersion, BuildCommit: production.BuildCommit, ObjectiveSHA256: production.ObjectiveSHA256, ObjectivePresent: production.ObjectivePresent, SourceIdentitySHA256: identity.SHA256(), SourceTerminalReceipt: "source-terminal:v1:sha256:" + strings.Repeat("b", 64), Providers: providers}
 	for i := range final.RoleOutcomes {
-		instance := "agy-" + final.RoleOutcomes[i].Role
+		instance := "zcode-" + final.RoleOutcomes[i].Role
 		final.RoleOutcomes[i].ProviderInstance = &instance
 	}
 	prefix := run.SessionID().String() + "/" + run.RunID().String() + "/"
@@ -107,7 +107,7 @@ func liveCommittedFixture(t *testing.T, findingCount, evidenceCount int) (*Servi
 		finding := final.Findings[0]
 		finding.ID = fmt.Sprintf("F%03d", f+1)
 		finding.Fingerprint = querySHA([]byte(finding.ID))
-		finding.ProviderInstance = "agy-logic"
+		finding.ProviderInstance = "zcode-logic"
 		finding.Evidence = nil
 		for e := 0; e < evidenceCount; e++ {
 			_, item := digestFor(paths[f*evidenceCount+e], prototype)
@@ -145,10 +145,10 @@ func liveCommittedFixture(t *testing.T, findingCount, evidenceCount int) (*Servi
 	manifest.SchemaVersion = "mulgae-run-manifest.v3"
 	manifest.Target.ContentSHA256, manifest.Target.ManifestPath, manifest.Target.SourceIdentitySHA256 = "", "source/source.json", identity.SHA256()
 	for i := range manifest.Attempts {
-		manifest.Attempts[i].ProviderInstance = "agy-" + manifest.Attempts[i].Role
+		manifest.Attempts[i].ProviderInstance = "zcode-" + manifest.Attempts[i].Role
 	}
 	for i := range manifest.RoleReports {
-		manifest.RoleReports[i].ProviderInstance = "agy-" + manifest.RoleReports[i].Role
+		manifest.RoleReports[i].ProviderInstance = "zcode-" + manifest.RoleReports[i].Role
 		manifest.RoleReports[i].Transport = "stdout"
 	}
 	index := runtimeSupportIndexDTO{SchemaVersion: "mulgae-run-support-index.v3"}
@@ -172,20 +172,20 @@ func liveCommittedFixture(t *testing.T, findingCount, evidenceCount int) (*Servi
 	return mustQueryService(t, store, &queryValidator{}, nil), store, run, binding
 }
 
-func TestLiveAgyCommittedReadInspectionAndReports(t *testing.T) {
+func TestLiveCommittedReadInspectionAndReports(t *testing.T) {
 	service, _, run, binding := liveAgyCommittedFixture(t)
 	review, err := service.ReadCommitted(context.Background(), run)
 	if err != nil {
 		t.Fatalf("full committed read: %v", err)
 	}
 	if _, live := review.LiveSource(); !live || review.SourceIdentitySHA256() == "" || len(review.RoleReports()) != 2 {
-		t.Fatal("current AGY read lost live identity or reports")
+		t.Fatal("current live read lost live identity or reports")
 	}
 	page, err := service.Inspect(context.Background(), run, binding, InspectionRequest{QueryKind: "inspect", MinimumSeverity: domain.SeverityLow, Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page.CaptureAvailability != "not_captured" || page.SourceIdentitySHA256 != review.SourceIdentitySHA256() || len(page.Findings) != 1 || page.Findings[0].Provider != "agy-logic" || page.Findings[0].Evidence[0].Availability != "verified" {
+	if page.CaptureAvailability != "not_captured" || page.SourceIdentitySHA256 != review.SourceIdentitySHA256() || len(page.Findings) != 1 || page.Findings[0].Provider != "zcode-logic" || page.Findings[0].Evidence[0].Availability != "verified" {
 		t.Fatalf("live inspection: %#v", page)
 	}
 	if body, err := service.RenderExcerpt(context.Background(), run, "F001", ""); err != nil || !strings.Contains(string(body), "line one") {
@@ -196,11 +196,11 @@ func TestLiveAgyCommittedReadInspectionAndReports(t *testing.T) {
 	}
 }
 
-func TestLiveAgyCommittedReadRejectsKimiAndDamagedSupport(t *testing.T) {
-	for _, damage := range []string{"kimi", "cursor", "source bytes"} {
+func TestLiveCommittedReadRejectsRetiredFamiliesAndDamagedSupport(t *testing.T) {
+	for _, damage := range []string{"kimi", "cursor", "codex", "agy", "source bytes"} {
 		t.Run(damage, func(t *testing.T) {
 			service, store, run, _ := liveAgyCommittedFixture(t)
-			retiredFamily := damage == "kimi" || damage == "cursor"
+			retiredFamily := damage == "kimi" || damage == "cursor" || damage == "codex" || damage == "agy"
 			if retiredFamily {
 				final, _ := decodeFinalDTO(store.snapshot.Final().Bytes())
 				manifest, _ := decodeManifestDTO(store.snapshot.Manifest().Bytes())

@@ -101,40 +101,24 @@ func (route QualifiedRoute) Valid() bool {
 // RoleProviderAssignment is the configured provider-family route for one role.
 // A role names exactly one family; Mulgae never substitutes another.
 type RoleProviderAssignment struct {
-	role              domain.Role
-	primary           Family
-	credentialProfile string
+	role    domain.Role
+	primary Family
 }
 
-// NewRoleProviderAssignment validates one explicit Config v1 assignment.
+// NewRoleProviderAssignment validates one explicit Config v5 assignment.
 func NewRoleProviderAssignment(role domain.Role, primary Family) (RoleProviderAssignment, error) {
-	return NewRoleProviderAssignmentWithCredentialProfile(role, primary, "")
-}
-
-// NewRoleProviderAssignmentWithCredentialProfile binds a named Codex
-// credential profile to one role. Other provider families cannot carry one.
-func NewRoleProviderAssignmentWithCredentialProfile(role domain.Role, primary Family, credentialProfile string) (RoleProviderAssignment, error) {
 	if !role.Valid() || !primary.Valid() {
 		return RoleProviderAssignment{}, fmt.Errorf("review run: invalid role provider assignment")
 	}
-	if role == domain.RoleArtist && (primary == FamilyGrok || primary == FamilyAgy) {
+	if role == domain.RoleArtist && primary != FamilyZCode {
 		return RoleProviderAssignment{}, fmt.Errorf("review run: artist provider capability is unsupported")
 	}
-	if credentialProfile != "" && (primary != FamilyCodex || !validCredentialProfile(credentialProfile)) {
-		return RoleProviderAssignment{}, fmt.Errorf("review run: invalid role credential profile")
-	}
-	return RoleProviderAssignment{role: role, primary: primary, credentialProfile: credentialProfile}, nil
+	return RoleProviderAssignment{role: role, primary: primary}, nil
 }
 
 func (assignment RoleProviderAssignment) Role() domain.Role { return assignment.role }
 func (assignment RoleProviderAssignment) Primary() Family   { return assignment.primary }
-func (assignment RoleProviderAssignment) CredentialProfile() string {
-	return assignment.credentialProfile
-}
 func (assignment RoleProviderAssignment) ProviderInstance() string {
-	if assignment.primary == FamilyCodex && assignment.credentialProfile != "" {
-		return string(assignment.primary) + "-" + assignment.credentialProfile + "-" + string(assignment.role)
-	}
 	return string(assignment.primary) + "-" + string(assignment.role)
 }
 
@@ -144,32 +128,11 @@ func RoleProviderInstanceMatches(family Family, role domain.Role, instance strin
 	if !family.Valid() || !role.Valid() {
 		return false
 	}
-	if instance == string(family)+"-"+string(role) {
-		_, err := NewRoleProviderAssignment(role, family)
-		return err == nil
-	}
-	if family != FamilyCodex {
+	if instance != string(family)+"-"+string(role) {
 		return false
 	}
-	profile, ok := codexCredentialProfileFromInstance(instance, role)
-	if !ok || profile == "" {
-		return false
-	}
-	assignment, err := NewRoleProviderAssignmentWithCredentialProfile(role, family, profile)
-	return err == nil && assignment.ProviderInstance() == instance
-}
-
-func validCredentialProfile(value string) bool {
-	if len(value) == 0 || len(value) > 32 || value[0] < 'a' || value[0] > 'z' {
-		return false
-	}
-	for _, character := range value[1:] {
-		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '-' {
-			continue
-		}
-		return false
-	}
-	return true
+	_, err := NewRoleProviderAssignment(role, family)
+	return err == nil
 }
 
 // PlannerPolicy supplies trusted execution limits, explicit Config v1
@@ -277,10 +240,9 @@ func (planner *qualifiedPlanner) configuredAssignment(role domain.Role) (RolePro
 
 func (planner *qualifiedPlanner) configuredRoute(role domain.Role, assignment RoleProviderAssignment) (QualifiedRoute, error) {
 	family := assignment.primary
-	wantInstance := assignment.ProviderInstance()
 	var matched *QualifiedRoute
 	for _, route := range planner.routes {
-		if route.Qualification().Identity().Family != family || assignment.credentialProfile != "" && route.Route().ProviderInstance() != wantInstance || !route.Supports(role) {
+		if route.Qualification().Identity().Family != family || !route.Supports(role) {
 			continue
 		}
 		if matched != nil {
@@ -378,7 +340,7 @@ func validatePlannerAssignments(assignments []RoleProviderAssignment) error {
 	seen := make(map[domain.Role]bool, len(assignments))
 	for _, assignment := range assignments {
 		ordinal := roleOrdinal(assignment.role)
-		if ordinal <= lastOrdinal || !assignment.primary.Valid() || assignment.credentialProfile != "" && (assignment.primary != FamilyCodex || !validCredentialProfile(assignment.credentialProfile)) {
+		if ordinal <= lastOrdinal || !assignment.primary.Valid() {
 			return fmt.Errorf("review run: invalid configured assignment for role %q", assignment.role)
 		}
 		seen[assignment.role], lastOrdinal = true, ordinal

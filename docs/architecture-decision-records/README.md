@@ -16,10 +16,6 @@ explain why durable choices were made.
 - [ZCode app-server transport](zcode-app-server-transport.md) records why ZCode
   review and qualification speak the app-server protocol and the wire shapes
   its live spike pinned.
-- [Codex app-server transport](codex-app-server-transport.md) records the
-  ephemeral Codex protocol route and its report and isolation boundaries.
-- [AGY stream-JSON transport](agy-stream-json-transport.md) records the
-  single-account stream protocol, guarded reads and natural-exit boundary.
 - [herdr-core terminal transport](herdr-core-terminal-transport.md) records
   EPIC-017's reusable isolated `herdr-core` terminal runtime, trusted pane
   trampoline (`__mulgae_paneexec_v1`), control-plane and exact-TTY Seatbelt
@@ -31,6 +27,13 @@ explain why durable choices were made.
 - [Cursor ACP transport](cursor-acp-transport.md) preserves the historical
   explicit Cursor ACP transport decision; Cursor support has been retired from
   the active provider portfolio.
+- [Codex app-server transport](codex-app-server-transport.md) preserves the
+  historical ephemeral Codex review provider transport decision; Codex review
+  provider support has been retired from the active provider portfolio (Codex
+  remains verified only as an external MCP client).
+- [AGY stream-JSON transport](agy-stream-json-transport.md) preserves the
+  historical single-account AGY review provider transport decision; AGY review
+  provider support has been retired from the active provider portfolio.
 
 ## Accepted design for planned implementation
 

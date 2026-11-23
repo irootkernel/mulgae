@@ -45,7 +45,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v24.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v25.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -94,7 +94,7 @@ type doctorIdentityInspector struct {
 type doctorVersionObserver struct{}
 
 func (doctorVersionObserver) ObserveProviderVersion(_ context.Context, family string, _ []string, _ ports.ProviderVersionIdentity) (ports.ProviderVersionObservation, error) {
-	versions := map[string]string{"zcode": "0.16.3", "grok": "1.0.89", "codex": "0.154.0"}
+	versions := map[string]string{"zcode": "0.16.5", "grok": "1.0.89"}
 	return ports.NewProviderVersionObservation(ports.ProviderVersionObserved, versions[family])
 }
 
@@ -1322,11 +1322,10 @@ func TestLocalDoctorHumanOutputIsANSIFreeAndUsesFixedInventory(t *testing.T) {
 		ProviderInventory: []doctor.LocalProviderInventoryRow{
 			{Family: "zcode", State: "eligible", Reason: "provider_cli_version_supported"},
 			{Family: "grok", State: "not_configured", Reason: "not_configured"},
-			{Family: "codex", State: "not_configured", Reason: "not_configured"},
 		},
 	}
 	output := string(localDoctorHumanOutput(diagnosis))
-	if strings.Contains(output, "\x1b[") || strings.Count(output, "- ") != 3 ||
+	if strings.Contains(output, "\x1b[") || strings.Count(output, "- ") != 2 ||
 		!strings.Contains(output, "- zcode: eligible (provider_cli_version_supported)") {
 		t.Fatalf("doctor human output = %q, want ANSI-free fixed inventory", output)
 	}
@@ -1608,7 +1607,39 @@ func TestApplicationDoctorClassifiesCredentialAdmissionAsSecurity(t *testing.T) 
 	}
 }
 
+func testFoundationZCodeBundle(t *testing.T) string {
+	t.Helper()
+	zcodeBundleRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	zcodeBundle := filepath.Join(zcodeBundleRoot, "ZCode.app")
+	zcodeExecutable := filepath.Join(zcodeBundle, "Contents", "MacOS", "ZCode")
+	zcodeLauncher := filepath.Join(zcodeBundle, "Contents", "Resources", "glm", "zcode.cjs")
+	zcodeProviderConfig := filepath.Join(zcodeBundle, filepath.FromSlash(reviewrun.ZCodeProviderConfigRelativePath))
+	zcodeMetadata := filepath.Join(zcodeBundle, filepath.FromSlash(reviewrun.ZCodeApplicationMetadataRelativePath))
+	for _, directory := range []string{filepath.Dir(zcodeExecutable), filepath.Dir(zcodeLauncher), filepath.Dir(zcodeProviderConfig)} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(zcodeExecutable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zcodeLauncher, []byte("module.exports = {};\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zcodeProviderConfig, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zcodeMetadata, []byte(`<plist><dict><key>CFBundleShortVersionString</key><string>3.12.3</string></dict></plist>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return zcodeBundle
+}
+
 func TestApplicationDoctorUsesConfiguredFamiliesWithoutStaticAuthorityEvidence(t *testing.T) {
+	zcodeBundle := testFoundationZCodeBundle(t)
 	tests := []struct {
 		name          string
 		initArguments []string
@@ -1626,10 +1657,10 @@ func TestApplicationDoctorUsesConfiguredFamiliesWithoutStaticAuthorityEvidence(t
 		{
 			name: "two configured families are ready",
 			initArguments: []string{
-				"init", "--providers", "grok,codex", "--grok-executable", "/bin/sh", "--codex-executable", "/bin/sh", "--output", "json",
+				"init", "--providers", "zcode,grok", "--zcode-app-bundle", zcodeBundle, "--grok-executable", "/bin/sh", "--output", "json",
 			},
 			wantState:     "ready",
-			wantProviders: []string{"grok", "codex"},
+			wantProviders: []string{"zcode", "grok"},
 		},
 	}
 	for _, test := range tests {
@@ -1662,8 +1693,12 @@ func TestApplicationDoctorUsesConfiguredFamiliesWithoutStaticAuthorityEvidence(t
 				for _, family := range test.wantProviders {
 					configured = configured || row.Family == family
 				}
-				if configured && (row.State != "eligible" || row.Reason != "provider_cli_version_supported") {
-					t.Fatalf("configured row = %#v, want eligible", row)
+				wantReason := "provider_cli_version_supported"
+				if row.Family == "zcode" {
+					wantReason = "zcode_application_version_supported"
+				}
+				if configured && (row.State != "eligible" || row.Reason != wantReason) {
+					t.Fatalf("configured row = %#v, want eligible (%s)", row, wantReason)
 				}
 				if !configured && (row.State != "not_configured" || row.Reason != "not_configured") {
 					t.Fatalf("omitted row = %#v, want not_configured", row)
@@ -1706,8 +1741,9 @@ func TestApplicationDoctorFailsWhenOneConfiguredProviderIdentityIsUnavailable(t 
 	evidence := &foundationEvidenceReader{}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
+	zcodeBundle := testFoundationZCodeBundle(t)
 	initialized := fixture.application.Run(context.Background(), []string{
-		"init", "--providers", "grok,codex", "--grok-executable", "/bin/sh", "--codex-executable", "/bin/bash", "--output", "json",
+		"init", "--providers", "zcode,grok", "--zcode-app-bundle", zcodeBundle, "--grok-executable", "/bin/sh", "--output", "json",
 	}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	fixture.application.inspector = &doctorIdentityInspector{
@@ -1728,7 +1764,7 @@ func TestApplicationDoctorFailsWhenOneConfiguredProviderIdentityIsUnavailable(t 
 		t.Fatal(err)
 	}
 	if envelope.Result.Doctor == nil || envelope.Result.Doctor.Readiness.State != "unverified" || envelope.Result.Doctor.Readiness.ExitCode != 4 ||
-		envelope.Result.Doctor.ProviderInventory[1].State != "unavailable" || envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
+		envelope.Result.Doctor.ProviderInventory[0].State != "eligible" || envelope.Result.Doctor.ProviderInventory[1].State != "unavailable" ||
 		len(evidence.providerCalls) != 0 {
 		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
 	}
@@ -1876,8 +1912,9 @@ func TestApplicationDoctorScopesProviderIdentitySecurityFailureToAffectedFamily(
 	evidence := &foundationEvidenceReader{}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
+	zcodeBundle := testFoundationZCodeBundle(t)
 	initialized := fixture.application.Run(context.Background(), []string{
-		"init", "--providers", "grok,codex", "--grok-executable", "/bin/sh", "--codex-executable", "/bin/bash", "--output", "json",
+		"init", "--providers", "zcode,grok", "--zcode-app-bundle", zcodeBundle, "--grok-executable", "/bin/sh", "--output", "json",
 	}, root)
 	assertFoundationEnvelope(t, fixture, initialized, app.ExitCodeSuccess)
 	fixture.application.inspector = &doctorIdentityInspector{
@@ -1898,7 +1935,7 @@ func TestApplicationDoctorScopesProviderIdentitySecurityFailureToAffectedFamily(
 		t.Fatal(err)
 	}
 	if envelope.Result.Doctor == nil || envelope.Result.Doctor.ProviderInventory[1].Reason != "provider_executable_unsafe_identity" ||
-		envelope.Result.Doctor.ProviderInventory[2].State != "eligible" ||
+		envelope.Result.Doctor.ProviderInventory[0].State != "eligible" ||
 		len(evidence.providerCalls) != 0 {
 		t.Fatalf("doctor result = %#v, provider calls = %v", envelope.Result.Doctor, evidence.providerCalls)
 	}
@@ -1998,7 +2035,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 		t.Fatalf("providers human result = exit %d stdout %q stderr %q", human.ExitCode(), human.Stdout(), human.Stderr())
 	}
 	lines := strings.Split(strings.TrimSuffix(string(human.Stdout()), "\n"), "\n")
-	wantFamilies := []string{"zcode", "grok", "codex", "agy"}
+	wantFamilies := []string{"zcode", "grok"}
 	if len(lines) != len(wantFamilies) {
 		t.Fatalf("providers human rows = %q, want provider rows without failure details", human.Stdout())
 	}
@@ -2022,7 +2059,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	machine := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSuccess)
 	// The CLI providers result is a closed four-field summary pinned by the
-	// mulgae-command-result.v24 schema with additionalProperties: false;
+	// mulgae-command-result.v25 schema with additionalProperties: false;
 	// profiles and transports exist only in the service-layer projection.
 	var machineEnvelope struct {
 		SchemaVersion string          `json:"schema_version"`
@@ -2031,7 +2068,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	if err := json.Unmarshal(machine.Stdout(), &machineEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if machineEnvelope.SchemaVersion != "mulgae-command-result.v24" {
+	if machineEnvelope.SchemaVersion != "mulgae-command-result.v25" {
 		t.Fatalf("providers envelope schema_version = %q, want the current command schema identity", machineEnvelope.SchemaVersion)
 	}
 	var machineResult struct {
@@ -2055,7 +2092,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 
 func TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile(t *testing.T) {
 	evidence := &foundationEvidenceReader{providerEvidenceStatuses: map[string]doctor.EvidenceStatus{
-		"zcode": doctor.EvidenceStatusFail, "grok": doctor.EvidenceStatusFail, "codex": doctor.EvidenceStatusFail,
+		"zcode": doctor.EvidenceStatusFail, "grok": doctor.EvidenceStatusFail,
 	}}
 	fixture := newFoundationFixtureWithEvidence(t, evidence)
 	root := testAnchoredRoot(t)
@@ -2083,7 +2120,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err != nil {
 		t.Fatal(err)
 	}
-	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v8.schema.json")
+	doctorSchemaID, err := ports.ParseAssetID("https://mulgae.local/schemas/mulgae-doctor-result.v9.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2103,10 +2140,10 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 	if err := json.Unmarshal(providersResult.Stdout(), &providersEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 3 ||
+	if providersEnvelope.Result.OfflineReadyProviderCount != 1 || providersEnvelope.Result.StaticEvidenceReadyProviderCount != 2 ||
 		providersEnvelope.Result.ProviderEvidenceURI == nil ||
 		*providersEnvelope.Result.ProviderEvidenceURI != foundationProviderEvidenceURI {
-		t.Fatalf("providers result = %#v, want 3 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
+		t.Fatalf("providers result = %#v, want 2 ready profiles with authority URI %q", providersEnvelope.Result, foundationProviderEvidenceURI)
 	}
 
 	doctorResult := fixture.application.Run(context.Background(), []string{"doctor", "--output", "json"}, root)
@@ -2127,7 +2164,7 @@ func TestApplicationInjectedEvidenceReaderDrivesDoctorAndProvidersWithoutDiscove
 		t.Fatalf("doctor config status = %q, want ready", got)
 	}
 
-	wantCalls := []string{"zcode", "grok", "codex", "agy"}
+	wantCalls := []string{"zcode", "grok"}
 	if !reflect.DeepEqual(evidence.providerCalls, wantCalls) ||
 		len(evidence.platformCalls) != 1 || evidence.toolsCalls != 1 {
 		t.Fatalf("evidence reader calls = providers %#v platforms %#v tools %d, want only shared reader observations", evidence.providerCalls, evidence.platformCalls, evidence.toolsCalls)
@@ -5279,7 +5316,7 @@ func TestSharedFoundationAssetsConcurrentReuseAndIsolation(t *testing.T) {
 	}
 
 	schemaID := mustFoundationAssetID(t, commandSchemaID)
-	exampleID := mustFoundationAssetID(t, "example:command-result.v24.valid.json")
+	exampleID := mustFoundationAssetID(t, "example:command-result.v25.valid.json")
 	wantMeta, wantBytes, err := wantCatalog.Read(ctx, schemaID)
 	if err != nil {
 		t.Fatal(err)

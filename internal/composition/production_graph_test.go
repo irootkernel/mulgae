@@ -32,8 +32,6 @@ func testProductionRuntimeSafetyPolicies(t *testing.T) map[reviewrun.Family]prov
 	}{
 		{reviewrun.FamilyZCode, providercli.CredentialSourceZCode},
 		{reviewrun.FamilyGrok, providercli.CredentialSourceGrok},
-		{reviewrun.FamilyCodex, providercli.CredentialSourceCodex},
-		{reviewrun.FamilyAgy, providercli.CredentialSourceAgy},
 	} {
 		policy, err := providercli.RuntimeSafetyPolicyForFamily(item.credential)
 		if err != nil {
@@ -112,33 +110,19 @@ func TestProductionInstanceFamiliesOmitsGrokLogicWhenUnconfigured(t *testing.T) 
 	}
 }
 
-func TestProductionInstanceFamiliesPreservesProviderRegistrationsAndSourceRoots(t *testing.T) {
+func TestProductionInstanceFamiliesPreservesProviderRegistrations(t *testing.T) {
 	policies := testProductionRuntimeSafetyPolicies(t)
-	workHome := "/Users/operator/.codex-work"
-	personalHome := "/Users/operator/.codex-personal"
-	spareHome := "/Users/operator/.codex-spare"
 	cfg := appconfig.Config{
 		Providers: appconfig.ProvidersConfig{
 			ZCode: &appconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
 			Grok:  &appconfig.GrokProviderConfig{Executable: "/opt/homebrew/bin/grok"},
-			Codex: &appconfig.CodexProviderConfig{
-				Executable:               "/opt/homebrew/bin/codex",
-				DefaultCredentialProfile: "work",
-				CredentialHomes: []appconfig.CodexCredentialHomeConfig{
-					{Profile: "work", Home: workHome},
-					{Profile: "personal", Home: personalHome},
-					{Profile: "spare", Home: spareHome},
-					{Profile: "empty", Home: ""},
-				},
-			},
-			Agy: &appconfig.AgyProviderConfig{Executable: "/opt/homebrew/bin/agy"},
 		},
 		Roles: appconfig.RolesConfig{
 			Logic:           appconfig.RoleConfig{Enabled: true, PrimaryProvider: "zcode"},
-			Security:        appconfig.RoleConfig{Enabled: true, PrimaryProvider: "codex"},
-			Maintainability: appconfig.RoleConfig{Enabled: true, PrimaryProvider: "codex", CredentialProfile: "personal"},
+			Security:        appconfig.RoleConfig{Enabled: true, PrimaryProvider: "zcode"},
+			Maintainability: appconfig.RoleConfig{Enabled: true, PrimaryProvider: "grok"},
 			Product:         appconfig.RoleConfig{Enabled: true, PrimaryProvider: "grok"},
-			Documentation:   appconfig.RoleConfig{Enabled: true, PrimaryProvider: "agy"},
+			Documentation:   appconfig.RoleConfig{Enabled: true, PrimaryProvider: "zcode"},
 			Testing:         appconfig.RoleConfig{Enabled: false, PrimaryProvider: "zcode"},
 		},
 	}
@@ -148,13 +132,12 @@ func TestProductionInstanceFamiliesPreservesProviderRegistrationsAndSourceRoots(
 		t.Fatalf("productionInstanceFamilies() error = %v", err)
 	}
 	wantFamilies := map[string]providercli.CredentialSourceFamily{
-		"zcode-logic":                    providercli.CredentialSourceZCode,
-		"codex-work-security":            providercli.CredentialSourceCodex,
-		"codex-personal-maintainability": providercli.CredentialSourceCodex,
-		"grok-product":                   providercli.CredentialSourceGrok,
-		"agy-documentation":              providercli.CredentialSourceAgy,
-		"grok-logic":                     providercli.CredentialSourceGrok,
-		"agy-logic":                      providercli.CredentialSourceAgy,
+		"zcode-logic":          providercli.CredentialSourceZCode,
+		"zcode-security":       providercli.CredentialSourceZCode,
+		"grok-maintainability": providercli.CredentialSourceGrok,
+		"grok-product":         providercli.CredentialSourceGrok,
+		"zcode-documentation":  providercli.CredentialSourceZCode,
+		"grok-logic":           providercli.CredentialSourceGrok,
 	}
 	if !reflect.DeepEqual(families, wantFamilies) {
 		t.Fatalf("instanceFamilies = %v, want %v", families, wantFamilies)
@@ -168,13 +151,8 @@ func TestProductionInstanceFamiliesPreservesProviderRegistrationsAndSourceRoots(
 			t.Fatalf("instancePolicies[%q] identity = %q, want %q", instance, got.Identity(), wantPolicy.Identity())
 		}
 	}
-	wantSourceRoots := map[string]string{
-		"codex-work-security":            workHome,
-		"codex-personal-maintainability": personalHome,
-		"profile-home-spare":             spareHome,
-	}
-	if !reflect.DeepEqual(sourceRoots, wantSourceRoots) {
-		t.Fatalf("sourceRoots = %v, want %v", sourceRoots, wantSourceRoots)
+	if len(sourceRoots) != 0 {
+		t.Fatalf("sourceRoots = %v, want empty", sourceRoots)
 	}
 
 	invalid := cfg
@@ -367,7 +345,7 @@ func TestProductionInstanceFamiliesMatchesGrokHeartbeatCandidateInstance(t *test
 		attestor:         stableHeartbeatLocalityAttestor{},
 		staticRequest:    localityRequest,
 	}
-	candidate, err := source.newHeartbeatCandidate(context.Background(), seed.WorkspaceSnapshotIdentity(), reviewrun.FamilyGrok, "")
+	candidate, err := source.newHeartbeatCandidate(context.Background(), seed.WorkspaceSnapshotIdentity(), reviewrun.FamilyGrok)
 	if err != nil {
 		t.Fatalf("newHeartbeatCandidate(grok) error = %v", err)
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func liveAgyRetirementFixture(t *testing.T) (finalDTO, manifestDTO) {
+func liveZCodeRetirementFixture(t *testing.T) (finalDTO, manifestDTO) {
 	t.Helper()
 	finalBytes, err := os.ReadFile("../../builtin/assets/examples/review-artifact.v3.valid.json")
 	if err != nil {
@@ -33,7 +33,7 @@ func liveAgyRetirementFixture(t *testing.T) (finalDTO, manifestDTO) {
 	final.Target.LiveSource.NoChange = false
 	final.Target.LiveSource.Changes = []evidence.LiveSourceChange{{Kind: "included", After: "README.md"}}
 	provider := queryProductionFinalDTO().Provenance.Production.Providers[0]
-	provider.Family, provider.Instance = "agy", "agy-documentation"
+	provider.Family, provider.Instance = "zcode", "zcode-documentation"
 	final.Provenance.LiveProduction.Providers = []productionProviderDTO{provider}
 	for index := range final.RoleOutcomes {
 		final.RoleOutcomes[index].Outcome = "succeeded"
@@ -45,39 +45,36 @@ func liveAgyRetirementFixture(t *testing.T) (finalDTO, manifestDTO) {
 	return final, manifest
 }
 
-func TestAgyRetirementRequiresValidatedCurrentLiveBinding(t *testing.T) {
-	final, manifest := liveAgyRetirementFixture(t)
+func TestRetiredFamiliesRejectedEvenWithValidatedCurrentLiveBinding(t *testing.T) {
+	final, manifest := liveZCodeRetirementFixture(t)
 	if finalRecordRetired(final, manifest) {
-		t.Fatal("current live AGY instance was retired")
+		t.Fatal("active live ZCode instance was retired")
 	}
 	for name, mutate := range map[string]func(*finalDTO, *manifestDTO){
-		"old final":                     func(f *finalDTO, _ *manifestDTO) { f.SchemaVersion = "mulgae-review-artifact.v1" },
-		"old manifest":                  func(_ *finalDTO, m *manifestDTO) { m.SchemaVersion = "mulgae-run-manifest.v1" },
-		"reused v3 without live source": func(f *finalDTO, _ *manifestDTO) { f.Target.LiveSource = nil },
-		"source binding":                func(_ *finalDTO, m *manifestDTO) { m.Target.SourceIdentitySHA256 = "" },
-		"support binding":               func(_ *finalDTO, m *manifestDTO) { m.CompositeIdentity.SupportIndex = nil },
-		"captured authority":            func(_ *finalDTO, m *manifestDTO) { m.Target.ContentSHA256 = querySHA([]byte("old")) },
-		"role outcome":                  func(f *finalDTO, _ *manifestDTO) { f.RoleOutcomes[0].Outcome = "not_applicable" },
-		"Kimi attempt":                  func(_ *finalDTO, m *manifestDTO) { m.Attempts[0].ProviderInstance = "KIMI-logic" },
-		"Kimi live provenance":          func(f *finalDTO, _ *manifestDTO) { f.Provenance.LiveProduction.Providers[0].Family = "kimi" },
-		"Cursor attempt":                func(_ *finalDTO, m *manifestDTO) { m.Attempts[0].ProviderInstance = "cursor-logic" },
-		"Cursor live provenance":        func(f *finalDTO, _ *manifestDTO) { f.Provenance.LiveProduction.Providers[0].Family = "cursor" },
+		"Kimi attempt":           func(_ *finalDTO, m *manifestDTO) { m.Attempts[0].ProviderInstance = "KIMI-logic" },
+		"Kimi live provenance":   func(f *finalDTO, _ *manifestDTO) { f.Provenance.LiveProduction.Providers[0].Family = "kimi" },
+		"Cursor attempt":         func(_ *finalDTO, m *manifestDTO) { m.Attempts[0].ProviderInstance = "cursor-logic" },
+		"Cursor live provenance": func(f *finalDTO, _ *manifestDTO) { f.Provenance.LiveProduction.Providers[0].Family = "cursor" },
+		"Codex attempt":          func(_ *finalDTO, m *manifestDTO) { m.Attempts[0].ProviderInstance = "codex-primary-logic" },
+		"Codex live provenance":  func(f *finalDTO, _ *manifestDTO) { f.Provenance.LiveProduction.Providers[0].Family = "codex" },
+		"AGY attempt":            func(_ *finalDTO, m *manifestDTO) { m.Attempts[0].ProviderInstance = "agy-documentation" },
+		"AGY live provenance":    func(f *finalDTO, _ *manifestDTO) { f.Provenance.LiveProduction.Providers[0].Family = "agy" },
 	} {
 		t.Run(name, func(t *testing.T) {
-			f, m := liveAgyRetirementFixture(t)
+			f, m := liveZCodeRetirementFixture(t)
 			mutate(&f, &m)
 			if !finalRecordRetired(f, m) {
-				t.Fatal("historical, malformed, or retired provider escaped retirement")
+				t.Fatal("retired provider escaped retirement")
 			}
 		})
 	}
 }
 
-func TestCommittedProviderRetirementUsesValidatedLiveContext(t *testing.T) {
+func TestCommittedProviderRetirementRejectsRetiredFamiliesUnconditionally(t *testing.T) {
 	run, _, _ := queryCommittedFixture(t, domain.ExitCommittedCIRejected)
 	for _, live := range []bool{false, true} {
-		for _, family := range []string{"agy", "kimi", "cursor"} {
-			final, manifest := liveAgyRetirementFixture(t)
+		for _, family := range []string{"kimi", "cursor", "codex", "agy"} {
+			final, manifest := liveZCodeRetirementFixture(t)
 			final.Provenance.LiveProduction.Providers[0].Family = family
 			final.Provenance.LiveProduction.Providers[0].Instance = family + "-documentation"
 			body, err := json.Marshal(final)
@@ -94,20 +91,20 @@ func TestCommittedProviderRetirementUsesValidatedLiveContext(t *testing.T) {
 			}
 			readContext := (&Service{}).newReadContext()
 			retired, err := readContext.committedRetired(context.Background(), readContext.adoptReview(run, review))
-			if err != nil || retired != (!live || family == "kimi" || family == "cursor") {
-				t.Fatalf("family=%s live=%t retired=%t err=%v", family, live, retired, err)
+			if err != nil || !retired {
+				t.Fatalf("family=%s live=%t retired=%t err=%v, want retired=true", family, live, retired, err)
 			}
 		}
 	}
 }
 
 func TestRetiredProviderInstanceUsesFamilyBoundaries(t *testing.T) {
-	for _, value := range []string{"kimi", "KIMI-logic", "cursor", "CURSOR-logic", "agy.security", "agy_profile"} {
+	for _, value := range []string{"kimi", "KIMI-logic", "cursor", "CURSOR-logic", "codex", "codex-primary-security", "agy.security", "agy_profile"} {
 		if !retiredProviderInstance(value) {
 			t.Errorf("retired provider instance %q was not recognized", value)
 		}
 	}
-	for _, value := range []string{"zcode", "grok-logic", "codex-primary-security", "kimiko", "cursorx", "agyx"} {
+	for _, value := range []string{"zcode", "grok-logic", "kimiko", "cursorx", "codexx", "agyx"} {
 		if retiredProviderInstance(value) {
 			t.Errorf("supported or unrelated provider instance %q was retired", value)
 		}
@@ -158,7 +155,7 @@ func retiredProductionFixture(t *testing.T, family string) (*Service, *queryStor
 }
 
 func TestReadCommittedRejectsRetiredProductionProvider(t *testing.T) {
-	for _, family := range []string{"kimi", "cursor", "agy"} {
+	for _, family := range []string{"kimi", "cursor", "codex", "agy"} {
 		service, _, run := retiredProductionFixture(t, family)
 		_, err := service.ReadCommitted(context.Background(), run)
 		var failure *domain.Failure
@@ -168,8 +165,8 @@ func TestReadCommittedRejectsRetiredProductionProvider(t *testing.T) {
 	}
 }
 
-func TestCurrentLiveAgyStillRejectsRetiredSourceLineage(t *testing.T) {
-	for _, family := range []string{"agy", "kimi", "cursor"} {
+func TestCurrentLiveZCodeStillRejectsRetiredSourceLineage(t *testing.T) {
+	for _, family := range []string{"agy", "codex", "kimi", "cursor"} {
 		service, store, sourceRun := retiredProductionFixture(t, family)
 		currentID, err := domain.ParseRunID("r_019f596a-cfe4-7c9c-b82e-7149158243bb")
 		if err != nil {
@@ -179,7 +176,7 @@ func TestCurrentLiveAgyStillRejectsRetiredSourceLineage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		final, manifest := liveAgyRetirementFixture(t)
+		final, manifest := liveZCodeRetirementFixture(t)
 		sourceID := sourceRun.RunID().String()
 		final.ImmutableLineage.SourceRunID = &sourceID
 		live, err := validateLivePublicationBinding(final, manifest)

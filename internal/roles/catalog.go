@@ -143,11 +143,11 @@ func (definition Definition) Validate() error {
 // assignment total. Every core role must name all supported families, so the
 // intersection with any non-empty configured family set is never empty.
 func (definition Definition) validateProviderPreferences(role domain.Role) error {
-	allowed := []string{"zcode", "grok", "codex", "agy"}
-	required := 4
+	allowed := []string{"zcode", "grok"}
+	required := 2
 	if role == domain.RoleArtist {
-		allowed = []string{"zcode", "codex"}
-		required = 2
+		allowed = []string{"zcode"}
+		required = 1
 	}
 	if len(definition.ProviderPreferences) < required || len(definition.ProviderPreferences) > len(allowed) {
 		return fmt.Errorf("role catalog: invalid provider preferences for %q", role)

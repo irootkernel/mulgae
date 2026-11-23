@@ -59,7 +59,7 @@ Supply an external `mulgae.haepari-vm-request/v2` JSON document with:
 | `candidate` | Prepared source commit, actual binary SHA256, full skill Git tree and authorization reference |
 | `prior_release` | `v0.1.26`, commit `c422590155f62380709c8f6fd08c9ad423badaaa`, install target `github.com/irootkernel/mulgae@v0.1.26`, historical rebuild Go version (derived from `PRIOR_GO_VERSION`), GOPROXY and declared network exposure |
 | `review_controller_home` | New isolated absolute guest directory, separate from the outer Installation |
-| `live_accounts` | Existing authorized guest account aliases, native app/client paths and the primary Codex home, when selecting live checks |
+| `live_accounts` | Existing authorized guest account aliases, native ZCode/Grok provider paths and Codex/Claude MCP client paths, when selecting live checks |
 
 The guest must already have the exact current Go, Python and historical-rebuild
 Go declared in `tools/toolchains.env`, and the requested native clients. Versions
@@ -110,10 +110,9 @@ another outer VM Job or issues power commands.
 ## Live and manual work
 
 `SUITE=live-providers` serially runs the existing owning targets:
-`test-e2e`, `test-grok`, `test-agy`, enabled
-`test-e2e-opt-in`, and `test-mcp-requirements-clients`.
-The admitted account block supplies ZCode's app, Grok/AGY/Codex executables,
-the primary Codex home, and Codex/Claude MCP client paths. Account aliases
+`test-e2e`, `test-grok`, and `test-mcp-requirements-clients`.
+The admitted account block supplies ZCode's app, the Grok executable,
+and Codex/Claude MCP client paths. Account aliases
 record operator authorization; they do not prove a provider's private backend
 identity.
 

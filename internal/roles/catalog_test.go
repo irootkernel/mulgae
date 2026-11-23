@@ -24,13 +24,13 @@ const artistDefaultInputs = "    default_inputs:\n      task_path: ux-ui-info.md
 // individual roles so each test varies exactly one thing.
 func catalogFixture(overrides map[string]string) string {
 	defaults := map[string]string{
-		"logic":           roleEntry("logic", 1, "always", "[zcode, grok, codex, agy]", ""),
-		"security":        roleEntry("security", 2, "always", "[zcode, grok, codex, agy]", ""),
-		"maintainability": roleEntry("maintainability", 3, "always", "[zcode, grok, codex, agy]", ""),
-		"product":         roleEntry("product", 4, "always", "[zcode, grok, codex, agy]", ""),
-		"documentation":   roleEntry("documentation", 5, "always", "[zcode, grok, codex, agy]", ""),
-		"testing":         roleEntry("testing", 6, "always", "[zcode, grok, codex, agy]", ""),
-		"artist":          roleEntry("artist", 7, "project_kind_ui", "[zcode, codex]", artistDefaultInputs),
+		"logic":           roleEntry("logic", 1, "always", "[zcode, grok]", ""),
+		"security":        roleEntry("security", 2, "always", "[zcode, grok]", ""),
+		"maintainability": roleEntry("maintainability", 3, "always", "[zcode, grok]", ""),
+		"product":         roleEntry("product", 4, "always", "[zcode, grok]", ""),
+		"documentation":   roleEntry("documentation", 5, "always", "[zcode, grok]", ""),
+		"testing":         roleEntry("testing", 6, "always", "[zcode, grok]", ""),
+		"artist":          roleEntry("artist", 7, "project_kind_ui", "[zcode]", artistDefaultInputs),
 	}
 	document := "schema_version: " + SchemaVersion + "\nroles:\n"
 	for _, role := range domain.FixedRoleOrder() {
@@ -68,8 +68,8 @@ func TestParseCatalogEnforcesArtistExclusiveDefaultInputs(t *testing.T) {
 	t.Parallel()
 
 	for name, overrides := range map[string]map[string]string{
-		"artist without default inputs": {"artist": roleEntry("artist", 7, "project_kind_ui", "[zcode, codex]", "")},
-		"core role with default inputs": {"logic": roleEntry("logic", 1, "always", "[zcode, grok, codex, agy]", artistDefaultInputs)},
+		"artist without default inputs": {"artist": roleEntry("artist", 7, "project_kind_ui", "[zcode]", "")},
+		"core role with default inputs": {"logic": roleEntry("logic", 1, "always", "[zcode, grok]", artistDefaultInputs)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseCatalog([]byte(catalogFixture(overrides))); err == nil {
@@ -85,7 +85,7 @@ func TestParseCatalogRejectsUnsafeDefaultTaskPath(t *testing.T) {
 	for _, taskPath := range []string{"/abs.md", "../x.md", ".mulgae/x.md", ".gjc/x.md", "a//b.md", `a\b.md`, "."} {
 		t.Run(taskPath, func(t *testing.T) {
 			inputs := "    default_inputs:\n      task_path: '" + taskPath + "'\n      design_spec_globs:\n        - design-specs/**/*.png\n"
-			overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", "[zcode, codex]", inputs)}
+			overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", "[zcode]", inputs)}
 			if _, err := ParseCatalog([]byte(catalogFixture(overrides))); err == nil {
 				t.Fatalf("task path %q was accepted", taskPath)
 			}
@@ -121,7 +121,7 @@ func TestParseCatalogRejectsInvalidDesignSpecGlobs(t *testing.T) {
 					inputs += "        - '" + glob + "'\n"
 				}
 			}
-			overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", "[zcode, codex]", inputs)}
+			overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", "[zcode]", inputs)}
 			if _, err := ParseCatalog([]byte(catalogFixture(overrides))); err == nil {
 				t.Fatalf("globs %v were accepted", globs)
 			}
@@ -137,11 +137,13 @@ func TestParseCatalogRequiresFullPermutationForCoreRoles(t *testing.T) {
 
 	for name, preferences := range map[string]string{
 		"missing family":        "[kimi, zcode]",
-		"missing agy":           "[zcode, grok, codex]",
 		"single family":         "[zcode]",
-		"duplicate family":      "[zcode, zcode, agy]",
-		"unknown family":        "[zcode, agy, gpt]",
-		"retired cursor family": "[zcode, grok, codex, cursor]",
+		"duplicate family":      "[zcode, zcode]",
+		"unknown family":        "[zcode, gpt]",
+		"retired cursor family": "[zcode, cursor]",
+		"retired codex family":  "[zcode, codex]",
+		"retired agy family":    "[zcode, agy]",
+		"retired four-family":   "[zcode, grok, codex, agy]",
 		"empty":                 "[]",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -151,7 +153,7 @@ func TestParseCatalogRequiresFullPermutationForCoreRoles(t *testing.T) {
 			}
 		})
 	}
-	for _, preferences := range []string{"[zcode, grok, codex, agy]", "[grok, zcode, codex, agy]", "[codex, grok, zcode, agy]", "[agy, zcode, grok, codex]"} {
+	for _, preferences := range []string{"[zcode, grok]", "[grok, zcode]"} {
 		overrides := map[string]string{"logic": roleEntry("logic", 1, "always", preferences, "")}
 		if _, err := ParseCatalog([]byte(catalogFixture(overrides))); err != nil {
 			t.Fatalf("core preferences %q were rejected: %v", preferences, err)
@@ -159,24 +161,19 @@ func TestParseCatalogRequiresFullPermutationForCoreRoles(t *testing.T) {
 	}
 }
 
-// TestParseCatalogAcceptsEitherArtistPreferenceOrder proves the document owns
-// the artist order too; no Go constant pins it.
-func TestParseCatalogAcceptsEitherArtistPreferenceOrder(t *testing.T) {
+func TestParseCatalogAcceptsOnlyZCodeForArtist(t *testing.T) {
 	t.Parallel()
 
-	for _, preferences := range []string{"[zcode, codex]", "[codex, zcode]"} {
-		overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", preferences, artistDefaultInputs)}
-		definitions, err := ParseCatalog([]byte(catalogFixture(overrides)))
-		if err != nil {
-			t.Fatalf("artist preferences %q were rejected: %v", preferences, err)
-		}
-		got := definitions[len(definitions)-1].ProviderPreferences
-		want := strings.Split(strings.Trim(preferences, "[]"), ", ")
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Fatalf("artist preferences = %v, want %v", got, want)
-		}
+	overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", "[zcode]", artistDefaultInputs)}
+	definitions, err := ParseCatalog([]byte(catalogFixture(overrides)))
+	if err != nil {
+		t.Fatalf("artist preferences [zcode] were rejected: %v", err)
 	}
-	for _, preferences := range []string{"[kimi, agy]", "[agy, zcode, kimi]", "[agy, codex, kimi]", "[zcode, agy]", "[agy, codex]", "[]"} {
+	got := definitions[len(definitions)-1].ProviderPreferences
+	if strings.Join(got, ",") != "zcode" {
+		t.Fatalf("artist preferences = %v, want [zcode]", got)
+	}
+	for _, preferences := range []string{"[zcode, codex]", "[codex, zcode]", "[zcode, grok]", "[grok]", "[codex]", "[agy]", "[zcode, agy]", "[]"} {
 		overrides := map[string]string{"artist": roleEntry("artist", 7, "project_kind_ui", preferences, artistDefaultInputs)}
 		if _, err := ParseCatalog([]byte(catalogFixture(overrides))); err == nil {
 			t.Fatalf("artist preferences %q were accepted", preferences)
@@ -191,10 +188,10 @@ func TestParseCatalogRejectsMalformedDocuments(t *testing.T) {
 		"empty":                 "",
 		"wrong schema version":  strings.Replace(catalogFixture(nil), SchemaVersion, "mulgae-roles.v2", 1),
 		"missing role":          catalogFixture(map[string]string{"testing": ""}),
-		"duplicate role":        catalogFixture(nil) + roleEntry("logic", 1, "always", "[zcode, grok, codex, agy]", ""),
-		"order mismatch":        catalogFixture(map[string]string{"logic": roleEntry("logic", 2, "always", "[zcode, grok, codex, agy]", "")}),
-		"artist activation":     catalogFixture(map[string]string{"artist": roleEntry("artist", 7, "always", "[zcode, codex]", artistDefaultInputs)}),
-		"core activation":       catalogFixture(map[string]string{"logic": roleEntry("logic", 1, "project_kind_ui", "[zcode, grok, codex, agy]", "")}),
+		"duplicate role":        catalogFixture(nil) + roleEntry("logic", 1, "always", "[zcode, grok]", ""),
+		"order mismatch":        catalogFixture(map[string]string{"logic": roleEntry("logic", 2, "always", "[zcode, grok]", "")}),
+		"artist activation":     catalogFixture(map[string]string{"artist": roleEntry("artist", 7, "always", "[zcode]", artistDefaultInputs)}),
+		"core activation":       catalogFixture(map[string]string{"logic": roleEntry("logic", 1, "project_kind_ui", "[zcode, grok]", "")}),
 		"unknown field":         strings.Replace(catalogFixture(nil), "  - id: logic\n", "  - id: logic\n    unexpected: true\n", 1),
 		"carriage return":       strings.Replace(catalogFixture(nil), "\n", "\r\n", 1),
 		"trailing document":     catalogFixture(nil) + "---\nschema_version: " + SchemaVersion + "\n",

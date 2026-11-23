@@ -31,11 +31,9 @@ type familyQualificationGroup struct {
 // timeout, profile id, and configured version are excluded so sibling role
 // routes can share one probe; transport, argv, environment, working directory,
 // output bounds, lifecycle, model, reasoning effort, digests, and safety
-// identity remain part of the share key. Codex credential-profile identity is
-// included so different authenticated homes never share qualification.
-// Equivalent ZCode instances share one probe, with sibling direct-execution
-// authority minted via DeriveEquivalentRouteDirectExecutionAuthority; AGY
-// instances remain strictly per-instance.
+// identity remain part of the share key. Equivalent ZCode instances share one
+// probe, with sibling direct-execution authority minted via
+// DeriveEquivalentRouteDirectExecutionAuthority.
 func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) familyRuntimeProfileKey {
 	environment := definition.Environment()
 	environmentValues := make([]string, len(environment))
@@ -67,7 +65,6 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		definition.ZCodeModel(),
 		definition.ZCodeReasoningEffort(),
 		definition.GrokSettingsIdentity(),
-		definition.AgySettingsIdentity(),
 		strings.Join(definition.BaseArgv(), "\x1e"),
 		string(definition.TransportChannel()),
 		definition.TransportReference(),
@@ -78,12 +75,6 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		lifecycleFraming,
 		strconv.FormatInt(lifecycleStability, 10),
 		strconv.FormatInt(lifecycleTermination, 10),
-	}
-	if definition.Family() == string(FamilyCodex) && definition.ProfileID() != definition.Instance() {
-		parts = append(parts, definition.ProfileID())
-	}
-	if definition.Family() == string(FamilyAgy) {
-		parts = append(parts, definition.Instance())
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return familyRuntimeProfileKey("sha256:" + hex.EncodeToString(sum[:]))

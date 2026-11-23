@@ -44,7 +44,7 @@ var _ ports.ProviderNamespaceFactory = (*NamespaceFactory)(nil)
 // family-specific namespace environment shaping.
 func validNamespaceFamily(family string) bool {
 	switch family {
-	case FamilyZcode, FamilyGrok, FamilyCodex, FamilyAgy:
+	case FamilyZcode, FamilyGrok:
 		return true
 	default:
 		return false
@@ -265,12 +265,6 @@ type namespaceLease struct {
 	zcodeNativeHomeInfo           os.FileInfo
 	zcodeRuntimeTemp              string
 	zcodeRuntimeTempInfo          os.FileInfo
-	agySourceHome                 string
-	agySourceHomeInfo             os.FileInfo
-	agyQualifiedVersion           string
-	agyQualifiedRuntime           string
-	agyConfiguredRoots            []string
-	agyDrainUnverified            bool
 	grokRuntimeHome               string
 	grokConfiguredRoots           []string
 	grokTerminalMu                sync.Mutex
@@ -322,34 +316,6 @@ func (lease *namespaceLease) zcodeAccountRuntime(ctx context.Context, definition
 // path limit, so ZCode namespaces redirect their temp variables here instead.
 const zcodeRuntimeTempDirectory = "/tmp/mulgae-zcode"
 
-// agyCredentialSourceRoot revalidates and anchors the retained original AGY
-// credential home. It is a denied root for every AGY launch boundary; only the
-// trusted credential projector reads inside it.
-func (lease *namespaceLease) agyCredentialSourceRoot() (ports.AnchoredRoot, error) {
-	if lease == nil || lease.agySourceHome == "" || lease.agySourceHomeInfo == nil {
-		return ports.AnchoredRoot{}, fmt.Errorf("missing AGY credential source home")
-	}
-	info, err := os.Lstat(lease.agySourceHome)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(lease.agySourceHomeInfo, info) {
-		return ports.AnchoredRoot{}, fmt.Errorf("AGY credential source home drift")
-	}
-	return ports.NewAnchoredRoot(lease.agySourceHome)
-}
-
-// agyProjectedGeminiHome names the disposable Gemini home inside this
-// namespace. Native authentication, settings, agents, and diagnostics stay
-// confined to it.
-func (lease *namespaceLease) agyProjectedGeminiHome() (string, error) {
-	if lease == nil || !validCanonicalAbsolute(lease.root) {
-		return "", fmt.Errorf("missing AGY namespace root")
-	}
-	home := filepath.Join(lease.root, "home", ".gemini")
-	if info, err := os.Lstat(home); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 {
-		return "", fmt.Errorf("unsafe projected AGY Gemini home")
-	}
-	return home, nil
-}
-
 func newNamespaceLease(instance, generation, root, rootName string, parentDirectory, rootDirectory *os.File, binding ports.ProviderNamespaceTerminalBinding, sharedRuntimeTemp bool) (*namespaceLease, error) {
 	if !validProviderInstanceID(instance) || generation == "" || !validCanonicalAbsolute(root) || rootName == "" ||
 		parentDirectory == nil || rootDirectory == nil {
@@ -362,8 +328,7 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 	}
 	directories := []string{
 		"home",
-		"home/.zcode", "home/.zcode/v2", "home/.gemini", "home/.gemini/antigravity-cli",
-		"home/.codex", "home/.grok",
+		"home/.zcode", "home/.zcode/v2", "home/.grok",
 		"settings", "auth", "cache", "tmp", "scratch",
 	}
 	directoryInfo := make(map[string]os.FileInfo, len(directories))
@@ -610,7 +575,7 @@ func (lease *namespaceLease) terminallyDrained() bool {
 	}
 	lease.terminalMu.Lock()
 	defer lease.terminalMu.Unlock()
-	return lease.drained || lease.agyDrainUnverified
+	return lease.drained
 }
 
 func (lease *namespaceLease) DrainTerminal(ctx context.Context) (ports.ProviderNamespaceTerminalReceipt, error) {
@@ -623,9 +588,6 @@ func (lease *namespaceLease) DrainTerminal(ctx context.Context) (ports.ProviderN
 func (lease *namespaceLease) drainTerminalEffects(ctx context.Context) error {
 	lease.terminalMu.Lock()
 	defer lease.terminalMu.Unlock()
-	if lease.agyDrainUnverified {
-		return fmt.Errorf("provider namespace: AGY process drain unverified; namespace retained")
-	}
 	if lease.drained {
 		return nil
 	}

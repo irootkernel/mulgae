@@ -83,7 +83,7 @@ func TestDoctorProvidersNativeHomeReplacementRegression(t *testing.T) {
 						}
 						expected := []string{"attest.1", "locality.1", "locality.2", "native.1", "binary.grok", "version.grok", "native.2"}
 						if command == "providers" {
-							expected = append(expected, "platform", "permission", "evidence.zcode", "evidence.grok", "evidence.codex", "evidence.agy", "evidence.platform", "evidence.tools")
+							expected = append(expected, "platform", "permission", "evidence.zcode", "evidence.grok", "evidence.platform", "evidence.tools")
 						}
 						if !reflect.DeepEqual(got.Trace, expected) {
 							t.Fatalf("effects=%v want=%v", got.Trace, expected)
@@ -104,7 +104,7 @@ func TestDoctorProvidersNativeHomeReplacementRegression(t *testing.T) {
 									t.Fatal("missing inline diagnosis")
 								}
 								assertRejectedNativeHome(t, *envelope.Result.Doctor)
-							} else if envelope.Result.Offline != 0 || envelope.Result.Static != 3 {
+							} else if envelope.Result.Offline != 0 || envelope.Result.Static != 2 {
 								t.Fatalf("independent counts: %+v", envelope.Result)
 							}
 							if !strings.Contains(got.Stdout, `"code":"security_rejected"`) {

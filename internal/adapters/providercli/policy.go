@@ -25,8 +25,6 @@ var runtimeSafetyPolicies = func() map[CredentialSourceFamily]RuntimeSafetyPolic
 	values := map[CredentialSourceFamily]RuntimeSafetyPolicy{
 		CredentialSourceZCode: {family: CredentialSourceZCode, bytes: []byte("{\"family\":\"zcode\",\"permissions\":{\"allow\":[],\"ask\":[],\"deny\":[\"*\"]}}\n")},
 		CredentialSourceGrok:  {family: CredentialSourceGrok, bytes: []byte("{\"family\":\"grok\",\"transport\":\"herdr-core-terminal-v1\",\"policy_scope\":\"isolated_namespace\",\"home_mode\":\"disposable_home_and_grok_home\",\"requirements_toml\":\"minimal-disposable-v1\",\"tty_mode\":\"pane-tty-only\",\"output_delivery\":\"post-esrch-staged-file-v1\",\"bash_gate\":\"index-commit-b1-v1\"}\n")},
-		CredentialSourceCodex: {family: CredentialSourceCodex, bytes: []byte("{\"family\":\"codex\",\"permissions\":{\"workspace\":\"read_only\",\"namespace\":\"deny\"}}\n")},
-		CredentialSourceAgy:   {family: CredentialSourceAgy, bytes: []byte("{\"family\":\"agy\",\"protocol\":\"stream-json\",\"credential\":\"disposable-file-token\",\"permissions\":\"request-review\",\"agent_inheritance\":false,\"command_admission\":\"indexed-read-guard-with-fallback-deny-v1\",\"settings_normalization\":\"native-defaults-v1\",\"version_admission\":\"minimum-v1\"}\n")},
 	}
 	for family, policy := range values {
 		values[family] = runtimeSafetyPolicyWithIdentity(policy)
@@ -96,7 +94,6 @@ func RuntimeSafetyPolicyForGrokTerminal(identity ports.TerminalRuntimeIdentity) 
 }
 
 type currentProbeDirectExecutionRoleProof struct {
-	AgyCredentialSourceIdentity     string `json:"agy_credential_source_identity,omitempty"`
 	TerminalRuntimeExecutable       string `json:"terminal_runtime_executable,omitempty"`
 	TerminalRuntimeExecutableSHA256 string `json:"terminal_runtime_executable_sha256,omitempty"`
 	TerminalRuntimeVersion          string `json:"terminal_runtime_version,omitempty"`
@@ -281,21 +278,6 @@ func newCurrentProbeDirectExecutionRoleProofWithEvidence(definition RuntimeDefin
 		!validRelativeNativeReference(fixture.Reference()) {
 		return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: invalid direct execution")
 	}
-	sourceIdentity := ""
-	if definition.Family() == FamilyAgy {
-		if !agyNaturalExitObservation(observation) {
-			return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("AGY capability did not exit naturally")
-		}
-		authority, ok := namespace.(interface{ agyCredentialIdentity() (string, error) })
-		if !ok {
-			return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("missing AGY credential identity")
-		}
-		var sourceErr error
-		sourceIdentity, sourceErr = authority.agyCredentialIdentity()
-		if sourceErr != nil {
-			return currentProbeDirectExecutionRoleProof{}, sourceErr
-		}
-	}
 	var terminalExec, terminalSHA, terminalVersion, terminalPolicyID string
 	isTerminalChannel := definition.Transport().Channel() == ports.ProviderPacketChannelTerminal
 	if definition.Family() == FamilyGrok || isTerminalChannel {
@@ -322,7 +304,6 @@ func newCurrentProbeDirectExecutionRoleProofWithEvidence(definition RuntimeDefin
 	rootDevice, rootInode := snapshot.RootIdentity()
 	snapshotDevice, snapshotInode := snapshot.SnapshotFSIdentity()
 	proof := currentProbeDirectExecutionRoleProof{
-		AgyCredentialSourceIdentity:     sourceIdentity,
 		TerminalRuntimeExecutable:       terminalExec,
 		TerminalRuntimeExecutableSHA256: terminalSHA,
 		TerminalRuntimeVersion:          terminalVersion,
@@ -406,9 +387,6 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 			proof.OutputSHA256 == "" || proof.EffectiveEnvironmentSHA256 == "" || proof.Termination == "" ||
 			(index > 0 && proof.Role == canonical[index-1].Role) {
 			return "", fmt.Errorf("current probe direct-execution authority: invalid or replayed role proof")
-		}
-		if proof.Family == FamilyAgy && !validSHA256Identity(proof.AgyCredentialSourceIdentity) {
-			return "", fmt.Errorf("missing AGY source identity")
 		}
 		if proof.Family == FamilyZcode {
 			if !validCanonicalAbsolute(proof.ZCodeProviderConfig) || !validSHA256Identity(proof.ZCodeProviderConfigSHA256) ||

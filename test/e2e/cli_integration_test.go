@@ -87,11 +87,10 @@ func TestIntegrationPriorStateCLIAndMCP(t *testing.T) {
 	}
 	config.Project.Name, config.NativeUser.Home = "retained-upgrade", native
 	config.Providers.ZCode.AppBundle, config.Providers.ZCode.Timeout = bundle, "7m"
-	config.Providers.Codex = &adapterconfig.CodexProviderConfig{
-		Executable: node, Timeout: "9m", DefaultCredentialProfile: "archive",
-		CredentialHomes: []adapterconfig.CodexCredentialHomeConfig{{Profile: "archive", Home: canonicalTestTempDir(t)}},
+	config.Providers.Grok = &adapterconfig.GrokProviderConfig{
+		Executable: node, Timeout: "9m",
 	}
-	config.Roles.Documentation.PrimaryProvider, config.Roles.Documentation.CredentialProfile = "codex", "archive"
+	config.Roles.Documentation.PrimaryProvider = "grok"
 	config.Validation.Extraction.Enabled, config.Validation.Extraction.EnabledExplicit = false, true
 	shared, private, err = adapterconfig.EncodeSplit(config)
 	if err != nil {

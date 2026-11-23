@@ -2,12 +2,10 @@ package providercli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -46,7 +44,7 @@ func liveGitEnvironment(binding ports.ProjectBindingObservation) ([]ports.Enviro
 	return variables, nil
 }
 
-func liveReviewArgv(definition definition, execution ports.LiveReviewExecution, gitEnvironment []ports.EnvironmentVariable, extraction bool) ([]string, error) {
+func liveReviewArgv(definition definition) ([]string, error) {
 	if definition.transport.channel != ports.ProviderPacketChannelProtocol {
 		return nil, fmt.Errorf("live execution requires a native protocol")
 	}
@@ -54,37 +52,6 @@ func liveReviewArgv(definition definition, execution ports.LiveReviewExecution, 
 	switch definition.family {
 	case FamilyZcode:
 		return appendZcodeProtocolServerArgv(base), nil
-	case FamilyAgy:
-		return agyProtocolArgv(RuntimeDefinition(definition), execution.Binding().Root.String())
-	case FamilyCodex:
-		argv := appendCodexProtocolServerArgv(base, definition.codexModel, definition.codexReasoningEffort)
-		filesystem := []string{`"~/.codex"="deny"`}
-		seenDeny := map[string]struct{}{"~/.codex": {}}
-		appendDeny := func(roots []ports.AnchoredRoot) {
-			for _, root := range roots {
-				if !root.Valid() {
-					continue
-				}
-				if _, exists := seenDeny[root.String()]; exists {
-					continue
-				}
-				seenDeny[root.String()] = struct{}{}
-				filesystem = append(filesystem, strconv.Quote(root.String())+`="deny"`)
-			}
-		}
-		appendDeny(execution.CredentialRoots())
-		cpRoots, cpLiterals, cpErr := liveExecutionControlPlanePaths(execution)
-		if cpErr != nil {
-			return nil, cpErr
-		}
-		appendDeny(cpRoots)
-		appendDeny(cpLiterals)
-		argv = append(argv, "-c", `permissions.mulgae={extends=":read-only",filesystem={`+strings.Join(filesystem, ",")+`}}`)
-		settings := make([]string, 0, len(gitEnvironment))
-		for _, variable := range gitEnvironment {
-			settings = append(settings, variable.Name()+"="+strconv.Quote(variable.Value()))
-		}
-		return append(argv, "-c", "shell_environment_policy.set={"+strings.Join(settings, ",")+"}"), nil
 	default:
 		return nil, fmt.Errorf("unsupported live provider family")
 	}
@@ -138,43 +105,9 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 		return observation, nil, fail(err)
 	}
 	extraction := invocation.Purpose() == ports.ProviderInvocationExtract
-	argv, err := liveReviewArgv(definition, execution, gitEnvironment, extraction)
+	argv, err := liveReviewArgv(definition)
 	if err != nil {
 		return observation, nil, fail(err)
-	}
-	var agyProfile *agyInvocationProfile
-	agyAttempted := false
-	if definition.family == FamilyAgy {
-		concrete, ok := namespace.(*namespaceLease)
-		if !ok {
-			return observation, nil, fail(fmt.Errorf("missing AGY namespace authority"))
-		}
-		gemini, homeErr := concrete.agyProjectedGeminiHome()
-		if homeErr != nil {
-			return observation, nil, fail(homeErr)
-		}
-		plan, planErr := agyLiveReadPlan(ctx, execution, extraction)
-		if planErr != nil {
-			return observation, nil, fail(planErr)
-		}
-		observedVersion, versionErr := concrete.agyQualifiedRuntimeVersion(RuntimeDefinition(definition))
-		if versionErr != nil {
-			return observation, nil, fail(versionErr)
-		}
-		agyProfile, err = installAgyInvocationProfile(gemini, plan, observedVersion)
-		if err != nil {
-			return observation, nil, fail(err)
-		}
-		defer func() {
-			if profileErr := concrete.finishAgyInvocation(agyProfile, observation, agyAttempted); profileErr != nil {
-				report = nil
-				err = errors.Join(err, fail(profileErr))
-			}
-		}()
-		argv, err = agyBindInvocationArgv(argv, gemini, agyProfile.agentName)
-		if err != nil {
-			return observation, nil, fail(err)
-		}
 	}
 	binding, err := ports.NewProtocolProviderPacketBinding(packet)
 	if err != nil {
@@ -195,20 +128,11 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 		}
 		configuration.liveSourceScope = scope
 	}
-	if agyProfile != nil {
-		configuration.agyAgentName = agyProfile.agentName
-		if !extraction {
-			configuration.agyLiveReads, err = newAgyLiveReadAuthority(ctx, execution)
-			if err != nil {
-				return observation, nil, fail(err)
-			}
-		}
-	}
 	purpose := protocolPurposeLiveReview
 	if extraction {
 		purpose = protocolPurposeLiveExtraction
 	}
-	if definition.family == FamilyZcode || definition.family == FamilyAgy {
+	if definition.family == FamilyZcode {
 		concrete, ok := namespace.(*namespaceLease)
 		if !ok {
 			return observation, nil, fail(fmt.Errorf("missing native namespace authority"))
@@ -223,36 +147,13 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 				roots = append(roots, root)
 			}
 		}
-		boundary, err := ports.NewLiveReadOnlyBoundary(roots, execution.CredentialRoots(), writable)
+		runtimeTemp, runtimeErr := concrete.liveRuntimeTempRoot()
+		if runtimeErr != nil {
+			return observation, nil, fail(runtimeErr)
+		}
+		boundary, err := ports.NewLiveReadOnlyBoundaryWithRuntimeTemp(roots, execution.CredentialRoots(), writable, runtimeTemp)
 		if err != nil {
 			return observation, nil, fail(err)
-		}
-		if definition.family == FamilyAgy {
-			sourceRoot, sourceErr := concrete.agyCredentialSourceRoot()
-			if sourceErr != nil {
-				return observation, nil, fail(sourceErr)
-			}
-			if err := rejectContainedLaunch(execution.Binding().Root.String(), execution.ReviewerHome().Root().String(), concrete.root); err != nil {
-				return observation, nil, fail(err)
-			}
-			credentials := append(append([]ports.AnchoredRoot(nil), execution.CredentialRoots()...), sourceRoot)
-			boundary, err = ports.NewLiveReadOnlyBoundary(roots, credentials, writable)
-			if err == nil {
-				boundary, err = ports.NewLiveReadOnlyBoundaryWithOwnedPTY(boundary)
-			}
-			if err != nil {
-				return observation, nil, fail(err)
-			}
-		}
-		if definition.family == FamilyZcode {
-			runtimeTemp, runtimeErr := concrete.liveRuntimeTempRoot()
-			if runtimeErr != nil {
-				return observation, nil, fail(runtimeErr)
-			}
-			boundary, err = ports.NewLiveReadOnlyBoundaryWithRuntimeTemp(roots, execution.CredentialRoots(), writable, runtimeTemp)
-			if err != nil {
-				return observation, nil, fail(err)
-			}
 		}
 		cpRoots, cpLiterals, cpErr := liveExecutionControlPlanePaths(execution)
 		if cpErr != nil {
@@ -289,7 +190,6 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 		_ = launch.Close()
 		return observation, nil, fail(err)
 	}
-	agyAttempted = definition.family == FamilyAgy
 	return r.executeProtocolProviderProcess(ctx, definition, packet, request, purpose, nil, configuration)
 }
 

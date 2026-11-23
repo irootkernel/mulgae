@@ -8,11 +8,6 @@
 - a ZCode app bundle with a current Z.AI Individual Coding Plan connection for
   the mandatory live tests, plus an authenticated Grok installation for
   `make test-grok`
-- an authenticated primary Codex home only for the opt-in profile E2E
-
-Codex provider execution requires CLI 0.154.0 or newer for the app-server
-route. The separate Codex MCP-client compatibility check retains its own
-minimum version.
 
 Grok provider execution requires CLI 1.0.89 or newer and an available
 `herdr-core` (`hc` / `herdr-core`) runtime. Version 1.0.89 is the minimum and
@@ -57,9 +52,7 @@ one Markdown report from each role without repair or structured extraction,
 and requires Mulgae to publish one complete reports-only review. Each role must
 reproduce a fresh marker stored only in its original source file, never the
 objective, so a report that merely claims it could not read the target does not
-certify original-source access. The complete gate then invokes the opt-in Codex
-profile target, which reports a stable skip unless `MULGAE_E2E_OPT_IN=1` is
-present.
+certify original-source access.
 
 `make test` rejects `MULGAE_TEST_INSTALLED_BINARY`,
 `MULGAE_TEST_SOURCE_COMMIT` and `MULGAE_TEST_PREPARED_MANIFEST` overrides.
@@ -125,10 +118,8 @@ make test-unit
 make test-int
 make test-release
 make test-e2e
-make test-e2e-opt-in
 make test-herdr
 make test-grok
-make test-agy
 make test-mcp-clients
 ```
 
@@ -171,60 +162,6 @@ when set and otherwise discovers `grok` on `PATH`. The target requires an
 already authenticated installation and `herdr-core`, does not modify native Grok
 configuration, and is the standalone Grok live provider gate outside
 `make test-e2e`.
-
-`make test-agy` builds the exact current candidate release binary with the
-release version and HEAD revision linker values. It requires `darwin/arm64`,
-the installed `agy` (or `MULGAE_E2E_AGY_EXECUTABLE`) and the OS user's existing
-default Gemini token. It first runs the installed CLI's seven native command
-controls: the default-agent MCP baseline, the paired isolated-agent read,
-the guarded read without disclosing the guard in its prompt, the guarded
-`supporting_reads` (`templated`) read without disclosing the guard or
-pre-expanded bare command in its prompt, and appended, fallback and
-bare-command denial. The controls bind the observed version and
-executable digest for that run, accept the supported minimum `1.2.9` and newer,
-and stop at the first failed or inconclusive control. The target then performs
-one documentation review, with model and effort omitted, and no automatic
-whole-review retry. A source-only nonce in a
-parenthesized path proves a real source read. The gate checks one initial
-invocation, native protocol closure, public status/inspection/report/export,
-unchanged original source/Git/token, and removed invocation runtime roots.
-Qualification is part of that review; the command controls issue no production
-qualification authority. The gate neither requires nor validates a second account.
-
-AGY 1.5.3 reports native file reads as `read_file` with a `Path` operand in
-canonical tool events. The adapter also accepts the earlier
-`view_file`/`AbsolutePath` format. Both use the same workspace-only source
-admission, credential protection and start/completion checks. Qualification and
-extraction remain prompt-bound and admit no file-read operation.
-
-The Make target retains its private fixture, exact binary hashes and candidate
-diff/untracked-file hashes under the selected temporary directory on success
-or failure. Inspect those local artifacts before cleanup, especially after
-uncertain drain. Runtime data is not durable tracked evidence. A dirty candidate
-build is an exact tested candidate, not an exact committed release claim.
-This target is separate from `make test`. The mandatory live E2E
-gate explicitly selects ZCode, so optional AGY discovery cannot add a
-second provider or change that gate's two-role assertions.
-
-`make test-e2e-opt-in` is called after `make test-e2e`, but performs no provider
-discovery or execution unless `MULGAE_E2E_OPT_IN=1`. When enabled it runs one
-three-role exact-binary review in which Codex profile `primary` owns `logic`,
-`security`, and `documentation`. Supply the primary credential root
-explicitly; the profile name is a test alias and does not prescribe the
-directory name:
-
-```bash
-MULGAE_E2E_OPT_IN=1 \
-MULGAE_E2E_CODEX_PRIMARY_HOME=/absolute/path/to/primary-codex-home \
-make test-e2e-opt-in
-```
-
-Override executable discovery with `MULGAE_E2E_CODEX_EXECUTABLE`. Once enabled,
-missing credentials, qualification
-failure, invalid provider output, wrong role routing, publication failure, or
-credential mutation fails the target; the Go test never converts these states
-to a skip. This optional result does not replace mandatory ZCode
-certification.
 
 `make test-mcp-clients` is a registration-only local compatibility check and is
 not part of `make test`. It builds the exact current Mulgae binary, isolates client
@@ -286,7 +223,7 @@ coherent inspection and complete report/evidence reads. It checks no-change
 provenance, source selection identity and absence of source archives. Frozen
 historical projections preserve their original envelopes; the owning query
 tests establish historical artifact integrity. Current envelopes pass through
-an independently updated consumer, including command-result v24, preflight v12
+an independently updated consumer, including command-result v25, preflight v13
 and live-source/source-evidence capabilities.
 
 For actual client checks, use invocation-only MCP configuration and existing
@@ -316,7 +253,6 @@ defines these commands:
 | `offline` | `make test-offline` | `generic` | `go`, `offline` | 15,600s |
 | `release` | `make test-release` | `generic` | `go`, `release` | 1,800s |
 | `e2e` | `make test-e2e` | `go-test` | `go`, `e2e`, `live` | 11,400s |
-| `e2e-opt-in` | `make test-e2e-opt-in` | `go-test` | `go`, `e2e`, `live`, `codex` | 7,200s |
 | `grok` | `make test-grok` | `go-test` | `go`, `e2e`, `live`, `grok` | 6,000s |
 | `full` | `make test` | `generic` | `go`, `full`, `live` | 28,800s |
 
@@ -657,13 +593,11 @@ groups `TestLiveNeutralReviewReports`, `TestLiveNeutralExtractionReports`,
 `TestLiveNeutralReviewConcurrentCancellation`,
 `TestLiveNeutralCredentialBoundary`, `TestLiveZCodeNeutralKernelProtection`
 and `TestLiveGrokNeutralKernelProtection` exercise actual native providers in
-disposable source and reviewer-home fixtures. Supply the explicit supported
-Codex executable and home through `MULGAE_LIVE_CODEX_BIN` and
-`MULGAE_LIVE_CODEX_HOME`; the EPIC-009 baseline is CLI 0.156.0. Select an exact
+disposable source and reviewer-home fixtures. Select an exact
 group with an anchored `-run` expression and an explicit package. Never use the
 operator's project or provider state as the disposable target.
 
-Run the complete focused set explicitly after supplying those Codex variables:
+Run the complete focused set explicitly:
 
 ```bash
 ./dev go test -count=1 -tags=liveprovider ./internal/adapters/providercli \
@@ -685,19 +619,17 @@ production boundary (verifying direct and symlink-alias `CredentialRoots`
 denial, write denials, and positive source/Git/guide reads plus owned scratch
 writes) alongside the live Grok review turn, and
 `TestLiveGrokTerminalCancellationDrainsOnlyItsProcessGroup` verifies bounded
-process-group teardown without disturbing unrelated processes. Codex's kernel probe sends sandboxed
-`command/exec` through the same native server and its unchanged default
-`mulgae` profile before the independently correlated assistant turn. It checks
-real exit codes and direct/alias denials. Model refusal or reported denial alone
-does not prove kernel enforcement. The process-adapter tests separately cover
-hard links, protected ancestors, writable-root overlap and rejected root aliases.
+process-group teardown without disturbing unrelated processes. Model refusal or
+reported denial alone does not prove kernel enforcement. The process-adapter
+tests separately cover hard links, protected ancestors, writable-root overlap
+and rejected root aliases.
 Credential and writable-root admission tests reject existing regular-file
 hardlink aliases before spawn; source hardlinks remain supported. Runner tests
 cover descriptor cleanup on early returns and cancellation during admission.
 Unix socket fixtures check direct and symlink-alias denial at protected source
 and credential paths while an owned invocation socket remains reachable.
 These focused fixtures do not replace the complete integrated `make test`
-gate or the opt-in Codex certification of the primary account.
+gate.
 
 The [verified review contracts](../specs/verified-review-contracts.md) and their
 [roadmap outcomes](../roadmap/README.md#epic-007-verified-review-contracts)
@@ -772,8 +704,9 @@ and ZCode-only live verification (`make test-e2e`, which runs
 provider gates for Grok (`make test-grok`), Cursor (`make test-cursor`), AGY
 (`make test-agy`), and Codex (`MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) were
 explicitly deferred to the historical `v0.1.26` five-provider release gate
-(Cursor and `make test-cursor` were subsequently retired in `v0.1.28`, leaving
-the active four-provider portfolio `zcode`, `grok`, `codex`, and `agy`).
+(Cursor, Codex, and AGY review providers and their live targets were
+subsequently retired in `v0.1.28`, leaving the active two-provider portfolio
+`zcode` and `grok`).
 
 ### Tagged compilation and native execution
 
@@ -785,11 +718,10 @@ supported tagged sets from the repository root:
 ./dev go vet -tags=live_herdr ./internal/adapters/herdr
 ./dev go vet -tags=live_e2e ./test/e2e
 ./dev go vet -tags="live_e2e live_grok" ./test/e2e
-./dev go vet -tags="live_e2e live_agy" ./test/e2e
-./dev go vet -tags="live_e2e live_e2e_opt_in" ./test/e2e
 ./dev go vet -tags=releasecheck ./internal/releasecheck
 ./dev go vet -tags=mcpclientcheck ./internal/mcpclientcheck
 ./dev go vet -tags="mcpclientcheck requirementsclientcheck" ./internal/mcpclientcheck
+./dev go vet -tags=vm_qualification ./test/e2e
 ```
 
 These commands compile and type-check the tagged source without running live
@@ -861,13 +793,13 @@ TASK-063. Final native-home replacement originally requested an internal exit
 10, projected by doctor and providers to exit 7. Doctor JSON lost the inline
 diagnosis. `task063-doctor-before.json` retains those immutable predecessor
 bytes. Other characterization cases continue to compare with that file after
-projecting the current four-provider v8 contract onto the fixture.
+projecting the current two-provider v9 contract onto the fixture.
 
 `task063-doctor-corrected.json` retains the fixed TASK-063 Q1/Q3 expectations;
 `TestDoctorProvidersConformanceCompatibility` compares the active Q1 public
-outputs and effects against it after projecting the current four-provider v8
-contract (historical Q3 Cursor cases were retired alongside the Cursor provider
-family). These controls require a complete unsafe diagnosis after final
+outputs and effects against it after projecting the current two-provider v9
+contract (historical Q3 Cursor cases and retired Codex/AGY provider rows were
+retired alongside those provider families). These controls require a complete unsafe diagnosis after final
 native-home mismatch, replacing the predecessor defect assertions. The Q1
 regression checks the complete unsafe projection, both providers filtering
 modes and the earlier version observation plus independent later evidence
@@ -1271,8 +1203,7 @@ for changed MCP consumers. Release readiness requires the applicable exact-commi
 make test and provider-specific obligations under the repository's release
 policy. A runtime feature cannot use the patch-only version-increment waiver.
 Live-provider checks retain separate execution authority and cannot be replaced
-with fixture success. `make test-e2e`, `make test-grok`, `make test-agy` and
-enabled `make test-e2e-opt-in` reuse an explicitly selected
+with fixture success. `make test-e2e` and `make test-grok` reuse an explicitly selected
 usable `HAEPARI_HOME`. For standalone runs without a selected Installation or
 inherited Haepari context, the shared live fixture starts the installed `haepari`
 from `PATH` in a private temporary root, registers its capacity-one `mulgae-review`

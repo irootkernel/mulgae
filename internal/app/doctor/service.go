@@ -175,8 +175,7 @@ func (service *Service) providerEvidence(ctx context.Context, providerID string)
 	if err != nil || record.SchemaID == "" {
 		return unverified("provider_evidence_unavailable")
 	}
-	// The retained recorded-evidence contract has no AGY producer or branch.
-	if record.SchemaID != providerEvidenceSchemaID || providerID == "agy" {
+	if record.SchemaID != providerEvidenceSchemaID {
 		return unverified("provider_evidence_unsupported_schema")
 	}
 	if err := validateProviderRecord(record, providerID); err != nil {
@@ -370,7 +369,7 @@ func validateCatalog(ctx context.Context, catalog ports.ContractCatalog) bool {
 }
 
 func validateIntendedProviderIDs() bool {
-	if len(intendedProviderIDs) != 5 {
+	if len(intendedProviderIDs) != 2 {
 		return false
 	}
 	seen := make(map[string]struct{}, len(intendedProviderIDs))

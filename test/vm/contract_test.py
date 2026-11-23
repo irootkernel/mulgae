@@ -260,12 +260,6 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
             req["live_accounts"] = {
                 "zcode": {"app_bundle": "/Applications/ZCode.app", "account_alias": "guest-zcode"},
                 "grok": {"executable": "/usr/local/bin/grok", "account_alias": "guest-grok"},
-                "agy": {"executable": "/usr/local/bin/agy", "account_alias": "guest-agy"},
-                "codex": {
-                    "executable": "/usr/local/bin/codex",
-                    "primary_home": "/Users/guest/.codex-primary",
-                    "primary_account_alias": "guest-codex-1",
-                },
                 "mcp_clients": {
                     "codex_binary": "/usr/local/bin/codex",
                     "claude_binary": "/usr/local/bin/claude",
@@ -498,7 +492,7 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
             )
         self.assertIn("requires request.live_accounts", str(ctx3.exception))
 
-        # 4. Main-only Codex live_accounts accepted; secondary Codex fields refused.
+        # 4. Active two-provider + external MCP clients live_accounts accepted; retired providers refused.
         valid_live = haepari_inputs.validate_execution_request(
             self._base_request(include_live=True),
             REPO_ROOT,
@@ -506,37 +500,23 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
             haepari_inputs.DEFAULT_SUITES["live-providers"],
         )
         self.assertEqual(
-            valid_live["live_accounts"]["codex"],
-            {
-                "executable": "/usr/local/bin/codex",
-                "primary_home": "/Users/guest/.codex-primary",
-                "primary_account_alias": "guest-codex-1",
-            },
+            set(valid_live["live_accounts"]),
+            {"zcode", "grok", "mcp_clients"},
         )
-        for forbidden_key in ("secondary_home", "secondary_account_alias"):
-            with_secondary = self._base_request(include_live=True)
-            with_secondary["live_accounts"]["codex"][forbidden_key] = "retired-secondary"
+        for retired_key, retired_value in (
+            ("cursor", {"executable": "/usr/local/bin/agent", "account_alias": "retired-cursor"}),
+            ("agy", {"executable": "/usr/local/bin/agy", "account_alias": "retired-agy"}),
+            ("codex", {"executable": "/usr/local/bin/codex", "primary_home": "/Users/guest/.codex-primary", "primary_account_alias": "retired-codex"}),
+        ):
+            with_retired = self._base_request(include_live=True)
+            with_retired["live_accounts"][retired_key] = retired_value
             with self.assertRaises(haepari_inputs.Refusal):
                 haepari_inputs.validate_execution_request(
-                    with_secondary,
+                    with_retired,
                     REPO_ROOT,
                     "live-providers",
                     haepari_inputs.DEFAULT_SUITES["live-providers"],
                 )
-
-        # 5. Retired Cursor live_accounts entry is refused.
-        with_retired_cursor = self._base_request(include_live=True)
-        with_retired_cursor["live_accounts"]["cursor"] = {
-            "executable": "/usr/local/bin/agent",
-            "account_alias": "retired-cursor",
-        }
-        with self.assertRaises(haepari_inputs.Refusal):
-            haepari_inputs.validate_execution_request(
-                with_retired_cursor,
-                REPO_ROOT,
-                "live-providers",
-                haepari_inputs.DEFAULT_SUITES["live-providers"],
-            )
 
     def test_request_refuses_unsupported_local_toolchain(self) -> None:
         request = self._base_request()

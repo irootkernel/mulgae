@@ -24,14 +24,27 @@ func main() {
 	}
 }
 
+// historicalCodexDiscoverySpec preserves the frozen v13 discovery branch for
+// codex after retiring codex from active DiscoverySourceSpecs so regenerating
+// mulgae-command-result.v13.schema.json remains byte-identical.
+var historicalCodexDiscoverySpec = appinit.DiscoverySourceSpec{
+	Family: "codex",
+	Fields: []appinit.DiscoverySourceFieldSpec{
+		{JSONName: "executable_source", Values: []string{"override", "startup_path", "not_discovered", "not_selected"}},
+		{JSONName: "model_source", Values: []string{"override", "provider_default", "not_selected"}},
+		{JSONName: "reasoning_effort_source", Values: []string{"override", "provider_default", "not_selected"}},
+	},
+}
+
 func historicalDiscoverySpecs(specs []appinit.DiscoverySourceSpec) []appinit.DiscoverySourceSpec {
 	historical := make([]appinit.DiscoverySourceSpec, 0, 3)
 	for _, spec := range specs {
 		switch spec.Family {
-		case "zcode", "grok", "codex":
+		case "zcode", "grok":
 			historical = append(historical, spec)
 		}
 	}
+	historical = append(historical, historicalCodexDiscoverySpec)
 	return historical
 }
 

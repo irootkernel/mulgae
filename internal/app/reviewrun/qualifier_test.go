@@ -154,12 +154,12 @@ func (authenticator *qualifierLoginAuthenticator) LoginProvider(_ context.Contex
 
 func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *testing.T) {
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	profile := DiscoveredProviderProfile{family: FamilyCodex, executable: "/private/bin/codex", launcher: "/private/bin/codex", argv: []string{"/private/bin/codex"}, sha256: qualifierTestSHA, launcherSHA256: qualifierTestSHA, reason: "unqualified_discovery"}
-	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
+	profile := DiscoveredProviderProfile{family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok", argv: []string{"/private/bin/grok"}, sha256: qualifierTestSHA, launcherSHA256: qualifierTestSHA, reason: "unqualified_discovery"}
+	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelTerminal, -1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy("codex", "codex-main", "", "/private/bin/codex", qualifierTestSHA, "/private/bin/codex", qualifierTestSHA, "", "", "codex-default", "profile-generation", "policy-identity", []string{"/private/bin/codex"}, transport, nil, "/private/work", time.Second)
+	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy("grok", "grok-main", "", "/private/bin/grok", qualifierTestSHA, "/private/bin/grok", qualifierTestSHA, "", "", "grok-default", "profile-generation", "policy-identity", []string{"/private/bin/grok"}, transport, nil, "/private/work", time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespaceReceipt := acquiredProviderNamespaceTerminalReceipt(t, "codex-main", "generation-1")
+	namespaceReceipt := acquiredProviderNamespaceTerminalReceipt(t, "grok-main", "generation-1")
 	aggregate := mustProviderRunTerminalReceipt(t, namespaceReceipt)
 	registry := &qualifierRegistry{namespaces: map[string]ports.ProviderQualificationNamespace{}, receipt: aggregate}
 	qualifier := CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
@@ -180,7 +180,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 			t.Fatalf("qualification roles = base %q, requested %v", request.BaseRole, request.RequestedRoles)
 		}
 		identity := request.Identity
-		identity.Version = "0.16.5"
+		identity.Version = "1.0.89"
 		receipts := make([]Receipt, 0, len(ReceiptKinds()))
 		for _, kind := range ReceiptKinds() {
 			state := ReceiptPass
@@ -190,7 +190,7 @@ func TestQualifiedRunFactoryQualifiesIdentityOnlyProfileAndRetainsNamespace(t *t
 			receipts = append(receipts, qualificationTestReceipt(kind, state, now.Add(time.Minute), identity))
 		}
 		return CurrentQualificationResult{
-			VersionArgv: []string{"/private/bin/codex", "--version"}, Version: "0.16.5", Receipts: receipts,
+			VersionArgv: []string{"/private/bin/grok", "--version"}, Version: "1.0.89", Receipts: receipts,
 			SupportedRoles: []domain.Role{domain.RoleLogic}, RoleReceipts: []CurrentRoleReceipt{{Role: domain.RoleLogic, State: ReceiptPass, Identity: identity}},
 			BaseRole: domain.RoleLogic,
 		}, nil

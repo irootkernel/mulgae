@@ -17,10 +17,10 @@ func syntheticDefaults(t *testing.T, overrides map[domain.Role]appconfig.RoleDef
 	t.Helper()
 	entries := map[domain.Role]appconfig.RoleDefault{}
 	for _, role := range domain.CoreRoleOrder() {
-		entries[role] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "grok", "codex", "agy"}}
+		entries[role] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "grok"}}
 	}
 	entries[domain.RoleArtist] = appconfig.RoleDefault{
-		ProviderPreferences:   []string{"zcode", "codex"},
+		ProviderPreferences:   []string{"zcode"},
 		ArtistTaskPath:        "brief.md",
 		ArtistDesignSpecGlobs: []string{"specs/**/*.png"},
 	}
@@ -40,10 +40,10 @@ func TestNewRoleDefaultsRejectsIncompleteOrInvalidEntries(t *testing.T) {
 	complete := func() map[domain.Role]appconfig.RoleDefault {
 		entries := map[domain.Role]appconfig.RoleDefault{}
 		for _, role := range domain.CoreRoleOrder() {
-			entries[role] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "grok", "codex", "agy"}}
+			entries[role] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "grok"}}
 		}
 		entries[domain.RoleArtist] = appconfig.RoleDefault{
-			ProviderPreferences:   []string{"zcode", "codex"},
+			ProviderPreferences:   []string{"zcode"},
 			ArtistTaskPath:        "brief.md",
 			ArtistDesignSpecGlobs: []string{"specs/**/*.png"},
 		}
@@ -53,35 +53,41 @@ func TestNewRoleDefaultsRejectsIncompleteOrInvalidEntries(t *testing.T) {
 		"missing role": func(e map[domain.Role]appconfig.RoleDefault) { delete(e, domain.RoleTesting) },
 		"unknown role": func(e map[domain.Role]appconfig.RoleDefault) { e[domain.Role("reviewer")] = e[domain.RoleLogic] },
 		"core role missing family": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "zcode"}}
+			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode"}}
 		},
-		"core role missing agy": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "grok", "codex"}}
+		"core role retired codex": func(e map[domain.Role]appconfig.RoleDefault) {
+			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "codex"}}
+		},
+		"core role retired agy": func(e map[domain.Role]appconfig.RoleDefault) {
+			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "agy"}}
 		},
 		"core role duplicate family": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "kimi", "agy", "grok", "codex"}}
+			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "zcode"}}
 		},
 		"core role with artist inputs": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "grok", "codex", "agy"}, ArtistTaskPath: "brief.md"}
+			e[domain.RoleLogic] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "grok"}, ArtistTaskPath: "brief.md"}
 		},
-		"artist with kimi": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"kimi", "agy"}, ArtistTaskPath: "brief.md", ArtistDesignSpecGlobs: []string{"specs/a.png"}}
+		"artist with grok": func(e map[domain.Role]appconfig.RoleDefault) {
+			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"grok"}, ArtistTaskPath: "brief.md", ArtistDesignSpecGlobs: []string{"specs/a.png"}}
 		},
-		"artist with agy": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "agy"}, ArtistTaskPath: "brief.md", ArtistDesignSpecGlobs: []string{"specs/a.png"}}
+		"artist with retired codex": func(e map[domain.Role]appconfig.RoleDefault) {
+			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "codex"}, ArtistTaskPath: "brief.md", ArtistDesignSpecGlobs: []string{"specs/a.png"}}
+		},
+		"artist with retired agy": func(e map[domain.Role]appconfig.RoleDefault) {
+			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"agy"}, ArtistTaskPath: "brief.md", ArtistDesignSpecGlobs: []string{"specs/a.png"}}
 		},
 		"artist without task path": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "codex"}, ArtistDesignSpecGlobs: []string{"specs/a.png"}}
+			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode"}, ArtistDesignSpecGlobs: []string{"specs/a.png"}}
 		},
 		"artist without globs": func(e map[domain.Role]appconfig.RoleDefault) {
-			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "codex"}, ArtistTaskPath: "brief.md"}
+			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode"}, ArtistTaskPath: "brief.md"}
 		},
 		"artist with too many globs": func(e map[domain.Role]appconfig.RoleDefault) {
 			globs := make([]string, 0, 17)
 			for index := 0; index < 17; index++ {
 				globs = append(globs, "specs/"+string(rune('a'+index))+".png")
 			}
-			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode", "codex"}, ArtistTaskPath: "brief.md", ArtistDesignSpecGlobs: globs}
+			e[domain.RoleArtist] = appconfig.RoleDefault{ProviderPreferences: []string{"zcode"}, ArtistTaskPath: "brief.md", ArtistDesignSpecGlobs: globs}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -97,13 +103,13 @@ func TestNewRoleDefaultsRejectsIncompleteOrInvalidEntries(t *testing.T) {
 func TestNewRoleDefaultsDeepCopiesEntries(t *testing.T) {
 	t.Parallel()
 
-	preferences := []string{"zcode", "grok", "codex", "agy"}
+	preferences := []string{"zcode", "grok"}
 	entries := map[domain.Role]appconfig.RoleDefault{}
 	for _, role := range domain.CoreRoleOrder() {
 		entries[role] = appconfig.RoleDefault{ProviderPreferences: preferences}
 	}
 	entries[domain.RoleArtist] = appconfig.RoleDefault{
-		ProviderPreferences:   []string{"zcode", "codex"},
+		ProviderPreferences:   []string{"zcode"},
 		ArtistTaskPath:        "brief.md",
 		ArtistDesignSpecGlobs: []string{"specs/**/*.png"},
 	}
@@ -130,9 +136,9 @@ func TestCanonicalRolesConfigFollowsSuppliedPreferenceOrder(t *testing.T) {
 	t.Parallel()
 
 	defaults := syntheticDefaults(t, map[domain.Role]appconfig.RoleDefault{
-		domain.RoleLogic: {ProviderPreferences: []string{"grok", "zcode", "codex", "agy"}},
+		domain.RoleLogic: {ProviderPreferences: []string{"grok", "zcode"}},
 	})
-	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok", "codex"})
+	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok"})
 	if err != nil {
 		t.Fatalf("canonical roles: %v", err)
 	}
@@ -147,10 +153,10 @@ func TestCanonicalRolesConfigResolvesEachCoreRoleIndependently(t *testing.T) {
 	t.Parallel()
 
 	defaults := syntheticDefaults(t, map[domain.Role]appconfig.RoleDefault{
-		domain.RoleSecurity: {ProviderPreferences: []string{"zcode", "grok", "codex", "agy"}},
-		domain.RoleTesting:  {ProviderPreferences: []string{"grok", "codex", "zcode", "agy"}},
+		domain.RoleSecurity: {ProviderPreferences: []string{"zcode", "grok"}},
+		domain.RoleTesting:  {ProviderPreferences: []string{"grok", "zcode"}},
 	})
-	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok", "codex"})
+	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok"})
 	if err != nil {
 		t.Fatalf("canonical roles: %v", err)
 	}
@@ -179,7 +185,7 @@ func TestCanonicalRolesConfigSelectsOneProviderPerRole(t *testing.T) {
 		want       string
 	}{
 		{"single family", []string{"grok"}, "grok"},
-		{"every family", []string{"zcode", "grok", "codex"}, "zcode"},
+		{"every family", []string{"zcode", "grok"}, "zcode"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			roles, err := appconfig.CanonicalRolesConfig(defaults, test.configured)
@@ -209,12 +215,12 @@ func TestCanonicalRolesConfigSeedsArtistInputsFromDefaults(t *testing.T) {
 
 	defaults := syntheticDefaults(t, map[domain.Role]appconfig.RoleDefault{
 		domain.RoleArtist: {
-			ProviderPreferences:   []string{"zcode", "codex"},
+			ProviderPreferences:   []string{"zcode"},
 			ArtistTaskPath:        "docs/brief.md",
 			ArtistDesignSpecGlobs: []string{"mocks/**/*.webp", "mocks/**/*.png"},
 		},
 	})
-	roles, err := appconfig.CanonicalRolesConfigForUI(defaults, []string{"zcode", "codex"})
+	roles, err := appconfig.CanonicalRolesConfigForUI(defaults, []string{"zcode", "grok"})
 	if err != nil {
 		t.Fatalf("canonical UI roles: %v", err)
 	}
@@ -238,97 +244,26 @@ func TestCanonicalRolesConfigClassifiesUnsupportedArtistProvider(t *testing.T) {
 	}
 }
 
-func TestCursorSelectionIsRejectedAsRetiredFamily(t *testing.T) {
+func TestRetiredFamilySelectionIsRejected(t *testing.T) {
 	t.Parallel()
 	defaults := syntheticDefaults(t, nil)
-	for _, selection := range [][]string{{"cursor"}, {"zcode", "cursor"}, {"zcode", "grok", "codex", "cursor", "agy"}} {
+	for _, selection := range [][]string{{"kimi"}, {"cursor"}, {"codex"}, {"agy"}, {"zcode", "cursor"}, {"zcode", "codex"}, {"zcode", "agy"}, {"zcode", "grok", "codex"}, {"zcode", "grok", "agy"}} {
 		if _, err := appconfig.CanonicalRolesConfig(defaults, selection); err == nil {
 			t.Fatalf("retired family selection %v was accepted", selection)
 		}
 	}
 }
 
-func TestAgyOnlyAssignmentUsesTheSelectedFamilyForTextRoles(t *testing.T) {
-	t.Parallel()
-	defaults := syntheticDefaults(t, nil)
-	roles, err := appconfig.CanonicalRolesConfig(defaults, []string{"agy"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, provider := range []string{
-		roles.Logic.PrimaryProvider, roles.Security.PrimaryProvider, roles.Maintainability.PrimaryProvider,
-		roles.Product.PrimaryProvider, roles.Documentation.PrimaryProvider, roles.Testing.PrimaryProvider,
-	} {
-		if provider != "agy" {
-			t.Fatalf("text provider = %s, want agy", provider)
-		}
-	}
-}
-
-// TestAgyArtistRejectionSkipsTheSingleFamilyFallback proves the artist role
-// never falls back to AGY, including when it is the only configured family.
-func TestAgyArtistRejectionSkipsTheSingleFamilyFallback(t *testing.T) {
-	t.Parallel()
-	defaults := syntheticDefaults(t, nil)
-	roles, err := appconfig.CanonicalRolesConfigForSelection(defaults, []string{"agy"}, []string{"logic", "artist"})
-	if !errors.Is(err, appconfig.ErrRoleProviderUnsupported) {
-		t.Fatalf("artist fallback err = %v roles=%#v", err, roles)
-	}
-}
-
-// TestAgyPreferenceOrderRoutesTheFirstConfiguredFamily proves a role whose
-// preference order leads with AGY resolves to AGY only when AGY is configured,
-// without disturbing roles whose orders trail AGY.
-func TestAgyPreferenceOrderRoutesTheFirstConfiguredFamily(t *testing.T) {
-	t.Parallel()
-	defaults := syntheticDefaults(t, map[domain.Role]appconfig.RoleDefault{
-		domain.RoleDocumentation: {ProviderPreferences: []string{"agy", "zcode", "grok", "codex"}},
-	})
-	withoutAgy, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if withoutAgy.Documentation.PrimaryProvider != "zcode" || withoutAgy.Logic.PrimaryProvider != "zcode" {
-		t.Fatalf("roles without agy = %s/%s, want zcode/zcode", withoutAgy.Documentation.PrimaryProvider, withoutAgy.Logic.PrimaryProvider)
-	}
-	withAgy, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok", "agy"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if withAgy.Documentation.PrimaryProvider != "agy" {
-		t.Fatalf("documentation = %s, want agy", withAgy.Documentation.PrimaryProvider)
-	}
-	if withAgy.Logic.PrimaryProvider != "zcode" {
-		t.Fatalf("logic = %s, want the untouched zcode route", withAgy.Logic.PrimaryProvider)
-	}
-}
-
-func TestFamiliesAppendsAgyFourthInCanonicalOrder(t *testing.T) {
+func TestFamiliesReturnsZCodeAndGrokInCanonicalOrder(t *testing.T) {
 	t.Parallel()
 	providers := appconfig.ProvidersConfig{
 		ZCode: &appconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"},
 		Grok:  &appconfig.GrokProviderConfig{Executable: "/usr/local/bin/grok"},
-		Codex: &appconfig.CodexProviderConfig{Executable: "/usr/local/bin/codex"},
-		Agy:   &appconfig.AgyProviderConfig{Executable: "/opt/agy/bin/agy"},
 	}
-	if got := providers.Families(); strings.Join(got, ",") != "zcode,grok,codex,agy" {
-		t.Fatalf("families = %v, want zcode,grok,codex,agy", got)
+	if got := providers.Families(); strings.Join(got, ",") != "zcode,grok" {
+		t.Fatalf("families = %v, want zcode,grok", got)
 	}
-	providers.Codex = nil
-	if got := providers.Families(); strings.Join(got, ",") != "zcode,grok,agy" {
-		t.Fatalf("subset families = %v, want zcode,grok,agy", got)
-	}
-}
-
-// TestCanonicalRolesConfigAcceptsAgyEverywhereInFamilyOrder proves the family
-// admission order treats AGY as the fourth canonical member.
-func TestCanonicalRolesConfigAcceptsAgyEverywhereInFamilyOrder(t *testing.T) {
-	t.Parallel()
-	defaults := syntheticDefaults(t, nil)
-	if _, err := appconfig.CanonicalRolesConfig(defaults, []string{"zcode", "grok", "codex", "agy"}); err != nil {
-		t.Fatalf("four-family order rejected: %v", err)
-	}
-	if _, err := appconfig.CanonicalRolesConfig(defaults, []string{"agy", "zcode"}); err == nil {
+	if _, err := appconfig.CanonicalRolesConfig(syntheticDefaults(t, nil), []string{"grok", "zcode"}); err == nil {
 		t.Fatal("out-of-order family set was accepted")
 	}
 }

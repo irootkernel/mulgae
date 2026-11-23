@@ -4,7 +4,7 @@
 
 [Native Haepari review coordination](haepari-review-coordination.md) owns
 EPIC-016's shared review lifecycle and compatibility requirements. The current
-owner and borrower implementation preserves CLI v24/MCP v1 shapes and adds closed
+owner and borrower implementation preserves CLI v25/MCP v1 shapes and adds closed
 owned `haepari_*` terminal causes and coordination summaries. Native identifiers
 and messages stay private. The private intent v2 (owned) and v3 (borrowed) add
 local-drain proof while v1 remains readable with unknown proof. Migration,
@@ -113,47 +113,28 @@ Configuration has two authorities:
 
 The Git-shareable `config.yaml` selects provider families and models, role
 assignments, validation policy, resource ceilings, and CI thresholds. The
-untracked, mode-`0600` `local.yaml` supplies the native home and provider
-executable, ZCode app-bundle, and Codex credential-home paths. Neither file can add arbitrary
+untracked, mode-`0600` `local.yaml` supplies the native home, provider
+executable, and ZCode app-bundle paths. Neither file can add arbitrary
 provider commands. Mulgae admits them only as a matching pair and reports their
 merged value through `config --mode effective` and field ownership through
 `config --mode provenance`. Provider stdout and stderr have no configurable or
 fixed product byte ceiling.
 
-Cursor is retired from the selectable provider inventory. Config v5 files that
-declare `providers.cursor` or route a role to `cursor` fail closed with
-`config_provider_retired`.
+Kimi, Cursor, Codex, and AGY are retired from the selectable review provider
+inventory. Config v5 files that declare `providers.kimi`, `providers.cursor`,
+`providers.codex`, or `providers.agy`, or route a role to any of those families,
+fail closed with `config_provider_retired`. Codex-only credential profile fields
+(`default_credential_profile`, `credential_homes`, `roles.*.credential_profile`)
+are removed from Config v5.
 
-AGY is the fourth inventory family. Config v5 admits machine-local
-`providers.agy.executable` and optional project-policy `model`,
-`reasoning_effort`, and the common provider `timeout`. Omitting model or effort
-preserves that native default independently. Model syntax uses 1–128 ASCII
-characters, starts alphanumeric, permits `._/-`, and rejects absolute paths,
-`//` and `..` segments. Effort is one of `low`, `medium`, `high`, `xhigh`, `max`.
-No AGY account, credential-profile, credential-home or permission-mode field
-exists. Unsupported fields remain rejected.
+Automatic initialization (`--providers auto`) requires ZCode and Grok and fails
+closed unless both are available. `assets/roles.yaml` prefers ZCode then Grok
+for all core text roles, and ZCode alone for artist. Existing shared policy is
+never re-derived.
 
-Init accepts `--agy-executable`, `--agy-model` and `--agy-reasoning-effort`.
-Automatic selection still requires ZCode and Grok; installed AGY is optional.
-AGY policy overrides require selected or discovered AGY, and local refresh
-rejects model/effort options. `assets/roles.yaml` prefers AGY for documentation,
-then ZCode, Grok, Codex. Other text roles prefer ZCode, Grok, Codex, AGY; artist
-retains ZCode and Codex. Existing shared policy is never re-derived.
-
-Current public contracts are command-result v24, doctor v8, provider-heartbeat
-v5 and review-preflight v12. Their earlier schema/example pairs remain frozen.
-Provider-evidence v4 remains historical and has no AGY producer or production
-reader. An injected v4 claim cannot establish AGY certification; the optional
-evidence projection leaves it unsupported/unverified.
-
-Codex may additionally declare a Git-shareable
-`default_credential_profile` and role-level `credential_profile` overrides.
-The matching local authority contains the exact, lexically ordered
-`credential_homes` entries. Those paths identify credential sources only:
-Mulgae projects `<home>/auth.json`, never the home's `config.toml`, rules,
-skills, plugins, or other contents. When the named fields are absent, the
-legacy singleton uses `<native_user.home>/.codex`. Named and legacy forms are
-both Config v5; partially named or unmatched pairs are rejected.
+Current public contracts are command-result v25, doctor v9, provider-heartbeat
+v6 and review-preflight v13. Their earlier schema/example pairs remain frozen.
+Provider-evidence v4 remains historical.
 
 For ZCode, the local authority records only the canonical app bundle. The
 project authority may independently declare `model` and `reasoning_effort`.
@@ -229,7 +210,7 @@ review provider invocations one Mulgae process may run at once. It is not a
 provider identity and does not coordinate another process or project.
 Provider qualification probes are not counted against it; each qualification
 batch runs at most one concurrent probe per distinct provider family. Current
-command-result v24 and review-preflight v12 documents describe execution as
+command-result v25 and review-preflight v13 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
@@ -644,7 +625,7 @@ is never the primary report URI.
 
 `transport` is adapter-owned, not configurable. All current provider review
 invocations project accepted bytes under `transport: "stdout"`: protocol
-providers (ZCode, Codex, and AGY) collect the complete accepted
+providers (ZCode) collect the complete accepted
 assistant message from correlated native protocol frames with no report-file
 write grant, while managed terminal providers (Grok) validate one per-invocation
 staged file inside private namespace scratch strictly after `ESRCH` teardown and
@@ -711,21 +692,9 @@ is explicitly overridden. Mulgae preserves configured spelling, passes `-m` and
 see [Provider qualification readiness](#provider-qualification-readiness) for
 Grok `1.0.89` interactive TUI best-effort silent-fallback behavior.
 
-Codex review, extraction, and qualification use one ephemeral app-server thread
-and one turn per invocation over stdio. Mulgae sends `initialize`,
-`thread/start`, and `turn/start`, then accepts the final assistant message only
-after the matching `turn/completed` reports success. Qualification constrains
-that message with its fixture schema through `turn/start.outputSchema`.
-Unexpected server requests, loaded instruction sources, malformed frames,
-missing final text, and failed or missing turn completion fail closed. Codex
-provider qualification requires 0.154.0 or newer; the separate Codex MCP
-client minimum remains 0.149.0.
-
-All four families use the same diagnostic identifier grammar: at most 512
+Both active families use the same diagnostic identifier grammar: at most 512
 bytes, valid UTF-8, no surrounding whitespace and no Unicode controls. Unsafe
 diagnostic identifiers become empty; native correlation retains its raw IDs.
-Codex thread/turn admission still rejects unsafe authoritative identifiers
-under its existing protocol rules.
 
 Historical child lineage may contain `source_attempt_id`, replay modes, and
 staged-file transport receipts. Retained readers validate these fields without
@@ -809,42 +778,26 @@ stored semantics, including ancestry protection and explicit unavailable
 recovery evidence. No current command creates or replays these historical
 artifacts.
 
-### AGY transport and historical reads
+### Retired provider historical reads and heartbeat namespaces
 
-AGY review, extraction, qualification and heartbeat use bidirectional
-stream-JSON. Initialization and the exact controlled agent/permission
-acknowledgement precede one user turn. Correlated file and command operations
-must match the admitted native read plan; unknown tools, failed or incomplete
-operations, and mismatched operands fail closed. Only a completed assistant
-turn supplies report text, under the common `stdout` role-report transport.
-Success additionally requires stdin half-close, drained EOF, natural exit zero,
-valid lifecycle evidence, no requested signals and process-group absence.
-AGY `1.2.9` and newer are admitted without per-version command or settings
-allowlists. Native default omissions and an omitted expected-empty allow set
-preserve the effective app-authored policy; unsafe values and changed grants
-remain failures. Qualification remains bound to the observed executable and
-isolated runtime.
-The [transport decision](../architecture-decision-records/agy-stream-json-transport.md)
-defines the guarded command and credential boundaries.
-
-Only validated current live-source artifact/manifest v3 publications admit AGY
-on verified query, report and export paths. Source/target/support binding must
-agree; an old document's version token alone grants no exemption. Captured,
-composite, recovery and transitive historical AGY references retain
-`retired_provider_artifact`. Kimi and Cursor are retired in every era. There is no new
-historical replay or recovery execution path.
+Kimi, Cursor, Codex, and AGY are retired unconditionally in every era,
+including direct and transitive lineage. Verified query, report, and export
+reads of artifacts referencing any retired provider fail closed with
+`retired_provider_artifact`; `mulgae clean` may still inspect and delete them
+without exposing their content. There is no new historical replay or recovery
+execution path.
 
 MCP uses the same configured route, preflight, result and inspection owners.
 It adds no init/configuration tool or provider selector. Heartbeat's synthetic
-`agy-logic` and `grok-logic` namespaces are registered independently of enabled
-review roles whenever the corresponding provider is configured, so an unassigned
-or documentation-only route can still use the authorized diagnostic; `grok-logic`
-projects `~/.grok/auth.json` lazily only when the namespace is acquired.
+`grok-logic` namespace is registered independently of enabled review roles
+whenever Grok is configured, so an unassigned route can still use the
+authorized diagnostic; `grok-logic` projects `~/.grok/auth.json` lazily only
+when the namespace is acquired.
 
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Contract-valid
-workflow requests emit command-result v24. Init's rejected-request envelope
+workflow requests emit command-result v25. Init's rejected-request envelope
 remains supported. Retired commands and capture-bound fields fail grammar before
 provider execution with usage exit 2 and human stderr, even when JSON was requested.
 No child selector resolution or compose mutation exists on the current surface.
@@ -912,7 +865,7 @@ this internal failure.
 CI decisions derive from committed artifacts. Provider output or an uncommitted
 candidate has no CI authority.
 
-`mulgae doctor --output json` returns `mulgae-doctor-result.v8`. Capability
+`mulgae doctor --output json` returns `mulgae-doctor-result.v9`. Capability
 detection starts with `schema_version`; consumers of an older result must treat
 an absent v2 dimension as unsupported, never as failed. The result reports
 `config_v3`, `local_configuration`, and `provider_identity` independently, and
@@ -942,7 +895,7 @@ and compatibility. A version above `verified_latest` preserves the existing
 eligible policy while using compatibility `newer_than_verified`.
 
 A native-home mismatch after permitted provider observations returns a complete
-unsafe v8 diagnosis with `native_home_mismatch` and exit 8. Configured provider
+unsafe v9 diagnosis with `native_home_mismatch` and exit 8. Configured provider
 IDs are empty, inventory rows are `not_observed`/`config_not_ready`, and both
 assignment fields are `not_observed`. Earlier observation effects are not
 reversed. Doctor keeps its inline diagnosis; providers reports zero offline-ready
@@ -961,8 +914,8 @@ offline readiness. `mulgae providers --output json` exposes the independent
 human static profiles remain `unverified` when no static source exists. A
 successful or failed live review never mutates these offline observations.
 The underlying `providers` service profile projection (`Result.JSON()`) reports
-`result_transport: "stdout"` for the current ZCode, Codex, and AGY
-protocol profiles and the Grok managed terminal profile, while the
+`result_transport: "stdout"` for the current ZCode protocol profile and the
+Grok managed terminal profile, while the
 `mulgae providers --output json` CLI result retains its closed four-field summary.
 
 Stable doctor reasons are grouped as follows:
@@ -979,9 +932,8 @@ The exact schema remains authoritative for additional locality reason codes
 owned by the filesystem/Git admission boundary.
 
 `mulgae heartbeat --provider FAMILY --authorize-live-request` is the only
-standalone live diagnostic. For named Codex configurations it also accepts the
-explicit `--credential-profile`. Omitting the authorization returns a versioned
-`mulgae-provider-heartbeat-result.v5` with `attempted: false` before provider
+standalone live diagnostic. Omitting the authorization returns a versioned
+`mulgae-provider-heartbeat-result.v6` with `attempted: false` before provider
 composition, credential access, or process execution. An authorized heartbeat
 discloses that authentication, network, cost, and remote logging may occur,
 uses a bounded provider timeout, and sends only Mulgae's immutable synthetic
@@ -1090,8 +1042,8 @@ permissions granted to the invoking terminal or daemon process.
 `productionRuntimeGraph` owns the isolated `herdr-core` session lifecycle and
 always stops the core daemon and holder first during `cleanupRoots()` (skipping
 namespace-parent removal if exit is unproven) and on retained-cleanup failure
-paths, preventing background daemon leaks across CLI and MCP modes. ZCode,
-Codex, and AGY never start `herdr-core`.
+paths, preventing background daemon leaks across CLI and MCP modes. ZCode never
+starts `herdr-core`.
 
 Review qualification preserves private request packets and nonempty
 version/capability stdout and stderr under the diagnostic run before fixture
@@ -1114,22 +1066,18 @@ That diagnostic identity grants no manifest or P2 publication authority.
 Current qualification is family/runtime-profile scoped within one command:
 Mulgae performs one version-plus-capability probe per distinct provider family
 profile, with at most one bounded operational retry, then derives role admission
-for configured role routes that share that profile. Shareable
-profiles are equivalent across base argv, transport channel/reference/index,
-environment, working directory, lifecycle, ZCode model and reasoning effort,
-Grok settings identity (with Codex model and reasoning effort configured
-provider-wide), executable/launcher identity, ZCode app-bundle
-version/metadata and built-in provider-config identities, and runtime safety
-policy identity. ZCode
-qualification probes use the app-server protocol conversation in plan mode
-with every tool denied; their capability evidence is the conversation's
-captured assistant response text, read back through the protocol after the
-turn completes, and the protocol transcript on stdout is never evidence.
-Same-profile ZCode role instances share one qualification probe and mint
-distinct destination-bound direct-execution authorities through
-`DeriveEquivalentRouteDirectExecutionAuthority`, while retaining independent
-per-instance namespaces for execution; AGY remains strictly per-instance and
-cannot share qualification or authority across instances or namespaces.
+for configured role routes that share that profile. Shareable profiles are equivalent across base argv, transport
+channel/reference/index, environment, working directory, lifecycle, ZCode model
+and reasoning effort, Grok settings identity, executable/launcher identity,
+ZCode app-bundle version/metadata and built-in provider-config identities, and
+runtime safety policy identity. ZCode qualification probes use the app-server
+protocol conversation in plan mode with every tool denied; their capability
+evidence is the conversation's captured assistant response text, read back
+through the protocol after the turn completes, and the protocol transcript on
+stdout is never evidence. Same-profile ZCode and Grok role instances share one
+qualification probe and mint distinct destination-bound direct-execution
+authorities through `DeriveEquivalentRouteDirectExecutionAuthority`, while
+retaining independent per-instance namespaces for execution.
 Direct-execution authority construction and `Matches` bind
 `currentProbeRuntimeDefinitionIdentity` for the exact destination runtime,
 including instance, so application-layer identity rewriting cannot copy
@@ -1139,14 +1087,7 @@ and `session/setThoughtLevel` handshakes at execution time, any rejected or
 mismatched `account.revision`, unavailable model, or rejected thought level on
 a derived sibling surfaces as a typed configuration failure with zero
 publication authority.
-Named Codex credential profiles additionally participate in qualification-group
-identity. Roles using the same credential profile may share one probe; roles
-using different profiles never share qualification or direct-execution
-authority. Their provider instances use `codex-<profile>-<role>`. Legacy Codex
-configuration retains `codex-<role>`.
-Codex qualification takes evidence from its correlated final assistant
-message rather than the raw protocol transcript. Required family probes,
-including Codex, are scheduled in original group order in batches that
+Required family probes are scheduled in original group order in batches that
 contain at most one group per family; a batch ends before the first repeated
 family, so no group moves past an earlier unresolved group. Distinct families
 within a batch may qualify concurrently. Same-family probes never overlap,
@@ -1281,15 +1222,15 @@ a failed rerun. Cleanup validates bounded manifest metadata and confirms its
 identity without reading input or report blobs. Historical status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
-These historical records grant no new provider execution. CLI v5 through v23
+These historical records grant no new provider execution. CLI v5 through v24
 schema examples remain available for explicit backward validation; current CLI
-envelopes use v24. MCP retains its v1 common envelope, whose `data` object
+envelopes use v25. MCP retains its v1 common envelope, whose `data` object
 carries the extended status projection.
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v24 `result` and MCP v1
+accepts an empty argument object. CLI command-result v25 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `live_source`, `source_evidence`, `project_binding`, `inspection`,
@@ -1424,8 +1365,8 @@ no total-content ceiling.
 
 The [frozen EPIC-008 contracts](review-completeness-and-iteration.md#frozen-requirements-assessment-contracts)
 own optional input, assessment accounting, bounded support/read metadata and
-unbounded retained content. Current commands emit command-result v24, preflight
-v12 and live review artifacts/manifests v4 with support index v4. Earlier
+unbounded retained content. Current commands emit command-result v25, preflight
+v13 and live review artifacts/manifests v4 with support index v4. Earlier
 substantive schema/example pairs remain unchanged.
 
 ### Input admission and eligibility
@@ -1451,7 +1392,7 @@ untrusted data; it does not authorize tools, source expansion or policy changes.
 
 ### Provider-free preflight
 
-Preflight v12 includes `requirements: null` when input is absent. Otherwise the
+Preflight v13 includes `requirements: null` when input is absent. Otherwise the
 bounded summary contains `input_sha256`, `selected_count`, ordered `items` with
 `requirement_id` and `owner_role`, `evaluation_status: not_run`,
 `extraction_policy`, `source_limit: selected_target_only`, and conditional
@@ -1459,7 +1400,7 @@ bounded summary contains `input_sha256`, `selected_count`, ordered `items` with
 Git binding availability controls the execution capability; preflight invokes no
 providers and creates no run. It cannot predict future shared allowance use.
 
-Command-result v24 embeds preflight v12 and its failure projection together.
+Command-result v25 embeds preflight v13 and its failure projection together.
 Frozen v10 retains `execution_available: false`, and v22 retains its v10 shape.
 MCP keeps its existing start/await/cancel lifecycle and common v1 tool envelope.
 

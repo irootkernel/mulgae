@@ -268,7 +268,6 @@ func TestQualifiedRunMatchesSequentialOracle(t *testing.T) {
 		authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity),
 		authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic),
 		authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleSecurity),
-		authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic),
 	}
 	qualifier := &familyDerivingQualifier{
 		qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
@@ -372,27 +371,27 @@ func (*k1RegistryFactory) RegistryFromConstructionError(error) (ports.ProviderQu
 }
 
 // k1AdmissionParts builds real, distinguishable, fully populated parts for one
-// codex group (earlier) and one grok group (later) through the production
+// grok group (earlier) and one zcode group (later) through the production
 // group admission, plus the real schedule for those groups. The security
 // sibling of each family is operationally skipped at registry construction, so
 // every part carries a route, admitted evidence, a nonfatal failure and a
 // qualified observation. The later part additionally carries a released
 // namespace receipt in closedReceipt, as the real release path records.
 type k1AdmissionParts struct {
-	grokCandidate QualifiedRunCandidate
-	parts         map[Family]familyGroupAdmission
-	errs          map[Family]error
-	batches       [][]familyQualificationGroup
-	registries    map[string]*qualifierRegistry
+	laterCandidate QualifiedRunCandidate
+	parts          map[Family]familyGroupAdmission
+	errs           map[Family]error
+	batches        [][]familyQualificationGroup
+	registries     map[string]*qualifierRegistry
 }
 
 func buildK1AdmissionParts(t *testing.T) *k1AdmissionParts {
 	t.Helper()
-	codexLogic := authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic)
-	codexSecurity := authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleSecurity)
 	grokLogic := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
 	grokSecurity := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleSecurity)
-	candidates := []QualifiedRunCandidate{codexLogic, codexSecurity, grokLogic, grokSecurity}
+	zcodeLogic := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
+	zcodeSecurity := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity)
+	candidates := []QualifiedRunCandidate{grokLogic, grokSecurity, zcodeLogic, zcodeSecurity}
 	qualifier := &familyDerivingQualifier{
 		qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
 			return syntheticFamilyQualificationResult(t, request, matrixNow), nil
@@ -409,8 +408,8 @@ func buildK1AdmissionParts(t *testing.T) *k1AdmissionParts {
 	factory, err := NewQualifiedRunFactory(qualifier, &k1RegistryFactory{
 		registries: registries,
 		operationalFailures: map[string]error{
-			"codex-security": matrixCause(domain.FailureProviderUnavailable),
 			"grok-security":  matrixCause(domain.FailureProviderUnavailable),
+			"zcode-security": matrixCause(domain.FailureProviderUnavailable),
 		},
 	}, qualifierClock{now: matrixNow})
 	if err != nil {
@@ -420,14 +419,14 @@ func buildK1AdmissionParts(t *testing.T) *k1AdmissionParts {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(groups) != 2 || groups[0].family != FamilyCodex || groups[1].family != FamilyGrok {
-		t.Fatalf("groups = %v, want one codex group before one grok group", batchFamilies([][]familyQualificationGroup{groups}))
+	if len(groups) != 2 || groups[0].family != FamilyGrok || groups[1].family != FamilyZCode {
+		t.Fatalf("groups = %v, want one grok group before one zcode group", batchFamilies([][]familyQualificationGroup{groups}))
 	}
 	built := &k1AdmissionParts{
-		grokCandidate: grokLogic,
-		parts:         make(map[Family]familyGroupAdmission, 2),
-		errs:          make(map[Family]error, 2),
-		registries:    registries,
+		laterCandidate: zcodeLogic,
+		parts:          make(map[Family]familyGroupAdmission, 2),
+		errs:           make(map[Family]error, 2),
+		registries:     registries,
 	}
 	for _, group := range groups {
 		part, admitErr := factory.admitFamilyQualificationGroup(context.Background(), group, matrixNow)
@@ -443,17 +442,17 @@ func buildK1AdmissionParts(t *testing.T) *k1AdmissionParts {
 	// A real release moves an acquired instance out of admitted into
 	// closedReceipt while keeping it in instances (qualifier.go:287-299);
 	// represent the later group's released sibling in exactly that state.
-	// grok-logic itself stays admitted with no closedReceipt.
-	later := built.parts[FamilyGrok]
-	const releasedSibling = "grok-documentation"
+	// zcode-logic itself stays admitted with no closedReceipt.
+	later := built.parts[FamilyZCode]
+	const releasedSibling = "zcode-documentation"
 	// The registry exists so the close-count assertion can detect an illegal
 	// re-close of the released sibling; the composite must never touch it.
-	built.registries[releasedSibling] = guardRegistry(t, releasedSibling, built.grokCandidate.Definition.RuntimeSafetyPolicyIdentity())
+	built.registries[releasedSibling] = guardRegistry(t, releasedSibling, built.laterCandidate.Definition.RuntimeSafetyPolicyIdentity())
 	later.instances = append(later.instances, releasedSibling)
 	later.closedReceipt[releasedSibling] = mustProviderRunTerminalReceipt(t, acquiredProviderNamespaceTerminalReceipt(t, releasedSibling, "generation-1"))
 	// familyGroupAdmission is a value, so the modified copy must be written
 	// back or the instances append is lost.
-	built.parts[FamilyGrok] = later
+	built.parts[FamilyZCode] = later
 	built.batches = scheduleFamilyQualificationGroups(groups)
 	return built
 }
@@ -468,24 +467,24 @@ func (built *k1AdmissionParts) admit(_ context.Context, group familyQualificatio
 // closedReceipt), and exactly-once closing through the composite.
 func assertK1Reduction(t *testing.T, built *k1AdmissionParts, merged familyGroupAdmission) {
 	t.Helper()
-	codexPart, grokPart := built.parts[FamilyCodex], built.parts[FamilyGrok]
-	if !reflect.DeepEqual(merged.routes, codexPart.routes) {
-		t.Fatalf("reduced routes = %v, want exactly the first group's %v", routeIdentities(merged.routes), routeIdentities(codexPart.routes))
+	grokPart, zcodePart := built.parts[FamilyGrok], built.parts[FamilyZCode]
+	if !reflect.DeepEqual(merged.routes, grokPart.routes) {
+		t.Fatalf("reduced routes = %v, want exactly the first group's %v", routeIdentities(merged.routes), routeIdentities(grokPart.routes))
 	}
-	if !reflect.DeepEqual(merged.evidence, codexPart.evidence) {
-		t.Fatalf("reduced evidence = %v, want exactly the first group's %v", evidenceIdentities(merged.evidence), evidenceIdentities(codexPart.evidence))
+	if !reflect.DeepEqual(merged.evidence, grokPart.evidence) {
+		t.Fatalf("reduced evidence = %v, want exactly the first group's %v", evidenceIdentities(merged.evidence), evidenceIdentities(grokPart.evidence))
 	}
-	if !reflect.DeepEqual(merged.failures, codexPart.failures) {
-		t.Fatalf("reduced failures = %#v, want exactly the first group's %#v", merged.failures, codexPart.failures)
+	if !reflect.DeepEqual(merged.failures, grokPart.failures) {
+		t.Fatalf("reduced failures = %#v, want exactly the first group's %#v", merged.failures, grokPart.failures)
 	}
-	if !reflect.DeepEqual(merged.observations, codexPart.observations) {
-		t.Fatalf("reduced observations = %v, want exactly the first group's %v", observationIdentities(merged.observations), observationIdentities(codexPart.observations))
+	if !reflect.DeepEqual(merged.observations, grokPart.observations) {
+		t.Fatalf("reduced observations = %v, want exactly the first group's %v", observationIdentities(merged.observations), observationIdentities(grokPart.observations))
 	}
 	// Every instance of every started part is owned exactly once: pending
 	// close in merged.admitted, or released with its receipt in
 	// merged.closedReceipt (a real release deletes the instance from admitted
 	// while keeping it in instances) — not both, and not neither.
-	for _, part := range []familyGroupAdmission{codexPart, grokPart} {
+	for _, part := range []familyGroupAdmission{grokPart, zcodePart} {
 		for _, instance := range part.instances {
 			_, pendingClose := merged.admitted[instance]
 			_, released := merged.closedReceipt[instance]
@@ -494,7 +493,7 @@ func assertK1Reduction(t *testing.T, built *k1AdmissionParts, merged familyGroup
 			}
 		}
 	}
-	if _, retained := merged.closedReceipt["grok-documentation"]; !retained {
+	if _, retained := merged.closedReceipt["zcode-documentation"]; !retained {
 		t.Fatal("later group's released sibling was dropped from cleanup ownership")
 	}
 	composite := &qualifiedRunRegistryComposite{
@@ -506,11 +505,11 @@ func assertK1Reduction(t *testing.T, built *k1AdmissionParts, merged familyGroup
 		t.Fatalf("composite close = %v, receipt valid = %t", closeErr, receipt.Valid())
 	}
 	// Every admitted instance of every started group closes exactly once,
-	// including the later group's grok-logic; the released sibling is not
+	// including the later group's zcode-logic; the released sibling is not
 	// closed again; skipped siblings are never admitted.
 	for instance, wantCloses := range map[string]int{
-		"codex-logic": 1, "grok-logic": 1,
-		"grok-documentation": 0, "codex-security": 0, "grok-security": 0,
+		"grok-logic": 1, "zcode-logic": 1,
+		"zcode-documentation": 0, "grok-security": 0, "zcode-security": 0,
 	} {
 		if closes := built.registries[instance].closed; closes != wantCloses {
 			t.Fatalf("%s closes = %d, want %d", instance, closes, wantCloses)
@@ -565,8 +564,8 @@ func TestRunFamilyQualificationBatchesFatalSelectionMatrix(t *testing.T) {
 	} {
 		t.Run(cell.name, func(t *testing.T) {
 			built := buildK1AdmissionParts(t)
-			built.errs[FamilyCodex] = cell.errA
-			built.errs[FamilyGrok] = cell.errB
+			built.errs[FamilyGrok] = cell.errA
+			built.errs[FamilyZCode] = cell.errB
 			merged, err := runFamilyQualificationBatches(context.Background(), built.batches, built.admit)
 			if err == nil {
 				t.Fatal("matrix batch returned no fatal error")
@@ -595,9 +594,9 @@ func TestRunFamilyQualificationBatchesFatalSelectionMatrix(t *testing.T) {
 // runtimeDiagnosticFailureClass ranks it.
 func TestRunFamilyQualificationBatchesRanksBoundaryWrappedProtectedCause(t *testing.T) {
 	built := buildK1AdmissionParts(t)
-	boundaryWrapped := providerQualificationBoundaryError(built.grokCandidate.Definition, matrixCause(domain.FailureSecurityPolicy), string(domain.FailureSecurityPolicy))
-	built.errs[FamilyCodex] = matrixCause(domain.FailureProviderUnavailable)
-	built.errs[FamilyGrok] = boundaryWrapped
+	boundaryWrapped := providerQualificationBoundaryError(built.laterCandidate.Definition, matrixCause(domain.FailureSecurityPolicy), string(domain.FailureSecurityPolicy))
+	built.errs[FamilyGrok] = matrixCause(domain.FailureProviderUnavailable)
+	built.errs[FamilyZCode] = boundaryWrapped
 	merged, batchErr := runFamilyQualificationBatches(context.Background(), built.batches, built.admit)
 	if batchErr != boundaryWrapped {
 		t.Fatalf("selected error = %v, want the boundary-wrapped protected error value itself", batchErr)
@@ -611,7 +610,7 @@ func TestRunFamilyQualificationBatchesRanksBoundaryWrappedProtectedCause(t *test
 // cleanup ownership, including its closedReceipt, still reaches the merge.
 func TestBatchRetainsLaterAcquisitionsForCleanup(t *testing.T) {
 	built := buildK1AdmissionParts(t)
-	built.errs[FamilyCodex] = matrixCause(domain.FailureProviderUnavailable)
+	built.errs[FamilyGrok] = matrixCause(domain.FailureProviderUnavailable)
 	merged, err := runFamilyQualificationBatches(context.Background(), built.batches, built.admit)
 	if err == nil {
 		t.Fatal("expected the failed group's fatal error")
@@ -623,19 +622,18 @@ func TestBatchRetainsLaterAcquisitionsForCleanup(t *testing.T) {
 // on the base: a fatal group failure prevents later batches from starting. It
 // fails if later batches keep starting after a fatal batch.
 func TestBatchFatalStopsLaterBatches(t *testing.T) {
-	codex := authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic)
-	grokPrimary := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
-	grokLater := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleSecurity), func(d *testRuntimeMutation) {
-		d.transportArgvIndex++
+	grok := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
+	zcodePrimary := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
+	zcodeLater := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity), func(d *testRuntimeMutation) {
+		d.zcodeModel = "account:zai-individual-coding-plan/GLM-5.3-Flash"
 	})
-	zcode := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
-	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{codex, grokPrimary, grokLater, zcode})
+	groups, err := groupCandidatesByFamilyRuntimeProfile([]QualifiedRunCandidate{grok, zcodePrimary, zcodeLater})
 	if err != nil {
 		t.Fatal(err)
 	}
 	batches := scheduleFamilyQualificationGroups(groups)
-	if len(batches) < 2 || !containsFamily(batches[1], FamilyGrok) {
-		t.Fatalf("batches = %v, want a repeated family forcing a later grok batch", batchFamilies(batches))
+	if len(batches) < 2 || !containsFamily(batches[1], FamilyZCode) {
+		t.Fatalf("batches = %v, want a repeated family forcing a later zcode batch", batchFamilies(batches))
 	}
 	var mu sync.Mutex
 	called := make(map[Family]int, len(groups))
@@ -644,7 +642,7 @@ func TestBatchFatalStopsLaterBatches(t *testing.T) {
 		mu.Lock()
 		called[group.family]++
 		mu.Unlock()
-		if group.family == FamilyCodex {
+		if group.family == FamilyGrok {
 			return familyGroupAdmission{}, fatal
 		}
 		return familyGroupAdmission{}, nil
@@ -656,13 +654,13 @@ func TestBatchFatalStopsLaterBatches(t *testing.T) {
 	if len(merged.admitted) != 0 {
 		t.Fatalf("merged admission = %#v, want empty for empty parts", merged.admitted)
 	}
-	// The family-keyed counter cannot distinguish the two grok groups, so the
-	// sentinel asserts on the count: batch 1 already ran one grok group, and a
+	// The family-keyed counter cannot distinguish the two zcode groups, so the
+	// sentinel asserts on the count: batch 1 already ran one zcode group, and a
 	// started later batch would make it two.
 	mu.Lock()
 	defer mu.Unlock()
-	if grokBatches := called[FamilyGrok]; grokBatches > 1 {
-		t.Fatalf("grok admissions = %d, want at most one: a later batch started after the fatal batch", grokBatches)
+	if zcodeBatches := called[FamilyZCode]; zcodeBatches > 1 {
+		t.Fatalf("zcode admissions = %d, want at most one: a later batch started after the fatal batch", zcodeBatches)
 	}
 }
 
@@ -689,8 +687,8 @@ func TestBatchMergeFollowsOriginalOrderUnderReverseCompletion(t *testing.T) {
 		wantFatal    bool
 		wantRouteIDs []string
 	}{
-		{name: "success merge", wantRouteIDs: []string{"codex-logic", "grok-logic"}},
-		{name: "failure prefix", errA: matrixCause(domain.FailureProviderUnavailable), wantFatal: true, wantRouteIDs: []string{"codex-logic"}},
+		{name: "success merge", wantRouteIDs: []string{"grok-logic", "zcode-logic"}},
+		{name: "failure prefix", errA: matrixCause(domain.FailureProviderUnavailable), wantFatal: true, wantRouteIDs: []string{"grok-logic"}},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			built := buildK1AdmissionParts(t)
@@ -698,12 +696,12 @@ func TestBatchMergeFollowsOriginalOrderUnderReverseCompletion(t *testing.T) {
 			var closeLater sync.Once
 			releaseLater := func() { closeLater.Do(func() { close(laterReturned) }) }
 			defer releaseLater()
-			codexPart, grokPart := built.parts[FamilyCodex], built.parts[FamilyGrok]
+			grokPart, zcodePart := built.parts[FamilyGrok], built.parts[FamilyZCode]
 			escaped := make(chan error, 1)
 			admit := func(_ context.Context, group familyQualificationGroup) (familyGroupAdmission, error) {
-				if group.family != FamilyCodex {
+				if group.family != FamilyGrok {
 					releaseLater()
-					return grokPart, nil
+					return zcodePart, nil
 				}
 				select {
 				case <-laterReturned:
@@ -711,11 +709,11 @@ func TestBatchMergeFollowsOriginalOrderUnderReverseCompletion(t *testing.T) {
 					escaped <- fmt.Errorf("later group admit never returned; batches appear serialized")
 					return familyGroupAdmission{}, matrixCause(domain.FailureInternal)
 				}
-				return codexPart, variant.errA
+				return grokPart, variant.errA
 			}
 			merged, batchErr := runFamilyQualificationBatches(
 				context.Background(),
-				[][]familyQualificationGroup{{familyQualificationGroup{family: FamilyCodex}, familyQualificationGroup{family: FamilyGrok}}},
+				[][]familyQualificationGroup{{familyQualificationGroup{family: FamilyGrok}, familyQualificationGroup{family: FamilyZCode}}},
 				admit,
 			)
 			select {
@@ -733,9 +731,9 @@ func TestBatchMergeFollowsOriginalOrderUnderReverseCompletion(t *testing.T) {
 			if got := routeIdentities(merged.routes); !reflect.DeepEqual(got, variant.wantRouteIDs) {
 				t.Fatalf("merged routes = %v, want %v", got, variant.wantRouteIDs)
 			}
-			wantObservations := []string{"codex-logic:qualified"}
+			wantObservations := []string{"grok-logic:qualified"}
 			if !variant.wantFatal {
-				wantObservations = append(wantObservations, "grok-logic:qualified")
+				wantObservations = append(wantObservations, "zcode-logic:qualified")
 			}
 			if got := observationIdentities(merged.observations); !reflect.DeepEqual(got, wantObservations) {
 				t.Fatalf("merged observations = %v, want %v", got, wantObservations)
@@ -743,7 +741,7 @@ func TestBatchMergeFollowsOriginalOrderUnderReverseCompletion(t *testing.T) {
 			// Every instance of every started part is owned exactly once:
 			// pending close in merged.admitted, or released in
 			// merged.closedReceipt — not both, and not neither.
-			for _, part := range []familyGroupAdmission{codexPart, grokPart} {
+			for _, part := range []familyGroupAdmission{grokPart, zcodePart} {
 				for _, instance := range part.instances {
 					_, pendingClose := merged.admitted[instance]
 					_, released := merged.closedReceipt[instance]
@@ -770,7 +768,7 @@ func selectedLabel(first bool) string {
 // receipt is not exposed, and exactly two drain attempts were made.
 func TestBatchFailedDrainRetainsOwnership(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	codex := authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic)
+	zcode := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	grok := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
 	ordinaryCause, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid output", nil)
 	if err != nil {
@@ -783,7 +781,7 @@ func TestBatchFailedDrainRetainsOwnership(t *testing.T) {
 	qualifier := &familyDerivingQualifier{
 		qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
 			switch request.Definition.Instance() {
-			case "codex-logic":
+			case "zcode-logic":
 				return CurrentQualificationResult{}, ordinaryCause
 			case "grok-logic":
 				return CurrentQualificationResult{}, protectedCause
@@ -794,8 +792,8 @@ func TestBatchFailedDrainRetainsOwnership(t *testing.T) {
 			return syntheticDerivedFamilyRoute(t, request, now), nil
 		},
 	}
-	factory := newFailingDrainFactory(t, qualifier, now, codex, grok)
-	run, runErr := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{codex, grok})
+	factory := newFailingDrainFactory(t, qualifier, now, zcode, grok)
+	run, runErr := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{zcode, grok})
 	if runErr == nil || run != nil {
 		t.Fatalf("failed drain returned run=%v err=%v", run, runErr)
 	}
@@ -813,7 +811,7 @@ func TestBatchFailedDrainRetainsOwnership(t *testing.T) {
 	if !ok {
 		t.Fatalf("retained registry type = %T, want the run composite", retained)
 	}
-	for _, instance := range []string{"codex-logic", "grok-logic"} {
+	for _, instance := range []string{"zcode-logic", "grok-logic"} {
 		if _, present := composite.registries[instance]; !present {
 			t.Fatalf("retained registry is missing %s: %#v", instance, composite.registries)
 		}
@@ -822,14 +820,14 @@ func TestBatchFailedDrainRetainsOwnership(t *testing.T) {
 		t.Fatalf("terminal receipt exposed after failed drain: %#v ok=%t", receipt, ok)
 	}
 	// The composite drains children in sorted instance order and stops at the
-	// first failure, so the earlier-sorted child observes both factory drain
-	// attempts; the later child stays retained and unclosed for the retryable
-	// cleanup owner.
+	// first failure, so the earlier-sorted child (grok-logic) observes both
+	// factory drain attempts; the later child stays retained and unclosed for
+	// the retryable cleanup owner.
 	registry := factory.registries.(*guardRegistryFactory)
-	if closes := len(registry.registries["codex-logic"].closeContexts); closes != 2 {
+	if closes := len(registry.registries["grok-logic"].closeContexts); closes != 2 {
 		t.Fatalf("drain attempts = %d, want exactly 2", closes)
 	}
-	if closes := registry.registries["grok-logic"].closed; closes != 0 {
+	if closes := registry.registries["zcode-logic"].closed; closes != 0 {
 		t.Fatalf("later-instance closes = %d, want 0 while the earlier child keeps failing", closes)
 	}
 }
@@ -965,32 +963,24 @@ func factoryGuardRegistries(factory *QualifiedRunFactory, candidates ...Qualifie
 }
 
 // TestConcurrentBatchesPreserveInstanceAndProfileAuthority verifies that
-// equivalent ZCode profiles share one probe with sibling derivation while
-// distinct-model ZCode candidates, AGY instances, and distinct Codex credential
-// profiles remain independently probed, and derivation never crosses a family
-// profile.
+// equivalent ZCode and Grok profiles share one probe with sibling derivation
+// while distinct-model ZCode and distinct-settings Grok candidates remain
+// independently probed, and derivation never crosses a family profile.
 func TestConcurrentBatchesPreserveInstanceAndProfileAuthority(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	zcodeDistinctModel := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleDocumentation), func(d *testRuntimeMutation) {
 		d.zcodeModel = "account:zai-individual-coding-plan/GLM-5.3-Flash"
 	})
-	codexPersonalLogic := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic), func(d *testRuntimeMutation) {
-		d.instance, d.profileID = "codex-personal-logic", "codex-personal"
-	})
-	codexPersonalSecurity := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleSecurity), func(d *testRuntimeMutation) {
-		d.instance, d.profileID = "codex-personal-security", "codex-personal"
-	})
-	codexWorkSecurity := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleSecurity), func(d *testRuntimeMutation) {
-		d.instance, d.profileID = "codex-work-security", "codex-work"
+	grokDistinctSettings := mutateFamilyCandidateDefinition(t, authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleDocumentation), func(d *testRuntimeMutation) {
+		d.grokSettingsIdentity = "sha256:" + strings.Repeat("d", 64)
 	})
 	candidates := []QualifiedRunCandidate{
 		authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic),
 		authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleSecurity),
 		zcodeDistinctModel,
-		authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleLogic),
-		authorityCandidateForFamilyRole(t, FamilyAgy, domain.RoleSecurity),
 		authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic),
-		codexPersonalLogic, codexPersonalSecurity, codexWorkSecurity,
+		authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleSecurity),
+		grokDistinctSettings,
 	}
 	var mu sync.Mutex
 	qualifyCalls := make(map[string]int)
@@ -1023,17 +1013,17 @@ func TestConcurrentBatchesPreserveInstanceAndProfileAuthority(t *testing.T) {
 	if routes := run.Routes(); len(routes) != len(candidates) {
 		t.Fatalf("routes = %d, want one per candidate (%d)", len(routes), len(candidates))
 	}
-	for _, instance := range []string{"zcode-logic", "zcode-documentation", "agy-logic", "agy-security", "grok-logic", "codex-personal-logic", "codex-work-security"} {
+	for _, instance := range []string{"zcode-logic", "zcode-documentation", "grok-logic", "grok-documentation"} {
 		if calls := qualifyCalls[instance]; calls != 1 {
 			t.Fatalf("QualifyCurrent calls for %s = %d, want 1", instance, calls)
 		}
 	}
-	for _, instance := range []string{"zcode-documentation", "agy-logic", "agy-security", "codex-work-security"} {
+	for _, instance := range []string{"zcode-documentation", "grok-documentation"} {
 		if calls := deriveCalls[instance]; calls != 0 {
-			t.Fatalf("distinct or per-instance candidate %s derived from another profile: %d calls", instance, calls)
+			t.Fatalf("distinct-profile candidate %s derived from another profile: %d calls", instance, calls)
 		}
 	}
-	for _, instance := range []string{"zcode-security", "codex-personal-security"} {
+	for _, instance := range []string{"zcode-security", "grok-security"} {
 		if calls := deriveCalls[instance]; calls != 1 {
 			t.Fatalf("DeriveEquivalentFamilyRoute calls for %s = %d, want 1", instance, calls)
 		}
@@ -1045,12 +1035,10 @@ func TestConcurrentBatchesPreserveInstanceAndProfileAuthority(t *testing.T) {
 
 // TestQualifiedRunCancellationDuringMultiFamilyBatch cancels the run while
 // both distinct-family admissions are in flight and their probes block; the
-// fakes then return their own context errors. It is failing-first at the
-// base: the base scheduler runs the codex group alone, so the second entry
-// never arrives and the bounded escape fails the test.
+// fakes then return their own context errors.
 func TestQualifiedRunCancellationDuringMultiFamilyBatch(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	codex := authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic)
+	zcode := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	grok := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1058,19 +1046,19 @@ func TestQualifiedRunCancellationDuringMultiFamilyBatch(t *testing.T) {
 	// The markers are created once so the selected boundary error can be
 	// identified by cause-chain identity rather than by message text, which
 	// the boundary wrapper replaces.
-	codexMarker := fmt.Errorf("codex-logic cancelled: %w", context.Canceled)
+	zcodeMarker := fmt.Errorf("zcode-logic cancelled: %w", context.Canceled)
 	grokMarker := fmt.Errorf("grok-logic cancelled: %w", context.Canceled)
 	qualifier := &familyDerivingQualifier{
 		qualify: func(requestCtx context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
 			entered <- request.Definition.Instance()
 			<-requestCtx.Done()
-			if request.Definition.Instance() == "codex-logic" {
-				return CurrentQualificationResult{}, codexMarker
+			if request.Definition.Instance() == "zcode-logic" {
+				return CurrentQualificationResult{}, zcodeMarker
 			}
 			return CurrentQualificationResult{}, grokMarker
 		},
 	}
-	factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, codex, grok), qualifierClock{now: now})
+	factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, zcode, grok), qualifierClock{now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1079,7 +1067,7 @@ func TestQualifiedRunCancellationDuringMultiFamilyBatch(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		run, runErr = factory.NewQualifiedRun(ctx, []QualifiedRunCandidate{codex, grok})
+		run, runErr = factory.NewQualifiedRun(ctx, []QualifiedRunCandidate{zcode, grok})
 	}()
 	joined := 0
 	for joined < 2 {
@@ -1102,16 +1090,17 @@ func TestQualifiedRunCancellationDuringMultiFamilyBatch(t *testing.T) {
 	if !errors.Is(runErr, context.Canceled) {
 		t.Fatalf("cancelled run error does not wrap context.Canceled: %v", runErr)
 	}
-	// Equal cancellation classes tie to the earlier group: the selected error
-	// wraps the codex marker and does not wrap the grok marker.
-	if !errors.Is(runErr, codexMarker) {
+	// Equal cancellation classes tie to the earlier group (grok precedes zcode
+	// in canonical group-key order): the selected error wraps the grok marker
+	// and does not wrap the zcode marker.
+	if !errors.Is(runErr, grokMarker) {
 		t.Fatalf("selected error = %v, want the earlier group's cancellation", runErr)
 	}
-	if errors.Is(runErr, grokMarker) {
+	if errors.Is(runErr, zcodeMarker) {
 		t.Fatalf("later group's cancellation was joined into the selected error: %v", runErr)
 	}
 	source := factory.registries.(*guardRegistryFactory)
-	for _, instance := range []string{"codex-logic", "grok-logic"} {
+	for _, instance := range []string{"zcode-logic", "grok-logic"} {
 		if closes := source.registries[instance].closed; closes != 1 {
 			t.Fatalf("%s closes = %d, want exactly one drain under closeAdmitted", instance, closes)
 		}

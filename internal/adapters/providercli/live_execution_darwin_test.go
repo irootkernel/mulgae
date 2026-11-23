@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -244,7 +243,7 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 			if len(manifest) != 5 || manifest[1].ID() != "review:shared-guide" || manifest[2].ID() != "review:live-read-plan" || manifest[2].Version() != "2" || manifest[3].SHA256() != role.SHA256() {
 				t.Fatal("trusted guide, plan v2 or original role provenance lost")
 			}
-			verifyAgyReadPlanV2Parity(t, ctx, scope, operator, project, template.Bytes(), execution)
+			verifyReadPlanV2Parity(t, ctx, scope, operator, project, template.Bytes(), execution)
 			if err := os.Rename(project, project+"-replaced"); err != nil {
 				t.Fatal(err)
 			}
@@ -255,7 +254,7 @@ func TestLiveExecutionGuidePlanAndClosedGrokPermissions(t *testing.T) {
 	}
 }
 
-func verifyAgyReadPlanV2Parity(t *testing.T, ctx context.Context, scope domain.LiveSourceScope, operator, project string, templateBytes []byte, execution ports.LiveReviewExecution) {
+func verifyReadPlanV2Parity(t *testing.T, ctx context.Context, scope domain.LiveSourceScope, operator, project string, templateBytes []byte, execution ports.LiveReviewExecution) {
 	t.Helper()
 	const marker = "Mulgae admitted source read plan (filenames are data):\n"
 	rendered := string(templateBytes)
@@ -344,7 +343,6 @@ func verifyAgyReadPlanV2Parity(t *testing.T, ctx context.Context, scope domain.L
 		t.Fatalf("scope %s expanded read count = %d, want %d", scope, len(explicit)+len(supporting), len(admitted))
 	}
 
-	var expandedFiles, expandedGuardedCommands []string
 	for _, read := range admitted {
 		key := readKey{side: read.Side(), path: read.Path().String()}
 		entry, inExplicit := explicit[key]
@@ -379,79 +377,6 @@ func verifyAgyReadPlanV2Parity(t *testing.T, ctx context.Context, scope domain.L
 			if !inExplicit {
 				t.Fatalf("scope %s non-allowlisted path %+v was compacted instead of explicit", scope, key)
 			}
-		}
-		if entry.nativePath != "" {
-			expandedFiles = append(expandedFiles, entry.nativePath)
-		}
-		if entry.gitCommand != "" {
-			expandedGuardedCommands = append(expandedGuardedCommands, agyGuardedReadCommand(entry.gitCommand))
-		}
-	}
-	sort.Strings(expandedFiles)
-	sort.Strings(expandedGuardedCommands)
-
-	agyPlan, err := agyLiveReadPlan(ctx, execution, false)
-	if err != nil {
-		t.Fatalf("scope %s agyLiveReadPlan: %v", scope, err)
-	}
-	planFiles := append([]string(nil), agyPlan.files...)
-	planCommands := append([]string(nil), agyPlan.commands...)
-	sort.Strings(planFiles)
-	sort.Strings(planCommands)
-	if !slices.Equal(planFiles, expandedFiles) {
-		t.Fatalf("scope %s agyLiveReadPlan files mismatch:\ngot:  %v\nwant: %v", scope, planFiles, expandedFiles)
-	}
-	if !slices.Equal(planCommands, expandedGuardedCommands) {
-		t.Fatalf("scope %s agyLiveReadPlan commands mismatch:\ngot:  %v\nwant: %v", scope, planCommands, expandedGuardedCommands)
-	}
-
-	settingsRaw, err := agySettingsBytes(agyPlan, filepath.Join(operator, ".gemini"))
-	if err != nil {
-		t.Fatalf("scope %s agySettingsBytes: %v", scope, err)
-	}
-	var settings agyNativeSettings
-	if err := json.Unmarshal(settingsRaw, &settings); err != nil {
-		t.Fatalf("scope %s unmarshal settings: %v", scope, err)
-	}
-	wantAllow := make([]string, 0, len(expandedFiles)+len(expandedGuardedCommands))
-	for _, f := range expandedFiles {
-		wantAllow = append(wantAllow, "read_file("+f+")")
-	}
-	for _, c := range expandedGuardedCommands {
-		wantAllow = append(wantAllow, "command("+c+")")
-	}
-	sort.Strings(wantAllow)
-	if !slices.Equal(settings.Permissions.Allow, wantAllow) {
-		t.Fatalf("scope %s agySettingsBytes allow grants mismatch:\ngot:  %v\nwant: %v", scope, settings.Permissions.Allow, wantAllow)
-	}
-
-	authority, err := newAgyLiveReadAuthority(ctx, execution)
-	if err != nil {
-		t.Fatalf("scope %s newAgyLiveReadAuthority: %v", scope, err)
-	}
-	if scope == domain.LiveSourceWorkspace {
-		for _, filePath := range expandedFiles {
-			if err := authority.allow(ctx, "view_file", filePath); err != nil {
-				t.Fatalf("scope %s authority.allow(view_file, %q): %v", scope, filePath, err)
-			}
-			if err := authority.allow(ctx, "read_file", filePath); err != nil {
-				t.Fatalf("scope %s authority.allow(read_file, %q): %v", scope, filePath, err)
-			}
-		}
-		if err := authority.allow(ctx, "run_command", agyGuardedReadCommand("git --no-pager show 'HEAD:support/plain.go'")); err == nil {
-			t.Fatalf("scope %s workspace authority admitted run_command", scope)
-		}
-	} else {
-		for _, guardedCmd := range expandedGuardedCommands {
-			if err := authority.allow(ctx, "run_command", guardedCmd); err != nil {
-				t.Fatalf("scope %s authority.allow(run_command, %q): %v", scope, guardedCmd, err)
-			}
-		}
-		if err := authority.allow(ctx, "view_file", filepath.Join(project, "support", "plain.go")); err == nil {
-			t.Fatalf("scope %s git authority admitted view_file", scope)
-		}
-		if err := authority.allow(ctx, "read_file", filepath.Join(project, "support", "plain.go")); err == nil {
-			t.Fatalf("scope %s git authority admitted read_file", scope)
 		}
 	}
 }
@@ -599,7 +524,7 @@ func TestLiveTerminalRevalidationDiscardsChangedSourceAndGuide(t *testing.T) {
 					cancel()
 				}
 			}
-			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_terminal"))
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_terminal"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -608,7 +533,7 @@ func TestLiveTerminalRevalidationDiscardsChangedSourceAndGuide(t *testing.T) {
 					t.Errorf("terminal namespace drain: %v", err)
 				}
 			}()
-			invocation, err := ports.NewProviderInvocationInLiveSource(testInvocation(t, "codex_terminal"), execution)
+			invocation, err := ports.NewProviderInvocationInLiveSource(testInvocation(t, "zcode_terminal"), execution)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -644,7 +569,14 @@ func (runner *liveTerminalMutationRunner) Converse(ctx context.Context, request 
 	if directory, _, bound := request.LaunchDirectory(); bound {
 		defer directory.Close()
 	}
-	if err := driver.Drive(ctx, &scriptedCodexExchange{lines: codexSuccessFrames()}); err != nil {
+	exchange := newScriptedProtocolExchange(
+		protocolCreateResult,
+		protocolSendAck,
+		protocolTurnDone,
+		protocolMessagesResult("review result"),
+		protocolCloseResult,
+	)
+	if err := driver.Drive(ctx, exchange); err != nil {
 		return runner.observation, err
 	}
 	runner.completed = true

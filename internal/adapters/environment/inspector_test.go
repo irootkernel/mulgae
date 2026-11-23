@@ -1069,20 +1069,18 @@ func TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes(t *testing
 	}
 }
 
-func TestProviderVersionObserverAdmitsAgyOfflineVersion(t *testing.T) {
+func TestProviderVersionObserverRejectsRetiredAgyAndCodexFamilies(t *testing.T) {
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(directory, "agy")
-	contents := []byte("#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 9\nprintf '1.4.2\\n'\n")
-	writeExecutable(t, path, contents)
-	observation, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), "agy", []string{path, "--version"}, ports.ProviderVersionIdentity{ExecutableSHA256: testDigest(contents), LauncherSHA256: testDigest(contents)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if observation.State() != ports.ProviderVersionObserved || observation.Version() != "1.4.2" {
-		t.Fatalf("AGY version observation = %q/%q", observation.State(), observation.Version())
+	for _, family := range []string{"agy", "codex"} {
+		path := filepath.Join(directory, family)
+		contents := []byte("#!/bin/sh\nprintf '1.4.2\\n'\n")
+		writeExecutable(t, path, contents)
+		if _, err := NewProviderVersionObserver().ObserveProviderVersion(context.Background(), family, []string{path, "--version"}, ports.ProviderVersionIdentity{ExecutableSHA256: testDigest(contents), LauncherSHA256: testDigest(contents)}); err == nil {
+			t.Fatalf("ObserveProviderVersion(%q) succeeded for retired family", family)
+		}
 	}
 }
 

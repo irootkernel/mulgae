@@ -79,8 +79,6 @@ type profileDefinition struct {
 var trustedProfiles = []profileDefinition{
 	{family: FamilyZCode, id: "zcode-default", promptTransport: PromptTransportProtocol, resultTransport: ResultTransportStdout},
 	{family: FamilyGrok, id: "grok-default", promptTransport: PromptTransportProtocol, resultTransport: ResultTransportStdout},
-	{family: FamilyCodex, id: "codex-default", promptTransport: PromptTransportProtocol, resultTransport: ResultTransportStdout},
-	{family: FamilyAgy, id: "agy-default", promptTransport: PromptTransportProtocol, resultTransport: ResultTransportStdout},
 }
 
 func (definition profileDefinition) profile(evidence doctor.ProviderEvidence, found bool) Profile {

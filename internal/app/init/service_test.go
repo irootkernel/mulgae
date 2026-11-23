@@ -479,9 +479,9 @@ func TestInitializeProjectPrevalidationFailureDoesNotMutateFilesystem(t *testing
 	}
 }
 
-func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
+func TestInitializeProjectSupportsAllThreeSelectedSubsets(t *testing.T) {
 	appBundle := filepath.Join(t.TempDir(), "ZCode.app")
-	for mask := 1; mask < 8; mask++ {
+	for mask := 1; mask < 4; mask++ {
 		rootPath := t.TempDir()
 		_ = os.Chmod(rootPath, 0o700)
 		root, _ := ports.NewAnchoredRoot(rootPath)
@@ -494,10 +494,6 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 		if mask&2 != 0 {
 			ids = append(ids, "grok")
 			overrides.GrokExecutable = "/bin/grok"
-		}
-		if mask&4 != 0 {
-			ids = append(ids, "codex")
-			overrides.CodexExecutable = "/bin/codex"
 		}
 		service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 		if err != nil {
@@ -525,8 +521,6 @@ func TestInitializeProjectSupportsAllSevenSelectedSubsets(t *testing.T) {
 				timeout = decoded.Providers.ZCode.Timeout
 			case "grok":
 				timeout = decoded.Providers.Grok.Timeout
-			case "codex":
-				timeout = decoded.Providers.Codex.Timeout
 			}
 			if timeout != "60m" {
 				t.Fatalf("mask %d %s timeout=%q", mask, family, timeout)
@@ -758,7 +752,7 @@ func TestInitializeProjectDoesNotAdmitIneligibleZCodeApplication(t *testing.T) {
 	}
 }
 
-func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
+func TestInitializeProjectDiscoveryFailureStillReturnsTwoRows(t *testing.T) {
 	rootPath := t.TempDir()
 	_ = os.Chmod(rootPath, 0o700)
 	root, _ := ports.NewAnchoredRoot(rootPath)
@@ -771,7 +765,7 @@ func TestInitializeProjectDiscoveryFailureStillReturnsThreeRows(t *testing.T) {
 	if err == nil {
 		t.Fatal("selected provider discovery failure accepted")
 	}
-	if len(result.Discovery) != len(familyOrder) || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "unavailable" || result.Discovery[2].Status != "not_selected" || result.Discovery[3].Status != "not_selected" {
+	if len(result.Discovery) != len(familyOrder) || result.Discovery[0].Status != "not_selected" || result.Discovery[1].Status != "unavailable" {
 		t.Fatalf("discovery=%#v", result.Discovery)
 	}
 }
@@ -872,8 +866,6 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 	want := []DiscoveryRow{
 		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default"},
 		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "override", ReasoningEffortSource: "override"},
-		{Family: "codex", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
-		{Family: "agy", Status: "not_selected", ExecutableSource: "not_selected", ModelSource: "not_selected", ReasoningEffortSource: "not_selected"},
 	}
 	if !reflect.DeepEqual(result.Discovery, want) {
 		t.Fatalf("discovery=%#v, want %#v", result.Discovery, want)
@@ -1124,7 +1116,7 @@ func admittedGrokDiscoveryRows() []DiscoveryRow {
 		Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate",
 		ExecutableSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default",
 	}
-	return []DiscoveryRow{notSelectedDiscoveryRow("zcode"), grok, notSelectedDiscoveryRow("codex"), notSelectedDiscoveryRow("agy")}
+	return []DiscoveryRow{notSelectedDiscoveryRow("zcode"), grok}
 }
 
 func TestPrevalidateMutationResultsCoversExactFailureEnvelopes(t *testing.T) {

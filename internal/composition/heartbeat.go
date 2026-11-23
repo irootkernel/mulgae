@@ -50,16 +50,6 @@ func (graph *productionRuntimeGraph) probeHeartbeat(ctx context.Context, request
 	if !family.Valid() || graph.fixtures == nil || graph.qualified == nil || graph.candidates == nil {
 		return appheartbeat.Result{}, fmt.Errorf("heartbeat graph unavailable")
 	}
-	if family == reviewrun.FamilyCodex && graph.policy.config.Providers.Codex != nil && graph.policy.config.Providers.Codex.DefaultCredentialProfile != "" {
-		if request.CredentialProfile == "" {
-			return appheartbeat.Result{}, fmt.Errorf("heartbeat codex credential profile is required")
-		}
-		if _, ok := graph.policy.config.Providers.Codex.CredentialHome(request.CredentialProfile); !ok {
-			return appheartbeat.Result{}, fmt.Errorf("heartbeat codex credential profile is not configured")
-		}
-	} else if request.CredentialProfile != "" {
-		return appheartbeat.Result{}, fmt.Errorf("heartbeat credential profile is not applicable")
-	}
 	seed, err := graph.fixtures.Acquire(ctx, domain.RoleLogic)
 	if err != nil {
 		return result, nil
@@ -70,7 +60,7 @@ func (graph *productionRuntimeGraph) probeHeartbeat(ctx context.Context, request
 			err = nil
 		}
 	}()
-	candidate, err := graph.candidates.newHeartbeatCandidate(ctx, seed.WorkspaceSnapshotIdentity(), family, request.CredentialProfile)
+	candidate, err := graph.candidates.newHeartbeatCandidate(ctx, seed.WorkspaceSnapshotIdentity(), family)
 	if err != nil {
 		return result, nil
 	}
@@ -141,7 +131,7 @@ func heartbeatLiveAttempted(err error) bool {
 
 func heartbeatBaseResult(checkedAt time.Time, request appheartbeat.Request) appheartbeat.Result {
 	return appheartbeat.Result{
-		SchemaVersion: appheartbeat.SchemaVersion, CheckedAt: checkedAt.UTC(), ProviderID: request.ProviderID, CredentialProfile: request.CredentialProfile,
+		SchemaVersion: appheartbeat.SchemaVersion, CheckedAt: checkedAt.UTC(), ProviderID: request.ProviderID,
 		Status: "execution_failure", ReasonCode: "provider_execution_failed",
 		AuthenticationMayOccur: true, NetworkMayOccur: true, CostMayOccur: true, RemoteLoggingMayOccur: true,
 	}

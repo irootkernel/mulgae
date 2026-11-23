@@ -1912,3 +1912,74 @@ func TestProviderExecutionObservationReusesProvenPacket(t *testing.T) {
 		t.Fatal("protocol observation is not successful")
 	}
 }
+
+func TestProtocolExecutionObservationAdmitsEarlyNonzeroExitIncompleteStdinOnlyOnFailure(t *testing.T) {
+	invocation := newProviderExecutionTestInvocation(t)
+	packetIdentity, err := NewProviderPacketIdentity(len(invocation.Stdin()), invocation.CompleteStdinSHA256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := NewProviderPacketTransportReceipt(
+		ProviderPacketChannelProtocol, packetIdentity, "", "",
+		ProviderPacketIdentity{}, ProviderPacketIdentity{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	incompleteStdin, err := NewStdinWriteReceipt(128, 0, providerTestDigest(nil), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonzeroFinal, err := NewExitedProcessFinalTermination(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonzeroLifecycle, err := NewProcessLifecycleReceipt(nonzeroFinal, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedProcess, err := NewStartedProviderProcessObservation(
+		nil, []byte("launch aborted"), ProcessTerminationStdinIncomplete, incompleteStdin, transport, nonzeroLifecycle,
+		providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewProviderSessionObservation(ProviderSessionObservationInput{
+		Phase: ProviderSessionPhaseCreate, Terminal: ProviderSessionFailed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := NewFailedProtocolProviderExecutionObservationWithCause(
+		ProviderExecutionStatusUnavailable, invocation, failedProcess, session,
+		"provider_execution_failed", domain.DiagnosticCauseProviderExecutionFailed, "",
+	)
+	if err != nil {
+		t.Fatalf("failed protocol observation with early exit incomplete stdin rejected: %v", err)
+	}
+	if observed.Succeeded() || observed.Status() != ProviderExecutionStatusUnavailable {
+		t.Fatalf("observed status = %q, want unavailable", observed.Status())
+	}
+
+	// Successful protocol observations must still require a complete stdin receipt.
+	zeroFinal, err := NewExitedProcessFinalTermination(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zeroLifecycle, err := NewProcessLifecycleReceipt(zeroFinal, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zeroProcess, err := NewStartedProviderProcessObservation(
+		[]byte("protocol transcript"), nil, ProcessTerminationExited, incompleteStdin, transport, zeroLifecycle,
+		providerExecutionTestStartedAt, providerExecutionTestEndedAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocolResult := newProviderExecutionTestResult(t, invocation, []byte("structured report"))
+	if _, err := NewIsolatedSuccessfulProviderExecutionObservation(invocation, protocolResult, zeroProcess); err == nil {
+		t.Fatal("successful protocol observation accepted an incomplete stdin write receipt")
+	}
+}

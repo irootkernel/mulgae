@@ -52,9 +52,10 @@ work.
 
 - `DF-007` Diagnostic order: historically tracked TASK-064 ascending raw native
   string ID tool-validation order for Grok ACP and Cursor ACP (`TestProviderToolDiagnosticOrder`).
-  `EPIC-017` retired Grok ACP, and Cursor retirement removed the remaining ACP
-  adapter and `tool_diagnostic_order_darwin_test.go`, closing `DF-007`. AGY
-  retains its unfinished-operation diagnostic. No deferred work remains.
+  `EPIC-017` retired Grok ACP, Cursor retirement removed the remaining ACP
+  adapter and `tool_diagnostic_order_darwin_test.go`, and AGY retirement removed
+  the AGY unfinished-operation diagnostic, closing `DF-007`. No deferred work
+  remains.
 
 - `DF-008` Compound qualification failures: an operational
   persistence/artifact failure may lose a secondary qualification cause. A
@@ -180,12 +181,10 @@ work.
   credential-format investigation; do not migrate credentials from this
   report alone.
 
-- `DF-017` Codex permission boundary: native Codex permission enforcement is
-  the adopted design; Mulgae's outer filesystem guard applies to ZCode and
-  Grok. Re-entry: a demonstrated native mutation-permission failure, or a
-  newly supported outer guard integration, warrants a separately authorized
-  boundary design and real provider certification. No bypass was demonstrated
-  in the current receipts.
+- `DF-017` Codex permission boundary: historically tracked native Codex
+  permission enforcement while Mulgae's outer filesystem guard applied to ZCode
+  and Grok. Codex retirement removed the Codex review provider adapter, closing
+  `DF-017`. No deferred work remains.
 
 - `DF-018` Native notification operands: complete operations are checked
   after fragments merge under one tool identity. No malformed admitted

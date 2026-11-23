@@ -15,17 +15,16 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestProductionLiveSourcesExcludeAllCredentialProfilesAndRuntimeRoots(t *testing.T) {
+func TestProductionLiveSourcesExcludeAllCredentialRootsAndRuntimeRoots(t *testing.T) {
 	fixture := canonicalTestTempDir(t)
 	project, _ := ports.NewAnchoredRoot(filepath.Join(fixture, "project"))
 	home := filepath.Join(fixture, "operator")
-	profile := filepath.Join(project.String(), "arbitrary-profile")
-	for _, directory := range []string{project.String(), home, profile, filepath.Join(project.String(), ".podway"), filepath.Join(project.String(), ".gaori")} {
+	for _, directory := range []string{project.String(), home, filepath.Join(home, ".codex"), filepath.Join(project.String(), ".podway"), filepath.Join(project.String(), ".gaori")} {
 		if err := os.MkdirAll(directory, 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, relative := range []string{"source.txt", "arbitrary-profile/auth.json", ".podway/private.json", ".gaori/private.json"} {
+	for _, relative := range []string{"source.txt", ".podway/private.json", ".gaori/private.json"} {
 		if err := os.WriteFile(filepath.Join(project.String(), relative), []byte("fixture\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -34,7 +33,7 @@ func TestProductionLiveSourcesExcludeAllCredentialProfilesAndRuntimeRoots(t *tes
 	if raw, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, raw)
 	}
-	config := appconfig.Config{NativeUser: appconfig.NativeUserConfig{Home: home}, Providers: appconfig.ProvidersConfig{Codex: &appconfig.CodexProviderConfig{CredentialHomes: []appconfig.CodexCredentialHomeConfig{{Profile: "unused", Home: profile}}}}}
+	config := appconfig.Config{NativeUser: appconfig.NativeUserConfig{Home: home}}
 	opener, credentials, err := productionLiveSources(config, project)
 	if err != nil {
 		t.Fatal(err)
@@ -46,14 +45,13 @@ func TestProductionLiveSourcesExcludeAllCredentialProfilesAndRuntimeRoots(t *tes
 		filepath.Join(home, ".gemini"),
 		filepath.Join(home, ".cursor"),
 		filepath.Join(home, ".config", "cursor"),
-		profile,
 	}
 	gotCredentials := make(map[string]bool, len(credentials))
 	for _, root := range credentials {
 		gotCredentials[root.String()] = true
 	}
 	if len(credentials) != len(wantCredentials) {
-		t.Fatalf("all default and configured homes must remain denied: got %v, want %v", credentials, wantCredentials)
+		t.Fatalf("all default credential homes must remain denied: got %v, want %v", credentials, wantCredentials)
 	}
 	for _, want := range wantCredentials {
 		if !gotCredentials[want] {
@@ -75,7 +73,7 @@ func TestProductionLiveSourcesExcludeAllCredentialProfilesAndRuntimeRoots(t *tes
 			t.Fatalf("private root entered candidate: %v", change)
 		}
 	}
-	credentialProject, _ := ports.NewAnchoredRoot(profile)
+	credentialProject, _ := ports.NewAnchoredRoot(filepath.Join(home, ".codex"))
 	if rejected, err := opener.OpenLiveSource(context.Background(), credentialProject, selector); err == nil {
 		rejected.Close()
 		t.Fatal("credential-owned project was admitted")

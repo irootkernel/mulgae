@@ -146,7 +146,7 @@ func TestNewRunAuthorityAdapterRejectsInvalidBuildIdentity(t *testing.T) {
 }
 
 func TestQualificationCandidatesAreRestrictedToSelectedAssignments(t *testing.T) {
-	selected := []domain.Role{domain.RoleLogic, domain.RoleSecurity, domain.RoleDocumentation}
+	selected := []domain.Role{domain.RoleLogic, domain.RoleSecurity}
 	selection, err := NewRunSelection(selected, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -154,12 +154,11 @@ func TestQualificationCandidatesAreRestrictedToSelectedAssignments(t *testing.T)
 	candidates := []QualifiedRunCandidate{
 		authorityCandidateForRoles(t, FamilyZCode, "zcode-main", selected),
 		authorityCandidateForRoles(t, FamilyGrok, "grok-main", selected),
-		authorityCandidateForRoles(t, FamilyCodex, "codex-main", selected),
 	}
 	restricted, err := restrictCandidatesToSelectedAssignments(
 		candidates,
 		selection,
-		plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex}),
+		plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +167,6 @@ func TestQualificationCandidatesAreRestrictedToSelectedAssignments(t *testing.T)
 	want := map[Family][]domain.Role{
 		FamilyZCode: {domain.RoleLogic},
 		FamilyGrok:  {domain.RoleSecurity},
-		FamilyCodex: {domain.RoleDocumentation},
 	}
 	if len(restricted) != len(want) {
 		t.Fatalf("restricted candidate count = %d, want %d", len(restricted), len(want))

@@ -13,7 +13,7 @@ result, evidence status, lineage, and a durable publication record.
 2. **Multiple review lenses.** Logic, security, maintainability, product,
    documentation, testing, and UI-focused artist roles inspect a target through
    explicit assignments.
-3. **Provider and run independence.** ZCode, Grok, and Codex use
+3. **Provider and run independence.** ZCode and Grok use
    separate adapters behind common application ports. Independent runs and projects do
    not consume one another's execution budget through a Mulgae-owned provider
    queue or lock; concurrency remains bounded explicitly within each process.
@@ -73,8 +73,7 @@ The first public release is intentionally narrow:
 - Config v5 split between tracked `.mulgae/config.yaml` project policy and
   untracked mode-`0600` `.mulgae/local.yaml` machine paths;
 - independently versioned machine contracts;
-- ZCode, Grok, Codex and AGY provider families; AGY uses one default Gemini
-  account;
+- ZCode and Grok provider families;
 - macOS on Apple silicon;
 - manual Git tagging after the complete local release gate passes.
 

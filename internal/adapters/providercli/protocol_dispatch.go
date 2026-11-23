@@ -45,9 +45,6 @@ type protocolSessionConfiguration struct {
 	zcodeEffort     string
 	zcodeAccount    *zcodeAccountRuntime
 	liveSourceScope domain.LiveSourceScope
-	agySettings     agyInvocationSettings
-	agyLiveReads    *agyLiveReadAuthority
-	agyAgentName    string
 }
 
 type zcodeAccountRuntimeAuthority interface {
@@ -56,13 +53,6 @@ type zcodeAccountRuntimeAuthority interface {
 
 func protocolConfigurationForNamespace(ctx context.Context, definition RuntimeDefinition, namespace any) (protocolSessionConfiguration, error) {
 	configuration := protocolSessionConfiguration{}
-	if definition.family == FamilyAgy {
-		settings, err := newAgyInvocationSettings(definition.agyModel, definition.agyReasoningEffort)
-		if err != nil {
-			return protocolSessionConfiguration{}, err
-		}
-		configuration.agySettings = settings
-	}
 	if definition.family != FamilyZcode {
 		return configuration, nil
 	}
@@ -125,18 +115,6 @@ func (zcodeProtocolDriverConstructor) NewSession(workspacePath string, prompt []
 	return session, nil
 }
 
-type agyProtocolDriverConstructor struct{}
-
-func (agyProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, configuration protocolSessionConfiguration) (providerProtocolSession, error) {
-	return newAgyProtocolSession(workspacePath, prompt, purpose, writeAuthority, configuration)
-}
-
-type codexProtocolDriverConstructor struct{}
-
-func (codexProtocolDriverConstructor) NewSession(workspacePath string, prompt []byte, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, _ protocolSessionConfiguration) (providerProtocolSession, error) {
-	return newCodexProtocolSession(workspacePath, prompt, purpose, writeAuthority)
-}
-
 // providerAdapterAuthority is the single family-to-transport-and-driver
 // registry. Other family switches may shape native argv or output, but they do
 // not select whether or how a protocol or terminal conversation is driven.
@@ -153,10 +131,6 @@ func adapterAuthorityForFamily(family string) (providerAdapterAuthority, error) 
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: zcodeProtocolDriverConstructor{}}, nil
 	case FamilyGrok:
 		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelTerminal, qualificationChannel: ports.ProviderPacketChannelTerminal, terminalProfile: grokTerminalProfile{}}, nil
-	case FamilyCodex:
-		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: codexProtocolDriverConstructor{}}, nil
-	case FamilyAgy:
-		return providerAdapterAuthority{defaultChannel: ports.ProviderPacketChannelProtocol, qualificationChannel: ports.ProviderPacketChannelProtocol, protocolDriver: agyProtocolDriverConstructor{}}, nil
 	default:
 		return providerAdapterAuthority{}, fmt.Errorf("unsupported family")
 	}

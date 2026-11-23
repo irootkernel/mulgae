@@ -55,13 +55,11 @@ func TestProductionCandidateTemplatesBindDistinctFamilyTimeoutsToLimitsAndRuntim
 	profiles := []DiscoveredProviderProfile{
 		{family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher, argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery"},
 		{family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok", argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery"},
-		{family: FamilyCodex, executable: "/private/bin/codex", launcher: "/private/bin/codex", argv: []string{"/private/bin/codex"}, sha256: "codex-sha", launcherSHA256: "codex-sha", reason: "unqualified_discovery"},
-		{family: FamilyAgy, executable: "/private/bin/agy", launcher: "/private/bin/agy", argv: []string{"/private/bin/agy"}, sha256: "agy-sha", launcherSHA256: "agy-sha", reason: "unqualified_discovery"},
 	}
-	identities := map[Family]string{FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy", FamilyCodex: "codex-policy", FamilyAgy: "agy-policy"}
-	timeouts := map[Family]time.Duration{FamilyZCode: 30 * time.Minute, FamilyGrok: 25 * time.Minute, FamilyCodex: 20 * time.Minute, FamilyAgy: 10 * time.Minute}
-	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndCodexSettingsAndTimeouts(
-		providercli.RuntimeBuilder{}, profiles, identities, "", "", nil, timeouts,
+	identities := map[Family]string{FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy"}
+	timeouts := map[Family]time.Duration{FamilyZCode: 30 * time.Minute, FamilyGrok: 25 * time.Minute}
+	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndProviderSettingsAndTimeouts(
+		providercli.RuntimeBuilder{}, profiles, identities, "", "", "", "", timeouts,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -91,16 +89,16 @@ func TestProductionCandidateTemplatesBindDistinctFamilyTimeoutsToLimitsAndRuntim
 }
 
 func TestProductionProviderTimeoutsRequireExactBoundedFamilyCoverage(t *testing.T) {
-	valid := map[Family]time.Duration{FamilyZCode: 30 * time.Minute, FamilyGrok: 25 * time.Minute, FamilyCodex: 20 * time.Minute, FamilyAgy: 10 * time.Minute}
+	valid := map[Family]time.Duration{FamilyZCode: 30 * time.Minute, FamilyGrok: 25 * time.Minute}
 	if err := validateProductionProviderTimeouts(valid); err != nil {
 		t.Fatal(err)
 	}
 	for name, invalid := range map[string]map[Family]time.Duration{
-		"missing":       {FamilyZCode: time.Minute, FamilyGrok: time.Minute},
-		"unknown":       {FamilyZCode: time.Minute, FamilyGrok: time.Minute, FamilyCodex: time.Minute, FamilyAgy: time.Minute, Family("other"): time.Minute},
-		"zero":          {FamilyZCode: 0, FamilyGrok: time.Minute, FamilyCodex: time.Minute, FamilyAgy: time.Minute},
-		"below minimum": {FamilyZCode: time.Minute - time.Second, FamilyGrok: time.Minute, FamilyCodex: time.Minute, FamilyAgy: time.Minute},
-		"above maximum": {FamilyZCode: 60*time.Minute + time.Second, FamilyGrok: time.Minute, FamilyCodex: time.Minute, FamilyAgy: time.Minute},
+		"missing":       {FamilyZCode: time.Minute},
+		"unknown":       {FamilyZCode: time.Minute, FamilyGrok: time.Minute, Family("other"): time.Minute},
+		"zero":          {FamilyZCode: 0, FamilyGrok: time.Minute},
+		"below minimum": {FamilyZCode: time.Minute - time.Second, FamilyGrok: time.Minute},
+		"above maximum": {FamilyZCode: 60*time.Minute + time.Second, FamilyGrok: time.Minute},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := validateProductionProviderTimeouts(invalid); err == nil {
@@ -150,13 +148,10 @@ func TestProductionCandidatesUseInjectedPolicyIdentitiesWithClosedCoverage(t *te
 	profiles := []DiscoveredProviderProfile{
 		{family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher, argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery"},
 		{family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok", argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery"},
-		{family: FamilyCodex, executable: "/private/bin/codex", launcher: "/private/bin/codex", argv: []string{"/private/bin/codex"}, sha256: "codex-sha", launcherSHA256: "codex-sha", reason: "unqualified_discovery"},
 	}
 	identities := map[Family]string{
 		FamilyZCode: "zcode-policy",
 		FamilyGrok:  "grok-policy",
-		FamilyCodex: "codex-policy",
-		FamilyAgy:   "agy-policy",
 	}
 	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentities(providercli.RuntimeBuilder{}, profiles, identities)
 	if err != nil {
@@ -179,13 +174,13 @@ func TestProductionCandidatesUseInjectedPolicyIdentitiesWithClosedCoverage(t *te
 
 	for name, invalid := range map[string]map[Family]string{
 		"missing": {
-			FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy",
+			FamilyZCode: "zcode-policy",
 		},
 		"empty": {
-			FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy", FamilyCodex: "", FamilyAgy: "agy-policy",
+			FamilyZCode: "zcode-policy", FamilyGrok: "",
 		},
 		"unknown": {
-			FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy", FamilyCodex: "codex-policy", FamilyAgy: "agy-policy", Family("other"): "other-policy",
+			FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy", Family("other"): "other-policy",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -196,48 +191,15 @@ func TestProductionCandidatesUseInjectedPolicyIdentitiesWithClosedCoverage(t *te
 	}
 }
 
-func TestProductionCandidatesBindConfiguredCodexRuntimeSettings(t *testing.T) {
-	profiles := []DiscoveredProviderProfile{{
-		family: FamilyCodex, executable: "/private/bin/codex", launcher: "/private/bin/codex",
-		argv: []string{"/private/bin/codex"}, sha256: "codex-sha", launcherSHA256: "codex-sha", reason: "unqualified_discovery",
-	}}
-	identities := map[Family]string{FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy", FamilyCodex: "codex-policy", FamilyAgy: "agy-policy"}
-	timeouts := map[Family]time.Duration{FamilyZCode: 15 * time.Minute, FamilyGrok: 15 * time.Minute, FamilyCodex: 20 * time.Minute, FamilyAgy: 10 * time.Minute}
-	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndCodexSettingsAndTimeouts(
-		providercli.RuntimeBuilder{}, profiles, identities, "gpt-5.3-codex", "high", nil, timeouts,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	selection, err := NewRunSelection([]domain.Role{domain.RoleArtist}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidates, err := source.NewLiveQualifiedRunCandidates(authorityLiveExecution(t).Target(), selection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(candidates) != 1 {
-		t.Fatalf("configured Codex settings were not bound: %#v", candidates)
-	}
-	definition, ok := candidates[0].Definition.(providercli.RuntimeDefinition)
-	if !ok || definition.CodexModel() != "gpt-5.3-codex" || definition.CodexReasoningEffort() != "high" {
-		t.Fatalf("configured Codex settings were not bound: %#v", candidates)
-	}
-	if definition.Transport().Channel() != ports.ProviderPacketChannelProtocol || definition.Transport().ArgvIndex() != -1 {
-		t.Fatalf("Codex transport = %#v", definition.Transport())
-	}
-}
-
 func TestProductionCandidatesBindConfiguredGrokRuntimeSettings(t *testing.T) {
 	profiles := []DiscoveredProviderProfile{{
 		family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok",
 		argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery",
 	}}
-	identities := map[Family]string{FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy", FamilyCodex: "codex-policy", FamilyAgy: "agy-policy"}
-	timeouts := map[Family]time.Duration{FamilyZCode: 15 * time.Minute, FamilyGrok: 20 * time.Minute, FamilyCodex: 15 * time.Minute, FamilyAgy: 10 * time.Minute}
+	identities := map[Family]string{FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy"}
+	timeouts := map[Family]time.Duration{FamilyZCode: 15 * time.Minute, FamilyGrok: 20 * time.Minute}
 	source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndProviderSettingsAndTimeouts(
-		providercli.RuntimeBuilder{}, profiles, identities, "grok-4.5", "low", "", "", nil, timeouts,
+		providercli.RuntimeBuilder{}, profiles, identities, "", "", "grok-4.5", "low", timeouts,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -264,32 +226,6 @@ func TestCanonicalSelectedRolesUsesFixedOrderAndLogicBasePriority(t *testing.T) 
 	want := []domain.Role{domain.RoleLogic, domain.RoleSecurity, domain.RoleTesting}
 	if !reflect.DeepEqual(roles, want) {
 		t.Fatalf("roles = %v, want %v", roles, want)
-	}
-}
-
-func TestProductionCandidatesBindOptionalAgySettingsAndTextCapability(t *testing.T) {
-	profiles := []DiscoveredProviderProfile{{family: FamilyAgy, executable: "/private/bin/agy", launcher: "/private/bin/agy", argv: []string{"/private/bin/agy"}, sha256: "agy-sha", launcherSHA256: "agy-sha", reason: "unqualified_discovery"}}
-	identities, err := defaultProductionPolicyIdentities(providercli.RuntimeBuilder{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, settings := range [][2]string{{"", ""}, {"gemini-3", "max"}} {
-		source, err := NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts(providercli.RuntimeBuilder{}, profiles, identities, "", "", "", "", "", "", settings[0], settings[1], nil, defaultProductionProviderTimeouts())
-		if err != nil {
-			t.Fatal(err)
-		}
-		selection, err := NewRunSelection([]domain.Role{domain.RoleDocumentation, domain.RoleArtist}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		candidates, err := source.NewLiveQualifiedRunCandidates(authorityLiveExecution(t).Target(), selection)
-		if err != nil || len(candidates) != 1 {
-			t.Fatalf("AGY text-only candidates: %#v %v", candidates, err)
-		}
-		definition, ok := candidates[0].Definition.(providercli.RuntimeDefinition)
-		if !ok || definition.AgyModel() != settings[0] || definition.AgyReasoningEffort() != settings[1] || definition.Transport().Channel() != ports.ProviderPacketChannelProtocol || definition.Transport().ArgvIndex() != -1 {
-			t.Fatalf("AGY runtime selection: %#v", candidates[0].Definition)
-		}
 	}
 }
 
@@ -349,7 +285,6 @@ func TestProductionCandidatesBindCurrentProfilesAndLiveSource(t *testing.T) {
 	profiles := []DiscoveredProviderProfile{
 		{family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher, argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery"},
 		{family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok", argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery"},
-		{family: FamilyCodex, executable: "/private/bin/codex", launcher: "/private/bin/codex", argv: []string{"/private/bin/codex"}, sha256: "codex-sha", launcherSHA256: "codex-sha", reason: "unqualified_discovery"},
 	}
 	source, err := NewProductionQualifiedRunCandidateSource(providercli.RuntimeBuilder{}, profiles)
 	if err != nil {
@@ -368,13 +303,12 @@ func TestProductionCandidatesBindCurrentProfilesAndLiveSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 6 {
-		t.Fatalf("candidate count = %d, want 6", len(candidates))
+	if len(candidates) != 4 {
+		t.Fatalf("candidate count = %d, want 4", len(candidates))
 	}
 	wantRoles := map[string][]domain.Role{
 		"zcode-security": {domain.RoleSecurity}, "zcode-testing": {domain.RoleTesting},
 		"grok-security": {domain.RoleSecurity}, "grok-testing": {domain.RoleTesting},
-		"codex-security": {domain.RoleSecurity}, "codex-testing": {domain.RoleTesting},
 	}
 	for _, candidate := range candidates {
 		if candidate.Definition.Version() != "" || candidate.ExecutionTargetIdentity != identity.SHA256() {

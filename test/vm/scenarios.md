@@ -21,7 +21,7 @@ with a capacity-one `mulgae-review` lock.
 | Loss and drain | Renewal failure, hold expiry, caller loss, controller restart stop dispatch and preserve native cancellation/drain proof; unknown drain protects cleanup | Real SQLite restart, caller cancellation, borrower liveness loss, controller loss, hold-budget refusal/native expiry, and abrupt caller death with protected unverified intent. Running-owner reserve guards retain their separate deterministic evidence |
 | Partial role and fresh FIFO | Keep accepted reports in the original run, release after native termination, allow unrelated waiter, then explicitly start a distinct full review with a new request/FIFO position and no inherited coverage | Driver code prepared; actual guest execution remains due |
 | Provider-free compatibility | Preflight, no-change review and receipt-bound reads make zero provider/controller calls | Context/preflight, candidate no-change review, and receipt-bound CLI/MCP requirement/role content reads against an unstarted controller home |
-| Live providers/clients | Serial owning Make targets for ZCode, Grok, AGY, primary-home Codex and real Codex/Claude requirements clients | Executable route prepared; actual account/profile-bound runs remain due |
+| Live providers/clients | Serial owning Make targets for ZCode, Grok, and real Codex/Claude requirements clients | Executable route prepared; actual account/profile-bound runs remain due |
 | Cleanup | Before/after inventory, waited owned helpers, exact owned roots and installed artifact/profile identities | Executable route prepared; actual guest observations remain due |
 
 Both public and private unknown-drain causes are exactly

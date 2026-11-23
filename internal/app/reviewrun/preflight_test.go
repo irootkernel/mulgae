@@ -21,8 +21,6 @@ func TestPreflightConfiguredPlanUsesProductionRoutesAndConfiguredTimeouts(t *tes
 	timeouts := map[Family]time.Duration{
 		FamilyZCode: 30 * time.Minute,
 		FamilyGrok:  25 * time.Minute,
-		FamilyCodex: 20 * time.Minute,
-		FamilyAgy:   10 * time.Minute,
 	}
 	plan, receipt, err := PreflightConfiguredPlan(policy, timeouts, []domain.Role{domain.RoleLogic, domain.RoleDocumentation})
 	if err != nil {
@@ -55,16 +53,13 @@ func TestRoleProviderInstanceMatchesConfiguredAssignment(t *testing.T) {
 		want     bool
 	}{
 		{name: "legacy zcode", family: FamilyZCode, role: domain.RoleLogic, instance: "zcode-logic", want: true},
-		{name: "legacy codex", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-logic", want: true},
-		{name: "profile codex", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-work-logic", want: true},
-		{name: "profile on non codex", family: FamilyGrok, role: domain.RoleLogic, instance: "grok-work-logic"},
+		{name: "grok documentation", family: FamilyGrok, role: domain.RoleDocumentation, instance: "grok-documentation", want: true},
+		{name: "profile on grok rejected", family: FamilyGrok, role: domain.RoleLogic, instance: "grok-work-logic"},
 		{name: "unsupported grok artist", family: FamilyGrok, role: domain.RoleArtist, instance: "grok-artist"},
 		{name: "retired cursor family", family: Family("cursor"), role: domain.RoleLogic, instance: "cursor-logic"},
-		{name: "AGY text", family: FamilyAgy, role: domain.RoleDocumentation, instance: "agy-documentation", want: true},
-		{name: "unsupported AGY artist", family: FamilyAgy, role: domain.RoleArtist, instance: "agy-artist"},
-		{name: "AGY has no credential profile", family: FamilyAgy, role: domain.RoleLogic, instance: "agy-secondary-logic"},
-		{name: "wrong role", family: FamilyCodex, role: domain.RoleSecurity, instance: "codex-work-logic"},
-		{name: "invalid profile", family: FamilyCodex, role: domain.RoleLogic, instance: "codex-WORK-logic"},
+		{name: "retired codex family", family: Family("codex"), role: domain.RoleLogic, instance: "codex-logic"},
+		{name: "retired agy family", family: Family("agy"), role: domain.RoleDocumentation, instance: "agy-documentation"},
+		{name: "wrong role", family: FamilyZCode, role: domain.RoleSecurity, instance: "zcode-logic"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := RoleProviderInstanceMatches(test.family, test.role, test.instance); got != test.want {

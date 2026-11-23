@@ -775,7 +775,7 @@ func TestServeQualificationRateLimitUsesStablePublicCode(t *testing.T) {
 		mixed := readinessError(
 			t,
 			qualificationFailure(t, "zcode-default", reviewrun.FamilyZCode, domain.FailureRateLimit),
-			qualificationFailure(t, "codex-default", reviewrun.FamilyCodex, domain.FailureTimeout),
+			qualificationFailure(t, "grok-default", reviewrun.FamilyGrok, domain.FailureTimeout),
 		)
 		failure := publicToolError(reviewrun.NewAllocatedRunIdentityError(sessionID, runID, mixed), toolRunReview)
 		if failure.Class != "readiness" || failure.Code != "review_unavailable" || failure.Retryable ||

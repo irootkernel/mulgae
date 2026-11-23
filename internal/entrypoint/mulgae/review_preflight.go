@@ -18,7 +18,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const reviewPreflightSchemaVersion = "mulgae-review-preflight.v12"
+const reviewPreflightSchemaVersion = "mulgae-review-preflight.v13"
 
 // ReviewPreflightService admits original-source selection without invoking
 // providers or creating execution or publication state. Selected artist and

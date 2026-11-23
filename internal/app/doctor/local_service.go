@@ -184,12 +184,6 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 	if provider := config.Providers.Grok; provider != nil {
 		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
 	}
-	if provider := config.Providers.Codex; provider != nil {
-		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
-	}
-	if provider := config.Providers.Agy; provider != nil {
-		configured[reviewrun.FamilyAgy] = []string{provider.Executable}
-	}
 	profiles, discoveryErr := reviewrun.DiscoverConfiguredProviderProfiles(ctx, service.dependencies.Inspector, configured)
 	securityDiscoveryFamilies := make(map[reviewrun.Family]struct{})
 	for _, family := range reviewrun.ConfiguredProviderSecurityFamilies(discoveryErr) {
@@ -202,10 +196,10 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 	for _, profile := range profiles {
 		profileByFamily[string(profile.Family())] = profile
 	}
-	base.ProviderInventory = make([]LocalProviderInventoryRow, 0, 4)
+	base.ProviderInventory = make([]LocalProviderInventoryRow, 0, 2)
 	eligible := 0
 	unsafeAdmission := len(securityDiscoveryFamilies) > 0
-	for _, family := range []string{"zcode", "grok", "codex", "agy"} {
+	for _, family := range []string{"zcode", "grok"} {
 		if _, configuredFamily := configured[reviewrun.Family(family)]; !configuredFamily {
 			base.ProviderInventory = append(base.ProviderInventory, LocalProviderInventoryRow{
 				Family: family, ReferencedByRoles: []string{}, State: "not_configured", Reason: "not_configured",
@@ -426,8 +420,8 @@ func localZCodeApplicationCompatibility(profile reviewrun.DiscoveredProviderProf
 }
 
 func localUnobservedProviderInventory() []LocalProviderInventoryRow {
-	rows := make([]LocalProviderInventoryRow, 0, 4)
-	for _, family := range []string{"zcode", "grok", "codex", "agy"} {
+	rows := make([]LocalProviderInventoryRow, 0, 2)
+	for _, family := range []string{"zcode", "grok"} {
 		rows = append(rows, LocalProviderInventoryRow{
 			Family: family, ReferencedByRoles: []string{}, State: "not_observed", Reason: "config_not_ready",
 			BinaryAvailable:       LocalDiagnosticCheck{Status: "not_applicable", ReasonCodes: []string{}},
@@ -439,7 +433,7 @@ func localUnobservedProviderInventory() []LocalProviderInventoryRow {
 }
 
 func localConfiguredRoleReferences(config appconfig.Config) map[string][]string {
-	references := map[string][]string{"zcode": {}, "grok": {}, "codex": {}, "agy": {}}
+	references := map[string][]string{"zcode": {}, "grok": {}}
 	roles := []struct {
 		name string
 		role appconfig.RoleConfig

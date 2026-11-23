@@ -64,13 +64,6 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 		return appendZcodeProtocolServerArgv(baseArgv), nil
 	case FamilyGrok:
 		return grokTerminalBaseArgv(definition, terminalPurposeQualification, "", false)
-	case FamilyCodex:
-		return appendCodexProtocolServerArgv(baseArgv, definition.CodexModel(), definition.CodexReasoningEffort()), nil
-	case FamilyAgy:
-		// Native 1.4.2 schema enforcement repeats the proof across internal
-		// turns. Keep one prompt-bound turn and validate its exact JSON proof
-		// in acceptCapabilityEvidence, without relaxing the wire or read policy.
-		return agyProtocolArgv(definition, fixture.WorkspaceSnapshotIdentity().SnapshotPath())
 	default:
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}
@@ -113,7 +106,7 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	baseArgv := definition.BaseArgv()
 	executable := definition.Executable()
 	switch definition.Family() {
-	case FamilyGrok, FamilyCodex, FamilyAgy:
+	case FamilyGrok:
 		if !reflect.DeepEqual(baseArgv, []string{executable}) {
 			return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
 		}
@@ -127,34 +120,4 @@ func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 		return nil, fmt.Errorf("native probe invocation: unsupported family")
 	}
 	return baseArgv, nil
-}
-
-func appendCodexProtocolServerArgv(argv []string, model, reasoningEffort string) []string {
-	result := append([]string(nil), argv...)
-	result = append(result, "app-server", "--strict-config")
-	for _, feature := range []string{"apps", "browser_use", "computer_use", "hooks", "image_generation", "multi_agent", "plugins", "skill_search"} {
-		result = append(result, "--disable", feature)
-	}
-	result = append(result,
-		"-c", `permissions.mulgae={extends=":read-only",filesystem={"~/.codex"="deny"}}`,
-		"-c", `default_permissions="mulgae"`,
-		"-c", "project_doc_max_bytes=0",
-		"-c", "shell_environment_policy.inherit=none",
-	)
-	if model != "" {
-		result = append(result, "-c", fmt.Sprintf("model=%q", model))
-	}
-	if reasoningEffort != "" {
-		result = append(result, "-c", fmt.Sprintf("model_reasoning_effort=%q", reasoningEffort))
-	}
-	return result
-}
-
-func validCodexReasoningEffort(value string) bool {
-	switch value {
-	case "minimal", "low", "medium", "high", "xhigh":
-		return true
-	default:
-		return false
-	}
 }

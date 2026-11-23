@@ -16,10 +16,11 @@ mulgae config --mode provenance --output json
 ```
 
 For a new workspace, `mulgae init` selects only compiled provider families and
-compiled roles. Mulgae supports ZCode, Grok, Codex and AGY. Automatic
-selection requires ZCode and Grok and includes AGY when installed; select a
-supported subset explicitly with `--providers FAMILY[,FAMILY...]`. Documentation
-prefers AGY when configured, and other default roles prefer ZCode. Existing policy is preserved.
+compiled roles. Mulgae supports ZCode and Grok. Automatic
+selection requires both ZCode and Grok; select a
+supported subset explicitly with `--providers FAMILY[,FAMILY...]`. Default core
+roles prefer ZCode with Grok as secondary preference, and artist uses ZCode.
+Existing policy is preserved.
 The compiled catalog holds seven roles, and bare `mulgae init` enables only the required
 `logic` role, so list every intended role explicitly. Examples:
 
@@ -30,9 +31,6 @@ mulgae init --providers zcode,grok \
 mulgae init --providers grok --roles logic,security \
   --grok-executable /absolute/path/to/grok \
   --grok-model grok-4.7 --grok-reasoning-effort high --output json
-mulgae init --providers codex --roles logic,security --output json
-mulgae init --providers agy --roles documentation \
-  --agy-executable /absolute/path/to/agy --output json
 ```
 
 New projects that select Grok write `grok-4.7` and `high` when either value is
@@ -42,15 +40,8 @@ provider default for that dimension; initialization and local refresh must not
 silently add the generated defaults to it.
 
 Add the seventh role, `artist`, only with `--project-kind ui`; artist inputs
-require the artist role. Initialization never overwrites an existing complete
-Config v5 pair.
-
-AGY uses only the OS user's default Gemini token. Do not propose account,
-credential-profile, credential-home or permission-mode fields for it. Optional
-`--agy-model` and `--agy-reasoning-effort` are shared policy; omission preserves
-native defaults. Effort accepts `low`, `medium`, `high`, `xhigh`, `max`. AGY is
-text-only, so artist requires ZCode or Codex. Multiple-account AGY support and
-validation are deferred.
+require the artist role and ZCode (Grok is text-only). Initialization never
+overwrites an existing complete Config v5 pair.
 
 ## Change an existing configuration
 
@@ -58,10 +49,10 @@ validation are deferred.
 models, roles, artist inputs, timeouts, validation, resources, and CI policy.
 Edit it only when the user explicitly authorizes that policy change. The
 untracked, mode-`0600` `.mulgae/local.yaml` owns only the native home and
-provider executable, ZCode app-bundle, and credential-home paths. Upgrading
+provider executable and ZCode app-bundle paths. Upgrading
 Mulgae preserves existing valid Config v5 shared and machine-local files,
-including custom provider-role routing, provider timeouts, Codex credential
-profiles, Grok/AGY model and reasoning settings, and UI `artist` inputs, without
+including custom provider-role routing, provider timeouts,
+Grok/ZCode model and reasoning settings, and UI `artist` inputs, without
 running a fresh `mulgae init`. Prefer `mulgae init --refresh-local` over hand-editing
 ordinary discovered paths. Use only Config v5 fields demonstrated by current
 effective configuration, the paired embedded examples, and `mulgae help config`;

@@ -219,7 +219,7 @@ the account before configuration, while preflight continues to resolve policy
 without that account check. Target and spawn confirmations use the shared
 sequence at their existing positions.
 
-`doctor.LocalService` owns local v8 diagnosis and readiness reductions through
+`doctor.LocalService` owns local v9 diagnosis and readiness reductions through
 injected source, codec, account, locality, inspector, version and clock
 capabilities. Composition supplies the service constructor and build platform
 metadata without another platform observation. CLI doctor and providers call
@@ -271,14 +271,8 @@ public error rendering remain with their existing owners.
 
 ## Review flow
 
-The configured provider inventory is ZCode, Grok, Codex, AGY. AGY's
-single-account stream-JSON adapter owns native permission codecs, correlated
-tool admission, default-token projection and natural-exit acceptance. It uses
-the shared conversation runner and native read-only boundary. Qualification
-authority binds the actual namespace, token source, executable, model and effort;
-it cannot transfer across AGY namespaces. Composition preserves undrained
-namespace children before closing reviewer-home or workspace ownership.
-See the [AGY transport decision](../architecture-decision-records/agy-stream-json-transport.md).
+The configured provider inventory is ZCode and Grok. Composition preserves
+undrained namespace children before closing reviewer-home or workspace ownership.
 
 1. CLI/MCP admits one live selector against the canonical original root.
 2. Configuration, source/Git locality and optional independent binding are
@@ -315,12 +309,10 @@ Workspace reads use original paths; index and committed reads use fixed Git
 operands and a deterministic environment.
 
 Within `providercli`, `protocol_mechanics.go` owns diagnostic-ID sanitization
-for all four families and string-response matching for ZCode. Family adapters
-retain request prefixes, outstanding state, wire parsing and the consequences
-of an invalid authoritative identifier. Codex integer response IDs and AGY
-integer step IDs keep their native codecs. Cancellation, EOF and process-exit
-rules remain local, including ZCode's accepted post-turn stream end and AGY's
-required natural exit.
+and string-response matching for ZCode. Family adapters retain request prefixes,
+outstanding state, wire parsing and the consequences of an invalid authoritative
+identifier. Cancellation, EOF and process-exit rules remain local, including
+ZCode's accepted post-turn stream end.
 
 `terminal_provider.go` owns the reusable provider-agnostic managed terminal
 execution driver over `ports.TerminalSessionRunner` (supporting both OSC 7501
@@ -338,21 +330,15 @@ watchdog, and JSON-RPC lifecycle; `productionRuntimeGraph` is the sole owner of
 `terminalSession.Close()` (invoked first in `cleanupRoots()` and explicitly on
 the retained-cleanup error branch of `StartReviewRun`), while `Registry` and
 `CurrentProbe` borrow the session runner and `Registry.Close` drains only its
-own labeled panes. ZCode, Codex, and AGY never start `herdr-core`.
-
-`live_read_plan.go` translates admitted workspace paths to the source port's
-`AdmitPath` and builds raw Git-command sets where needed. Callers retain their
-existing authority, revalidation, scope and canonical-path checks. AGY retains
-its guarded-command translation and its single-diagnostic unfinished-step check.
+own labeled panes. ZCode never starts `herdr-core`.
 
 `providercli` binds the sealed invocation to a descriptor for the neutral cwd,
 retains per-invocation credential and scratch namespaces, and collects complete
 correlated assistant reports for protocol providers or post-`ESRCH` validated
 staged reports (published as `result_transport: "stdout"`) for terminal-runtime
-providers. ZCode, Grok, and AGY require the process adapter's
-outer Seatbelt policy for both live review and extraction, and all four
-providers (including Codex's `permissions.mulgae` profile) deny shared
-`herdr-core` control-plane roots and sockets. Seatbelt denies source,
+providers. ZCode and Grok require the process adapter's outer Seatbelt policy
+for both live review and extraction, and both providers deny shared `herdr-core`
+control-plane roots and sockets. Seatbelt denies source,
 Git and guide writes and credential reads, writes and links. It also denies
 Unix socket access at all protected roots and permits writes to `/dev/null`.
 Native tool path admission runs body-free through the source port: the source
@@ -363,8 +349,7 @@ raster-extension file whose bytes fail the signature is admitted for a
 provider tool, but still fails closed with `unsupported_content` whenever it
 is claimed as evidence.
 ZCode also admits its existing private short socket directory by canonical
-identity; protected denials override writable-root overlap. Codex retains its
-native read-only profile with explicit credential-root and control-plane denial. These controls
+identity; protected denials override writable-root overlap. These controls
 do not claim general IPC or process containment. The outer policy permits
 reads outside credential roots and network access outside protected Unix socket
 paths; it is not a global read or network allowlist. Live execution rejects
@@ -528,11 +513,10 @@ concurrency or rate limits remain provider outcomes, and operators choose the
 number of Mulgae processes they run.
 
 Provider qualification groups equivalent shareable runtime profiles—including
-same-profile ZCode role routes, whose sibling direct-execution authorities are
-minted by the adapter through `DeriveEquivalentRouteDirectExecutionAuthority`
-while retaining independent per-instance namespaces—and keeps AGY instances,
-distinct-profile ZCode routes, and distinct Codex credential profiles in
-separate groups. Qualification runs in original-order batches that hold at most
+same-profile ZCode and Grok role routes, whose sibling direct-execution
+authorities are minted by the adapter through
+`DeriveEquivalentRouteDirectExecutionAuthority` while retaining independent
+per-instance namespaces—and keeps distinct-profile routes in separate groups. Qualification runs in original-order batches that hold at most
 one group per family, so only distinct families overlap and same-family groups
 wait for a later batch. The batch runner merges route, evidence, failure and
 observation contributions in original group order through the first failed

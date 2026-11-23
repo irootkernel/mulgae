@@ -1,6 +1,6 @@
 # Codex app-server transport
 
-Status: Accepted
+Status: Retired (Codex review provider retired from active portfolio; Codex remains an external MCP client only)
 
 Roadmap: [EPIC-005](../roadmap/README.md#epic-005-codex-app-server-provider-transport)
 

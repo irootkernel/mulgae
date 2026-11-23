@@ -214,15 +214,20 @@ func TestMakefileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, target := range []string{"test-e2e", "test-e2e-opt-in", "test-grok", "test-agy", "test-mcp-clients"} {
+	for _, target := range []string{"test-e2e", "test-grok", "test-mcp-clients"} {
 		start := strings.Index(text, "\n"+target+":\n")
 		if start < 0 || !strings.HasPrefix(text[start+len(target)+3:], "\t@$(validate_installed_test_inputs)\n") {
 			t.Fatalf("%s must validate sealed installed inputs before any workload", target)
 		}
 	}
-	for _, target := range []string{"test:", "test-offline:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-e2e-opt-in:", "test-herdr:", "test-grok:", "test-agy:"} {
+	for _, target := range []string{"test:", "test-offline:", "test-prepare:", "test-unit:", "test-int:", "test-release:", "test-e2e:", "test-herdr:", "test-grok:"} {
 		if !strings.Contains(text, target) {
 			t.Errorf("Makefile missing %s", target)
+		}
+	}
+	for _, retired := range []string{"test-e2e-opt-in:", "test-agy:"} {
+		if strings.Contains(text, retired) {
+			t.Errorf("Makefile still defines retired target %s", retired)
 		}
 	}
 	testStart := strings.Index(text, "\ntest:")
@@ -236,7 +241,6 @@ func TestMakefileContract(t *testing.T) {
 		strings.Index(testTarget, "$(MAKE) test-offline"),
 		strings.Index(testTarget, "$(MAKE) test-release"),
 		strings.Index(testTarget, "$(MAKE) test-e2e"),
-		strings.Index(testTarget, "$(MAKE) test-e2e-opt-in"),
 	}
 	for index, position := range fullPositions {
 		if position < 0 || index > 0 && position <= fullPositions[index-1] {
@@ -313,15 +317,15 @@ func TestMakefileContract(t *testing.T) {
 	if !strings.Contains(text, "go build") && !strings.Contains(text, "$(GO) build") {
 		t.Fatal("test-e2e does not build the production binary")
 	}
-	if strings.Contains(text, "$(MAKE) test-agy") {
-		t.Fatal("the default test gate includes a standalone AGY review")
+	if strings.Contains(text, "$(MAKE) test-agy") || strings.Contains(text, "$(MAKE) test-e2e-opt-in") {
+		t.Fatal("Makefile references retired AGY or opt-in Codex targets")
 	}
-	optInStart := strings.Index(text, "\ntest-e2e-opt-in:")
 	grokStart := strings.Index(text, "\ntest-grok:")
-	if optInStart < 0 || grokStart <= optInStart {
-		t.Fatal("Makefile does not define the opt-in Codex gate before Grok")
+	mcpClientStart := strings.Index(text, "\ntest-mcp-clients:")
+	if grokStart <= releaseEnd || mcpClientStart <= grokStart {
+		t.Fatal("Makefile does not define test-e2e, test-grok, and test-mcp-clients in order")
 	}
-	e2eTarget := text[releaseEnd:optInStart]
+	e2eTarget := text[releaseEnd:grokStart]
 	for _, required := range []string{
 		"zcode_app=", `test -d "$$zcode_app"`, "zcode_executable=", `test -x "$$zcode_executable"`,
 		"zcode_launcher=", `test -f "$$zcode_launcher"`,
@@ -342,26 +346,7 @@ func TestMakefileContract(t *testing.T) {
 	if strings.Contains(e2eTarget, "$(MAKE) test-grok") {
 		t.Fatal("mandatory test-e2e still nests the standalone Grok review target")
 	}
-	optInTarget := text[optInStart:grokStart]
-	for _, required := range []string{
-		`MULGAE_E2E_OPT_IN:-}`, "[test-e2e-opt-in] skipped: set MULGAE_E2E_OPT_IN=1",
-		"MULGAE_E2E_CODEX_EXECUTABLE", "MULGAE_E2E_CODEX_PRIMARY_HOME",
-		"MULGAE_E2E_PROJECT_ROOT", "-tags='live_e2e live_e2e_opt_in'", "-run '^TestE2EOptInCodexCredentialProfiles$$'",
-		"[test-e2e-opt-in] failed; preserved private project:",
-	} {
-		if !strings.Contains(optInTarget, required) {
-			t.Errorf("test-e2e-opt-in missing Codex-profile token %q", required)
-		}
-	}
-	if strings.Contains(optInTarget, "MULGAE_E2E_CODEX_SECONDARY_HOME") {
-		t.Fatal("opt-in Codex certification still requires a secondary home")
-	}
-	agyStart := strings.Index(text, "\ntest-agy:")
-	mcpClientStart := strings.Index(text, "\ntest-mcp-clients:")
-	if agyStart <= grokStart || mcpClientStart <= agyStart {
-		t.Fatal("Makefile does not define AGY gate between Grok and the MCP client gate")
-	}
-	grokTarget := text[grokStart:agyStart]
+	grokTarget := text[grokStart:mcpClientStart]
 	for _, required := range []string{
 		"$(MAKE) test-herdr",
 		"MULGAE_LIVE_GROK_BIN", "-tags=liveprovider", "-run '^TestLiveGrokCapability$$'",
@@ -391,14 +376,11 @@ func TestMakefileContract(t *testing.T) {
 	if capabilityEnd < 0 || reviewStart <= capabilityEnd {
 		t.Fatal("test-grok does not stop before the exact-binary review when capability certification fails")
 	}
-	agyTarget := text[agyStart:mcpClientStart]
 	mcpClientTarget := text[mcpClientStart:]
 	for targetName, targetSlice := range map[string]string{
 		"test-release":     releaseTarget,
 		"test-e2e":         e2eTarget,
-		"test-e2e-opt-in":  optInTarget,
 		"test-grok":        grokTarget,
-		"test-agy":         agyTarget,
 		"test-mcp-clients": mcpClientTarget,
 	} {
 		if !strings.Contains(targetSlice, "main.buildVersion=$(RELEASE_VERSION)") {
@@ -519,7 +501,7 @@ func TestMakefileOfflineAndFullGateOrchestration(t *testing.T) {
 target=""
 for arg in "$@"; do
 	case "$arg" in
-		test|test-offline|test-prepare|test-unit|test-int|test-release|test-e2e|test-e2e-opt-in|test-grok|test-agy)
+		test|test-offline|test-prepare|test-unit|test-int|test-release|test-e2e|test-grok)
 			target="$arg"
 			;;
 	esac
@@ -578,7 +560,7 @@ exit 0
 		if runErr != nil {
 			t.Fatalf("test failed: %v\n%s", runErr, output)
 		}
-		wantLog := "test\ntest-offline\ntest-prepare\ntest-unit\ntest-int\ntest-release\ntest-e2e\ntest-e2e-opt-in\n"
+		wantLog := "test\ntest-offline\ntest-prepare\ntest-unit\ntest-int\ntest-release\ntest-e2e\n"
 		if logText != wantLog {
 			t.Fatalf("test invocation log = %q, want %q", logText, wantLog)
 		}
@@ -870,26 +852,6 @@ func TestE2ELiveFamilyCapabilityAndNoSkipContract(t *testing.T) {
 	}
 	if strings.Contains(workflowText, ".Skip(") || strings.Contains(workflowText, ".Skipf(") {
 		t.Fatal("exact-binary actual-provider workflow may not skip prerequisites")
-	}
-	optInData, err := os.ReadFile(filepath.Join(root, "test", "e2e", "opt_in_live_test.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	optInText := string(optInData)
-	for _, required := range []string{
-		"live_e2e_opt_in", "func TestE2EOptInCodexCredentialProfiles",
-		`"codex-primary-logic"`, `"codex-primary-security"`, `"codex-primary-documentation"`,
-		"MULGAE_E2E_CODEX_PRIMARY_HOME",
-	} {
-		if !strings.Contains(optInText, required) {
-			t.Errorf("opt-in exact-binary workflow contract missing %q", required)
-		}
-	}
-	if strings.Contains(optInText, "MULGAE_E2E_CODEX_SECONDARY_HOME") || strings.Contains(optInText, `"codex-secondary-`) {
-		t.Fatal("opt-in Codex certification still uses a secondary profile")
-	}
-	if strings.Contains(optInText, ".Skip(") || strings.Contains(optInText, ".Skipf(") {
-		t.Fatal("enabled opt-in exact-binary workflow may not skip prerequisites")
 	}
 	herdrLiveData, err := os.ReadFile(filepath.Join(root, "internal", "adapters", "herdr", "live_herdr_darwin_test.go"))
 	if err != nil {

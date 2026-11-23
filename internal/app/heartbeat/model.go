@@ -6,18 +6,16 @@ import (
 	"time"
 )
 
-const SchemaVersion = "mulgae-provider-heartbeat-result.v5"
+const SchemaVersion = "mulgae-provider-heartbeat-result.v6"
 
 type Request struct {
-	ProviderID        string
-	CredentialProfile string
+	ProviderID string
 }
 
 type Result struct {
 	SchemaVersion          string    `json:"schema_version"`
 	CheckedAt              time.Time `json:"checked_at"`
 	ProviderID             string    `json:"provider_id"`
-	CredentialProfile      string    `json:"credential_profile"`
 	Attempted              bool      `json:"attempted"`
 	Status                 string    `json:"status"`
 	ReasonCode             string    `json:"reason_code"`

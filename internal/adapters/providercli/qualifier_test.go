@@ -35,26 +35,6 @@ func TestQualificationPreservesConfigurationFailureWithoutRetryClassification(t 
 	}
 }
 
-func TestClassifyCodexProbeFailurePreservesQuotaSignalFromStderr(t *testing.T) {
-	observation := testProcessObservation(
-		t,
-		nil,
-		[]byte("ERROR: You've hit your usage limit. Try again later."),
-		ports.ProcessTerminationExited,
-		1,
-	)
-	err := classifyProbeFailure(
-		context.Background(),
-		FamilyCodex,
-		qualificationProcessFailure(FamilyCodex, observation, errors.New("capability probe failed")),
-		observation.Stderr(),
-	)
-	var failure *domain.Failure
-	if !errors.As(err, &failure) || failure.Class() != domain.FailureQuota {
-		t.Fatalf("Codex quota probe failure = %#v, want %q", failure, domain.FailureQuota)
-	}
-}
-
 func TestClassifyGrokTerminalProbeFailurePreservesQuotaAndLoginAndBlocksSecurityOverride(t *testing.T) {
 	t.Run("quota balance exhausted on terminal error", func(t *testing.T) {
 		observation := protocolTeardownObservationWithStderr(
@@ -528,12 +508,12 @@ func requireOperationalCapabilityMismatch(t *testing.T, err error) {
 	requireProviderDiagnosticCause(t, err, domain.DiagnosticCauseObservationMismatch)
 }
 
-func TestCodexCapabilityUsesProtocolTransport(t *testing.T) {
+func TestZCodeCapabilityUsesProtocolTransport(t *testing.T) {
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := newTestProfileWithTransport(t, FamilyCodex, "codex_current", []string{"/private/bin/codex"}, transport)
+	definition, err := newTestProfileWithTransport(t, FamilyZcode, "zcode_current", []string{"/private/bin/zcode"}, transport)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +521,7 @@ func TestCodexCapabilityUsesProtocolTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	argv := appendCodexProtocolServerArgv(definition.BaseArgv(), "", "")
+	argv := appendZcodeProtocolServerArgv(definition.BaseArgv())
 	binding, err := ports.NewProtocolProviderPacketBinding(packet)
 	if err != nil {
 		t.Fatal(err)
@@ -551,7 +531,7 @@ func TestCodexCapabilityUsesProtocolTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(request.Stdin()) != 0 || packetOccurrences(request.Argv(), string(packet.Bytes())) != 0 {
-		t.Fatalf("Codex capability packet binding = argv %q stdin %q", request.Argv(), request.Stdin())
+		t.Fatalf("ZCode capability packet binding = argv %q stdin %q", request.Argv(), request.Stdin())
 	}
 }
 
@@ -559,9 +539,13 @@ func TestCurrentProbeReleasesProtocolTranscript(t *testing.T) {
 	root, identity := testWorkspaceRoot(t)
 	fixture := &currentProbeFixture{root: root, identity: identity, role: domain.RoleLogic}
 	observation, lease := observationWithTrackingLease(t, currentProbeCapabilityProtocolObservation(t, fixture, []byte("protocol transcript")))
-	frames := codexSuccessFrames()
-	frames[3] = `{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"id":"item-1","type":"agentMessage","phase":"final_answer","text":"{\"root\":\"nonce\",\"link\":\"linked\",\"role\":\"logic\"}"}}}`
-	runner := &currentProbeRunner{observations: []ports.ProcessObservation{observation}, protocol: &scriptedCodexExchange{lines: frames}}
+	runner := &currentProbeRunner{observations: []ports.ProcessObservation{observation}, protocol: newScriptedProtocolExchange(
+		protocolCreateResult,
+		protocolSendAck,
+		protocolTurnDone,
+		protocolMessagesResult(`{"root":"nonce","link":"linked","role":"logic"}`),
+		protocolCloseResult,
+	)}
 	verifier := &currentProbeVerifier{}
 	probe, err := NewCurrentProbe(runner, verifier)
 	if err != nil {
@@ -571,7 +555,7 @@ func TestCurrentProbeReleasesProtocolTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := newTestProfileWithTransport(t, FamilyCodex, "codex_current", []string{"/private/bin/codex"}, transport)
+	definition, err := newTestProfileWithTransport(t, FamilyZcode, "zcode_current", []string{"/private/bin/zcode"}, transport)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -579,8 +563,8 @@ func TestCurrentProbeReleasesProtocolTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	argv := appendCodexProtocolServerArgv(definition.BaseArgv(), "", "")
-	if _, _, _, _, _, err := probe.runBound(context.Background(), definition, currentProbeNamespace{instance: "codex_current"}, fixture, argv, nil, time.Second, &packet, ""); err != nil {
+	argv := appendZcodeProtocolServerArgv(definition.BaseArgv())
+	if _, _, _, _, _, err := probe.runBound(context.Background(), definition, currentProbeNamespace{instance: "zcode_current"}, fixture, argv, nil, time.Second, &packet, ""); err != nil {
 		t.Fatal(err)
 	}
 	if lease.closes != 1 {
@@ -818,7 +802,7 @@ func TestQualificationProcessFailurePreservesExactProcessCause(t *testing.T) {
 	)
 }
 
-func TestQualificationProcessFailurePreservesCodexProtocolCause(t *testing.T) {
+func TestQualificationProcessFailurePreservesZCodeProtocolCause(t *testing.T) {
 	observation := testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 1)
 	for _, test := range []struct {
 		cause domain.RuntimeDiagnosticCause
@@ -827,9 +811,9 @@ func TestQualificationProcessFailurePreservesCodexProtocolCause(t *testing.T) {
 		{domain.DiagnosticCauseOutputDecodeFailed, domain.FailureInvalidOutput},
 		{domain.DiagnosticCauseProviderTurnFailed, domain.FailureProviderUnavailable},
 	} {
-		err := qualificationProcessFailure(FamilyCodex, observation, codexProtocolFailure(test.cause, errors.New("codex turn failed")))
+		err := qualificationProcessFailure(FamilyZcode, observation, zcodeProtocolFailure(test.cause, errors.New("zcode turn failed")))
 		requireProviderDiagnosticCause(t, err, test.cause)
-		classified := classifyProbeFailure(context.Background(), FamilyCodex, err, nil)
+		classified := classifyProbeFailure(context.Background(), FamilyZcode, err, nil)
 		var failure *domain.Failure
 		if !errors.As(classified, &failure) || failure.Class() != test.class {
 			t.Fatalf("cause %q classified as %v, want %q", test.cause, classified, test.class)
@@ -837,13 +821,10 @@ func TestQualificationProcessFailurePreservesCodexProtocolCause(t *testing.T) {
 	}
 }
 
-func TestPlainSemverAcceptsCodexCLIIdentityPrefixOnlyForCodex(t *testing.T) {
+func TestPlainSemverRejectsNonBareSemverPrefixForGrok(t *testing.T) {
 	observation := testProcessObservation(t, []byte("codex-cli 0.147.0\n"), nil, ports.ProcessTerminationExited, 0)
-	if got, err := plainSemver(FamilyCodex, observation); err != nil || got != "0.147.0" {
-		t.Fatalf("Codex version = %q, %v", got, err)
-	}
 	if _, err := plainSemver(FamilyGrok, observation); err == nil {
-		t.Fatal("Codex identity prefix was accepted for another family")
+		t.Fatal("non-bare version prefix was accepted for Grok")
 	}
 }
 
@@ -929,16 +910,7 @@ func TestQualificationFixtureV4EvidenceAcrossActiveProviderFamilies(t *testing.T
 	extraFieldJSON := fmt.Sprintf(`{"root":%q,"link":%q,"role":%q,"extra":"x"}`, nonce, link, role)
 	narratedOnly := fmt.Sprintf("Readiness confirmed with root=%s link=%s role=%s after transport.", nonce, link, role)
 
-	requireStrictAgyRejection := func(t *testing.T, err error) {
-		t.Helper()
-		var failure *domain.Failure
-		if !errors.As(err, &failure) || failure.Class() != domain.FailureInvalidOutput || failure.Stage() != "capability" {
-			t.Fatalf("AGY capability rejection = %v, want invalid_output at capability stage", err)
-		}
-		requireProviderDiagnosticCause(t, err, domain.DiagnosticCauseOutputEnvelopeInvalid)
-	}
-
-	for _, family := range []string{FamilyZcode, FamilyGrok, FamilyCodex, FamilyAgy} {
+	for _, family := range []string{FamilyZcode, FamilyGrok} {
 		t.Run(family, func(t *testing.T) {
 			t.Parallel()
 			if err := acceptCapabilityResponse(context.Background(), family, []byte(exactJSON), nil, fixture); err != nil {
@@ -962,38 +934,18 @@ func TestQualificationFixtureV4EvidenceAcrossActiveProviderFamilies(t *testing.T
 					if err == nil {
 						t.Fatalf("%s accepted %s", family, tc.name)
 					}
-					if family == FamilyAgy {
-						requireStrictAgyRejection(t, err)
-						return
-					}
 					requireOperationalCapabilityMismatch(t, err)
 				})
 			}
 
 			t.Run("extra JSON field", func(t *testing.T) {
-				err := acceptCapabilityResponse(context.Background(), family, []byte(extraFieldJSON), nil, fixture)
-				if family == FamilyAgy {
-					if err == nil {
-						t.Fatal("AGY accepted extra JSON field")
-					}
-					requireStrictAgyRejection(t, err)
-					return
-				}
-				if err != nil {
+				if err := acceptCapabilityResponse(context.Background(), family, []byte(extraFieldJSON), nil, fixture); err != nil {
 					t.Fatalf("%s rejected positive-capability JSON with extra field: %v", family, err)
 				}
 			})
 
 			t.Run("narrated-only output", func(t *testing.T) {
-				err := acceptCapabilityResponse(context.Background(), family, []byte(narratedOnly), nil, fixture)
-				if family == FamilyAgy {
-					if err == nil {
-						t.Fatal("AGY accepted narrated-only output")
-					}
-					requireStrictAgyRejection(t, err)
-					return
-				}
-				if err != nil {
+				if err := acceptCapabilityResponse(context.Background(), family, []byte(narratedOnly), nil, fixture); err != nil {
 					t.Fatalf("%s rejected positive-capability narrated output: %v", family, err)
 				}
 			})

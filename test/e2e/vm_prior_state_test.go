@@ -28,27 +28,14 @@ func vmConfigureAndCapturePriorPolicy(t *testing.T, oldBinary, project string, e
 		t.Fatalf("old init configuration unexpectedly enabled documentation role: %#v", config.Roles.Documentation)
 	}
 
-	providersRoot := filepath.Dir(config.Providers.ZCode.AppBundle)
-	codexArchiveHome := filepath.Join(providersRoot, "codex-archive-home")
-	if err := os.MkdirAll(codexArchiveHome, 0o700); err != nil {
-		t.Fatalf("create isolated synthetic Codex credential home: %v", err)
-	}
-	codexExecutable := filepath.Join(config.Providers.ZCode.AppBundle, "Contents", "MacOS", "ZCode")
+	grokExecutable := filepath.Join(config.Providers.ZCode.AppBundle, "Contents", "MacOS", "ZCode")
 
 	config.Providers.ZCode.Timeout = "7m"
-	config.Providers.Codex = &adapterconfig.CodexProviderConfig{
-		Executable:               codexExecutable,
-		Timeout:                  "9m",
-		DefaultCredentialProfile: "archive",
-		CredentialHomes: []adapterconfig.CodexCredentialHomeConfig{
-			{
-				Profile: "archive",
-				Home:    codexArchiveHome,
-			},
-		},
+	config.Providers.Grok = &adapterconfig.GrokProviderConfig{
+		Executable: grokExecutable,
+		Timeout:    "9m",
 	}
-	config.Roles.Documentation.PrimaryProvider = "codex"
-	config.Roles.Documentation.CredentialProfile = "archive"
+	config.Roles.Documentation.PrimaryProvider = "grok"
 
 	shared, private, err := adapterconfig.EncodeSplit(config)
 	if err != nil {
@@ -84,13 +71,12 @@ func vmConfigureAndCapturePriorPolicy(t *testing.T, oldBinary, project string, e
 	}
 
 	return map[string]any{
-		"config.yaml":           materialAfter["config.yaml"],
-		"local.yaml":            materialAfter["local.yaml"],
-		"material":              materialAfter,
-		"config_sha256":         effectiveResult["config_sha256"],
-		"effective":             effectiveResult,
-		"provenance":            provenanceResult,
-		"codex_credential_home": codexArchiveHome,
+		"config.yaml":   materialAfter["config.yaml"],
+		"local.yaml":    materialAfter["local.yaml"],
+		"material":      materialAfter,
+		"config_sha256": effectiveResult["config_sha256"],
+		"effective":     effectiveResult,
+		"provenance":    provenanceResult,
 	}
 }
 
@@ -104,7 +90,7 @@ func vmAssertPriorEffectivePolicy(t *testing.T, result map[string]any) {
 	if !ok {
 		t.Fatalf("old effective config omitted redacted policy: %#v", result)
 	}
-	wantProviders := []any{"zcode", "codex"}
+	wantProviders := []any{"zcode", "grok"}
 	if !reflect.DeepEqual(redacted["configured_provider_ids"], wantProviders) {
 		t.Fatalf("old configured_provider_ids = %#v, want %#v", redacted["configured_provider_ids"], wantProviders)
 	}
@@ -114,7 +100,7 @@ func vmAssertPriorEffectivePolicy(t *testing.T, result map[string]any) {
 	}
 	wantTimeouts := []any{
 		map[string]any{"family": "zcode", "timeout": "7m"},
-		map[string]any{"family": "codex", "timeout": "9m"},
+		map[string]any{"family": "grok", "timeout": "9m"},
 	}
 	if !reflect.DeepEqual(policy["provider_timeouts"], wantTimeouts) {
 		t.Fatalf("old provider_timeouts = %#v, want %#v", policy["provider_timeouts"], wantTimeouts)
@@ -139,7 +125,7 @@ func vmAssertPriorEffectivePolicy(t *testing.T, result map[string]any) {
 		}
 	}
 	doc, ok := seen["documentation"]
-	if !ok || doc["primary_provider"] != "codex" || doc["credential_profile"] != "archive" {
-		t.Fatalf("old documentation role route = %#v, want primary_provider=codex credential_profile=archive", doc)
+	if !ok || doc["primary_provider"] != "grok" {
+		t.Fatalf("old documentation role route = %#v, want primary_provider=grok", doc)
 	}
 }

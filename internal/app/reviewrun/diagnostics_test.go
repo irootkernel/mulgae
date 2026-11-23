@@ -259,7 +259,7 @@ func TestQualificationDiagnosticsRecordsSecurityDrop(t *testing.T) {
 				return result, ports.NewRuntimeDiagnosticSecurityRejectionError(drop, errors.New("screened"))
 			}
 			err := ports.ObserveQualificationProbe(ctx, ports.QualificationProbeObservation{
-				Provider: "agy-documentation", Role: domain.RoleDocumentation, Packet: []byte("private packet"),
+				Provider: "zcode-documentation", Role: domain.RoleDocumentation, Packet: []byte("private packet"),
 			})
 			if !matching {
 				var failure *domain.Failure
@@ -324,7 +324,7 @@ func TestQualificationDiagnosticsRecoversProcessFailureStreams(t *testing.T) {
 		return ports.NewRuntimeDiagnosticRawResult(request.Stream(), uri, nil, int64(len(body)))
 	}
 	if err := ports.ObserveQualificationProbe(ctx, ports.QualificationProbeObservation{
-		Provider: "agy-documentation", Role: domain.RoleDocumentation, VersionError: runtimeErr, Err: runtimeErr,
+		Provider: "zcode-documentation", Role: domain.RoleDocumentation, VersionError: runtimeErr, Err: runtimeErr,
 	}); err != nil {
 		t.Fatal(err)
 	}

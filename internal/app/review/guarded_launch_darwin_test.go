@@ -58,11 +58,12 @@ type guardedLaunchRecordingRunner struct {
 
 func (runner *guardedLaunchRecordingRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
 	runner.calls++
-	// Codex normally uses its native guard. Add the real outer guard here to
-	// exercise the shared guarded trampoline failure without provider setup.
-	request, err := ports.NewLiveReadOnlyProcessRequest(request, runner.boundary)
-	if err != nil {
-		return ports.ProcessObservation{}, err
+	if _, alreadyGuarded := request.LiveReadOnlyBoundary(); !alreadyGuarded {
+		var err error
+		request, err = ports.NewLiveReadOnlyProcessRequest(request, runner.boundary)
+		if err != nil {
+			return ports.ProcessObservation{}, err
+		}
 	}
 	_, runner.guarded = request.LiveReadOnlyBoundary()
 	observation, err := runner.conversation.Converse(ctx, request, driver)
@@ -137,13 +138,17 @@ func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
 		mustGuardedEnvironment(t, guardedLaunchFaultEnvironment, "1"),
 	}
 	definition, err := providercli.NewRuntimeDefinition(
-		providercli.FamilyCodex, "codex-guarded-abort", "1.0.0", binary, "",
+		providercli.FamilyZcode, "zcode-guarded-abort", "1.0.0", binary, "",
 		"guarded-abort-profile", []string{binary}, environment, neutral, time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := providercli.NewRegistry(runner, definition)
+	namespaces, err := providercli.NewNamespaceFactory(namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := providercli.NewRegistryWithNamespaceFactory(runner, namespaces, definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +166,7 @@ func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, job, material := providerRuntimeExplicitFixture(t, nil)
-	job.route = coordinatorTypesRoute(t, "codex-guarded-abort")
+	job.route = coordinatorTypesRoute(t, "zcode-guarded-abort")
 	job.target, err = identity.RunTarget()
 	if err != nil {
 		t.Fatal(err)

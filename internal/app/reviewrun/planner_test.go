@@ -57,11 +57,10 @@ func TestQualifiedPlannerGoldenProviderSubsetsAndPermutations(t *testing.T) {
 		{
 			name: "all configured providers follow role matrix",
 			routes: []QualifiedRoute{
-				plannerTestRoute(t, FamilyCodex, "codex.one", roles),
 				plannerTestRoute(t, FamilyGrok, "grok.one", roles),
 				plannerTestRoute(t, FamilyZCode, "zcode.one", roles),
 			},
-			want:     []string{"zcode.one", "grok.one", "grok.one", "grok.one", "codex.one", "grok.one"},
+			want:     []string{"zcode.one", "grok.one", "grok.one", "grok.one", "zcode.one", "grok.one"},
 			fallback: repeatPlannerTestBool(true, len(roles)),
 		},
 	} {
@@ -84,7 +83,7 @@ func TestQualifiedPlannerGoldenProviderSubsetsAndPermutations(t *testing.T) {
 }
 func TestQualifiedPlannerGoldenEveryProviderSubset(t *testing.T) {
 	roles := domain.CoreRoleOrder()
-	families := []Family{FamilyZCode, FamilyGrok, FamilyCodex}
+	families := []Family{FamilyZCode, FamilyGrok}
 	for mask := 1; mask < 1<<len(families); mask++ {
 		routes := make([]QualifiedRoute, 0, len(families))
 		selected := make([]Family, 0, len(families))
@@ -96,11 +95,11 @@ func TestQualifiedPlannerGoldenEveryProviderSubset(t *testing.T) {
 		}
 		planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, selected))
 		if err != nil {
-			t.Fatalf("subset %03b: %v", mask, err)
+			t.Fatalf("subset %02b: %v", mask, err)
 		}
 		plan := plannerTestPlan(t, planner, roles)
 		if _, err := validatePlan(plan, roles); err != nil {
-			t.Fatalf("subset %03b plan preflight: %v", mask, err)
+			t.Fatalf("subset %02b plan preflight: %v", mask, err)
 		}
 	}
 }
@@ -108,13 +107,12 @@ func TestQualifiedPlannerGoldenEveryProviderSubset(t *testing.T) {
 func TestQualifiedPlannerGoldenInputPermutations(t *testing.T) {
 	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
-		plannerTestRoute(t, FamilyCodex, "codex.one", roles),
 		plannerTestRoute(t, FamilyZCode, "zcode.one", roles),
 		plannerTestRoute(t, FamilyGrok, "grok.one", roles),
 	}
-	policy := plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex})
+	policy := plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok})
 	var golden []string
-	for _, permutation := range [][]QualifiedRoute{routes, {routes[2], routes[0], routes[1]}, {routes[1], routes[2], routes[0]}} {
+	for _, permutation := range [][]QualifiedRoute{routes, {routes[1], routes[0]}} {
 		planner, err := NewQualifiedPlanner(permutation, policy)
 		if err != nil {
 			t.Fatal(err)
@@ -131,17 +129,16 @@ func TestQualifiedPlannerGoldenInputPermutations(t *testing.T) {
 func TestQualifiedPlannerUsesExactConfiguredPrimaryAndFallbackMatrix(t *testing.T) {
 	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
-		plannerTestRoute(t, FamilyCodex, "codex.one", roles),
 		plannerTestRoute(t, FamilyZCode, "zcode.one", roles),
 		plannerTestRoute(t, FamilyGrok, "grok.one", roles),
 	}
-	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex}))
+	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan := plannerTestPlan(t, planner, roles)
 	primary := plannerTestRouteInstances(plan)
-	if want := []string{"zcode.one", "grok.one", "grok.one", "grok.one", "codex.one", "grok.one"}; !reflect.DeepEqual(primary, want) {
+	if want := []string{"zcode.one", "grok.one", "grok.one", "grok.one", "zcode.one", "grok.one"}; !reflect.DeepEqual(primary, want) {
 		t.Fatalf("primary matrix = %v, want %v", primary, want)
 	}
 }
@@ -149,21 +146,21 @@ func TestQualifiedPlannerUsesExactConfiguredPrimaryAndFallbackMatrix(t *testing.
 func TestQualifiedPlannerUsesProviderRoleRoutesWithoutAmbiguity(t *testing.T) {
 	roles := domain.CoreRoleOrder()
 	routes := make([]QualifiedRoute, 0, 12)
-	primaryFamilies := []Family{FamilyZCode, FamilyGrok, FamilyGrok, FamilyGrok, FamilyCodex, FamilyGrok}
-	fallbackFamilies := []Family{FamilyGrok, FamilyCodex, FamilyCodex, FamilyCodex, FamilyGrok, FamilyCodex}
+	primaryFamilies := []Family{FamilyZCode, FamilyGrok, FamilyGrok, FamilyGrok, FamilyZCode, FamilyGrok}
+	fallbackFamilies := []Family{FamilyGrok, FamilyZCode, FamilyZCode, FamilyZCode, FamilyGrok, FamilyZCode}
 	for index, role := range roles {
 		for _, family := range []Family{primaryFamilies[index], fallbackFamilies[index]} {
 			instance := string(family) + "-" + string(role)
 			routes = append(routes, plannerTestRoute(t, family, instance, []domain.Role{role}))
 		}
 	}
-	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex}))
+	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan := plannerTestPlan(t, planner, roles)
 	primary := plannerTestRouteInstances(plan)
-	if want := []string{"zcode-logic", "grok-security", "grok-maintainability", "grok-product", "codex-documentation", "grok-testing"}; !reflect.DeepEqual(primary, want) {
+	if want := []string{"zcode-logic", "grok-security", "grok-maintainability", "grok-product", "zcode-documentation", "grok-testing"}; !reflect.DeepEqual(primary, want) {
 		t.Fatalf("sharded primary matrix = %v, want %v", primary, want)
 	}
 	for index, assignment := range plan.Assignments {
@@ -176,15 +173,15 @@ func TestQualifiedPlannerUsesProviderRoleRoutesWithoutAmbiguity(t *testing.T) {
 func TestIntegrationQualifiedPlannerRoutesReachSixRoleCoordinatorUnchanged(t *testing.T) {
 	roles := domain.CoreRoleOrder()
 	routes := make([]QualifiedRoute, 0, 12)
-	primaryFamilies := []Family{FamilyZCode, FamilyGrok, FamilyGrok, FamilyGrok, FamilyCodex, FamilyGrok}
-	fallbackFamilies := []Family{FamilyGrok, FamilyCodex, FamilyCodex, FamilyCodex, FamilyGrok, FamilyCodex}
+	primaryFamilies := []Family{FamilyZCode, FamilyGrok, FamilyGrok, FamilyGrok, FamilyZCode, FamilyGrok}
+	fallbackFamilies := []Family{FamilyGrok, FamilyZCode, FamilyZCode, FamilyZCode, FamilyGrok, FamilyZCode}
 	for index, role := range roles {
 		for _, family := range []Family{primaryFamilies[index], fallbackFamilies[index]} {
 			instance := string(family) + "-" + string(role)
 			routes = append(routes, plannerTestRoute(t, family, instance, []domain.Role{role}))
 		}
 	}
-	policy := plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex})
+	policy := plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok})
 	policy.MaxWorkers = 6
 	planner, err := NewQualifiedPlanner(routes, policy)
 	if err != nil {
@@ -216,7 +213,7 @@ func TestIntegrationQualifiedPlannerRoutesReachSixRoleCoordinatorUnchanged(t *te
 	want := map[domain.Role]string{
 		domain.RoleLogic: "zcode-logic", domain.RoleSecurity: "grok-security",
 		domain.RoleMaintainability: "grok-maintainability", domain.RoleProduct: "grok-product",
-		domain.RoleDocumentation: "codex-documentation", domain.RoleTesting: "grok-testing",
+		domain.RoleDocumentation: "zcode-documentation", domain.RoleTesting: "grok-testing",
 	}
 	seen := make(map[domain.Role]bool, 6)
 	for range roles {
@@ -248,9 +245,8 @@ func TestQualifiedPlannerFailsClosedWhenConfiguredFamilyIsNotQualified(t *testin
 	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
 		plannerTestRoute(t, FamilyZCode, "zcode.one", roles),
-		plannerTestRoute(t, FamilyCodex, "codex.one", roles),
 	}
-	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex}))
+	planner, err := NewQualifiedPlanner(routes, plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +259,6 @@ func TestQualifiedPlannerAttributesRejectedConfiguredFamily(t *testing.T) {
 	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
 		plannerTestRoute(t, FamilyGrok, "grok.one", roles),
-		plannerTestRoute(t, FamilyCodex, "codex.one", roles),
 	}
 	cause, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid capability output", nil)
 	if err != nil {
@@ -275,7 +270,7 @@ func TestQualifiedPlannerAttributesRejectedConfiguredFamily(t *testing.T) {
 	}
 	planner, err := newQualifiedPlanner(
 		routes,
-		plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex}),
+		plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok}),
 		[]ProviderQualificationFailure{rejection},
 	)
 	if err != nil {
@@ -290,9 +285,8 @@ func TestQualifiedPlannerAttributesRejectedConfiguredFamily(t *testing.T) {
 }
 
 func TestQualifiedPlannerAttributesAllSelectedProviderFailures(t *testing.T) {
-	roles := domain.CoreRoleOrder()
 	routes := []QualifiedRoute{
-		plannerTestRoute(t, FamilyZCode, "zcode.one", roles),
+		plannerTestRoute(t, FamilyZCode, "zcode-logic", []domain.Role{domain.RoleLogic}),
 	}
 	qualificationFailure := func(provider string, family Family, class domain.FailureClass) ProviderQualificationFailure {
 		t.Helper()
@@ -308,10 +302,10 @@ func TestQualifiedPlannerAttributesAllSelectedProviderFailures(t *testing.T) {
 	}
 	planner, err := newQualifiedPlanner(
 		routes,
-		plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok, FamilyCodex}),
+		plannerTestCanonicalPolicy(t, []Family{FamilyZCode, FamilyGrok}),
 		[]ProviderQualificationFailure{
-			qualificationFailure("grok.one", FamilyGrok, domain.FailureRateLimit),
-			qualificationFailure("codex.one", FamilyCodex, domain.FailureAuthentication),
+			qualificationFailure("grok-security", FamilyGrok, domain.FailureRateLimit),
+			qualificationFailure("zcode-documentation", FamilyZCode, domain.FailureAuthentication),
 		},
 	)
 	if err != nil {
@@ -328,8 +322,8 @@ func TestQualifiedPlannerAttributesAllSelectedProviderFailures(t *testing.T) {
 		t.Fatalf("qualification failures = %#v present=%t error=%v", failures, ok, err)
 	}
 	want := map[string]string{
-		"grok.one":  string(domain.FailureRateLimit),
-		"codex.one": string(domain.FailureAuthentication),
+		"grok-security":       string(domain.FailureRateLimit),
+		"zcode-documentation": string(domain.FailureAuthentication),
 	}
 	for _, failure := range failures {
 		if want[failure.ProviderInstance()] != failure.ReasonCode() {
@@ -426,18 +420,18 @@ func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimi
 		t.Fatal(err)
 	}
 	roles := []domain.Role{domain.RoleLogic, domain.RoleSecurity}
-	route, err := ports.NewProviderRoute("codex-production")
+	route, err := ports.NewProviderRoute("grok-production")
 	if err != nil {
 		t.Fatal(err)
 	}
 	qualified, err := NewQualifiedRoute(
-		plannerTestQualification(t, FamilyCodex, "codex-production", plannerTestGuidanceVersion(t, FamilyCodex), ReceiptPass),
-		route, templates[2].limits, roles, domain.RoleLogic, 2,
+		plannerTestQualification(t, FamilyGrok, "grok-production", plannerTestGuidanceVersion(t, FamilyGrok), ReceiptPass),
+		route, templates[1].limits, roles, domain.RoleLogic, 1,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	planner, err := NewQualifiedPlanner([]QualifiedRoute{qualified}, plannerTestCanonicalPolicy(t, []Family{FamilyCodex}))
+	planner, err := NewQualifiedPlanner([]QualifiedRoute{qualified}, plannerTestCanonicalPolicy(t, []Family{FamilyGrok}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +440,7 @@ func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimi
 		t.Fatalf("production plan preflight: %v", err)
 	}
 	instances := plannerTestAssignments(plan)
-	if want := []string{"codex-production", "codex-production"}; !reflect.DeepEqual(instances, want) {
+	if want := []string{"grok-production", "grok-production"}; !reflect.DeepEqual(instances, want) {
 		t.Fatalf("production assignments = %v, want %v", instances, want)
 	}
 	repeatedInstances := plannerTestAssignments(plannerTestPlan(t, planner, roles))
@@ -457,8 +451,8 @@ func TestQualifiedPlannerAcceptsSingleProviderLogicAndSecurityWithProductionLimi
 
 func TestQualifiedRouteAcceptsYellowOnlyWithPassingReceipts(t *testing.T) {
 	roles := domain.CoreRoleOrder()
-	yellow := plannerTestQualification(t, FamilyCodex, "codex.yellow", "9.0.0", ReceiptPass)
-	route, err := ports.NewProviderRoute("codex.yellow")
+	yellow := plannerTestQualification(t, FamilyGrok, "grok.yellow", "9.0.0", ReceiptPass)
+	route, err := ports.NewProviderRoute("grok.yellow")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,18 +460,18 @@ func TestQualifiedRouteAcceptsYellowOnlyWithPassingReceipts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewQualifiedRoute(yellow, route, limits, roles, domain.RoleLogic, 2); err != nil {
+	if _, err := NewQualifiedRoute(yellow, route, limits, roles, domain.RoleLogic, 1); err != nil {
 		t.Fatalf("NewQualifiedRoute() rejected fully passing yellow qualification: %v", err)
 	}
-	failed := plannerTestQualification(t, FamilyCodex, "codex.failed", "9.0.0", ReceiptFailed)
-	failedRoute, err := ports.NewProviderRoute("codex.failed")
+	failed := plannerTestQualification(t, FamilyGrok, "grok.failed", "9.0.0", ReceiptFailed)
+	failedRoute, err := ports.NewProviderRoute("grok.failed")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewQualifiedRoute(failed, failedRoute, limits, roles, domain.RoleLogic, 2); err == nil {
+	if _, err := NewQualifiedRoute(failed, failedRoute, limits, roles, domain.RoleLogic, 1); err == nil {
 		t.Fatal("NewQualifiedRoute() accepted failed yellow qualification")
 	}
-	for _, family := range []Family{FamilyZCode, FamilyGrok, FamilyCodex} {
+	for _, family := range []Family{FamilyZCode, FamilyGrok} {
 		qualification := plannerTestQualification(t, family, string(family)+".yellow", "9.0.0", ReceiptPass)
 		route, err := ports.NewProviderRoute(string(family) + ".yellow")
 		if err != nil {
@@ -544,11 +538,9 @@ func plannerTestCanonicalPolicy(t *testing.T, families []Family) PlannerPolicy {
 	}
 	policy := DefaultPlannerPolicy()
 	for _, role := range domain.CoreRoleOrder() {
-		preferences := []Family{FamilyGrok, FamilyCodex, FamilyZCode}
-		if role == domain.RoleLogic {
-			preferences = []Family{FamilyZCode, FamilyGrok, FamilyCodex}
-		} else if role == domain.RoleDocumentation {
-			preferences = []Family{FamilyCodex, FamilyGrok, FamilyZCode}
+		preferences := []Family{FamilyGrok, FamilyZCode}
+		if role == domain.RoleLogic || role == domain.RoleDocumentation {
+			preferences = []Family{FamilyZCode, FamilyGrok}
 		}
 		assignment, err := NewRoleProviderAssignment(role, pick(preferences))
 		if err != nil {

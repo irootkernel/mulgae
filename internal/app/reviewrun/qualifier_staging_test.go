@@ -53,7 +53,7 @@ func TestQualifiedRunRegistryCompositeDelegatesStagingLocator(t *testing.T) {
 	}
 	composite := &qualifiedRunRegistryComposite{registries: map[string]QualifiedRunRegistry{
 		"zcode-logic": stagingCompositeChildRegistry{destination: destination},
-		"agy-logic":   plainCompositeChildRegistry{},
+		"grok-logic":  plainCompositeChildRegistry{},
 	}}
 
 	got, transport, ok := composite.ProviderOutputStagingDestination("zcode-logic", attemptID, ports.ProviderInvocationInitial)
@@ -61,7 +61,7 @@ func TestQualifiedRunRegistryCompositeDelegatesStagingLocator(t *testing.T) {
 		t.Fatalf("staging child delegation = (%v, %q, %t), want (%v, staged_file, true)", got, transport, ok, destination)
 	}
 
-	if _, transport, ok := composite.ProviderOutputStagingDestination("agy-logic", attemptID, ports.ProviderInvocationInitial); ok || transport != ports.ProviderOutputTransportStdout {
+	if _, transport, ok := composite.ProviderOutputStagingDestination("grok-logic", attemptID, ports.ProviderInvocationInitial); ok || transport != ports.ProviderOutputTransportStdout {
 		t.Fatalf("non-locator child = (%q, %t), want fail-closed stdout", transport, ok)
 	}
 	if _, transport, ok := composite.ProviderOutputStagingDestination("unknown", attemptID, ports.ProviderInvocationInitial); ok || transport != ports.ProviderOutputTransportStdout {

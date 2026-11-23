@@ -25,7 +25,6 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 	service := newTestService(t, fakeDiagnoser{result: diagnosis(
 		evidence("zcode", doctor.EvidenceStateFail, doctor.AssignmentIneligible),
 		evidence("grok", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
-		evidence("codex", doctor.EvidenceStateUnverified, doctor.AssignmentIntendedButUnverified),
 	)})
 
 	result, err := service.ListProviderProfiles(context.Background(), true)
@@ -33,7 +32,7 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := len(profiles), 4; got != want {
+	if got, want := len(profiles), 2; got != want {
 		t.Fatalf("profiles length = %d, want %d", got, want)
 	}
 	want := []struct {
@@ -45,8 +44,6 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 	}{
 		{FamilyZCode, "zcode-default", PromptTransportProtocol, ResultTransportStdout, SupportUnsupported},
 		{FamilyGrok, "grok-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
-		{FamilyCodex, "codex-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
-		{FamilyAgy, "agy-default", PromptTransportProtocol, ResultTransportStdout, SupportUnverified},
 	}
 	for index, expected := range want {
 		profile := profiles[index]
@@ -58,12 +55,11 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 	// transport on every profile row. Staged output remains an internal
 	// delivery grant, never the recorded result path of a live review.
 	projection := result.JSON()
-	if len(projection.Profiles) != 4 {
-		t.Fatalf("projection profiles = %d, want 4", len(projection.Profiles))
+	if len(projection.Profiles) != 2 {
+		t.Fatalf("projection profiles = %d, want 2", len(projection.Profiles))
 	}
 	wantTransports := map[Family]ResultTransport{
-		FamilyZCode: ResultTransportStdout, FamilyGrok: ResultTransportStdout, FamilyCodex: ResultTransportStdout,
-		FamilyAgy: ResultTransportStdout,
+		FamilyZCode: ResultTransportStdout, FamilyGrok: ResultTransportStdout,
 	}
 	for index, row := range projection.Profiles {
 		if row.ResultTransport != wantTransports[row.Family] {
@@ -89,8 +85,8 @@ func TestListProviderProfilesCanonicalOrderAndMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	decodedProjection := projectionEnvelope.Profiles
-	if len(decodedProjection) != 4 {
-		t.Fatalf("decoded projection rows = %d, want 4", len(decodedProjection))
+	if len(decodedProjection) != 2 {
+		t.Fatalf("decoded projection rows = %d, want 2", len(decodedProjection))
 	}
 	for index, row := range decodedProjection {
 		expected := want[index]
@@ -106,21 +102,20 @@ func TestListProviderProfilesEvidenceProjectionAndFiltering(t *testing.T) {
 	service := newTestService(t, fakeDiagnoser{result: diagnosis(
 		evidence("zcode", doctor.EvidenceStateFail, doctor.AssignmentIneligible),
 		evidence("grok", doctor.EvidenceStatePass, doctor.AssignmentEligible),
-		evidence("codex", doctor.EvidenceStatePass, doctor.AssignmentEligible),
 	)})
 
 	all, err := service.ListProviderProfiles(context.Background(), true)
 	if err != nil {
 		t.Fatalf("all profiles error = %v", err)
 	}
-	if got, want := profileSupports(all.Profiles()), []SupportState{SupportUnsupported, SupportSupported, SupportSupported, SupportUnverified}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(all.Profiles()), []SupportState{SupportUnsupported, SupportSupported}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	filtered, err := service.ListProviderProfiles(context.Background(), false)
 	if err != nil {
 		t.Fatalf("filtered profiles error = %v", err)
 	}
-	if got, want := profileFamilies(filtered.Profiles()), []Family{FamilyZCode, FamilyGrok, FamilyCodex}; !reflect.DeepEqual(got, want) {
+	if got, want := profileFamilies(filtered.Profiles()), []Family{FamilyZCode, FamilyGrok}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered families = %v, want %v", got, want)
 	}
 }
@@ -141,7 +136,7 @@ func TestListProviderProfilesAbsentEvidenceIsUnverified(t *testing.T) {
 		t.Fatalf("ListProviderProfiles() error = %v", err)
 	}
 	profiles := result.Profiles()
-	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified, SupportUnverified, SupportUnverified}; !reflect.DeepEqual(got, want) {
+	if got, want := profileSupports(profiles), []SupportState{SupportSupported, SupportUnverified}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("support states = %v, want %v", got, want)
 	}
 	if got := profiles[1].AssignmentState(); got != doctor.AssignmentIntendedButUnverified {

@@ -83,18 +83,11 @@ type ProviderNamespaceFactory interface {
 type CredentialProjectionDestination string
 
 const (
-	CredentialProjectionGrokAuth  CredentialProjectionDestination = "grok_auth"
-	CredentialProjectionCodexAuth CredentialProjectionDestination = "codex_auth"
-	CredentialProjectionAgyToken  CredentialProjectionDestination = "agy_token"
+	CredentialProjectionGrokAuth CredentialProjectionDestination = "grok_auth"
 )
 
 func (destination CredentialProjectionDestination) Valid() bool {
-	switch destination {
-	case CredentialProjectionGrokAuth, CredentialProjectionCodexAuth, CredentialProjectionAgyToken:
-		return true
-	default:
-		return false
-	}
+	return destination == CredentialProjectionGrokAuth
 }
 
 // CredentialProjectionRequest declares exactly one already-opened credential or

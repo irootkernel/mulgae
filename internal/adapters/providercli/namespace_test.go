@@ -607,7 +607,6 @@ func TestCredentialProjectionDrainRemovesNamespaceAfterReplacementCleanupFailure
 	}
 	for _, destination := range []ports.CredentialProjectionDestination{
 		ports.CredentialProjectionGrokAuth,
-		ports.CredentialProjectionCodexAuth,
 	} {
 		_, request := declaredCredentialRequest(t, lease, `{"provider":{}}`, destination)
 		if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
@@ -729,7 +728,7 @@ func TestCredentialProjectionRejectsHashDriftDuplicateAndSpawnSourceDrift(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, badHash := declaredCredentialRequest(t, lease, "credential-value", ports.CredentialProjectionCodexAuth)
+	_, badHash := declaredCredentialRequest(t, lease, "credential-value", ports.CredentialProjectionGrokAuth)
 	badHash, err = ports.NewCredentialProjectionRequest(badHash.ProviderInstance(), badHash.Generation(), badHash.SourcePath(), badHash.Source(), strings.Repeat("0", 64), badHash.Size(), badHash.Mode(), badHash.Destination())
 	if err != nil {
 		t.Fatal(err)
@@ -737,11 +736,11 @@ func TestCredentialProjectionRejectsHashDriftDuplicateAndSpawnSourceDrift(t *tes
 	if _, err := lease.ProjectCredential(context.Background(), badHash); err == nil {
 		t.Fatal("hash drift projected")
 	}
-	_, request := declaredCredentialRequest(t, lease, "credential-value", ports.CredentialProjectionCodexAuth)
+	_, request := declaredCredentialRequest(t, lease, "credential-value", ports.CredentialProjectionGrokAuth)
 	if _, err := lease.ProjectCredential(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
-	_, duplicate := declaredCredentialRequest(t, lease, "different", ports.CredentialProjectionCodexAuth)
+	_, duplicate := declaredCredentialRequest(t, lease, "different", ports.CredentialProjectionGrokAuth)
 	if _, err := lease.ProjectCredential(context.Background(), duplicate); err == nil {
 		t.Fatal("duplicate destination projected")
 	}
@@ -788,7 +787,6 @@ func TestCredentialProjectionUsesOnlyProviderHomePaths(t *testing.T) {
 		destination ports.CredentialProjectionDestination
 		path        string
 	}{
-		{ports.CredentialProjectionCodexAuth, ".codex/auth.json"},
 		{ports.CredentialProjectionGrokAuth, ".grok/auth.json"},
 	}
 	home := namespaceEnvironmentMap(t, lease.Environment())["HOME"]
@@ -994,11 +992,7 @@ func TestNamespaceDrainFinishesTeardownAfterPartialSeedCleanup(t *testing.T) {
 	if _, err := lease.ProjectCredential(context.Background(), config); err != nil {
 		t.Fatal(err)
 	}
-	_, credentials := declaredCredentialRequest(t, lease, "second", ports.CredentialProjectionCodexAuth)
-	if _, err := lease.ProjectCredential(context.Background(), credentials); err != nil {
-		t.Fatal(err)
-	}
-	credentialsDirectory := filepath.Join(concrete.root, "home", ".codex")
+	credentialsDirectory := filepath.Join(concrete.root, "home", ".grok")
 	movedCredentialsDirectory := credentialsDirectory + ".moved"
 	if err := os.Rename(credentialsDirectory, movedCredentialsDirectory); err != nil {
 		t.Fatal(err)

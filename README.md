@@ -19,49 +19,14 @@ provider families:
 
 - ZCode
 - Grok CLI
-- Codex CLI
-- Antigravity CLI (`agy`), for text roles using one default Gemini account
 
 The default `mulgae init` topology requires a ZCode app bundle with a current
-Z.AI Individual Coding Plan connection and an authenticated Grok installation,
-and optionally discovers AGY. Documentation prefers AGY when present; other
-default roles prefer ZCode. Codex remains available
-through explicit `--providers codex` selection. Existing configured assignments remain
-unchanged. Mulgae records
+Z.AI Individual Coding Plan connection and an authenticated Grok installation.
+Default core roles prefer ZCode with Grok as secondary preference, and artist
+uses ZCode. Existing configured assignments remain unchanged. Mulgae records
 provider identity and capabilities at runtime and fails closed when a required
 capability is unavailable. Other operating systems, architectures, and provider
 families are not supported by the initial release.
-
-### Use Codex from Mulgae
-
-Install Codex CLI 0.154.0 or newer and sign in with the CLI before initializing
-Mulgae with Codex as a review provider. The default configuration
-uses Codex's native `~/.codex/auth.json` login state. Mulgae does not accept an
-API-key environment variable or a project-configured credential.
-
-```bash
-codex --version
-mulgae init --providers codex
-mulgae providers --include-unverified
-```
-
-The model and reasoning effort are optional. Omitting them preserves Codex CLI's
-current defaults. Set them at initialization only when the project requires a
-pinned choice:
-
-```bash
-mulgae init --providers codex \
-  --codex-model gpt-5.3-codex \
-  --codex-reasoning-effort high
-```
-
-Mulgae starts one ephemeral Codex app-server thread and turn per invocation over
-stdio. It accepts the final assistant message as the role report after successful
-turn completion. Each invocation uses a disposable `CODEX_HOME`, a
-descriptor-anchored copy of `auth.json`, the admitted original source, a
-read-only permission profile, and disabled web, app, plugin, browser, hook,
-image-generation, and multi-agent features. Project instructions and user
-configuration are ignored.
 
 ### Use ZCode from Mulgae
 
@@ -152,43 +117,8 @@ Outputs are staged inside private namespace scratch, validated strictly after
 `ESRCH` teardown with a per-invocation completion nonce, and published under
 `result_transport: "stdout"`. Grok does not advertise image prompt support, so
 assigning it to `artist` fails before provider execution with
-`provider_capability_unsupported` and exit 4. Run `make test-herdr` for the
-isolated `herdr-core` runtime suite and `make test-grok` for the full live Grok
-release-binary gate.
-
-### Use AGY from Mulgae
-
-Sign in with Antigravity CLI before using it. Mulgae uses the default account's
-`~/.gemini/antigravity-cli/antigravity-oauth-token`; it has no AGY account,
-credential-profile, or credential-home override. Multiple-account support is
-deferred. The token must be a regular, user-owned, single-link mode-`0600` file.
-
-```bash
-mulgae init --providers agy --roles documentation \
-  --agy-executable /absolute/path/to/agy
-mulgae review --workspace --roles documentation
-```
-
-`--agy-model` and `--agy-reasoning-effort` are optional shared policy. Omission
-preserves each native default. Effort accepts `low`, `medium`, `high`, `xhigh`,
-or `max`. The machine-local executable belongs in `local.yaml`. AGY supports
-text roles; assigning it to `artist` fails capability admission.
-
-AGY uses bidirectional `stream-json`, native plan mode, and a disposable Gemini
-directory inside the mandatory macOS guard. Mulgae copies only the default
-token; refresh may update that disposable copy, never the original. User rules,
-plugins, and MCP configuration are not imported. Reports require a correlated
-completed turn, stdin half-close, drained EOF, natural exit zero and verified
-process-group absence. A failed AGY role stays on AGY.
-
-AGY `1.2.9` and newer are supported without a version-specific command
-allowlist. Qualification binds the observed executable and isolated runtime;
-native permissions and exact tool checks still constrain each read.
-`make test-agy` checks the installed CLI's native command permissions, then runs
-one documentation review through the exact candidate release binary and the
-default account. It verifies a source-only read marker, public report/export
-reads and cleanup. The target retains private evidence and is separate from
-`make test`. No second account is required.
+`provider_capability_unsupported` and exit 4. Run `make test-herdr` for the isolated `herdr-core` runtime suite and
+`make test-grok` for the full live Grok release-binary gate.
 
 ## Install
 
@@ -222,7 +152,7 @@ mulgae review --diff origin/main...HEAD \
   --objective "Review this change before merge."
 ```
 
-`doctor --output json` returns `mulgae-doctor-result.v8`. It checks Config v5,
+`doctor --output json` returns `mulgae-doctor-result.v9`. It checks Config v5,
 project-local security, provider and role identities, exact executable/launcher
 availability, and adapter-owned local CLI version compatibility. The only
 provider process it may run is the fixed `--version` command; it does not
@@ -343,8 +273,8 @@ out of Git with these root-anchored rules:
 Then commit `.gitignore` and `.mulgae/config.yaml`. The shared file carries
 roles, provider families and models, timeouts, review/validation policy,
 resource budgets, and CI policy. It never contains credentials, the native user
-home, provider executables, ZCode app-bundle paths, or Codex credential-home
-paths. Those remain in the mode-`0600` `.mulgae/local.yaml`, so collaborators
+home, provider executables, or ZCode app-bundle paths. Those remain in the
+mode-`0600` `.mulgae/local.yaml`, so collaborators
 share review policy without assuming identical account names or installation
 paths.
 
@@ -560,8 +490,8 @@ observable through this command,” not `required = false`; `config.toml` remain
 the authority for the configured value. Mulgae does not claim a minimum Codex
 version for observing `required`: the compatibility test accepts either an
 absent field or an observed literal `true`, and rejects an observed false value.
-The Codex MCP client minimum is 0.149.0; using Codex as a Mulgae review provider
-requires 0.154.0 or newer.
+The Codex MCP client minimum is 0.149.0. Codex is supported here only as an
+external MCP client; Codex is retired as a Mulgae review provider.
 
 Codex also supports `codex mcp add mulgae -- /absolute/path/to/mulgae mcp
 --project-root /absolute/path/to/repository`; add the timeout to the resulting

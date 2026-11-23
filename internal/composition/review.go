@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"time"
 
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
@@ -643,31 +642,22 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 	if provider := source.config.Providers.Grok; provider != nil {
 		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
 	}
-	if provider := source.config.Providers.Codex; provider != nil {
-		configured[reviewrun.FamilyCodex] = []string{provider.Executable}
-	}
-	if provider := source.config.Providers.Agy; provider != nil {
-		configured[reviewrun.FamilyAgy] = []string{provider.Executable}
-	}
 	profiles, err := reviewrun.DiscoverConfiguredProviderProfiles(ctx, source.inspector, configured)
 	if err != nil {
 		return nil, err
 	}
-	zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort := source.providerSettings()
-	return reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndAllProviderSettingsAndTimeouts(
+	zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort := source.providerSettings()
+	return reviewrun.NewProductionQualifiedRunCandidateSourceWithPolicyIdentitiesAndProviderSettingsAndTimeouts(
 		providercli.RuntimeBuilder{}, profiles, source.policyIdentities,
 		zcodeModel, zcodeReasoningEffort,
 		grokModel, grokReasoningEffort,
-		codexModel, codexReasoningEffort,
-		agyModel, agyReasoningEffort,
-		configuredCodexCredentialProfiles(source.config),
 		cloneProviderTimeouts(source.providerTimeouts),
 	)
 }
 
-func (source *configuredProductionCandidateSource) providerSettings() (zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort string) {
+func (source *configuredProductionCandidateSource) providerSettings() (zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort string) {
 	if source == nil {
-		return "", "", "", "", "", "", "", ""
+		return "", "", "", ""
 	}
 	if provider := source.config.Providers.ZCode; provider != nil {
 		zcodeModel, zcodeReasoningEffort = provider.Model, provider.ReasoningEffort
@@ -675,16 +665,10 @@ func (source *configuredProductionCandidateSource) providerSettings() (zcodeMode
 	if provider := source.config.Providers.Grok; provider != nil {
 		grokModel, grokReasoningEffort = provider.Model, provider.ReasoningEffort
 	}
-	if provider := source.config.Providers.Codex; provider != nil {
-		codexModel, codexReasoningEffort = provider.Model, provider.ReasoningEffort
-	}
-	if provider := source.config.Providers.Agy; provider != nil {
-		agyModel, agyReasoningEffort = provider.Model, provider.ReasoningEffort
-	}
-	return zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort, codexModel, codexReasoningEffort, agyModel, agyReasoningEffort
+	return zcodeModel, zcodeReasoningEffort, grokModel, grokReasoningEffort
 }
 
-func (source *configuredProductionCandidateSource) newHeartbeatCandidate(ctx context.Context, workspace ports.WorkspaceSnapshotIdentity, family reviewrun.Family, credentialProfile string) (reviewrun.QualifiedRunCandidate, error) {
+func (source *configuredProductionCandidateSource) newHeartbeatCandidate(ctx context.Context, workspace ports.WorkspaceSnapshotIdentity, family reviewrun.Family) (reviewrun.QualifiedRunCandidate, error) {
 	if source == nil || ctx == nil || !workspace.Valid() || !family.Valid() || !source.config.Providers.HasFamily(string(family)) {
 		return reviewrun.QualifiedRunCandidate{}, fmt.Errorf("heartbeat provider is not configured")
 	}
@@ -710,12 +694,8 @@ func (source *configuredProductionCandidateSource) newHeartbeatCandidate(ctx con
 	if err != nil {
 		return reviewrun.QualifiedRunCandidate{}, err
 	}
-	wantCodexPrefix := "codex-" + credentialProfile + "-"
 	for _, candidate := range candidates {
 		if reviewrun.Family(candidate.Definition.Family()) != family {
-			continue
-		}
-		if family == reviewrun.FamilyCodex && credentialProfile != "" && !strings.HasPrefix(candidate.Definition.Instance(), wantCodexPrefix) {
 			continue
 		}
 		candidate.SupportedRoles = []domain.Role{candidate.BaseRole}
@@ -777,25 +757,6 @@ func configuredQualificationRoles(config adapterconfig.RolesConfig, selected []d
 	return roles, primaryBase
 }
 
-func configuredCodexCredentialProfiles(config adapterconfig.Config) map[domain.Role]string {
-	if config.Providers.Codex == nil || config.Providers.Codex.DefaultCredentialProfile == "" {
-		return nil
-	}
-	profiles := make(map[domain.Role]string)
-	for index, role := range domain.FixedRoleOrder() {
-		configured := config.Roles.Ordered()[index]
-		if configured.PrimaryProvider != "codex" {
-			continue
-		}
-		profile := configured.CredentialProfile
-		if profile == "" {
-			profile = config.Providers.Codex.DefaultCredentialProfile
-		}
-		profiles[role] = profile
-	}
-	return profiles
-}
-
 func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRunPolicy, error) {
 	requestChanges := resolved.RequestChangesOn()
 	if len(requestChanges) == 0 {
@@ -821,10 +782,10 @@ func deriveProductionRunPolicy(resolved appconfig.ResolvedConfig) (productionRun
 		if !definition.Enabled() {
 			continue
 		}
-		if role == domain.RoleArtist && (reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyGrok || reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyAgy) {
+		if role == domain.RoleArtist && reviewrun.Family(definition.PrimaryProvider()) == reviewrun.FamilyGrok {
 			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureProviderUnavailable, "provider_capability_unsupported", nil)
 		}
-		assignment, err := reviewrun.NewRoleProviderAssignmentWithCredentialProfile(role, reviewrun.Family(definition.PrimaryProvider()), definition.CredentialProfile())
+		assignment, err := reviewrun.NewRoleProviderAssignment(role, reviewrun.Family(definition.PrimaryProvider()))
 		if err != nil {
 			return productionRunPolicy{}, reviewCompositionFailure(domain.FailureConfiguration, "production role provider assignment is invalid", err)
 		}

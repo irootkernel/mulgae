@@ -21,7 +21,7 @@ REQUEST ?=
 
 .DEFAULT_GOAL := test
 
-.PHONY: help toolchain-install toolchain-check generate fmt fmt-check vuln-check test-toolchain test test-offline test-prepare test-unit test-int test-release test-e2e test-e2e-opt-in test-herdr test-grok test-agy test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
+.PHONY: help toolchain-install toolchain-check generate fmt fmt-check vuln-check test-toolchain test test-offline test-prepare test-unit test-int test-release test-e2e test-herdr test-grok test-mcp-clients test-mcp-requirements-clients test-vm test-vm-guest test-vm-contract test-vm-driver-compile
 
 # These inputs are only for the separately admitted, sealed guest owning targets.
 define validate_installed_test_inputs
@@ -41,7 +41,6 @@ test:
 	@$(MAKE) test-offline
 	@$(MAKE) test-release
 	@$(MAKE) test-e2e
-	@$(MAKE) test-e2e-opt-in
 	@printf '%s\n' '[test] completed'
 
 test-offline:
@@ -168,46 +167,6 @@ test-e2e:
 	rm -rf "$$e2e_project"
 	@printf '%s\n' '[test-e2e] completed'
 
-test-e2e-opt-in:
-	@$(validate_installed_test_inputs)
-	@if test "$${MULGAE_E2E_OPT_IN:-}" != "1"; then \
-		printf '%s\n' '[test-e2e-opt-in] skipped: set MULGAE_E2E_OPT_IN=1'; \
-		exit 0; \
-	fi; \
-	test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-e2e-opt-in requires darwin/arm64" >&2; exit 1; }; \
-	opt_in_tmp="$$(mktemp -d)"; \
-	trap 'rm -rf "$$opt_in_tmp"' EXIT; \
-	opt_in_base="$${TMPDIR:-/tmp}"; \
-	opt_in_project="$$(mktemp -d "$${opt_in_base%/}/mulgae-e2e-opt-in-project.XXXXXX")"; \
-	chmod 700 "$$opt_in_project"; \
-	opt_in_binary="$$opt_in_tmp/mulgae"; \
-	opt_in_commit="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
-	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
-		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$opt_in_binary"; \
-	else \
-		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$opt_in_commit" -o "$$opt_in_binary" .; \
-	fi || exit $$?; \
-	codex_candidate="$${MULGAE_E2E_CODEX_EXECUTABLE:-$$(command -v codex)}"; \
-	test -n "$$codex_candidate" && test -x "$$codex_candidate" || { echo "test-e2e-opt-in requires the Codex executable" >&2; exit 1; }; \
-	codex_bin="$$(realpath "$$codex_candidate")"; \
-	test -n "$$codex_bin" && test -x "$$codex_bin" || { echo "test-e2e-opt-in cannot resolve the Codex executable" >&2; exit 1; }; \
-	case "$$codex_bin" in /*) ;; *) echo "test-e2e-opt-in requires an absolute Codex executable" >&2; exit 1;; esac; \
-	codex_primary_home="$${MULGAE_E2E_CODEX_PRIMARY_HOME:-}"; \
-	test -n "$$codex_primary_home" && test -d "$$codex_primary_home" || { echo "test-e2e-opt-in requires MULGAE_E2E_CODEX_PRIMARY_HOME" >&2; exit 1; }; \
-	case "$$codex_primary_home" in /*) ;; *) echo "test-e2e-opt-in requires an absolute MULGAE_E2E_CODEX_PRIMARY_HOME" >&2; exit 1;; esac; \
-	if MULGAE_E2E_BINARY="$$opt_in_binary" MULGAE_E2E_PROJECT_ROOT="$$opt_in_project" \
-		MULGAE_E2E_CODEX_EXECUTABLE="$$codex_bin" MULGAE_E2E_CODEX_PRIMARY_HOME="$$codex_primary_home" \
-		$(GO) test -v -tags='live_e2e live_e2e_opt_in' \
-		-timeout $(TEST_TIMEOUT) -count=1 -run '^TestE2EOptInCodexCredentialProfiles$$' ./test/e2e; then \
-		:; \
-	else \
-		status=$$?; \
-		printf '%s\n' "[test-e2e-opt-in] failed; preserved private project: $$opt_in_project" >&2; \
-		exit $$status; \
-	fi; \
-	rm -rf "$$opt_in_project"; \
-	printf '%s\n' '[test-e2e-opt-in] completed'
-
 test-grok:
 	@$(validate_installed_test_inputs)
 	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-grok requires darwin/arm64" >&2; exit 1; }
@@ -235,48 +194,6 @@ test-grok:
 		$(GO) test -v -tags='live_e2e live_grok' -timeout $(TEST_TIMEOUT) -count=1 \
 		-run '^TestE2EGrokReleaseBinaryReview$$' ./test/e2e
 	@printf '%s\n' '[test-grok] completed'
-
-test-agy:
-	@$(validate_installed_test_inputs)
-	@test "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = "darwin/arm64" || { echo "test-agy requires darwin/arm64" >&2; exit 1; }
-	@set -eu; \
-	agy_base="$$(cd "$${TMPDIR:-/tmp}" && pwd -P)"; \
-	agy_root="$$(mktemp -d "$${agy_base%/}/mulgae-agy.XXXXXX")"; \
-	chmod 700 "$$agy_root"; \
-	printf '%s\n' "[test-agy] private evidence retained: $$agy_root"; \
-	mkdir -m 700 "$$agy_root/runtime" "$$agy_root/project (single account)" "$$agy_root/command-controls"; \
-	agy_binary="$$agy_root/mulgae"; \
-	agy_commit="$${MULGAE_TEST_SOURCE_COMMIT:-$$(git rev-parse HEAD)}"; \
-	if test -n "$${MULGAE_TEST_INSTALLED_BINARY:-}"; then \
-		test -x "$$MULGAE_TEST_INSTALLED_BINARY" && cp "$$MULGAE_TEST_INSTALLED_BINARY" "$$agy_binary"; \
-	else \
-		$(GO) build -trimpath -ldflags "-X main.buildVersion=$(RELEASE_VERSION) -X main.buildRevision=$$agy_commit" -o "$$agy_binary" .; \
-	fi || exit $$?; \
-	agy_candidate="$${MULGAE_E2E_AGY_EXECUTABLE:-$$(command -v agy || true)}"; \
-	test -n "$$agy_candidate" && test -x "$$agy_candidate" || { echo "test-agy requires the AGY executable" >&2; exit 1; }; \
-	agy_bin="$$(realpath "$$agy_candidate")"; \
-	case "$$agy_bin" in /*) ;; *) echo "test-agy requires an absolute AGY executable" >&2; exit 1;; esac; \
-	shasum -a 256 "$$agy_binary" "$$agy_bin" > "$$agy_root/binaries.sha256"; \
-	if test -n "$${MULGAE_TEST_PREPARED_MANIFEST:-}"; then \
-		cp "$$MULGAE_TEST_PREPARED_MANIFEST" "$$agy_root/candidate-preparation.json"; \
-		: > "$$agy_root/untracked.paths"; \
-	else \
-		git diff --binary HEAD > "$$agy_root/candidate.patch"; \
-		git ls-files --others --exclude-standard -z > "$$agy_root/untracked.paths"; \
-	fi; \
-	if test -s "$$agy_root/untracked.paths"; then \
-		xargs -0 shasum -a 256 -- < "$$agy_root/untracked.paths" > "$$agy_root/untracked.sha256"; \
-	else : > "$$agy_root/untracked.sha256"; fi; \
-	MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" MULGAE_LIVE_AGY_COMMAND_PROBE=1 \
-		MULGAE_LIVE_AGY_REPORT_DIR="$$agy_root/command-controls" TMPDIR="$$agy_root/runtime" \
-		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLiveAgyExactCommandAdmission$$' ./internal/adapters/providercli; \
-	MULGAE_E2E_BINARY="$$agy_binary" MULGAE_E2E_AGY_EXECUTABLE="$$agy_bin" \
-		MULGAE_E2E_PROJECT_ROOT="$$agy_root/project (single account)" TMPDIR="$$agy_root/runtime" \
-		$(GO) test -v -tags='live_e2e live_agy' -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestE2EAgySingleAccountReleaseBinaryReview$$' ./test/e2e; \
-	shasum -a 256 -c "$$agy_root/binaries.sha256"
-	@printf '%s\n' '[test-agy] completed'
 
 test-mcp-requirements-clients: MCP_CLIENT_TAGS := mcpclientcheck,requirementsclientcheck
 test-mcp-requirements-clients: test-mcp-clients

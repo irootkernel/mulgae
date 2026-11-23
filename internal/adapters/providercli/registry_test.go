@@ -18,40 +18,12 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-func TestBuildArgvUsesIsolatedCodexAppServerProfile(t *testing.T) {
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := buildArgv(definition{
-		family: FamilyCodex, baseArgv: []string{"/private/bin/codex"}, transport: transport,
-		codexModel: "gpt-5.3-codex", codexReasoningEffort: "high", timeout: 30 * time.Minute,
-	}, "/private/work", []byte("review bytes"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{
-		"/private/bin/codex", "app-server", "--strict-config",
-		"--disable", "apps", "--disable", "browser_use", "--disable", "computer_use", "--disable", "hooks",
-		"--disable", "image_generation", "--disable", "multi_agent", "--disable", "plugins", "--disable", "skill_search",
-		"-c", `permissions.mulgae={extends=":read-only",filesystem={"~/.codex"="deny"}}`,
-		"-c", `default_permissions="mulgae"`, "-c", "project_doc_max_bytes=0", "-c", "shell_environment_policy.inherit=none",
-		"-c", `model="gpt-5.3-codex"`, "-c", `model_reasoning_effort="high"`,
-	}
-	if !equalStrings(got, want) {
-		t.Fatalf("Codex argv = %q, want %q", got, want)
-	}
-	if occurrences := packetOccurrences(got, "review bytes"); occurrences != 0 {
-		t.Fatalf("Codex argv contains protocol packet %d times", occurrences)
-	}
-}
-
 func TestRegistryReleasesProtocolTranscript(t *testing.T) {
 	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, err := newTestProfileWithTransport(t, FamilyCodex, "codex-logic", []string{"/private/bin/codex"}, transport)
+	profile, err := newTestProfileWithTransport(t, FamilyZcode, "zcode-logic", []string{"/private/bin/zcode"}, transport)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,11 +421,11 @@ func TestRegistryObserveSecurityBoundaryOutranksConcurrentInterruption(t *testin
 				err:         ports.ErrProviderSessionExchangeClosed,
 				events:      &events,
 			}
-			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			observed, observeErr := registry.Observe(context.Background(), testWorkspaceInvocation(t, "codex_default", authority))
+			observed, observeErr := registry.Observe(context.Background(), testWorkspaceInvocation(t, "zcode_default", authority))
 			if observeErr == nil || observed.Status() != ports.ProviderExecutionStatusSecurityViolation ||
 				observed.PrimaryCause() != domain.DiagnosticCauseWorkspaceRevalidationFailed {
 				t.Fatalf("security boundary result = status %q cause %q err %v", observed.Status(), observed.PrimaryCause(), observeErr)
@@ -1640,20 +1612,20 @@ func TestNewRegistryPreservesProfileAndDefensiveCopies(t *testing.T) {
 
 func TestRegistryAcceptsDistinctInstancesOfSameFamilyAndRejectsDuplicateInstance(t *testing.T) {
 	runner := newBarrierRunner()
-	first := testDefinition(t, FamilyCodex, "codex_primary")
-	second := testDefinition(t, FamilyCodex, "codex_secondary")
+	first := testDefinition(t, FamilyZcode, "zcode_primary")
+	second := testDefinition(t, FamilyZcode, "zcode_secondary")
 	registry, err := newRegistry(context.Background(), runner, first, second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := registry.definitions["codex_primary"]; !ok {
-		t.Fatal("primary Codex instance was not registered")
+	if _, ok := registry.definitions["zcode_primary"]; !ok {
+		t.Fatal("primary ZCode instance was not registered")
 	}
-	if _, ok := registry.definitions["codex_secondary"]; !ok {
-		t.Fatal("secondary Codex instance was not registered")
+	if _, ok := registry.definitions["zcode_secondary"]; !ok {
+		t.Fatal("secondary ZCode instance was not registered")
 	}
 	observed := make(chan error, 1)
-	secondaryInvocation := testInvocation(t, "codex_secondary")
+	secondaryInvocation := testInvocation(t, "zcode_secondary")
 	go func() {
 		_, observeErr := registry.Observe(context.Background(), secondaryInvocation)
 		observed <- observeErr
@@ -1661,7 +1633,7 @@ func TestRegistryAcceptsDistinctInstancesOfSameFamilyAndRejectsDuplicateInstance
 	<-runner.started
 	close(runner.release)
 	if observeErr := <-observed; observeErr != nil {
-		t.Fatalf("secondary Codex dispatch failed: %v", observeErr)
+		t.Fatalf("secondary ZCode dispatch failed: %v", observeErr)
 	}
 	if _, err := newRegistry(context.Background(), runner, first, first); err == nil {
 		t.Fatal("duplicate provider instance accepted")
@@ -1675,7 +1647,7 @@ func TestRegistryRejectsUnregisteredProviderBeforeRunnerCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := registry.Observe(context.Background(), testInvocation(t, "codex_default")); err == nil {
+	if _, err := registry.Observe(context.Background(), testInvocation(t, "zcode_default")); err == nil {
 		t.Fatal("unregistered provider was accepted")
 	}
 	select {
@@ -1687,9 +1659,9 @@ func TestRegistryRejectsUnregisteredProviderBeforeRunnerCall(t *testing.T) {
 
 func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
 	runner := newBarrierRunner()
-	codex := testDefinition(t, FamilyCodex, "codex_default")
-	zcode := testDefinition(t, FamilyZcode, "zcode_default")
-	registry, err := newRegistry(context.Background(), runner, codex, zcode)
+	first := testDefinition(t, FamilyZcode, "zcode_default")
+	second := testDefinition(t, FamilyZcode, "zcode_secondary")
+	registry, err := newRegistry(context.Background(), runner, first, second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1698,11 +1670,11 @@ func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
 	calls.Add(2)
 	go func() {
 		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 	}()
 	go func() {
 		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_secondary"))
 	}()
 	for range 2 {
 		select {
@@ -1720,7 +1692,7 @@ func TestRegistryAllowsDistinctProviderInstancesToOverlap(t *testing.T) {
 
 func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *testing.T) {
 	runner := newBarrierRunner()
-	definition := testDefinition(t, FamilyCodex, "codex_default")
+	definition := testDefinition(t, FamilyZcode, "zcode_default")
 	first, err := newRegistry(context.Background(), runner, definition)
 	if err != nil {
 		t.Fatal(err)
@@ -1739,7 +1711,7 @@ func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *tes
 		registry := registry
 		go func() {
 			defer calls.Done()
-			_, _ = registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+			_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 		}()
 	}
 	for range 2 {
@@ -1755,20 +1727,20 @@ func TestIndependentRegistriesOwnDistinctNamespacesAndOverlapSameInstance(t *tes
 
 func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
 	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstDone := make(chan error, 1)
 	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 		firstDone <- observeErr
 	}()
 	<-runner.started
 
 	refused := make(chan error, 1)
 	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 		refused <- observeErr
 	}()
 	select {
@@ -1790,7 +1762,7 @@ func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
 		t.Fatalf("first observe failed: %v", observeErr)
 	}
 
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 	if err != nil {
 		t.Fatalf("instance remained active after completion: %v", err)
 	}
@@ -1801,9 +1773,9 @@ func TestRegistryRefusesConcurrentSameInstanceWithoutWaiting(t *testing.T) {
 
 func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
 	runner := newBarrierRunner()
-	codex := testDefinition(t, FamilyCodex, "codex_default")
-	zcode := testDefinition(t, FamilyZcode, "zcode_default")
-	registry, err := newRegistry(context.Background(), runner, codex, zcode)
+	first := testDefinition(t, FamilyZcode, "zcode_default")
+	second := testDefinition(t, FamilyZcode, "zcode_secondary")
+	registry, err := newRegistry(context.Background(), runner, first, second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1815,7 +1787,7 @@ func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
 	}()
 	go func() {
 		defer calls.Done()
-		_, _ = registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+		_, _ = registry.Observe(context.Background(), testInvocation(t, "zcode_secondary"))
 	}()
 	<-runner.started
 	select {
@@ -1829,19 +1801,19 @@ func TestRegistryAllowsDistinctKeysToOverlap(t *testing.T) {
 
 func TestRegistryConcurrentSameInstanceRefusalDoesNotLeakActiveState(t *testing.T) {
 	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	firstDone := make(chan error, 1)
 	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 		firstDone <- observeErr
 	}()
 	<-runner.started
 
-	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default")); !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
+	if _, observeErr := registry.Observe(context.Background(), testInvocation(t, "zcode_default")); !errors.Is(observeErr, ports.ErrProviderInstanceAlreadyActive) {
 		t.Fatalf("duplicate active invocation error = %v", observeErr)
 	}
 	select {
@@ -1857,7 +1829,7 @@ func TestRegistryConcurrentSameInstanceRefusalDoesNotLeakActiveState(t *testing.
 	if observeErr := <-firstDone; observeErr != nil {
 		t.Fatalf("first observe failed: %v", observeErr)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 	if err != nil {
 		t.Fatalf("active instance was not released after completion: %v", err)
 	}
@@ -1875,11 +1847,11 @@ func TestRegistryObservePreservesRunnerErrorWithObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &observationRunner{observation: process, err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1895,11 +1867,11 @@ func TestRegistryObservePreservesRunnerErrorWithObservation(t *testing.T) {
 func TestRegistryObservePreservesCoherentCancellationFromRunnerError(t *testing.T) {
 	process := testProcessObservation(t, nil, nil, ports.ProcessTerminationCancelled, 0)
 	runner := &observationRunner{observation: process, err: context.Canceled}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1922,11 +1894,11 @@ func TestRegistryObservePreservesPartialStreamsAndCleanupCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &observationRunner{err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1959,11 +1931,11 @@ func TestRegistryObservePromotesCleanupFailureToSecurityViolationOnValidTimedOut
 	}
 	timedOutObs := testProcessObservation(t, nil, nil, ports.ProcessTerminationTimedOut, 0)
 	runner := &observationRunner{observation: timedOutObs, err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_cleanup"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_cleanup"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_cleanup"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "zcode_cleanup"))
 	if err != nil {
 		t.Fatalf("Observe returned error %v, want valid SecurityViolation observation", err)
 	}
@@ -1985,11 +1957,11 @@ func TestRegistryObservePreservesTransportVerificationCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &observationRunner{err: runnerFailure}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed, err := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+	observed, err := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2021,11 +1993,11 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			invocation := testInvocation(t, "codex_default")
+			invocation := testInvocation(t, "zcode_default")
 			runner := &observationRunner{
 				observation: testProcessObservation(t, []byte("raw stdout"), []byte("raw stderr"), test.termination, test.exitCode),
 			}
-			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+			registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2046,7 +2018,7 @@ func TestRegistryObserveClassifiesProcessTerminations(t *testing.T) {
 }
 
 func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
-	invocation := testInvocation(t, "codex_default")
+	invocation := testInvocation(t, "zcode_default")
 	runner := &observationRunner{
 		observation: testProcessObservation(
 			t,
@@ -2056,7 +2028,7 @@ func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
 			1,
 		),
 	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2074,7 +2046,7 @@ func TestRegistryObserveClassifiesExplicitLoginRequired(t *testing.T) {
 }
 
 func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *testing.T) {
-	invocation := testInvocation(t, "codex_default")
+	invocation := testInvocation(t, "zcode_default")
 	runner := &observationRunner{
 		observation: testProcessObservation(
 			t,
@@ -2084,7 +2056,7 @@ func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *tes
 			1,
 		),
 	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2101,7 +2073,7 @@ func TestRegistryObserveDoesNotClassifyModelAuthoredStdoutAsNativeFailure(t *tes
 }
 
 func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
-	invocation := testInvocation(t, "codex_default")
+	invocation := testInvocation(t, "zcode_default")
 	runner := &observationRunner{
 		observation: testProcessObservation(
 			t,
@@ -2111,7 +2083,7 @@ func TestRegistryObserveClassifiesNativeProviderTimeout(t *testing.T) {
 			1,
 		),
 	}
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2138,26 +2110,22 @@ func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T
 	if ok || status == ports.ProviderExecutionStatusTimedOut || diagnostic == "provider_timeout" {
 		t.Fatalf("argv echo classified as native timeout: status = %q, diagnostic = %q, ok = %t", status, diagnostic, ok)
 	}
-	codexProse := []byte(`{"type":"item.completed","item":{"text":"The usage limit handling is correct."}}`)
-	if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, codexProse, nil); ok {
-		t.Fatalf("Codex review prose classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
-	}
 	for _, stderr := range [][]byte{
 		[]byte("request completed in 1502ms"),
 		[]byte("trace a429b503c504d"),
 		[]byte("panic at src/session.rs:429:12"),
-		[]byte("codex 0.502.0"),
+		[]byte("zcode 0.502.0"),
 		[]byte("trace req-429-7"),
 		[]byte("http 4290"),
 		[]byte("http 429-extra"),
 	} {
-		if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, stderr); ok {
-			t.Fatalf("Codex unrelated numeric stderr classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
+		if status, diagnostic, cause, ok := nativeProviderOutcome(FamilyZcode, nil, stderr); ok {
+			t.Fatalf("ZCode unrelated numeric stderr classified as native outcome: status = %q, diagnostic = %q, cause = %q", status, diagnostic, cause)
 		}
 	}
-	status, diagnostic, cause, ok := nativeProviderOutcome(FamilyCodex, nil, []byte("request failed with status 429"))
+	status, diagnostic, cause, ok := nativeProviderOutcome(FamilyZcode, nil, []byte("request failed with status 429"))
 	if !ok || status != ports.ProviderExecutionStatusRateLimit || diagnostic != "provider_rate_limit" || cause != domain.DiagnosticCauseRateLimited {
-		t.Fatalf("Codex standalone HTTP status was not classified: status = %q, diagnostic = %q, cause = %q, ok = %t", status, diagnostic, cause, ok)
+		t.Fatalf("ZCode standalone HTTP status was not classified: status = %q, diagnostic = %q, cause = %q, ok = %t", status, diagnostic, cause, ok)
 	}
 	grokQuotaStderr := []byte("ERROR responses API error status=402 Payment Required error_message=Grok Build usage balance exhausted")
 	status, diagnostic, cause, ok = nativeProviderOutcome(FamilyGrok, nil, grokQuotaStderr)
@@ -2167,7 +2135,7 @@ func TestNativeProviderOutcomeDoesNotClassifyReviewProseAsTransient(t *testing.T
 }
 
 func TestNativeProviderOutcomeRequiresExactHTTPStatusToken(t *testing.T) {
-	for _, family := range []string{FamilyCodex, FamilyGrok, FamilyZcode, FamilyGrok} {
+	for _, family := range []string{FamilyGrok, FamilyZcode} {
 		t.Run(family, func(t *testing.T) {
 			for _, stderr := range []string{"http 4290", "http 429-extra"} {
 				if _, _, _, ok := nativeProviderOutcome(family, nil, []byte(stderr)); ok {
@@ -2398,13 +2366,13 @@ func TestRegistryCloseRetriesAfterCancellation(t *testing.T) {
 
 func TestRegistryCloseCancellationWhileObservationIsActiveIsRetryable(t *testing.T) {
 	runner := newBarrierRunner()
-	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyCodex, "codex_default"))
+	registry, err := newRegistry(context.Background(), runner, testDefinition(t, FamilyZcode, "zcode_default"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	observed := make(chan error, 1)
 	go func() {
-		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "codex_default"))
+		_, observeErr := registry.Observe(context.Background(), testInvocation(t, "zcode_default"))
 		observed <- observeErr
 	}()
 	<-runner.started

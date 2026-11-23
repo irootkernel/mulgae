@@ -90,73 +90,7 @@ func TestLiveGrokCapability(t *testing.T) {
 	}
 }
 
-func TestLiveCodexCapability(t *testing.T) {
-	config := liveCapabilityConfig{
-		family: providercli.FamilyCodex, credential: providercli.CredentialSourceCodex, instance: "codex-logic", role: domain.RoleLogic,
-		executableEnv: "MULGAE_LIVE_CODEX_BIN", dataHomeEnv: "MULGAE_LIVE_CODEX_HOME", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
-		minimumVersion: [3]int{0, 154, 0},
-		protectedPaths: func(_ string, dataHome string) []string {
-			return []string{filepath.Join(dataHome, "auth.json")}
-		},
-	}
-	err := certifyLiveCapability(t, config)
-	if err == nil {
-		t.Logf("codex selected credential profile: primary=%s", liveCodexCredentialHomeLabel(os.Getenv(config.dataHomeEnv)))
-		return
-	}
-	var failure *domain.Failure
-	if !errors.As(err, &failure) || failure.Class() != domain.FailureQuota {
-		t.Fatal(liveProbeFailureMessage("codex live capability certification", err))
-	}
-	if os.Getenv("MULGAE_LIVE_CODEX_FALLBACK_HOME") == "" {
-		t.Fatal("INCONCLUSIVE: codex live capability certification: the primary account has no quota and no fallback credential home is configured. Set MULGAE_E2E_CODEX_FALLBACK_HOME for make test-e2e, or MULGAE_LIVE_CODEX_FALLBACK_HOME when running this suite directly, to an absolute authenticated Codex home, then run the check again.")
-	}
-	t.Log("codex primary credential home has no quota; retrying capability certification with the configured fallback home")
-	config.dataHomeEnv = "MULGAE_LIVE_CODEX_FALLBACK_HOME"
-	if fallbackErr := certifyLiveCapability(t, config); fallbackErr != nil {
-		t.Fatal(liveProbeFailureMessage("codex fallback live capability certification", fallbackErr))
-	}
-	t.Logf("codex selected credential profile: quota_fallback=%s", liveCodexCredentialHomeLabel(os.Getenv(config.dataHomeEnv)))
-}
-
-func liveCodexCredentialHomeLabel(value string) string {
-	if value == "" {
-		return "<unset>"
-	}
-	home, err := os.UserHomeDir()
-	if err == nil {
-		switch filepath.Clean(value) {
-		case filepath.Join(home, ".codex"):
-			return "~/.codex"
-		case filepath.Join(home, ".codex-hsy"):
-			return "~/.codex-hsy"
-		}
-	}
-	return "<custom>"
-}
-
-func TestLiveCodexCredentialHomeLabel(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, test := range []struct {
-		value string
-		want  string
-	}{
-		{value: "", want: "<unset>"},
-		{value: filepath.Join(home, ".codex"), want: "~/.codex"},
-		{value: filepath.Join(home, ".codex-hsy"), want: "~/.codex-hsy"},
-		{value: filepath.Join(home, ".codex-secondary"), want: "<custom>"},
-		{value: filepath.Join(home, "private-codex-profile"), want: "<custom>"},
-	} {
-		if got := liveCodexCredentialHomeLabel(test.value); got != test.want {
-			t.Fatalf("liveCodexCredentialHomeLabel(%q) = %q, want %q", test.value, got, test.want)
-		}
-	}
-}
-
-func TestLiveCodexCredentialPathDiagnosticsRedactNativePaths(t *testing.T) {
+func TestLiveCredentialPathDiagnosticsRedactNativePaths(t *testing.T) {
 	privateRoot := t.TempDir()
 	privateFile := filepath.Join(privateRoot, "auth.json")
 	if err := os.WriteFile(privateFile, []byte("private"), 0o600); err != nil {
@@ -302,9 +236,6 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	families := map[string]providercli.CredentialSourceFamily{config.instance: config.credential}
 	policies := map[string]providercli.RuntimeSafetyPolicy{config.instance: policy}
 	sourceRoots := map[string]string{}
-	if config.credential == providercli.CredentialSourceCodex {
-		sourceRoots[config.instance] = dataHome
-	}
 	var projectedNamespaces ports.ProviderNamespaceFactory
 	if config.credential == providercli.CredentialSourceGrok {
 		projectedNamespaces, err = providercli.NewCredentialProjectingNamespaceFactoryWithProjectRoot(

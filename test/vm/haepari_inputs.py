@@ -132,8 +132,6 @@ DEFAULT_SUITES: dict[str, dict[str, Any]] = {
             "results/live-providers/live-providers-summary.json",
             "results/live-providers/test-e2e.log",
             "results/live-providers/test-grok.log",
-            "results/live-providers/test-agy.log",
-            "results/live-providers/test-e2e-opt-in.log",
             "results/live-providers/test-mcp-requirements-clients.log",
             "results/live-providers/inventory-after.json",
             "results/live-providers/consumer-cleanup.json",
@@ -475,9 +473,9 @@ def validate_execution_request(
         if live_accounts is None:
             raise Refusal(f"suite {suite_name} requires request.live_accounts")
         live_map = _require_mapping(live_accounts, "request.live_accounts")
-        if set(live_map) != {"zcode", "grok", "agy", "codex", "mcp_clients"}:
+        if set(live_map) != {"zcode", "grok", "mcp_clients"}:
             raise Refusal(
-                "request.live_accounts must declare only zcode, grok, agy, codex, and mcp_clients"
+                "request.live_accounts must declare only zcode, grok, and mcp_clients"
             )
         zcode_cfg = _require_mapping(live_map.get("zcode"), "request.live_accounts.zcode")
         _require_non_empty_str(zcode_cfg, "app_bundle", "request.live_accounts.zcode")
@@ -486,19 +484,6 @@ def validate_execution_request(
         grok_cfg = _require_mapping(live_map.get("grok"), "request.live_accounts.grok")
         _require_non_empty_str(grok_cfg, "executable", "request.live_accounts.grok")
         _require_non_empty_str(grok_cfg, "account_alias", "request.live_accounts.grok")
-
-        agy_cfg = _require_mapping(live_map.get("agy"), "request.live_accounts.agy")
-        _require_non_empty_str(agy_cfg, "executable", "request.live_accounts.agy")
-        _require_non_empty_str(agy_cfg, "account_alias", "request.live_accounts.agy")
-
-        codex_cfg = _require_mapping(live_map.get("codex"), "request.live_accounts.codex")
-        if set(codex_cfg) != {"executable", "primary_home", "primary_account_alias"}:
-            raise Refusal(
-                "request.live_accounts.codex must declare only executable, primary_home, and primary_account_alias"
-            )
-        _require_non_empty_str(codex_cfg, "executable", "request.live_accounts.codex")
-        _require_non_empty_str(codex_cfg, "primary_home", "request.live_accounts.codex")
-        _require_non_empty_str(codex_cfg, "primary_account_alias", "request.live_accounts.codex")
 
         mcp_cfg = _require_mapping(live_map.get("mcp_clients"), "request.live_accounts.mcp_clients")
         _require_non_empty_str(mcp_cfg, "codex_binary", "request.live_accounts.mcp_clients")

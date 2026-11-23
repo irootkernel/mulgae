@@ -782,7 +782,7 @@ func TestNonGrokFamiliesNeverTouchHerdrCoreAndReceiveSharedControlPlaneRoots(t *
 		t.Fatal(err)
 	}
 
-	for _, family := range []string{FamilyZcode, FamilyCodex, FamilyAgy} {
+	for _, family := range []string{FamilyZcode} {
 		t.Run(family, func(t *testing.T) {
 			nsRoot := filepath.Join(base, "ns-"+family)
 			nsBase, err := NewNamespaceFactory(nsRoot)
@@ -791,27 +791,6 @@ func TestNonGrokFamiliesNeverTouchHerdrCoreAndReceiveSharedControlPlaneRoots(t *
 			}
 			instance := family + "_ctrlplane"
 			var nsFactory ports.ProviderNamespaceFactory = nsBase
-			if family == FamilyAgy {
-				agyPolicy, policyErr := RuntimeSafetyPolicyForFamily(CredentialSourceAgy)
-				if policyErr != nil {
-					t.Fatal(policyErr)
-				}
-				agyAuthDir := filepath.Join(nativeHomeDir, ".gemini", "antigravity-cli")
-				if mkErr := os.MkdirAll(agyAuthDir, 0o700); mkErr != nil {
-					t.Fatal(mkErr)
-				}
-				if wErr := os.WriteFile(filepath.Join(agyAuthDir, "antigravity-oauth-token"), []byte("test-token"), 0o600); wErr != nil {
-					t.Fatal(wErr)
-				}
-				nsFactory, err = NewCredentialProjectingNamespaceFactoryWithPolicies(
-					nsBase, nativeHomeDir,
-					map[string]CredentialSourceFamily{instance: CredentialSourceAgy},
-					map[string]RuntimeSafetyPolicy{instance: agyPolicy},
-				)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
 			var capturedReq ports.ProcessRequest
 			runner := &liveCaptureRunner{
 				onConverse: func(req ports.ProcessRequest) (ports.ProcessObservation, error) {
@@ -830,11 +809,6 @@ func TestNonGrokFamiliesNeverTouchHerdrCoreAndReceiveSharedControlPlaneRoots(t *
 			if err != nil {
 				t.Fatal(err)
 			}
-			if family == FamilyAgy {
-				if err := (retainedQualificationNamespace{lease: registry.namespaces[instance]}).recordAgyQualification(def, "1.2.9"); err != nil {
-					t.Fatal(err)
-				}
-			}
 			registry.terminalRunner = tripwireTerminalRunner{t: t}
 			inv := testInvocation(t, instance)
 			inv, err = ports.NewProviderInvocationInLiveSource(inv, execution)
@@ -848,15 +822,6 @@ func TestNonGrokFamiliesNeverTouchHerdrCoreAndReceiveSharedControlPlaneRoots(t *
 			if capturedReq.Executable() == "" {
 				t.Fatalf("%s did not reach runner.Converse: status=%q diag=%q cause=%q err=%v", family, obs.Status(), obs.DiagnosticCode(), obs.PrimaryCause(), obsErr)
 			}
-			if family == FamilyCodex {
-				joined := strings.Join(capturedReq.Argv(), " ")
-				for _, root := range cpRoots {
-					if !strings.Contains(joined, root.String()) {
-						t.Fatalf("Codex permissions.mulgae argv missing control-plane root %q: %s", root.String(), joined)
-					}
-				}
-				return
-			}
 			boundary, guarded := capturedReq.LiveReadOnlyBoundary()
 			if !guarded {
 				t.Fatalf("%s live launch missing LiveReadOnlyBoundary", family)
@@ -866,10 +831,7 @@ func TestNonGrokFamiliesNeverTouchHerdrCoreAndReceiveSharedControlPlaneRoots(t *
 					t.Fatalf("%s boundary missing control-plane root %q", family, root.String())
 				}
 			}
-			if family == FamilyAgy && !boundary.OwnedPTY() {
-				t.Fatal("AGY lost OwnedPTY boundary clause")
-			}
-			if family != FamilyAgy && boundary.OwnedPTY() {
+			if boundary.OwnedPTY() {
 				t.Fatalf("%s unexpectedly acquired OwnedPTY clause", family)
 			}
 		})
@@ -1420,21 +1382,18 @@ func TestControlPlanePathsFailClosedAndExpandMissingLeafSymlinks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		codexDef := testDefinition(t, FamilyCodex, "codex_cp")
-		argv, err := liveReviewArgv(codexDef, execBase, nil, false)
+		cpRoots, cpLiterals, err := liveExecutionControlPlanePaths(execBase)
 		if err != nil {
-			t.Fatalf("liveReviewArgv(codex) error = %v", err)
+			t.Fatalf("liveExecutionControlPlanePaths error = %v", err)
 		}
-		joined := strings.Join(argv, " ")
-		if !strings.Contains(joined, `"/private/tmp/mulgae-missing-cp-dir"="deny"`) ||
-			!strings.Contains(joined, `"/tmp/mulgae-missing-cp-dir"="deny"`) {
-			t.Fatalf("Codex liveReviewArgv missing canonical/raw control-plane deny: %s", joined)
+		if !anchoredContains(cpRoots, "/private/tmp/mulgae-missing-cp-dir") || !anchoredContains(cpRoots, "/tmp/mulgae-missing-cp-dir") {
+			t.Fatalf("liveExecutionControlPlanePaths missing canonical/raw control-plane root: roots=%v literals=%v", cpRoots, cpLiterals)
 		}
 
-		// And malformed HC_SOCKET must fail closed inside liveReviewArgv.
+		// And malformed HC_SOCKET must fail closed inside liveExecutionControlPlanePaths.
 		t.Setenv("HC_SOCKET", "relative/bad.sock")
-		if _, err := liveReviewArgv(codexDef, execBase, nil, false); err == nil {
-			t.Fatal("liveReviewArgv(codex) silently ignored malformed HC_SOCKET")
+		if _, _, err := liveExecutionControlPlanePaths(execBase); err == nil {
+			t.Fatal("liveExecutionControlPlanePaths silently ignored malformed HC_SOCKET")
 		}
 	})
 

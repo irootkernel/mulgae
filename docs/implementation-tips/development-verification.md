@@ -28,7 +28,7 @@ tools. A production behavior change needs its own explicit scope and evidence.
 | Focused Go test or existing individual Make target | Verifies the affected behavior during a Task. Use an explicit package and anchored test selection when selecting tests. |
 | `make test-offline` | Runs `test-prepare`, `test-unit` and `test-int` once each, in that order, and stops on the first failure. It provides complete deterministic development verification. |
 | `make test-release` | Preserves exact installed-binary checks and the separately identified isolated fixture checks. It uses no live provider. |
-| `make test` | Runs the offline stages once, followed by `test-release`, mandatory `test-e2e` and conditional `test-e2e-opt-in`. It retains the existing full-gate meaning. |
+| `make test` | Runs the offline stages once, followed by `test-release` and mandatory `test-e2e`. It retains the existing full-gate meaning. |
 | Standalone provider and client targets | Remain explicit checks for the provider or client contract being changed and for release obligations. |
 
 The `gaori run offline` alias invokes `make test-offline` through the
@@ -51,13 +51,14 @@ one complete offline backstop for its final integrated candidate in TASK-074.
 
 ### Release obligations
 
-Keep the mandatory ZCode live checks and the conditional Codex target behavior.
-The separately adopted historical `v0.1.26` release requirement covered all
-five providers at the time, including the standalone Grok, Cursor, and AGY
-campaigns and enabled Codex profile checks, on the release candidate (Cursor
-and `make test-cursor` were subsequently retired in `v0.1.28`, converging the
-active release-candidate obligation to the four active providers `zcode`,
-`grok`, `codex`, and `agy`). The normal `make test` default
+Keep the mandatory ZCode live checks. The separately adopted historical
+`v0.1.26` release requirement covered all five providers at the time, including
+the standalone Grok, Cursor, and AGY campaigns and enabled Codex profile checks,
+on the release candidate (Cursor, Codex, and AGY review providers and their
+`make test-cursor`, `make test-agy`, and `make test-e2e-opt-in` targets were
+subsequently retired in `v0.1.28`, converging the active release-candidate
+obligation to the two active providers `zcode` and `grok`, including
+`make test-grok` and `make test-herdr`). The normal `make test` default
 alone does not discharge that additional obligation.
 
 EPIC-015 activated this development completion policy in TASK-070. Its
@@ -198,19 +199,16 @@ deleting scenarios is not a completion quota.
   line, passes `MULGAE_RELEASE_VERSION` to `./internal/releasecheck` in
   `test-release`, and stamps `main.buildVersion=$(RELEASE_VERSION)` in each of
   the six exact-binary target slices (`test-release`, `test-e2e`,
-  `test-e2e-opt-in`, `test-grok`, `test-agy`, and `test-mcp-clients`).
+  `test-release`, `test-e2e`, `test-grok`, and `test-mcp-clients`).
   `internal/releasecheck` (`TestInstalledRootModuleContract`)
   and the manual/waiver temporary-`GOBIN` checks verify `mulgae --version`,
   `mulgae version`, and `mulgae version --json` on the installed binary.
 - **Live E2E and MCP projection ownership (`TestE2ELiveFamilyCapabilityAndNoSkipContract`, `TestMCPContractProjectionOwnership`)**:
   `TestE2ELiveFamilyCapabilityAndNoSkipContract` retains the exported test
   entrypoints (`TestLiveZCodeCapability`, `TestLiveGrokCapability`,
-  `TestE2EZCodeGrokReviewAggregation`, `TestE2EOptInCodexCredentialProfiles`),
-  `QualifyCurrent`, role/profile routing (`zcode-logic`, `zcode-security`,
-  `codex-primary-logic`, `codex-primary-security`,
-  `codex-primary-documentation`), required and forbidden environment
-  variables (`MULGAE_E2E_CODEX_PRIMARY_HOME`), and the no-`.Skip(`/`.Skipf(` invariant across
-  all three live test files without pinning unexported helper names in
+  `TestE2EZCodeGrokReviewAggregation`), `QualifyCurrent`, role routing
+  (`zcode-logic`, `zcode-security`), and the no-`.Skip(`/`.Skipf(` invariant
+  across the active live test files without pinning unexported helper names in
   `test/e2e/live_test.go`.
   `TestMCPContractProjectionOwnership` retains the forbidden composition tokens
   and exported MCP entrypoints (`ParseResourceURI`, `ProjectRunStatus`,
@@ -221,11 +219,11 @@ deleting scenarios is not a completion quota.
   `TestCatalogHelpCoversProjectLocalInitContract` retains the configuration
   authority paths (`<canonical-project-root>/.mulgae/config.yaml`,
   `<canonical-project-root>/.mulgae/local.yaml`), `--providers auto|FAMILY[,FAMILY...]`
-  grammar, the `FAMILY := zcode | grok | codex | agy` set,
+  grammar, the `FAMILY := zcode | grok` set,
   `execution.workspace_access` and `Config v2` rejection tokens, and forbidden
   legacy paths (`~/.config/mulgae`, `$XDG_CONFIG_HOME/mulgae`,
-  `--providers kimi`, `--providers cursor`) without pinning multi-line paragraph
-  prose or `\n` line
+  `--providers kimi`, `--providers cursor`, `--providers codex`, `--providers agy`)
+  without pinning multi-line paragraph prose or `\n` line
   wrapping. `TestCatalogDocumentationContract` remains unchanged because it
   exercises `Catalog.List` client-side kind filtering and `Catalog.Read`
   context-cancellation behavior.

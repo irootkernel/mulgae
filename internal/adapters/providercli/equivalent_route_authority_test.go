@@ -2,7 +2,6 @@ package providercli
 
 import (
 	"testing"
-	"time"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 )
@@ -78,8 +77,7 @@ func TestDeriveEquivalentRouteZCodeRejectsProfileMismatches(t *testing.T) {
 		{name: "executable", mutate: func(d *RuntimeDefinition) { d.executable = "/private/bin/other-node" }},
 		{name: "launcher", mutate: func(d *RuntimeDefinition) { d.launcher = "/private/bin/other-zcode.cjs" }},
 		{name: "runtime_safety_policy_identity", mutate: func(d *RuntimeDefinition) { d.runtimeSafetyPolicyIdentity = "other-safety-policy" }},
-		{name: "cross_family_codex", mutate: func(d *RuntimeDefinition) { d.family = FamilyCodex }},
-		{name: "cross_family_agy", mutate: func(d *RuntimeDefinition) { d.family = FamilyAgy }},
+		{name: "cross_family_grok", mutate: func(d *RuntimeDefinition) { d.family = FamilyGrok }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			destination := source
@@ -99,58 +97,6 @@ func TestDeriveEquivalentRouteZCodeRejectsProfileMismatches(t *testing.T) {
 				t.Fatalf("derivation accepted mismatched %s", tc.name)
 			}
 		})
-	}
-}
-
-func TestDeriveEquivalentRouteAgyRemainsPerInstanceAndPerNamespace(t *testing.T) {
-	source := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyAgy, "agy-logic", "", ""))
-	proof := currentProbeDirectExecutionTestProof()
-	proof.Family = source.Family()
-	proof.ProviderInstance = source.Instance()
-	proof.ProviderVersion = source.Version()
-	proof.ObservedVersion = "1.2.3"
-	proof.Executable = source.Executable()
-	proof.ExecutableSHA256 = source.ExecutableSHA256()
-	proof.Launcher = source.Launcher()
-	proof.LauncherSHA256 = source.LauncherSHA256()
-	proof.ZCodeProviderConfig = ""
-	proof.ZCodeProviderConfigSHA256 = ""
-	proof.ApplicationVersion = ""
-	proof.ApplicationMetadata = ""
-	proof.ApplicationMetadataSHA256 = ""
-	proof.ProfileID = source.ProfileID()
-	proof.ProfileGeneration = source.ProfileGeneration()
-	proof.AgyCredentialSourceIdentity = "sha256:" + repeatHex('c')
-	authority, err := newCurrentProbeDirectExecutionAuthorityReceiptForDefinition(
-		[]currentProbeDirectExecutionRoleProof{proof},
-		time.Now().UTC().Add(time.Minute),
-		source,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	sibling := source
-	sibling.instance = "agy-security"
-	sibling.profileID = "agy-security"
-
-	if _, err := DeriveEquivalentRouteDirectExecutionAuthority(
-		authority, source, sibling, "1.2.3", "namespace", "namespace",
-		[]domain.Role{domain.RoleLogic}, []domain.Role{domain.RoleSecurity},
-	); err == nil {
-		t.Fatal("AGY cross-instance derivation succeeded")
-	}
-	if _, err := DeriveEquivalentRouteDirectExecutionAuthority(
-		authority, source, source, "1.2.3", "namespace", "namespace-other",
-		[]domain.Role{domain.RoleLogic}, []domain.Role{domain.RoleSecurity},
-	); err == nil {
-		t.Fatal("AGY cross-namespace derivation succeeded")
-	}
-	if _, err := DeriveEquivalentRouteDirectExecutionAuthority(
-		authority, source, sibling, "1.2.3", "namespace", "namespace-security",
-		[]domain.Role{domain.RoleLogic}, []domain.Role{domain.RoleSecurity},
-	); err == nil {
-		t.Fatal("AGY cross-instance cross-namespace derivation succeeded")
 	}
 }
 

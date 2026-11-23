@@ -375,7 +375,7 @@ func TestDoctorV7Characterization(t *testing.T) {
 		}},
 		{name: "role_mapping", families: "grok", configure: func(t *testing.T, f *doctorBeforeFixture) {
 			doctorBeforeEdit(t, f.projectPath(), func(b []byte) []byte {
-				return bytes.Replace(b, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "codex"`), 1)
+				return bytes.Replace(b, []byte(`primary_provider: "grok"`), []byte(`primary_provider: "zcode"`), 1)
 			})
 		}},
 		{name: "unsafe_local_mode", families: "grok", configure: func(t *testing.T, f *doctorBeforeFixture) {
@@ -452,7 +452,6 @@ func TestDoctorV7Characterization(t *testing.T) {
 		{name: "binary_unsafe", families: "grok", configure: func(_ *testing.T, f *doctorBeforeFixture) {
 			f.spy.identityErrors = map[string]error{"grok": ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "unsafe binary")}
 		}},
-		{name: "configured_vs_role", families: "grok,codex", configure: func(_ *testing.T, f *doctorBeforeFixture) { f.spy.missing = map[string]bool{"codex": true} }},
 		{name: "config_drift_after_version_not_rechecked", families: "grok", configure: func(t *testing.T, f *doctorBeforeFixture) {
 			f.spy.afterVersion = func() { doctorBeforeReplace(t, f.projectPath()) }
 		}},
@@ -608,7 +607,7 @@ func TestProvidersCharacterization(t *testing.T) {
 func currentDoctorTransportExpectation(want doctorBefore) doctorBefore {
 	historicalPrefix := `{"schema_version":"mulgae-command-result.v21",`
 	if strings.HasPrefix(want.Stdout, historicalPrefix) {
-		want.Stdout = `{"schema_version":"mulgae-command-result.v24",` + strings.TrimPrefix(want.Stdout, historicalPrefix)
+		want.Stdout = `{"schema_version":"mulgae-command-result.v25",` + strings.TrimPrefix(want.Stdout, historicalPrefix)
 	}
 	return want
 }
@@ -627,25 +626,37 @@ func currentDoctorGrokMinimumExpectation(want doctorBefore) doctorBefore {
 	return want
 }
 
-// Project Cursor's retirement from the active provider portfolio (doctor v7 -> v8,
-// four-family inventory, and three static-evidence families) without mutating
-// the immutable predecessor fixture.
+// Project Cursor, Codex, and AGY retirement from the active provider portfolio
+// (doctor v7 -> v9, two-family inventory, and two static-evidence families)
+// without mutating the immutable predecessor fixture.
 func currentDoctorPortfolioExpectation(want doctorBefore) doctorBefore {
 	replacer := strings.NewReplacer(
-		`"schema_version":"mulgae-doctor-result.v7"`, `"schema_version":"mulgae-doctor-result.v8"`,
+		`"schema_version":"mulgae-doctor-result.v7"`, `"schema_version":"mulgae-doctor-result.v9"`,
+		`,{"application_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"binary_available":{"reason_codes":[],"status":"not_applicable"},"cli_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"configured":false,"family":"codex","reason":"config_not_ready","referenced_by_roles":[],"state":"not_observed"}`, ``,
+		`,{"application_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"binary_available":{"reason_codes":[],"status":"not_applicable"},"cli_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"configured":false,"family":"codex","reason":"not_configured","referenced_by_roles":[],"state":"not_configured"}`, ``,
 		`,{"application_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"binary_available":{"reason_codes":[],"status":"not_applicable"},"cli_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"configured":false,"family":"cursor","reason":"config_not_ready","referenced_by_roles":[],"state":"not_observed"}`, ``,
 		`,{"application_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"binary_available":{"reason_codes":[],"status":"not_applicable"},"cli_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"configured":false,"family":"cursor","reason":"not_configured","referenced_by_roles":[],"state":"not_configured"}`, ``,
+		`,{"application_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"binary_available":{"reason_codes":[],"status":"not_applicable"},"cli_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"configured":false,"family":"agy","reason":"config_not_ready","referenced_by_roles":[],"state":"not_observed"}`, ``,
+		`,{"application_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"binary_available":{"reason_codes":[],"status":"not_applicable"},"cli_compatible":{"compatibility":"not_observed","eligibility":"not_evaluated","minimum_version":"","observed_version":"","reason_code":"","status":"not_applicable","verified_latest":""},"configured":false,"family":"agy","reason":"not_configured","referenced_by_roles":[],"state":"not_configured"}`, ``,
+		"- codex: not_observed (config_not_ready)\n", "",
+		"- codex: not_configured (not_configured)\n", "",
 		"- cursor: not_observed (config_not_ready)\n", "",
 		"- cursor: not_configured (not_configured)\n", "",
+		"- agy: not_observed (config_not_ready)\n", "",
+		"- agy: not_configured (not_configured)\n", "",
+		"family=codex profile=codex-default support=unverified evidence=unverified assignment=intended_but_unverified\n", "",
+		"family=codex profile=codex-default support=supported evidence=pass assignment=eligible evidence_uri=https://evidence.example.test/providers/authority.json evidence_sha256=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", "",
 		"family=cursor profile=cursor-default support=unverified evidence=unverified assignment=intended_but_unverified\n", "",
 		"family=cursor profile=cursor-default support=supported evidence=pass assignment=eligible evidence_uri=https://evidence.example.test/providers/authority.json evidence_sha256=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", "",
-		`"static_evidence_ready_provider_count":4`, `"static_evidence_ready_provider_count":3`,
+		"family=agy profile=agy-default support=unverified evidence=unverified assignment=intended_but_unverified\n", "",
+		"family=agy profile=agy-default support=supported evidence=pass assignment=eligible evidence_uri=https://evidence.example.test/providers/authority.json evidence_sha256=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", "",
+		`"static_evidence_ready_provider_count":4`, `"static_evidence_ready_provider_count":2`,
 	)
 	want.Stdout = replacer.Replace(want.Stdout)
 	if len(want.Trace) > 0 {
 		filtered := make([]string, 0, len(want.Trace))
 		for _, entry := range want.Trace {
-			if entry == "evidence.cursor" {
+			if entry == "evidence.codex" || entry == "evidence.cursor" || entry == "evidence.agy" {
 				continue
 			}
 			filtered = append(filtered, entry)
@@ -658,7 +669,7 @@ func currentDoctorPortfolioExpectation(want doctorBefore) doctorBefore {
 func TestDoctorTransportExpectationChangesOnlyOuterVersionPrefix(t *testing.T) {
 	original := doctorBefore{Stdout: `{"schema_version":"mulgae-command-result.v21","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`, Stderr: "exact stderr", Trace: []string{"exact effect"}}
 	want := original
-	want.Stdout = `{"schema_version":"mulgae-command-result.v24","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`
+	want.Stdout = `{"schema_version":"mulgae-command-result.v25","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`
 	if got := currentDoctorTransportExpectation(original); !reflect.DeepEqual(got, want) {
 		t.Fatal("version projection changed non-version evidence")
 	}

@@ -154,6 +154,9 @@ func TestHistoricalCorpusRead(t *testing.T) {
 			if c.Family == "failed-recovery" {
 				reason = "committed review is unavailable without P2 authority"
 			}
+			if c.ID == "composite-mixed-v1" {
+				reason = retiredProviderArtifactReason
+			}
 			if reason != "" {
 				historicalReason(t, err, reason)
 				return

@@ -36,20 +36,19 @@ mulgae init [--project-root PATH] [--name NAME]
   [--output human|json]
 ```
 
-`FAMILY := zcode | grok | codex | agy`
+`FAMILY := zcode | grok`
 
 `--providers auto` discovers ZCode and Grok and fails closed unless both are
-available, and includes AGY when installed. Documentation prefers AGY when
-present; the remaining default roles prefer ZCode. Select any supported family
-explicitly to choose a different portfolio. Grok accepts a
-machine-local `--grok-executable` override and an optional shared-policy
-`providers.grok.timeout`. `--grok-model` and `--grok-reasoning-effort` record
-project-policy values; automatic initialization may also accept these two
-flags. New projects write `grok-4.7` and `high` when the corresponding flag is
-omitted. Explicit provider selection that excludes Grok rejects either flag,
-and `init --refresh-local` rejects them even when the supplied value is empty.
-An existing Config v5 file that omits either dimension independently preserves
-the provider default.
+available. All default core roles prefer ZCode with Grok as the secondary
+preference; artist uses ZCode. Select any supported family explicitly to choose
+a different portfolio. Grok accepts a machine-local `--grok-executable` override
+and an optional shared-policy `providers.grok.timeout`. `--grok-model` and
+`--grok-reasoning-effort` record project-policy values; automatic initialization
+may also accept these two flags. New projects write `grok-4.7` and `high` when
+the corresponding flag is omitted. Explicit provider selection that excludes
+Grok rejects either flag, and `init --refresh-local` rejects them even when the
+supplied value is empty. An existing Config v5 file that omits either dimension
+independently preserves the provider default.
 
 ZCode uses the standard `/Applications/ZCode.app` bundle by default. An app
 installed elsewhere accepts the machine-local `--zcode-app-bundle` override.
@@ -64,16 +63,6 @@ Omitting either value preserves app-server's default for that dimension. Mulgae
 reads ZCode's v2 app state and answers app-server's account-auth request
 without copying credentials into the disposable review home; it never reads
 `~/.zcode/cli/config.json`.
-
-AGY accepts machine-local `--agy-executable` and optional shared-policy
-`--agy-model` and `--agy-reasoning-effort`. The effort values are `low`,
-`medium`, `high`, `xhigh`, and `max`. Omitting model or effort preserves that
-native default independently. Model syntax matches Grok's closed ASCII path
-grammar; the installed AGY CLI owns the available model IDs. These policy flags
-require AGY selection or discovery and are rejected by `--refresh-local`.
-`providers.agy.timeout` uses the common `1m` through `60m` range. AGY has no
-account, credential-profile, credential-home or permission-mode setting. It
-uses only the OS user's default Gemini token; multiple accounts are deferred.
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.
@@ -138,19 +127,6 @@ providers:
     model: "grok-4.7"
     reasoning_effort: "high"
 ```
-
-Codex accepts optional project-policy `model` and `reasoning_effort` fields and
-a machine-local `executable`. Valid reasoning efforts are `minimal`, `low`,
-`medium`, `high`, and `xhigh`. Omitting model or reasoning effort preserves the
-Codex CLI default. For example:
-
-```yaml
-providers:
-  codex:
-    model: "gpt-5.3-codex"
-    reasoning_effort: "high"
-```
-
 
 `mulgae config --mode effective` reports every configured provider family's
 effective timeout. Provenance reports the field as `defaulted` when omitted and

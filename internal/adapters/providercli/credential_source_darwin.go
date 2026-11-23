@@ -23,8 +23,6 @@ type CredentialSourceFamily string
 const (
 	CredentialSourceZCode CredentialSourceFamily = "zcode"
 	CredentialSourceGrok  CredentialSourceFamily = "grok"
-	CredentialSourceCodex CredentialSourceFamily = "codex"
-	CredentialSourceAgy   CredentialSourceFamily = "agy"
 )
 
 type credentialProjectingNamespaceFactory struct {
@@ -67,12 +65,6 @@ var credentialSources = map[CredentialSourceFamily][]credentialSource{
 	CredentialSourceZCode: {},
 	CredentialSourceGrok: {
 		{ports.CredentialProjectionGrokAuth, []string{".grok", "auth.json"}},
-	},
-	CredentialSourceCodex: {
-		{ports.CredentialProjectionCodexAuth, []string{".codex", "auth.json"}},
-	},
-	CredentialSourceAgy: {
-		{ports.CredentialProjectionAgyToken, []string{".gemini", "antigravity-cli", "antigravity-oauth-token"}},
 	},
 }
 
@@ -153,23 +145,8 @@ func newCredentialProjectingNamespaceFactory(base ports.ProviderNamespaceFactory
 		if !validCredentialSourceInstance(instance) || !validCredentialSourceFamily(family) || !ok || policy.family != family || !validRuntimeSafetyPolicy(policy) {
 			return nil, fmt.Errorf("credential source factory: invalid configuration")
 		}
-		if rootPath, mapped := sourceRoots[instance]; mapped {
-			if family != CredentialSourceCodex || !canonicalAbsolutePath(rootPath) {
-				return nil, fmt.Errorf("credential source factory: invalid configured source root")
-			}
-			root, openErr := openAbsoluteDirectory(rootPath)
-			if openErr != nil {
-				return nil, fmt.Errorf("credential source factory: unsafe configured source root")
-			}
-			rootIdentity, identityErr := identityOf(root)
-			rootInfo, infoErr := root.Stat()
-			var rootStat unix.Stat_t
-			statErr := unix.Fstat(int(root.Fd()), &rootStat)
-			_ = root.Close()
-			if identityErr != nil || infoErr != nil || statErr != nil || !rootInfo.IsDir() || family == CredentialSourceCodex && rootStat.Uid != uint32(unix.Geteuid()) {
-				return nil, fmt.Errorf("credential source factory: unsafe configured source root")
-			}
-			configuredRoots[instance] = projectionRootAuthority{path: rootPath, identity: rootIdentity, info: rootInfo, uid: rootStat.Uid}
+		if _, mapped := sourceRoots[instance]; mapped {
+			return nil, fmt.Errorf("credential source factory: invalid configured source root")
 		}
 		families[instance] = family
 		policies[instance] = cloneRuntimeSafetyPolicy(policy)
@@ -255,26 +232,6 @@ func (factory *credentialProjectingNamespaceFactory) AcquireProviderNamespace(ct
 		concrete.zcodeNativeHome = factory.runtimeHome
 		concrete.zcodeNativeHomeInfo = factory.runtimeHomeInfo
 	}
-	if family == CredentialSourceAgy {
-		for _, configured := range factory.configuredRoots {
-			concrete.agyConfiguredRoots = append(concrete.agyConfiguredRoots, configured.path)
-		}
-		sort.Strings(concrete.agyConfiguredRoots)
-		sourceHome := filepath.Join(factory.runtimeHome, ".gemini")
-		directory, openErr := openAbsoluteDirectory(sourceHome)
-		if openErr != nil {
-			_, _ = lease.DrainTerminal(context.Background())
-			return nil, fmt.Errorf("credential source factory: unsafe AGY source home")
-		}
-		info, infoErr := directory.Stat()
-		_ = directory.Close()
-		if infoErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			_, _ = lease.DrainTerminal(context.Background())
-			return nil, fmt.Errorf("credential source factory: unsafe AGY source home")
-		}
-		concrete.agySourceHome = sourceHome
-		concrete.agySourceHomeInfo = info
-	}
 	if family == CredentialSourceGrok {
 		roots := make([]string, 0, len(factory.configuredRoots))
 		for _, configured := range factory.configuredRoots {
@@ -326,22 +283,12 @@ func (factory *credentialProjectingNamespaceFactory) revalidateHome(instance str
 	}
 	return nil
 }
-func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context, lease ports.ProviderNamespaceLease, instance string, family CredentialSourceFamily, source credentialSource) error {
+func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context, lease ports.ProviderNamespaceLease, _ string, family CredentialSourceFamily, source credentialSource) error {
 	rootPath, rootIdentity := factory.runtimeHome, factory.homeIdentity
 	components := append([]string(nil), source.components...)
-	if configured, ok := factory.configuredRoots[instance]; ok && family == CredentialSourceCodex {
-		rootPath, rootIdentity = configured.path, configured.identity
-		components = components[1:]
-	}
 	file, sourcePath, err := factory.openSource(rootPath, rootIdentity, components)
 	if err != nil {
 		if err == unix.ENOENT {
-			// AGY resolves exactly the default token. A missing source stops
-			// admission instead of silently launching unauthenticated; no
-			// alternative token is ever scanned.
-			if family == CredentialSourceAgy {
-				return fmt.Errorf("missing AGY credential source")
-			}
 			return nil
 		}
 		return err
@@ -354,10 +301,10 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 	}()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxProjectedCredentialBytes ||
-		(family == CredentialSourceCodex || family == CredentialSourceGrok || family == CredentialSourceAgy) && info.Mode().Perm() != 0600 {
+		family == CredentialSourceGrok && info.Mode().Perm() != 0600 {
 		return fmt.Errorf("unsafe credential source")
 	}
-	if family == CredentialSourceAgy || family == CredentialSourceGrok {
+	if family == CredentialSourceGrok {
 		// Projected private credential files must be regular, single-link,
 		// same-user, mode-0600 files with non-empty content; anything else
 		// fails admission closed.
@@ -377,7 +324,7 @@ func (factory *credentialProjectingNamespaceFactory) project(ctx context.Context
 	if err != nil {
 		return fmt.Errorf("unsafe credential source")
 	}
-	authority := credentialSourceAuthority{runtimeHome: rootPath, homeIdentity: rootIdentity, components: components, directoryIDs: directoryIDs, sourceID: sourceID, privateSingleLink: family == CredentialSourceAgy || family == CredentialSourceGrok}
+	authority := credentialSourceAuthority{runtimeHome: rootPath, homeIdentity: rootIdentity, components: components, directoryIDs: directoryIDs, sourceID: sourceID, privateSingleLink: family == CredentialSourceGrok}
 	request, err := ports.NewCredentialProjectionRequestWithAuthority(lease.ProviderInstance(), lease.Generation(), sourcePath, file, digest, info.Size(), info.Mode(), source.destination, authority)
 	if err != nil {
 		return fmt.Errorf("unsafe credential source")

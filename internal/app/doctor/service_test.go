@@ -63,7 +63,7 @@ func TestDiagnoseEnvironmentStaticEvidenceDoesNotObserveProviderExecutables(t *t
 	inspector.executables = make(map[string]ports.ExecutableObservation)
 	inspector.execErr["zcode"] = errors.New("must not be observed")
 	result := diagnose(t, service)
-	if result.Readiness.State != ReadinessUnverified || !contains(result.Readiness.ReasonCodes, "provider_evidence_unsupported_schema") {
+	if result.Readiness.State != ReadinessReady || result.Readiness.ExitCode != 0 {
 		t.Fatalf("static evidence readiness = %#v", result.Readiness)
 	}
 	if inspector.execCalls != 0 {
@@ -193,14 +193,17 @@ func TestDiagnoseEnvironmentUnsupportedEvidenceSchemasAreUnverified(t *testing.T
 	}
 }
 
-func TestDiagnoseEnvironmentLegacyEvidenceCannotCertifyAgy(t *testing.T) {
+func TestDiagnoseEnvironmentReadyPortfolioCoversActiveProvidersOnly(t *testing.T) {
 	service, _, _ := readyFixture(t, readyEvidence())
 	result := diagnose(t, service)
-	if result.Readiness.State != ReadinessUnverified || result.Readiness.ExitCode != 4 || !contains(result.Readiness.ReasonCodes, "provider_evidence_unsupported_schema") {
+	if result.Readiness.State != ReadinessReady || result.Readiness.ExitCode != 0 {
 		t.Fatalf("readiness = %#v", result.Readiness)
 	}
-	if len(result.UnverifiedProviderIDs) != 1 || result.UnverifiedProviderIDs[0] != "agy" {
+	if len(result.UnverifiedProviderIDs) != 0 {
 		t.Fatalf("unverified providers = %v", result.UnverifiedProviderIDs)
+	}
+	if len(result.IntendedProviderIDs) != 2 || result.IntendedProviderIDs[0] != "zcode" || result.IntendedProviderIDs[1] != "grok" {
+		t.Fatalf("intended providers = %v, want [zcode grok]", result.IntendedProviderIDs)
 	}
 	if row := platformRow(t, result, PlatformDarwinARM64); row.EvidenceState != EvidenceStatePass || !row.Native {
 		t.Fatalf("darwin authority row = %#v", row)
@@ -238,7 +241,7 @@ func TestDiagnoseEnvironmentFutureCellsAreFixedAndNonBlocking(t *testing.T) {
 	evidence := readyEvidence()
 	service, _, _ := readyFixture(t, evidence)
 	result := diagnose(t, service)
-	if result.Readiness.State != ReadinessUnverified || !contains(result.Readiness.ReasonCodes, "provider_evidence_unsupported_schema") {
+	if result.Readiness.State != ReadinessReady || result.Readiness.ExitCode != 0 {
 		t.Fatalf("future inventory blocked ready result: %#v", result.Readiness)
 	}
 	if len(result.PlatformEvidence) != 4 {

@@ -186,7 +186,7 @@ Git transport protocols. This does not rewrite caller configuration.
 
 ### Provider read and write boundaries
 
-Protocol providers (ZCode, Codex, and AGY) produce all live reports from
+Protocol providers (ZCode) produce all live reports from
 complete, correlated assistant turns and receive no report-file write grant for
 review, repair, or extraction. Managed terminal providers (Grok) stage one
 per-invocation output file inside their private namespace scratch directory
@@ -238,29 +238,6 @@ verified provider drain.
   and doctor checks remain offline with zero `herdr-core` starts. Optional
   `providers.grok.model` and `providers.grok.reasoning_effort` come only from
   shared project configuration and are bound to qualification identity.
-- Codex uses one app-server process and ephemeral thread per invocation, native
-  read-only permissions and approvals disabled. All configured credential roots
-  are denied to model tools. Only the selected authentication file enters its
-  disposable home; user config, rules, skills and plugins are not projected.
-  Loaded project instructions and unexpected server requests fail closed.
-- AGY uses native plan mode and bidirectional stream-JSON inside the mandatory
-  outer guard. Its adapter-owned settings, agent and empty MCP configuration
-  are audited after invocation. It imports only a disposable copy of the OS
-  user's default Gemini token; the original is never written back. The token
-  must be a nonempty regular no-follow mode-`0600` file, user-owned and
-  single-link. Native refresh may change the disposable copy. There is no
-  alternate account scan, credential profile or home override.
-  The minimum supported version is `1.2.9`, with no per-version command or
-  settings allowlist. The post-invocation audit accepts omitted native
-  `request-review`/`false` defaults and an omitted expected-empty allow set;
-  unsafe values, null, unknown fields and changed grants remain failures.
-  Indexed guarded commands and explicit `command(1)` denial constrain the
-  native prefix codec; the driver separately verifies exact tool operands and
-  correlated completions. Natural zero exit, complete input, EOF and verified
-  process-group absence are mandatory. Unknown drain retains the namespace,
-  policy and token, and forbids reuse or successful cleanup. Composition removes
-  the namespace parent nonrecursively before closing reviewer-home/workspace
-  ownership. See [AGY transport](../architecture-decision-records/agy-stream-json-transport.md).
 
 Shared provider path translation runs only after the family's existing
 authority, revalidation, scope and canonical-path checks. The source reader
@@ -269,12 +246,12 @@ its final revalidation, without reading file bodies or caching approval.
 
 The outer guard denies writes outside admitted private runtime directories and
 protects source, Git and neutral-guide roots from writes. It
-also denies reads, writes, links and Unix sockets at every configured credential
-root, including unselected profiles and aliases, plus shared `herdr-core`
+also denies reads, writes, links and Unix sockets at protected credential
+roots (including defense-in-depth `~/.codex`, `~/.gemini`, `~/.cursor`, and
+`~/.config/cursor`), plus shared `herdr-core`
 control-plane roots (`~/.local/state/herdr-core`, `~/.config/herdr-core`,
 `/private/tmp/mgh-<uid>`, and any inherited `HC_SOCKET` / `HC_TERMINAL_SOCKET`
-paths) across every provider's live boundary (including Codex's
-`permissions.mulgae` deny table). These controls are not general
+paths) across every active provider's live boundary. These controls are not general
 process, IPC, network or read containment: ordinary network requests and reads
 outside protected credential roots remain possible. Ignore rules select scope;
 they do not restrict filesystem access. Historical staged-file receipts and
@@ -320,17 +297,6 @@ namespace. Cleanup zeroes credential content only through a verified single-link
 regular descriptor on the namespace device with the expected owner. Unsafe
 replacement paths are removed without writing through them. User settings,
 history, logs and caches are not projected.
-
-Codex authentication is copied from a descriptor-anchored credential home into
-the invocation's disposable `CODEX_HOME`. Legacy configuration uses native
-`~/.codex/auth.json`; named profiles use the exact machine-local home configured
-for that profile. Each profile gets a distinct provider instance, qualification
-group, and namespace, so authentication authority is never derived across
-profiles even when they share one executable. Mulgae does not admit an API-key
-environment variable, and Codex model tools cannot read the projected credential
-directory. Only `auth.json` is copied; user config, rules, skills, and plugins are
-not projected. The copy is mode `0600`, remains bound to its namespace
-generation, and is removed during terminal namespace cleanup.
 
 Runtime diagnostics and exports must not disclose secrets or native paths.
 Exports reject credential-shaped fixed-prefix GitHub, Slack and secret-key tokens

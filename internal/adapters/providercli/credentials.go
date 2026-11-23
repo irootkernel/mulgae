@@ -129,10 +129,6 @@ func credentialDestination(destination ports.CredentialProjectionDestination) (s
 	switch destination {
 	case ports.CredentialProjectionGrokAuth:
 		return "home/.grok/auth.json", true
-	case ports.CredentialProjectionCodexAuth:
-		return "home/.codex/auth.json", true
-	case ports.CredentialProjectionAgyToken:
-		return "home/.gemini/antigravity-cli/antigravity-oauth-token", true
 	default:
 		return "", false
 	}

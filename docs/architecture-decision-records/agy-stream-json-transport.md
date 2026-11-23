@@ -1,6 +1,6 @@
 # AGY stream-JSON transport
 
-Status: Accepted
+Status: Retired (AGY review provider retired from active portfolio)
 
 Roadmap: [EPIC-011](../roadmap/README.md#epic-011-agy-stream-json-review-provider)
 

@@ -34,7 +34,7 @@ func requirementsCLI(t *testing.T, binary, project string, args ...string) map[s
 		Schema string         `json:"schema_version"`
 		Result map[string]any `json:"result"`
 	}
-	if err := json.Unmarshal([]byte(output), &envelope); err != nil || envelope.Schema != "mulgae-command-result.v24" || envelope.Result == nil {
+	if err := json.Unmarshal([]byte(output), &envelope); err != nil || envelope.Schema != "mulgae-command-result.v25" || envelope.Result == nil {
 		t.Fatal("candidate CLI did not return the current public result contract")
 	}
 	return envelope.Result

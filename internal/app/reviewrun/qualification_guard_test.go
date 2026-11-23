@@ -253,22 +253,22 @@ func TestQualifiedRunOperationalInvalidOutputObservationKeepsRemainingRoutes(t *
 
 	for _, test := range []struct {
 		name             string
-		failCodex        bool
+		failZcode        bool
 		failGrok         bool
 		wantRoutes       int
 		wantFailureAt    string
 		wantObservations []string
 	}{
-		{name: "first group", failCodex: true, wantRoutes: 1, wantFailureAt: "codex-logic",
-			wantObservations: []string{"codex-logic:rejected", "grok-logic:qualified"}},
+		{name: "first group", failZcode: true, wantRoutes: 1, wantFailureAt: "zcode-logic",
+			wantObservations: []string{"grok-logic:qualified", "zcode-logic:rejected"}},
 		{name: "later group", failGrok: true, wantRoutes: 1, wantFailureAt: "grok-logic",
-			wantObservations: []string{"codex-logic:qualified", "grok-logic:rejected"}},
-		{name: "all rejected", failCodex: true, failGrok: true, wantRoutes: 0},
+			wantObservations: []string{"grok-logic:rejected", "zcode-logic:qualified"}},
+		{name: "all rejected", failZcode: true, failGrok: true, wantRoutes: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			codex := authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic)
+			zcode := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 			grok := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
-			failing := map[string]bool{"codex-logic": test.failCodex, "grok-logic": test.failGrok}
+			failing := map[string]bool{"zcode-logic": test.failZcode, "grok-logic": test.failGrok}
 			qualifier := &familyDerivingQualifier{
 				qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
 					if failing[request.Definition.Instance()] {
@@ -280,12 +280,12 @@ func TestQualifiedRunOperationalInvalidOutputObservationKeepsRemainingRoutes(t *
 					return syntheticDerivedFamilyRoute(t, request, now), nil
 				},
 			}
-			factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, codex, grok), qualifierClock{now: now})
+			factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, zcode, grok), qualifierClock{now: now})
 			if err != nil {
 				t.Fatal(err)
 			}
-			run, err := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{codex, grok})
-			if test.failCodex && test.failGrok {
+			run, err := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{zcode, grok})
+			if test.failZcode && test.failGrok {
 				if err == nil || run != nil {
 					t.Fatalf("all-operational rejection returned run=%v err=%v", run, err)
 				}
@@ -298,9 +298,9 @@ func TestQualifiedRunOperationalInvalidOutputObservationKeepsRemainingRoutes(t *
 					t.Fatalf("readiness failures = %#v, ok=%t", rejected, ok)
 				}
 				// The readiness aggregate re-sorts failures canonically by the
-				// fixed family ordinal (grok precedes codex), which is the
+				// fixed family ordinal (zcode precedes grok), which is the
 				// existing nonfatal-failure projection.
-				if rejected[0].ProviderInstance() != "grok-logic" || rejected[1].ProviderInstance() != "codex-logic" {
+				if rejected[0].ProviderInstance() != "zcode-logic" || rejected[1].ProviderInstance() != "grok-logic" {
 					t.Fatalf("readiness failure order = %v, want the canonical family-ordinal order", []string{rejected[0].ProviderInstance(), rejected[1].ProviderInstance()})
 				}
 				return
@@ -336,7 +336,7 @@ func TestQualifiedRunOperationalInvalidOutputObservationKeepsRemainingRoutes(t *
 // surface instead.
 func TestQualifiedRunFatalSelectionReportsOnlySelectedObservations(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	codex := authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic)
+	zcode := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	grok := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
 	ordinaryCause, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid output", nil)
 	if err != nil {
@@ -349,9 +349,9 @@ func TestQualifiedRunFatalSelectionReportsOnlySelectedObservations(t *testing.T)
 	qualifier := &familyDerivingQualifier{
 		qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
 			switch request.Definition.Instance() {
-			case "codex-logic":
+			case "zcode-logic":
 				return CurrentQualificationResult{}, withQualificationObservations(ordinaryCause, []ProviderQualificationObservation{
-					rejectedQualificationObservation("codex-logic", ordinaryCause, false),
+					rejectedQualificationObservation("zcode-logic", ordinaryCause, false),
 				})
 			case "grok-logic":
 				return CurrentQualificationResult{}, withQualificationObservations(protectedCause, []ProviderQualificationObservation{
@@ -361,11 +361,11 @@ func TestQualifiedRunFatalSelectionReportsOnlySelectedObservations(t *testing.T)
 			return CurrentQualificationResult{}, fmt.Errorf("unexpected instance %q", request.Definition.Instance())
 		},
 	}
-	factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, codex, grok), qualifierClock{now: now})
+	factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, zcode, grok), qualifierClock{now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, runErr := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{codex, grok})
+	run, runErr := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{zcode, grok})
 	if runErr == nil || run != nil {
 		t.Fatalf("fatal batch returned run=%v err=%v", run, runErr)
 	}
@@ -382,7 +382,7 @@ func TestQualifiedRunFatalSelectionReportsOnlySelectedObservations(t *testing.T)
 // fatal boundary error, so the run fails closed with no routes.
 func TestQualifiedRunFatalCapabilityStageFailsClosed(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	codex := authorityCandidateForFamilyRole(t, FamilyCodex, domain.RoleLogic)
+	zcode := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
 	grok := authorityCandidateForFamilyRole(t, FamilyGrok, domain.RoleLogic)
 	cause, err := domain.NewFailure("capability", domain.FailureInvalidOutput, "invalid output", nil)
 	if err != nil {
@@ -390,7 +390,7 @@ func TestQualifiedRunFatalCapabilityStageFailsClosed(t *testing.T) {
 	}
 	qualifier := &familyDerivingQualifier{
 		qualify: func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
-			if request.Definition.Instance() == "codex-logic" {
+			if request.Definition.Instance() == "zcode-logic" {
 				return CurrentQualificationResult{}, cause
 			}
 			return syntheticFamilyQualificationResult(t, request, now), nil
@@ -399,11 +399,11 @@ func TestQualifiedRunFatalCapabilityStageFailsClosed(t *testing.T) {
 			return syntheticDerivedFamilyRoute(t, request, now), nil
 		},
 	}
-	factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, codex, grok), qualifierClock{now: now})
+	factory, err := NewQualifiedRunFactory(qualifier, guardRegistryFactoryFor(t, zcode, grok), qualifierClock{now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{codex, grok})
+	run, err := factory.NewQualifiedRun(context.Background(), []QualifiedRunCandidate{zcode, grok})
 	if err == nil || run != nil {
 		t.Fatalf("fatal capability stage returned run=%v err=%v", run, err)
 	}

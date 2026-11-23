@@ -27,7 +27,7 @@ import (
 )
 
 func TestLiveNeutralReviewReports(t *testing.T) {
-	for _, family := range []string{FamilyZcode, FamilyGrok, FamilyCodex} {
+	for _, family := range []string{FamilyZcode, FamilyGrok} {
 		t.Run(family, func(t *testing.T) {
 			t.Parallel()
 			fixture := newLiveSourceProbeFixture(t)
@@ -93,7 +93,7 @@ func TestLiveNeutralReviewReports(t *testing.T) {
 }
 
 func TestLiveNeutralExtractionReports(t *testing.T) {
-	for _, family := range []string{FamilyZcode, FamilyGrok, FamilyCodex} {
+	for _, family := range []string{FamilyZcode, FamilyGrok} {
 		t.Run(family, func(t *testing.T) {
 			t.Parallel()
 			fixture := newLiveSourceProbeFixture(t)
@@ -151,9 +151,6 @@ func liveReportExecution(t *testing.T, ctx context.Context, family string, fixtu
 		}
 	})
 	credentialRoots := []ports.AnchoredRoot{liveReportRoot(t, filepath.Join(mustLiveGrokHome(t), ".grok"))}
-	if family == FamilyCodex {
-		credentialRoots = append(credentialRoots, liveReportRoot(t, os.Getenv("MULGAE_LIVE_CODEX_HOME")))
-	}
 	adapter, err := gittargetadapter.NewLiveSourceAdapter(gittargetadapter.NewExecRunner(), credentialRoots)
 	if err != nil {
 		t.Fatal(err)
@@ -194,13 +191,6 @@ func liveReportRegistry(t *testing.T, family, instance string, fixture liveSourc
 		}
 	case FamilyGrok:
 		executable = copyLiveGrokExecutable(t, filepath.Join(mustLiveGrokHome(t), ".grok", "bin", "grok"))
-		argv = []string{executable}
-	case FamilyCodex:
-		executable = os.Getenv("MULGAE_LIVE_CODEX_BIN")
-		if executable == "" || os.Getenv("MULGAE_LIVE_CODEX_HOME") == "" {
-			t.Fatal("explicit Codex executable and credential home are required")
-		}
-		sourceRoots[instance] = os.Getenv("MULGAE_LIVE_CODEX_HOME")
 		argv = []string{executable}
 	default:
 		t.Fatal("unsupported live report family")

@@ -60,17 +60,6 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	} else if spec.ZCodeProviderConfig != "" || spec.ZCodeProviderConfigSHA256 != "" || spec.ApplicationVersion != "" || spec.ApplicationMetadata != "" || spec.ApplicationMetadataSHA256 != "" || hasZCodeProviderConfigEnvironment(environment) || hasEnvironmentVariable(environment, "ELECTRON_RUN_AS_NODE") {
 		return nil, fmt.Errorf("provider runtime builder: zcode provider config is bound to another family")
 	}
-	if spec.Family != FamilyAgy && (spec.AgyModel != "" || spec.AgyReasoningEffort != "") {
-		return nil, fmt.Errorf("provider runtime builder: AGY settings are bound to another family")
-	}
-	if spec.Family == FamilyCodex {
-		return NewProductionCodexRuntimeDefinitionWithTransportAndSafetyPolicy(
-			spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
-			spec.ProfileID, spec.ProfileGeneration, spec.RuntimeSafetyPolicyIdentity, spec.CodexModel, spec.CodexReasoningEffort,
-			append([]string(nil), spec.BaseArgv...), transport, environment,
-			spec.WorkingDirectory, spec.Timeout,
-		)
-	}
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
 		spec.ZCodeProviderConfig, spec.ZCodeProviderConfigSHA256,
@@ -97,11 +86,6 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	} else if spec.GrokModel != "" || spec.GrokReasoningEffort != "" {
 		return nil, fmt.Errorf("provider runtime builder: Grok settings are bound to another family")
 	}
-	if spec.Family == FamilyAgy {
-		definition.agyModel = spec.AgyModel
-		definition.agyReasoningEffort = spec.AgyReasoningEffort
-		definition.agySettingsIdentity = agySettingsIdentity(spec.AgyModel, spec.AgyReasoningEffort)
-	}
 	if err := definition.validate(); err != nil {
 		return nil, fmt.Errorf("provider runtime builder: %w", err)
 	}
@@ -114,10 +98,6 @@ func credentialFamilyForRuntime(family string) (CredentialSourceFamily, error) {
 		return CredentialSourceZCode, nil
 	case FamilyGrok:
 		return CredentialSourceGrok, nil
-	case FamilyCodex:
-		return CredentialSourceCodex, nil
-	case FamilyAgy:
-		return CredentialSourceAgy, nil
 	default:
 		return "", fmt.Errorf("provider runtime builder: unsupported family %q", family)
 	}

@@ -280,11 +280,6 @@ func liveSourceBoundaries(config appconfig.Config, project ports.AnchoredRoot, r
 		filepath.Join(config.NativeUser.Home, ".cursor"),
 		filepath.Join(config.NativeUser.Home, ".config", "cursor"),
 	}
-	if config.Providers.Codex != nil {
-		for _, profile := range config.Providers.Codex.CredentialHomes {
-			paths = append(paths, profile.Home)
-		}
-	}
 	seenCredentials, seenProtected := map[string]bool{}, map[string]bool{}
 	addExisting := func(path string, credential bool) error {
 		canonical, resolveErr := filepath.EvalSymlinks(path)
@@ -351,7 +346,7 @@ func productionLiveSources(config appconfig.Config, project ports.AnchoredRoot, 
 
 // productionLiveControlPlanePaths computes the shared herdr-core control-plane
 // roots and literal socket denials applied to every live provider boundary
-// (ZCode, Codex, AGY, and Grok).
+// (ZCode and Grok).
 func productionLiveControlPlanePaths(nativeHome string) ([]ports.AnchoredRoot, []ports.AnchoredRoot, error) {
 	homeRoot, err := ports.NewAnchoredRoot(nativeHome)
 	if err != nil {

@@ -1,13 +1,10 @@
 package providercli
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
-	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
@@ -50,51 +47,6 @@ func TestProtocolStringResponseMatches(t *testing.T) {
 		})
 	}
 
-	t.Run("codex retains integer response IDs", func(t *testing.T) {
-		for _, raw := range []string{`1`, `"1"`, `null`, `0`, `4`, `1.0`, `true`, `{}`} {
-			state := codexConversation{phase: ports.ProviderSessionPhaseCreate}
-			exchange := &scriptedCodexExchange{}
-			err := state.handleResponse(context.Background(), exchange, &codexProtocolSession{workspacePath: "/neutral"}, codexWireMessage{ID: json.RawMessage(raw), Result: json.RawMessage(`{}`)})
-			if raw == "1" {
-				if err != nil || !state.initialized || len(exchange.sent) != 2 {
-					t.Fatalf("integer initialize response: initialized=%t sends=%d error=%v", state.initialized, len(exchange.sent), err)
-				}
-			} else {
-				assertTask064ProtocolCause(t, err, domain.DiagnosticCauseOutputEnvelopeInvalid)
-				if state.initialized || len(exchange.sent) != 0 {
-					t.Fatalf("invalid native ID %s advanced initialization", raw)
-				}
-			}
-		}
-	})
-	t.Run("agy retains integer step IDs", func(t *testing.T) {
-		for _, test := range []struct {
-			name, raw string
-			want      bool
-		}{
-			{"zero", `0`, true}, {"positive", `2`, true}, {"absent", "", false}, {"null", `null`, false},
-			{"negative", `-1`, false}, {"fraction", `1.5`, false}, {"string", `"2"`, false}, {"boolean", `true`, false},
-		} {
-			t.Run(test.name, func(t *testing.T) {
-				step := map[string]any{"conversation_id": "conversation-1", "step_type": "agent_response", "state": "DONE"}
-				if test.raw != "" {
-					step["step_index"] = json.RawMessage(test.raw)
-				}
-				state := agyConversation{initAccepted: true, conversationID: "conversation-1", stepTypes: make(map[int]string)}
-				err := state.handleStepUpdate(context.Background(), nil, agyWireFrame{StepUpdate: agyTestJSON(step)})
-				if test.want {
-					if err != nil || !state.observedStep {
-						t.Fatalf("valid native step rejected: %v", err)
-					}
-				} else {
-					assertTask064ProtocolCause(t, err, domain.DiagnosticCauseOutputEnvelopeInvalid)
-					if state.observedStep {
-						t.Fatal("invalid step advanced observation")
-					}
-				}
-			})
-		}
-	})
 	t.Run("protocol line tolerance stays local", func(t *testing.T) {
 		for _, test := range []struct {
 			name, suffix string
@@ -136,71 +88,18 @@ func TestProtocolDiagnosticIdentifierGrammar(t *testing.T) {
 			if test.admitted {
 				want = test.value
 			}
-			for family, sanitize := range map[string]func(string) string{
-				"zcode": sanitizeProtocolDiagnosticIdentifier, "agy": sanitizeProtocolDiagnosticIdentifier,
-			} {
-				got := sanitize(test.value)
-				if got != want {
-					t.Errorf("%s diagnostic = %q, want %q", family, got, want)
-				}
-				input := ports.ProviderSessionObservationInput{Phase: ports.ProviderSessionPhaseCreate, Terminal: ports.ProviderSessionCompleted, ProviderSessionID: got, ProviderTurnID: got}
-				if _, err := ports.NewProviderSessionObservation(input); err != nil {
-					t.Errorf("%s sanitizer result violates port grammar: %v", family, err)
-				}
+			got := sanitizeProtocolDiagnosticIdentifier(test.value)
+			if got != want {
+				t.Errorf("zcode diagnostic = %q, want %q", got, want)
+			}
+			input := ports.ProviderSessionObservationInput{Phase: ports.ProviderSessionPhaseCreate, Terminal: ports.ProviderSessionCompleted, ProviderSessionID: got, ProviderTurnID: got}
+			if _, err := ports.NewProviderSessionObservation(input); err != nil {
+				t.Errorf("zcode sanitizer result violates port grammar: %v", err)
 			}
 			_, err := ports.NewProviderSessionObservation(ports.ProviderSessionObservationInput{Phase: ports.ProviderSessionPhaseCreate, Terminal: ports.ProviderSessionCompleted, ProviderSessionID: test.value})
 			if (err == nil) != test.admitted {
 				t.Fatalf("raw port admission = %v, want admitted=%t", err, test.admitted)
 			}
 		})
-	}
-	t.Run("codex authoritative turn rejects unsafe ID", func(t *testing.T) {
-		for _, id := range []string{"turn-1", "", " turn-1", strings.Repeat("t", 513), "turn\tprivate"} {
-			session, err := newCodexProtocolSession("/neutral", []byte("review"), protocolPurposeReview, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			frames := codexSuccessFrames()
-			frame, err := json.Marshal(map[string]any{"id": 3, "result": map[string]any{"turn": map[string]string{"id": id}}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			frames[2] = string(frame)
-			err = session.Drive(context.Background(), &scriptedCodexExchange{lines: frames})
-			if id == "turn-1" {
-				if err != nil || string(session.AssistantEvidenceText()) != "review result" {
-					t.Fatalf("safe Codex turn rejected: %v", err)
-				}
-			} else {
-				assertTask064ProtocolCause(t, err, domain.DiagnosticCauseOutputEnvelopeInvalid)
-				if !strings.Contains(err.Error(), "turn response without id") || len(session.AssistantEvidenceText()) != 0 {
-					t.Fatalf("unsafe turn lost its authoritative ID rejection: %v", err)
-				}
-			}
-		}
-	})
-	t.Run("agy raw correlation survives diagnostic omission", func(t *testing.T) {
-		const rawID = " conversation-private"
-		init := agyTestJSON(map[string]any{"event": "init", "conversation_id": rawID, "init": map[string]string{"agent": agyTestAgent, "permission_mode": "request-review"}})
-		progress := agyTestStep(map[string]any{"conversation_id": rawID, "step_index": 1, "step_type": "agent_response", "state": "DONE"})
-		session := agyTestSession(t)
-		err := session.Drive(context.Background(), &agyTestExchange{frames: [][]byte{init, progress, agyTestResult(map[string]any{"conversation_id": rawID})}})
-		if err != nil || string(session.AssistantEvidenceText()) != "actual final report" {
-			t.Fatalf("diagnostic omission invalidated raw correlation: %v", err)
-		}
-		observation, ok := session.SessionObservation()
-		if !ok || observation.ProviderSessionID() != "" || observation.Terminal() != ports.ProviderSessionCompleted {
-			t.Fatalf("AGY sanitized observation = %#v, present=%t", observation, ok)
-		}
-	})
-}
-
-func assertTask064ProtocolCause(t *testing.T, err error, want domain.RuntimeDiagnosticCause) {
-	t.Helper()
-	var failure interface {
-		ProtocolFailureCause() domain.RuntimeDiagnosticCause
-	}
-	if err == nil || !errors.As(err, &failure) || failure.ProtocolFailureCause() != want {
-		t.Fatalf("protocol error = %v, want typed cause %s", err, want)
 	}
 }

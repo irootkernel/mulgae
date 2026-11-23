@@ -273,11 +273,10 @@ func TestIntegrationPreExistingProjectMigrationAndHistoryCoexistence(t *testing.
 			config.NativeUser.Home = t.TempDir()
 			config.Providers.ZCode.AppBundle = filepath.Join(t.TempDir(), "ZCode.app")
 			config.Providers.ZCode.Timeout = "7m"
-			config.Providers.Codex = &adapterconfig.CodexProviderConfig{
-				Executable: filepath.Join(t.TempDir(), "codex"), Timeout: "9m", DefaultCredentialProfile: "archive",
-				CredentialHomes: []adapterconfig.CodexCredentialHomeConfig{{Profile: "archive", Home: t.TempDir()}},
+			config.Providers.Grok = &adapterconfig.GrokProviderConfig{
+				Executable: filepath.Join(t.TempDir(), "grok"), Timeout: "9m",
 			}
-			config.Roles.Documentation.PrimaryProvider, config.Roles.Documentation.CredentialProfile = "codex", "archive"
+			config.Roles.Documentation.PrimaryProvider = "grok"
 			projectData, localData, err := adapterconfig.EncodeSplit(config)
 			if err != nil {
 				t.Fatal(err)
@@ -508,6 +507,9 @@ func TestIntegrationHistoricalCorpusConsumers(t *testing.T) {
 			if c.Family == "failed-recovery" {
 				reason = "committed review is unavailable without P2 authority"
 			}
+			if c.ID == "composite-mixed-v1" {
+				reason = "retired_provider_artifact"
+			}
 			if reason != "" {
 				if c.Family == "failed-recovery" && c.Expected.RecoveryReason == "" {
 					view, err := NewPublicationQueryService(f.queries).ReadRunStatus(ctx, f.run)
@@ -590,7 +592,7 @@ func TestIntegrationHistoricalCorpusRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range corpus.Cases {
-		if len(c.Controls) > 0 || c.Expected.ReadReason != "" {
+		if len(c.Controls) > 0 || c.Expected.ReadReason != "" || c.ID == "composite-mixed-v1" {
 			continue
 		}
 		t.Run(c.ID, func(t *testing.T) {

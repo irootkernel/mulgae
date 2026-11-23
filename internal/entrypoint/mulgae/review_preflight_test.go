@@ -15,7 +15,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v12.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v13.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 		"role path deadline":           func(result *ReviewPreflightResult) { result.Budget.RolePaths[0].Deadline = "31m" },
 		"duplicate role path": func(result *ReviewPreflightResult) {
 			duplicate := result.Budget.RolePaths[0]
-			duplicate.ProviderInstance = "agy-logic"
+			duplicate.ProviderInstance = "grok-logic"
 			result.Budget.RolePaths = append(result.Budget.RolePaths, duplicate)
 		},
 		"route order": func(result *ReviewPreflightResult) { result.Transmissions[0].RouteKind = "fallback" },
@@ -56,7 +56,7 @@ func TestReviewPreflightExampleIsSemanticallyValidAndTamperingFailsClosed(t *tes
 
 func TestReviewPreflightValidateWarningsAndNoChange(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v12.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v13.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,16 +84,18 @@ func TestReviewPreflightValidateWarningsAndNoChange(t *testing.T) {
 	}
 }
 
-func TestReviewPreflightValidateAcceptsAgyTextRoute(t *testing.T) {
-	result := loadReviewPreflightExample(t)
-	result.Transmissions[0].ProviderFamily = "agy"
-	result.Transmissions[0].ProviderInstance = "agy-logic"
-	result.Budget.RolePaths[0].ProviderInstance = "agy-logic"
-	if err := validatePreflightBudgetProjection(result.Transmissions, result.Budget); err != nil {
-		t.Fatalf("AGY budget reconstruction: %v", err)
-	}
-	if err := result.Validate(); err != nil {
-		t.Fatalf("AGY text route rejected: %v", err)
+func TestReviewPreflightValidateRejectsRetiredAgyAndCodexRoutes(t *testing.T) {
+	for _, retired := range []struct{ family, instance string }{
+		{"agy", "agy-logic"},
+		{"codex", "codex-logic"},
+	} {
+		result := loadReviewPreflightExample(t)
+		result.Transmissions[0].ProviderFamily = retired.family
+		result.Transmissions[0].ProviderInstance = retired.instance
+		result.Budget.RolePaths[0].ProviderInstance = retired.instance
+		if err := result.Validate(); err == nil {
+			t.Fatalf("retired %s route was accepted", retired.family)
+		}
 	}
 }
 
@@ -118,7 +120,7 @@ func loadReviewPreflightExample(t *testing.T) ReviewPreflightResult {
 	if !ok {
 		t.Fatal("locate test source")
 	}
-	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v12.valid.json"))
+	bytes, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "builtin", "assets", "examples", "review-preflight.v13.valid.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

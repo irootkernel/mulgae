@@ -20,11 +20,9 @@ type Family string
 const (
 	FamilyZCode Family = "zcode"
 	FamilyGrok  Family = "grok"
-	FamilyCodex Family = "codex"
-	FamilyAgy   Family = "agy"
 )
 
-var families = [...]Family{FamilyZCode, FamilyGrok, FamilyCodex, FamilyAgy}
+var families = [...]Family{FamilyZCode, FamilyGrok}
 
 // Families returns the allowlisted families in canonical order. The returned
 // slice is caller-owned.
@@ -32,7 +30,7 @@ func Families() []Family { return append([]Family(nil), families[:]...) }
 
 // Valid reports whether family is allowlisted.
 func (family Family) Valid() bool {
-	return family == FamilyZCode || family == FamilyGrok || family == FamilyCodex || family == FamilyAgy
+	return family == FamilyZCode || family == FamilyGrok
 }
 
 // VersionClassification describes a version's qualification guidance.
@@ -56,8 +54,6 @@ var guidance = [...]VersionGuidance{
 	// ZCode launcher protocol guidance is independent from the app version.
 	{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
 	{Family: FamilyGrok, Minimum: "1.0.89", VerifiedLatest: "1.0.89"},
-	{Family: FamilyCodex, Minimum: "0.154.0", VerifiedLatest: "0.154.0"},
-	{Family: FamilyAgy, Minimum: "1.2.9", VerifiedLatest: "1.4.2"},
 }
 
 var zcodeApplicationGuidance = VersionGuidance{Family: FamilyZCode, Minimum: "3.12.3", VerifiedLatest: "3.12.3"}

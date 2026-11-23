@@ -267,63 +267,6 @@ func liveSourceGitEnvironment(t *testing.T) map[string]string {
 	return values
 }
 
-func TestLiveCodexLiveSourceFeasibility(t *testing.T) {
-	testLiveSourceCases(t, runLiveCodexSourceProbe)
-}
-
-func runLiveCodexSourceProbe(t *testing.T, fixture liveSourceProbeFixture, mode string) {
-	executable := os.Getenv("MULGAE_LIVE_CODEX_BIN")
-	sourceHome := os.Getenv("MULGAE_LIVE_CODEX_HOME")
-	if executable == "" || sourceHome == "" {
-		t.Fatal("explicit MULGAE_LIVE_CODEX_BIN and MULGAE_LIVE_CODEX_HOME are required")
-	}
-	base, err := NewNamespaceFactory(mustCanonicalLiveTempDir(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy, err := RuntimeSafetyPolicyForFamily(CredentialSourceCodex)
-	if err != nil {
-		t.Fatal(err)
-	}
-	factory, err := NewCredentialProjectingNamespaceFactoryWithConfiguredSourceRoots(base, mustLiveGrokHome(t),
-		map[string]CredentialSourceFamily{"codex-live-source": CredentialSourceCodex},
-		map[string]RuntimeSafetyPolicy{"codex-live-source": policy}, nil,
-		map[string]string{"codex-live-source": sourceHome})
-	if err != nil {
-		t.Fatal(err)
-	}
-	acquired, err := factory.AcquireProviderNamespace(context.Background(), "codex-live-source", FamilyCodex)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lease := acquired.(*namespaceLease)
-	defer drainLiveGrokNamespace(t, lease)
-	assertLiveSourceNamespace(t, lease, FamilyCodex)
-	configured := liveSourceProbeEnvironment(t, fixture)
-	environment, err := isolatedProcessEnvironment(FamilyCodex, configured, lease.Environment())
-	if err != nil {
-		t.Fatal(err)
-	}
-	prompt := fixture.prompt(mode)
-	driver, err := newCodexProtocolSession(fixture.neutral, prompt, protocolPurposeReview, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	argv := appendCodexProtocolServerArgv([]string{executable}, "", "")
-	// The production qualification argv deliberately inherits no shell
-	// environment. Bind only deterministic Git settings for this live probe.
-	var settings []string
-	for _, variable := range configured {
-		settings = append(settings, variable.Name()+"="+strconv.Quote(variable.Value()))
-	}
-	argv = append(argv, "-c", "shell_environment_policy.set={"+strings.Join(settings, ",")+"}")
-	probe := &liveSourceCodexProbe{driver: driver, command: fixture.mutationCommand()}
-	liveSourceProbeConversation(t, fixture, executable, argv, environment, prompt, probe, driver.AssistantEvidenceText, mode)
-	if mode == "mutations" && !probe.denied {
-		t.Fatalf("no native read-only sandbox error receipt for the mutation command: commands=%v", probe.receipts)
-	}
-}
-
 func (fixture liveSourceProbeFixture) readPrompt() []byte {
 	return []byte(fmt.Sprintf(`Static read-only review prerequisite. Keep process and session cwd at %s.
 The separate authorized source root is %s. Do not copy it or change cwd.
@@ -457,63 +400,6 @@ func liveSourceProbeConversation(t *testing.T, fixture liveSourceProbeFixture, e
 	}
 }
 
-type liveSourceCodexProbe struct {
-	driver   ports.ProviderSessionDriver
-	command  string
-	denied   bool
-	receipts []string
-}
-
-func (probe *liveSourceCodexProbe) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
-	return probe.driver.Drive(ctx, &liveSourceCodexExchange{ProviderSessionExchange: exchange, probe: probe})
-}
-
-type liveSourceCodexExchange struct {
-	ports.ProviderSessionExchange
-	probe *liveSourceCodexProbe
-}
-
-func (exchange *liveSourceCodexExchange) ReceiveLine(ctx context.Context) ([]byte, error) {
-	line, err := exchange.ProviderSessionExchange.ReceiveLine(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var message struct {
-		Method string
-		Params struct {
-			Item struct {
-				Type, Command, AggregatedOutput string
-				ExitCode                        *int
-			} `json:"item"`
-		} `json:"params"`
-	}
-	if err := json.Unmarshal(line, &message); err != nil {
-		return nil, err
-	}
-	item := message.Params.Item
-	if message.Method == "item/completed" && item.Type == "commandExecution" {
-		exchange.probe.receipts = append(exchange.probe.receipts, item.Command)
-	}
-	if message.Method == "item/completed" && item.Type == "commandExecution" && liveSourceCodexCommandMatches(item.Command, exchange.probe.command) && item.ExitCode != nil && *item.ExitCode != 0 {
-		exchange.probe.denied = strings.Contains(item.AggregatedOutput, "Operation not permitted") || strings.Contains(item.AggregatedOutput, "Permission denied")
-	}
-	return line, nil
-}
-
-func liveSourceCodexCommandMatches(actual, command string) bool {
-	if actual == command {
-		return true
-	}
-	for _, shell := range []string{"/bin/bash", "/bin/zsh"} {
-		for _, flag := range []string{"-c", "-lc"} {
-			if actual == shell+" "+flag+" "+strconv.Quote(command) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 type liveSourceAdmissionProbe struct {
 	driver               ports.ProviderSessionDriver
 	fixture              liveSourceProbeFixture
@@ -523,7 +409,6 @@ type liveSourceAdmissionProbe struct {
 	accepted             bool
 	overlapped           bool
 	driverErr            error
-	codexReadCompleted   bool
 }
 
 func (probe *liveSourceAdmissionProbe) Drive(ctx context.Context, exchange ports.ProviderSessionExchange) error {
@@ -540,9 +425,9 @@ func TestLiveSourceAdmissionReportsMissingPeer(t *testing.T) {
 	for _, mode := range []string{"read", "cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			fixture := liveSourceProbeFixture{readAdmitted: make(chan struct{}), cancelAdmitted: make(chan struct{}), readFinished: make(chan struct{})}
-			probe := &liveSourceAdmissionProbe{fixture: fixture, mode: mode, wantResponse: "3", method: "turn/start"}
+			probe := &liveSourceAdmissionProbe{fixture: fixture, mode: mode, wantResponse: `"mulgae-send"`, method: zcodeProtocolSendMethod}
 			exchange := &liveSourceAdmissionExchange{
-				ProviderSessionExchange: &scriptedCodexExchange{lines: []string{`{"id":3,"result":{"turn":{"id":"turn-1"}}}`}},
+				ProviderSessionExchange: newScriptedProtocolExchange(protocolSendAck),
 				probe:                   probe,
 			}
 			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
@@ -563,8 +448,7 @@ func (exchange *liveSourceAdmissionExchange) SendLine(ctx context.Context, line 
 	if err := json.Unmarshal(line, &message); err != nil {
 		return err
 	}
-	switch message.Method {
-	case zcodeProtocolSendMethod, "turn/start":
+	if message.Method == zcodeProtocolSendMethod {
 		exchange.probe.wantResponse = string(message.ID)
 		exchange.probe.method = message.Method
 	}
@@ -578,32 +462,18 @@ func (exchange *liveSourceAdmissionExchange) ReceiveLine(ctx context.Context) ([
 	}
 	var message struct {
 		ID, Result, Error json.RawMessage
-		Method            string
-		Params            struct {
-			Item struct {
-				Type             string `json:"type"`
-				ExitCode         *int   `json:"exitCode"`
-				AggregatedOutput string `json:"aggregatedOutput"`
-			} `json:"item"`
-		} `json:"params"`
 	}
 	if err := json.Unmarshal(line, &message); err != nil {
 		return nil, err
 	}
-	item := message.Params.Item
-	token := exchange.probe.fixture.tokens["worktree"]
-	if message.Method == "item/completed" && item.Type == "commandExecution" && item.ExitCode != nil && *item.ExitCode == 0 && token != "" && strings.Contains(item.AggregatedOutput, token) {
-		exchange.probe.codexReadCompleted = true
-	}
 	var result struct {
-		Accepted bool                `json:"accepted"`
-		Turn     struct{ ID string } `json:"turn"`
+		Accepted bool `json:"accepted"`
 	}
 	if len(message.Result) != 0 && json.Unmarshal(message.Result, &result) != nil {
 		return nil, fmt.Errorf("unreadable native admission receipt")
 	}
 	ack := exchange.probe.wantResponse != "" && string(message.ID) == exchange.probe.wantResponse && (len(message.Error) == 0 || string(message.Error) == "null")
-	ack = ack && ((exchange.probe.method == zcodeProtocolSendMethod && result.Accepted) || (exchange.probe.method == "turn/start" && sanitizeProtocolDiagnosticIdentifier(result.Turn.ID) != ""))
+	ack = ack && exchange.probe.method == zcodeProtocolSendMethod && result.Accepted
 	if ack && !exchange.probe.accepted {
 		exchange.probe.accepted = true
 		admissionCtx, stopAdmissionWait := context.WithTimeout(ctx, time.Minute)

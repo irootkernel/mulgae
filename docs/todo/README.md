@@ -6,9 +6,8 @@ task identity, ordering, dependencies, and status.
 
 ## Future candidates
 
-- [AGY multiple-account support](agy-multiple-accounts.md) follows the
-  single-account EPIC-011 delivery. Named profiles and verification with distinct
-  accounts are deferred; they do not block EPIC-011.
+None currently open. (The former AGY multiple-account candidate was retired with
+the AGY review provider.)
 
 ## Adopted active dossiers
 

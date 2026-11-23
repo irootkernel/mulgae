@@ -4,7 +4,6 @@ project:
 providers:
   zcode: {}
   grok: {}
-  codex: {}
 roles:
   logic: {enabled: true, primary_provider: "zcode"}
   security: {enabled: true, primary_provider: "zcode"}
