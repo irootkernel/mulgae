@@ -126,18 +126,15 @@ execution order, dependencies, and status. The
 [design decision](architecture-decision-records/verified-review-iteration.md)
 records the grouping and responsibility boundaries.
 
-## Planned native Haepari review coordination
+## Native Haepari review coordination
 
 [EPIC-016](roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
-adopts native capacity-one coordination for CLI and both MCP review modes,
-with complete paired-skill migration and released guest qualification. Its
-[specification](specs/haepari-review-coordination.md),
-[decision](architecture-decision-records/haepari-review-coordination.md),
-[temporary execution dossier](todo/TODO-HAEPARI-REVIEW-COORDINATION.md) and
-[Haepari VM qualification harness](../test/vm/README.md) separate
-product requirements, rationale, epic-squad execution and guest qualification
-entrypoints. At final closeout, promote durable outcomes,
-replace temporary links and retire the dossier and its TODO entry.
+delivered native capacity-one coordination for CLI and both MCP review modes
+in v0.1.27. The roadmap records the local closeout and limits of the release
+qualification. The [specification](specs/haepari-review-coordination.md) defines
+the contract, the [ADR](architecture-decision-records/haepari-review-coordination.md)
+records the decision, and the [Haepari VM qualification harness](../test/vm/README.md)
+documents the guest checks.
 
 ## Live review reliability and ZCode efficiency
 

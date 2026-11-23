@@ -1,6 +1,6 @@
 # Coordinate reviews in the shared native execution path
 
-Status: Accepted design for planned implementation in EPIC-016.
+Status: Accepted. Implemented in EPIC-016 and first released in v0.1.27.
 
 ## Context
 
@@ -8,7 +8,7 @@ CLI, foreground MCP and asynchronous MCP share review application execution.
 Aquarium requires review-level capacity-one coordination before provider
 qualification and through protected execution and cleanup. Its operators also
 need to inspect results and perform local preflight without acquiring a grant.
-The current implementation has no Haepari advisory integration.
+Before EPIC-016, the shared path had no Haepari advisory integration.
 
 ## Decision
 

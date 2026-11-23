@@ -540,5 +540,5 @@ controller inspection and periodic monitoring without mutating parent lock state
 Cleanup rechecks intent bytes and pinned identities before deleting either
 linked tree. Provider-free requests retain their existing boundaries. Public
 causes and summaries contain owned bounded tokens; native paths and response
-text remain private. Installed/released qualification obligations remain pending.
+text remain private.
 Existing isolation and failure precedence remain authoritative.

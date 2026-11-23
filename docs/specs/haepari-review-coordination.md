@@ -1,22 +1,20 @@
 # Native Haepari review coordination
 
-## Adoption boundary
+## Scope and source authority
 
-EPIC-016 adopts these requirements in stages. `TASK-076` establishes the native
-port, client, state-root admission and durable acquisition identity. The
-`TASK-077` implementation connects the common live CLI/MCP owner lifecycle,
-private local-drain proof and bounded status projection. `TASK-078` completes
-read-only `HAEPARI_LOCK_GRANT` borrowing, private v3 child local-drain proof,
-and uncertainty and partial-role recovery without duplicate execution. Paired
-skill, migration, guest and release qualification remain `TASK-079` through
-`TASK-081` obligations. These source changes do not establish installed or
-released behavior. The [roadmap](../roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
-owns status; this document owns the product contract. The
-[decision](../architecture-decision-records/haepari-review-coordination.md)
-owns its rationale.
+Mulgae v0.1.27 shipped the shared owner and borrower paths and their paired
+skill. The [roadmap](../roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
+records delivery and the limits of release qualification. The
+[ADR](../architecture-decision-records/haepari-review-coordination.md) records
+the design rationale.
 
-The consumer obligation is Aquarium `EPIC-032/TASK-092`. Its accepted source
-contract is pinned by the [execution dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md#original-authority).
+Aquarium `EPIC-032/TASK-092` is the consumer obligation. The original accepted
+Aquarium baseline is `759883a47676ad9efae2dd8ae373878a431ce031` and the frozen
+Aquarium rollout source is `bddaccca94a98abb5bdfd3d97503b1cdb78585e7`. The
+original authority and source paths are listed in the retired execution dossier
+at Mulgae commit `d266b5bc7b69f69ca3d45e42863627161c1f548e`. The Mulgae
+inspection baseline is `f80eacf57d15d90ddee16a4722ed7472bfe9c246`.
+
 The native dependency is Haepari v0.1.0 and `advisory-lock/v1`, as defined by
 its [released lock contract](https://github.com/irootkernel/haepari/blob/v0.1.0/docs/contracts/locks.md).
 An API beyond that frozen contract is a dependency change requiring resolution
@@ -180,10 +178,9 @@ migration. Complete `use-mulgae` verification covers CLI, foreground MCP and
 asynchronous MCP using the actual released binary and matching full skill tree,
 including fresh-session discovery and result retrieval.
 
-The [verification guidance](../implementation-tips/README.md#planned-haepari-integration-verification)
-and [dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md) define candidate,
-guest, release and completion evidence. Haepari fixtures or VM-only success do
-not complete the producer obligation. Release, installation, live-provider
-execution, host changes and Sorage operations retain separate authorization.
-Aquarium accepts the producer return and updates its supported Mulgae floor;
-Mulgae must not claim that consumer acceptance from its own tests or release.
+The [verification guidance](../implementation-tips/README.md#haepari-integration-verification)
+defines candidate, guest and release checks. Fixture and VM-only results cover
+only their exercised scenarios. Release, installation,
+live-provider execution, host changes and Sorage operations retain separate
+authorization. Aquarium owns acceptance of the producer return and updates
+to its supported Mulgae floor.

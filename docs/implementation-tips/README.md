@@ -1121,13 +1121,12 @@ use isolated fake providers; complete `make test`, mandatory live ZCode,
 supported-client certification and a bounded live requirements demo remain
 TASK-033 obligations. Do not present fixture success as live-provider evidence.
 
-## Planned Haepari integration verification
+## Haepari integration verification
 
-EPIC-016's [dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md) maps the full
-scenario and producer-return requirements to member Tasks. The
-[coordination specification](../specs/haepari-review-coordination.md) owns the
-owner and borrower behavior and the remaining migration/qualification obligations.
-The commands below define checks; their presence records no passing result.
+The [coordination specification](../specs/haepari-review-coordination.md) owns
+owner and borrower behavior, migration and qualification requirements. The
+[EPIC-016 release record](../roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
+describes the checks performed for v0.1.27 and the limits of those results.
 
 Start with focused Go behavior checks for affected native adapter, application
 lifecycle and CLI/MCP paths. Run each `TASK-076` foundation check on one
@@ -1209,7 +1208,7 @@ from `PATH` in a private temporary root, registers its capacity-one `mulgae-revi
 resource, and stops and removes that controller during test cleanup. It never
 changes an existing Installation or resource policy. Inherited Haepari context
 still requires its matching explicit `HAEPARI_HOME`; missing or invalid selected
-prerequisites fail closed. These live gates remain TASK-080 obligations.
+prerequisites fail closed.
 
 Run installation and fault/contention scenarios in the dedicated utm-macos
 guest, with approved shared VM occupancy once at the outer boundary. Synthetic

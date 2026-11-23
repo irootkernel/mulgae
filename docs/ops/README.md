@@ -90,8 +90,7 @@ when moving an existing project. The complete paired
 [`use-mulgae` skill](../../skills/use-mulgae/SKILL.md) follows the same native
 CLI and MCP lifecycle without an outer lock wrapper. Candidate preservation
 and discovery checks are described in the
-[verification guidance](../implementation-tips/README.md#planned-haepari-integration-verification);
-released installation and consumer qualification remain separate.
+[verification guidance](../implementation-tips/README.md#haepari-integration-verification).
 
 When `HAEPARI_LOCK_GRANT` is present, Mulgae validates the inherited grant
 through read-only controller inspection (`hello`, `resource.inspect`, and bounded
@@ -101,7 +100,7 @@ mismatched, stale, ended or expired references fail closed. Once a borrowed
 child run verifies its own local provider/source drain in its private v3 intent,
 its child artifacts may be cleaned independently while the parent grant remains
 live. The [coordination specification](../specs/haepari-review-coordination.md)
-owns the owner and borrower behavior and remaining qualification requirements.
+owns the owner and borrower behavior and qualification requirements.
 
 A lost wait or start response does not authorize another review. Preserve the
 original acquisition and native invocation/run, inspect using their supported

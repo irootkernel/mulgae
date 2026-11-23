@@ -21,6 +21,8 @@ explain why durable choices were made.
   trampoline (`__mulgae_paneexec_v1`), control-plane and exact-TTY Seatbelt
   hardening, disposable `GROK_HOME` scratch-file delivery, and Phase 1 Grok
   `1.0.89+` migration and live certification.
+- [Coordinate reviews in the shared native execution path](haepari-review-coordination.md)
+  records EPIC-016's native boundary, ownership and advisory limits.
 
 ## Deprecated / Retired
 
@@ -36,10 +38,6 @@ explain why durable choices were made.
   provider support has been retired from the active provider portfolio.
 
 ## Accepted design for planned implementation
-
-- [Coordinate reviews in the shared native execution path](haepari-review-coordination.md)
-  records EPIC-016's native boundary, ownership and advisory limits. Implementation
-  and released qualification remain pending.
 
 - [Native review contracts before review completeness and iteration](verified-review-iteration.md)
   records why EPIC-007 groups native binding with verified inspection, and why

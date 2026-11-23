@@ -35,7 +35,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-013](#epic-013-verified-operation-reuse) | Completed | Remove repeated construction, source parsing and whole-support reads within verified operation lifetimes. |
 | [EPIC-014](#epic-014-application-and-contract-ownership) | Completed | Consolidate application and wire-contract ownership, then remove proven retired writers under historical compatibility tests. |
 | [EPIC-015](#epic-015-development-verification-simplification) | Completed | Reduce repeated test preparation and brittle assertions, and separate development verification from release certification. |
-| [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | In Progress | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
+| [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | Completed | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
 | [EPIC-017](#epic-017-herdr-core-terminal-runtime-and-grok-migration) | Completed | Build a reusable isolated `herdr-core` terminal runtime with shared outer macOS Seatbelt and scratch-file delivery, and migrate Grok CLI (`FamilyGrok`) onto it first. |
 | [EPIC-018](#epic-018-live-review-reliability-extraction-fidelity-and-zcode-efficiency) | Completed | Eliminate live-review timeout/requirements run-loss crashes, align extraction prompts and lossless read-plan compaction, enable same-profile ZCode qualification sharing and Git-scope tool hygiene, harden readiness probe wording, and remove the coordinator wave barrier. |
 
@@ -87,11 +87,8 @@ execution dossier is retired, durable outcomes are promoted to the
 [development verification policy](../implementation-tips/development-verification.md),
 and Master accepted the completed Epic result on 2026-10-31.
 
-EPIC-016 follows completed EPIC-015 and preserves completed TASK-075's
-requirements/extraction correction. Execute TASK-076 through TASK-081 in table
-order. Each Task after TASK-076 depends on acceptance of the preceding Task.
-Release and external-effect authority remain separate prerequisites for the
-affected work, even after implementation passes.
+EPIC-016 followed EPIC-015 and preserved TASK-075's requirements/extraction
+correction. TASK-076 through TASK-081 are complete.
 
 EPIC-017 is complete with no dependency on EPIC-016, preceded by standalone
 maintenance TASK-083 (`5ae1105`, Grok version-channel parsing and heartbeat
@@ -1044,9 +1041,18 @@ DF-028 and DF-029 remain open; this Epic does not prescribe global parallelism.
 
 ## EPIC-016: Native Haepari review coordination and release qualification
 
-Status: In Progress
+Status: Completed
 
-Detailed SOT: [Native Haepari review coordination dossier](../todo/TODO-HAEPARI-REVIEW-COORDINATION.md)
+Canonical Outcomes:
+
+- [Coordination specification](../specs/haepari-review-coordination.md) and
+  [architecture](../architecture/README.md#haepari-review-coordination)
+  define the shared owner and borrower paths.
+- The [ADR](../architecture-decision-records/haepari-review-coordination.md)
+  records the native boundary and advisory limits.
+- [Verification guidance](../implementation-tips/README.md#haepari-integration-verification)
+  and [operations](../ops/README.md#haepari-coordination-operations) cover
+  qualification, migration and recovery.
 
 Goal: deliver a published Mulgae binary and complete matching use-mulgae skill
 that coordinate CLI, foreground MCP and asynchronous MCP live reviews through
@@ -1059,14 +1065,14 @@ ships native advisory coordination and the complete paired skill. Installed CLI,
 foreground and asynchronous MCP, migration and fresh Codex skill discovery were
 verified in UTM, and the correlated producer report was delivered. Master approved
 direct SSH/Aqua qualification and reuse of the passing `make test` run, with the
-four remaining provider/client targets run separately. These release-specific
-exceptions leave native outer VM Job/manual/export and global VM exclusivity
-unverified. The [coordination specification](../specs/haepari-review-coordination.md)
-owns behavior. Native scenarios ran on the tag-built functional qualification
-binary; the public Go-install binary received identity, version and source checks
-only. Durable promotion and dossier retirement are prepared and remain gated to
-Epic closeout. Assembled Epic assessment, overall acceptance and Aquarium consumer
-acceptance remain separate.
+four remaining provider/client targets run separately. Native scenarios ran on
+the tag-built qualification binary. Checks on the public Go-install binary
+covered identity, version and source.
+
+Master directed local closeout on 2026-11-24. The release record leaves native
+outer VM Job execution, its manual and export lifecycle, and global VM
+exclusivity unverified. Independent whole-Epic assessment was not recorded for
+this closeout. Aquarium owns acceptance of the delivered producer report.
 
 | Task | Status | Objective | Verification |
 |---|---|---|---|
@@ -1076,14 +1082,6 @@ acceptance remain separate.
 | TASK-079 | Completed | Qualify complete paired-skill behavior and native configuration/history migration. | All three transports, verified reads, meaningful prior state, preserved provider/role/retry/active-work obligations and full-tree/fresh-session skill checks. |
 | TASK-080 | Completed | Qualify the integrated candidate and reusable dedicated guest. | Applicable deterministic/release/client gates, automatic/manual scenarios, synthetic isolated faults, real cleanup and inventory with explicit gaps. |
 | TASK-081 | Completed | Verify released delivery, return the producer report and prepare final closeout. | Separate authorized release/effects, exact released CLI/full skill requalification, complete correlated return, durable promotion and approved dossier retirement. |
-
-### Epic acceptance
-
-- [ ] Verify the shared native owner/borrower lifecycle, all required transport, contention, replay, cancellation and loss scenarios, original invocation recovery and advisory limitations.
-- [ ] Verify meaningful migration, complete release-matched use-mulgae behavior and fresh-session discovery, installed review/result retrieval and declared automatic/manual guest cleanup and inventory.
-- [ ] Complete applicable exact-candidate repository and release gates; candidate or fixture success alone does not establish released qualification.
-- [ ] Deliver the actual released producer unit and the authorized correlated report with every required return field; retain Aquarium consumer acceptance as its own downstream decision.
-- [ ] Obtain independent integrated assessment and Master's explicit overall acceptance, promote durable outcomes, replace Detailed SOT with Canonical Outcomes and remove the last-consumer dossier/TODO entry under the approved closeout diff.
 
 ## EPIC-017: herdr-core terminal runtime and Grok migration
 

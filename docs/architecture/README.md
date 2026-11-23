@@ -847,9 +847,8 @@ monitoring is stalled. The private v2 (owned) and v3 (borrowed) intents separate
 native observation from local drain proof; filesystem cleanup protects unknown
 proof and rechecks it before unlinking either linked tree, while allowing
 verified v3 child artifacts to be cleaned independently of the parent grant.
-No-change execution and preflight perform no controller access. Migration,
-paired-skill and release qualification remain pending. Aquarium and `use-mulgae`
-retain their existing execution path without an outer lock wrapper. Provider-free
+No-change execution and preflight perform no controller access. Aquarium and
+`use-mulgae` use the shared path without an outer lock wrapper. Provider-free
 operations retain their existing boundaries. Verified committed reads may use a
 same-run coordination diagnostic summary as a best-effort supplement; its
 absence or failure cannot revoke valid P2. Independently invalid P2 still fails

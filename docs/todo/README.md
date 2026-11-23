@@ -11,10 +11,7 @@ the AGY review provider.)
 
 ## Adopted active dossiers
 
-- [Native Haepari review coordination](TODO-HAEPARI-REVIEW-COORDINATION.md)
-  is the temporary execution SOT for EPIC-016. Its roadmap owns status. Retire
-  the dossier and this entry only through the approved final closeout after
-  durable promotion and last-consumer reference checks.
+None currently open.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply
