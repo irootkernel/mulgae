@@ -52,11 +52,6 @@ const (
 	zcodeProtocolTurnFailedKind    = "turn-failed"
 )
 
-var (
-	errZCodeSelectedModelUnavailable   = errors.New("selected ZCode model is unavailable")
-	errZCodeAccountConfigurationFailed = errors.New("ZCode account configuration failed")
-)
-
 // zcodeProtocolError is the typed fail-closed classification for a protocol
 // conversation that ended without a complete provider turn.
 type zcodeProtocolError struct {
@@ -465,22 +460,6 @@ func (state *zcodeProtocolConversation) handle(ctx context.Context, exchange por
 		// terminal notification decides the conversation.
 		return false, nil
 	}
-}
-
-func zcodeModelSelectionFailure() error {
-	failure, err := domain.NewFailure("zcode_model_selection", domain.FailureConfiguration, "selected ZCode model is unavailable", errZCodeSelectedModelUnavailable)
-	if err != nil {
-		return zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, err)
-	}
-	return failure
-}
-
-func zcodeAccountConfigurationFailure() error {
-	failure, err := domain.NewFailure("zcode_account_configuration", domain.FailureConfiguration, "ZCode account configuration failed", errZCodeAccountConfigurationFailed)
-	if err != nil {
-		return zcodeProtocolFailure(domain.DiagnosticCauseObservationInvalid, err)
-	}
-	return failure
 }
 
 func (state *zcodeProtocolConversation) isModelSelectionResponse(message zcodeProtocolMessage) bool {

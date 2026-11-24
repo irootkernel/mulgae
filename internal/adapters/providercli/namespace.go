@@ -275,6 +275,7 @@ type namespaceLease struct {
 	policyMu                      sync.RWMutex
 	policy                        RuntimeSafetyPolicy
 	terminalMu                    sync.Mutex
+	terminalCredentialCleanup     []func() error
 	terminalDrain                 ports.ProviderNamespaceTerminalDrain
 	terminalErr                   error
 	drained                       bool
@@ -600,6 +601,10 @@ func (lease *namespaceLease) drainTerminalEffects(ctx context.Context) error {
 	if err := lease.zeroAndUnlinkSeeds(); err != nil {
 		lease.terminalErr = errors.Join(lease.terminalErr, err)
 	}
+	for _, cleanup := range lease.terminalCredentialCleanup {
+		lease.terminalErr = errors.Join(lease.terminalErr, cleanup())
+	}
+	lease.terminalCredentialCleanup = nil
 	if err := lease.removeNamespaceRoot(); err != nil {
 		return errors.Join(lease.terminalErr, err)
 	}

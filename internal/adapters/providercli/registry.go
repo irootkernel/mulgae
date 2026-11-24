@@ -1893,6 +1893,7 @@ func providerFailureProjection(cause domain.RuntimeDiagnosticCause) (ports.Provi
 		domain.DiagnosticCauseSignalReceiptMismatch,
 		domain.DiagnosticCauseWorkspaceRevalidationFailed,
 		domain.DiagnosticCauseProcessGroupCleanupFailed,
+		domain.DiagnosticCauseProviderOwnershipViolation,
 		// A provider that wrote outside the single file it was granted, or
 		// staging whose identity moved underneath the retained descriptor,
 		// breached a boundary rather than produced poor output.

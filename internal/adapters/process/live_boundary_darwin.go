@@ -247,7 +247,7 @@ func writeBashGateSeatbeltRules(profile *strings.Builder, boundary ports.LiveRea
 		" (literal \"/bin/launchctl\")" +
 		" (regex #\"^(.*/)?git-credential-[^/]+$\")" +
 		" (regex #\"^(.*/)?tmux$\")" +
-		" (regex #\"^(.*/)?(hc|herdr[^/]*)$\")" +
+		" (regex #\"^(.*/)?(hc|herdr|herdr-core|herdr-app|herdrd)$\")" +
 		" (regex #\"^(.*/)?ssh[^/]*$\")" +
 		" (regex #\"^(.*/)?docker$\"))\n")
 	// Prevent copy-and-exec or repo-hosted binary bypasses by denying

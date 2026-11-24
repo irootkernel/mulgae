@@ -57,6 +57,8 @@ type terminalProfileInvocation struct {
 	NativeHome      ports.AnchoredRoot
 	SourceRoot      ports.AnchoredRoot
 	CompletionNonce string
+	Namespace       *namespaceLease
+	HostArgs        []string
 }
 
 // terminalProviderProfile abstracts provider-specific CLI flags, disposable
@@ -88,6 +90,20 @@ type terminalProviderProfile interface {
 	ConfigureBoundary(base ports.LiveReadOnlyBoundary, inv terminalProfileInvocation) (ports.LiveReadOnlyBoundary, error)
 }
 
+type terminalHostPreparation struct {
+	readOnlyRoots []ports.AnchoredRoot
+	runtimeTemp   ports.AnchoredRoot
+	verifySpawn   func() error
+}
+
+type terminalHostPreparer interface {
+	PrepareHost(context.Context, *terminalProfileInvocation) (terminalHostPreparation, error)
+}
+
+type terminalFailureClassifier interface {
+	ClassifyFailure(ports.TerminalExecutionObservation, ports.ProcessObservation) *terminalDriverFailure
+}
+
 // terminalDriverRequest supplies all validated inputs for one execution of
 // executeTerminalInvocation.
 type terminalDriverRequest struct {
@@ -109,6 +125,7 @@ type terminalDriverRequest struct {
 	ControlPlaneLiterals []ports.AnchoredRoot
 	Timeout              time.Duration
 	RegistryGeneration   string
+	Namespace            *namespaceLease
 
 	// Optional test hooks for deterministic B-1 Control 5 verification.
 	SurvivorCheck      func(sentinel string) error
@@ -543,6 +560,7 @@ func executeTerminalInvocation(
 		NativeHome:      req.NativeHome,
 		SourceRoot:      req.SourceRoot,
 		CompletionNonce: completionNonce,
+		Namespace:       req.Namespace,
 	}
 
 	trailer := profile.BuildPromptTrailer(inv)
@@ -554,6 +572,14 @@ func executeTerminalInvocation(
 		_ = promptLease.Cleanup()
 	}()
 	inv.PromptPath = promptLease.path
+
+	var preparation terminalHostPreparation
+	if preparer, ok := profile.(terminalHostPreparer); ok {
+		preparation, err = preparer.PrepareHost(ctx, &inv)
+		if err != nil {
+			return terminalDriverResult{}, err
+		}
+	}
 
 	profileEnv, err := profile.PrepareDisposableHomes(inv)
 	if err != nil {
@@ -574,8 +600,14 @@ func executeTerminalInvocation(
 	readOnlyRoots := make([]ports.AnchoredRoot, 0, len(req.ReadOnlyRoots)+3)
 	readOnlyRoots = append(readOnlyRoots, req.SourceRoot, req.NeutralCWD, promptParentRoot)
 	readOnlyRoots = append(readOnlyRoots, req.ReadOnlyRoots...)
+	readOnlyRoots = append(readOnlyRoots, preparation.readOnlyRoots...)
 
-	boundary, err := ports.NewLiveReadOnlyBoundary(readOnlyRoots, req.CredentialRoots, writableRoot)
+	var boundary ports.LiveReadOnlyBoundary
+	if preparation.runtimeTemp.Valid() {
+		boundary, err = ports.NewLiveReadOnlyBoundaryWithRuntimeTemp(readOnlyRoots, req.CredentialRoots, writableRoot, preparation.runtimeTemp)
+	} else {
+		boundary, err = ports.NewLiveReadOnlyBoundary(readOnlyRoots, req.CredentialRoots, writableRoot)
+	}
 	if err != nil {
 		return terminalDriverResult{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, err)
 	}
@@ -675,6 +707,12 @@ func executeTerminalInvocation(
 	})
 	if err != nil {
 		return terminalDriverResult{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, err)
+	}
+
+	if preparation.verifySpawn != nil {
+		if err := preparation.verifySpawn(); err != nil {
+			return terminalDriverResult{}, err
+		}
 	}
 
 	// Ownership of launchDir transfers to runner.RunTerminal now.
@@ -806,6 +844,11 @@ func executeTerminalInvocation(
 	}
 
 	if profile.RequireOSCReporting() {
+		if classifier, ok := profile.(terminalFailureClassifier); ok {
+			if failure := classifier.ClassifyFailure(termObs, procObs); failure != nil {
+				return baseResult, failure
+			}
+		}
 		if failure := classifyOSCTerminalOutcome(profile.Family(), termObs, procObs); failure != nil {
 			return baseResult, failure
 		}

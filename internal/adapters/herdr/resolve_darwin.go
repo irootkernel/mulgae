@@ -45,6 +45,8 @@ var candidateBinaryNames = []string{"hc", "herdr-core"}
 type ResolvedExecutable struct {
 	Path   string
 	SHA256 string
+	device int32
+	inode  uint64
 }
 
 // ResolveOptions configures safe herdr-core / hc binary discovery without
@@ -268,6 +270,8 @@ func openAndHashVerifiedExecutable(canonical string, euid uint32) (ResolvedExecu
 	return ResolvedExecutable{
 		Path:   canonical,
 		SHA256: "sha256:" + hex.EncodeToString(hasher.Sum(nil)),
+		device: stat.Dev,
+		inode:  stat.Ino,
 	}, nil
 }
 

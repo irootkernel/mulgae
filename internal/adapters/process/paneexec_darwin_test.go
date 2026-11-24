@@ -634,8 +634,8 @@ func TestPaneExecChild(t *testing.T) {
 		os.Exit(0)
 
 	case "bash-gate":
-		// Args: writableUnixSock, ipv4Addr, ipv6Addr, deniedBinariesCommaList
-		if len(args) != 6 {
+		// Args: writable socket, IPv4, IPv6, denied executables, companion fixture.
+		if len(args) != 7 {
 			os.Exit(2)
 		}
 		writableSock := args[2]
@@ -692,10 +692,11 @@ func TestPaneExecChild(t *testing.T) {
 			}
 		}
 
-		// 5. Ordinary read-only tool (/usr/bin/true) must still run.
-		if err := exec.Command("/usr/bin/true").Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "/usr/bin/true failed under bash-gate: %v\n", err)
-			os.Exit(68)
+		for _, binary := range []string{"/usr/bin/true", args[6]} {
+			if err := exec.Command(binary).Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s failed under bash-gate: %v\n", binary, err)
+				os.Exit(68)
+			}
 		}
 
 		fmt.Fprintln(os.Stdout, "PANE_BASH_GATE_OK")
@@ -1779,7 +1780,7 @@ func TestPaneExecSeatbeltBashGateControls(t *testing.T) {
 	// Copy-and-exec defense: copied executable in WritableRoot AND repo-hosted executable in ReadOnlyRoots (source) MUST fail EPERM.
 	copiedInWritable := filepath.Join(f.writable, "copied-true")
 	copyFileExecutable(t, "/usr/bin/true", copiedInWritable)
-	repoExecutable := filepath.Join(f.source, "repo-tool")
+	repoExecutable := filepath.Join(f.source, "herdr-zcode")
 	copyFileExecutable(t, "/usr/bin/true", repoExecutable)
 
 	// Synthetic executables matching B-1 process-exec regex denials.
@@ -1787,6 +1788,8 @@ func TestPaneExecSeatbeltBashGateControls(t *testing.T) {
 	if err := os.Mkdir(fakeBinDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	companion := filepath.Join(fakeBinDir, "herdr-zcode")
+	copyFileExecutable(t, "/usr/bin/true", companion)
 	deniedBins := []string{
 		"/usr/bin/security",
 		"/usr/bin/osascript",
@@ -1795,7 +1798,7 @@ func TestPaneExecSeatbeltBashGateControls(t *testing.T) {
 		copiedInWritable,
 		repoExecutable,
 	}
-	for _, name := range []string{"git-credential-osxkeychain", "tmux", "hc", "herdr-core", "ssh", "docker"} {
+	for _, name := range []string{"git-credential-osxkeychain", "tmux", "hc", "herdr", "herdr-core", "herdr-app", "herdrd", "ssh", "docker"} {
 		p := filepath.Join(fakeBinDir, name)
 		if err := os.WriteFile(p, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 			t.Fatal(err)
@@ -1806,7 +1809,7 @@ func TestPaneExecSeatbeltBashGateControls(t *testing.T) {
 	spec := f.buildLaunch(
 		t,
 		binary,
-		[]string{"-test.run=^TestPaneExecChild$", "--", "paneexec", "bash-gate", writableSock, tcp4.Addr().String(), ipv6Addr, strings.Join(deniedBins, ",")},
+		[]string{"-test.run=^TestPaneExecChild$", "--", "paneexec", "bash-gate", writableSock, tcp4.Addr().String(), ipv6Addr, strings.Join(deniedBins, ","), companion},
 		nil,
 		func(b ports.LiveReadOnlyBoundary) (ports.LiveReadOnlyBoundary, error) {
 			return ports.NewLiveReadOnlyBoundaryWithBashGate(b)
