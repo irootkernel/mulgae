@@ -38,6 +38,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | Completed | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
 | [EPIC-017](#epic-017-herdr-core-terminal-runtime-and-grok-migration) | Completed | Build a reusable isolated `herdr-core` terminal runtime with shared outer macOS Seatbelt and scratch-file delivery, and migrate Grok CLI (`FamilyGrok`) onto it first. |
 | [EPIC-018](#epic-018-live-review-reliability-extraction-fidelity-and-zcode-efficiency) | Completed | Eliminate live-review timeout/requirements run-loss crashes, align extraction prompts and lossless read-plan compaction, enable same-profile ZCode qualification sharing and Git-scope tool hygiene, harden readiness probe wording, and remove the coordinator wave barrier. |
+| [EPIC-019](#epic-019-zcode-herdr-core-terminal-runtime-migration-via-herdr-zcode) | Planned | Migrate ZCode (`FamilyZcode`) onto Mulgae's shared isolated `herdr-core` terminal runtime via `herdr-zcode`'s `core` runtime, retiring Go-side ZCode Desktop coupling while defaulting new projects to `GLM-5.4` / `max` and preserving ZCode's current model when omitted. |
 
 ## Adopted execution order
 
@@ -126,6 +127,23 @@ and embedded prompt assets; and Master accepted the completed Epic result on
 changes, per-item findings isolation, and ZCode non-extraction narration
 filtering remain outside EPIC-018. Release, installation, commit, push, and
 external-effect authority remain separate.
+
+EPIC-019 is adopted as `Planned` following completed EPIC-017 and EPIC-018 with
+no dependency on EPIC-016. Its five member Tasks (`TASK-094` through
+`TASK-098`: four substantive member Goals plus whole-Epic validation,
+certification, and closeout) execute sequentially in table order under the
+temporary execution SOT
+[ZCode herdr-core terminal runtime migration](../todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
+and planned
+[ZCode herdr-core terminal transport ADR](../architecture-decision-records/zcode-herdr-core-transport.md).
+EPIC-019 execution is gated on an external companion `herdr-zcode` `0.2.0`
+release committed, live-certified, and installed to `~/.local` providing
+`--catalog-file`, `prepare-isolated`, and `--check-desktop --json` (advertised
+via `--version --json`, verified via its agreed 20-runtime-file SHA-256
+fingerprint). Until `TASK-096` and `TASK-097` land, canonical specs,
+architecture, gating rules, deferred feedback, and embedded assets continue
+describing the implemented ZCode app-server runtime. Release, installation,
+commit, push, and external-effect authority remain separate.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -1289,3 +1307,128 @@ non-extraction ZCode role-report retention (`TestZCodeNonExtractionPreservesTool
       `Detailed SOT` is replaced with `Canonical Outcomes`; the temporary
       dossier and its `docs/todo/README.md` entry are retired; and Master
       explicitly accepted the completed Epic on 2026-11-23.
+
+## EPIC-019: ZCode herdr-core terminal runtime migration via herdr-zcode
+
+Status: Planned
+
+Depends on: completed EPIC-017 and EPIC-018. No dependency on EPIC-016.
+External companion prerequisite in `herdr-zcode` `0.2.0` (`--catalog-file`,
+`prepare-isolated`, and `--check-desktop --json`, advertised via
+`--version --json`, committed, live-certified, and installed to `~/.local`)
+gates `EPIC-019` execution.
+
+Detailed SOT: [ZCode herdr-core terminal runtime migration](../todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
+
+Design Decision: [ZCode herdr-core terminal transport](../architecture-decision-records/zcode-herdr-core-transport.md) (`Accepted design for planned implementation`)
+
+Goal: migrate Mulgae's `zcode` review provider (`FamilyZcode`) onto Mulgae's
+shared isolated `herdr-core` terminal runtime (`ProviderPacketChannelTerminal`,
+`__mulgae_paneexec_v1`, outer macOS Seatbelt `PaneTTY` + five-control `B-1`
+`BashGate`, and `staged_file` delivery) through the installed `herdr-zcode`
+CLI's `--runtime core` mode; retire all Go-side ZCode Desktop protocol,
+Keychain, and bundle-internal coupling so future ZCode Desktop upgrades are
+absorbed solely in `herdr-zcode`; default new projects initialized via
+`mulgae init` to `account:zai-individual-coding-plan/GLM-5.4` with `max`
+reasoning effort (`mulgae-command-result.v26`) while keeping omitted Config v5
+fields on ZCode's current session model and effort; preserve Config v5 and
+`doctor-result.v9`; and unify workspace reviews as shell-free (`DF-030`
+closure pending `TASK-095` `artist` `Read` confirmation).
+
+Approved design boundaries (complete mechanics, external `herdr-zcode`
+contract, requirement traceability matrix, member-scope roster, disposable
+cleanup contract, security invariants, per-Task checklists, and the 10-item
+`TASK-095` go/no-go live spike matrix live in the Detailed SOT):
+
+- **Full decoupling behind `herdr-zcode`**: `herdr-zcode` owns `ZCode.app`
+  bundle layout, `zcode.cjs`, active catalog selection (Desktop cache rev `48`
+  with `GLM-5.4` vs bundled rev `44`), Desktop account/Keychain decryption, and
+  `app-server` NDJSON protocol framing. Mulgae retires and deletes
+  `zcode_protocol.go`, `zcode_account.go`, `zcode_keychain.go`, and internal
+  `ZCode.app` component probing in `TASK-096`.
+- **20-file package tamper verification and two-stage isolation**: Mulgae
+  resolves `herdr-zcode` via `MULGAE_HERDR_ZCODE_BIN` -> safe `PATH` ->
+  `<nativeHome>/.local/bin/herdr-zcode`, validates canonical symlink chains,
+  ownership/modes, and complete 20-runtime-file aggregate SHA-256
+  (`bin/herdr-zcode`, `bin/herdr-zcode-app.mjs`, 12 `lib/*.mjs`,
+  `package.json`, `scripts/desktop-bootstrap.pl`, `scripts/toolchain.sh`,
+  `scripts/tool-bin/{npm,npx}`, `toolchains.env`; `<relpath>\t<bytes>\t<sha256>\n`)
+  before every spawn. Host `prepare-isolated` runs outside Seatbelt
+  (`cwd=/private/var/empty`, bounded 15s cap) into a private `0700`
+  `<namespace>/auth/iso-<invID>` directory with `O_NOFOLLOW` `0600`/`0400`
+  output validation, stdout JSON `reason` classification, and namespace drain
+  zeroing; the sandboxed pane executes
+  `herdr-zcode --runtime core --non-interactive --interaction-policy block --auth-file ... --consume-auth-file --catalog-file ... --no-copy-catalog --skip-desktop-inspect --runtime-dir <namespace>/tmp`
+  with `RuntimeTempRoot` (`/tmp/mulgae-zcode`) for `endpoint.sock`, native
+  `~/.zcode` and `~/Library/Keychains` kernel-denied, and narrowed `BashGate`
+  `process-exec` denial (`^(.*/)?(hc|herdr|herdr-core|herdr-app|herdrd)$`).
+- **Model default policy and Config v5 preservation**: `mulgae init` writes
+  `account:zai-individual-coding-plan/GLM-5.4` and `max` with `"mulgae_default"`
+  provenance (`mulgae-command-result.v26`, retaining `v25` frozen) for new
+  projects without overrides; omitting `model` and/or `reasoning_effort` in
+  Config v5 omits `--model` / `--reasoning-effort` at runtime so ZCode keeps
+  its current session model and effort. `.mulgae/local.yaml` keeps
+  `providers.zcode.app_bundle` as an opaque `--app-bundle` pass-through (no
+  Config v6 migration), and `mulgae doctor` runs offline `herdr-zcode` checks
+  with additive `herdr_zcode_*` reasons under `doctor-result.v9`.
+- **Workspace shell-free unification (`DF-030`) and qualification sharing**:
+  Workspace reviews (`Read,Grep,Glob,Write`) and extraction/qualification/
+  heartbeat (`Read,Write`) run shell-free while Git scopes (`Read,Bash,Write`)
+  run strictly under all five `B-1` `BashGate` controls (gated on `TASK-095`
+  confirming `artist` multimodal image reads via `Read` alone). Same-profile
+  ZCode qualification sharing (`EPIC-018 TASK-091`) is preserved while binding
+  `herdr-core`, 20-file `herdr-zcode` package digest, observed desktop/catalog
+  receipt, and omitted-vs-explicit model/effort into
+  `RuntimeSafetyPolicyForZCodeTerminal`.
+
+Non-goals: no changes to Grok's `herdr-core` runtime; no Config v6 schema
+migration; no doctor-result schema bump beyond `v9`; no source snapshots or
+copied checkouts; no Mulgae-specific prompt/staging/output logic inside
+`herdr-zcode`; no dual app-server/herdr-core fallback transport for ZCode.
+
+| Task | Status | Objective | Verification |
+|---|---|---|---|
+| TASK-094 | Planned | Land dark `herdr-zcode` package resolver and tamper verifier (`MULGAE_HERDR_ZCODE_BIN` -> safe `PATH` -> `<nativeHome>/.local/bin/herdr-zcode`, canonical symlink chain, ownership/modes, and complete 20-runtime-file aggregate SHA-256 across `bin/*`, 12 `lib/*.mjs`, `package.json`, `scripts/desktop-bootstrap.pl`, `scripts/toolchain.sh`, `scripts/tool-bin/{npm,npx}`, and `toolchains.env`), offline `--version --json` + `--check-desktop --json` observer, narrowed `BashGate` `process-exec` regex (`hc\|herdr\|herdr-core\|herdr-app\|herdrd`), trusted-host `prepare-isolated` invocation + `0600`/`0400` output validation + stdout JSON `reason` classification + drain-zeroing registration, generalized `terminal_provider.go` pre-launch/failure-classification hooks, and dark `zcodeTerminalProfile` + `RuntimeSafetyPolicyForZCodeTerminal` without switching production ZCode yet. | Offline `-race` unit and kernel tests across `process`, `herdr`, `providercli`, `environment`, and `architecture`, proving `BashGate` allows canonical `herdr-zcode` while denying Herdr multiplexers and repo-hosted executables, 20-file package-hash drift/symlink/mode/missing-member rejection, `prepare-isolated` failure/reason/symlink/permission/digest/drain-zeroing negatives, `zcode_model_selection` and `zcode_account_configuration` classification, and zero production ZCode regression. |
+| TASK-095 | Planned | Add and execute a build-tagged live go/no-go spike (`//go:build darwin && arm64 && live_zcode_herdr`) certifying real `hc 0.1.20` + `__mulgae_paneexec_v1` + Seatbelt (`PaneTTY` + `RuntimeTempRoot` + `B-1` `BashGate`) + installed `herdr-zcode` (`prepare-isolated`, `--check-desktop --json`, `--runtime core --non-interactive --auth-file --consume-auth-file --catalog-file`) + `ZCode.app 4.0.0` across all 10 controls: package/offline checks, auth consumption before prompt delivery, `GLM-5.4`/`max`, omitted-model preservation, effort-only selection, invalid-model fail-closed rejection, shell-free workspace + `artist` multimodal `Read`, Git `B-1` `BashGate` (`endpoint.sock` compatibility + `git show` + `artist`), extraction/qualification staging, and `<= 1s` `ESRCH` teardown with zero survivors. | Live spike evidence (all 10 controls green on real host runtime with untouched `~/.zcode` and `ps`-verified untouched operator `default` `herdr-core`); stop and reconcile before `TASK-096` if any go/no-go control fails. |
+| TASK-096 | Planned | Atomically cut over `FamilyZcode` onto `ProviderPacketChannelTerminal` + `zcodeTerminalProfile` across `providercli`, `reviewrun`, `doctor`, `composition`, and `environment`; bind `herdr-core` + `herdr-zcode` package digest + observed desktop/catalog receipt into `RuntimeSafetyPolicyForZCodeTerminal` and qualification proofs while preserving `EPIC-018 TASK-091` same-profile qualification sharing; add synthetic `zcode-logic` heartbeat registration; extend `doctor` offline checks for `herdr-core` + `herdr-zcode` (`--version --json`, `--check-desktop --json`, additive `herdr_zcode_*` reasons) without probing `ZCode.app` internals; retire and delete `zcode_protocol.go`, `zcode_account.go`, `zcode_keychain.go`, and obsolete `ZCode.app` internal-file probing while retaining frozen historical readers; update offline fake E2E harness, `Makefile` `test-e2e`, embedded help assets (double-generated idempotently), and canonical specs/architecture/gating/tips/README/CHANGELOG (closing `DF-030` if workspace shell-free passed `TASK-095`). | Focused `-race` tests across all affected packages, architecture/import guards confirming zero remaining ZCode-internal file/Keychain coupling, double `./dev go generate ./internal/app/init && ./dev go generate ./internal/builtin` idempotence, 4-tag-matrix `go vet` / `golangci-lint`, updated offline E2E fakes, and `make test-offline` + `make test-release`. |
+| TASK-097 | Planned | Implement ZCode `init` generation defaults (`account:zai-individual-coding-plan/GLM-5.4` and `max`) with independent `"mulgae_default"` provenance for new projects, preserve existing Config v5 omission semantics (omitting `--model`/`--reasoning-effort` keeps ZCode's current session model and effort) and `--refresh-local` rejection, introduce `mulgae-command-result.v26.schema.json` + paired valid example (retaining `v25` frozen for backward reads), regenerate assets twice idempotently, and update `docs/specs/contracts.md`, `README.md`, and `skills/use-mulgae`. | Focused `-race` tests across `init`, `config`, `jsonschema`, `builtin`, `entrypoint/mulgae`, and `entrypoint/mcp` covering neither/model-only/effort-only/both, `--refresh-local`, existing-config preservation, `v25` backward compatibility, `v26` schema validation, and double generator idempotence. |
+| TASK-098 | Planned | Certify the integrated `EPIC-019` candidate end-to-end on native Apple Silicon macOS (`make test-offline`, `make test-release`, `make test-herdr`, mandatory live ZCode `make test-e2e` covering `GLM-5.4`/`max`, omitted-model preservation, Git `B-1` `BashGate`, `--requirements`, `artist` multimodal review, qualification sharing, and `heartbeat --provider zcode`, plus live `make test-grok` regression), promote `zcode-herdr-core-transport.md` to `Accepted` (superseding `zcode-app-server-transport.md`), close `DF-030`, and prepare `EPIC-019` for Master's explicit acceptance. | All exact-candidate gates green, `ps`-verified zero surviving processes and untouched operator `default` `herdr-core`, empty `/private/tmp/mgh-<uid>`, unchanged `~/.zcode` and `~/.grok` digests, canonical doc readback, and `git diff --check`. |
+
+### Epic acceptance
+
+- [ ] External `herdr-zcode` companion capabilities (`--catalog-file`,
+      `prepare-isolated`, `--check-desktop --json`, advertised via
+      `--version --json`) are installed and verified on host, and every member
+      Task (`TASK-094` through `TASK-098`) has implementation and verification
+      evidence matching its acceptance criteria.
+- [ ] `zcode_protocol.go`, `zcode_account.go`, `zcode_keychain.go`, and
+      Mulgae's internal `ZCode.app` component probing are fully retired and
+      deleted, with architecture/import guards proving zero remaining Go-side
+      ZCode Desktop internal coupling while frozen historical readers remain
+      intact.
+- [ ] Full `herdr-zcode` package SHA-256 verification, host `prepare-isolated`
+      isolation and drain zeroing, narrowed `BashGate` `process-exec` denial,
+      kernel-denied native `~/.zcode` and `~/Library/Keychains`, shell-free
+      workspace/`artist`/extraction/qualification execution, Git five-control
+      `B-1` `BashGate`, and `<= 1s` `ESRCH` teardown with zero leaks are
+      proven by deterministic kernel tests and live certification.
+- [ ] New `mulgae init` defaults ZCode to
+      `account:zai-individual-coding-plan/GLM-5.4` + `max` (`"mulgae_default"`
+      under `mulgae-command-result.v26` with `v25` retained frozen), existing
+      Config v5 omission preserves ZCode's current session model and effort,
+      Config v5 and `doctor-result.v9` remain unbroken, and same-profile ZCode
+      qualification sharing (`EPIC-018 TASK-091`) is preserved across identical
+      profiles while partitioning on any setting, package digest, or catalog
+      difference.
+- [ ] Complete exact-candidate gates (`make test-offline`, `make test-release`,
+      `make test-herdr`, mandatory live ZCode `make test-e2e`, and live
+      `make test-grok` regression) pass on native Apple Silicon macOS with
+      untouched operator `default` `herdr-core` and unchanged `~/.zcode`/
+      `~/.grok`.
+- [ ] Durable outcomes are promoted to canonical specs, architecture, gating
+      rules, implementation tips, embedded assets, `CHANGELOG.md`, `README.md`,
+      `skills/use-mulgae`, and accepted ADR (superseding
+      `zcode-app-server-transport.md`); `DF-030` is closed; `Detailed SOT` is
+      replaced with `Canonical Outcomes` and the temporary dossier and its
+      `docs/todo/README.md` entry are retired in the approved closeout diff;
+      and Master explicitly accepts `EPIC-019`.

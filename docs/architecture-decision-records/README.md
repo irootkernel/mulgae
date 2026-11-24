@@ -46,3 +46,12 @@ explain why durable choices were made.
   and verified reads, preserving the earlier rationale as historical context.
   Design acceptance does not mean the new capabilities are implemented; the
   roadmap owns delivery status.
+- [ZCode herdr-core terminal transport](zcode-herdr-core-transport.md) records
+  EPIC-019's fully decoupled design migrating `FamilyZcode` onto Mulgae's shared
+  isolated `herdr-core` terminal runtime via `herdr-zcode` (`--runtime core`,
+  `prepare-isolated`, `--catalog-file`, `--check-desktop --json`), retiring
+  Mulgae's Go-side ZCode Desktop internal coupling, defaulting new projects to
+  `GLM-5.4` / `max` while preserving ZCode's current model on Config v5
+  omission, and unifying workspace shell-free isolation (`DF-030`). Design
+  acceptance does not mean the new transport is implemented; the roadmap owns
+  delivery status.

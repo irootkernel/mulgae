@@ -126,6 +126,24 @@ execution order, dependencies, and status. The
 [design decision](architecture-decision-records/verified-review-iteration.md)
 records the grouping and responsibility boundaries.
 
+[EPIC-019 ZCode herdr-core terminal runtime migration via herdr-zcode](roadmap/README.md#epic-019-zcode-herdr-core-terminal-runtime-migration-via-herdr-zcode)
+is adopted as planned work (`TASK-094` through `TASK-098`) following completed
+`EPIC-017` and `EPIC-018`. Its temporary execution SOT lives at
+[ZCode herdr-core terminal runtime migration](todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
+and its structural rationale lives in the planned
+[ZCode herdr-core terminal transport ADR](architecture-decision-records/zcode-herdr-core-transport.md).
+The migration moves `FamilyZcode` onto Mulgae's shared `herdr-core` terminal
+runtime via `herdr-zcode`'s `core` runtime, retires Mulgae's direct ZCode
+Desktop protocol, Keychain, and bundle-internal coupling behind three generic
+`herdr-zcode` companion CLI capabilities (`--catalog-file`, `prepare-isolated`,
+`--check-desktop --json`), adds `GLM-5.4` / `max` new-project `init` defaults
+(`mulgae-command-result.v26`) while keeping omitted Config v5 fields on ZCode's
+current session model, preserves Config v5 and `doctor-result.v9`, and targets
+workspace shell-free unification (`DF-030`). Until `TASK-096` and `TASK-097`
+land, specifications, architecture, gating rules, deferred feedback, and
+embedded assets continue describing the currently implemented ZCode app-server
+runtime.
+
 ## Native Haepari review coordination
 
 [EPIC-016](roadmap/README.md#epic-016-native-haepari-review-coordination-and-release-qualification)
